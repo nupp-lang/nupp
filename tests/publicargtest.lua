@@ -25,7 +25,7 @@ function M.theArgumentLibraryKeepsTheActualRawArgv()
     end
     test.deepeq(after, before)
     test.deepeq(traversed, sequential)
-    for _, name in ipairs({"parse", "schema", "optParser", "getopt", "application", "command"}) do
+    for _, name in ipairs({"parse", "schema", "optparser", "getopt", "application", "descriptor"}) do
         test.eq(rawget(argv, name), nil, name)
         test.eq(type(argv[name]), "function", name)
         test.eq(argv[name], getmetatable(argv).__index[name])

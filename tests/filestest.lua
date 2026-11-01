@@ -5,6 +5,7 @@
 -- here is the binding and ABI rather than a mock of either. Building one is the
 -- prerequisite; without it the fallback skips rather than failing for another
 -- reason.
+require("nupp.runtime.standardcoroutine")
 local test = require("assert")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")

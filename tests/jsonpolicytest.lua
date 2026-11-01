@@ -36,14 +36,14 @@ function M.abortingWritersDiscardsOnlyUnpublishedBytes()
     for _, provider in ipairs({json, require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
         local output = require("nupp.text").newbuffer()
         output:put("prefix")
-        local writer = provider.newWriter(output)
+        local writer = (provider == json and provider.newwriter or provider.newWriter)(output)
         writer:startArray():write(1)
         writer:abort()
         writer:abort()
         writer:close()
         assert(output:tostring() == "prefix")
         assert(not pcall(writer.write, writer, 2))
-        writer = provider.newWriter(output)
+        writer = (provider == json and provider.newwriter or provider.newWriter)(output)
         writer:startArray():write(1)
         writer:flush()
         writer:write(2)
@@ -84,11 +84,11 @@ end
 function M.exactNumberFragmentsPreserveTokensAcrossProviders()
     for _, provider in ipairs({json, require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
         for _, token in ipairs({"0", "-0", "1.00", "123456789012345678901234567890", "1e4000", "-2.1E-9000"}) do
-            local fragment = provider.numberToken(token)
-            local encode = provider == json and provider.encodeValue or provider.encode
+            local fragment = (provider == json and provider.numbertoken or provider.numberToken)(token)
+            local encode = provider == json and provider.encodevalue or provider.encode
             assert(encode(fragment) == token)
             local output = require("nupp.text").newbuffer()
-            local writer = provider.newWriter(output)
+            local writer = (provider == json and provider.newwriter or provider.newWriter)(output)
             writer:startArray():write(fragment):endArray()
             writer:close()
             assert(output:tostring() == "[" .. token .. "]")
@@ -110,7 +110,10 @@ function M.exactNumberFragmentsPreserveTokensAcrossProviders()
             "1+2",
             "true"
         }) do
-            assert(not pcall(provider.numberToken, token), "accepted invalid token: " .. token)
+            assert(
+                not pcall(provider == json and provider.numbertoken or provider.numberToken, token),
+                "accepted invalid token: " .. token
+            )
         end
     end
 end

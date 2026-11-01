@@ -9,6 +9,7 @@ local testAssert = require("assert")
 local time = require("coroutine")
 local suspension = require("coroutine.suspension")
 local suspensionHost = require("coroutine.suspension.host")
+require("nupp.runtime.standardcoroutine")
 local tasks = require("coroutine")
 local native = require("nupp.compiler.native")
 

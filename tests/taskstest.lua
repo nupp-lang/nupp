@@ -9,6 +9,7 @@ local testAssert = require("assert")
 -- The scheduling assertions are about ordering and ownership rather than timing.
 -- Where a duration appears it is a bound loose enough that only a serialized or
 -- deadlocked implementation could exceed it.
+require("nupp.runtime.standardcoroutine")
 local tasks = require("coroutine")
 local time = require("coroutine")
 local suspension = require("coroutine.suspension")
@@ -1261,8 +1262,10 @@ end
 
 -- What a scope holds follows its live children, not the ones it has run. The counts
 -- come from the scope's own lifecycle hook rather than its tables' layout.
+local taskLifecycle = require("nupp.tasks").__lifecycle
+
 local function held(scope)
-    return tasks.__lifecycle(scope)
+    return taskLifecycle(scope)
 end
 
 function M.aLongLivedScopeHoldsOnlyItsLiveChildren()

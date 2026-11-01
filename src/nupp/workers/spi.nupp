@@ -251,7 +251,7 @@ end
 ---
 --- Its `await` result pack is the function's, which is why this is derived from
 --- the function type rather than declared once over `any`. `status` returns a
---- [](nupp.workers.spi.Status).
+--- [](coroutine.Status).
 export type Task<F> = TaskType(F)
 
 --- A family of parallel child tasks, owned by the task scope whose `fork` opened it.

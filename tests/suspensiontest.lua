@@ -1,3 +1,4 @@
+require("nupp.runtime.standardcoroutine")
 local testAssert = require("assert")
 -- S2: the suspend operation and its handlers.
 --

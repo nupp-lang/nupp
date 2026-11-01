@@ -1,4 +1,5 @@
 local testAssert = require("assert")
+require("nupp.runtime.standardcoroutine")
 local tasks = require("coroutine")
 local time = require("coroutine")
 local M = {}

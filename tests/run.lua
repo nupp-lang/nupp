@@ -2344,6 +2344,8 @@ local PROCESS_ISOLATED = {
 }
 
 local processCalls = {
+    'require("nupp.workers")',
+    "require('nupp.workers')",
     'require("nupp.io.process")',
     "require('nupp.io.process')",
     'require("nupp.profile")',

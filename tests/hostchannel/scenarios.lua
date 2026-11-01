@@ -4,6 +4,7 @@
 -- browser guest emulator in `guest.lua`, or an embedding host. A scenario
 -- returns a table the driver's test inspects; a contract violation is an error.
 
+require("nupp.runtime.standardcoroutine")
 local host = require("nupp.host")
 local span = require("binary.span")
 local tasks = require("coroutine")

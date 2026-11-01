@@ -1347,7 +1347,7 @@ function M.aLongLivedScopeListsOnlyTheWorkerTasksItStillOwes()
             "nupp.lua"
         ] = [[
 return {include = {"src"}, build = {default = "app", targets = {app = {
-   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
+   kind = "binary", stub = "nupp", entries = {"nupp.internal.scopeobserver"}, outDir = "build",
    payloadOutput = "build/app.payload.lua",
 }}}}
 ]],
@@ -1371,14 +1371,16 @@ export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(he
 end
 ]],
         [
-            "src/main.nupp"
+            "src/nupp/internal/scopeobserver.nupp"
         ] = [[
+module nupp.internal.scopeobserver
+
 const ffi = require("ffi")
 const heap = require("nupp.mem.heap")
 const jobs = require("jobs")
 const tasks = require("coroutine")
 
-const lifecycle = rawget(tasks, "__lifecycle") as function(borrows scope: tasks.Scope): {workers: integer}
+const lifecycle = rawget(require("nupp.tasks"), "__lifecycle") as function(borrows scope: tasks.Scope): {workers: integer}
 
 local most: integer = 0
 local repeated = false

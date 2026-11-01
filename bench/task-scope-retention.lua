@@ -14,7 +14,9 @@
 --   BENCH_TASKS_CHILDREN   children to run (default 1000000)
 --   BENCH_TASKS_LIMIT      the scope's limit (default 8)
 
+require("nupp.runtime.standardcoroutine")
 local tasks = require("coroutine")
+local taskLifecycle = require("nupp.tasks").__lifecycle
 local format = string.format
 
 local CHILDREN = tonumber(os.getenv("BENCH_TASKS_CHILDREN")) or 1000000
@@ -36,7 +38,7 @@ local body = function()
 end
 for index = 1, CHILDREN do
     scope:spawn(body)
-    local counts = tasks.__lifecycle(scope)
+    local counts = taskLifecycle(scope)
     if counts.listed > mostListed then
         mostListed = counts.listed
     end

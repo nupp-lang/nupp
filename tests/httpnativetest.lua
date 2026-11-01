@@ -1,6 +1,7 @@
 -- The public HTTP state machine joined to the real native provider and a loopback
 -- HTTP/1.1 peer. This covers the FFI ABI and the two suspension-driver modes in
 -- addition to the provider's byte paths.
+require("nupp.runtime.standardcoroutine")
 local test = require("assert")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")

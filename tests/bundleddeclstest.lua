@@ -91,6 +91,46 @@ function M.compilerCarriesEveryFeatureRuntimeSource()
     end
 end
 
+function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
+    local env = envMod.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
+    local sources = {
+        ["binary.span"] = "/binary/span.nupp",
+        ["coroutine.suspension"] = "/coroutine/suspension/init.nupp",
+        ["coroutine.suspension.cancellation"] = "/coroutine/suspension/cancellation.nupp",
+        ["coroutine.suspension.host"] = "/coroutine/suspension/host.nupp",
+        ["coroutine.suspension.spi"] = "/coroutine/suspension/spi.nupp",
+        ["coroutine.workers"] = "/coroutine/workers/init.nupp",
+        ["coroutine.workers.spi"] = "/coroutine/workers/spi.nupp",
+        ["io.files"] = "/io/files/init.nupp",
+        ["io.files.messages"] = "/io/files/messages.nupp",
+        ["io.http"] = "/io/http/init.nupp",
+        ["io.http.spi"] = "/io/http/spi.nupp",
+        ["io.net"] = "/io/net/init.nupp",
+        ["io.net.spi"] = "/io/net/spi.nupp",
+        ["io.terminal"] = "/io/terminal.nupp",
+        ["io.tls"] = "/io/tls/init.nupp",
+        ["io.tls.spi"] = "/io/tls/spi.nupp",
+        ["nupp.runtime.standardcoroutine"] = "/nupp/runtime/standardcoroutine.nupp",
+    }
+    for name, path in pairs(sources) do
+        testAssert.eq(env.bundledImplementation(name), path, name)
+        local loaded = env.loadBundledModule(name)
+        assert(loaded and loaded.exports, name .. " has checked carried exports")
+    end
+    local host = env.loadBundledModule("coroutine.suspension.host")
+    local privateHost = env.loadBundledModule("nupp.suspension.host")
+    local install = host.exports.values.install
+    testAssert.eq(install.tag, "func", "install retains its checked signature")
+    testAssert.eq(install.rets[1].tag, "affine", "installation requires cleanup")
+    testAssert.eq(
+        host.exports.types.Handler,
+        privateHost.exports.types.Handler,
+        "the facade preserves nominal identity"
+    )
+    local suspension = env.loadBundledModule("coroutine.suspension")
+    testAssert.eq(suspension.exports.values.handled.rets[1].tag, "boolean")
+end
+
 function M.uuidUsesItsContractWithoutNativeCompilerServices()
     local relations = require("nupp.compiler.types.relations")
     local env = envMod.new(".", {memoryOnly = true, nativeCompilerServices = false, typeRoots = {},})

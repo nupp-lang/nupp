@@ -63,15 +63,15 @@ end
 
 function M.respectsShadowedPackageRoots()
     local output = formatted(
-        'local function fake(nupp)\nreturn nupp.io.files.read("a")\nend\nreturn io.files.read("b"), fake\n'
+        'local function fake(io)\nreturn io.files.read("a")\nend\nreturn io.files.read("b"), fake\n'
     )
     assert(output:find('return io.files.read("a")', 1, true), output)
     assert(output:find('return files.read("b"), fake', 1, true), output)
 end
 
 function M.avoidsTheLeafNameOfAQualifiedDeclaration()
-    local output = formatted('local process = {}\ninterface process.Reader is io.Reader\nend\nreturn process\n')
-    assert(output:find('const {type Reader as Reader2} = require("io")', 1, true), output)
+    local output = formatted('local process = {}\ninterface process.Reader is io.http.Reader\nend\nreturn process\n')
+    assert(output:find('const {type Reader as Reader2} = require("io.http")', 1, true), output)
     assert(output:find('interface process.Reader is Reader2', 1, true), output)
     compile(output)
 end
@@ -89,7 +89,7 @@ function M.preservesCommentsAndStrings()
     local output = formatted('-- nupp.io.files.read\nreturn "nupp.io.files.read", io.files.read("a")\n')
     assert(output:find('-- nupp.io.files.read', 1, true), output)
     assert(output:find('"nupp.io.files.read", files.read', 1, true), output)
-    local inside = formatted('return io.files.read("a")\n')
+    local inside = formatted('return io -- keep this\n.files.read("a")\n')
     assert(inside:find('-- keep this', 1, true), inside)
     assert(not inside:find('const files', 1, true), inside)
 end

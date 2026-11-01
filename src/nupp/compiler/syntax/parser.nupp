@@ -3367,7 +3367,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     handleTok,
                     "handle suspension uses an owned with installation",
                     "NUPP1005",
-                    "write with installation = nupp.suspension.host.install(handler) do ... end",
+                    "write with installation = coroutine.suspension.host.install(handler) do ... end",
                     {
                         {
                             title = "install the handler with an owned scope",
@@ -3375,7 +3375,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                                 {
                                     offset = handleTok.offset,
                                     length = handlerLast.offset + #handlerLast.text - handleTok.offset,
-                                    newText = "with installation = nupp.suspension.host.install(" .. sourceText(
+                                    newText = "with installation = coroutine.suspension.host.install(" .. sourceText(
                                         handler
                                     ) .. ")",
                                 }
@@ -3388,7 +3388,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     handleTok,
                     "handle suspension uses an owned with installation",
                     "NUPP1005",
-                    "write with installation = nupp.suspension.host.install(handler) do ... end"
+                    "write with installation = coroutine.suspension.host.install(handler) do ... end"
                 )
             end
             add(n, expect("do", "to open 'handle suspension'"))

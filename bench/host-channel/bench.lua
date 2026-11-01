@@ -6,6 +6,7 @@
 -- page does not spend. The second is the scarce one: it is emulated x86, and
 -- whatever the channel costs there is taken from the frame's game work.
 
+require("nupp.runtime.standardcoroutine")
 local host = require("nupp.host")
 local span = require("binary.span")
 local time = require("coroutine")

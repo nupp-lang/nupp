@@ -1,3 +1,4 @@
+require("nupp.runtime.standardcoroutine")
 local testAssert = require("assert")
 -- S5: the platform-neutral process state machine.
 --
