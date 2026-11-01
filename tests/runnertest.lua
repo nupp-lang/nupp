@@ -1174,6 +1174,81 @@ return M
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+-- The second suite cannot finish until it sees the first suite's failure on
+-- stderr. Checking the final report alone would pass even if diagnostics stayed
+-- hidden behind a slow worker's final JSON pipe.
+function M.reportsFailuresBeforeTheNextSuiteFinishes()
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/tests")) == 0)
+    assert(os.execute("mkdir -p " .. string.format("%q", dir .. "/build")) == 0)
+    write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
+    write(dir .. "/tests/assert.lua", read(ROOT .. "/tests/assert.lua"))
+    local errors = dir .. "/failures.log"
+    local failure = [[
+return {fails = function()
+    io.stdout:write("captured failure output\n")
+    error("the intended live failure")
+end}
+]]
+    local observer = (
+        [=[
+return {observesFailure = function()
+    local deadline = os.time() + 10
+    repeat
+        local file = io.open(%q, "rb")
+        local text = file and file:read("*a") or ""
+        if file then file:close() end
+        if text:find("aearlytest / fails", 1, true)
+            and text:find("the intended live failure", 1, true)
+            and text:find("captured failure output", 1, true) then
+            return
+        end
+    until os.time() >= deadline
+    error("the earlier suite's failure stayed hidden")
+end}
+]=]
+    ):format(errors)
+    -- Exercise serial runs, reusable shell workers, and fresh isolated children.
+    -- The observer waits for another worker's diagnostic.
+    local selections = {
+        {args = "--jobs=1", marker = "", json = false},
+        {args = "--jobs=1 --json", marker = "", json = true},
+        {args = "--jobs=2 --json", marker = '-- os.execute("true")\n', json = true},
+        {args = "--jobs=2 --json", marker = '-- require("nupp.io.process")\n', json = true},
+    }
+    for _, selection in ipairs(selections) do
+        write(dir .. "/tests/aearlytest.lua", selection.marker .. failure)
+        write(dir .. "/tests/zwaittest.lua", selection.marker .. observer)
+        write(dir .. "/build/.nupp-test-times.json", [[
+{"version":2,"suites":{"zwaittest":2000,"aearlytest":1000}}
+]])
+        local outputPath = dir .. "/report.out"
+        local command = (
+            "cd %q && NUPP_TEST_BUILD=%q %q %s >%q 2>%q"
+        ):format(dir, dir .. "/build", RUNNER, selection.args, outputPath, errors)
+        os.execute(command)
+        local output = read(outputPath)
+        local diagnostics = read(errors)
+        test.matches(diagnostics, "aearlytest / fails")
+        test.matches(diagnostics, "the intended live failure")
+        test.matches(diagnostics, "captured failure output")
+        test.equal(diagnostics:find("the earlier suite's failure stayed hidden", 1, true), nil, diagnostics)
+        if selection.json then
+            local report = decode(output)
+            test.equal(report.total, 2)
+            test.equal(report.failed, 1, diagnostics)
+            test.equal(report.passed, 1, diagnostics)
+            if selection.args:find("jobs=2", 1, true) then
+                test.equal(#report.shards, 2)
+            end
+        else
+            test.matches(output, "2 tests, 1 passed, 0 skipped, 1 failed")
+        end
+    end
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.runsNuppSuites()
     local output = run(ROOT, "nupptest --json")
     test.matches(output, '"suite":"nupptest"')

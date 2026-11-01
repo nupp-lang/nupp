@@ -79,9 +79,10 @@ nupp test checktest    # one suite
 
 It puts the build output directory and `tests` on `package.path` first, which
 is how a suite reaches both. While it runs it prints `.` for a pass, `S` for a
-skip, `N` for a case that could not execute, and `E` for a failure. Its summary
-reports every outcome and elapsed time. Output from passing tests is captured,
-and printed for failures or with `--verbose`.
+skip, `N` for a case that could not execute, and `E` for a failure on stderr.
+As each suite finishes, it reports failed cases and their captured output on
+stderr. Its final summary reports every outcome and elapsed time. Output from
+passing tests stays captured unless `--verbose` is set.
 
 ## Where the time went
 
@@ -426,8 +427,8 @@ a summary plus a record per test:
 A failing record carries the message and the file and line the error came from,
 plus its captured `output.stdout` and `output.stderr`. Lines are 1-based, as
 everywhere else; a Lua error carries no column, so none is invented. With
-`--json`, progress is written to stderr and the one JSON document remains clean
-on stdout.
+`--json`, progress and failure details are written to stderr and the one JSON
+document remains clean on stdout.
 
 `suites` is where a run's time actually goes, which `tests` alone cannot say:
 loading a suite and its `beforeAll` belong to no case. `shards` is empty for a
