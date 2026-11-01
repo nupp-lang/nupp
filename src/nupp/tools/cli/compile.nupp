@@ -306,17 +306,14 @@ function compile.module(
         ).fileFailure(path, readErr, "check that the path exists and is readable", collected)
         return nil, readErr
     end
-    local parser = require("nupp.compiler.syntax.parser")
-    -- The checker writes what the passes after it read (the module's name, its
-    -- dialect and compat, the analysis) onto the parse itself, so the parse is held
-    -- open to those members rather than as the shape the parser answered.
-    local result = parser.parse(source, path) as parser.ParseResult & {[string]: any}
+    local result, diags = require("nupp.compiler.project.env").checkModuleSource(env, path, source, {
+        compat = settings.compat,
+        moduleName = moduleName,
+    })
     if #result.errors > 0 then
         say(result.errors)
         return nil, "syntax errors"
     end
-    local check = require("nupp.compiler.check")
-    local diags = check.check(result, path, env, {compat = settings.compat, moduleName = moduleName,})
     if settings.materializations then
         local observations = require(
             "nupp.compiler.comptime.materialize.observe"

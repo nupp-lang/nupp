@@ -222,6 +222,48 @@ function M.explicitBuildPreservesModulePathsAndNormalizesDuplicates()
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
+function M.explicitBuildKeepsARecursiveEntryInItsPendingModule()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"src"}}\n',
+        [
+            "src/example/api.nupp"
+        ] = [[
+module example.api
+local api = {}
+interface api.Runnable
+    run: function(self): integer
+end
+export = api
+]],
+        [
+            "src/example/entry.nupp"
+        ] = [[
+module example.entry
+local api = require("example.api")
+local record Entry is api.Runnable
+    function run(self): integer
+        local root = require("example.root") as {ready: boolean}
+        return root.ready and 0 or 1
+    end
+end
+export = {commandType = Entry}
+]],
+        [
+            "src/example/root.nupp"
+        ] = [[
+module example.root
+local entry = require("example.entry")
+export = {commandType = entry.commandType, ready = true}
+]],
+    })
+    local out = captureJson(("cd %q && %q build --json -o out src/example/entry.nupp"):format(dir, NUPP))
+    local report = json.decode(out)
+    assert(report.ok, "the entry's recursive import shares its checked receiver identity: " .. out)
+    testAssert.equal(#report.written, 4, "the entry, two dependencies, and ownership runtime are emitted once")
+    assert(exists(dir .. "/out/src/example/entry.lua"), "the recursive entry is emitted")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
 function M.runLoadsModulesFromSource()
     local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["lib.nupp"] = LIB, ["main.nupp"] = APP,})
     -- no build step: the runtime loader compiles requires on demand
@@ -861,9 +903,7 @@ end
 return new Model()
 ]],
     })
-    local first = require(
-        "testjson"
-    ).decode(captureJson(("cd '%s' && '%s' build model.nupp --json"):format(dir, NUPP)))
+    local first = require("testjson").decode(captureJson(("cd '%s' && '%s' build model.nupp --json"):format(dir, NUPP)))
     assert(first.ok and #first.derives == 1, "cold build reports all derives")
     local byProvider = {}
     for _, observation in ipairs(first.derives) do
@@ -927,9 +967,7 @@ function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
         ["src/other.nupp"] = 'local t = {}\nt.a = 3\nt.b = 4\nreturn t',
     })
     local output = capture(
-        (
-            "cd %q && %q build -O1 --remarks --remarks-out --remarks-for src/main.nupp src/main.nupp"
-        ):format(dir, NUPP)
+        ("cd %q && %q build -O1 --remarks --remarks-out --remarks-for src/main.nupp src/main.nupp"):format(dir, NUPP)
     )
     assert(not output:find("src/other.nupp:", 1, true), "terminal remarks obey file filter: " .. output)
     assert(
@@ -943,9 +981,7 @@ function M.optimizerAccountsFilterFilesAndExplainUnavailableOptimization()
         assert(remark.status == "fired" or remark.status == "declined", "decision has status")
         testAssert.equal(remark.hotness, "unknown", "static remarks do not invent hotness")
     end
-    local manifestCommand = (
-        "cd %q && %q build --remarks --remarks-out --remarks-for src/main.nupp"
-    ):format(dir, NUPP)
+    local manifestCommand = ("cd %q && %q build --remarks --remarks-out --remarks-for src/main.nupp"):format(dir, NUPP)
     for attempt = 1, 2 do
         local manifestOut = capture(manifestCommand)
         assert(
@@ -977,9 +1013,7 @@ function M.remarksOutTakesAnAttachedPath()
     testAssert.equal(record.executionProfile.optLevel, 1, "the named file carries the account")
     assert(not exists(dir .. "/build/remarks.json"), "and the default path is left alone")
     local refused = capture(
-        (
-            "cd %q && %q build --remarks-file src/main.nupp src/main.nupp 2>&1; echo \"__exit__:$?\""
-        ):format(dir, NUPP)
+        ("cd %q && %q build --remarks-file src/main.nupp src/main.nupp 2>&1; echo \"__exit__:$?\""):format(dir, NUPP)
     )
     assert(refused:find("__exit__:2", 1, true), "--remarks-file is spelled --remarks-for: " .. refused)
     os.execute("rm -rf " .. string.format("%q", dir))
