@@ -2089,7 +2089,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local soaExport = node.kind == "call" and callee and callee.exactCallExport or nil
         if soaExport
             and soaExport.module == "nupp.mem.soa"
-            and (soaExport.member == "allocate" or soaExport.member == "layoutof")
+            and (soaExport.member == "allocate" or soaExport.member == "alloc" or soaExport.member == "layoutof")
         then
             local witness = argExprs[1] and rawType(c.infer(argExprs[1])) or nil
             local subject = witness and witness.tag == "ctype" and witness.of or nil
@@ -2099,7 +2099,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local spec = soaLayoutSpec(c, subject, argExprs[1] or node)
                 if spec then
                     node.soaLayout = spec
-                    node.soaOperation = soaExport.member
+                    node.soaOperation = soaExport.member == "alloc" and "allocate" or soaExport.member
                 end
             end
         end

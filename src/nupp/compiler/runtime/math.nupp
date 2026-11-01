@@ -1331,6 +1331,10 @@ end
 --- into whatever table it was given rather than a table being handed back.
 --- @export
 export function install(namespace: any): nil
+    vec2.len = vec2.length
+    vec2.dist = vec2.distance
+    quat.len = quat.length
+    quat.mul = quat.multiply
     namespace.lerp = lerp
     namespace.wrapAngle = wrapAngle
     namespace.deltaAngle = deltaAngle

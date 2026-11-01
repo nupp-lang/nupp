@@ -1618,6 +1618,9 @@ record nupp.Vec2Library
     --- @return the magnitude
     length: function(x: number, y: number): number
 
+    --- @internal
+    len: function(x: number, y: number): number
+
     --- Computes the squared distance between two points without a square root.
     --- @param ax the first point's x coordinate
     --- @param ay the first point's y coordinate
@@ -1633,6 +1636,9 @@ record nupp.Vec2Library
     --- @param by the second point's y coordinate
     --- @return the distance
     distance: function(ax: number, ay: number, bx: number, by: number): number
+
+    --- @internal
+    dist: function(ax: number, ay: number, bx: number, by: number): number
 
     --- Returns a unit vector in the same direction, or `(0, 0)` for zero.
     --- @param x the vector's x component
@@ -1838,6 +1844,9 @@ record nupp.QuatLibrary
     --- @return the length
     length: function(x: number, y: number, z: number, w: number): number
 
+    --- @internal
+    len: function(x: number, y: number, z: number, w: number): number
+
     --- Returns a unit rotation in the same direction, or the identity for zero.
     ---
     --- The sign is left alone: `q` and `-q` are the same rotation, and which one
@@ -1894,6 +1903,18 @@ record nupp.QuatLibrary
     --- @return the composition's z component
     --- @return the composition's w component
     multiply: function(
+        ax: number,
+        ay: number,
+        az: number,
+        aw: number,
+        bx: number,
+        by: number,
+        bz: number,
+        bw: number
+    ): (number, number, number, number)
+
+    --- @internal
+    mul: function(
         ax: number,
         ay: number,
         az: number,
