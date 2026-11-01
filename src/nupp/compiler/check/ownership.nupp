@@ -344,6 +344,10 @@ function ownership.install(c: state.Checker): ownership.Ops
                 if holder and holder.requiredModule then
                     local firstName = first as string
                     moduleName = holder.requiredModule .. moduleName:sub(#firstName + 1)
+                elseif moduleName == c.moduleLocal then
+                    -- Signature hoisting can reach an own terminal before its binding.
+                    -- The lexical export table does not name another source module.
+                    return nil
                 end
             end
             local exports = moduleName
