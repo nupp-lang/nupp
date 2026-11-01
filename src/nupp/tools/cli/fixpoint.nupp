@@ -91,7 +91,7 @@ local function run(options: any): integer
         -- graph image a cold checkout runs on a runtime built from its sources.
         if found.ok and values.emitStage0 then
             local fs = require("nupp.compiler.fs")
-            local written, writeErr = fs.writeFile(values.emitStage0, assert(fs.readFile(found.image as string)))
+            local written, writeErr = fs.writeFile(values.emitStage0, (assert(fs.readFile(found.image as string))))
             if not written then
                 io.stderr:write("nupp: ", tostring(writeErr), "\n")
                 code = 1

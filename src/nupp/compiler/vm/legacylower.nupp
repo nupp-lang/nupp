@@ -3050,7 +3050,7 @@ function lower.emit(
                     if #piece > 0 then
                         local lexer = require("nupp.compiler.syntax.lexer")
                         value = f:reg()
-                        f:op("K", value, f:const("str", assert(lexer.stringValue("`" .. piece .. "`"), piece)))
+                        f:op("K", value, f:const("str", (assert(lexer.stringValue("`" .. piece .. "`"), piece))))
                     end
                 elseif type(child) == "table" and child.kind then
                     local convert = wideKind(child.inferredType) == "u64" and "wide.u64.tostring" or "tostring"
@@ -6250,7 +6250,7 @@ function lower.emit(
         local p = assert(modulePath(name), "extra module " .. name);
         compileModule(name, p)
     end
-    compileModule(entryName, assert(modulePath(entryName), "entry module " .. entryName))
+    compileModule(entryName, (assert(modulePath(entryName), "entry module " .. entryName)))
     -- `extras.after` names modules carried beside the entry's graph, compiled
     -- once that graph is, so each is checked as the graph already loaded it.
     local after = (extras as any).after or {}
