@@ -869,4 +869,33 @@ function M.resolvesConstraintIntrinsicsWithoutAProjectEnvironment()
     end
 end
 
+function M.lowercaseDeriveAnnotationtypeReusesTheSameCheckedToken()
+    local state, values = {}, {}
+    providers.installEvaluator(state, values)
+    test.equal(values.types.derive.annotationtype, values.types.derive.annotationType)
+    local handle, expected = {}, {}
+    state.opaque[handle] = {provider = "derive", family = "View", payload = {value = {kind = "type", type = 1}}}
+    state.deriveAnnotationTypes = {expected}
+    local operation = state.intrinsics[values.types.derive.annotationtype]
+    test.equal(operation(nil, {n = 1, handle}), expected)
+    local value, refusal = operation(nil, {n = 0})
+    test.equal(value, nil)
+    test.equal(refusal.code, "NUPP2810")
+    local _, errors = compile(
+        [[
+@comptime local function referred(argument: types.reflect.AnnotationArgument): any
+    return types.derive.annotationtype(argument)
+end
+]]
+    )
+    test.equal(errors, "", errors)
+    local result = run(
+        [[
+local types = {derive = {annotationtype = function(value: integer): integer return value + 1 end}}
+return types.derive.annotationtype(4)
+]]
+    )
+    test.equal(result, 5)
+end
+
 return M

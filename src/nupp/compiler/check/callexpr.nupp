@@ -129,8 +129,9 @@ end
 local function ownershipIntrinsic(c, callee)
     local identity = apiidentity.expression(c, callee)
     local member = identity and identity:match("^own%.([%w_]+)$")
-    if member and cst.ownershipIntrinsicMember(member) then
-        return member
+    local intrinsic = member and cst.ownershipIntrinsicName(member)
+    if intrinsic then
+        return intrinsic
     end
     local name, qualified = cst.ownershipIntrinsicSpelling(callee)
     if not name then

@@ -3209,4 +3209,28 @@ function M.aMidFillFailureRestoresTheEnclosingDependencyCollector()
     testAssert.equal(generics.instantiate(bad, bindings).byname.broken.params[1], types.string)
 end
 
+function M.lowercaseFormatargumentsEvaluatesTheExistingCheckedBody()
+    for _, member in ipairs({"formatArguments", "formatarguments"}) do
+        local source = [[
+local function format<F is string>(fmt: F, ...: unpackof types.MEMBER(F)): string
+    return string.format(fmt, ...)
+end
+local value = format("%s=%d", "count", 3)
+print(value)
+]]
+        source = source:gsub("MEMBER", member)
+        clean(source)
+        oneDiagnostic(source:gsub('"count", 3', '"count", "wrong"'), "NUPP2006", "argument 3: string is not a number")
+    end
+    testAssert.equal(
+        codes(
+            [[
+local types = {formatarguments = function(value: string): string return value end}
+local value: types.formatarguments("%d")
+]]
+        ),
+        "NUPP2421"
+    )
+end
+
 return M

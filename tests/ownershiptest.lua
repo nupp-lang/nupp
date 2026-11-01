@@ -8896,4 +8896,66 @@ function M.anAliasAppliedInAParameterKeepsItsArgumentsOwnership()
     )
 end
 
+function M.lowercaseQualifiedOwnershipKeepsBorrowProvenanceAndRefusals()
+    for _, root in ipairs({"own", "api"}) do
+        local prefix = root == "api" and 'local api = require("own")\n' or ""
+        local body = RESOURCE
+            .. "\n"
+            .. [[
+local function recover(borrows source: resource*, raw: resource*): resource* borrows (source)
+    @unsafe do return ROOT.borrowfrom(raw, source) end
+end
+]]
+        assertClean(prefix .. body:gsub("ROOT", root))
+        testAssert.equal(codes(prefix .. body:gsub("ROOT", root):gsub("@unsafe do", "do")), "NUPP2604")
+    end
+    local cst = require("nupp.compiler.syntax.cst")
+    testAssert.equal(cst.ownershipIntrinsicName("borrowfrom"), "borrowFrom")
+    testAssert.equal(cst.ownershipIntrinsicName("attemptall"), "attemptAll")
+    for _, bare in ipairs({"borrowfrom", "attemptall"}) do
+        local parsed = parser.parse(bare .. "(1)", "bare-owner.nupp")
+        testAssert.equal(cst.ownershipIntrinsicSpelling(parsed.root.blocks[1].stats[1].expr.obj), nil)
+    end
+    local source = [[
+local own: {borrowfrom: function(integer, integer): integer, attemptall: function(integer): integer} = {
+    borrowfrom = function(value: integer, source: integer): integer return value + source end,
+    attemptall = function(value: integer): integer return value + 1 end
+}
+return own.borrowfrom(2, 3), own.attemptall(5)
+]]
+    local a, b = runGenerated(source, "lowercase-own-shadow")
+    testAssert.equal(a, 5)
+    testAssert.equal(b, 6)
+end
+
+function M.lowercaseAttemptallKeepsEveryCleanupAndOrderingRefusal()
+    local source = [[
+local record Resource id: integer end
+local calls = ""
+local function stop(value: Resource): nil
+    calls = calls .. "stop"
+    error("failed")
+end
+local function finish(value: Resource): nil calls = calls .. ",finish" end
+local function close(takes value: Resource): nil own.attemptall(value, stop, finish) end
+local function open(): affine(Resource, close) return new Resource(id = 1) end
+local ok = pcall(function() local value = open() own.drop(value) end)
+return calls, ok
+]]
+    local calls, ok = runGenerated(source, "lowercase-attemptall")
+    testAssert.equal(calls, "stop,finish")
+    testAssert.equal(ok, false)
+    testAssert.equal(
+        codes(
+            [[
+local record Resource end
+local function take(takes value: Resource): nil end
+local function last(value: Resource): nil end
+local function close(takes value: Resource): nil own.attemptall(value, take, last) end
+]]
+        ),
+        "NUPP2615"
+    )
+end
+
 return M

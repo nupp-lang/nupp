@@ -1130,6 +1130,9 @@ record types.derive
     --- @return the referenced type handle
     annotationType: function(argument: types.reflect.AnnotationArgument): any
 
+    --- @internal
+    annotationtype: function(argument: types.reflect.AnnotationArgument): any
+
     --- Passes a named record's first-class `Type<T>` witness to the runtime helper.
     ---
     --- @param subject a transported nominal type handle

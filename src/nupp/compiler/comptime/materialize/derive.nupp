@@ -67,6 +67,7 @@ function deriveProvider.installEvaluator(state: any, env: any, opaque: any, prov
         local token = {}
         state.intrinsics[token] = implementation
         library[name] = token
+        library[name:lower()] = token
     end
 
     local function hasOnly(value, allowed)
