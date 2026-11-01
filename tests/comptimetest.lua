@@ -871,6 +871,73 @@ end
 
 -- A helper's optional parameter may be left out, exactly as the checker admits it:
 -- the missing argument is nil, and only a required one omitted is a mistake.
+function M.callableAssertionsKeepTheirTableAndResultPack()
+    local value = run(
+        [[
+return comptime do
+    local verify = assert
+    local first, gap, third, tail = verify(true, nil, false, nil)
+    verify.equal(first, true)
+    verify.notEqual(third, true)
+    verify.deepEqual({first, third}, {true, false})
+    return {
+        kind = type(assert), aliasKind = type(verify), same = verify == assert,
+        first = first, gap = gap == nil, third = third, tail = tail == nil,
+        count = select("#", verify("ready", nil, 7, nil)),
+        matched = verify.matches("ready", "^ready$")
+    }
+end
+]]
+    )
+    testAssert.equal(value.kind, "table", "the public assertion keeps its table type")
+    testAssert.equal(value.aliasKind, "table", "an alias keeps the same table type")
+    testAssert.equal(value.same, true, "aliases share one evaluator capability")
+    testAssert.equal(value.first, true, "the first result survives")
+    testAssert.equal(value.gap, true, "an interior nil survives")
+    testAssert.equal(value.third, false, "a later false result survives")
+    testAssert.equal(value.tail, true, "the trailing nil survives")
+    testAssert.equal(value.count, 4, "the full result arity survives")
+    testAssert.equal(value.matched, "ready", "pure helpers use the shared implementation")
+end
+
+function M.callableAssertionFailuresKeepTheLuaErrorContract()
+    for _, value in ipairs({"false", "nil"}) do
+        local codes, diags = errorsOf(
+            "return comptime do local verify = assert; verify(" .. value .. ", \"assertion marker\"); return 1 end"
+        )
+        testAssert.equal(codes[1], "NUPP2412", "a falsy assertion raises through the call boundary")
+        assert(diags[1].msg:find("assertion marker", 1, true), diags[1].msg)
+    end
+    local codes = errorsOf("return comptime do assert(); return 1 end")
+    testAssert.equal(codes[1], "NUPP2412", "omitting the condition keeps the Lua argument error")
+end
+
+function M.callableAssertionCapabilitiesDoNotAdmitOtherTables()
+    local codes, diags = errorsOf([[
+return comptime do
+    local assert: any = {}
+    return assert(true)
+end
+]])
+    testAssert.equal(codes[1], "NUPP2411", "a shadowed table is not the registered callable")
+    assert(diags[1].msg:find("a table is not callable", 1, true), diags[1].msg)
+    testAssert.equal(
+        run([[
+return comptime do
+    local assert = math.abs
+    return assert(-4)
+end
+]]),
+        4,
+        "a shadowed function retains its ordinary meaning"
+    )
+    for _, member in ipairs({"suite.fixture", "raises"}) do
+        local unavailable, failures = errorsOf("return comptime do return assert." .. member .. " end")
+        testAssert.equal(unavailable[1], "NUPP2411", "effectful and callback helpers stay outside the allowlist")
+        assert(failures[1].msg:find("assert.", 1, true), failures[1].msg)
+    end
+end
+
 function M.callsAHelperWithoutItsOptionalArgument()
     testAssert.equal(
         run(

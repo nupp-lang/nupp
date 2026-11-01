@@ -479,7 +479,20 @@ end
 local function buildEnvironment(state)
     local env = {}
 
-    env.assert = assert
+    local assertion: any = require("assert")
+    if type(assertion) == "table" then
+        env.assert = {
+            equal = assertion.equal,
+            notEqual = assertion.notEqual,
+            deepEqual = assertion.deepEqual,
+            matches = assertion.matches,
+        }
+        state.callableValues[env.assert] = function(...)
+            return assertion(...)
+        end
+    else
+        env.assert = assertion
+    end
     env.error = error
     env.select = select
     env.tonumber = tonumber
@@ -699,6 +712,10 @@ local function buildEnvironment(state)
     -- is not missing, it is deliberately absent.
     local libraries = {[env.math] = "math", [env.string] = "string", [env.table] = "table", [env.bit] = "bit",}
 
+    if type(env.assert) == "table" then
+        libraries[env.assert] = "assert"
+    end
+
     materializeProviders.installEvaluator(state, env)
 
     return env, libraries
@@ -719,6 +736,7 @@ local function newState()
     return {
         env = {},
         libraries = {},
+        callableValues = {},
         result = nil,
         steps = 0,
         opaque = {},
@@ -985,10 +1003,14 @@ local function callValues(state, node, callee, args)
 
         return {n = 1, value}
     end
-    if type(callee) ~= "function" then
-        fail("NUPP2411", node, ("a %s is not callable at comptime"):format(type(callee)))
+    local callable = state.callableValues[callee]
+    if callable == nil then
+        if type(callee) ~= "function" then
+            fail("NUPP2411", node, ("a %s is not callable at comptime"):format(type(callee)))
+        end
+        callable = callee
     end
-    local produced = pack(pcall(callee, unpack(args, 1, args.n)))
+    local produced = pack(pcall(callable, unpack(args, 1, args.n)))
     if not produced[1] then
         local message = produced[2]
         fail("NUPP2412", node, type(message) == "string" and message or "the call failed")
