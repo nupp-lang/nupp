@@ -172,4 +172,21 @@ function M.preservesCodeOnTheModuleHeadersLine()
     assert(output:find('return files.read("a")', 1, true), output)
 end
 
+function M.ambientDeclarationsKeepTheirQualifiedNamespaces()
+    local env = envMod.new(".")
+    local formatter = fmt.new({environment = env})
+    local source = '@comptime local function read(): string return nupp.io.files.read("a") end\n'
+    local declared, errors = formatter:format(source, "prelude.d.nupp")
+    assert(#errors == 0, errors[1] and errors[1].msg)
+    assert(not declared:find("require", 1, true), declared)
+    assert(declared:find("nupp.io.files.read", 1, true), declared)
+    local ordinary, problems = formatter:format(source, "ordinary.nupp")
+    assert(#problems == 0, problems[1] and problems[1].msg)
+    assert(ordinary:find('require("nupp.io.files")', 1, true), ordinary)
+    local explicit = 'const files = require("nupp.io.files")\nlocal read: function(string): string = files.read\n'
+    local authored, issues = formatter:format(explicit, "external.d.nupp")
+    assert(#issues == 0, issues[1] and issues[1].msg)
+    assert(authored:find('require("nupp.io.files")', 1, true), authored)
+end
+
 return M
