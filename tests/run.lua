@@ -756,15 +756,14 @@ do
         end
         -- Where a mark goes.
         --
-        -- Ordinarily the runner's own stream: standard output, or standard error
-        -- when the document is on standard output. A worker is told a descriptor
-        -- instead, because its standard error is a file the parent keeps to ask why
+        -- Progress and live failure details go to standard error. A worker is
+        -- told a saved descriptor because its standard error is a file kept to ask why
         -- it died with, and a mark written there is a mark nobody sees. That is what
         -- made a sharded run silent: every worker was marking work off into its own
         -- file while the terminal waited for the first one to finish.
         local named = tonumber(rawget(_G, "__NUPP_TEST_PROGRESS_FD") or os.getenv("NUPP_TEST_PROGRESS_FD") or "")
         sharedProgressStream = named ~= nil
-        local statusFd = named and dup(named) or dup(asJson and 2 or 1)
+        local statusFd = named and dup(named) or dup(2)
         progressFd = statusFd
 
         -- This descriptor is for one runner process, not an ambient destination
@@ -1006,7 +1005,7 @@ do
                 and forced ~= "0"
             )
         progressWrite = function(text)
-            local stream = asJson and io.stderr or io.stdout
+            local stream = io.stderr
             stream:write(text);
             stream:flush()
         end
@@ -1016,6 +1015,8 @@ do
         end
     end
 end
+
+local failureWrite = progressWrite
 
 if supervisedPiece then
     -- The supervisor owns the one progress mark for this queue piece. The fresh
@@ -1337,8 +1338,8 @@ local progressWidth = 0
 -- characters -- each worker faithfully wrapping at its own eightieth mark, thirty
 -- six of them, into one stream.
 --
--- So a worker writes marks and nothing else, and the run that owns the stream
--- closes the line when the workers are done.
+-- A worker leaves wrapping to the run that owns the stream. Failure details
+-- start a fresh line, even when another worker is still writing marks.
 local ownsProgressStream = not sharedProgressStream
 
 local function mark(symbol)
@@ -1373,6 +1374,18 @@ local function captured(record)
     end
 
     return table.concat(lines)
+end
+
+-- The saved descriptor bypasses case capture and the final report pipe. A
+-- worker can finish a failing suite while its parent is still collecting a
+-- slower sibling, so waiting for aggregation hides the useful diagnostic.
+local function reportFailure(record)
+    failureWrite(
+        (
+            "\n  %s / %s\n      %s\n%s"
+        ):format(record.suite, record.name, indentContinuation(failureText(record), "      "), captured(record))
+    )
+    progressWidth = 0
 end
 
 local function showCaptured(record)
@@ -1470,6 +1483,21 @@ local function groupedWorker(worker)
         },
         "; "
     )
+end
+
+local function shellQuote(value)
+    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+end
+
+-- Windows CRT descriptors cannot be named across process boundaries. Its
+-- workers report through inherited stderr, which is copied to the crash log
+-- while the final JSON keeps its own stdout pipe.
+local function workerErrors(command, errors)
+    if package.config:sub(1, 1) == "\\" then
+        return ("{ { %s; } 2>&1 1>&3 | tee %s >&2; } 3>&1"):format(command, shellQuote(errors))
+    end
+
+    return ("{ %s; } 2>%s"):format(command, shellQuote(errors))
 end
 
 local fixtureRoot = buildRoot .. "/test-fixtures"
@@ -2633,9 +2661,8 @@ then
                     -- number is local to one process and does not survive the Rust host
                     -- -> shell -> LuaJIT boundary. Name inherited stderr there: the
                     -- surrounding group already sends it to the shard log, keeping JSON
-                    -- stdout intact. Windows process-worker marks are consequently
-                    -- collected rather than live. Without any descriptor, the worker
-                    -- also marks into that file.
+                    -- stdout intact. workerErrors also forwards that stream live.
+                    -- Without any descriptor, the worker marks into stderr.
                     local processProgressFd = progressFd and (package.config:sub(1, 1) == "\\" and 2 or progressFd)
                         or nil
                     local progress = processProgressFd and ("NUPP_TEST_PROGRESS_FD=%d "):format(processProgressFd) or ""
@@ -2644,9 +2671,10 @@ then
                     local worker = (
                         "%s%s%s%s --json %s --color=%s%s"
                     ):format(cache, progress, fresh, invocation, lane.arg, colorMode, verbose and " --verbose" or "")
-                    local command = (
-                        "{ %s; echo \"__status__:$nupp_status\" >&2; } 2>'%s'"
-                    ):format(groupedWorker(worker), errors)
+                    local command = workerErrors(
+                        groupedWorker(worker) .. '; echo "__status__:$nupp_status" >&2',
+                        errors
+                    )
                     running[
                         #running + 1
                     ] = {
@@ -2786,6 +2814,7 @@ then
                         durationMs = 0,
                         failure = {message = report.failure},
                     }
+                    reportFailure(sharded.results[#sharded.results])
                 elseif report ~= nil then
                     sharded.total = sharded.total + (report.total or 0)
                     sharded.passed = sharded.passed + (report.passed or 0)
@@ -2900,6 +2929,7 @@ then
                         durationMs = 0,
                         failure = {message = "no worker reported running " .. spec},
                     }
+                    reportFailure(sharded.results[#sharded.results])
                 end
             end
         end
@@ -3011,6 +3041,7 @@ local restoreLane = function()
 end
 
 local function runSuite(suiteInfo, slices)
+    local firstResult = #results + 1
     -- Loading is measured with the suite rather than left out of it. A Nupp suite
     -- is compiled here, and a Lua one runs its top level here, so a suite can cost
     -- seconds before its first case starts.
@@ -3161,6 +3192,11 @@ local function runSuite(suiteInfo, slices)
         slowestCase = slowestCase,
         slowestCaseMs = slowestCase and slowestCaseMs or nil,
     }
+    for index = firstResult, #results do
+        if results[index].status == "failed" then
+            reportFailure(results[index])
+        end
+    end
 end
 
 -- What a queue piece is allowed to leave behind for the next one, which is
@@ -3271,10 +3307,7 @@ local function recordPieceFailure(spec, message)
         durationMs = 0,
         failure = {message = message},
     }
-end
-
-local function shellQuote(value)
-    return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
+    reportFailure(results[#results])
 end
 
 --- Runs one claimed isolated piece in a new process.
@@ -3287,12 +3320,15 @@ end
 local function runFreshPiece(spec)
     local invocation = rawget(_G, "__NUPP_TEST_RUNNER_COMMAND") or ("luajit '%s'"):format(arg[0])
     local errors = os.tmpname()
+    local childProgressFd = progressFd and (package.config:sub(1, 1) == "\\" and 2 or progressFd) or nil
+    local progress = childProgressFd and ("NUPP_TEST_PROGRESS_FD=%d "):format(childProgressFd) or ""
     local worker = (
-        "NUPP_TEST_SUPERVISED_PIECE=1 %s --json --shard=%s --color=%s%s"
-    ):format(invocation, shellQuote(spec), colorMode, verbose and " --verbose" or "")
-    local command = (
-        "{ %s; printf '\n__piece_status__:%%d\n' $nupp_status; } 2>%s"
-    ):format(groupedWorker(worker), shellQuote(errors))
+        "%sNUPP_TEST_SUPERVISED_PIECE=1 %s --json --shard=%s --color=%s%s"
+    ):format(progress, invocation, shellQuote(spec), colorMode, verbose and " --verbose" or "")
+    local command = workerErrors(
+        ("%s; printf '\n__piece_status__:%%d\n' $nupp_status"):format(groupedWorker(worker)),
+        errors
+    )
     local pipe = io.popen(command, "r")
     if not pipe then
         os.remove(errors)
