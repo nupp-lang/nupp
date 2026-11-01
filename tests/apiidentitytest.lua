@@ -378,6 +378,147 @@ return api.answer
     end)
 end
 
+function M.parsesCanonicalAdoptTypeArgumentsAndPreservesShadows()
+    local _, errors, parsed = compile(
+        [[
+local record Resource is nupp.Closeable
+    function close(takes self): nil end
+end
+local raw: any = {}
+local value = @unsafe own.adopt<Resource>(raw)
+value:close()
+]]
+    )
+    test.equal(errors, "", errors)
+    local stats = parsed.root.blocks[1].stats
+    test.equal(stats[3].exprs[1].ownershipIntrinsic, "adopt")
+    local shadowCode, shadowErrors, shadow = compile(
+        [[
+local own = {adopt = function<T>(value: any): T return value as T end}
+local value: string = own.adopt<string>("ready")
+return value
+]]
+    )
+    test.equal(shadowErrors, "", shadowErrors)
+    test.equal(shadow.root.blocks[1].stats[2].exprs[1].ownershipIntrinsic, nil)
+    test.equal(#shadow.root.blocks[1].stats[2].exprs[1].typeArgs, 1)
+    test.equal(assert(loadstring(shadowCode, "@adopt-shadow"))(), "ready")
+end
+
+function M.sealsImportedCompilerNamespacesThroughPersistedHelpers()
+    withProject(
+        [[
+module types
+const builders = require("types")
+@comptime local function list(Element: type): type
+    return builders.array(Element)
+end
+@comptime
+export function Items(Element: type): type
+    local builders = 7
+    assert(builders == 7)
+    return list(Element)
+end
+export const answer: integer = 17
+]],
+        function(env)
+            local _, errors = compile(
+                [[
+local api = require("types")
+local type Names = api.Items(string)
+local names: Names = {"one", "two"}
+return #names
+]],
+                env
+            )
+            test.equal(errors, "", errors)
+            local exports = env.resolveModuleExports(env, "types")
+            local program = exports.comptimeFunctions.Items
+            assert(program.serializedHelpers.list.source:find("types.array", 1, true))
+            assert(not program.serializedHelpers.list.source:find("builders.array", 1, true))
+            assert(program.serializedHelpers.Items.source:find("local builders = 7", 1, true))
+            local images = require("nupp.compiler.project.interfaceimage")
+            local path = env.rootDir .. "/src/types.nupp"
+            local encoded, encodeProblem = images.encode(
+                {types = {path = path, interface = {type = env.resolveModule(env, "types")}, exports = exports,}},
+                {projectPaths = {path}}
+            )
+            assert(encoded, encodeProblem)
+            local loaded, loadProblem = images.decode(encoded)
+            assert(loaded, loadProblem)
+            local persisted = loaded.types.exports.comptimeFunctions.Items
+            test.equal(persisted.identity, program.identity)
+            local envelope, failure = require(
+                "nupp.compiler.comptime"
+            ).evaluateTypeFunctionDirect(persisted, {{kind = "type", value = T.string}}, {})
+            assert(envelope, failure and failure.message)
+            test.equal(envelope.payload.nodes[envelope.payload.root].kind, "array")
+        end
+    )
+end
+
+function M.identifiesClosedHelpersIndependentlyOfImportedAliasNames()
+    local identity
+    for _, alias in ipairs({"builders", "constructors"}) do
+        withProject(
+            (
+                [[
+module types
+const ALIAS = require("types")
+@comptime
+export function Items(Element: type): type
+    return ALIAS.array(Element)
+end
+]]
+            ):gsub("ALIAS", alias),
+            function(env)
+                env.resolveModule(env, "types")
+                local program = env.resolveModuleExports(env, "types").comptimeFunctions.Items
+                assert(program.serializedHelpers.Items.source:find("types.array", 1, true))
+                if identity then
+                    test.equal(program.identity, identity)
+                end
+                identity = program.identity
+            end
+        )
+    end
+end
+
+function M.keepsImportedRuntimeNamespacesOutOfCompilerClosures()
+    local parsed = parser.parse(
+        [[
+local function Entry(Value: type): any
+    return runtime.entry(Value)
+end
+]],
+        "helper.nupp"
+    )
+    test.equal(#parsed.errors, 0)
+    local helper = parsed.root.blocks[1].stats[1]
+
+    local function bind(value)
+        if value.kind == "name" and value.token and value.token.text == "runtime" then
+            value.token.definition = {
+                filename = "outer.nupp",
+                token = {offset = 0},
+                exactCallExport = {module = "nupp.derive", identity = "nupp.derive"},
+            }
+        end
+        for _, child in ipairs(value) do
+            if type(child) == "table" then
+                bind(child)
+            end
+        end
+    end
+
+    bind(helper)
+    local comptime = require("nupp.compiler.comptime")
+    local program = comptime.sealTypeFunction(helper, {}, nil, {filename = "helper.nupp"})
+    assert(program.serializedHelpers.Entry.source:find("runtime.entry", 1, true))
+    assert(not program.serializedHelpers.Entry.source:find("types.derive.entry", 1, true))
+    test.equal(program.identity, comptime.typeFunctionProgram(helper, {}).identity)
+end
+
 function M.referencedRecipeRefusalsKeepTheirDiagnostic()
     withProject(
         [[
@@ -509,6 +650,24 @@ log.info("value=%d", 1)
         test.equal(alias.root.blocks[1].stats[2].expr.logIntrinsic, nil)
         test.equal(#missingModules, 0, table.concat(missingModules, "\n"))
     end)
+end
+
+function M.resolvesConstraintIntrinsicsWithoutAProjectEnvironment()
+    for _, root in ipairs({"nupp.types", "types"}) do
+        local function diagnostics(prefix, expression)
+            local source = prefix .. "\nlocal type Count = " .. root .. expression
+            local parsed = parser.parse(source, "constraint-fragment.nupp")
+            test.equal(#parsed.errors, 0)
+            return checker.check(parsed, "constraint-fragment.nupp", nil, {strict = false})
+        end
+
+        local clean = diagnostics("", ".range(integer, 0, 10)")
+        test.equal(#clean, 0)
+        local invalid = diagnostics("", ".range(integer, 10, 0)")
+        test.equal(invalid[1].code, "NUPP2422")
+        local shadow = diagnostics("local " .. root:match("^[^.]+") .. " = {}", ".range(integer, 0, 10)")
+        test.equal(shadow[1].code, "NUPP2421")
+    end
 end
 
 return M
