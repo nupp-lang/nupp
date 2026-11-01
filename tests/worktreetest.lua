@@ -72,11 +72,13 @@ function M.helperSeedsOnlyReusableWorktreeState()
     write(origin .. "/build/lib/native", "library\n")
     write(origin .. "/build/.nupp-state.json", "{}\n")
     write(origin .. "/.rocks/sentinel", "rocks\n")
+    -- Checkout bytes are fixture data, independent of the host's Git EOL policy.
+    write(origin .. "/.gitattributes", "* text eol=lf\n")
     assert(
         os.execute(
             (
                 "git -C %s init -q && git -C %s config user.name Test "
-                .. "&& git -C %s config user.email test@example.com && git -C %s add scripts src build/log.lua "
+                .. "&& git -C %s config user.email test@example.com && git -C %s add .gitattributes scripts src build/log.lua "
                 .. "&& git -C %s commit -q -m initial"
             ):format(quote(origin), quote(origin), quote(origin), quote(origin), quote(origin))
         ) == 0
