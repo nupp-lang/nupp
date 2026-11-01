@@ -193,11 +193,11 @@ function M.theRuntimePreambleIsFoldedUnlessAskedFor()
     local dir = project{["demo.nupp"] = SCALE}
     local folded = run(dir, "demo.nupp")
     assert(folded:find("instructions of runtime preamble", 1, true), "the preamble is folded by default:\n" .. folded)
-    assert(not folded:find("rawset", 1, true), "folded output still names the preamble")
+    assert(not folded:find("__nuppCleanupRegistry", 1, true), "folded output still names the preamble")
 
     local shown = run(dir, "--prologue demo.nupp")
     assert(not shown:find("instructions of runtime preamble", 1, true), "--prologue stops folding:\n" .. shown)
-    assert(shown:find("rawset", 1, true), "--prologue shows the preamble:\n" .. shown)
+    assert(shown:find("__nuppCleanupRegistry", 1, true), "--prologue shows the preamble:\n" .. shown)
 end
 
 function M.authoredCodeOnLineOneIsNotFoldedWithThePreamble()
