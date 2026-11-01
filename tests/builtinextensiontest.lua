@@ -188,6 +188,7 @@ end
 
 function M.anImplicitAssertionHelperDoesNotReplaceTheBuiltin()
     withExtension(function(env)
+        local builtinType = env.globals.assert.t
         local code = compile(
             [[
 local helpers = require("assert")
@@ -203,7 +204,7 @@ return first, gap, last, helpers.equal ~= nil
         test.equal(last, 42)
         test.equal(helper, true)
         test.equal(env.builtinExtensions.assert, false)
-        test.equal(env.globals.assert.t.tag, "func")
+        test.equal(env.globals.assert.t, builtinType, "the implicit helper preserves the canonical builtin type")
     end)
 end
 

@@ -4,6 +4,7 @@ local fingerprint = require("nupp.compiler.project.fingerprint")
 local fs = require("nupp.compiler.fs")
 local json = require("testjson")
 local parallelcheck = require("nupp.tools.build.parallelcheck")
+local modules = require("nupp.tools.build.modules")
 local process = require("nupp.compiler.process")
 local stable = require("nupp.compiler.stable")
 local store = require("nupp.compiler.project.store")
@@ -305,6 +306,57 @@ local function coldBuild(directory, environment, extra)
 end
 
 local M = {}
+
+local function runtimeLinkFixture(path, checked)
+    return {
+        inc = {
+            env = {runtimeSourceRoots = {"build/cache/runtime-source"}},
+            modulePath = function()
+                return path
+            end
+        },
+        selfContained = true,
+        checked = checked and {assert = true} or {},
+        linked = {},
+        packaged = {},
+        records = {assert = {interfaceHash = "checked", runtimeModules = {"dependency"}}},
+        stage = function(name)
+            testAssert.equal(name, "assert")
+            return path
+        end,
+    }
+end
+
+function M.recursivelyStagedRuntimeSourcesRemainCompilerOwned()
+    local context = runtimeLinkFixture("build/cache/runtime-source/assert/init.nupp", false)
+    modules.linkPackagedRuntime("assert", context)
+    testAssert.equal(context.packaged.assert, true, "recursively carried source belongs to the compiler")
+    testAssert.equal(context.linked.assert, true)
+    testAssert.equal(context.records.assert.compilerRuntime, true)
+end
+
+function M.lateRuntimeLinkingUpdatesAnExistingRecord()
+    local context = runtimeLinkFixture("build/cache/runtime-source/assert/init.nupp", true)
+    modules.linkPackagedRuntime("assert", context)
+    testAssert.deepEqual(context.records.assert, {
+        interfaceHash = "checked",
+        runtimeModules = {"dependency"},
+        compilerRuntime = true
+    })
+end
+
+function M.authoredSourcesAreNotClaimedAsCompilerRuntime()
+    for _, path in ipairs({"src/assert.nupp", "build/cache/runtime-source-other/assert/init.nupp"}) do
+        local context = runtimeLinkFixture(path, false)
+        context.stage = function()
+            error("an authored source must not be staged")
+        end
+        modules.linkPackagedRuntime("assert", context)
+        testAssert.equal(context.packaged.assert, nil)
+        testAssert.equal(context.linked.assert, nil)
+        testAssert.equal(context.records.assert.compilerRuntime, nil)
+    end
+end
 
 function M.workerPolicyKeepsSmallChecksSerialAndCapsAutomaticParallelism()
     testAssert.equal(parallelcheck.plan(63, 1048576, 8, nil).workers, 1, "module floor")

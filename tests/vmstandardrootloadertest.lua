@@ -28,8 +28,8 @@ function M.finalStandardRootsUseTheExistingCompilerSourceLoader()
     local reached = {}
     local marker = {}
     withLoaders(
-        function(path, _, name)
-            reached[name] = path
+        function(path, _, name, source)
+            reached[name] = {path = path, source = source}
             return "source-token"
         end,
         function()
@@ -42,7 +42,11 @@ function M.finalStandardRootsUseTheExistingCompilerSourceLoader()
                 local loader = loaders[#loaders](name)
                 test.equal(type(loader), "function", name)
                 test.equal(loader(), marker, name)
-                assert(reached[name]:find("/src/", 1, true), reached[name])
+                local selected = reached[name]
+                assert(
+                    selected.source ~= nil and selected.path == name or selected.path:find("/src/", 1, true),
+                    selected.path
+                )
             end
             test.equal(loaders[#loaders]("application.nonexistent"), nil)
         end

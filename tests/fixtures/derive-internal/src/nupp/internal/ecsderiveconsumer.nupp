@@ -1,4 +1,4 @@
-module tests.fixtures.ecsderiveconsumer
+module nupp.internal.ecsderiveconsumer
 
 local provider = require("tests.fixtures.ecsderiveprovider")
 local derive = require("nupp.derive")
@@ -43,7 +43,7 @@ assert(layoutof(Position).size > 0)
     rows[0].x = 1
 end
 local entry = assert(derive.entry(Position))
-assert(entry.schema.data.ecs.name == "tests.fixtures.ecsderiveconsumer.Position")
+assert(entry.schema.data.ecs.name == "nupp.internal.ecsderiveconsumer.Position")
 assert(assert(derive.entry(tablemodule.Position)).schema.data.ecs.name == "tests.fixtures.ecsderivetable.Position")
 local value = new Position()
 value.x = 0

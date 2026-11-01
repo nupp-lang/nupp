@@ -42,8 +42,8 @@ local function withProject(files, callback)
     return result
 end
 
-local function compile(path, env, name)
-    local result = parser.parse(readFile(path), path)
+local function compile(path, env, name, source)
+    local result = parser.parse(source or readFile(path), path)
     if #result.errors > 0 then
         return nil, "syntax errors"
     end
@@ -71,6 +71,102 @@ local function projectEnv(dir)
 end
 
 local M = {}
+
+local function withCarriedModule(dir, compileModule, callback)
+    local bundled = require("nupp.compiler.bundled")
+    local original = bundled.source
+    local previousLoaded = package.loaded.runtimecarried
+    local previousPreload = package.preload.runtimecarried
+    local previousPath = package.path
+    local source = "return {value = 42}\n"
+    local env = projectEnv(dir)
+    env.bundledImplementation = function(name)
+        return name == "runtimecarried" and "/runtimecarried.nupp" or nil
+    end
+    bundled.source = function(path)
+        return path == "/runtimecarried.nupp" and source or original(path)
+    end
+    package.loaded.runtimecarried = nil
+    package.preload.runtimecarried = nil
+    local count = #package.loaders
+    local removeLoader = install(env, compileModule)
+    local ok, failure = pcall(callback, source)
+    removeLoader()
+    removeLoader()
+    bundled.source = original
+    package.loaded.runtimecarried = previousLoaded
+    package.preload.runtimecarried = previousPreload
+    package.path = previousPath
+    testAssert.equal(#package.loaders, count, "both installed loaders are removed")
+    if not ok then
+        error(failure, 0)
+    end
+end
+
+function M.loadsUncompiledCarriedImplementationsOnce()
+    withProject({}, function(dir)
+        local calls = 0
+        withCarriedModule(
+            dir,
+            function(path, env, name, source)
+                calls = calls + 1
+                testAssert.equal(path, "runtimecarried", "carried checker identity")
+                testAssert.equal(name, "runtimecarried", "carried module identity")
+                testAssert.equal(source, "return {value = 42}\n", "compiler receives carried source")
+
+                return require("nupp.tools.cli.compile").image(path, env, name, nil, source, false)
+            end,
+            function()
+                local first = require("runtimecarried")
+                local second = require("runtimecarried")
+                testAssert.equal(first.value, 42)
+                assert(first == second, "the carried module keeps require identity")
+                testAssert.equal(calls, 1, "the carried module compiles once")
+            end
+        )
+    end)
+end
+
+function M.carriedImplementationsFollowProjectPreloadAndCompiledModules()
+    withProject(
+        {
+            ["src/runtimecarried.nupp"] = "return {value = 21}\n",
+            ["compiled/runtimecarried.lua"] = "return {value = 84}\n",
+        },
+        function(dir)
+            withCarriedModule(
+                dir,
+                function(path, env, name, source)
+                    assert(source == nil, "a resolved module must not use carried source")
+                    testAssert.equal(name, "runtimecarried", "the project callback keeps its requested module name")
+                    return compile(path, env, name)
+                end,
+                function()
+                    package.preload.runtimecarried = function()
+                        return {value = 7}
+                    end
+                    testAssert.equal(require("runtimecarried").value, 7, "preload remains first")
+                    package.loaded.runtimecarried = nil
+                    package.preload.runtimecarried = nil
+                    testAssert.equal(require("runtimecarried").value, 21, "project source precedes carried source")
+                    package.loaded.runtimecarried = nil
+                    assert(os.remove(dir .. "/src/runtimecarried.nupp"))
+                    package.path = dir .. "/compiled/?.lua;" .. package.path
+                    testAssert.equal(require("runtimecarried").value, 84, "compiled Lua precedes carried source")
+                end
+            )
+        end
+    )
+end
+
+function M.cliRunLoadsACarriedRootWithoutACompiledLibrary()
+    withProject({["main.nupp"] = 'local serde = require("serde")\nprint(type(serde))\n'}, function(dir)
+        local process = require("nupp.compiler.process")
+        local code, output = process.capture({ROOT .. "/bin/nupp", "run", "main.nupp"}, {cwd = dir})
+        testAssert.equal(code, 0, output)
+        testAssert.equal(output, "table\n", "the carried root executes")
+    end)
+end
 
 function M.loadsLjppFromProjectRoots()
     withProject(

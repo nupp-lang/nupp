@@ -376,7 +376,7 @@ local record Output<M is core.Member> is core.Writer<M>
             return self.root
         end
 
-        return assert2(frame.selected.children[member], "foreign binary member")
+        return (assert2(frame.selected.children[member], "foreign binary member"))
     end
 
     function include(exclusive self, member: M): boolean

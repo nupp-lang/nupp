@@ -279,7 +279,7 @@ local record DocumentField is structures.Field<documents.Document, DocumentBuild
             structures.copiedGet<documents.Document, documents.Document>(function(
                 borrows source: documents.Document
             ): documents.Document
-                return assert2(source:get(name), "absent property")
+                return (assert2(source:get(name), "absent property"))
             end),
             function(exclusive state: DocumentBuilder, value: documents.Document): nil
                 state.fields[#state.fields + 1] = new documents.Entry(name = name, value = value)

@@ -55,8 +55,13 @@ local function installVmModules()
     vmModules = require("nupp.compiler.project.env").new(".")
     require("nupp.compiler.runtime").install(
         vmModules,
-        function(modulePath, e, name)
-            local image = compile.image(modulePath, e, name)
+        function(modulePath, e, name, source)
+            local strict
+            if source ~= nil then
+                strict = false
+            end
+            local image = compile.image(modulePath, e, name, nil, source, strict)
+
             return image, image == nil and "type errors" or nil
         end,
         nil,

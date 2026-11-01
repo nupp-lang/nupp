@@ -100,6 +100,11 @@ local toolFingerprintMemo = nil
 
 local treeFilesMemo: {string}? = nil
 
+local compiledFilesMemo: {string}? = nil
+local compiledFiles: function(string): {string}
+local moduleSources: {[string]: string} = {}
+local moduleRequirements: {[string]: any} = {}
+
 -- Every Lua file under the directory holding the compiler and the tools, listed
 -- once: both fingerprints below read from it.
 local function treeFiles(dir: string): {string}
@@ -206,8 +211,25 @@ end
 
 local besideToolMemo: string? = nil
 
---- The digest of every module beside the compiler and the tools: the runtime and
---- the standard library the module graph also covers.
+-- The graph's index can be reused while its compiler-owned seed files match.
+-- Public files and resolutions are validated from the kept graph before reuse.
+local function privateGraphFingerprint(digest: function(string): string): string
+    local dir = dirname(compilerDir())
+    local root = dirname(dir)
+    local parts = {}
+    for _, path in ipairs(treeFiles(dir)) do
+        local relative = relativeTo(root, path)
+        if not relative:match("^nupp/compiler/") and not relative:match("^nupp/tools/") then
+            parts[#parts + 1] = relative .. "\0" .. (hashFile(path, digest) or "missing")
+        end
+    end
+    table.sort(parts)
+
+    return digest(toolFingerprint(digest) .. "\0" .. digest(table.concat(parts, "\0")))
+end
+
+--- The digest of the runtime dependencies the module graph also covers.
+--- This includes public modules outside the `nupp` directory.
 ---
 --- The graph used to be stamped with `toolFingerprint` alone, which reads only the
 --- compiler and the tools. An edit to the runtime then kept serving the graph from
@@ -218,10 +240,11 @@ local function besideToolFingerprint(digest: function(string): string): string
         return besideToolMemo as string
     end
     local dir = dirname(compilerDir())
+    local root = dirname(dir)
     local parts = {}
-    for _, path in ipairs(treeFiles(dir)) do
-        local relative = relativeTo(dir, path)
-        if not relative:match("^compiler/") and not relative:match("^tools/") then
+    for _, path in ipairs(compiledFiles(dir)) do
+        local relative = relativeTo(root, path)
+        if not relative:match("^nupp/compiler/") and not relative:match("^nupp/tools/") then
             parts[#parts + 1] = relative .. "\0" .. (hashFile(path, digest) or "missing")
         end
     end
@@ -231,9 +254,8 @@ local function besideToolFingerprint(digest: function(string): string): string
     return besideToolMemo as string
 end
 
---- What the module graph covers: the compiler, the tools and every module beside
---- them. The graph is stamped with it, and a subsystem it cannot narrow falls back
---- to it.
+--- The compiler, its tools, and their resolved implementation dependencies.
+--- A subsystem whose dependencies cannot be narrowed falls back to this digest.
 local function graphFingerprint(contentDigest: (function(string): string)?): string
     local digest = contentDigest or hash.digest
     if bundled() then
@@ -252,9 +274,15 @@ end
 --- back to the whole compiler: an unrelated runtime plugin must not erase every narrow
 --- compiler stamp.
 type fingerprint.ModuleGraph = {
+    root: string,
+
     --- Module name -> the file it lives in, relative to the tree root; on the VM,
     --- where the modules live in one image, the module's own name.
     files: {[string]: string},
+    requirements: {[string]: {
+        required: {string},
+        declared: {string}
+    }},
 
     --- Module name -> the modules it requires.
     edges: {[string]: {string}},
@@ -267,7 +295,7 @@ type fingerprint.ModuleGraph = {
 }
 
 --- Bumped when an entry stops decoding into what the reader expects.
-local GRAPH_STAMP = "modules/2"
+local GRAPH_STAMP = "modules/3"
 
 local graphMemo: fingerprint.ModuleGraph? = nil
 
@@ -284,8 +312,30 @@ local graphStoredIn: {[string]: boolean} = {}
 --- The value store verifies its envelope, but its payload is still cache data.
 --- A decodable table with a missing map or a broken edge is a cache miss, not a
 --- reason for a check or build to fail while traversing it.
+local function stringList(value: any): boolean
+    if type(value) ~= "table" then
+        return false
+    end
+    local count: integer = 0
+    for index, item in pairs(value) do
+        if type(index) ~= "number" or index < 1 or index ~= math.floor(index) or type(item) ~= "string" then
+            return false
+        end
+        count = count + 1
+    end
+    for index = 1, count do
+        if type(value[index]) ~= "string" then
+            return false
+        end
+    end
+
+    return true
+end
+
 local function validGraph(value: any): boolean
     if type(value) ~= "table"
+        or type(value.root) ~= "string"
+        or type(value.requirements) ~= "table"
         or type(value.files) ~= "table"
         or type(value.edges) ~= "table"
         or type(value.digests) ~= "table"
@@ -299,6 +349,9 @@ local function validGraph(value: any): boolean
             or type(value.digests[name]) ~= "string"
             or type(value.edges[name]) ~= "table"
             or type(value.unknown[name]) ~= "boolean"
+            or type(value.requirements[name]) ~= "table"
+            or not stringList(value.requirements[name].required)
+            or not stringList(value.requirements[name].declared)
         then
             return false
         end
@@ -326,6 +379,11 @@ local function validGraph(value: any): boolean
         end
     end
     for name in pairs(value.edges) do
+        if type(name) ~= "string" or type(value.files[name]) ~= "string" then
+            return false
+        end
+    end
+    for name in pairs(value.requirements) do
         if type(name) ~= "string" or type(value.files[name]) ~= "string" then
             return false
         end
@@ -380,6 +438,7 @@ local function requiredBy(text: string, path: string): {string}, boolean, {strin
     local names: {string} = {}
     local declared: {string} = {}
     local reflective = false
+    local unknown = false
     for pattern in text:gmatch("@requires%-dynamically%s+([%w%.%*%-_]+)") do
         if pattern == "nothing" then
             reflective = true
@@ -418,23 +477,171 @@ local function requiredBy(text: string, path: string): {string}, boolean, {strin
                 literal = tokens[index + 2]
             end
             if not literal then
-                return names, not (reflective or #declared > 0), declared
+                unknown = unknown or not (reflective or #declared > 0)
+            else
+                -- On its own line: `chunk and pcall(chunk)` is one value, the way any
+                -- call inside a larger expression is, so the string would arrive as
+                -- nil.
+                local chunk = loadstring("return " .. literal.text)
+                if not chunk then
+                    unknown = unknown or not (reflective or #declared > 0)
+                else
+                    local ok, value = pcall(chunk)
+                    if not ok or type(value) ~= "string" then
+                        unknown = unknown or not (reflective or #declared > 0)
+                    else
+                        names[#names + 1] = value as string
+                    end
+                end
             end
-            -- On its own line: `chunk and pcall(chunk)` is one value, the way any
-            -- call inside a larger expression is, so the string would arrive as nil.
-            local chunk = loadstring("return " .. literal.text)
-            if not chunk then
-                return names, not (reflective or #declared > 0), declared
-            end
-            local ok, value = pcall(chunk)
-            if not ok or type(value) ~= "string" then
-                return names, not (reflective or #declared > 0), declared
-            end
-            names[#names + 1] = value as string
         end
     end
 
-    return names, false, declared
+    return names, unknown, declared
+end
+
+local function validName(name: string): boolean
+    return name:match("^[%w_%.%-]+$") ~= nil
+        and not name:find("..", 1, true)
+        and name:sub(1, 1) ~= "."
+        and name:sub(-1) ~= "."
+end
+
+local function resolveModule(root: string, name: string): (string?, string?)
+    if not validName(name) then
+        return nil
+    end
+    local relative = name:gsub("%.", "/")
+    for _, suffix in ipairs({".lua", "/init.lua"}) do
+        local path = join(root, relative .. suffix)
+        local source = moduleSources[path] or readFile(path)
+        if source ~= nil then
+            return path, source
+        end
+    end
+
+    return nil
+end
+
+-- Start in the compiler-owned namespace, then follow resolved dependencies. A
+-- recursive walk of the output root would also collect application builds and caches.
+compiledFiles = function(dir: string): {string}
+    if compiledFilesMemo ~= nil then
+        return compiledFilesMemo as {string}
+    end
+    local root = dirname(dir)
+    local files: {string} = {}
+    local seen: {[string]: boolean} = {}
+
+    local function add(name: string): nil
+        if seen[name] then
+            return
+        end
+        local path, source = resolveModule(root, name)
+        if path ~= nil and source ~= nil then
+            seen[name] = true
+            moduleSources[path] = source
+            files[#files + 1] = path
+        end
+    end
+
+    for _, path in ipairs(treeFiles(dir)) do
+        local name = moduleNameOf(root, path)
+        if name then
+            add(name)
+        end
+    end
+    local cursor: integer = 1
+    while cursor <= #files do
+        local path = files[cursor]
+        cursor = cursor + 1
+        local required, unknown, declared = requiredBy(moduleSources[path] as string, path)
+        moduleRequirements[path] = {required = required, unknown = unknown, declared = declared}
+        for _, name in ipairs(required) do
+            add(name)
+        end
+        for _, pattern in ipairs(declared) do
+            local prefix = pattern:match("^(.+)%.%*$")
+            if prefix and validName(prefix) then
+                local directory = join(root, (prefix:gsub("%.", "/")))
+                for _, child in ipairs(listFiles(directory)) do
+                    if child:match("%.lua$") then
+                        local name = moduleNameOf(root, child)
+                        if name then
+                            add(name)
+                        end
+                    end
+                end
+            else
+                add(pattern)
+            end
+        end
+    end
+    table.sort(files)
+    compiledFilesMemo = files
+
+    return files
+end
+
+-- Reuse the recorded discovery index without lexing unchanged modules. Resolving
+-- the recorded imports also detects newly available files and namespace members.
+local function currentGraph(graph: fingerprint.ModuleGraph, root: string, digest: function(string): string): boolean
+    local paths: {string} = {}
+    local resolved: {[string]: string} = {}
+    for name, previous in pairs(graph.files) do
+        local path, source = resolveModule(root, name)
+        if path == nil
+            or source == nil
+            or relativeTo(root, path) ~= relativeTo(graph.root, previous)
+            or digest(source) ~= graph.digests[name]
+        then
+            return false
+        end
+        resolved[name] = path
+        moduleSources[path] = source
+        paths[#paths + 1] = path
+    end
+    for _, metadata in pairs(graph.requirements) do
+        for _, name in ipairs(metadata.required) do
+            local path = resolveModule(root, name)
+            if path ~= nil and graph.files[name] == nil then
+                return false
+            end
+        end
+        for _, pattern in ipairs(metadata.declared) do
+            local prefix = pattern:match("^(.+)%.%*$")
+            if prefix and validName(prefix) then
+                local directory = join(root, (prefix:gsub("%.", "/")))
+                for _, path in ipairs(listFiles(directory)) do
+                    if path:match("%.lua$") then
+                        local name = moduleNameOf(root, path)
+                        if name ~= nil and graph.files[name] == nil then
+                            return false
+                        end
+                    end
+                end
+            elseif not prefix then
+                local path = resolveModule(root, pattern)
+                if path ~= nil and graph.files[pattern] == nil then
+                    return false
+                end
+            end
+        end
+    end
+    for name, path in pairs(resolved) do
+        local metadata = graph.requirements[name] as {
+            required: {string},
+            declared: {string}
+        }
+        moduleRequirements[
+            path
+        ] = {required = metadata.required, declared = metadata.declared, unknown = graph.unknown[name]}
+    end
+    table.sort(paths)
+    graph.files, graph.root = resolved, root
+    compiledFilesMemo = paths
+
+    return true
 end
 
 --- The graph of the VM image the compiler is running from, as the runtime
@@ -466,7 +673,14 @@ local function vmModuleGraph(): fingerprint.ModuleGraph?
     then
         return nil
     end
-    local graph: fingerprint.ModuleGraph = {files = {}, edges = {}, digests = {}, unknown = {}}
+    local graph: fingerprint.ModuleGraph = {
+        root = "",
+        files = {},
+        requirements = {},
+        edges = {},
+        digests = {},
+        unknown = {}
+    }
     for name, digest in pairs(described.digests) do
         if type(name) == "string" and type(digest) == "string" then
             graph.files[name] = name
@@ -480,6 +694,7 @@ local function vmModuleGraph(): fingerprint.ModuleGraph?
                 end
             end
             graph.edges[name] = edges
+            graph.requirements[name] = {required = edges, declared = {}}
         end
     end
 
@@ -489,16 +704,21 @@ end
 --- The graph of the built tree under `root`: every module's file, its digest, and
 --- what `requiredBy` reads it to require.
 local function treeModuleGraph(root: string, digest: function(string): string): fingerprint.ModuleGraph
-    local graph: fingerprint.ModuleGraph = {files = {}, edges = {}, digests = {}, unknown = {}}
+    local graph: fingerprint.ModuleGraph = {
+        root = root,
+        files = {},
+        requirements = {},
+        edges = {},
+        digests = {},
+        unknown = {}
+    }
     local sources: {[string]: string} = {}
-    -- Under `nupp/` rather than the whole tree the compiler was found in. Every module
-    -- here is a `nupp.*` one, and listing the root meant whatever else happened to sit
-    -- beside the compiler -- a project's own build output, in a development checkout --
-    -- was read and digested for a graph it is not part of.
-    for _, path in ipairs(treeFiles(join(root, "nupp"))) do
+    -- Public dependencies share this graph without making unrelated output trees
+    -- part of the compiler. The same resolved closure stamps the kept graph.
+    for _, path in ipairs(compiledFiles(join(root, "nupp"))) do
         if path:match("%.lua$") then
             local name = moduleNameOf(root, path)
-            local text = name and readFile(path) or nil
+            local text = name and moduleSources[path] or nil
             if name and text then
                 graph.files[name] = path
                 graph.digests[name] = digest(text)
@@ -507,8 +727,10 @@ local function treeModuleGraph(root: string, digest: function(string): string): 
         end
     end
     for name, text in pairs(sources) do
-        local required, unknown, declared = requiredBy(text, graph.files[name] or name)
-        graph.unknown[name] = unknown
+        local metadata = moduleRequirements[graph.files[name] as string]
+        local required, declared = metadata.required, metadata.declared
+        graph.requirements[name] = {required = required, declared = declared}
+        graph.unknown[name] = metadata.unknown
         local edges: {string} = {}
         local added: {[string]: boolean} = {}
         for _, required_name in ipairs(required) do
@@ -575,9 +797,12 @@ local function moduleGraph(
         end
         store = require(
             "nupp.compiler.project.store"
-        ).openValue(join(cacheDir, "modulegraph.buf"), GRAPH_STAMP .. "\0" .. graphFingerprint(digest))
+        ).openValue(
+            join(cacheDir, "modulegraph.buf"),
+            GRAPH_STAMP .. "\0" .. (image and graphFingerprint(digest) or privateGraphFingerprint(digest))
+        )
         local stored = store.value
-        if validGraph(stored) then
+        if validGraph(stored) and (image or currentGraph(stored as fingerprint.ModuleGraph, root, digest)) then
             graphMemo = stored as fingerprint.ModuleGraph
 
             return graphMemo

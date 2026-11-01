@@ -30,7 +30,7 @@ export record Shape
     end
 
     function at(self, index: integer): Member
-        return assert(self.members[index], "shape member index out of range")
+        return (assert(self.members[index], "shape member index out of range"))
     end
 end
 
@@ -51,7 +51,7 @@ export record Model
     @private @readonly shapes: {[string]: Shape}
 
     function shape(self, id: string): Shape
-        return assert(self.shapes[id], "unknown Smithy shape: " .. id)
+        return (assert(self.shapes[id], "unknown Smithy shape: " .. id))
     end
 end
 
@@ -142,10 +142,10 @@ export function load(ast: documents.Document): Model
                 end
             end
         elseif shape.kind == "list" then
-            add(shape, "member", assert(field.value:get("member"), "missing list member"))
+            add(shape, "member", (assert(field.value:get("member"), "missing list member")))
         elseif shape.kind == "map" then
-            add(shape, "key", assert(field.value:get("key"), "missing map key"))
-            add(shape, "value", assert(field.value:get("value"), "missing map value"))
+            add(shape, "key", (assert(field.value:get("key"), "missing map key")))
+            add(shape, "value", (assert(field.value:get("value"), "missing map value")))
         end
     end
 

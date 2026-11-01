@@ -43,6 +43,20 @@ function extensions.member(root: string, name: string): boolean
     return specification ~= nil and (specification.direct == true or specification.members[name] == true)
 end
 
+local function firstUse(c: any, root: string): boolean
+    local observed = c.builtinExtensionUses
+    if not observed then
+        observed = {}
+        c.builtinExtensionUses = observed
+    end
+    if observed[root] then
+        return false
+    end
+    observed[root] = true
+
+    return true
+end
+
 -- Compile an extension at most once per environment, outside the prelude and
 -- outside its own dependency cycle. Missing modules are normal in the accepting
 -- seed, before their source adoption.
@@ -58,6 +72,14 @@ function extensions.type(c: any, root: string): any
         env.builtinExtensions = pending
     end
     if pending[root] ~= nil then
+        if pending[root] and firstUse(c, root) then
+            -- Query-local environments can inherit the canonical extension cache.
+            -- Each check still observes its module and owns its member-effect view.
+            if env.resolveModule then
+                env.resolveModule(env, specification.module)
+            end
+            env.featureEffects = native.decorateGlobals(env.globals)
+        end
         return pending[root] or nil
     end
     pending[root] = false
@@ -136,6 +158,7 @@ function extensions.type(c: any, root: string): any
         end
     end
     pending[root] = merged
+    firstUse(c, root)
 
     return merged
 end

@@ -960,15 +960,21 @@ end
 -- The modules `@namespace` implies: one per field of the tagged shape, named
 -- `prefix.field`, holding that field's own fields as top-level items. A field inside
 -- one of those modules may carry `@namespace` itself, which moves it from the parent's
--- values into a child module by the same rule.
+-- values into a child module by the same rule. Fields that do not describe a child
+-- module belong to the namespace itself.
 local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
     local modules = {}
     local expanding: {[any]: boolean} = {}
+    local direct = {}
     for _, field in ipairs(shape.fields or {}) do
         if field.kind == "tshapeField" and not hiddenEntry(field, includePrivate) then
+            local entries = shapeEntries(field, blocks)
+            if not entries then
+                direct[#direct + 1] = field
+            end
             shapeModule(
                 prefix .. "." .. field.name.text,
-                shapeEntries(field, blocks),
+                entries,
                 entryDoc(field).text,
                 path,
                 blocks,
@@ -977,6 +983,10 @@ local function namespaceChildren(shape, prefix, path, blocks, includePrivate)
                 modules
             )
         end
+    end
+
+    if #direct > 0 then
+        shapeModule(prefix, direct, "", path, blocks, includePrivate, expanding, modules)
     end
 
     return modules

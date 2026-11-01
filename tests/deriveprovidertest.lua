@@ -4,7 +4,7 @@ local json = require("testjson")
 local process = require("nupp.compiler.process")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
-local NUPP = HERE .. "/../bin/nupp"
+local NUPP = require("nupp.compiler.fs").canonical(HERE .. "/../bin/nupp")
 
 local M = {}
 
@@ -21,10 +21,10 @@ local M = {}
 -- replaced rather than less: a status says the batch failed, a file says which
 -- fixture failed and how.
 --
--- Two batches, because the answer they want is opposite. One must check
--- clean; the other must be refused, which is what each
--- of its assertions is about, so a shared status would mean nothing there.
-local function checkedTogether(flags, paths)
+-- Accepted and rejected fixtures use separate batches: a shared status would mean
+-- nothing there. The private registry consumer uses its own project so its source
+-- path and declared module share the standard library's package namespace.
+local function checkedTogether(flags, paths, cwd)
     local answered = nil
 
     return function(path)
@@ -36,7 +36,7 @@ local function checkedTogether(flags, paths)
             for _, each in ipairs(paths) do
                 argv[#argv + 1] = each
             end
-            local status, output = process.capture(argv)
+            local status, output = process.capture(argv, cwd and {cwd = cwd} or nil)
             local ok, decoded = pcall(json.decode, output)
             assert(
                 ok and type(decoded) == "table",
@@ -59,8 +59,9 @@ local function checkedTogether(flags, paths)
     end
 end
 
+local INTERNAL_ROOT = require("nupp.compiler.fs").canonical(HERE .. "/fixtures/derive-internal")
 local STRICT = {
-    ecs = HERE .. "/fixtures/ecsderiveconsumer.nupp",
+    ecs = INTERNAL_ROOT .. "/src/nupp/internal/ecsderiveconsumer.nupp",
     inspect = HERE .. "/fixtures/deriveinspect_consumer.nupp",
     exported = HERE .. "/fixtures/deriveexported_main.nupp",
     witness = HERE .. "/fixtures/witnessexported_main.nupp",
@@ -74,28 +75,23 @@ local REFUSED = {
     immutable = HERE .. "/fixtures/deriveimmutable.nupp",
 }
 
-local STRICT_BATCH = {
-    STRICT.ecs,
-    STRICT.inspect,
-    STRICT.exported,
-    STRICT.witness,
-    STRICT.annotationWitness,
-    STRICT.custom,
-}
+local STRICT_BATCH = {STRICT.inspect, STRICT.exported, STRICT.witness, STRICT.annotationWitness, STRICT.custom,}
 local REFUSED_BATCH = {REFUSED.unsupported, REFUSED.provider, REFUSED.immutable}
 
 local strictly = checkedTogether({}, STRICT_BATCH)
+local internally = checkedTogether({}, {STRICT.ecs}, INTERNAL_ROOT)
 local refusals = checkedTogether({}, REFUSED_BATCH)
 
 --- The strict batch reported nothing about this fixture.
 local function checksStrictly(path, label)
-    local diagnostics = strictly(path)
+    local diagnostics = (path == STRICT.ecs and internally or strictly)(path)
+    local count = path == STRICT.ecs and 1 or #STRICT_BATCH
     if #diagnostics > 0 then
         local first = diagnostics[1]
         error(
             (
                 "%s: %s reports %s: %s\n(checked strictly beside %d other fixtures)"
-            ):format(label, path, tostring(first.code), tostring(first.message), #STRICT_BATCH - 1),
+            ):format(label, path, tostring(first.code), tostring(first.message), count - 1),
             2
         )
     end
@@ -165,7 +161,7 @@ end
 
 --- Runs a fixture and answers what it printed.
 local function ran(path, label)
-    local status, output = process.capture({NUPP, "run", path})
+    local status, output = process.capture({NUPP, "run", path}, path == STRICT.ecs and {cwd = INTERNAL_ROOT} or nil)
     assert(status == 0, ("%s: %s did not run:\n%s"):format(label, path, output))
 
     return output

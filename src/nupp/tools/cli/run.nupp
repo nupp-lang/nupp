@@ -127,11 +127,21 @@ local function run(options: any): integer
         package.loaded.arg = arguments
     end
 
-    local compileProgram, checkProgram = compileLoaded, checkPlain
-    compileLoaded = function(modulePath: string, env: any, name: string): string?, string?
+    local compileProject, checkProgram = compileLoaded, checkPlain
+
+    local function compileProgram(modulePath: string, env: any, name: string, source: string?): (string?, string?)
+        if source ~= nil then
+            local image = compile.image(modulePath, env, name, nil, source, false)
+            return image, image == nil and "type errors" or nil
+        end
+
+        return compileProject(modulePath, env, name)
+    end
+
+    local function compileWithSource(modulePath: string, env: any, name: string, source: string?): (string?, string?)
         local current: any = rawget(_G, "arg")
         activateArguments(toolArg)
-        local ok, code, problem = pcall(compileProgram, modulePath, env, name)
+        local ok, code, problem = pcall(compileProgram, modulePath, env, name, source)
         activateArguments(current)
         if not ok then
             error(code, 0)
@@ -139,6 +149,7 @@ local function run(options: any): integer
 
         return code, problem
     end
+
     checkPlain = function(modulePath: string, env: any): boolean
         local current: any = rawget(_G, "arg")
         activateArguments(toolArg)
@@ -166,7 +177,7 @@ local function run(options: any): integer
     local loadCompiled = loadImage and function(code: string, _: string): (any, string?)
         return (loadImage as function(image: string): (any, string?))(code)
     end or nil
-    local removeLoader = runtime.install(projectEnv, compileLoaded, loaded, checkPlain, loadCompiled)
+    local removeLoader = runtime.install(projectEnv, compileWithSource, loaded, checkPlain, loadCompiled)
     -- Which compiler is running the program, for a library that records it beside
     -- what it measured: a benchmark record says what compiled it, so a reader seeing a
     -- number move knows whether the compiler moved under it. Its release, and a digest

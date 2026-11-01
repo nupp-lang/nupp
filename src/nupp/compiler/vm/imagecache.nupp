@@ -147,7 +147,14 @@ local function list(values: {string}?): string
 end
 
 --- Everything about checking `path` as `name` in `env` that is not a file it reads.
-local function keyFor(env: any, path: string, name: string?, source: string, digest: function(string): string): string
+local function keyFor(
+    env: any,
+    path: string,
+    name: string?,
+    source: string,
+    digest: function(string): string,
+    strict: boolean?
+): string
     local rootDir = env.rootDir or "."
     local config: {string} = {}
     canonical(env.config, config, {})
@@ -170,6 +177,7 @@ local function keyFor(env: any, path: string, name: string?, source: string, dig
         os.getenv("PWD") or "",
         os.getenv("EMIT_STUBS") or "",
         digest(source),
+        tostring(strict),
     }
 
     return digest(table.concat(parts, "\0"))
@@ -305,7 +313,14 @@ end
 --- @param producers the modules outside the compiler that decide the image beside
 ---   the checker and the lowering -- the caller that drives them -- named here
 ---   because the compiler may not name the tools built on it
-function imagecache.open(env: any, path: string, name: string?, source: string, producers: {string}?): imagecache.Entry?
+function imagecache.open(
+    env: any,
+    path: string,
+    name: string?,
+    source: string,
+    producers: {string}?,
+    strict: boolean?
+): imagecache.Entry?
     if env.cacheDisabled or env.memoryOnly then
         return nil
     end
@@ -315,7 +330,7 @@ function imagecache.open(env: any, path: string, name: string?, source: string, 
         end
     end
     local digest = contentDigest(env)
-    local file = storeDirectory(env) .. "/" .. keyFor(env, path, name, source, digest) .. ".buf"
+    local file = storeDirectory(env) .. "/" .. keyFor(env, path, name, source, digest, strict) .. ".buf"
     local stamp = stampFor(env, producers or {}, digest)
     local stats = imagecache.stats
 

@@ -39,6 +39,7 @@ local function read(path)
     end
     local text = file:read("*a")
     file:close()
+
     return text
 end
 
@@ -49,6 +50,7 @@ local function tempProject(files)
     for name, text in pairs(files) do
         write(dir .. "/" .. name, text)
     end
+
     return dir
 end
 
@@ -74,11 +76,7 @@ print(lib.double(21))
 ]]
 
 local function project()
-    return tempProject({
-        ["nupp.lua"] = 'return {include = {"src"}}\n',
-        ["src/lib.nupp"] = LIB,
-        ["main.nupp"] = MAIN,
-    })
+    return tempProject({["nupp.lua"] = 'return {include = {"src"}}\n', ["src/lib.nupp"] = LIB, ["main.nupp"] = MAIN,})
 end
 
 -- A fresh environment over `dir`, the way the next process makes one, keeping its
@@ -98,6 +96,7 @@ local function counting(fn)
     local ok, a, b = pcall(fn)
     check.check = original
     assert(ok, tostring(a))
+
     return count, a, b
 end
 
@@ -106,6 +105,7 @@ local function snapshot()
     for key, value in pairs(imagecache.stats) do
         copy[key] = value
     end
+
     return copy
 end
 
@@ -122,10 +122,29 @@ local function entries(dir)
         end
     end
     pipe:close()
+
     return names
 end
 
 local M = {}
+
+function M.explicitStrictContextsDoNotShareImages()
+    local dir = project()
+    local main = dir .. "/main.nupp"
+    local source = assert(read(main))
+    local permissive = assert(imagecache.open(environment(dir), main, nil, source, {}, false))
+    permissive.store("permissive image")
+    local ordinary = assert(imagecache.open(environment(dir), main, nil, source, {}))
+    assert(ordinary.lookup() == nil, "default checking must not reuse an explicit non-strict image")
+    ordinary.store("ordinary image")
+    local strict = assert(imagecache.open(environment(dir), main, nil, source, {}, true))
+    assert(strict.lookup() == nil, "strict checking must not reuse either prior context")
+    strict.store("strict image")
+    assert(imagecache.open(environment(dir), main, nil, source, {}, false).lookup() == "permissive image")
+    assert(imagecache.open(environment(dir), main, nil, source, {}).lookup() == "ordinary image")
+    assert(imagecache.open(environment(dir), main, nil, source, {}, true).lookup() == "strict image")
+    remove(dir)
+end
 
 function M.aSecondEnvironmentReadsTheImageInsteadOfCheckingAgain()
     local dir = project()
@@ -197,7 +216,10 @@ function M.aDependencysInterfaceChangeReachesItsRequirers()
     local dir = project()
     local main = dir .. "/main.nupp"
     assert(compile.image(main, environment(dir), nil), "the program compiled")
-    write(dir .. "/src/lib.nupp", LIB:gsub("value: number%): number", "value: string): string"):gsub("value %* 2", "value"))
+    write(
+        dir .. "/src/lib.nupp",
+        LIB:gsub("value: number%): number", "value: string): string"):gsub("value %* 2", "value")
+    )
     local before = snapshot()
     local image = compile.image(main, environment(dir), nil, {})
     assert(delta(before, "hits") == 0, "an image checked against the old interface was served")
@@ -305,10 +327,15 @@ local function onTheVm(identity, describe, ask)
     for index, name in ipairs(names) do
         saved[index] = rawget(_G, name)
     end
-    rawset(_G, "__nupp_load_image", function() end)
-    rawset(_G, "__nupp_image_identity", identity and function()
-        return identity
-    end or nil)
+    rawset(_G, "__nupp_load_image", function()
+    end)
+    rawset(
+        _G,
+        "__nupp_image_identity",
+        identity and function()
+            return identity
+        end or nil
+    )
     rawset(_G, "__nupp_image_modules", describe)
     local ok, answer = pcall(function()
         return ask(chunk())
@@ -317,6 +344,7 @@ local function onTheVm(identity, describe, ask)
         rawset(_G, name, saved[index])
     end
     assert(ok, tostring(answer))
+
     return answer
 end
 
@@ -358,6 +386,7 @@ local function describing(digests, unknown)
             graph.digests[name] = (digests or {})[name] or graph.digests[name]
             graph.unknown[name] = (unknown or {})[name] == true
         end
+
         return graph
     end
 end
@@ -381,19 +410,41 @@ local function survives(first, second)
     written.save()
     local found = store.openValue(path, recordStamp("second image", second)).value
     remove(dir)
+
     return found ~= nil and found.checked == true
 end
 
 function M.anImageEditOutsideTheCheckerKeepsCheckRecords()
-    assert(survives(describing(), describing({["nupp.tools.cli.explain"] = "explain, edited"})),
-        "a command's edit went cold")
+    assert(
+        survives(
+            describing(),
+            describing({
+                ["nupp.tools.cli.explain"] = "explain, edited"
+            })
+        ),
+        "a command's edit went cold"
+    )
 end
 
 function M.anImageEditToTheCheckerDiscardsCheckRecords()
-    assert(not survives(describing(), describing({["nupp.compiler.types"] = "types, edited"})),
-        "a record outlived the checker that wrote it")
-    assert(not survives(describing(), describing({["nupp.tools.build.modules"] = "modules, edited"})),
-        "a record outlived the module build that wrote it")
+    assert(
+        not survives(
+            describing(),
+            describing({
+                ["nupp.compiler.types"] = "types, edited"
+            })
+        ),
+        "a record outlived the checker that wrote it"
+    )
+    assert(
+        not survives(
+            describing(),
+            describing({
+                ["nupp.tools.build.modules"] = "modules, edited"
+            })
+        ),
+        "a record outlived the module build that wrote it"
+    )
 end
 
 function M.aRuntimeThatCannotDescribeItsImageStampsWithTheWholeImage()
@@ -402,12 +453,19 @@ function M.aRuntimeThatCannotDescribeItsImageStampsWithTheWholeImage()
     assert(not survives(nil, nil), "two images shared a stamp without a description")
     -- A description that is not one is the same as none.
     local broken = function()
-        return {digests = {["nupp.compiler.check"] = "check"}, edges = {["nupp.compiler.check"] = {"absent"}}, unknown = {}}
+        return {
+            digests = {["nupp.compiler.check"] = "check"},
+            edges = {["nupp.compiler.check"] = {"absent"}},
+            unknown = {}
+        }
     end
     assert(recordStamp("a", broken) == vmFingerprint("a"), "a broken description was believed")
-    assert(recordStamp("a", function()
-        error("no image")
-    end) == vmFingerprint("a"), "a failing description was believed")
+    assert(
+        recordStamp("a", function()
+            error("no image")
+        end) == vmFingerprint("a"),
+        "a failing description was believed"
+    )
 end
 
 -- A module that loads what its edges do not name could be running any code in the

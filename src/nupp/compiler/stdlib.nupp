@@ -22,23 +22,18 @@ local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__n
 )
 
 -- Watch modules spend one top-level local on their private implementation
--- array. The ordinary bootstrap always reserves a math namespace local even
--- when math is unused; addressing that namespace through nupp in the
--- development-only artifact recovers exactly one local and keeps watch's
--- authored-function ceiling equal to normal.
+-- array. Addressing the cleanup registry through its global recovers that local
+-- and keeps the authored-function ceiling equal to normal.
 local HOT_BASE = compact(
     [=[
 local __nupp=_G.nupp or {};_G.nupp=__nupp
 local function __nuppCloseFile(handle)if io.type(handle)=="closed file"then return end;local ok,reason=handle:close();if not ok then error(reason or "the file could not be closed",0)end end
-local __nuppCleanups=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry=__nuppCleanups;__nuppCleanups["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile
+_G.__nuppCleanupRegistry=_G.__nuppCleanupRegistry or {};_G.__nuppCleanupRegistry["nupp:lua.d.nupp#__nuppCloseFile"]=__nuppCloseFile
 ]=]
 )
 
--- `math` is mostly answered by the compiler, which lowers the qualified
--- paths to operations and never reaches a function at all. What this installs
--- is the module that answers the reads it could not lower, filling in the
--- namespace the base reserved rather than replacing it, because generated code
--- already addresses that table through a local of its own.
+-- The compiler lowers qualified math paths to operations where possible. The
+-- runtime fills the host table with the shared implementations of other reads.
 local MATH = compact(
     [=[
 local __nuppMathRuntime=require("nupp.compiler.runtime.math")

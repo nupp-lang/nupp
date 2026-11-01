@@ -14,16 +14,26 @@ function program.image(result, name, path, listing)
 
     -- Structs are laid out for the machine running the fragment, as `nupp run`
     -- lays them out.
-    return lower.emit(name, {}, function(candidate)
-        return candidate == name and (path or name .. ".nupp") or nil
-    end, function()
-        return tree
-    end, nil, listing, require("nupp.compiler.targetlayout").hostKey())
+
+    return lower.emit(
+        name,
+        {},
+        function(candidate)
+            return candidate == name and (path or name .. ".nupp") or nil
+        end,
+        function()
+            return tree
+        end,
+        nil,
+        listing,
+        require("nupp.compiler.targetlayout").hostKey()
+    )
 end
 
 -- A fragment's own `require` of a module the running image does not carry
 -- compiles that module from source, as `nupp test` does for a suite on the VM.
 local sourceModules = false
+
 local function installSourceModules(loadImage)
     if sourceModules then
         return
@@ -31,12 +41,23 @@ local function installSourceModules(loadImage)
     sourceModules = true
     local compile = require("nupp.tools.cli.compile")
     local env = require("nupp.compiler.project.env").new(".")
-    require("nupp.compiler.runtime").install(env, function(modulePath, e, name)
-        local image = compile.image(modulePath, e, name)
-        return image, image == nil and "type errors" or nil
-    end, nil, nil, function(image)
-        return loadImage(image)
-    end)
+    require("nupp.compiler.runtime").install(
+        env,
+        function(modulePath, e, name, source)
+            local strict
+            if source ~= nil then
+                strict = false
+            end
+            local image = compile.image(modulePath, e, name, nil, source, strict)
+
+            return image, image == nil and "type errors" or nil
+        end,
+        nil,
+        nil,
+        function(image)
+            return loadImage(image)
+        end
+    )
 end
 
 --- Installs that loader on the VM, for a helper that loads modules itself.
