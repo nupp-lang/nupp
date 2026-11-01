@@ -11,7 +11,7 @@ local function fail(path: string, expected: string): nil
 end
 
 local function witness(info: nupp.reflect.Info, index: integer): any
-    return assert(nupp.reflect.runtimeType(info, index), "runtime declaration is not available")
+    return (assert(nupp.reflect.runtimeType(info, index), "runtime declaration is not available"))
 end
 
 local function checkValue(info: nupp.reflect.Info, index: integer, value: any, path: string, seen: any): boolean
