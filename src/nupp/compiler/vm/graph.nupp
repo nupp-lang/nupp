@@ -1544,7 +1544,8 @@ local coreLibrary: {
     ["string.lower"] = true,
     ["string.len"] = true,
     ["string.find"] = true,
-    ["string.match"] = true
+    ["string.match"] = true,
+    ["string.gsub"] = true
 }
 
 local function preludeName(node: any): boolean
