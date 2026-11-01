@@ -261,7 +261,13 @@ function markdown.render(modules: {Module}, title: string?, all: {Module}?, over
         out[#out + 1] = ""
     end
     for moduleIndex, module in ipairs(modules) do
-        out[#out + 1] = '<a id="' .. module.name .. '"></a>'
+        local rootDeclaration = false
+        for _, item in ipairs(module.items) do
+            rootDeclaration = rootDeclaration or item.path == module.name
+        end
+        if not rootDeclaration then
+            out[#out + 1] = '<a id="' .. module.name .. '"></a>'
+        end
         out[#out + 1] = "# `" .. module.name .. "`"
         out[#out + 1] = ""
         -- An overview is what the author wanted said here, so it replaces the line that

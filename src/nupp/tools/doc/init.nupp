@@ -923,7 +923,7 @@ local function sweptPages(root, configured, reserved, title)
     return candidates
 end
 
-local function configuredPages(root, settings, title): {BuiltPage}?, string?
+local function configuredPages(root, settings, title, standardLibrary: stdlibMod.Page?): {BuiltPage}?, string?
     local pages: {BuiltPage} = {}
     local seen, home = {}, false
     -- A collection publishes the documents in its directory itself. A glob over the
@@ -1094,7 +1094,6 @@ local function configuredPages(root, settings, title): {BuiltPage}?, string?
     if not added then
         return nil, addErr
     end
-    local standardLibrary = stdlibMod.page(settings.stdlib)
     added, addErr = addGenerated(
         standardLibrary,
         "standard library index",
@@ -1233,7 +1232,7 @@ end
 -- Rendering the site
 ----------------------------------------------------------------------------
 
-local function renderSite(root, outDir, modules, title, settings)
+local function renderSite(root, outDir, modules, title, settings, standardLibrary)
     configureScintillua(root, settings)
     local ok, err = copyPublicFiles(root, outDir, settings.public)
     if not ok then
@@ -1257,7 +1256,7 @@ local function renderSite(root, outDir, modules, title, settings)
         return nil, err
     end
     local pages: {BuiltPage}?
-    pages, err = configuredPages(root, settings, title)
+    pages, err = configuredPages(root, settings, title, standardLibrary)
     if not pages then
         return nil, err
     end
@@ -1648,6 +1647,8 @@ function doc.build(root: string?, config: Config2, settings: Target?, opts: tabl
     local settings = (settings or {}) as doc.Settings
     local opts = opts as doc.BuildOptions or {} as doc.BuildOptions
     local modules, errors = loadModules(root, config or {}, settings, opts.sources)
+    local standardLibrary = stdlibMod.page(settings.stdlib)
+    stdlibMod.merge(modules, standardLibrary)
     if #errors > 0 then
         if opts.diagnostics then
             local collected = opts.diagnostics as {any}
@@ -1680,12 +1681,12 @@ function doc.build(root: string?, config: Config2, settings: Target?, opts: tabl
             code, message = 1, tostring(err)
         end
     elseif format == "site" then
-        local ok, err = renderSite(root, output, modules, title, settings)
+        local ok, err = renderSite(root, output, modules, title, settings, standardLibrary)
         if not ok then
             code, message = 1, tostring(err)
         end
     elseif format == "both" then
-        local ok, err = renderSite(root, output, modules, title, settings)
+        local ok, err = renderSite(root, output, modules, title, settings, standardLibrary)
         if ok then
             ok, err = writeFile(join(output, "api.md"), doc.markdown(modules, title, nil, nil))
         end

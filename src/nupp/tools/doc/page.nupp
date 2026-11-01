@@ -144,8 +144,7 @@ local function moduleTree(modules, pages)
             for _, library in ipairs(catalog.libraries) do
                 local node = qualified(library.name)
                 node.builtin = true
-                node.href = node.href or target .. "#" .. library.path
-                entries(node, library.items, target)
+                node.href = moduleFile(library.name)
             end
 
             local function category(key, name, anchor, items)
@@ -156,6 +155,11 @@ local function moduleTree(modules, pages)
                 node.category = true
                 node.href = target .. "#" .. anchor
                 entries(node, items, target)
+                for _, item in ipairs(items) do
+                    if item.module then
+                        node.children[item.name].href = moduleFile(item.module) .. "#" .. item.path
+                    end
+                end
             end
 
             category("@globals", "Globals", "globals", catalog.globals)
@@ -166,7 +170,7 @@ local function moduleTree(modules, pages)
                 if node and node.module then
                     node.builtin = true
                     local entry = root.children["@globals"].children[item.name]
-                    entry.href = moduleFile(node.module.name)
+                    entry.href = moduleFile(node.module.name) .. "#" .. item.path
                 end
             end
         end
