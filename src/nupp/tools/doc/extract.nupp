@@ -119,7 +119,10 @@ type extract.Module = {
 
     --- Set on a name that only holds other modules. There is no file behind one and
     --- nothing to require by that name, so it has no source and no declarations.
-    namespace: boolean?
+    namespace: boolean?,
+
+    --- Previous declaration paths retained by a projected library index.
+    aliases: {[string]: string}?
 }
 
 --- What a caller wants included beyond the public surface a module hands out.
@@ -142,7 +145,13 @@ type extract.Module = {
 --- own, which an ordinary run documents already.
 type extract.Options = {
     includePrivate: boolean?,
-    shapesAsModules: boolean?
+
+    --- Declaration names a catalog explicitly publishes despite a leading underscore.
+    publicNames: {[string]: boolean}?,
+    shapesAsModules: boolean?,
+
+    --- Publishes the fields of a returned record as the required library itself.
+    returnedAsModule: boolean?
 }
 
 ----------------------------------------------------------------------------
@@ -899,7 +908,7 @@ local function shapeModule(name, entries, text, path, blocks, includePrivate, ex
     expanding[entries] = true
     local items = {}
     for _, entry in ipairs(entries) do
-        if entry.kind == "fieldDecl" or entry.kind == "tshapeField" then
+        if entry.kind == "fieldDecl" or entry.kind == "tshapeField" or entry.kind == "metamethodDecl" then
             local info = entryDoc(entry)
             local nested = shapeEntries(entry, blocks)
             if info.tags.namespace and nested then
@@ -1204,7 +1213,16 @@ end
 -- wrapper owns the leading trivia, so documentation comes from the outside while the
 -- name, signature and visibility come from the declaration at the centre. Following
 -- every wrapper also handles stacked annotations.
-declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, includePrivate, published, moduleLocal)
+declarationItem = function(
+    stat,
+    moduleName,
+    everyDeclaration,
+    declarationFile,
+    includePrivate,
+    published,
+    moduleLocal,
+    publicNames
+)
     local documented = stat
     local applied = {}
     while stat.kind == "pragmaStmt" and stat.stat do
@@ -1276,7 +1294,7 @@ declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, 
     -- method: a module function, type, or variable named `_thing` is as much an
     -- implementation detail as `Record._thing`, and the generated runtime helpers
     -- the compiler calls by name are exactly that.
-    if privateName(name) and not includePrivate then
+    if privateName(name) and not includePrivate and not (publicNames and publicNames[name]) then
         public = false
     end
     if not public then
@@ -1684,7 +1702,8 @@ function extract.extract(
                     declarationFile,
                     opts.includePrivate,
                     published,
-                    result.moduleLocal
+                    result.moduleLocal,
+                    opts.publicNames
                 )
                 if item then
                     result.items[#result.items + 1] = item
@@ -1700,6 +1719,49 @@ function extract.extract(
         result.moduleLocal,
         publishedTables(parsed.root, result.moduleLocal)
     )
+    if opts.returnedAsModule then
+        local returned = cst.returnedLocal(parsed.root)
+        local record = returned and recordNamed(parsed.root.blocks, returned) or nil
+        if returned and not record then
+            for _, block in ipairs(parsed.root.blocks) do
+                for _, stat in ipairs(block.stats or {}) do
+                    if stat.kind == "localStmt" then
+                        for index, binding in ipairs(stat.names or {}) do
+                            if binding.text == returned and stat.types[index] then
+                                record = recordNamed(parsed.root.blocks, syntax(stat.types[index]))
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        if record then
+            local projected = {}
+            shapeModule(name, record.entries, result.text, path, parsed.root.blocks, opts.includePrivate, {}, projected)
+            if projected[1] then
+                local wrapper = declaredName(record)
+                local aliases = {}
+
+                local function remember(members)
+                    for _, member in ipairs(members or {}) do
+                        aliases[member.path] = name .. member.path:sub(#name + #wrapper + 2)
+                        remember(member.members)
+                    end
+                end
+
+                local kept = projected[1].items
+                for _, item in ipairs(result.items) do
+                    if item.name == wrapper and record.visibility == "local" then
+                        aliases[item.path] = name
+                        remember(item.members)
+                    elseif item.name ~= returned or record.visibility ~= "local" and item.name == wrapper then
+                        kept[#kept + 1] = item
+                    end
+                end
+                result.items, result.aliases = kept, aliases
+            end
+        end
+    end
     table.sort(result.items, byKindThenName)
 
     -- A private implementation can publish its existing declarations under a host

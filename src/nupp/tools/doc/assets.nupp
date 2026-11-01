@@ -49,6 +49,11 @@ local SCRIPT = [[
     const revealCurrentSidebarPage = () => {
         const current = sidebar?.querySelector('a[aria-current="page"]');
         if (!sidebar || !current) return;
+        for (let node = current.parentElement; node && node !== sidebar;
+            node = node.parentElement) {
+            if (node.tagName === "DETAILS" && !node.open &&
+                !node.querySelector(":scope > summary")?.contains(current)) return;
+        }
         const sidebarRect = sidebar.getBoundingClientRect();
         const currentRect = current.getBoundingClientRect();
         const inset = 16;

@@ -202,12 +202,16 @@ function M.bundledSourcesShareTheirPendingAndCompletedExports()
     local loaded = assert(env.bundled.types, "the types facade checks through its bundled dependency cycle")
     assert(loaded == env.loadedPaths.types, "the bundled cache and lifecycle share one completed record")
     assert(not loaded.inProgress and loaded.exports.types.Key and loaded.exports.types.Debug)
+    assert(loaded.result == nil, "completed bundled interfaces do not retain their parsed implementation")
+    assert(loaded.source and loaded.checkContext, "source inspection and check context remain available")
+    testAssert.equal(env.bundled.types, loaded, "a repeated bundled lookup retains the exact export graph")
     local reflection = assert(env.bundled["nupp.compiler.runtime.reflect"])
     assert(
         reflection == env.loadedPaths["nupp.compiler.runtime.reflect"],
         "recursive reflection retains one export graph"
     )
     assert(not reflection.inProgress and reflection.source and reflection.resource)
+    assert(reflection.result == nil, "recursive bundled implementations also release their parse result")
     testAssert.equal(loaded.resource, "/types/init.nupp")
     testAssert.equal(loaded.declarationOnly, false)
     local declared = assert(env.bundled.bit)

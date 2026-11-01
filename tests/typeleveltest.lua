@@ -1199,6 +1199,145 @@ function M.constArgumentsParticipateInNominalIdentity()
     )
 end
 
+function M.emptyGenericMemberMapsLearnTheirFirstDeclaration()
+    local declaration = types.nominal("InitiallyEmptySurface", "record")
+    local parameter = types.typevar("T", "initially-empty-surface")
+    declaration.typeParams = {parameter}
+    local bindings = {[parameter] = types.string}
+    local instance = generics.instantiate(declaration, bindings)
+    local surfaces = {"byname", "writeByname", "staticByname", "staticWriteByname", "metamethods"}
+    for _, name in ipairs(surfaces) do
+        testAssert.equal(next(instance[name]), nil)
+        declaration[name].late = parameter
+    end
+    testAssert.equal(generics.instantiate(declaration, bindings), instance)
+    for _, name in ipairs(surfaces) do
+        testAssert.equal(instance[name].late, types.string)
+    end
+end
+
+function M.concreteSubgraphsAreRecognizedOncePerRefresh()
+    local child = types.nominal("ConcreteMemberChild", "record")
+    local element = types.typevar("T", "concrete-member-child")
+    child.typeParams = {element}
+    local closed = types.tuple({types.string, types.number})
+    child.byname.value, child.byname.element = closed, element
+    local parent = types.nominal("ConcreteMemberParent", "record")
+    local left = types.typevar("Left", "concrete-member-parent:left")
+    local right = types.typevar("Right", "concrete-member-parent:right")
+    parent.typeParams = {left, right}
+    parent.byname.left = generics.instantiate(child, {[element] = left})
+    parent.byname.right = generics.instantiate(child, {[element] = right})
+    local original, visits = types.hasTypevar, 0
+    types.hasTypevar = function(value)
+        if value == closed then
+            visits = visits + 1
+        end
+        return original(value)
+    end
+    local ok, problem = pcall(function()
+        local bindings = {[left] = types.string, [right] = types.number}
+        local instance = generics.instantiate(parent, bindings)
+        testAssert.equal(visits, 1, "a concrete subgraph is independent of the two binding maps")
+        testAssert.equal(instance.byname.left.byname.value, closed)
+        testAssert.equal(instance.byname.right.byname.value, closed)
+        testAssert.equal(instance.byname.left.byname.element, types.string)
+        testAssert.equal(instance.byname.right.byname.element, types.number)
+        child.byname.late = element
+        testAssert.equal(generics.instantiate(parent, bindings), instance)
+        testAssert.equal(instance.byname.left.byname.late, types.string)
+        testAssert.equal(instance.byname.right.byname.late, types.number)
+        testAssert.equal(visits, 2, "a changed child starts a fresh containment walk")
+    end)
+    types.hasTypevar = original
+    assert(ok, problem)
+end
+
+function M.sharedGenericSubstitutionsCompleteOncePerRefresh()
+    local declaration = types.nominal("SharedSubstitutionSurface", "record")
+    local parameter = types.typevar("T", "shared-substitution-surface")
+    declaration.typeParams = {parameter}
+    local leaf = types.func({parameter}, {parameter})
+    local shared = types.func({leaf, leaf}, {leaf})
+    local surfaces = {"byname", "writeByname", "staticByname", "staticWriteByname", "metamethods"}
+    for _, name in ipairs(surfaces) do
+        for index = 1, 6 do
+            declaration[name]["member" .. index] = shared
+        end
+    end
+    local bindings = {[parameter] = types.string}
+    local original, visits = types.funcWith, 0
+    types.funcWith = function(source, changes)
+        if source == leaf or source == shared then
+            visits = visits + 1
+        end
+        return original(source, changes)
+    end
+    local ok, problem = pcall(function()
+        local first = generics.instantiate(declaration, bindings)
+        testAssert.equal(visits, 2, "shared function graphs are substituted once in one refresh")
+        local expected = first.byname.member1
+        testAssert.equal(expected.params[1].params[1], types.string)
+        for _, name in ipairs(surfaces) do
+            testAssert.equal(first[name].member6, expected)
+        end
+        declaration.byname.late = shared
+        local again = generics.instantiate(declaration, bindings)
+        testAssert.equal(again, first)
+        testAssert.equal(again.byname.late, expected)
+        testAssert.equal(visits, 4, "a later explicit refresh gets a fresh substitution walk")
+    end)
+    types.funcWith = original
+    assert(ok, problem)
+end
+
+function M.distinctGenericFunctionsShareTheirSubstitutedPacks()
+    local declaration = types.nominal("SharedPackSurface", "record")
+    local parameter = types.typevar("T", "shared-pack-surface")
+    declaration.typeParams = {parameter}
+    local ordinary = types.func({parameter, parameter}, {parameter}, false, {"borrows", "plain"})
+    declaration.byname.ordinary = ordinary
+    declaration.byname.never = types.funcWith(ordinary, {noreturn = true})
+    declaration.byname.noYield = types.funcWith(ordinary, {noYield = true})
+    declaration.byname.foreign = types.funcWith(ordinary, {foreign = true})
+    local original, heads = types.pack, {}
+    types.pack = function(head, tail, modes, names)
+        if #head == 2 and head[1] == types.string and head[2] == types.string then
+            heads[head] = true
+        end
+        return original(head, tail, modes, names)
+    end
+    local ok, instance = pcall(generics.instantiate, declaration, {[parameter] = types.string})
+    types.pack = original
+    assert(ok, instance)
+    local count = 0
+    for _ in pairs(heads) do
+        count = count + 1
+    end
+    testAssert.equal(count, 1, "distinct functions sharing a pack substitute one head sequence")
+    local pack = instance.byname.ordinary.paramPack
+    testAssert.equal(pack.modes[1], "borrows")
+    testAssert.equal(instance.byname.noYield.paramPack, pack)
+    assert(instance.byname.noYield.noYield and instance.byname.never.noreturn and instance.byname.foreign.foreign)
+end
+
+function M.oneGenericRefreshKeepsDistinctArgumentMapsSeparate()
+    local child = types.nominal("DistinctMapChild", "record")
+    local element = types.typevar("T", "distinct-map-child")
+    child.typeParams = {element}
+    child.byname.get = types.func({}, {element})
+    local parent = types.nominal("DistinctMapParent", "record")
+    local left = types.typevar("Left", "distinct-map-parent:left")
+    local right = types.typevar("Right", "distinct-map-parent:right")
+    parent.typeParams = {left, right}
+    parent.byname.left = generics.instantiate(child, {[element] = left})
+    parent.byname.right = generics.instantiate(child, {[element] = right})
+    local instance = generics.instantiate(parent, {[left] = types.string, [right] = types.number})
+    testAssert.equal(instance.byname.left.byname.get.rets[1], types.string)
+    testAssert.equal(instance.byname.right.byname.get.rets[1], types.number)
+    assert(instance.byname.left ~= instance.byname.right, "one walk must preserve distinct nominal arguments")
+end
+
 function M.unrelatedSubstitutionKeepsOpenNominalArgumentsUnchanged()
     local declaration = types.nominal("UnchangedApplication", "record")
     local element = types.typevar("Element", "unchanged-application:element")
@@ -2946,6 +3085,166 @@ function M.integerAliasesShareTheCanonicalRangeDomain()
     assert(constrain.build(small, -5, 5, false))
     assert(not constrain.build(types.int64, 10, 0, false))
     assert(not constrain.build(types.int64, -9007199254740992, 0, false))
+end
+
+function M.completedGenericRefreshValidatesSourceTargetAndAllBindings()
+    local declaration = types.nominal("ValidatedRefresh", "record")
+    local parameter = types.typevar("T", "validated-refresh:parameter")
+    local free = types.typevar("Free", "validated-refresh:free")
+    declaration.typeParams = {parameter}
+    local method = types.func({parameter}, {free})
+    declaration.byname.method = method
+    declaration.byname.removable = parameter
+    local bindings = {[parameter] = types.string, [free] = types.number}
+    local original, visits = types.funcWith, 0
+    types.funcWith = function(source, changes)
+        if source == method then
+            visits = visits + 1
+        end
+        return original(source, changes)
+    end
+    local ok, problem = pcall(function()
+        local instance = generics.instantiate(declaration, bindings)
+        testAssert.equal(visits, 1)
+        testAssert.equal(generics.instantiate(declaration, bindings), instance)
+        testAssert.equal(visits, 1, "unchanged completed applications reuse their fill")
+
+        local function changed(mutate)
+            local before = visits
+            mutate(instance)
+            testAssert.equal(generics.instantiate(declaration, bindings), instance)
+            testAssert.equal(visits, before + 1, "a changed snapshot must refill")
+        end
+
+        changed(function()
+            declaration.byname.added = parameter
+        end)
+        testAssert.equal(instance.byname.added, types.string)
+        changed(function()
+            declaration.byname.added = types.boolean
+        end)
+        testAssert.equal(instance.byname.added, types.boolean)
+        changed(function()
+            declaration.byname.removable = nil
+        end)
+        changed(function()
+            declaration.byname = {method = method, added = types.boolean}
+        end)
+        changed(function(value)
+            value.byname = {}
+        end)
+        testAssert.equal(instance.byname.method.rets[1], types.number)
+        changed(function(value)
+            value.byname.method = types.any
+        end)
+        testAssert.equal(instance.byname.method.rets[1], types.number)
+        changed(function()
+            bindings[free] = types.boolean
+        end)
+        testAssert.equal(instance.byname.method.rets[1], types.boolean)
+        local unrelated = {}
+        changed(function()
+            bindings[unrelated] = types.string
+        end)
+        changed(function()
+            bindings[unrelated] = nil
+        end)
+        for _, name in ipairs({"writeByname", "staticByname", "staticWriteByname", "metamethods"}) do
+            changed(function()
+                declaration[name].added = parameter
+            end)
+            testAssert.equal(instance[name].added, types.string)
+            changed(function(value)
+                value[name].added = types.number
+            end)
+            testAssert.equal(instance[name].added, types.string)
+            changed(function()
+                declaration[name] = {added = types.boolean}
+            end)
+            testAssert.equal(instance[name].added, types.boolean)
+            changed(function(value)
+                value[name] = {}
+            end)
+            testAssert.equal(instance[name].added, types.boolean)
+        end
+    end)
+    types.funcWith = original
+    assert(ok, problem)
+end
+
+function M.completedGenericRefreshValidatesTransitiveAndSupertypeDependencies()
+    local parameter = types.typevar("T", "validated-transitive-refresh")
+    local leaf = types.nominal("ValidatedLeaf", "interface")
+    local middle = types.nominal("ValidatedMiddle", "interface")
+    local outer = types.nominal("ValidatedOuter", "record")
+    for _, declaration in ipairs({leaf, middle, outer}) do
+        declaration.typeParams = {parameter}
+    end
+    leaf.byname.value = parameter
+    middle.supertypes = {generics.reserveInstantiation(leaf, {[parameter] = parameter})}
+    outer.byname.middle = generics.reserveInstantiation(middle, {[parameter] = parameter})
+    local bindings = {[parameter] = types.string}
+    local instance = generics.instantiate(outer, bindings)
+    local concreteMiddle = instance.byname.middle
+    local concreteLeaf = concreteMiddle.supertypes[1]
+    testAssert.equal(concreteLeaf.byname.value, types.string)
+    leaf.byname.late = types.number
+    testAssert.equal(generics.instantiate(outer, bindings), instance)
+    testAssert.equal(concreteLeaf.byname.late, types.number)
+    middle.supertypes = {}
+    generics.instantiate(outer, bindings)
+    testAssert.equal(#concreteMiddle.supertypes, 0)
+    middle.supertypes[1] = generics.reserveInstantiation(leaf, {[parameter] = parameter})
+    generics.instantiate(outer, bindings)
+    testAssert.equal(concreteMiddle.supertypes[1], concreteLeaf)
+    concreteMiddle.supertypes[1] = types.any
+    generics.instantiate(outer, bindings)
+    testAssert.equal(concreteMiddle.supertypes[1], concreteLeaf)
+    concreteMiddle.supertypes = {}
+    generics.instantiate(outer, bindings)
+    testAssert.equal(concreteMiddle.supertypes[1], concreteLeaf)
+end
+
+function M.aMidFillFailureRestoresTheEnclosingDependencyCollector()
+    local parameter = types.typevar("T", "mid-fill-failure")
+    local parent, child, bad = types.nominal(
+        "MidFillParent",
+        "record"
+    ), types.nominal("MidFillChild", "record"), types.nominal("MidFillBad", "record")
+    for _, declaration in ipairs({parent, child, bad}) do
+        declaration.typeParams = {parameter}
+    end
+    child.byname.value = parameter
+    bad.byname.broken = types.func({parameter}, {parameter})
+    local openBad = generics.reserveInstantiation(bad, {[parameter] = parameter})
+    parent.byname.aTrigger = types.func({parameter}, {})
+    parent.byname.zChild = generics.reserveInstantiation(child, {[parameter] = parameter})
+    local original, attempts = types.funcWith, 0
+    types.funcWith = function(source, changes)
+        if source == bad.byname.broken then
+            error("mid-fill failure", 0)
+        elseif source == parent.byname.aTrigger then
+            attempts = attempts + 1
+            local ok, problem = pcall(generics.rebind, openBad, {[parameter] = types.string})
+            assert(not ok and tostring(problem):find("mid-fill failure", 1, true))
+        end
+
+        return original(source, changes)
+    end
+    local bindings = {[parameter] = types.string}
+    local ok, instance = pcall(generics.instantiate, parent, bindings)
+    types.funcWith = original
+    assert(ok, instance)
+    testAssert.equal(attempts, 1)
+    testAssert.equal(instance.byname.zChild.byname.value, types.string)
+    child.byname.late = types.boolean
+    testAssert.equal(generics.instantiate(parent, bindings), instance)
+    testAssert.equal(
+        instance.byname.zChild.byname.late,
+        types.boolean,
+        "a failed nested fill must not steal the successful parent's later dependencies"
+    )
+    testAssert.equal(generics.instantiate(bad, bindings).byname.broken.params[1], types.string)
 end
 
 return M

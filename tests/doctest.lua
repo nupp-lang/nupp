@@ -3293,13 +3293,12 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(guide:find('<li><a aria-current="page" href="../guide/index.html">Guide</a>', 1, true), guide)
     assert(guide:find('<details><summary>Reference</summary>', 1, true), guide)
     assert(guide:find('<details><summary>API reference</summary>', 1, true), guide)
-    -- inside it, a top-level branch is a library and stands open on every page,
-    -- while the nesting below one stays shut until the reader is in it
+    -- API library branches start collapsed, including the current branch.
     assert(
         guide:match(
-            '<details open><summary class="nuppdoc%-module%-branch%-link">' .. '<a href="[^"]*" aria%-label="engine">'
+            '<details><summary class="nuppdoc%-module%-branch%-link">' .. '<a href="[^"]*" aria%-label="engine">'
         ),
-        "a top-level module branch must stand open"
+        "a top-level module branch must start collapsed"
     )
     assert(
         guide:match(
@@ -3357,16 +3356,15 @@ function M.siteMatchesTheNuppdocPageModel()
 
     local module = readFile(dir .. "/site/modules/math/index.html")
     assert(module:find("Module contents", 1, true), module)
-    -- a module page opens the API reference instead, with its top-level branches
-    -- open as everywhere else and the nesting open only along the branch
-    -- reaching the module itself
+    -- A module page opens the API reference, while its library branches stay
+    -- collapsed even along the path to the current module.
     assert(module:find('<details open><summary>API reference</summary>', 1, true), module)
     assert(module:find('<li><a href="../../guide/index.html">Guide</a></li>', 1, true), module)
     assert(
         module:match(
-            '<details open><summary class="nuppdoc%-module%-branch%-link">' .. '<a href="[^"]*" aria%-label="engine">'
+            '<details><summary class="nuppdoc%-module%-branch%-link">' .. '<a href="[^"]*" aria%-label="engine">'
         ),
-        "a top-level module branch must stand open"
+        "a top-level module branch must start collapsed"
     )
     assert(
         module:match(
@@ -3456,7 +3454,7 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(nestedModule:find('<code>render</code>', 1, true), nestedModule)
     assert(
         nestedModule:find(
-            '<details open><summary class="nuppdoc-module-branch-link">'
+            '<details><summary class="nuppdoc-module-branch-link">'
             .. '<a href="../../../modules/engine/index.html" aria-label="engine">'
             .. "<code>engine</code></a></summary>",
             1,
@@ -3991,15 +3989,35 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
         "`jit.util`",
         "`jit.profile`",
         "`jit.zone`",
+        "`jit.vmdef`",
         "Types",
         "Reflection",
     }
     for _, section in ipairs(sections) do
         assert(page.markdown:find("\n## " .. section .. "\n", 1, true), "no section for " .. section)
     end
-    -- A library's member is headed by the name a program writes, so the heading agrees
-    -- with the anchor beside it and with what a reader searches for.
-    assert(page.markdown:find("### `string.format`", 1, true), "no member of a library table")
+    -- Library declarations live on their module page; this page retains index links.
+    assert(page.markdown:find("[`string.format`](../modules/string/index.html#string.format)", 1, true))
+    assert(not page.markdown:find("### `string.format`", 1, true), "library documentation duplicated in its index")
+    local libraries = {}
+    for _, module in ipairs(page.modules) do
+        libraries[module.name] = module
+    end
+    assert(libraries.string.items[1] and libraries.string.path == nil, "no real virtual library module")
+    local format
+    for _, item in ipairs(libraries.string.items) do
+        if item.name == "format" then
+            format = item
+        end
+    end
+    assert(format and format.kind == "function" and format.params[1].name == "fmt")
+    assert(format.signature:find("@nosuspend function<Format is string>", 1, true))
+    assert(format.doc.text ~= "" and format.returns[1].type == "string")
+    local rendered = doc.markdown({libraries.string})
+    assert(
+        rendered:find(format.signature, 1, true) and rendered:find(format.doc.text, 1, true),
+        "the module page lost the builtin signature or documentation"
+    )
     assert(page.markdown:find("### `print`", 1, true), "no ambient global")
     assert(page.markdown:find("### `LuaFile`", 1, true), "no ambient LuaFile type")
     assert(page.symbols and page.symbols.LuaFile == "LuaFile", "LuaFile has no generated-page symbol")
@@ -4149,6 +4167,300 @@ function M.shapeTypedGlobalsDocumentAsTheirOwnLibraries()
     local plain, _, namespaces = doc.extract(source, "prelude.d.nupp", "globals")
     assert(plain, "the same file must still document as one module")
     assert(#namespaces == 1 and namespaces[1].name == "demo.data", "@namespace stopped working")
+end
+
+function M.builtinNavigationKeepsEveryDeclaredGlobalAndLibrary()
+    local page = assert(require("nupp.tools.doc.stdlib").page({path = "reference/lua"}))
+    local catalog = assert(page.navigation)
+    local globals, libraries = {}, {}
+    for _, entry in ipairs(catalog.globals) do
+        globals[entry.name] = entry
+    end
+    for _, entry in ipairs(catalog.libraries) do
+        libraries[entry.name] = entry
+    end
+    local source = readFile(HERE .. "/../src/nupp/compiler/decls/lua.d.nupp")
+    local module, errors, shapes = doc.extract(source, "lua.d.nupp", "globals", {shapesAsModules = true})
+    assert(module, errors and errors[1] and errors[1].msg)
+    for _, item in ipairs(module.items) do
+        if not item.module and (item.kind == "function" or item.kind == "variable") then
+            assert(globals[item.name], "missing runtime global " .. item.name)
+        end
+    end
+    for _, library in ipairs(shapes) do
+        assert(libraries[library.name], "missing library " .. library.name)
+    end
+    for _, name in ipairs({"ffi", "string.buffer", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
+        assert(libraries[name], "missing required builtin " .. name)
+    end
+    for _, name in ipairs({
+        "print",
+        "type",
+        "tostring",
+        "tonumber",
+        "pairs",
+        "ipairs",
+        "next",
+        "select",
+        "rawget",
+        "rawset",
+        "rawequal",
+        "rawlen",
+        "setmetatable",
+        "getmetatable",
+        "assert",
+        "error",
+        "pcall",
+        "xpcall",
+        "unpack",
+        "require",
+        "collectgarbage",
+        "load",
+        "loadstring",
+        "loadfile",
+        "setfenv",
+        "getfenv",
+        "dofile",
+        "gcinfo",
+        "newproxy",
+        "_G",
+        "_VERSION",
+        "arg",
+        "warn"
+    }) do
+        assert(globals[name], "lost a callable, array, value or function global: " .. name)
+    end
+    assert(not globals.__nuppCloseFile, "compiler helper became a public global")
+    assert(not libraries.number and not libraries.int32, "primitive types became runtime namespaces")
+    assert(not libraries.lpeg and not libraries.re, "third-party modules became Lua builtins")
+
+    local function anchors(entries)
+        for _, entry in ipairs(entries) do
+            assert(page.markdown:find('<a id="' .. entry.path .. '"></a>', 1, true), "missing anchor " .. entry.path)
+            anchors(entry.items or {})
+        end
+    end
+
+    anchors(catalog.globals)
+    anchors(catalog.types)
+    anchors(catalog.reflection)
+    for _, library in ipairs(catalog.libraries) do
+        anchors(library.items or {})
+    end
+end
+
+function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
+    local function library(name, members)
+        local binding = name:match("([^.]+)$")
+        local lines = {"module " .. name, "--[[Public operations.]]", "local " .. binding .. " = {}"}
+        for _, member in ipairs(members) do
+            lines[#lines + 1] = "--- Performs the operation."
+            lines[#lines + 1] = "function " .. binding .. "." .. member .. "(): nil end"
+        end
+        lines[#lines + 1] = "return " .. binding
+
+        return table.concat(lines, "\n")
+    end
+
+    local dir = tempProject({
+        ["src/io/init.nupp"] = library("io", {
+            "write",
+            "style"
+        }),
+        ["src/io/path.nupp"] = library("io.path", {"join"}),
+        ["src/assert/init.nupp"] = library("assert", {"equal"}),
+        ["src/arg/init.nupp"] = library("arg", {"parse"}),
+        ["src/warn.nupp"] = library("warn", {"emit"}),
+        ["src/types/init.nupp"] = library("types", {"newStore"}),
+        ["docs/guide.md"] = "# Guide\n\nRead the library.\n"
+    })
+    assert(
+        doc.build(
+            dir,
+            {include = {"src"}},
+            {
+                sources = {"src"},
+                stdlib = {path = "reference/lua"},
+                pages = {{path = "guide", source = "docs/guide.md"}}
+            },
+            {format = "site", output = "site"}
+        ) == 0
+    )
+    local nested = readFile(dir .. "/site/modules/io/path/index.html")
+    local sidebar = assert(nested:match('<aside class="nuppdoc%-sidebar".-</aside>'))
+    assert(sidebar:find('<details open><summary>API reference</summary>', 1, true))
+    local api = assert(sidebar:match('<summary>API reference</summary>(.*)'))
+    assert(not api:find('<details open', 1, true), "an API branch starts open, including the active one")
+    for _, name in ipairs({
+        "arg",
+        "assert",
+        "warn",
+        "io",
+        "os",
+        "math",
+        "string",
+        "table",
+        "coroutine",
+        "bit",
+        "jit",
+        "debug",
+        "package",
+        "ffi"
+    }) do
+        local _, count = api:gsub('data%-module="' .. name .. '"', '')
+        assert(count == 1, name .. " has " .. count .. " roots")
+    end
+    for _, name in ipairs({"string.buffer", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
+        assert(api:find('data-module="' .. name .. '"', 1, true), "missing nested builtin " .. name)
+    end
+    assert(api:find('>Globals</a>', 1, true), "standalone functions need their own group")
+    assert(api:find('>Intrinsic types</a>', 1, true), "intrinsic types confused with public types")
+    assert(api:find('>Layout reflection</a>', 1, true))
+    assert(api:find('<code>types</code>', 1, true), "the public types root disappeared")
+    assert(api:find('href="../../../modules/io/index.html#io.write"', 1, true), "owned member lost its canonical link")
+    assert(api:find('href="../../../modules/io/index.html#io.style"', 1, true), "owned extension member missing")
+    assert(
+        api:find('href="../../../modules/io/index.html#io.open"', 1, true),
+        "builtin member did not join the owned page"
+    )
+    assert(api:find('href="../../../modules/assert/index.html"', 1, true), "callable global lost its owned page")
+    assert(api:find('href="../../../modules/arg/index.html"', 1, true), "array global lost its owned page")
+    assert(api:find('href="../../../reference/lua/index.html#_G"', 1, true), "global value missing")
+    assert(api:find('href="../../../reference/lua/index.html#print"', 1, true), "global function missing")
+    assert(api:find('href="../../../reference/lua/index.html">LuaJIT</a>', 1, true), "aggregate overview unreachable")
+    local aggregate = readFile(dir .. "/site/reference/lua/index.html")
+    for anchor in api:gmatch('href="%.%./%.%./%.%./reference/lua/index%.html#([^"]+)"') do
+        assert(aggregate:find('id="' .. anchor .. '"', 1, true), "navigation target does not exist: " .. anchor)
+    end
+    local guide = readFile(dir .. "/site/guide/index.html")
+    local guideSidebar = assert(guide:match('<aside class="nuppdoc%-sidebar".-</aside>'))
+    assert(not guideSidebar:find('<details open', 1, true), "unrelated API or page branch starts open")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.builtinDeclarationsShareEveryModuleOutputWithOwnedMembers()
+    local dir = tempProject({
+        [
+            "src/io/init.nupp"
+        ] = [=[module io
+--[[Owned input and output.]]
+local io = {}
+--- Writes through the owned contract.
+function io.write(): string return "owned" end
+--- Styles terminal output.
+function io.style(): string return "styled" end
+return io
+]=],
+        ["src/debug/bench.nupp"] = [=[module debug.bench
+--[[Measures a workload.]]
+export const ready = true
+]=],
+        [
+            "src/string/extension.nupp"
+        ] = [=[module string.extension
+--[[Extends text handling.]]
+export const ready = true
+]=],
+        [
+            "src/assert/init.nupp"
+        ] = [=[module assert
+--[[Checks program results.]]
+local assert = {}
+--- Compares two values.
+function assert.equal(): nil end
+return assert
+]=],
+        [
+            "src/arg/init.nupp"
+        ] = [=[module arg
+--[[Parses command arguments.]]
+local arg = {}
+--- Parses the arguments.
+function arg.parse(): nil end
+return arg
+]=],
+        [
+            "src/warn.nupp"
+        ] = [=[module warn
+--[[Reports warnings.]]
+local warn = {}
+--- Emits a warning.
+function warn.emit(): nil end
+return warn
+]=],
+        [
+            "src/jit/zone.nupp"
+        ] = [=[module jit.zone
+--[[Describes profiler zones.]]
+record Zone
+    --- A user extension.
+    extra: string
+end
+]=],
+    })
+    local settings = {sources = {"src"}, stdlib = {path = "reference/lua"}}
+    local stdlib = require("nupp.tools.doc.stdlib")
+    local original, extractions = stdlib.page, 0
+    stdlib.page = function(...)
+        extractions = extractions + 1
+        return original(...)
+    end
+    local ok, result = pcall(doc.build, dir, {include = {"src"}}, settings, {format = "both", output = "site"})
+    stdlib.page = original
+    assert(ok and result == 0, tostring(result))
+    assert(extractions == 1, "the index must reuse the module extraction")
+    local ioPage = readFile(dir .. "/site/modules/io/index.html")
+    assert(ioPage:find('id="io.open"', 1, true), "builtin io.open is absent from the owned page")
+    assert(ioPage:find('id="io.style"', 1, true), "owned io.style disappeared")
+    local _, writes = ioPage:gsub('id="io%.write"', '')
+    assert(writes == 1, "a collided declaration has more than one anchor")
+    local ioText = readFile(dir .. "/site/modules/io/llms.txt")
+    assert(ioText:find("function io.write(): string", 1, true), "builtin signature replaced the owned contract")
+    assert(ioText:find("Writes through the owned contract.", 1, true), "builtin prose replaced owned prose")
+    assert(ioText:find("### `open`", 1, true) and ioText:find('<a id="io.style"></a>', 1, true))
+    local debug = readFile(dir .. "/site/modules/debug/index.html")
+    assert(debug:find('id="debug.getinfo"', 1, true) and debug:find('modules/debug/bench/index.html', 1, true))
+    local stringPage = readFile(dir .. "/site/modules/string/index.html")
+    assert(stringPage:find('id="string.format"', 1, true))
+    assert(not stringPage:find('Nothing is required by this name', 1, true), "builtin kept a namespace placeholder")
+    for _, name in ipairs({"assert", "arg", "warn"}) do
+        local text = readFile(dir .. "/site/modules/" .. name .. "/llms.txt")
+        assert(text:find('<a id="' .. name .. '"></a>', 1, true), "missing global declaration on " .. name)
+        local _, anchors = text:gsub('<a id="' .. name .. '"></a>', '')
+        assert(anchors == 1, "global and module headings duplicate their anchor")
+        assert(text:find("local " .. name .. ":", 1, true), "global signature missing from " .. name)
+    end
+    local ffi = readFile(dir .. "/site/modules/ffi/index.html")
+    assert(ffi:find('id="ffi.new"', 1, true), "returned record was not projected into the library")
+    assert(not ffi:find('id="ffi.ffi"', 1, true), "private returned wrapper became public")
+    local util = readFile(dir .. "/site/modules/jit/util/index.html")
+    assert(util:find('id="jit.util.funcinfo"', 1, true), "typed returned binding was not projected")
+    local zone = readFile(dir .. "/site/modules/jit/zone/index.html")
+    for _, anchor in ipairs({"jit.zone.__call", "jit.zone.Zone", "jit.zone.Zone.extra", "jit.zone.Zone.get"}) do
+        assert(zone:find('id="' .. anchor .. '"', 1, true), "lost a returned callable/type member: " .. anchor)
+    end
+    local index = readFile(dir .. "/site/reference/lua/llms.txt")
+    assert(index:find('<a id="ffi.ffi.new"></a>', 1, true), "legacy returned-record fragment disappeared")
+    assert(index:find('<a id="jit.util.JitUtil.funcinfo"></a>', 1, true), "legacy typed binding fragment disappeared")
+    assert(not index:find("```nupp\nlocal open:", 1, true), "index duplicates library signatures")
+    assert(not index:find("### `arg`", 1, true), "index duplicates the owned global declaration")
+    assert(index:find("### `_G`", 1, true) and index:find("### `_VERSION`", 1, true))
+    local api = readFile(dir .. "/site/api.md")
+    assert(api:find('<a id="io.open"></a>', 1, true) and api:find('<a id="io.style"></a>', 1, true))
+    assert(doc.build(dir, {include = {"src"}}, settings, {format = "json", output = "modules.json"}) == 0)
+    local decoded = assert(require("testjson").decode(readFile(dir .. "/modules.json")))
+    local modules = {}
+    for _, module in ipairs(decoded.modules) do
+        modules[module.name] = module
+    end
+    local names = {}
+    for _, item in ipairs(modules.io.items) do
+        names[item.path] = item
+    end
+    assert(names["io.open"] and names["io.style"] and names["io.write"].signature == "function io.write(): string")
+    assert(modules.ffi and modules["string.buffer"] and modules["jit.vmdef"])
+    assert(not modules.re and not modules.lpeg and not modules.number)
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 -- A route a page used to answer at keeps answering, by way of a stub that names
