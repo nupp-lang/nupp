@@ -14,7 +14,7 @@ local function compile(source, filename, env)
             errors[#errors + 1] = item.code .. ": " .. item.msg
         end
     end
-    test.equal(table.concat(errors, "\n"), "")
+    test.equal(table.concat(errors, "\n"), "", source)
     local code, diagnostics = gen.generate(parsed, filename)
     test.equal(#diagnostics, 0)
 
@@ -82,6 +82,7 @@ export const value: table = rawget(_G, "os") as table
 @!internal
 module nupp.runtime.standardcoroutine
 export function checkpoint(): integer return 29 end
+export function scope(limit: integer?, timeoutMs: number?): nil return end
 export const value: table = do
     local original = rawget(_G, "coroutine") as any
     original.checkpoint = checkpoint
@@ -410,6 +411,28 @@ function M.ordinaryCoroutineMembersDoNotLoadExtensions()
         test.equal(code:find('require("nupp.runtime.standardcoroutine")', 1, true), nil)
         test.equal(assert(loadstring(code))(), coroutine.running)
         test.equal(package.loaded["nupp.runtime.standardcoroutine"], nil)
+    end)
+end
+
+function M.coroutineScopeAliasesRetainDeadlineEffectsAndLocalShadows()
+    withExtension(function(env)
+        for _, source in ipairs({
+            "coroutine.scope(timeoutMs = 1)",
+            "local scope = coroutine.scope\nscope(timeoutMs = 1)",
+            'local imported = require("coroutine")\nimported.scope(timeoutMs = 1)',
+        }) do
+            local _, parsed = compile(source, "scope-deadline-consumer.nupp", env)
+            test.equal(parsed.effects["runtime.time"], true, "the deadline carries the clock provider")
+        end
+        local _, ordinary = compile(
+            [[
+local coroutine = {scope = function(limit: integer?, timeoutMs: number?): nil return end}
+coroutine.scope(nil, 1)
+]],
+            "shadow-scope-consumer.nupp",
+            env
+        )
+        test.equal(ordinary.effects["runtime.time"], nil)
     end)
 end
 

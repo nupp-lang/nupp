@@ -108,24 +108,11 @@ local RECEIVER_INTRINSICS = require("nupp.compiler.check.receiverintrinsics")
 --- Whether a callee names `nupp.tasks.open`, reached by its qualified path or through
 --- a local bound to the required module.
 local function opensTaskScope(c: state.Checker, callee: any): boolean
-    if callee.kind ~= "dotIndex" then
-        return false
-    end
-    local member = callee.name
-    if member == nil or member.text ~= "open" then
-        return false
-    end
-    local base = callee.obj
-    if base == nil then
-        return false
-    end
-    if base.qualifiedModule == "nupp.tasks" and #(base.qualifiedMembers or {}) == 0 then
-        return true
-    end
-    local token = base.kind == "name" and base.token or nil
-    local holder = token and c.lookupEntry(token.text) or nil
+    local identity = apiidentity.expression(c, callee)
 
-    return holder ~= nil and holder.requiredModule == "nupp.tasks"
+    return identity == "nupp.tasks.open"
+        or identity == "coroutine.scope"
+        or identity == "nupp.runtime.standardcoroutine.scope"
 end
 
 ----------------------------------------------------------------------------
@@ -2116,7 +2103,10 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
         end
         local indexedExport = node.kind == "call" and callee and callee.exactCallExport or nil
-        if indexedExport and indexedExport.module == "nupp.mem.indexed" and indexedExport.member == "range" then
+        if indexedExport
+            and (indexedExport.module == "nupp.mem.indexed" or indexedExport.module == "binary.span")
+            and indexedExport.member == "range"
+        then
             local views, valid = {}, #argExprs >= 3
             for position = 3, #argExprs do
                 local argument = argExprs[position]
