@@ -360,6 +360,61 @@ export function identity(style: Style): Style return style end
     end)
 end
 
+function M.incrementalTypeImportsReadTheExtensionExports()
+    withExtension(function(env)
+        local inc = require("nupp.compiler.project.incremental").new(env.rootDir, {
+            config = {include = {"src"}},
+            cache = false
+        })
+        for index = 1, 2 do
+            local path = env.rootDir .. "/src/consumer" .. index .. ".nupp"
+            inc.openDocument(
+                path,
+                [[
+module consumer]]
+                .. index
+                .. "\n"
+                .. [[
+const {type Buffer} = require("io")
+export type SelectedBuffer = Buffer
+export function identity(value: Buffer): Buffer return value end
+]]
+            )
+            local checked = inc.checkFile(path)
+            test.equal(checked.syntax, nil)
+            local errors = {}
+            for _, diagnostic in ipairs(checked.diags) do
+                if diagnostic.severity == "error" then
+                    errors[#errors + 1] = diagnostic.code .. ": " .. diagnostic.msg
+                end
+            end
+            test.equal(table.concat(errors, "\n"), "")
+            local exports = inc.q:get("moduleExports", "nupp.runtime.standardio")
+            test.equal(checked.result.moduleExports.types.SelectedBuffer, exports.types.Buffer)
+            local reached = {}
+            for _, dependency in ipairs(inc.moduleDependencies(path)) do
+                reached[dependency] = true
+            end
+            test.equal(reached["nupp.runtime.standardio"], true)
+            local listing = {}
+            local image = program.image(checked.result, "consumer" .. index, path, listing)
+            local functions = {}
+            for _, entry in ipairs(listing) do
+                functions[#functions + 1] = entry.image
+            end
+            local compiled = {listing = table.concat(functions, "\n")}
+            test.equal(namesModule(compiled, "io"), false)
+            test.equal(namesModule(compiled, "nupp.runtime.standardio"), false)
+            test.equal(next(checked.result.effects), nil)
+            package.loaded["nupp.runtime.standardio"] = nil
+            local consumer = assert(loadImage(image))()
+            test.equal(package.loaded["nupp.runtime.standardio"] == nil, true)
+            local buffer = {label = "kept"}
+            test.equal(consumer.identity(buffer), buffer)
+        end
+    end)
+end
+
 function M.lexicalTypeNamespacesWinOverExtensionTypes()
     withExtension(function(env)
         local code = compile(

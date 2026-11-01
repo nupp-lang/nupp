@@ -100,4 +100,13 @@ return #out
     testAssert.equal(value, 3, "encode and decode are reachable too")
 end
 
+function M.compilerFactoryAliasRetainsTheBufferImplementation()
+    local text = require("nupp.text")
+    testAssert.equal(type(text.newbuffer), "function")
+    testAssert.equal(text.newbuffer, text.newBuffer)
+    local buffer = text.newbuffer()
+    buffer:put("native", " buffer")
+    testAssert.equal(buffer:tostring(), "native buffer")
+end
+
 return M
