@@ -24,6 +24,7 @@ const {type Target as Target2} = require("nupp.compiler.tracesource")
 const {type Checker as Checker2} = require("nupp.compiler.tracesource")
 
 local apiidentity = require("nupp.compiler.apiidentity")
+local builtinExtensions = require("nupp.compiler.builtinextensions")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 local consteval = require("nupp.compiler.types.consteval")
@@ -1626,6 +1627,9 @@ function checkMod.check(
     --- The type a name denotes and the declaration that introduced it, resolving a
     --- hoisted alias that is still pending on the way.
     c.lookupType = function(name)
+        local root = name:match("^([^.]+)%.")
+        local extensionRoot = root and builtinExtensions.has(root)
+        local shadowed = false
         local s = c.scope
         while s do
             local t = s.types[name]
@@ -1641,7 +1645,20 @@ function checkMod.check(
                     return resolved, s.typeDefs[name]
                 end
             end
+            if extensionRoot and (s.vars[root] or s.types[root] or s.pending and s.pending[root]) then
+                shadowed = true
+            end
             s = s.parent
+        end
+        if extensionRoot and env and env.globals then
+            if shadowed then
+                return nil
+            end
+            local entry = c.lookupEntry(root)
+            local builtin = env.globals[root]
+            if entry and builtin and entry.definition == builtin.definition then
+                builtinExtensions.type(c, root)
+            end
         end
         if env and env.globalTypes then
             local t = apiidentity.lookup(env.globalTypes, name)
