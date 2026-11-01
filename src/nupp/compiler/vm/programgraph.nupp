@@ -400,6 +400,16 @@ function program.describe(modules: {any}, entryModule: string): any
         then
             loopForms[node.exprs[1]] = true
         end
+        -- Library intrinsics the core implements as operations (math.floor) are
+        -- forms too: the global they name is never read.
+        if node.kind == "call" and graph.coreLibraryCall(node) then
+            loopForms[node] = true
+        end
+        -- `new R(...)` of a plain record builds its value in place, so the
+        -- record's name is a type use there, not a read of its runtime value.
+        if node.kind == "newExpr" and node.call and node.call.recordFields and not node.call.constructorEntry then
+            loopForms[node.call] = true
+        end
         if node.kind == "name" then
             reference(node.token, owner)
         elseif node.kind == "funcname" then
@@ -848,7 +858,13 @@ end
 -- Profiles must explicitly support real module initializer owners.
 function program.compile(p: any, profile: any): any
     program.verify(p)
-    need(#p.externals == 0, "external execution bindings are not established")
+    if #p.externals ~= 0 then
+        local names = {}
+        for _, external in ipairs(p.externals) do
+            names[#names + 1] = tostring(external.definition and external.definition.name)
+        end
+        need(false, "external execution bindings are not established: " .. table.concat(names, ", "))
+    end
     need(#p.intrinsics == 0, "intrinsic execution is not established")
     local graphs, modules = {}, {}
     for index, owner in ipairs(p.owners) do

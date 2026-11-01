@@ -195,7 +195,9 @@ local function derive(g: any, catalog: any): any
     end
 
     local function emit(instruction: any, position: integer): integer
-        opcodes.check(instruction)
+        if not bytecode.coreOnly()[instruction[1]] then
+            opcodes.check(instruction)
+        end
         instructions[#instructions + 1] = instruction
         positions[#instructions] = position
         need(#instructions <= 1048576, "instruction budget exceeded")
@@ -301,6 +303,10 @@ local function derive(g: any, catalog: any): any
                 end
                 case "Len" -> do
                     emit({"Len", physical(dst), physical(args[1])}, position)
+                    yield nil
+                end
+                case "MathFloor" -> do
+                    emit({"MathFloor", physical(dst), physical(args[1])}, position)
                     yield nil
                 end
                 else -> error("core executable: unsupported graph operation " .. op, 0)

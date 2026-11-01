@@ -49,7 +49,8 @@ local CASES: {[string]: {
     callsNumeric = {fixture = "catalog-calls-numeric", version = 7},
     tablesBasic = {fixture = "catalog-tables-basic", version = 8},
     workloadClosures = {fixture = "catalog-workload-closures", version = 8},
-    workloadTables = {fixture = "catalog-workload-tables", version = 8}
+    workloadTables = {fixture = "catalog-workload-tables", version = 8},
+    workloadRecords = {fixture = "catalog-workload-records", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.
@@ -75,7 +76,8 @@ local function handlerNames(caseName: string, version: integer): {string}
         NewTable = 8,
         GetIdx = 8,
         SetIdx = 8,
-        Len = 8
+        Len = 8,
+        MathFloor = 8
     }
     for _, name in ipairs({
         "Add",
@@ -92,7 +94,8 @@ local function handlerNames(caseName: string, version: integer): {string}
         "NewTable",
         "GetIdx",
         "SetIdx",
-        "Len"
+        "Len",
+        "MathFloor"
     }) do
         if version >= introduced[name] then
             table.insert(names, 2, name)

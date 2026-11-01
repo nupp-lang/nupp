@@ -69,6 +69,7 @@ function schema.describe(version: integer?): any
         policies[#policies + 1] = {name = "GetIdx", signature = "Vvv", effect = 1, provenance = "table"}
         policies[#policies + 1] = {name = "SetIdx", signature = "vvv", effect = 1, provenance = "table"}
         policies[#policies + 1] = {name = "Len", signature = "Vv", effect = 1, provenance = "table"}
+        policies[#policies + 1] = {name = "MathFloor", signature = "Vv", effect = 1, provenance = "number"}
     end
     local scalarKinds: any = {{id = 0, name = "boolean"}, {id = 1, name = "nil"}}
     if v >= 3 then
@@ -170,7 +171,7 @@ function schema.describe(version: integer?): any
         if ordinary then
             assert(not ordinary.frame and #ordinary.windows == 0, "implicit operation transport is unsupported")
         else
-            assert(policy.name == "Closure" and signature.coreOnly and signature.macro, "unknown graph-only operation")
+            assert(signature.coreOnly and signature.macro, "unknown graph-only operation")
         end
         described.operations[
             index

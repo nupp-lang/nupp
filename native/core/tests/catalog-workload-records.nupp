@@ -1,0 +1,28 @@
+module nupp.core.catalogworkloadrecords
+
+-- The `records` workload of bench/vm/workloads.bench.nupp at scale 1, whose
+-- checksum is 800000; the scale stays an operand rather than folding away.
+local scale = 1
+
+local record Point
+    x: number
+    y: number
+end
+
+local function records(): number
+    local points: {Point} = {}
+    for i = 1, 200000 do
+        points[i] = new Point(x = i * scale, y = i * 2)
+    end
+    local acc = 0.0
+    for _ = 1, 20 do
+        for i = 1, #points do
+            local p = points[i]
+            acc = acc + p.x * 0.5 + p.y * 0.25
+        end
+    end
+
+    return math.floor(acc) % 1000003
+end
+
+export = records()

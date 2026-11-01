@@ -101,6 +101,9 @@ end
 -- A closure's captures are tagged SSA uses. The executable NewClosure
 -- window is derived only after verification and value transport.
 signatures.Closure = "Vn"
+-- Core-only library intrinsics: the final core implements them as opcodes
+-- outside the frozen VM's table (corebytecode.coreOnly).
+signatures.MathFloor = "Vv"
 signatures.U32Load = "Ivi"
 signatures.U32Store = "vii"
 signatures.U32Add = "Iii"
@@ -246,6 +249,7 @@ local terminators = {
 }
 local macros = {
     Closure = true,
+    MathFloor = true,
     U32Load = true,
     U32Store = true,
     U32Add = true,
@@ -290,6 +294,7 @@ parsed.NativeLocal.variadic = true
 parsed.Closure.variadic = true
 parsed.Closure.variadicClass = "v"
 parsed.Closure.coreOnly = true
+parsed.MathFloor.coreOnly = true
 
 local function operationArity(sig: any, args: any): boolean
     return #args == sig.n or sig.variadic == true and #args >= sig.n
@@ -1438,6 +1443,24 @@ end
 -- function type and the same conservative effects. The callee is resolved,
 -- and its signature checked, when the call runs. Core functions never
 -- suspend, so the value's unknown body cannot either.
+-- The library function a call names, when the final core implements it as
+-- an operation: `math.floor` on the prelude's `math`. Otherwise nil.
+local coreLibrary: {[string]: boolean} = {["math.floor"] = true}
+
+function graph.coreLibraryCall(call: any): string?
+    local callee = call and call.kind == "call" and call.obj
+    if not callee or callee.kind ~= "dotIndex" or not callee.name or not callee.obj or callee.obj.kind ~= "name" then
+        return nil
+    end
+    local definition = callee.obj.token and callee.obj.token.definition
+    if not definition or definition.filename ~= "nupp:lua.d.nupp" then
+        return nil
+    end
+    local name = callee.obj.token.text .. "." .. callee.name.text
+
+    return coreLibrary[name] and name or nil
+end
+
 function graph.dynamicInvokeContract(call: any): any
     local contract = {
         dynamic = true,
