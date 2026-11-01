@@ -84,6 +84,40 @@ end
 
 local M = {}
 
+function M.indexedProviderAnnotationsEraseAndPreserveCallableIdentity()
+    local code = generateChecked(
+        [[
+module forwarding
+local type Provider = {create: function(value: string): string}
+local implementation = {create = function(value: string): string return value end}
+export const create: Provider.["create"] = implementation.create
+export const original: function(value: string): string = implementation.create
+]]
+    )
+    local exported = assert(loadstring(code, "@indexed-provider"))()
+    testAssert.equal(exported.create, exported.original)
+    testAssert.equal(exported.create("kept"), "kept")
+end
+
+function M.semanticTypeOperatorsEraseFromRuntimeAnnotations()
+    local code = generateChecked(
+        [[
+local type Row = {name: string}
+local key: keyof Row = "name"
+local value: writeof Row.["name"] = "kept"
+local row: {@readonly [K in keyof Row]: Row.[K]} = {name = value}
+local function identity(value: Row.["name"]): Row.["name"] return value end
+local optional: Row.["name"]? = value
+return key, identity(row.name), optional, "cast" as Row.["name"]
+]]
+    )
+    local key, value, optional, cast = assert(loadstring(code, "@semantic-types"))()
+    testAssert.equal(key, "name")
+    testAssert.equal(value, "kept")
+    testAssert.equal(optional, "kept")
+    testAssert.equal(cast, "cast")
+end
+
 -- A comparison whose field is on the right has to reverse its ordered operator
 -- when the refinement is normalized to put that field on the left. Equality hid
 -- this because it is symmetric; `64 >= self.n` otherwise became `self.n >= 64`.

@@ -150,6 +150,10 @@ local TYPE_KINDS = {
     tpreserves = true,
     tliteral = true,
     tconst = true,
+    tkeyof = true,
+    twriteof = true,
+    tmember = true,
+    tmapped = true,
     tcarray = true,
     generics = true,
     -- A pack reaches here whole when it has a tail -- `...integer`, `T...` -- since
