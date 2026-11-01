@@ -187,8 +187,9 @@ local function checkedSignature(owner: any, numeric: boolean, dynamic: boolean):
 
     local result = typeSignature(signature, numeric, dynamic)
     -- A method's receiver is its first parameter on the core, though its
-    -- function type leaves it out.
-    if owner.body.coreSelfParam then
+    -- function type leaves it out: a `:` method's implicit one, or the `self`
+    -- an instance method in a record body spells.
+    if owner.body.coreSelfParam or owner.node.kind == "inlineMethod" and not owner.node.inlineStatic then
         table.insert(result.params, 1, "value")
     end
 

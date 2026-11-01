@@ -207,11 +207,17 @@ function generate.program(seed, size)
             emit("    " .. b .. " = (" .. b .. " + 5) % 1000003")
             emit("end")
         elseif roll == 9 then
-            -- A record method, for its value or as a statement.
-            if pick(2) == 1 then
+            -- A record method, for its value or as a statement, one written in
+            -- the record's body, or a static one called through its table.
+            local how = pick(4)
+            if how == 1 then
                 emit(target() .. " = acc:add(" .. expression(1) .. ")")
-            else
+            elseif how == 2 then
                 emit("acc:add(" .. expression(1) .. ")")
+            elseif how == 3 then
+                emit(target() .. " = acc:scaled(" .. expression(1) .. " % 97)")
+            else
+                emit(target() .. " = Acc.seed(" .. expression(1) .. ")")
             end
         elseif roll == 11 and pick(2) == 1 then
             -- A generic function, its type parameter erased on the core.
@@ -311,7 +317,20 @@ function generate.program(seed, size)
 
     emit("local record Acc", "local Acc = {}")
     lines[#lines + 1] = "    value: integer"
+    -- Methods written in the body: an instance one and a static one.
+    lines[#lines + 1] = "    function scaled(self, k: integer): integer"
+    lines[#lines + 1] = "        return (self.value * k + k) % 1000003"
+    lines[#lines + 1] = "    end"
+    lines[#lines + 1] = "    function seed(n: integer): integer"
+    lines[#lines + 1] = "        return (n * 7 + 1) % 65521"
+    lines[#lines + 1] = "    end"
     lines[#lines + 1] = "end"
+    lua[#lua + 1] = "function Acc.scaled(self, k)"
+    lua[#lua + 1] = "    return (self.value * k + k) % 1000003"
+    lua[#lua + 1] = "end"
+    lua[#lua + 1] = "function Acc.seed(n)"
+    lua[#lua + 1] = "    return (n * 7 + 1) % 65521"
+    lua[#lua + 1] = "end"
     emit("function Acc:add(n: integer): integer", "function Acc:add(n)")
     emit("    self.value = (self.value + n) % 1000003")
     emit("    return self.value")

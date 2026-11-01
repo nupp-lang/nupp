@@ -260,11 +260,20 @@ function program.describe(modules: {any}, entryModule: string): any
         end
     end
 
+    -- The record name each method written in a record body belongs to.
+    local inlineRecords: {[any]: any} = {}
     local discover: function(any, any): nil
     discover = function(node: any, owner: any): nil
         if cst.isToken(node) then
             binding(node, owner)
             return
+        end
+        if node.kind == "recordDecl" and node.name then
+            for _, entry in ipairs(node.entries or {}) do
+                if entry.kind == "inlineMethod" then
+                    inlineRecords[entry] = node.name
+                end
+            end
         end
         if node.kind == "funcbody" then
             need(p.byBody[node] == owner, "unsupported checked function owner")
@@ -524,13 +533,29 @@ function program.describe(modules: {any}, entryModule: string): any
             }
             p.calls[#p.calls + 1], p.callByNode[node] = item, item
         end
+        -- A call through a field (`R.f(...)`, `t.handler(x)`) calls the value
+        -- it reads, resolved when it runs.
+        if node.kind == "call"
+            and node.obj.kind == "dotIndex"
+            and not loader
+            and not intrinsic
+            and not loopForms[node]
+        then
+            local item = {id = #p.calls, owner = owner.id, node = node, field = true}
+            p.calls[#p.calls + 1], p.callByNode[node] = item, item
+        end
         -- A record method call reaches its method through the table the
         -- record's name holds, so the caller references that binding: a
         -- synthetic token per call, which capture analysis then transports.
         local method = node.kind == "methodCall" and node.name and node.name.definition
         local target = method and p.functionsByDefinition[method]
-        if target and target.node.kind == "funcStmt" and target.node.name.method then
-            local base = target.node.name.base
+        local base = target and target.node.kind == "funcStmt" and target.node.name.method and target.node.name.base
+            or target
+            and target.node.kind == "inlineMethod"
+            and not target.node.inlineStatic
+            and inlineRecords[target.node]
+            or nil
+        if base then
             local classToken: any = {
                 kind = "name",
                 text = base.text,
@@ -817,6 +842,16 @@ function program.verify(p: any): boolean
                 "method callsite identity mismatch"
             )
             need(referenceOwners[item.classToken] == item.owner, "method callsite does not belong to its checked owner")
+        elseif item.field then
+            need(
+                node.kind == "call"
+                and node.obj.kind == "dotIndex"
+                and p.callByNode[node] == item
+                and item.definition == nil
+                and not node.runtimeLoader
+                and not node.ownershipIntrinsic,
+                "field callsite identity mismatch"
+            )
         else
             need(
                 node.kind == "call"

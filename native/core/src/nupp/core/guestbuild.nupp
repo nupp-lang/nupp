@@ -64,7 +64,8 @@ local CASES: {[string]: {
     callsVariadic = {fixture = "catalog-calls-variadic", version = 8},
     callsSpread = {fixture = "catalog-calls-spread", version = 8},
     recordsMethods = {fixture = "catalog-records-methods", version = 8},
-    callsProtected = {fixture = "catalog-calls-protected", version = 8}
+    callsProtected = {fixture = "catalog-calls-protected", version = 8},
+    recordsInline = {fixture = "catalog-records-inline", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.
