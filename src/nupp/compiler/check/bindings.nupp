@@ -87,7 +87,9 @@ function bindings.install(c: state.Checker): state.StatHandlers
                 local fieldType, definition
                 local availableNames = c.fieldNames(sourceType)
                 if entry.typeOnly then
-                    local moduleName = source.requiredModule
+                    -- Builtin roots project to a checked implementation. Reading its
+                    -- exports also records that dependency in incremental sessions.
+                    local moduleName = source.standardRoot and source.qualifiedModule or source.requiredModule
                     local exports = moduleName
                         and c.env
                         and c.env.resolveModuleExports

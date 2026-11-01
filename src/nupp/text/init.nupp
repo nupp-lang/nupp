@@ -43,3 +43,6 @@ export type Buffer = SharedBuffer
 --- @param options the host buffer library's options, where it has any
 --- @return the buffer, holding nothing
 export const newBuffer: function(size: (integer | table)?, options: table?): Buffer = provider.new
+
+--- @internal
+export const newbuffer = newBuffer

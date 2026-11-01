@@ -9652,7 +9652,7 @@ function gen.generate(
             if not x.concatBuffer.elide then
                 emitChildren(x)
             end
-            e(("local %s = %s.newBuffer()"):format(x.concatBuffer.name, concatBufferName()), sourceLine(x))
+            e(("local %s = %s.newbuffer()"):format(x.concatBuffer.name, concatBufferName()), sourceLine(x))
 
         elseif kind == "assignStmt" and x.concatBuffer then
             -- `s = s .. a .. b` becomes `buf:put(a, b)`. Lua's `..` is
