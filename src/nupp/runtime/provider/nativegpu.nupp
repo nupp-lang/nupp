@@ -15,7 +15,7 @@ the canonical public identities and context borrows. The context, its buffers,
 kernels and bindings are closeable; closing a child or the context must not leave
 a dependent handle usable.
 
-Applications require [](gpu), which resolves the provider once and exports
+Applications use [](io.gpu), which resolves the provider once and exports
 its `open` function directly. Uploads, dispatches, synchronization, and readback
 operate on the retained context without further service resolution.
 ]]

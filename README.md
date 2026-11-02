@@ -84,7 +84,7 @@ bundles, standalone binaries, embedded components, and browser packages.
 explicit SIMD. `@aot(target = "gpu")` produces checked resident-buffer kernels,
 structured workgroups, and native or WebGPU artifacts. See
 [Ahead-of-time compilation](docs/learn/performance/ahead-of-time/index.md) and
-[GPU compute](docs/learn/performance/ahead-of-time/io.gpu.md).
+[GPU compute](docs/learn/performance/ahead-of-time/gpu.md).
 
 ## Tooling
 
