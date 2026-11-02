@@ -375,12 +375,15 @@ end
 function M.aTypedLocalHoldsNilUntilEveryPathAssignsIt()
     -- Declared without a value, a typed local is read as nil until it is assigned.
     testAssert.eq(diagsOf("local x: string\nprint(x:upper())"), "NUPP2207:2")
-    testAssert.eq(diagsOf("local x: string\nif #arg > 5 then\n    x = 'set'\nend\nprint(x:upper())"), "NUPP2207:5")
-    testAssert.eq(diagsOf("local x: string\nwhile #arg > 5 do\n    x = 'set'\nend\nprint(#x)"), "NUPP2207:5")
-    testAssert.eq(diagsOf("local x: string\nfor _ = 1, #arg do\n    x = 'set'\nend\nprint(#x)"), "NUPP2207:5")
+    testAssert.eq(
+        diagsOf("local x: string\nif #io.cli.args > 5 then\n    x = 'set'\nend\nprint(x:upper())"),
+        "NUPP2207:5"
+    )
+    testAssert.eq(diagsOf("local x: string\nwhile #io.cli.args > 5 do\n    x = 'set'\nend\nprint(#x)"), "NUPP2207:5")
+    testAssert.eq(diagsOf("local x: string\nfor _ = 1, #io.cli.args do\n    x = 'set'\nend\nprint(#x)"), "NUPP2207:5")
     -- Every path assigning it is what makes it hold a value.
-    assertClean("local x: string\nif #arg > 5 then\n    x = 'a'\nelse\n    x = 'b'\nend\nprint(#x)")
-    assertClean("local x: string\nif #arg > 5 then\n    x = 'a'\nelse\n    return\nend\nprint(#x)")
+    assertClean("local x: string\nif #io.cli.args > 5 then\n    x = 'a'\nelse\n    x = 'b'\nend\nprint(#x)")
+    assertClean("local x: string\nif #io.cli.args > 5 then\n    x = 'a'\nelse\n    return\nend\nprint(#x)")
     assertClean("local x: string\nrepeat\n    x = 'a'\nuntil true\nprint(#x)")
     -- An optional annotation admits the nil the declaration leaves there.
     assertClean("local x: string?\nprint(x)")

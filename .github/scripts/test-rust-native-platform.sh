@@ -8,8 +8,8 @@
 set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
-FEATURES=lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers
-HOST_FEATURES=lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers
+FEATURES=lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-time,native-tls,workers
+HOST_FEATURES=lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-time,native-tls,workers
 
 cd "$ROOT"
 
@@ -80,6 +80,7 @@ trap 'rm -rf "$TEMP"' EXIT HUP INT TERM
 cat > "$TEMP/host.lua" <<'LUA'
 assert(__nuppHost.hostFeatures.lpeg)
 assert(__nuppHost.hostFeatures["native-checksum"])
+assert(__nuppHost.hostFeatures["native-time"])
 assert(__nuppHost.hostFeatures["native-compression"])
 assert(__nuppHost.hostFeatures["native-files"])
 assert(__nuppHost.hostFeatures["native-gpu"])

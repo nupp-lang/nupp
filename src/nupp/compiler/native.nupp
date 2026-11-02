@@ -122,6 +122,7 @@ local FEATURES: {[string]: native.Feature} = {
         name = "process_runtime",
         module = "io.internal.process",
         globals = {"io.popen"},
+        exports = {"nupp.runtime.standardio.popen"},
         runtimeModule = "io.internal.process",
         portableRuntime = true,
         requires = {"runtime.suspension"}
@@ -574,6 +575,7 @@ local FEATURES: {[string]: native.Feature} = {
         "native.time"
     ] = {
         name = "time",
+        host = "native-time",
         module = "nupp.runtime.provider.nativetime",
         runtimeModule = "nupp.runtime.provider.nativetime",
         provider = "nupp_native",

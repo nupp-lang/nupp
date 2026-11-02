@@ -1887,6 +1887,49 @@ function M.portableFeatureRuntimesAreReachable()
     assert(seen > 0, "some feature runtime is available in the browser")
 end
 
+function M.byteIoInstallerDoesNotSelectStructuredProcesses()
+    local path = HERE .. "/../src/nupp/runtime/standardio.nupp"
+    local file = assert(io.open(path, "rb"))
+    local source = file:read("*a")
+    file:close()
+    local result = parser.parse(source, path)
+    testAssert.eq(#result.errors, 0, "the actual byte I/O installer parses")
+    local env = envMod.new(HERE .. "/..", {cache = false})
+    testAssert.eq(#check.check(result, path, env), 0, "the actual byte I/O installer checks")
+    local code, diagnostics, _, emitted = gen.generate(result, path)
+    testAssert.eq(#diagnostics, 0, "the actual byte I/O installer generates")
+    local expanded = native.expand(emitted)
+    assert(not expanded["runtime.process"], "loading byte I/O must not select structured processes")
+    assert(not expanded["native.process"], "loading byte I/O must not select the native process provider")
+    assert(not expanded["native.time"], "loading byte I/O must not select native timers")
+    for _, name in ipairs(gen.runtimeModules(code)) do
+        assert(name ~= "io.internal.process", "the lazy dispatcher must not create an unconditional packaging edge")
+    end
+end
+
+function M.popenAliasesKeepTheirExplicitProcessFeature()
+    local sources = {
+        "do local child = io.popen({args = {'fixture-child'}}) end",
+        "local channel = io\n do local child = channel.popen({args = {'fixture-child'}}) end",
+        "local open = io.popen\n do local child = open({args = {'fixture-child'}}) end",
+        "local channel = require('io')\n do local child = channel.popen({args = {'fixture-child'}}) end",
+        "module nupp.fixture\nlocal channel = require('nupp.runtime.standardio')\n"
+        .. "do local child = channel.popen({args = {'fixture-child'}}) end",
+        "module nupp.fixture\nlocal channel = require('nupp.runtime.standardio')\nlocal open = channel.popen\n"
+        .. "do local child = open({args = {'fixture-child'}}) end",
+    }
+    for _, source in ipairs(sources) do
+        local result = parser.parse(source, "popen-features.nupp")
+        testAssert.eq(#result.errors, 0, source)
+        local env = envMod.new(HERE .. "/..", {cache = false})
+        testAssert.eq(#check.check(result, "popen-features.nupp", env), 0, source)
+        local _, diagnostics, _, emitted = gen.generate(result, "popen-features.nupp")
+        testAssert.eq(#diagnostics, 0, source)
+        assert(emitted["runtime.process"], "a direct or aliased popen read must carry its implementation: " .. source)
+    end
+    testAssert.eq(native.feature("runtime.process").runtimeModule, "io.internal.process")
+end
+
 function M.nativeFeaturesAreResolvedEffects()
     local function effectsOf(source)
         local result = parser.parse(source, "native-effects")

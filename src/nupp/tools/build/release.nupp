@@ -26,6 +26,7 @@ local HOST_FEATURES: {
     "native-gpu",
     "native-net",
     "native-process",
+    "native-time",
     "native-tls",
     "workers",
 }

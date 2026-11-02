@@ -1198,7 +1198,7 @@ end
 function M.cpuOnlyAotDoesNotStageTheGpuRuntime()
     local dir = builtFixture("require")
     assert(
-        read(dir .. "/build/native/cache/runtime-source/gpu/init.nupp") == nil,
+        read(dir .. "/build/native/cache/runtime-source/io/gpu/init.nupp") == nil,
         ("a CPU-only AOT target staged the WGPU runtime (require fixture at %s)"):format(dir)
     )
 end
@@ -1233,7 +1233,7 @@ function M.gpuCheckStagesTheDefaultProviderTypeSurface()
     local out, code = check(dir)
     test.eq(code, 0, out)
     assert(
-        read(dir .. "/build/native/cache/runtime-source/gpu/init.nupp"),
+        read(dir .. "/build/native/cache/runtime-source/io/gpu/init.nupp"),
         "a GPU check did not stage the native provider types its public facade re-exports"
     )
 end

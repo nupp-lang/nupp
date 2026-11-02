@@ -2914,6 +2914,56 @@ print(tiny.tiny_add(2, 3))
     remove(dir)
 end
 
+function M.byteIoBundleOmitsUnusedProcessAndClockProviders()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include = {"src"}, build = {kind = "bundle",
+   outDir = "out", output = "out/app.lua", entries = {"main"}, host = "browser"}}]],
+        [
+            "src/main.nupp"
+        ] = [[
+local buffer = io.newbuffer("portable bytes")
+assert(buffer:getstring() == "portable bytes")
+buffer:close()
+]],
+    })
+    testAssert.eq(project.build(dir), 0)
+    local payload = read(dir .. "/out/app.lua")
+    for _, name in ipairs({
+        "io.internal.process",
+        "nupp.runtime.provider.nativeprocess",
+        "nupp.runtime.provider.nativetime",
+        "nupp.io.path.pathtext"
+    }) do
+        assert(
+            not payload:find(('package.preload[%q]'):format(name), 1, true),
+            "byte I/O unexpectedly packages " .. name
+        )
+    end
+    remove(dir)
+end
+
+function M.popenBundleStagesItsStructuredImplementationAndProvider()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include = {"src"}, build = {kind = "bundle",
+   outDir = "out", output = "out/app.lua", entries = {"main"}}}]],
+        ["src/main.nupp"] = [[
+local open = io.popen
+local child = open({args = {"fixture-child"}})
+]],
+    })
+    testAssert.eq(project.build(dir), 0)
+    local payload = read(dir .. "/out/app.lua")
+    for _, name in ipairs({"io.internal.process", "nupp.runtime.provider.nativeprocess"}) do
+        assert(payload:find(('package.preload[%q]'):format(name), 1, true), "popen failed to package " .. name)
+    end
+    assert(exists(dir .. "/out/lib/" .. deps.sharedLibraryName("nupp_native")), "popen stages its native provider")
+    remove(dir)
+end
+
 function M.standaloneBinaryLinksRustFilesystemIntoItsOwnHost()
     local dir = tempProject({
         [
@@ -2942,6 +2992,93 @@ print("rust-files-ok")
         "rust-files-ok",
         "the executable resolves Rust filesystem FFI from its own symbols"
     )
+    remove(dir)
+end
+
+function M.standaloneBinaryPreservesDirectAndAliasedLuaPipes()
+    local sources = {
+        [[do
+    local pipe = assert(io.popen("echo pipe-ok", "r"))
+    assert(pipe:read("*l") == "pipe-ok")
+end
+]],
+        [[local open = io.popen
+do
+    local pipe = assert(open("echo pipe-ok", "r"))
+    assert(pipe:read("*l") == "pipe-ok")
+end
+]],
+    }
+    for index, source in ipairs(sources) do
+        local dir = tempProject({
+            [
+                "nupp.lua"
+            ] = [[return {include = {"src"}, build = {kind = "binary",
+   stub = "nupp", standalone = true, outDir = "out", output = "out/app",
+   entries = {"main"}}}]],
+            ["src/main.nupp"] = source .. 'print("lua-pipe-ok")\n',
+        })
+        testAssert.eq(project.build(dir), 0, "standalone Lua pipe form " .. index)
+        local output = executableName(dir .. "/out/app")
+        assert(exists(output), "the standalone Lua pipe executable is emitted")
+        for _, name in ipairs({
+            "nupp_native",
+            "nupp_native.dll",
+            "nupp_native.dylib",
+            "nupp_native.so",
+            "libnupp_native.dylib",
+            "libnupp_native.so"
+        }) do
+            assert(not exists(dir .. "/out/lib/" .. name), "the standalone Lua pipe retains no Rust sidecar")
+        end
+        local code, text = process.capture({output})
+        testAssert.eq(code, 0, text)
+        testAssert.eq(text:match("[^\r\n]+"), "lua-pipe-ok", "the Lua pipe reads and closes normally")
+        remove(dir)
+    end
+end
+
+function M.standaloneBinaryLinksClocksAndTimersIntoItsOwnHost()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include = {"src"}, build = {kind = "binary",
+   stub = "nupp", standalone = true, outDir = "out", output = "out/app",
+   entries = {"main"}}}]],
+        [
+            "src/main.nupp"
+        ] = [[
+const ffi = require("ffi")
+local started = os.monotonic()
+assert(os.walltime() > 1000000000000)
+coroutine.sleep(2)
+assert(os.monotonic() - started >= 2)
+local host = rawget(_G, "__nuppHost") as any
+assert(host.hostFeatures["native-time"])
+assert(rawget(_G, "__nuppNativeLibrary") == ffi.C)
+print("static-clocks-ok")
+]],
+    })
+    testAssert.eq(project.build(dir), 0)
+    local output = executableName(dir .. "/out/app")
+    assert(exists(output), "the standalone clock executable is emitted")
+    for _, name in ipairs({
+        "nupp_native",
+        "nupp_native.dll",
+        "nupp_native.dylib",
+        "nupp_native.so",
+        "libnupp_native.dylib",
+        "libnupp_native.so"
+    }) do
+        assert(not exists(dir .. "/out/lib/" .. name), "the standalone clock build retains no Rust sidecar")
+    end
+    local library = os.getenv("NUPP_NATIVE_LIBRARY")
+    setEnvironment("NUPP_NATIVE_LIBRARY", nil)
+    local ok, code, text = pcall(process.capture, {output})
+    setEnvironment("NUPP_NATIVE_LIBRARY", library)
+    assert(ok, code)
+    testAssert.eq(code, 0, text)
+    testAssert.eq(text:match("[^\r\n]+"), "static-clocks-ok", "clocks and timers resolve from the executable")
     remove(dir)
 end
 
