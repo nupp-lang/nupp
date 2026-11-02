@@ -240,6 +240,25 @@ function M.aBaselineSchemaIsCheckedWhereItIsRead()
     local current = json.decode(read(stdout))
     testAssert.eq(current.schema, 4, "a record is written at schema 4")
 
+    -- Equal constant populations have zero rank-sum variance and no interval.
+    -- Author a distinct baseline duration so the interval assertion below tests
+    -- both schema boundaries without depending on measured timing.
+    local summary = current.benchmarks[1].summary
+    summary.medianMs = 0.26
+    summary.intervalLowMs = 0.26
+    summary.intervalHighMs = 0.26
+    for index in ipairs(summary.samplesMs) do
+        summary.samplesMs[index] = 0.26
+    end
+    for index in ipairs(summary.forkSummariesMs) do
+        summary.forkSummariesMs[index] = 0.26
+        local measurement = current.benchmarks[1].forks[index].measurement
+        measurement.medianMs = 0.26
+        for sample in ipairs(measurement.samplesMs) do
+            measurement.samplesMs[sample] = 0.26
+        end
+    end
+
     write(current)
     testAssert.eq(run(compared), 0, "a current baseline compares")
     local comparison = json.decode(read(stdout)).comparisons[1]

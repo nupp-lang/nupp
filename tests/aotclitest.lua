@@ -2770,7 +2770,7 @@ function M.indexedSimdMemoryCarriesItsExplicitConflictContract()
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json indexed.nupp")
     test.eq(code, 0, raw)
     assert(decoded.ir:find("simd_load.gather", 1, true), decoded.ir)
-    assert(decoded.ir:find("simd_store.scatterunchecked", 1, true), decoded.ir)
+    assert(decoded.ir:find("simd_store.scatterUnchecked", 1, true), decoded.ir)
     local asm = neonAsm(dir, "indexed.nupp")
     if asm ~= nil then
         assert(asm:match("kernel: [^\n]* [1-9]%d* vector"), asm)
