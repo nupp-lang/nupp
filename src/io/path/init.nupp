@@ -421,8 +421,8 @@ export function cwd(): (Path?, string?)
     return raw(pathtext.finish(text as string, WINDOWS)), nil
 end
 
---- Returns the current platform's primary path sep.
---- @return the path sep
+--- Returns the current platform's primary path separator.
+--- @return the path separator
 --- @export
 export function sep(): string
     return SEPARATOR
