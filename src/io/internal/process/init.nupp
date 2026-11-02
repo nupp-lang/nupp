@@ -6,7 +6,6 @@ module io.internal.process
 Starts a child process and drains its streams without deadlocking.
 
 ```nupp
-
 local child = assert(io.popen({args = {"cc", "--version"}}))
 local result = assert(child:communicate())
 print(result.output)

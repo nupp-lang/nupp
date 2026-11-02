@@ -100,7 +100,6 @@ Waiting does not introduce `async function`, `await`, or a future return type.
 An ordinary wrapper returns the value produced after the wait:
 
 ```nupp
-
 local function compilerVersion(): string
     local child = assert(io.popen({args = {"cc", "--version"}}))
     local result = assert(child:communicate())
