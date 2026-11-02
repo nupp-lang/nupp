@@ -36,7 +36,7 @@ function `work` accepts is a
 all, or a literal whose captures are each initialized once, never reassigned,
 and copyable. The checker holds every capture to its declared type; what an
 `any` or a table turns out to hold is verified when the message is built, and a
-closure or a cycle found in there is refused at the fork, naming where it was.
+closure or a cycle found in there is refused at submission, naming where it was.
 
 [](coroutine.Scope.work) starts a worker child and returns a [](coroutine.Task)
 whose result pack is the submitted function's. This module selects the lane

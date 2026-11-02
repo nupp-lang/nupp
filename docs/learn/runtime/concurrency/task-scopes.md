@@ -33,7 +33,7 @@ The standard library is reached by nesting; nothing here is required.
 
 ## Children
 
-`spawn` starts a child on the scope's coroutine driver and `fork` starts one on
+`spawn` starts a child on the scope's coroutine driver and `work` starts one on
 a worker lane. Both have one shape: arguments first, callable last, and both
 return a `Task<F>`.
 
@@ -47,7 +47,7 @@ A module function with arguments builds nothing per call, which is what a loop
 that spawns many children wants; the `jit-loop-closure` lint says so where a
 per-iteration closure is written instead. A bare body is the zero-argument case.
 Arguments to `spawn` are plain values: an owner or a borrow cannot be tracked
-through the table the child unpacks them from. Arguments to `fork` are copied
+through the table the child unpacks them from. Arguments to `work` are copied
 into another Lua state, and the callable must be sendable, a module function or a
 literal whose effectively-final captures can be copied. The selected worker
 provider says which values may cross: the native provider moves an engine-backed
@@ -63,7 +63,7 @@ the block or stored past it, so a task never becomes detached work.
 
 ## Bounded fan-out
 
-`scope(limit = n)` parks `spawn` and `fork` while `n` children are live. The
+`scope(limit = n)` parks `spawn` and `work` while `n` children are live. The
 loop that spawns is the source, and a settlement is what lets it continue, so
 nothing is pulled from the source before there is room to run it. A worker child
 holds a slot until its lane answers.
@@ -95,7 +95,7 @@ do
 end
 ```
 
-When every slot is held, a child that forks or spawns on its own scope lends
+When every slot is held, a child that starts another child on its scope lends
 the new child the slot it holds and parks until it can hold one again, which
 happens when that child settles or a sibling does. A slot a sibling would have
 to free is never what a child waits for, so this pattern cannot deadlock however
@@ -164,9 +164,9 @@ drops the uncalled closure and its captures, and so does a `spawn` the scope
 refuses -- one parked for a slot under a `limit` when a sibling fails, or one
 made after the scope already owns a failure. A borrowed affine capture is
 refused because `spawn` returns before the child must settle. The one exception
-is the scope itself: a child may borrow the scope it was started on, to fork or
-spawn beside itself or to cancel its siblings, because the scope settles every
-child before it closes.
+is the scope itself: a child may borrow the scope it was started on, to start
+children beside itself or to cancel its siblings, because the scope settles
+every child before it closes.
 
 ## Failure ownership
 
@@ -218,7 +218,7 @@ is attached beside it, the way a cleanup failure is.
 Use `run` where the scope is the whole operation, so a failure is not held up
 behind children it has made pointless. Keep `scope` where the block should wait
 for its children whatever happens, or where children are added across several
-calls that each borrow the scope. `run` takes the same `limit` and `timeoutMs`,
+calls that each borrow the scope. `run` takes the same `limit` and `timeoutms`,
 and the body may also come alone, as `run(body)`.
 
 ## Whole-family calls

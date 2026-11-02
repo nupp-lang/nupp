@@ -292,6 +292,15 @@ local function memberCode(source: string, links: Links?): string
     ) .. "</code></pre></div>"
 end
 
+-- Overloads share a semantic member path. The first keeps that canonical anchor;
+-- later signatures also get stable anchors without hiding any of their contracts.
+local function overloadAnchor(path: string, seen: {[string]: integer}): string
+    local count = (seen[path] or 0) + 1
+    seen[path] = count
+
+    return count == 1 and path or path .. "-overload-" .. tostring(count)
+end
+
 -- The members of a declaration as one table above the sections documenting them, the
 -- same relationship the module contents table has to the declarations under it. The
 -- signature block elides the entries, so this is where a reader sees what the type
@@ -300,12 +309,13 @@ local function memberSummary(members: {extractMod.Member}?, links: Links?, title
     if not members or #members == 0 then
         return ""
     end
-    local rows = {}
+    local rows, anchors = {}, {}
     for _, member in ipairs(members) do
+        local path = overloadAnchor(member.path, anchors)
         rows[
             #rows + 1
         ] = {
-            '<a href="#' .. htmlEscape(member.path) .. '"><code>' .. htmlEscape(member.name) .. "</code></a>",
+            '<a href="#' .. htmlEscape(path) .. '"><code>' .. htmlEscape(member.name) .. "</code></a>",
             kindBadge(memberKind(member)),
             inlineHtml(summaryText(member.text))
         }
@@ -322,12 +332,14 @@ end
 -- `<div>` instead of losing its members to a flattened table.
 local function renderHtmlMembers(out: {string}, members: {extractMod.Member}?, links: Links?, level: integer): nil
     local hName, hSub = htag(level), htag(level + 1)
+    local anchors = {}
     for _, member in ipairs(members or {}) do
+        local path = overloadAnchor(member.path, anchors)
         out[
             #out + 1
         ] = memberHeading(
             member.name,
-            member.path,
+            path,
             hName,
             member.isType and " nuppdoc-api-nested-type" or nil,
             memberKind(member),
@@ -339,7 +351,7 @@ local function renderHtmlMembers(out: {string}, members: {extractMod.Member}?, l
             out[#out + 1] = memberCode(memberSpelling(member), links)
         end
         out[#out + 1] = annotationBadges(member.annotations)
-        out[#out + 1] = markdownHtml(member.text, links)
+        out[#out + 1] = markdownHtml(member.text, links, nil, path)
         if #member.params > 0 then
             local rows = {}
             for _, param in ipairs(member.params) do
@@ -371,12 +383,13 @@ local function renderHtmlMembers(out: {string}, members: {extractMod.Member}?, l
     end
 end
 
-local function renderHtmlItem(out: {string}, item: extractMod.Item, links: Links?): nil
+local function renderHtmlItem(out: {string}, item: extractMod.Item, links: Links?, anchors: {[string]: integer}?): nil
     local kind = displayKind(item)
+    local path = overloadAnchor(item.path, anchors or {})
     out[
         #out + 1
     ] = '<section class="nuppdoc-api-item" id="' .. htmlEscape(
-        item.path
+        path
     ) .. '"><h3><code>' .. htmlEscape(
         item.name
     ) .. "</code>" .. kindBadge(
@@ -384,11 +397,11 @@ local function renderHtmlItem(out: {string}, item: extractMod.Item, links: Links
     ) .. (
         item.lua and kindBadge("Lua") or ""
     ) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
-        item.path
+        path
     ) .. '" aria-label="Link to ' .. htmlEscape(item.name) .. '">#</a></h3>'
     out[#out + 1] = memberCode(displaySignature(item), links)
     out[#out + 1] = annotationBadges(item.annotations)
-    out[#out + 1] = markdownHtml(item.doc.text, links)
+    out[#out + 1] = markdownHtml(item.doc.text, links, nil, path)
     if #item.typeargs > 0 then
         local rows = {}
         for _, typearg in ipairs(item.typeargs) do

@@ -1690,10 +1690,11 @@ record debug.ReloadPoll
     --- now running; on the second, the one that stayed.
     generation: integer?
 
-    --- The published patch chunk, on `"prepared"`.
+    --- Optional transaction metadata. The watch poll leaves this nil; a
+    --- `"prepared"` result reports the committed `generation` instead.
     patch: string?
 
-    --- What a `"prepared"` answer was prepared against.
+    --- Optional transaction metadata. The watch poll leaves this nil.
     basegeneration: integer?
 
     --- Why the change was refused, on `"diagnostics"` and `"restart-required"`.

@@ -743,7 +743,7 @@ end
 ```
 
 ```lua [-O1]
-const __nuppBuffer = require("nupp.text")
+local __nuppBuffer = require("nupp.text")
 
 function m.join(items)
     local __nuppBuf_1 = __nuppBuffer.newbuffer()

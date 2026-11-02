@@ -6,7 +6,7 @@ order: 150
 
 `coroutine.workers` runs sendable functions in parallel on a shared,
 bounded scheduler whose lanes are native threads with isolated LuaJIT states.
-A lane is reached through `fork` on an [application task scope](task-scopes.md),
+A lane is reached through `work` on an [application task scope](task-scopes.md),
 which owns the worker children it starts. Arguments and results cross as copies,
 while Lua heaps and their globals, userdata, cdata, and mutable module state stay
 isolated. Eligible closure captures cross only as independent copies.
@@ -37,7 +37,7 @@ end
 ```
 
 `jobs.hash` is still an ordinary function. Calling `jobs.hash(bytes)` runs it
-in the current Lua state; passing it to `scope:fork` runs it on the worker
+in the current Lua state; passing it to `scope:work` runs it on the worker
 scheduler. There is no worker declaration or parallel version of the function.
 
 ::: note Workers need a compiler-owned binary, or a browser package
@@ -66,7 +66,7 @@ Worker rather than a thread.
 
 ## Structured scopes
 
-Every worker task belongs to the task scope that forked it. Leaving the exact
+Every worker task belongs to the task scope that submitted it. Leaving its
 lexical extent waits for all of its children, including tasks the body never
 awaited and every path out by return or error.
 
@@ -104,11 +104,11 @@ on the native channel.
 
 ## Fanning out over a list
 
-Two forks are two lines; a list is a loop. A scope is never told in advance
-how many children it will have.
+Two submissions are two calls; a list is a loop. A scope is never told how many
+children it will have.
 
 A handle borrows the scope that made it, so it lives in a local rather than a
-table. A list therefore fans out through children: each one forks its item and
+table. A list therefore fans out through children: each submits its item and
 waits for it, and the children wait together, so every item is on a lane at
 once.
 
@@ -134,12 +134,12 @@ export function hashEach(inputs: {string}): {string}
 end
 ```
 
-Waiting inside the loop that forks would fork one task, wait for it, and fork the
-next: still correct, and exactly as parallel as calling the function. A handle
-rarely needs a type annotation, because `const task = scope:work(bytes,
+Waiting inside the submission loop would run one task, wait for it, then submit
+the next: still correct, and exactly as parallel as calling the function. A
+handle rarely needs a type annotation, because `const task = scope:work(bytes,
 jobs.hash)` infers one. Where one is written, it is `coroutine.Task<F>`, named
 by the submitted function's type: the handle is derived from the signature
-alone, so it is `coroutine.Task<function(string): string>` even though [`fork`
+alone, so it is `coroutine.Task<function(string): string>` even though [`work`
 requires an `@sendable` function](#functions-that-can-be-submitted).
 
 ### Work in the caller
@@ -207,8 +207,8 @@ same lanes and pay ten thousand copies to do it.
 
 ## Shared scheduler
 
-The first fork creates one scheduler for the process. Its lane count is the
-host's online processor count, capped at 64, and
+The first worker submission creates one scheduler for the process. Its lane
+count is the host's online processor count, capped at 64, and
 `os.info().parallelism` returns that count without opening
 anything. Later and concurrent scopes reuse the same lanes rather than creating
 a pool or a thread per task.
@@ -223,16 +223,16 @@ available replies from every lane and wakes the tasks that settled. Awaiting
 many tasks therefore does not register one source or lock every lane again for
 each awaiter.
 
-A worker task cannot fork. Its isolated state cannot submit back into the
-parent scheduler without either exposing scheduler internals across the heap
-boundary or risking that a lane waits on itself.
+A worker task cannot submit another worker. Its isolated state cannot submit
+back into the parent scheduler without either exposing scheduler internals
+across the heap boundary or risking that a lane waits on itself.
 
 ```nupp
 module jobs.index
 
 const tasks = coroutine
 
--- Submitting this raises where it forks: a worker task cannot open another
+-- Submitting this raises at the work call: a worker task cannot open another
 -- worker scope.
 export function countAll(shards: {{string}}): integer
     local total: integer = 0
@@ -286,7 +286,7 @@ mailboxes would be a separate abstraction.
 
 ## Functions that can be submitted
 
-The final argument to `fork` must be a `@sendable function`. A function read
+The final argument to `work` must be a `@sendable function`. A function read
 from a loaded module is sendable with no captures:
 
 ```nupp:fragment
@@ -373,7 +373,7 @@ with `new` carries its declaration table and crosses with that identity; a plain
 table cast to the same record type remains plain. The type alone cannot decide
 which value arrives. The checker's guarantee is therefore one level deep -- each
 capture and argument is held to its declared type -- and the transport walks the
-values themselves when the message is built, at `fork`.
+values themselves when the message is built, at `work`.
 
 The following are therefore still rejected while copying:
 
@@ -434,7 +434,7 @@ One exception to the ownership refusal is deliberate. A worker parameter may
 take a [](nupp.mem.heap) array of a fixed-width element, and an affine result
 may return one; neither is a copy. The array's storage lives in neither Lua
 heap, so the message hands its pointer across and the receiving lane becomes
-the one owner. The fork consumes the sender's binding, so touching it
+the one owner. The submission consumes the sender's binding, so touching it
 afterwards is a compile error at the send site, and an affine result moves
 ownership back to whichever lane awaits the task.
 
@@ -559,7 +559,7 @@ Cancelling one child with `Task:cancel` does not cancel its siblings, and
 `scope:cancel` cancels every one. When a sibling fails, the task scope requests
 cancellation for every unfinished worker child, then awaits running cleanup
 through the installed suspension handler. The task scope owns its family of
-lanes privately; `fork` is the only way in.
+lanes privately; `work` is the only way in.
 
 The same rule applies to nontermination: an infinite worker task makes its
 scope infinite. Worker tasks are for bounded CPU work. Durable work, retries
@@ -569,7 +569,7 @@ across process failure, and jobs that outlive the caller belong to a broker or
 ## Browser lanes
 
 The [browser
-implementation](../../performance/ahead-of-time/wasm.md#browser-platform-services)
+implementation](../../performance/ahead-of-time/wasm.md#browser-package)
 satisfies `coroutine.workers.spi.Provider`, so everything above is written the
 same way there. A lane is a module Web Worker holding its own LuaJIT guest,
 booted from the same verified application package the page loaded; the packaging
@@ -583,7 +583,7 @@ two builds. Nothing is shared between lanes, so no Wasm threads, no
 The page's pool is bounded by both the package's lane limit and
 `navigator.hardwareConcurrency`, and `os.info().parallelism`
 returns that bound there. Lanes boot as work arrives rather than when the first
-fork is made.
+worker is submitted.
 
 Three things a program can observe differ, because a browser gives two Workers no
 synchronous channel:

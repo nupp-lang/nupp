@@ -875,6 +875,8 @@ local function loadModules(root, config, settings, requested)
         return signature
     end
 
+    local projectedAliases = {}
+
     local function projected(item: any, module: any): any
         local candidate = original(item, {})
         if candidate == item then
@@ -882,6 +884,7 @@ local function loadModules(root, config, settings, requested)
         end
         local context = declaringModule[candidate]
         local expanded = copy(candidate)
+        projectedAliases[expanded] = true
         expanded.name, expanded.path, expanded.module, expanded.line = item.name, item.path, item.module, item.line
         local binders = {}
         for _, generic in ipairs(candidate.typeargs or {}) do
@@ -1001,6 +1004,27 @@ local function loadModules(root, config, settings, requested)
         modules[#modules + 1] = alias
         byName[alias.name] = byName[alias.name] or alias
     end
+
+    -- A qualified implementation declaration can have the same public path as an
+    -- explicit facade alias. Keep the facade's chosen contract; an unresolved
+    -- self-alias instead gets its real declaration, retaining the facade's prose.
+    local function publishQualified(target: any, item: any): nil
+        for index, held in ipairs(target.items) do
+            if held.path == item.path then
+                if held.kind == "type" and item.kind ~= "type" and not projectedAliases[held] then
+                    if held.doc.text ~= "" then
+                        item.doc = held.doc
+                    end
+                    target.items[index] = item
+                elseif held.doc.text == "" then
+                    held.doc = item.doc
+                end
+                return
+            end
+        end
+        target.items[#target.items + 1] = item
+    end
+
     for _, module in ipairs(modules) do
         local kept = {}
         for _, item in ipairs(module.items) do
@@ -1020,7 +1044,7 @@ local function loadModules(root, config, settings, requested)
                 for _, member in ipairs(item.members) do
                     member.path = item.path .. "." .. member.name
                 end
-                target.items[#target.items + 1] = item
+                publishQualified(target, item)
             else
                 kept[#kept + 1] = item
             end
@@ -1673,6 +1697,7 @@ local function renderSite(root, outDir, modules, title, settings, standardLibrar
             -- the module is for.
             if #module.items > 0 then
                 body[#body + 1] = moduleSummary(module)
+                local declarationAnchors = {}
                 for _, group in ipairs(groups) do
                     if #group.items > 0 then
                         body[
@@ -1685,7 +1710,7 @@ local function renderSite(root, outDir, modules, title, settings, standardLibrar
                             group.path
                         ) .. '" aria-label="Link to ' .. htmlEscape(group.title) .. '">#</a></h2>'
                         for _, item in ipairs(group.items) do
-                            renderHtmlItem(body, item, links)
+                            renderHtmlItem(body, item, links, declarationAnchors)
                         end
                         body[#body + 1] = "</section>"
                     end

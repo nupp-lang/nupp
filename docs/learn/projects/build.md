@@ -219,7 +219,7 @@ created by generated code.
 
 Nested members use the same exact resolution. `serde.json.encodevalue(value)`
 selects JSON support, while an alias such as `local json = serde.json`
-followed by `json.encodeValue(value)` selects the same feature without also selecting
+followed by `json.encodevalue(value)` selects the same feature without also selecting
 UUID or UTF-8.
 Files and filesystem-backed path operations use the Rust-native
 provider; whole-file transfers and processes share its Tokio executor and use
@@ -582,7 +582,7 @@ the directory holding it rather than a route ending in `index`. `base` is the
 directory routes are named from, defaulting to the fixed part the pattern opens
 with, and `exclude` drops files the tree holds and the site does not publish.
 
-```lua
+```lua:fragment
 {
    glob = "docs/**.md",
    exclude = { "docs/drafts/**.md" }
@@ -618,7 +618,7 @@ by the file name without its extension, plus an index generated at `path`
 itself. A document is published by existing, so nothing has to be added to the
 manifest when one is written.
 
-```lua
+```lua:fragment
 {
    path = "adrs",
    title = "ADRs",

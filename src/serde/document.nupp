@@ -236,7 +236,7 @@ export const viewadapter = views.adapter
 ---
 --- Each registered key names its entry, its binding, its current version, and
 --- the migration that upgrades an older one. Saving produces a
---- [](StoreSnapshot) any codec can carry through [](storeBinding).
+--- [](StoreSnapshot) any codec can carry through [](storebinding).
 ---
 --- ```nupp
 --- local serde = require("serde")

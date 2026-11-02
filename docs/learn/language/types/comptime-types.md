@@ -42,7 +42,7 @@ Type handles are opaque and immutable. `types.describe(T)`, `kind`,
 `writeat` expose checked semantic information without exposing mutable checker
 state. Builders
 such as `literal`, `optional`, `array`, `tuple`, `map`, `shape`, `union`,
-`intersection`, `pointer`, `carray`, `constof`, `function_`, and `pack` produce
+`intersection`, `pointer`, `carray`, `constof`, `functiontype`, and `pack` produce
 validated handles.
 
 `fields` accepts structural shapes and nominal records, interfaces, and structs.

@@ -54,6 +54,8 @@ return {
     ] = {
         "clidoctest",
         "diagnosticgoldentest",
+        "docheadingstest",
+        "doclinkstest",
         "doctest",
         "examplestest",
         "explaintest",
@@ -90,11 +92,9 @@ return {
     -- hundreds of modules, a quarter of an hour on a fast machine. The SIMD
     -- conformance workflow runs the same harness sharded, so the per-push
     -- matrix leaves these to it.
-    ["wasm-conformance"] = {
-        "simdwasmtimeconformancetest",
-        "simdwasmalgorithmdifferentialtest",
-        "simdwasmbrowsersmoketest",
-    },
+    [
+        "wasm-conformance"
+    ] = {"simdwasmtimeconformancetest", "simdwasmalgorithmdifferentialtest", "simdwasmbrowsersmoketest",},
 
     -- Packaging and release delivery.
     ["packaging"] = {"bundletest", "compilerpacktest", "releasetest", "rocktest", "spipackagetest", "spitest",},

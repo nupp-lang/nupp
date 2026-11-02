@@ -246,7 +246,7 @@ nupp run -O1 --jit-aborts bench/sum.bench.nupp --case 'sum.floats.index:size=100
 
 `nupp bench` also records abort sites. A new abort seen in every fork fails a
 comparison against a baseline. See
-[Benchmarks](benchmarks.md#what-actually-fails-a-run).
+[Benchmarks](benchmarks.md#run-gates).
 
 ## Profiling from a program
 

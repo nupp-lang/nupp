@@ -68,7 +68,7 @@ end
 
 Construction is by name, because field order in a table is not meaningful:
 
-```nupp
+```nupp:fragment
 local p = new Point(x = 3, y = 4)
 print(p:length())
 ```
@@ -96,7 +96,7 @@ target may select the checked table-backed struct provider instead. A struct
 binding is never nil and zero-initializes, so a bare declaration is complete
 on its own:
 
-```nupp
+```nupp:fragment
 local a = new Vec2(1.0, 2.0)
 local b: Vec2
 ```
@@ -128,7 +128,7 @@ An `is` clause does two further things. It inherits the parent's members, and it
 declares satisfaction the checker trusts rather than re-proving, which is what
 lets a runtime registrar install the surface later:
 
-```nupp
+```nupp:fragment
 local record Registered is Named
     weight: number
 end
@@ -202,7 +202,7 @@ local type Figure = Circle | Square
 The comparison narrows to the one record that declares the tag, so the second
 branch reaches `f.side` without a cast:
 
-```nupp
+```nupp:fragment
 local function area(f: Figure): number
     if f.kind == "circle" then
         return math.pi * f.radius * f.radius
@@ -239,7 +239,7 @@ Type cases use the same runtime identity and narrowing as `is`. They can bind
 the whole matched value with `as` and direct fields with a brace list, so the
 `Figure` above dispatches without reading a tag:
 
-```nupp
+```nupp:fragment
 local function areaOf(shape: Figure): number
     return switch shape do
         case is Circle as circle -> math.pi * circle.radius * circle.radius
@@ -270,12 +270,22 @@ end
 print(firstOr({1, 2, 3}, 0))
 ```
 
-There is no explicit type-argument syntax at a call site. `f<number>(x)` parses
-as two comparisons, the way it does in Lua. See [call sites take no explicit
-type
-argument](../learn/language/types/generics.md#call-sites-take-no-explicit-type-argument)
-for why, and [generics](../learn/language/types/generics.md) for constraints,
-refinements, and instantiation.
+Write an explicit type argument when the values and destination do not supply
+one:
+
+```nupp
+local function empty<T>(): {T}
+    return {}
+end
+
+local values = empty<number>()
+assert(#values == 0)
+```
+
+The closing `>` followed immediately by `(` selects a generic call. See
+[explicit type arguments](../learn/language/types/generics.md#explicit-type-arguments-at-a-call-site)
+for the parsing rule, and [generics](../learn/language/types/generics.md) for
+constraints, refinements, and instantiation.
 
 ## Ownership
 
@@ -301,7 +311,7 @@ The exact `closeSession` identity is carried statically, so a value produced by
 one policy cannot be discharged by another. An ordinary local is destroyed
 automatically at its lexical boundary:
 
-```nupp
+```nupp:fragment
 do
     local session = openSession()
     print(session.closed)
@@ -321,7 +331,7 @@ standard library. A suspension-aware operation is an ordinary call with an
 ordinary result:
 
 ```nupp
-local process = io.process
+local process = require("nupp.io.process")
 
 local child = assert(process.spawn({args = {"cc", "--version"}}))
 local result = assert(child:communicate())
@@ -338,8 +348,8 @@ control must not park; the compiler follows calls to the possible suspension and
 reports the path. Libraries subscribe through `coroutine.suspension`,
 [suspension
 handlers](../learn/runtime/concurrency/suspension.md#hosts-supply-scheduling-policy)
-own scheduling policy, and `all`, `gather`, `race`, and `batch` compose several
-waiting operations without promises.
+own scheduling policy, and `coroutine.gather` and `coroutine.race` compose
+several waiting operations without promises.
 
 See [suspension](../learn/runtime/concurrency/suspension.md) for the runtime paths, cancellation
 contract, coroutine inheritance, and concurrent combinators.

@@ -548,13 +548,35 @@ function stdlib.merge(modules: {extractMod.Module}, page: stdlib.Page?): nil
     end
 
     local function mergeItems(owned, builtin)
-        local byPath = {}
-        for _, item in ipairs(owned) do
-            byPath[item.path] = item
-        end
-        for _, item in ipairs(builtin) do
-            local held = byPath[item.path]
+        local merged, byPath = {}, {}
+
+        local function append(item, fromBuiltin)
+            local key = item.path
+            local held = byPath[key]
+            -- Distinct authored overloads all remain visible. An ambient declaration
+            -- contributes prose and provenance, never another source-owned signature.
+            if held and not fromBuiltin then
+                local variant = item.type and item.type ~= held.type and item.type
+                    or held.kind == "function"
+                    and item.kind == "function"
+                    and item.signature ~= held.signature
+                    and item.signature
+                    or nil
+                if variant then
+                    key = key .. "\0" .. variant
+                    held = byPath[key]
+                end
+            end
             if held then
+                local replace = (held.kind == "type" and item.kind ~= "type" and item.kind ~= "variable")
+                    or (held.kind == "variable" and item.kind == "function")
+                if replace then
+                    for key, value in pairs(item) do
+                        if key ~= "doc" and key ~= "members" then
+                            held[key] = value
+                        end
+                    end
+                end
                 held.lua = held.lua or item.lua
                 if held.doc and item.doc and held.doc.text == "" then
                     held.doc = item.doc
@@ -567,9 +589,22 @@ function stdlib.merge(modules: {extractMod.Module}, page: stdlib.Page?): nil
                     mergeItems(held.members, item.members)
                 end
             else
-                owned[#owned + 1] = item
-                byPath[item.path] = item
+                merged[#merged + 1] = item
+                byPath[key] = item
             end
+        end
+
+        for _, item in ipairs(owned) do
+            append(item, false)
+        end
+        for _, item in ipairs(builtin) do
+            append(item, true)
+        end
+        for index = #owned, 1, -1 do
+            owned[index] = nil
+        end
+        for index, item in ipairs(merged) do
+            owned[index] = item
         end
     end
 
@@ -608,6 +643,7 @@ function stdlib.merge(modules: {extractMod.Module}, page: stdlib.Page?): nil
     end
 
     for _, module in ipairs(modules) do
+        mergeItems(module.items, {})
         markLua(module.items)
         table.sort(module.items, itemOrder)
     end

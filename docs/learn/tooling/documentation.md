@@ -327,13 +327,12 @@ without them.
 
 ### Checked examples
 
-Every `nupp` fence in `docs/learn` and in a module's docblocks is checked as a
-file of its own, so an example that stops checking is caught by the
-repository's tests rather than by the reader who copies it. A block that is not a whole
-program says so on its fence. `:fragment` marks a step of a sequence, a
-declaration lifted out of its module, or syntax shown in isolation, and is not
-checked. `:refused` marks a program shown for the diagnostic it reports, and is
-held to reporting one:
+Every `nupp` fence under `docs/` and in a module's docblocks is checked as a
+file of its own. Lua fences are parsed without running them. A block that is
+not a whole program says so on its fence. `:fragment` marks a step of a
+sequence, a declaration lifted out of its module, or syntax shown in isolation,
+and is not checked. `:refused` marks a program shown for a checker or syntax
+error, and must report one:
 
 ````markdown
 ```nupp:refused
@@ -539,9 +538,9 @@ is made of rather than as a list of everything on it.
 
 The sidebar's sections are collapsed except the one holding the page being
 read, and the API reference is open only on a module page. Inside it, every
-top-level branch stands open on every page: a top-level branch is a library,
-and there are few enough of them that naming them costs no room. The deeper
-branches stay shut except along the path to the module being read.
+library branch starts collapsed, including the branch containing the current
+module. Function and field entries belong to the page outline rather than the
+sidebar.
 
 ## Moved pages
 
@@ -549,7 +548,7 @@ branches stay shut except along the path to the module being read.
 each one pointing at where the page is now, so a link somebody else wrote
 still arrives:
 
-```lua
+```lua:fragment
 {
    path = "guides/build",
    title = "Build system",
@@ -583,7 +582,7 @@ sources, each configured by the route it should answer at.
 
 `diagnostics` generates a page holding every diagnostic code:
 
-```lua
+```lua:fragment
 diagnostics = {
    path = "reference/diagnostics",
    title = "Diagnostics",
@@ -614,7 +613,7 @@ does not build never becomes a dead link.
 
 `stdlib` adds the compiler's builtin declarations to the generated API reference:
 
-```lua
+```lua:fragment
 stdlib = {path = "api", title = "API reference"},
 ```
 
@@ -689,7 +688,7 @@ it is named, so no naming convention promotes one to a kind of its own.
 A configured page whose `path` is a module's route is that module's overview,
 rendered above the generated API rather than as a second page beside it:
 
-```lua
+```lua:fragment
 { path = "modules/engine", title = "Engine", source = "docs/engine.md" },
 ```
 

@@ -208,7 +208,7 @@ local interface Circle
 end
 ```
 
-```lua [Generated Lua]
+```lua:fragment [Generated Lua]
 -- `x is Circle` becomes
 (type(x) == "table" and x.kind == "circle")
 ```

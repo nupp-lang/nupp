@@ -104,7 +104,7 @@ end
 @comptime
 function events.event(info: types.derive.Info): types.derive.Result<events.Emittable>
     if info.kind ~= "record" and info.kind ~= "struct" then
-        return derive2.error("events.Event admits a record or a fixed-layout struct", info.reference)
+        return derive2.error("events.event admits a record or a fixed-layout struct", info.reference)
     end
     local name = option(info.annotations, "event", "name")
     if name ~= nil and type(name) ~= "string" then
@@ -165,7 +165,7 @@ local function infoOf(witness: any): Info
     local recorded = data and data.events or nil
     local initializer = derive.initializer(witness)
     if recorded == nil or initializer == nil then
-        error("nupp: the type did not derive events.Event", 3)
+        error("nupp: the type did not derive events.event", 3)
     end
     local info = new Info(
         id = nextId,

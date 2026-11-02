@@ -218,6 +218,212 @@ export = setmetatable(callable, {__call = original})
     assert(names.map and names.again and names.bracket and not names._translate)
 end
 
+function M.assignedModuleCallablesKeepTheirLocalOverloadsAndPublicNames()
+    local source = [[
+module operations
+local api = {}
+local foreign = {}
+--- Applies the callback.
+--- @param count the invocation count
+--- @param body the scoped callback
+--- @return the callback results
+local invoke: function<R...>(scoped body: function(): R...): R...
+    & function<R...>(count: integer, scoped body: function(): R...): R...
+local hidden: function(): nil
+api.run = invoke
+api.again = invoke
+foreign.hidden = hidden
+return api
+]]
+    local module, errors = doc.extract(source, "src/operations.nupp", "operations")
+    assert(module, errors and errors[1] and errors[1].msg)
+    assert(#module.items == 2, "only assignments onto the exported table publish local callables")
+    local names = {}
+    for _, item in ipairs(module.items) do
+        names[item.name] = true
+        assert(item.kind == "function" and item.path == "operations." .. item.name)
+        assert(item.signature:find("local " .. item.name .. ": function<R...>", 1, true), item.signature)
+        assert(item.signature:find("& function<R...>", 1, true), "an overload was lost")
+        assert(#item.params == 2 and item.params[2].mode == "scoped")
+        assert(item.params[1].text == "the invocation count" and item.returns[1].type == "R...")
+        assert(item.doc.text == "Applies the callback.")
+    end
+    assert(names.run and names.again and not names.invoke and not names.hidden)
+end
+
+function M.overloadedMembersKeepEveryContractWithDistinctHtmlAnchors()
+    local module = assert(
+        doc.extract(
+            [[
+export record Codec
+    --- Encodes a string.
+    function encode(self, value: string): string return value end
+    --- Encodes a number.
+    function encode(self, value: number): string return tostring(value) end
+end
+]],
+            "src/codec.nupp",
+            "codec"
+        )
+    )
+    local item = module.items[1]
+    assert(#item.members == 2 and item.members[1].path == item.members[2].path)
+    local out = {}
+    require("nupp.tools.doc.api").renderHtmlItem(out, item)
+    local text = table.concat(out)
+    local ids = {}
+    for id in text:gmatch('id="([^"]+)"') do
+        assert(not ids[id], "duplicate rendered anchor " .. id)
+        ids[id] = true
+    end
+    assert(ids["codec.Codec.encode"] and ids["codec.Codec.encode-overload-2"])
+    assert(text:find('href="#codec.Codec.encode-overload-2"', 1, true), "the overload summary lost its target")
+    assert(text:find("Encodes a string.", 1, true) and text:find("Encodes a number.", 1, true))
+    assert(item.members[2].path == "codec.Codec.encode", "rendering mutated the semantic member path")
+end
+
+function M.qualifiedDeclarationsCompleteSelfAliasesWithoutDuplicatingPublicContracts()
+    local dir = tempProject({
+        [
+            "src/package/init.nupp"
+        ] = [[
+module package
+local source = require("package.internal.contract")
+--- The public resource.
+export type Resource = package.Resource
+export type Message = source.Message
+]],
+        ["src/contracts.nupp"] = [[
+module contracts
+interface package.Resource
+    close: function(self): nil
+end
+]],
+        [
+            "src/package/internal/contract.nupp"
+        ] = [[
+@!internal
+module package.internal.contract
+export interface Message
+    text: string
+end
+]],
+        [
+            "src/package/internal/implementation.nupp"
+        ] = [[
+@!internal
+module package.internal.implementation
+record package.Message
+    implementationOnly: integer
+end
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "json", output = "api.json"}) == 0)
+    local model = assert(require("testjson").decode(readFile(dir .. "/api.json")))
+    local items = {}
+    for _, module in ipairs(model.modules) do
+        if module.name == "package" then
+            for _, item in ipairs(module.items) do
+                assert(not items[item.path], "duplicate public declaration " .. item.path)
+                items[item.path] = item
+            end
+        end
+    end
+    assert(items["package.Resource"].kind == "interface")
+    assert(items["package.Resource"].members[1].name == "close")
+    assert(items["package.Resource"].doc.text == "The public resource.")
+    assert(items["package.Message"].kind == "interface" and items["package.Message"].members[1].name == "text")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.builtinContractsCompleteSourceSelfAliasesOnlyOnce()
+    local owned = assert(
+        doc.extract(
+            [[
+module resources
+--- The source-owned description.
+export type Resource = resources.Resource
+]],
+            "src/resources.nupp",
+            "resources"
+        )
+    )
+    local builtin = assert(
+        doc.extract(
+            [[
+interface resources.Resource
+    close: function(self): nil
+end
+]],
+            "decls/resources.d.nupp",
+            "resources"
+        )
+    )
+    local stdlib = require("nupp.tools.doc.stdlib")
+    local modules = {owned}
+    local page = {
+        path = "api",
+        title = "API reference",
+        modules = {builtin},
+        globalItems = {},
+        typeItems = {},
+        annotationItems = {},
+        navigation = {globals = {}},
+    }
+    stdlib.merge(modules, page)
+    stdlib.merge(modules, page)
+    assert(#owned.items == 1, "merging the same builtin contract must be idempotent")
+    local item = owned.items[1]
+    assert(item.kind == "interface" and #item.members == 1 and item.members[1].name == "close")
+    assert(item.doc.text == "The source-owned description.")
+    assert(item.signature == "interface resources.Resource", item.signature)
+end
+
+function M.sourceOverloadsKeepTheirSignaturesWhenBuiltinDeclarationsDiffer()
+    local owned = assert(
+        doc.extract(
+            [[
+--- Reads a named resource.
+function read(name: string): string return name end
+--- Reads a numbered resource.
+function read(index: integer): string return tostring(index) end
+]],
+            "src/resources.nupp",
+            "resources"
+        )
+    )
+    local builtin = assert(
+        doc.extract(
+            [[
+--- Reads a host resource.
+function read(handle: any, mode: string?): any end
+]],
+            "decls/resources.d.nupp",
+            "resources"
+        )
+    )
+    builtin.items[1].lua = true
+    local page = {
+        path = "api",
+        title = "API reference",
+        modules = {builtin},
+        globalItems = {},
+        typeItems = {},
+        annotationItems = {},
+        navigation = {globals = {}},
+    }
+    require("nupp.tools.doc.stdlib").merge({owned}, page)
+    assert(#owned.items == 2, "a builtin signature must not become a third source overload")
+    local signatures = {}
+    for _, item in ipairs(owned.items) do
+        signatures[item.signature] = true
+        assert(item.doc.text ~= "Reads a host resource.", "builtin prose replaced authored prose")
+    end
+    assert(signatures["function read(name: string): string"])
+    assert(signatures["function read(index: integer): string"])
+    assert(owned.items[1].lua or owned.items[2].lua, "builtin Lua provenance disappeared")
+end
+
 function M.functionDocumentationKeepsCoroutineProtocolsBeforeResults()
     local source = [[
 --- Produces a value and receives its continuation flag.
@@ -5469,7 +5675,13 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
     local model = require("testjson").decode(readFile(dir .. "/api.json"))
     local providerBinding
     for _, module in ipairs(model.modules) do
+        local paths = {}
         for _, item in ipairs(module.items) do
+            assert(not paths[item.path], "duplicate declaration " .. item.path)
+            paths[item.path] = true
+            if item.path == "gpu.Buffer" then
+                assert(item.kind == "interface", "a private implementation replaced the exported Buffer contract")
+            end
             assert(item.path ~= "gpu.Binding", "a private provider record leaked onto the application API")
             if item.path == "gpu.spi.Binding" then
                 providerBinding = item
