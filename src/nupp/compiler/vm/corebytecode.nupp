@@ -183,8 +183,9 @@ function bytecode.encode(instruction: any): string
     end
     local _ = switch name do
         case "CallK" -> do
-            -- One to sixteen wanted results land after the callee slot.
-            assert(instruction[5] <= 63 and instruction[6] >= 1 and instruction[6] <= 16, "fixed CallK required")
+            -- One to sixteen wanted results land after the callee slot; none
+            -- wanted is every result as one pack.
+            assert(instruction[5] <= 63 and instruction[6] >= 0 and instruction[6] <= 16, "fixed CallK required")
             assert(instruction[4] + math.max(instruction[5], instruction[6], 1) < 250, "encoded CallK window capacity")
             yield nil
         end
@@ -194,7 +195,7 @@ function bytecode.encode(instruction: any): string
         end
         case "CallV" -> do
             -- The pack is staged after the fixed arguments, in 63 slots.
-            assert(instruction[5] <= 63 and instruction[6] >= 1 and instruction[6] <= 16, "fixed CallV required")
+            assert(instruction[5] <= 63 and instruction[6] >= 0 and instruction[6] <= 16, "fixed CallV required")
             assert(instruction[4] + 64 < 250, "encoded CallV window capacity")
             yield nil
         end

@@ -116,6 +116,9 @@ export const PROTECTED_DESTINATION: uint64 = 3ULL
 -- A comparison metamethod's frame: its caller takes the first result as a
 -- boolean, false for nil and false and true for anything else.
 export const TRUTH_DESTINATION: uint64 = 4ULL
+-- A call whose caller takes every result as one pack {[0] = n, ...}: its
+-- return handler packs them, and the caller's slot gets the pack.
+export const PACK_DESTINATION: uint64 = 5ULL
 -- The most results a caller frame may want from one call.
 export const MAX_RESULTS: uint64 = 16ULL
 
@@ -709,6 +712,7 @@ local function linked(state: voidptr, parent: voidptr, child: voidptr): uint64
     if native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= CALLER_DESTINATION
         and native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= PROTECTED_DESTINATION
         and native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= TRUTH_DESTINATION
+        and native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= PACK_DESTINATION
         or native.load64(child, native.fieldOffset<Frame>("resultOwner")) ~= native.address(parent)
         or native.load64(child, native.fieldOffset<Frame>("resultCount")) == 0ULL
         or native.load64(child, native.fieldOffset<Frame>("resultCount")) > MAX_RESULTS
@@ -1381,6 +1385,7 @@ export function rootRangeCount(
             if native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= CALLER_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= PROTECTED_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= TRUTH_DESTINATION
+                and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= PACK_DESTINATION
                 or native.load64(frame, native.fieldOffset<Frame>("resultOwner")) ~= previous
                 or native.load64(
                     frame,
@@ -1483,6 +1488,19 @@ export function truth(state: voidptr, child: voidptr): uint64
         return 0ULL
     end
     native.store64(child, native.fieldOffset<Frame>("resultKind"), TRUTH_DESTINATION)
+
+    return 1ULL
+end
+
+-- Marks a prepared child as one whose caller takes all its results as a pack.
+export function packResults(state: voidptr, child: voidptr): uint64
+    if validState(state) == 0ULL
+        or validFrame(state, child) == 0ULL
+        or native.load64(child, native.fieldOffset<Frame>("phase")) ~= PREPARED
+    then
+        return 0ULL
+    end
+    native.store64(child, native.fieldOffset<Frame>("resultKind"), PACK_DESTINATION)
 
     return 1ULL
 end

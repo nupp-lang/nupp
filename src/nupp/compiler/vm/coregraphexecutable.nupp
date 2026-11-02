@@ -434,6 +434,9 @@ local function derive(g: any, catalog: any): any
                     emit({"Move", callBase + index, physical(term.args[index])}, position)
                 end
                 local wanted: integer = term.results and #term.results or 1
+                -- An open call takes every result as one pack: its instruction
+                -- wants none, and its one slot holds the pack.
+                local encoded = term.open and 0 or wanted
                 -- xpcall's handler: past the arguments and the results.
                 local handlerSlot = callBase + 1 + math.max(nargs, wanted)
                 if contract.handled then
@@ -449,11 +452,11 @@ local function derive(g: any, catalog: any): any
                     end
                 elseif term.spread then
                     at = emit(
-                        {"CallV", contract.target, callBase, callBase, #term.args, wanted, physical(term.spread)},
+                        {"CallV", contract.target, callBase, callBase, #term.args, encoded, physical(term.spread)},
                         position
                     )
                 else
-                    at = emit({"CallK", contract.target, callBase, callBase, #term.args, wanted}, position)
+                    at = emit({"CallK", contract.target, callBase, callBase, #term.args, encoded}, position)
                 end
                 calls[
                     #calls + 1

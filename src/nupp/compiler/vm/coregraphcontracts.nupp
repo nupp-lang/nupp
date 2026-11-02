@@ -104,8 +104,10 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
     -- From v8 a typed `...` passes its values in a pack, the last parameter.
     local tail = signature.paramPack and signature.paramPack.tail
     local variadic = signature.vararg == true
+    -- A generic tail (`...: A...`) erases to values, as plain generics do.
+    local erasedTail = tail and (tail.kind == "generic" or tail.kind == "unknown")
     need(
-        (not variadic or dynamic and tail and tail.kind == "homogeneous" and tail.mode == nil)
+        (not variadic or dynamic and tail and (tail.kind == "homogeneous" or erasedTail) and tail.mode == nil)
         and not signature.foreign
         and not signature.comptimeOnly
         and not signature.noreturn
@@ -124,7 +126,8 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
         "partitionResults",
         "preservesPaths"
     }) do
-        local erased = dynamic and (key == "typeParams" or key == "preservesResults" or key == "preservesPaths")
+        local erased = dynamic
+            and (key == "typeParams" or key == "packParams" or key == "preservesResults" or key == "preservesPaths")
         if not erased then
             empty(signature[key], "callable " .. key)
         end
@@ -135,8 +138,11 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
     )
     local params, result = {}, nil
     for _, pack in ipairs(resultsIgnored and {signature.paramPack} or {signature.paramPack, signature.retPack}) do
+        -- Open results (`R...`) are as many as the caller keeps.
         need(
-            pack and (not pack.tail or variadic and pack == signature.paramPack) and not pack.alternatives,
+            pack
+            and (not pack.tail or variadic and pack == signature.paramPack or dynamic and pack == signature.retPack)
+            and not pack.alternatives,
             "closed signature pack required"
         )
         dense(pack.head, 240)
@@ -157,7 +163,7 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
         results = dense(signature.rets, dynamic and 16 or 1)
         need(
             dense(signature.params, 239) == #signature.paramPack.head
-            and results >= 1
+            and (results >= 1 or signature.retPack.tail ~= nil)
             and #signature.retPack.head == results,
             "fixed single-result signature required"
         )
@@ -172,11 +178,13 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
     end
     -- RetN and the caller's frame carry the counts, so the signature needs
     -- only the kind.
-    if results > 1 then
+    if results > 1 or not resultsIgnored and signature.retPack.tail ~= nil then
         result = "value"
     end
     if variadic then
-        scalar(tail.type, numeric, dynamic)
+        if not erasedTail then
+            scalar(tail.type, numeric, dynamic)
+        end
         params[#params + 1] = "value"
         return {kind = "callable", params = params, result = result, variadic = true}
     end

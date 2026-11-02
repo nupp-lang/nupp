@@ -77,15 +77,12 @@ function tagged.initialize(fn: any, options: any): any
     local body = fn.body
     need(not body.yieldPack and not body.resumePack, "suspended functions are unsupported")
     -- Plain type parameters erase; packs and const parameters do not.
-    need(
-        not body.generics or next(fn.signature.packParams or {}) == nil and next(fn.signature.constParams or {}) == nil,
-        "pack and const generic parameters are unsupported"
-    )
+    need(not body.generics or next(fn.signature.constParams or {}) == nil, "const generic parameters are unsupported")
     need(
         -- A constructor's results are dropped: its construction is the instance.
-        fn.node.kind == "constructorDecl"
-        or #fn.signature.rets <= 16 and not fn.signature.retPack.tail and not fn.signature.retPack.alternatives,
-        "open results are unsupported"
+        -- Open results (`R...`) return as many as there are.
+        fn.node.kind == "constructorDecl" or #fn.signature.rets <= 16 and not fn.signature.retPack.alternatives,
+        "correlated result alternatives are unsupported"
     )
     ordinaryCaptures(fn)
     local params = graph.parameters(body)
@@ -455,7 +452,8 @@ end
 
 -- A checked call. With `count`, it keeps that many results and answers them
 -- as a list.
-local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean?, count: integer?): any
+-- With `open`, it keeps every result as one pack.
+local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean?, count: integer?, open: boolean?): any
     local p = catalog(ctx)
     local site = need(p.callByNode[node], "ordinary call lacks checked callsite")
     need(site.owner == ctx.fn.id, "callsite belongs to another owner")
@@ -497,7 +495,7 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
         return landed(ctx, node, ctx.invokeMany(node, value, args, contract, count, pack))
     end
 
-    return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult, pack))
+    return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult, pack, open))
 end
 
 -- A field's default, which the checker keeps as its closed value: an
@@ -1582,6 +1580,51 @@ function tagged.forVersion(version: integer): any
                 and graph.coreLibraryCall(last) == nil
                 or last.kind == "methodCall" and lastSite ~= nil and lastSite.method
                 or (last.kind == "call" or last.kind == "methodCall") and packSpec(graph.coreLibraryCall(last)) ~= nil
+            -- A function with open results (`R...`) returns every result of a
+            -- call last in its return, as a pack the return spreads.
+            local openReturn = ctx.fn.signature
+                and ctx.fn.signature.retPack
+                and ctx.fn.signature.retPack.tail ~= nil
+                and last.kind == "call"
+                and last.runtimeLoader ~= "require"
+                and graph.coreLibraryCall(last) == nil
+            if openReturn then
+                local fixed, kinds = {}, {}
+                for index = 1, #stat.exprs - 1 do
+                    fixed[index], kinds[index] = stat.exprs[index], "tagged"
+                end
+                need(#fixed <= 16, "a return gives at most sixteen results")
+                local operands = ctx.operands(fixed, kinds)
+                if operands == nil then
+                    return
+                end
+                local held = {}
+                for index, value in ipairs(operands) do
+                    held[index] = ctx.hold(value)
+                end
+                local pack = invoke(ctx, last, true, true, nil, true)
+                if pack == nil or ctx.block == nil then
+                    for _, handle in ipairs(held) do
+                        ctx.release(handle)
+                    end
+                    return
+                end
+                local values = {}
+                for index, handle in ipairs(held) do
+                    values[index] = ctx.readHeld(handle)
+                    ctx.release(handle)
+                end
+                ctx.block.term = {
+                    kind = "return",
+                    value = values[1] or pack,
+                    values = #values > 0 and values or nil,
+                    spread = pack,
+                    edges = {},
+                    pos = ctx.position(stat)
+                }
+                ctx.block = nil
+                return
+            end
             local spread: integer? = spreads and declared > #stat.exprs and declared - #stat.exprs + 1 or nil
             if #stat.exprs == 1 and not spread then
                 return tagged.returnStatement(ctx, stat)

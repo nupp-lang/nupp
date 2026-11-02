@@ -845,14 +845,16 @@ function frontend.compile(fn: any, options: any, profile: any): any
         removeBinding(rootEntry.live)
     end
 
-    -- `spread` is a variadic pack whose values follow the fixed arguments.
+    -- `spread` is a variadic pack whose values follow the fixed arguments;
+    -- `open` keeps every result, as one pack.
     ctx.invoke = function(
         node: any,
         calleeValue: integer,
         args: any,
         contract: any,
         keepResult: boolean,
-        spread: integer?
+        spread: integer?,
+        open: boolean?
     ): integer?
         need(g.native == nil and g.types[calleeValue] == "v", "guest invoke requires a tagged callee")
         local parent = need(block, "invoke after terminator")
@@ -864,6 +866,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
             contract = contract,
             result = continuation.result,
             spread = spread,
+            open = open == true or nil,
             edges = {continuation.edge},
             pos = position(node)
         }

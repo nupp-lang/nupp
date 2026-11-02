@@ -1324,19 +1324,25 @@ local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
         and not signature.resumePack,
         "invoke signature is outside the scalar guest subset"
     )
-    -- A typed `...` is a homogeneous tail; its values pass in a pack.
+    -- A typed `...` is a homogeneous tail; its values pass in a pack. A
+    -- generic one (`...: A...`) erases to values, as plain generics do.
     local tail = signature.paramPack and signature.paramPack.tail
     if signature.vararg then
         assert(
-            tail and tail.kind == "homogeneous" and tail.mode == nil and not signature.paramPack.alternatives,
+            tail
+            and (tail.kind == "homogeneous" or tail.kind == "generic" or tail.kind == "unknown")
+            and tail.mode == nil
+            and not signature.paramPack.alternatives,
             "invoke signature is outside the scalar guest subset"
         )
-        invokeScalar(tail.type)
+        if tail.kind == "homogeneous" then
+            invokeScalar(tail.type)
+        end
     end
-    -- Plain type parameters erase: their values pass as dynamic values. What
-    -- a result preserves of its parameters is a static ownership fact the
-    -- collected guest heap has no use for.
-    for _, field in ipairs({"packParams", "constParams", "borrowsParams", "partitionResults"}) do
+    -- Plain type parameters and packs erase: their values pass as dynamic
+    -- values. What a result preserves of its parameters is a static ownership
+    -- fact the collected guest heap has no use for.
+    for _, field in ipairs({"constParams", "borrowsParams", "partitionResults"}) do
         assert(
             signature[field] == nil or next(signature[field]) == nil,
             "invoke generic or ownership contract is unsupported: " .. field
@@ -1346,10 +1352,11 @@ local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
         not signature.borrowsParam and not signature.borrowsSelf and not signature.borrowsResult,
         "invoke borrowed result is unsupported"
     )
+    -- Open results (`R...`) are as many as the caller keeps.
     for _, pack in ipairs(resultsIgnored and {signature.paramPack} or {signature.paramPack, signature.retPack}) do
         assert(
             type(pack) == "table"
-            and (not pack.tail or pack == signature.paramPack and signature.vararg)
+            and (not pack.tail or pack == signature.paramPack and signature.vararg or pack == signature.retPack)
             and not pack.alternatives,
             "invoke requires closed parameter and result packs"
         )
@@ -1370,7 +1377,9 @@ local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
     if not resultsIgnored then
         dense(signature.rets)
         assert(
-            #signature.retPack.head == #signature.rets and #signature.rets >= 1 and #signature.rets <= 16,
+            #signature.retPack.head == #signature.rets
+            and (#signature.rets >= 1 or signature.retPack.tail ~= nil)
+            and #signature.rets <= 16,
             "invoke requires one to sixteen checked scalar results"
         )
         for index, t in ipairs(signature.rets) do
@@ -2165,9 +2174,11 @@ local function verifyGraph(g: any, invokeArity: any): nil
                 result = true,
                 results = true,
                 spread = true,
+                open = true,
                 edges = true,
                 pos = true
             })
+            assert(t.open == nil or t.open == true and t.results == nil, "an open invoke keeps one pack")
             local arity = invokeArity(t, index)
             dense(t.args)
             assert(#t.args == arity, "invoke must retain every evaluated argument")

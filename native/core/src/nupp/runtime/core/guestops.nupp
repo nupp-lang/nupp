@@ -271,10 +271,13 @@ local function compatibleSignatures(c: voidptr, site: uint64, callee: uint64): u
     local records = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures"))
     local a = native.offset(records, native.index(site * native.sizeOf<catalog.Signature>()))
     local b = native.offset(records, native.index(callee * native.sizeOf<catalog.Signature>()))
-    if native.load64(
-        a,
-        native.fieldOffset<catalog.Signature>("parameterCount")
-    ) ~= native.load64(b, native.fieldOffset<catalog.Signature>("parameterCount")) then
+    -- A variadic site signature, an erased generic pack's, takes any count.
+    if native.load64(a, native.fieldOffset<catalog.Signature>("variadic")) ~= 1ULL
+        and native.load64(
+            a,
+            native.fieldOffset<catalog.Signature>("parameterCount")
+        ) ~= native.load64(b, native.fieldOffset<catalog.Signature>("parameterCount"))
+    then
         return 0ULL
     end
     local wanted = native.load64(a, native.fieldOffset<catalog.Signature>("resultKind"))

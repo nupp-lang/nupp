@@ -1558,7 +1558,8 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
-    if wanted < 1 or native.word(wanted) > frames.MAX_RESULTS then
+    -- Wanting none is wanting every result as one pack.
+    if native.word(wanted) > frames.MAX_RESULTS then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1592,6 +1593,10 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
                 ops.failure(ctx, ops.INVALID)
                 return native.fail()
             end
+            if wanted == 0 and frames.packResults(s, native.pointer(child)) ~= 1ULL then
+                ops.failure(ctx, ops.INVALID)
+                return native.fail()
+            end
             if frames.publish(s, frame, native.pointer(child), ops.resume(ctx, frame, pc)) ~= 1ULL then
                 ops.failure(ctx, ops.INVALID)
                 return native.fail()
@@ -1611,12 +1616,25 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     local s = native.pointer(ops.state(ctx))
     local resumePC = ops.resume(ctx, frame, pc)
     ops.checkpoint(ctx, frame, pc)
-    local child = ops.prepare(ctx, frame, pc, callee, native.word(base), native.word(nargs), native.word(wanted), hint)
+    local child = ops.prepare(
+        ctx,
+        frame,
+        pc,
+        callee,
+        native.word(base),
+        native.word(nargs),
+        native.chooseWord(wanted == 0, 1ULL, native.word(wanted)),
+        hint
+    )
     if child == 0ULL then
         ops.failure(ctx, ops.RESOURCE)
         return native.fail()
     end
     if wanted > 1 and frames.wantResults(s, native.pointer(child), native.word(wanted)) ~= 1ULL then
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    if wanted == 0 and frames.packResults(s, native.pointer(child)) ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
@@ -1677,6 +1695,10 @@ export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         -- original-root/serial retirement; the verifier requires finish == 1.
         return native.fail()
     end
+    -- A caller taking every result as one pack gets this one in a pack.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.PACK_DESTINATION then
+        value = guestscope.packValues(ctx, native.offset(regs, native.index(native.word(src) * 8ULL)), 1ULL, 0ULL)
+    end
     local returned = frames.returnScalar(s, frame, value)
     if returned ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
@@ -1726,12 +1748,24 @@ export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         end
         return native.fail()
     end
-    local returned = frames.returnValues(
-        s,
-        frame,
-        native.offset(regs, native.index(native.word(src) * 8ULL)),
-        native.word(count)
-    )
+    local returned: uint64 = 0ULL
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.PACK_DESTINATION then
+        -- A caller taking every result as one pack gets them in a pack.
+        local packed = guestscope.packValues(
+            ctx,
+            native.offset(regs, native.index(native.word(src) * 8ULL)),
+            native.word(count),
+            0ULL
+        )
+        returned = frames.returnScalar(s, frame, packed)
+    else
+        returned = frames.returnValues(
+            s,
+            frame,
+            native.offset(regs, native.index(native.word(src) * 8ULL)),
+            native.word(count)
+        )
+    end
     if returned ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
         return native.fail()
@@ -1772,7 +1806,8 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
-    if wanted < 1 or native.word(wanted) > frames.MAX_RESULTS then
+    -- Wanting none is wanting every result as one pack.
+    if native.word(wanted) > frames.MAX_RESULTS then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1809,12 +1844,25 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     local s = native.pointer(ops.state(ctx))
     local resumePC = ops.resume(ctx, frame, pc)
     ops.checkpoint(ctx, frame, pc)
-    local child = ops.prepare(ctx, frame, pc, callee, native.word(base), total, native.word(wanted), hint)
+    local child = ops.prepare(
+        ctx,
+        frame,
+        pc,
+        callee,
+        native.word(base),
+        total,
+        native.chooseWord(wanted == 0, 1ULL, native.word(wanted)),
+        hint
+    )
     if child == 0ULL then
         ops.failure(ctx, ops.RESOURCE)
         return native.fail()
     end
     if wanted > 1 and frames.wantResults(s, native.pointer(child), native.word(wanted)) ~= 1ULL then
+        ops.failure(ctx, ops.INVALID)
+        return native.fail()
+    end
+    if wanted == 0 and frames.packResults(s, native.pointer(child)) ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
         return native.fail()
     end
@@ -1857,6 +1905,41 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         return native.fail()
     end
     local pack = slots.readValue(frame, regs, packSlot) & values.PAYLOAD
+    -- A caller taking every result as one pack gets them all, past sixteen.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.PACK_DESTINATION
+        and ops.root(ctx, frame) ~= 1ULL
+    then
+        -- The first result is held to the signature, as any return's is.
+        local first = values.NIL
+        if fixed > 0 then
+            first = slots.readValue(frame, regs, src)
+        elseif wide.bitsOf(tables.get(pack, values.TAG_INTEGER)) > 0ULL then
+            first = tables.get(pack, values.TAG_INTEGER | 1ULL)
+        end
+        if ops.result(ctx, frame, pc, first) ~= 1ULL then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        local packed = guestscope.packValues(
+            ctx,
+            native.offset(regs, native.index(native.word(src) * 8ULL)),
+            native.word(fixed),
+            pack
+        )
+        local state = native.pointer(ops.state(ctx))
+        ops.checkpoint(ctx, frame, pc)
+        if frames.returnScalar(state, frame, packed) ~= 1ULL then
+            ops.failure(ctx, ops.INVALID)
+            return native.fail()
+        end
+        local active = native.pointer(access.active(state))
+        local activeValues = native.pointer(access.values(state, active))
+        local activeIntegers = native.pointer(access.integers(state, active))
+        local activeFloats = native.pointer(access.floats(state, active))
+        local activePC = native.pointer(access.pc(state, active))
+        access.refresh(state, active, ctx)
+        return native.dispatch(activePC, activeValues, activeIntegers, activeFloats, ctx, active)
+    end
     local extra = wide.bitsOf(tables.get(pack, values.TAG_INTEGER))
     local count = native.word(fixed)
     local k: uint64 = 0ULL

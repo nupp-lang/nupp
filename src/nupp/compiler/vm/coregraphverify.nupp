@@ -183,7 +183,7 @@ function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
         plain(term)
         local kind = term.kind
         if kind == "invoke" then
-            fields(term, "kind callee args contract result results spread edges pos")
+            fields(term, "kind callee args contract result results spread open edges pos")
         elseif kind == "return" then
             fields(term, "kind value values spread edges pos")
         elseif kind == "branch" then
@@ -206,6 +206,11 @@ function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
             if term.results ~= nil then
                 t.results = words(term.results)
                 need(#t.results >= 1 and #t.results <= 16 and t.results[1] == t.result, "invoke results")
+            end
+            -- An open call keeps every result as one pack.
+            if term.open ~= nil then
+                need(term.open == true and term.results == nil and term.result ~= nil, "open invoke keeps one pack")
+                t.open = true
             end
             -- The checked contract is authenticated separately and replaced by
             -- a semantic contract ID. It is never copied into persistent data.

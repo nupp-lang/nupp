@@ -246,6 +246,50 @@ export function newTable(ctx: voidptr): uint64
     end
 end
 
+-- The pack {[0] = n, ...} of the `count` values at `source` followed by the
+-- values of `extra`, a pack (0 for none): a call's results for a caller that
+-- takes them all as one value.
+export function packValues(ctx: voidptr, source: voidptr, count: uint64, extra: uint64): uint64
+    @unsafe do
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local t = tables.create(h)
+        local n: uint64 = 0ULL
+        while n < count do
+            if tables.set(
+                h,
+                t,
+                values.TAG_INTEGER | (n + 1ULL),
+                native.load64(source, native.index(n * 8ULL))
+            ) == tables.NO_MEMORY then
+                error("not enough memory")
+            end
+            n = n + 1ULL
+        end
+        if extra ~= 0ULL then
+            local more = ints.bitsOf(tables.get(extra, values.TAG_INTEGER))
+            local k: uint64 = 1ULL
+            while k <= more do
+                n = n + 1ULL
+                if tables.set(
+                    h,
+                    t,
+                    values.TAG_INTEGER | n,
+                    tables.get(extra, values.TAG_INTEGER | k)
+                ) == tables.NO_MEMORY then
+                    error("not enough memory")
+                end
+                k = k + 1ULL
+            end
+        end
+        if tables.set(h, t, values.TAG_INTEGER, values.TAG_INTEGER | n) == tables.NO_MEMORY then
+            error("not enough memory")
+        end
+        tables.drain(h)
+
+        return values.TAG_OBJ | t
+    end
+end
+
 export const META_INDEX: uint64 = 0ULL
 export const META_NEWINDEX: uint64 = 1ULL
 export const META_METATABLE: uint64 = 2ULL
