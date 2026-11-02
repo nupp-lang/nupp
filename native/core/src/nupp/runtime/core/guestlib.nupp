@@ -745,7 +745,7 @@ local function concat(ctx: voidptr, count: uint64, list: uint64, separator: uint
         local i = integerArgument(ctx, first, 1, 3ULL)
         local j = integerArgument(ctx, last, native.index(tables.length(t)), 4ULL)
         while i <= j do
-            local item = tables.get(t, values.TAG_INTEGER | native.word(i))
+            local item = guestscope.indexAt(ctx, t, i)
             if strings.header(item) == 0ULL and floatOf(item) == values.NIL then
                 strings.release(builder)
                 texts.concatError(ctx, item, i)
@@ -1744,14 +1744,14 @@ local function loadAt(t: uint64, index: int64): uint64
 end
 
 -- table.insert(t, v) appends; table.insert(t, pos, v) moves t[pos..#t] up
--- one first. Raw, as the table's metatable is not consulted.
+-- one first, through the table's __index and __newindex.
 local function tableInsert(ctx: voidptr, count: uint64, list: uint64, a: uint64, b: uint64): uint64
     @unsafe do
         local h = guestHeap(ctx)
         local t = tableArgument(ctx, list, 1ULL)
         local size = native.index(tables.length(t))
         if count == 2ULL then
-            storeAt(h, t, size + 1, a)
+            guestscope.storeIndex(ctx, t, size + 1, a)
             tables.drain(h)
             return values.NIL
         end
@@ -1761,10 +1761,10 @@ local function tableInsert(ctx: voidptr, count: uint64, list: uint64, a: uint64,
         end
         local at = size + 1
         while at > pos do
-            storeAt(h, t, at, loadAt(t, at - 1))
+            guestscope.storeIndex(ctx, t, at, guestscope.indexAt(ctx, t, at - 1))
             at = at - 1
         end
-        storeAt(h, t, pos, b)
+        guestscope.storeIndex(ctx, t, pos, b)
         tables.drain(h)
         return values.NIL
     end
@@ -1784,14 +1784,14 @@ local function tableRemove(ctx: voidptr, count: uint64, list: uint64, a: uint64)
                 texts.argumentError(ctx, 2ULL, 0ULL, texts.TEXT_OUT_OF_BOUNDS, a)
             end
         end
-        local removed = loadAt(t, pos)
+        local removed = guestscope.indexAt(ctx, t, pos)
         local at = pos
         while at < size do
-            storeAt(h, t, at, loadAt(t, at + 1))
+            guestscope.storeIndex(ctx, t, at, guestscope.indexAt(ctx, t, at + 1))
             at = at + 1
         end
         if at >= 1 and at <= size then
-            storeAt(h, t, at, values.NIL)
+            guestscope.storeIndex(ctx, t, at, values.NIL)
         end
         tables.drain(h)
         return removed
@@ -1824,13 +1824,13 @@ local function tableMove(ctx: voidptr, source: uint64, fv: uint64, ev: uint64, t
             if t > e or t <= f or a1 ~= a2 then
                 local i: int64 = 0
                 while i < n do
-                    storeAt(h, a2, t + i, loadAt(a1, f + i))
+                    guestscope.storeIndex(ctx, a2, t + i, guestscope.indexAt(ctx, a1, f + i))
                     i = i + 1
                 end
             else
                 local i = n - 1
                 while i >= 0 do
-                    storeAt(h, a2, t + i, loadAt(a1, f + i))
+                    guestscope.storeIndex(ctx, a2, t + i, guestscope.indexAt(ctx, a1, f + i))
                     i = i - 1
                 end
             end
@@ -1858,13 +1858,13 @@ local function tableUnpack(ctx: voidptr, list: uint64, a: uint64, b: uint64, all
         if j - i >= 1000000 then
             texts.libraryError(ctx, texts.TEXT_UNPACK_MANY)
         end
-        local first = loadAt(t, i)
+        local first = guestscope.indexAt(ctx, t, i)
         if pack == 0ULL then
             return first
         end
         local k = i
         while k <= j do
-            packPut(h, pack, native.word(k - i + 1), loadAt(t, k))
+            packPut(h, pack, native.word(k - i + 1), guestscope.indexAt(ctx, t, k))
             k = k + 1
         end
         return packed(h, pack, native.word(j - i + 1), first)
@@ -2007,18 +2007,18 @@ local function sortStep(ctx: voidptr, value: uint64): uint64
             -- which keeps equal elements in order.
             local answer = loadAt(st, SORT_ANSWER)
             if answer ~= values.NIL and answer ~= values.FALSE then
-                storeAt(h, buffer, k, loadAt(t, j))
+                storeAt(h, buffer, k, guestscope.indexAt(ctx, t, j))
                 j = j + 1
             else
-                storeAt(h, buffer, k, loadAt(t, i))
+                storeAt(h, buffer, k, guestscope.indexAt(ctx, t, i))
                 i = i + 1
             end
             k = k + 1
         end
         while true do
             if i <= mid and j <= hi then
-                local right = loadAt(t, j)
-                local left = loadAt(t, i)
+                local right = guestscope.indexAt(ctx, t, j)
+                local left = guestscope.indexAt(ctx, t, i)
                 if less ~= values.NIL then
                     storeAt(h, st, SORT_A, right)
                     storeAt(h, st, SORT_B, left)
@@ -2039,18 +2039,18 @@ local function sortStep(ctx: voidptr, value: uint64): uint64
                 k = k + 1
             else
                 while i <= mid do
-                    storeAt(h, buffer, k, loadAt(t, i))
+                    storeAt(h, buffer, k, guestscope.indexAt(ctx, t, i))
                     i = i + 1
                     k = k + 1
                 end
                 while j <= hi do
-                    storeAt(h, buffer, k, loadAt(t, j))
+                    storeAt(h, buffer, k, guestscope.indexAt(ctx, t, j))
                     j = j + 1
                     k = k + 1
                 end
                 local at = sortGet(st, SORT_LO)
                 while at <= hi do
-                    storeAt(h, t, at, loadAt(buffer, at))
+                    guestscope.storeIndex(ctx, t, at, loadAt(buffer, at))
                     at = at + 1
                 end
                 if not sortRuns(h, st) then

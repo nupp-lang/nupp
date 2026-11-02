@@ -526,6 +526,34 @@ export function tableSet(ctx: voidptr, table: uint64, key: uint64, value: uint64
     end
 end
 
+-- t[index] as the table library reads it, through `__index` tables as
+-- Lua 5.5's does. A function `__index` it cannot call yet, and says so.
+export function indexAt(ctx: voidptr, t: uint64, index: int64): uint64
+    local key = values.TAG_INTEGER | native.word(index)
+    if tables.meta(t) == values.NIL then
+        return tables.get(t, key)
+    end
+    local value = tableGet(ctx, t, key)
+    if takeMeta(ctx) ~= 0ULL then
+        error("the table library over a function __index is not yet supported by the core")
+    end
+
+    return value
+end
+
+-- t[index] = value as the table library stores it, through `__newindex`
+-- tables; a function `__newindex` likewise is not called yet.
+export function storeIndex(ctx: voidptr, t: uint64, index: int64, value: uint64): nil
+    local status = tableSet(ctx, t, values.TAG_INTEGER | native.word(index), value)
+    if status == META_PENDING then
+        takeMeta(ctx)
+        error("the table library over a function __newindex is not yet supported by the core")
+    end
+    if status == tables.NO_MEMORY then
+        error("not enough memory")
+    end
+end
+
 -- setmetatable(t, mt): answers t; a metatable with __metatable set is
 -- protected.
 export function setMetatable(ctx: voidptr, value: uint64, mt: uint64): uint64
@@ -1071,7 +1099,9 @@ local function landingFrame(ctx: voidptr, state: voidptr): uint64
             if native.load64(
                 native.pointer(at),
                 native.fieldOffset<frames.Frame>("resultKind")
-            ) == frames.PROTECTED_DESTINATION and not closing then
+            ) == frames.PROTECTED_DESTINATION
+                and not closing
+            then
                 return 0ULL
             end
             local parent = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))

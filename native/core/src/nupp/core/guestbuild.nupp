@@ -97,7 +97,8 @@ local CASES: {[string]: {
     threadsClose = {fixture = "catalog-threads-close", version = 8},
     threadsIterate = {fixture = "catalog-threads-iterate", version = 8},
     outputWrite = {fixture = "catalog-output-write", version = 8},
-    librarySpread = {fixture = "catalog-library-spread", version = 8}
+    librarySpread = {fixture = "catalog-library-spread", version = 8},
+    tablesLibraryMeta = {fixture = "catalog-tables-library-meta", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.

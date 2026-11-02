@@ -123,7 +123,8 @@ local CASES = {
     {"threadsClose", 0x7FFF00000000007F},
     {"threadsIterate", 0x7FFF00000000001F},
     {"outputWrite", 0x7FFF000000000001},
-    {"librarySpread", 0x7FFF000000000C8D}
+    {"librarySpread", 0x7FFF000000000C8D},
+    {"tablesLibraryMeta", 0x7FFF000000000007}
 }
 -- What the cases that print write to the host's output, as Lua 5.5 writes it.
 local OUTPUT = {
@@ -211,7 +212,8 @@ local NUMERIC = {
     threadsClose = "catalog-threads-close",
     threadsIterate = "catalog-threads-iterate",
     outputWrite = "catalog-output-write",
-    librarySpread = "catalog-library-spread"
+    librarySpread = "catalog-library-spread",
+    tablesLibraryMeta = "catalog-tables-library-meta"
 }
 local FIXTURES = {
     "catalog-boolean",
