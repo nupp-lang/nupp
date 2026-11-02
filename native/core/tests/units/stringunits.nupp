@@ -10,7 +10,14 @@ const strings = require("nupp.runtime.core.corestrings")
 const patterns = require("nupp.runtime.core.corepattern")
 
 -- `count` bytes from up to three packed words, interned.
-local function unpack3(h: heap.Heap*, a: arena.Arena*, w1: uint64, w2: uint64, w3: uint64, count: uint64): uint64
+local function unpack3(
+    h: heap.Heap*,
+    borrows a: arena.Arena*,
+    w1: uint64,
+    w2: uint64,
+    w3: uint64,
+    count: uint64
+): uint64
     @unsafe do
         local raw = arena.alloc(a, 32ULL, 8ULL)
         if raw == nil then

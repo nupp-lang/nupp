@@ -21,7 +21,7 @@ local function payload(value: uint64): uint64
 end
 
 -- One root word in the arena, nil, registered with the heap.
-local function root(a: arena.Arena*, h: heap.Heap*): uint64
+local function root(borrows a: arena.Arena*, h: heap.Heap*): uint64
     @unsafe do
         local raw = arena.alloc(a, 16ULL, 8ULL)
         if raw == nil then
@@ -35,7 +35,7 @@ local function root(a: arena.Arena*, h: heap.Heap*): uint64
     end
 end
 
-local function fresh(a: arena.Arena*, h: heap.Heap*): uint64
+local function fresh(borrows a: arena.Arena*, h: heap.Heap*): uint64
     @unsafe do
         local t = tables.create(h)
         native.store64(native.pointer(root(a, h)), 0, values.TAG_OBJ | t)

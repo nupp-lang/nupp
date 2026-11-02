@@ -39,7 +39,7 @@ local function link(h: heap.Heap*, parent: uint64, slot: uint64, child: uint64):
 end
 
 -- `words` root slots in the arena, all nil, at a raw address.
-local function rootsIn(a: arena.Arena*, words: uint64): uint64
+local function rootsIn(borrows a: arena.Arena*, words: uint64): uint64
     @unsafe do
         local raw = arena.alloc(a, words * 8ULL + 8ULL, 8ULL)
         if raw == nil then

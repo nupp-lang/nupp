@@ -588,11 +588,6 @@ local function compileDirectFunction(fn: Fn, options: any): string
         return t == "f64" and "float64" or (t == "i8" and "boolean" or "int64")
     end
 
-    -- The affine values `with` statements hold at this point, innermost last,
-    -- each with the function that releases it. A return runs them all; a
-    -- break or continue runs those opened inside the loop it leaves.
-    local cleanups = {}
-
     -- Callees and signatures are declared once per function in the preamble.
     -- `sig0` is the handler signature in handler mode, so numbering starts
     -- after it there.
@@ -1782,45 +1777,8 @@ local function compileDirectFunction(fn: Fn, options: any): string
         writeVariable(variable, b.here(), materialize(e, kind))
     end
 
-    -- The function a cleanup names: a function of the module the affine type
-    -- was declared in, or, when the key names no module of the set, the one
-    -- function of that name any module exports.
-    local function cleanupFunction(cleanup: any): Fn
-        need(cleanup.kind == "function", "a with-scope cleanup is a module function")
-        local origin = cleanup.key and cleanup.key:match("^(.-)#") or nil
-        local home = origin and modules[origin] or nil
-        local found = home and (home.functions[cleanup.name] or home.exports[cleanup.name]) or nil
-        if not found then
-            found = scope.functions[cleanup.name]
-        end
-        if not found then
-            for _, other in pairs(modules) do
-                local export = other.exports[cleanup.name]
-                need(not (found and export), "cleanup " .. tostring(cleanup.name) .. " is exported by two modules")
-                found = found or export
-            end
-        end
-
-        return need(found, "cleanup " .. tostring(cleanup.name) .. " is not a function of the set") as Fn
-    end
-
-    -- Releases every `with` value held above `depth`, innermost first, in the
-    -- current block.
-    local function runCleanups(depth: number): nil
-        for index = #cleanups, depth + 1, -1 do
-            local held = cleanups[index]
-            local fn = cleanupFunction(held.cleanup)
-            need(#fn.paramKinds == 1, "a cleanup takes the value it releases")
-            local value = materialize(
-                {kind = held.kind, value = readVariable(held.variable, b.here())},
-                fn.paramKinds[1]
-            )
-            effect("call " .. callee(fn).ref .. "(" .. value .. ")")
-        end
-    end
-
     local function loopBody(bodyBlock: ssa.Block, exit: ssa.Block, continueTo: ssa.Block, stats: any): nil
-        loops[#loops + 1] = {exit = exit, continueTo = continueTo, cleanupDepth = #cleanups}
+        loops[#loops + 1] = {exit = exit, continueTo = continueTo}
         b.current = bodyBlock
         seal(bodyBlock)
         block(stats)
@@ -1846,7 +1804,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
         if target.resultType ~= nil then
             value = addParam(join, target.resultType as string)
         end
-        scalarReturn = {join = join, kind = target.resultKind, cleanupDepth = #cleanups}
+        scalarReturn = {join = join, kind = target.resultKind}
         scope = target.scope
         inlining[target] = true
         for index, param in ipairs(target.body.params) do
@@ -1926,7 +1884,6 @@ local function compileDirectFunction(fn: Fn, options: any): string
                 else
                     need(#stat.exprs == 0, "statement helper returns no result")
                 end
-                runCleanups(continuation.cleanupDepth)
                 b.jump(continuation.join, results)
                 return
             end
@@ -1952,13 +1909,11 @@ local function compileDirectFunction(fn: Fn, options: any): string
                 need(b.current == nil, "helper " .. helper.name .. " may not fall through")
             elseif #stat.exprs == 0 then
                 need(resultKind == nil, "result required")
-                runCleanups(0)
                 b.finish({})
             else
                 need(#stat.exprs == 1 and resultKind ~= nil, "one result")
                 -- The value is computed before what it may have read is released.
                 local value = materialize(expression(stat.exprs[1]), resultKind as string)
-                runCleanups(0)
                 b.finish({value})
             end
         elseif kind == "doStmt" then
@@ -2004,7 +1959,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
         elseif kind == "repeatStmt" then
             local bodyBlock, exit = newBlock(), newBlock()
             b.jump(bodyBlock, {})
-            loops[#loops + 1] = {exit = exit, continueTo = bodyBlock, cleanupDepth = #cleanups}
+            loops[#loops + 1] = {exit = exit, continueTo = bodyBlock}
             b.current = bodyBlock
             block(stat.body.stats)
             loops[#loops] = nil
@@ -2048,7 +2003,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
             b.current = bodyBlock
             seal(bodyBlock)
             writeVariable(iterator, bodyBlock, readVariable(counter, bodyBlock))
-            loops[#loops + 1] = {exit = exit, continueTo = advance, cleanupDepth = #cleanups}
+            loops[#loops + 1] = {exit = exit, continueTo = advance}
             block(stat.body.stats)
             loops[#loops] = nil
             if b.current then
@@ -2072,11 +2027,9 @@ local function compileDirectFunction(fn: Fn, options: any): string
             end
         elseif kind == "breakStmt" then
             local loop = need(loops[#loops], "break outside a loop")
-            runCleanups(loop.cleanupDepth)
             b.jump(loop.exit, {})
         elseif kind == "continueStmt" then
             local loop = need(loops[#loops], "continue outside a loop")
-            runCleanups(loop.cleanupDepth)
             b.jump(loop.continueTo, {})
         else
             error("lower: unsupported statement " .. tostring(kind), 0)

@@ -57,7 +57,7 @@ end
 
 -- The roots record: `words` value words in the arena, registered while the
 -- heap lives.
-local function rootsIn(a: arena.Arena*, words: uint64): uint64
+local function rootsIn(borrows a: arena.Arena*, words: uint64): uint64
     @unsafe do
         local raw = arena.alloc(a, words * 8, 8)
         if raw == nil then

@@ -35,7 +35,7 @@ local function text(h: heap.Heap*): uint64
     end
 end
 
-local function words(a: arena.Arena*, count: uint64): uint64
+local function words(borrows a: arena.Arena*, count: uint64): uint64
     @unsafe do
         local raw = arena.alloc(a, count * 8 + 8, 8)
         if raw == nil then
@@ -52,7 +52,7 @@ local function words(a: arena.Arena*, count: uint64): uint64
 end
 
 -- A table of `arrayCount` array slots and `pairs` hash entries under `mode`.
-local function newTable(h: heap.Heap*, a: arena.Arena*, arrayCount: uint64, pairs: uint64, mode: uint64): uint64
+local function newTable(h: heap.Heap*, borrows a: arena.Arena*, arrayCount: uint64, pairs: uint64, mode: uint64): uint64
     @unsafe do
         local o = collector.allocate(h, heap.KIND_TABLE, native.sizeOf<heap.TableBody>())
         local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
