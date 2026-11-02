@@ -81,19 +81,19 @@ contracts a public signature is allowed to carry.
     [
         "derive"
     ] = [====[
-`@derive` accepts `types.Debug` or an exported comptime provider and adds
+`@derive` accepts `types.debug` or an exported comptime provider and adds
 checked members
 or format-neutral materialization data without exposing source or AST macros:
 
 ```nupp
-@derive(types.Debug)
+@derive(types.debug)
 local record Point
     x: integer
     y: integer
 end
 ```
 
-`Debug` admits records and structs. A package provider chooses its supported
+`types.debug` admits records and structs. A package provider chooses its supported
 targets. `@debug` configures the renderer; serialization mappings belong to an
 explicit [binding](docs/learn/runtime/data/serde.md). See
 [derives.md](docs/reference/derives.md) for provider contracts and generated methods.
