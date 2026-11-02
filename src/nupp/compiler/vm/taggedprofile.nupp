@@ -948,10 +948,10 @@ function tagged.forVersion(version: integer): any
         -- `function T.f(...)` and `function T:m(...)`: the closure stored into the
         -- table T names, as Lua does. One level of name only.
         -- The table a record's methods are stored in, when its name is bound.
-        -- A call through a field has no declaration to compose with: it calls
-        -- the value the field holds when it runs.
+        -- A call through anything but a name has no declaration to compose
+        -- with: it calls the value it evaluates when it runs.
         profile.resolveCallee = function(_: any, call: any): (boolean, any)
-            if call.obj.kind == "dotIndex" then
+            if call.obj.kind ~= "name" then
                 return true, nil
             end
             return false, nil

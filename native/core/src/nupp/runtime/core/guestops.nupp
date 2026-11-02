@@ -255,6 +255,16 @@ local function heapTarget(callee: uint64): uint64
     return (first & values.PAYLOAD) + 1ULL
 end
 
+-- 1 when a v7 or later callee is not a closure: calling it is a guest
+-- error, as Lua raises one.
+export function uncallable(ctx: voidptr, callee: uint64): uint64
+    if heapClosures(ctx) == 1ULL and heapTarget(callee) == 0ULL then
+        return 1ULL
+    end
+
+    return 0ULL
+end
+
 -- 1 when a dynamic callsite's signature admits the callee's: the same
 -- parameter count, and a result the site takes as given or as any value.
 local function compatibleSignatures(c: voidptr, site: uint64, callee: uint64): uint64

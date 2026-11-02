@@ -408,6 +408,7 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     -- Arithmetic on a non-number is a guest error, as Lua raises one.
     if result == values.TRUE then
+        guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -416,6 +417,7 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     if result == values.FALSE then
+        guestscope.fault(ctx, guestscope.FAULT_MODZERO, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -455,6 +457,7 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     -- Arithmetic on a non-number is a guest error, as Lua raises one.
     if result == values.TRUE then
+        guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -463,6 +466,7 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     if result == values.FALSE then
+        guestscope.fault(ctx, guestscope.FAULT_MODZERO, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -502,6 +506,7 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     -- Arithmetic on a non-number is a guest error, as Lua raises one.
     if result == values.TRUE then
+        guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -510,6 +515,7 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     if result == values.FALSE then
+        guestscope.fault(ctx, guestscope.FAULT_MODZERO, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -549,6 +555,7 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     -- Arithmetic on a non-number is a guest error, as Lua raises one.
     if result == values.TRUE then
+        guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -557,6 +564,7 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     if result == values.FALSE then
+        guestscope.fault(ctx, guestscope.FAULT_MODZERO, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -595,6 +603,7 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         result = wideOrder(false, left, right)
     end
     if result > 1ULL then
+        guestscope.fault(ctx, guestscope.FAULT_COMPARE, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -633,6 +642,7 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         result = wideOrder(true, left, right)
     end
     if result > 1ULL then
+        guestscope.fault(ctx, guestscope.FAULT_COMPARE, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -1028,6 +1038,7 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
     end
     local header = tableHeader(slots.readValue(frame, regs, object))
     if header == 0ULL then
+        guestscope.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -1059,6 +1070,7 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
     end
     local header = tableHeader(slots.readValue(frame, regs, object))
     if header == 0ULL then
+        guestscope.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -1069,6 +1081,7 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         slots.readValue(frame, regs, src)
     )
     if status == tables.BAD_KEY then
+        guestscope.fault(ctx, guestscope.FAULT_KEY, slots.readValue(frame, regs, key), values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -1105,6 +1118,7 @@ export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     else
         local text = strings.header(value)
         if text == 0ULL then
+            guestscope.fault(ctx, guestscope.FAULT_LENGTH, value, values.NIL)
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
             return native.fail()
         end
@@ -1287,6 +1301,11 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         return native.fail()
     end
     local callee = slots.readValue(frame, regs, calleeSlot)
+    if ops.uncallable(ctx, callee) == 1ULL then
+        guestscope.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return native.fail()
+    end
     local s = native.pointer(ops.state(ctx))
     local resumePC = ops.resume(ctx, frame, pc)
     ops.checkpoint(ctx, frame, pc)
@@ -1480,6 +1499,11 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     end
     local total = native.word(nargs) + extra
     local callee = slots.readValue(frame, regs, calleeSlot)
+    if ops.uncallable(ctx, callee) == 1ULL then
+        guestscope.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return native.fail()
+    end
     local s = native.pointer(ops.state(ctx))
     local resumePC = ops.resume(ctx, frame, pc)
     ops.checkpoint(ctx, frame, pc)

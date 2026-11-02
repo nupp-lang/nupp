@@ -533,14 +533,9 @@ function program.describe(modules: {any}, entryModule: string): any
             }
             p.calls[#p.calls + 1], p.callByNode[node] = item, item
         end
-        -- A call through a field (`R.f(...)`, `t.handler(x)`) calls the value
-        -- it reads, resolved when it runs.
-        if node.kind == "call"
-            and node.obj.kind == "dotIndex"
-            and not loader
-            and not intrinsic
-            and not loopForms[node]
-        then
+        -- A call through anything but a name (`R.f(...)`, `t[i](x)`, `f()()`,
+        -- a cast) calls the value it evaluates, resolved when it runs.
+        if node.kind == "call" and node.obj.kind ~= "name" and not loader and not intrinsic and not loopForms[node] then
             local item = {id = #p.calls, owner = owner.id, node = node, field = true}
             p.calls[#p.calls + 1], p.callByNode[node] = item, item
         end
@@ -845,7 +840,7 @@ function program.verify(p: any): boolean
         elseif item.field then
             need(
                 node.kind == "call"
-                and node.obj.kind == "dotIndex"
+                and node.obj.kind ~= "name"
                 and p.callByNode[node] == item
                 and item.definition == nil
                 and not node.runtimeLoader
