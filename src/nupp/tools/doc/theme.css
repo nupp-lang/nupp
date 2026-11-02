@@ -299,7 +299,7 @@ input {
     overflow: auto;
     max-height: calc(100vh - var(--nuppdoc-header-height));
     padding: 1.25rem 1rem 2rem;
-    font-size: .8rem
+    font-size: .96rem
 }
 
 .nuppdoc-sidebar {
@@ -325,7 +325,7 @@ input {
 }
 
 .nuppdoc-sidebar ul ul {
-    font-size: .7rem
+    font-size: .84rem
 }
 
 .nuppdoc-sidebar a,
@@ -373,7 +373,7 @@ input {
 
 .nuppdoc-outline a {
     padding: .16rem 0;
-    font-size: .7rem
+    font-size: .84rem
 }
 
 .nuppdoc-content {
