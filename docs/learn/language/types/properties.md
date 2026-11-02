@@ -66,18 +66,6 @@ local type Expanded = {
 }
 ```
 
-::: deepdive
-Splitting the read type from the write type is what lets a normalizing setter
-be described rather than approximated. A property that accepts `string |
-integer` and stores a `string` needs both types written down, and collapsing
-the pair to a single type has to pick which half to misstate: widening reads
-makes
-every consumer test a type the value never has, and narrowing writes rejects
-calls the implementation accepts. Declaration files for untyped Lua hit this on
-almost every setter, which is why the pair is part of the property rather than
-a separate declaration form.
-:::
-
 ## Variance
 
 Readonly types are covariant. If `Dog` fits `Animal`, then

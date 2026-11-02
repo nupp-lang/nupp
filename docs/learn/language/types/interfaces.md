@@ -217,16 +217,6 @@ A [`satisfies` declaration](refinements.md) states the test outright, and it
 wins over the tags when both are present. With neither, and against an alias,
 there is nothing to test, and code generation refuses it.
 
-::: deepdive
-An interface emits no runtime table, so `is` against one is answered by static
-elision, by a tag its own literal-typed fields already declare, or by a
-`satisfies` test it names. Registering conformance on every declaration was
-designed and verified, then declined: elision and tags already answered every
-case except an untagged interface against a subject whose type does not prove
-it, which is one case weighed against a runtime table on every interface in the
-language.
-:::
-
 ## Default implementations
 
 An interface may implement what it declares, and a declaration that takes the

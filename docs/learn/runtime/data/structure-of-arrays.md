@@ -38,15 +38,6 @@ Position[3]                 soa.Array<Position>(3)
 [x2 velocity2]
 ```
 
-::: deepdive
-The container owns the layout rather than the declaration, because one
-declaration needs both: a value passed to C wants the canonical layout, and a
-large array wants its columns contiguous. Annotating the declaration would make
-one nominal identity cover two incompatible physical meanings, so a value's
-memory layout would depend invisibly on where the value came from.
-
-:::
-
 ### Nested fields stay whole
 
 The container splits top-level fields only. A nested struct or fixed array is

@@ -198,19 +198,6 @@ can fill a bodyless callable requirement or declare a new function member with a
 closed comptime-built signature. Generic, variadic, overloaded, and effectful
 provider declarations are not part of the first recipe version.
 
-::: deepdive
-`debug` is an exported `@comptime function` in `src/types/init.nupp`.
-It uses the same comptime worker, immutable `Info`, result envelope, cache, and
-recipe lowering as package providers. Its `@debug` configuration is part of
-the semantic annotations visible through `Info`.
-
-That is also the boundary against source generation.
-[Comptime](../learn/language/comptime.md) evaluates closed value-producing programs
-after normal type checking, and derives run as part of declaration checking and
-may attach only validated member recipes. Neither becomes a way to emit
-arbitrary source.
-:::
-
 ### Provider inputs
 
 Every provider on an owner receives the same immutable pre-merge `Info` view. It
@@ -343,13 +330,6 @@ suspension contract. `forward.v1` refuses generic runtime helpers; a later
 recipe version can admit them once symbolic helper identity and caching are
 specified. A helper module becomes an ordinary runtime dependency of the
 consumer even when the comptime provider itself would otherwise erase.
-
-::: deepdive
-Keeping behavior in the language makes arbitrary runtime control flow, effects, diagnostics, and future generic helpers available without
-turning them into a macro IR. A macro IR would have to grow its own version of
-each of those, and every one would then be a second implementation to keep
-agreeing with the first.
-:::
 
 ::: seealso
 - [Annotation declarations](../api.md#annotations) for `@derive`,

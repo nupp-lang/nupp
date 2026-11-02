@@ -35,12 +35,6 @@ The payload and trailer stay covered by the signature because the packager
 extends `__LINKEDIT` over them before the native signer runs. See [Signing for
 macOS](#signing-for-macos) for the order that makes that work.
 
-::: deepdive
-An appended payload rather than a platform section: an ELF section, a Mach-O
-section and a PE resource are three formats and three writers, and the payload
-contract needs nothing any of them supplies.
-:::
-
 ### Trailer
 
 48 bytes, little-endian, at the end of an unsigned file. For a signed Mach-O it

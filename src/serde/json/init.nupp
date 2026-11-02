@@ -71,15 +71,6 @@ assert(value.items[2] == json.NULL)
 assert(json.encodevalue(value) == [[{"items":[1,null,2]}]])
 ```
 
-::: deepdive Dropping null by default
-A Lua table cannot hold nil as a value, so a decoded null has to become either
-an absence or a sentinel. An absence is what most callers mean, and it keeps a
-decoded document indexable without every read testing against a sentinel first.
-A sentinel is what a caller round-tripping somebody else's document means, and
-that caller says so once, at the `decodeValue` call, rather than everywhere the
-value is read.
-:::
-
 ## Pulling selected values
 
 `pull` validates the complete document while applying its selection. `true`

@@ -119,17 +119,6 @@ error: NUPP2414: an opaque comptime value needs a directly declared materializat
 codecs](reflection.md#field-codecs) for the descriptor it reads and the codec it
 produces.
 
-::: deepdive
-Four invariants separate this from a macro system. The provider table is closed
-and compiler-owned, so adding one is a language change. The boundary is an
-explicitly declared runtime type rather than inference from a distant call, so
-deleting the annotation reports that the result needs one instead of silently
-selecting different code. The value cannot observe the program, because it is
-assembled through a sealed typed constructor API. And the block does not choose
-the emitter; the declared type does.
-
-:::
-
 ## Compile-time environment
 
 A block reads its own locals and the compile-time environment, and nothing else.
@@ -182,17 +171,6 @@ state a local operation clearly. A type function builds a structural type and
 never a declaration. See [Comptime
 types](types/comptime-types.md) for the builders, the finite
 operators, and the rules for a call left open inside a generic signature.
-
-::: deepdive
-Type algorithms used to live in a separate expression language with its own
-parser, binders, evaluator, normal forms, recursion admission, five kinds of
-budget, and exhaustive handling in every generic type consumer. The evidence
-that it was the wrong shape was in the compiler's own source: the format-string
-declaration ran to 254 lines of recursive type-state machine, because type
-position had no loop. Making types values in the language that already had
-loops removed the second compile-time language rather than adding a third.
-
-:::
 
 ## FAQ
 

@@ -81,16 +81,6 @@ every other declaration holds to. Definitions and applications may live in
 different files, no runtime import is required, and the definition record itself
 and every application are erased from generated Lua.
 
-::: deepdive
-The model follows Smithy traits: a trait is declared with the same shape as the
-data it carries, its definition restricts where it may be applied, and applying
-one is checked rather than parsed out of a comment. That is what makes an
-annotation a type-system object instead of a string, so an editor can navigate
-a `@ref` member to the type it names and
-[comptime](#compile-time-reflection) can read applications back with their
-values still typed.
-:::
-
 ## Single-value applications
 
 Apply `@annotationValue` to one field to designate it as the annotation's

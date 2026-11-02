@@ -83,17 +83,6 @@ local function radiusOf(decoded: any): number
 end
 ```
 
-::: deepdive
-A refined type is entered by running the test, not by writing the name. An
-annotation on its own establishes nothing a consumer can use, because it
-compiles to exactly what writing no annotation compiles to. A name that reads as a
-guarantee and proves nothing is worse than no name: every consumer that wanted
-the fact still has to test for it, and every reader believes something untrue.
-Running the test at `is` is what turns the name into a fact the checker
-carries. See [Narrowing](narrowing.md#narrowing-tests) for the operations that
-establish one.
-:::
-
 ## Tests read `self` and nothing else
 
 A refinement runs wherever `is` is written, so it reads the declaration's own
@@ -117,15 +106,6 @@ of the type yet, so `satisfies |self| -> self.a.b == "x"` compiles to
 Ordered comparisons verify that the field has the literal's runtime type, and
 length tests verify that their field is a string. A table whose field has the
 wrong runtime type makes `is` return false instead of raising an error.
-
-::: deepdive
-The grammar of a test is small because the checker reads it as well as running
-it. Comparisons against literals and `type()` tests reduce to facts the checker
-can compare against a declaration's own fields, which is what lets `record C is
-Shape` be proved rather than trusted. An arbitrary function body would have to
-be executed to answer that question, and it would run once per `is` in a
-program that may write thousands of them.
-:::
 
 ## Conformance claims are proved
 

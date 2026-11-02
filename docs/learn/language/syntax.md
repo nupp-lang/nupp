@@ -409,20 +409,6 @@ The expression form is recognized only as `switch selector do ... end`. The
 required `do` is the unambiguous boundary after an arbitrary selector, and it
 keeps `switch(x)`, `switch {x}`, and `switch "x"` as ordinary Lua calls.
 
-::: deepdive
-Reserving these names is the smaller parser, and it makes `local record = 5` a
-syntax error in a language whose first promise is that existing Lua compiles.
-Position replaces reservation instead: an introducer introduces a declaration
-only where one can start, and only when what follows it on the same line
-agrees.
-
-That costs one deliberate overlap, `local type Alias = 5`, and one more that
-came later: `a or continue` is the [exit suffix](exit-suffixes.md) rather than a
-disjunction with a variable named `continue`. Every other name is recovered from
-where it appears. See [Plain Lua is valid
-Nupp](#plain-lua-is-valid-nupp) for the overlaps and how to write around them.
-:::
-
 ## Compatibility with Lua and LuaJIT
 
 ### Plain Lua is valid Nupp

@@ -81,16 +81,6 @@ itself waitable and never installs a handler, while a host decides what runs
 meanwhile and never subscribes to a readiness source. Keeping them apart means
 neither reads past the other's operations to find its own.
 
-::: deepdive
-Suspension is one effect with handlers rather than general algebraic effects,
-which would be a much larger language than anything here needs. One effect buys
-the property a host wants, which is that a wait deep inside a library reaches
-the handler installed around the task, and it costs one construct in the grammar
-and one fact in the checker rather than an effect system every signature has to
-carry.
-
-:::
-
 ### Waits park one coroutine
 
 When `child:communicate()` cannot finish immediately, control makes a round
@@ -271,39 +261,6 @@ different handlers at the same time.
 `coroutine.yield` yields directly to the code that resumes the coroutine. It
 does not register cancellation or give a handler responsibility for the
 suspended stack.
-
-::: deepdive
-The two forms are judged differently where an [affine
-obligation](../ownership/index.md) is live. A raw yield with an obligation outstanding is
-rejected, because nobody is responsible for the abandoned continuation. A
-handled suspension with one outstanding is allowed, because responsibility
-transfers to a handler that owns the continuation and its cancellation until the
-park returns or unwinds.
-
-The yield is recognized by what it is rather than how it is spelled: through the
-library table, through a local bound to that table, or through a name bound to
-the function itself, as `local pause = coroutine.yield` is. A helper this file
-can see is judged by its body, so a call that reaches a raw yield through one or
-several visible functions is refused at the call while the obligation is live. A
-callee reached through a type is answered by that type, as `@nosuspend` is. A
-yield written inside `@unsafe do` is the author's to answer for -- the shape a
-driver takes when it forwards a nested coroutine's park to whoever resumes it --
-and is not counted.
-
-A `borrows` or `exclusive` parameter counts as an outstanding obligation for
-this purpose even though the owner is the caller's. The check sees one frame,
-and the caller's owner would be stranded through a callee that raw-yields
-while holding the view; the callee cannot know whether its caller may. An
-observer that parks while holding a borrowed event therefore does so through
-a handled suspension, which every waiting library call already is.
-
-That permission rests on a trusted handler contract rather than on a proof. The
-checker cannot prove anything about an arbitrary scheduler's cancellation
-behavior, and the invariant being trusted is not that a wait completes, which it
-may legitimately never do, but that the continuation is never abandoned without
-being woken far enough to run its cleanup.
-
-:::
 
 ## Running several waits together
 

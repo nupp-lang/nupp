@@ -60,15 +60,6 @@ contract. Rejected candidates move no affine arguments and establish no
 borrows. See [Intersections](intersections.md) for the relation `&` builds and
 for the intersections no value can satisfy.
 
-::: deepdive
-There is no ranking because ranking rules are the part of overloading every
-language regrets: each rule is defensible, the set is unmemorable, and a reader
-of a call site cannot tell which candidate ran without consulting a table.
-Requiring exactly one acceptance trades expressiveness for the property that a
-call means what it appears to mean, and turns a tie into a message rather than
-a silent choice.
-:::
-
 Subtype overlap is the usual way to write a real tie. An integer satisfies both
 `integer` and `number`, and Nupp does not guess that the narrower type was
 meant:
@@ -136,16 +127,6 @@ compiler also retains two method entries: each entry has its own body, effects,
 source definition, and stable hidden runtime slot. Once the checker selects an
 entry, code generation calls that slot directly with ordinary Lua colon
 semantics. The receiver is evaluated once and no dispatcher runs.
-
-::: deepdive
-Giving each entry its own slot is what keeps an overloaded call as cheap as an
-ordinary one. The alternative is a single Lua function under the source name
-that inspects its arguments and forwards, which costs a call and a chain of
-`type` tests on every invocation, defeats inlining, and turns a static decision
-into a runtime one that can disagree with the checker. The price is that the
-source name has no runtime value, so a reference to it has to say which entry
-it means.
-:::
 
 ### Method groups are not field values
 
@@ -353,17 +334,6 @@ local record Wrong is Decoder
     end
 end
 ```
-
-::: deepdive
-Both directions are errors because the annotation is a claim about the
-interface, not a note to the reader. A missing `@override` means a record has
-silently taken over behavior that every caller through the interface still
-expects from the default, and the failure surfaces wherever that default used
-to run. A spurious one means the author believed they were replacing something
-and were not, which is what happens after an interface changes a parameter
-type. Checking the claim against the exact inherited pack catches both at the
-declaration.
-:::
 
 ### Adding an overload beside a default
 

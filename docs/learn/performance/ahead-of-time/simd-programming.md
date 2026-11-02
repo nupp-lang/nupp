@@ -1038,7 +1038,6 @@ local function prefix(exclusive out: span.WriteSpan<uint32>, borrows input: span
 end
 ```
 
-
 `extract(s.lanes)` reads the last lane at any tier's width. Lane indices may
 be literals, `species.lanes`, or arithmetic the compiler can fold from them.
 An index beyond the species' lanes, or a parameter it cannot fold, is
@@ -1251,18 +1250,6 @@ one scalar field across several rows and is rejected for a vector field, and
 a SoA row view of such a struct is rejected: a column of vectors is a later
 step. A `Preferred` vector or a mask field keeps the struct a native-only
 aggregate.
-
-::: deepdive
-The compiler's target layout model lays the field out, per target: the
-payload rounded up to a power of two, capped at the allocator's guarantee of
-16 bytes on 64-bit targets, or 8 bytes on i686. The payload pads to
-that alignment, so three `float32` lanes occupy 16 bytes, 4 of them padding; a
-payload beyond the cap pads to a multiple of the cap. `Particle` above is 48
-bytes a row, `velocity` at offset 16.
-
-Reading the field returns the N-lane vector of its species, and assigning a
-vector copies the lanes in.
-:::
 
 ## Feature tiers
 

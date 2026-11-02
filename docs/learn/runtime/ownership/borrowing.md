@@ -385,16 +385,6 @@ end
 anchor. Raw pointer indexing and provenance reconstruction remain unsafe unless
 a checked span supplies bounds and a root.
 
-::: deepdive
-Pinning is separate from affinity because the two answer different questions. An
-affine obligation says who calls cleanup and when; a pin says the garbage
-collector may not collect the storage a C pointer names while C still holds
-it. Folding them together would mean every pinned pointer also acquired a
-terminal, which is wrong for the common case of a callback that C releases on
-its own schedule, and it would leave a pointer into a collected buffer as the
-first thing a program discovers with a segfault.
-:::
-
 ## Public capability contracts
 
 Exported functions need explicit modes only for parameters that may carry a

@@ -156,18 +156,6 @@ end
 inherited, so a declaration taking `Shape` cannot name it. `Scale` is the
 opposite on every count.
 
-::: deepdive
-`associated type` is a separate word from a nested `type` alias because they
-are different things. An alias is a static namespace member resolved where it
-is written, and an associated type is a contract member answered per
-implementor. Giving both one word would have changed the meaning of every
-existing alias the moment its declaration was inherited.
-
-The workaround this replaces was writing the value type as a parameter of the
-bound, which produces no diagnostic and no information, because bounds are
-checked at instantiation rather than solved.
-:::
-
 ## Reaching an associated type
 
 A projection reaches an answer through a concrete declaration by path, through

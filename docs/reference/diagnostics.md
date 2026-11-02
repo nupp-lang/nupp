@@ -47,18 +47,6 @@ Failing an explicit flag, `NO_COLOR` refuses escapes, `CLICOLOR_FORCE` demands
 them, and failing both the stream is asked whether it is a terminal that
 understands them, which `TERM=dumb` answers no for.
 
-::: deepdive
-Color never changes the bytes. A styled report is the plain report with escapes
-wrapped around spans of it, so a tool that reads compiler output has nothing to
-strip and no second format to learn, and a person who pipes a failing build into
-a file gets the same thing they saw.
-
-That constraint is why `NO_COLOR` is one-way. The convention gives a user a way
-to refuse escapes and no way to ask for them, so the variable that forces them
-on is a separate one, and a terminal that has announced itself as incapable
-through `TERM=dumb` is still asked last rather than first.
-:::
-
 ## Diagnostic fields
 
 Every diagnostic carries `severity` and `message`, plus `fixes`, `notes`, and

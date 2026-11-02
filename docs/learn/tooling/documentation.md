@@ -563,11 +563,6 @@ linked. The area reference a code carries is linked when the docs target
 publishes that file and named as a path when it does not, so a page the site
 does not build never becomes a dead link.
 
-::: deepdive
-One page rather than one per code, because an index is searched: the browser's
-find reaches every code, rule and program at once.
-:::
-
 ### API reference
 
 `stdlib` adds the compiler's builtin declarations to the generated API reference:

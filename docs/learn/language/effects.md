@@ -68,17 +68,6 @@ Declaring more than the body currently does is valid, which is what makes the
 contract an upper bound: an implementation may become less effectful without
 changing its contract.
 
-::: deepdive
-The asymmetry is deliberate. A caller reasons from what a contract does not
-say, so a missing fact is the one error that cannot be made safe by checking
-harder afterwards. An over-declared fact costs a proof and nothing else, and the author can tighten it whenever the narrower promise is worth
-keeping.
-
-What that costs is a contract that a rewrite can turn into a lie. That is why
-the annotation is reserved for boundaries worth the maintenance, and why every
-other function is inferred instead.
-:::
-
 ## Visible and opaque implementations
 
 The meaning of an effect annotation depends on whether its implementation is
@@ -486,17 +475,6 @@ needs a trusted summary, or when a future implementation must preserve a stable
 interface. An inferred private summary changes with its body, while
 a declared complete contract becomes an obligation every later edit must
 satisfy.
-
-::: deepdive
-A region asks for proof where it matters, at a callback, a C boundary, or a
-cleanup, rather than requiring an annotation on every function between there and
-the operation. That is why an ordinary signature stays silent about effects.
-
-It is the same reason there is no `async` coloring: one call site works with a
-scheduler installed and without one, so a library never splits into two versions
-of itself. See [suspension.md](../runtime/concurrency/suspension.md) for the guarantee that does travel
-in a signature.
-:::
 
 ## Effects, stability, relaxation, and ownership
 

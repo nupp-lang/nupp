@@ -124,19 +124,6 @@ Two [records](records-and-structs.md#records) have distinct nominal identities, 
 `unknown`, and unsubstituted type parameters prove nothing about
 disjointness.
 
-::: deepdive
-The check is deliberately one-sided: it reports only what it can prove, and
-stays quiet everywhere else. An interface is satisfied structurally by any
-value carrying its members, so two interfaces with unrelated members have a
-perfectly ordinary implementation that the compiler has not been shown, and a
-type parameter has whatever inhabitants its eventual argument has. Reporting
-those as empty would make a generic library that intersects its own parameters
-unwritable, and the failure would arrive at the declaration rather than at the
-instantiation that actually conflicts. The cost is that a genuinely empty
-intersection between two interfaces stays silent until a value is required and
-no value fits.
-:::
-
 ## Overload selection
 
 An intersection containing only function types is an overload set, and a call

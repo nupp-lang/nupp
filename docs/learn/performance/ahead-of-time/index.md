@@ -64,15 +64,6 @@ wrapping integer operations may be reassociated because their modular answer
 does not depend on grouping. Ask for a relaxation per function with
 [`@relax`](../../../api.md#annotation-relax).
 
-::: deepdive Required compilation
-The annotation is a contract over ordinary Nupp rather than a restricted
-sublanguage: the body uses the same parser, type system, operators, and
-diagnostics, so removing the annotation never changes the source-level result.
-A body outside the subset is an error rather than a silent per-function
-fallback, because a contract that degrades quietly is a comment.
-
-:::
-
 ## Next pages
 
 See these pages for each part of the AOT pipeline.

@@ -207,21 +207,6 @@ Reach for these operators when they state the transformation more clearly than
 a function and a run of builder calls would. User-authored branching,
 iteration, parsing, and recursion belong in comptime functions.
 
-::: deepdive
-Two ways to write a type transformation is a cost, and the operators are kept
-because a general language is the wrong tool for the small cases. A mapped
-shape says the whole transformation in one line a reader checks by eye, where
-the same thing as a comptime function is a loop over `fields`, a template
-concatenation, and a `shape` call, none of which is wrong and all of which have
-to be read to find out.
-
-The split is by what the operation needs. Everything an operator does is finite
-and structural, so the checker computes it directly without entering the
-comptime worker or paying its limits. Anything needing a loop, a branch on a
-value, string processing, or recursion crosses into the worker, and that is
-where the general language earns its budget.
-:::
-
 ## Const parameters
 
 Const parameters admit only `string`, `boolean`, and exactly representable
@@ -392,22 +377,6 @@ blueprints, so they cannot forge nominal identity or escape into the compiled
 program.
 Recursive algorithms use ordinary comptime calls or loops and are governed by
 the same limits.
-
-::: deepdive
-Running user code during checking makes the compiler's answer depend on that
-code terminating and on it seeing the same world twice. The worker is what
-makes both true: it is a separate process with its own budgets, so a type
-function that loops forever is a diagnostic on one file rather than a compiler
-that never returns, and it has no ambient access, so nothing it reads can
-differ between two builds of the same source.
-
-The blueprint boundary is the second half. A result is serialized and
-revalidated on the way back rather than handed over as a live handle, which is
-what keeps a type function from constructing checker state the checker would
-then trust.
-Nominal identity cannot cross that boundary at all, which is why a type
-function returns an existing nominal type rather than making one.
-:::
 
 ## FAQ
 

@@ -312,17 +312,6 @@ so the scaffolded project is read before any of it runs.
 nupp init owner/repo@v1.2.0 game --yes
 ```
 
-::: deepdive
-The reduced step list is not caution about `template.lua`, which is loaded in a
-sandbox with no `io`, `os`, `require` or `load` in it, and with its own copies
-of `string`, `table` and `math`, so nothing it rebinds reaches the code that
-plans the scaffold after it. It is that `check`,
-`build` and `test` all load the `nupp.lua` that was just scaffolded, and a
-manifest is ordinary unrestricted Lua. A template allowed to ask for `check`
-could put its payload in the manifest instead, and the sandbox would be
-decoration.
-:::
-
 ::: seealso
 - [tour.md](../getting-started/tour.md) for a walk through the scaffolded
   project
@@ -1251,14 +1240,6 @@ has to be guessed at.
 The chapters are generated from the compiler, so they cannot describe a
 construct the compiler does not have. Their examples compile in the test suite,
 and every cited diagnostic code resolves through `nupp explain`.
-
-::: deepdive
-The reference is compiled into the binary rather than fetched, which is the
-reason it is a command and not only a page on a website. A reader holding a
-reference from a different version is worse off than one holding none, because
-nothing in what they are reading tells them it does not match the compiler they
-are running. Printing it from the binary makes the two the same artifact.
-:::
 
 ::: seealso
 - [diagnostics.md](diagnostics.md) for the codes `--for` resolves

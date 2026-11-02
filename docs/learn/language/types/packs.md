@@ -90,18 +90,6 @@ arm. Copying the discriminator keeps the correlation, and assigning to a
 correlated binding invalidates that binding's link. See
 [narrowing.md](narrowing.md#narrowing-tests) for the tests that select an arm.
 
-::: deepdive
-Correlation is flow state rather than part of a type. A type that carried it
-would leak into every signature mentioning a correlated local, and it would
-make two identically typed values non-interchangeable, so a function taking
-`(boolean, string)` could not be given one produced anywhere else.
-
-Keeping it in the flow makes it precise where it is observable and absent where
-it is not, which is why storing the results in a table or returning them
-separately drops it. Copying the discriminator into another local keeps it,
-because the copy still stands for the same test.
-:::
-
 ## Pack compatibility
 
 Fixed heads compare in order. Homogeneous tails check every remaining fixed
