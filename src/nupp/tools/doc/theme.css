@@ -324,6 +324,10 @@ input {
     list-style: none
 }
 
+.nuppdoc-sidebar ul ul {
+    font-size: .7rem
+}
+
 .nuppdoc-sidebar a,
 .nuppdoc-outline a {
     display: block;
@@ -368,7 +372,8 @@ input {
 }
 
 .nuppdoc-outline a {
-    padding: .16rem 0
+    padding: .16rem 0;
+    font-size: .7rem
 }
 
 .nuppdoc-content {
@@ -487,7 +492,7 @@ input {
     border: 1px solid var(--nuppdoc-border);
     border-radius: 8px;
     background: transparent;
-    line-height: 1.55
+    line-height: 1.65
 }
 
 .nuppdoc-content pre code {
@@ -997,7 +1002,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     color: var(--nuppdoc-text-faint);
     font-family: var(--nuppdoc-font-mono);
     font-size: 14px;
-    line-height: 1.55;
+    line-height: 1.65;
     text-align: right;
     user-select: none;
     -webkit-user-select: none
