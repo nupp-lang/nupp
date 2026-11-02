@@ -565,7 +565,30 @@ function program.describe(modules: {any}, entryModule: string): any
         -- through the table R's name holds.
         local entry = node.kind == "newExpr" and node.call and node.call.constructorEntry
         local declaration = entry and entry.declaration
-        if declaration and declaration.coreDefinition and inlineRecords[declaration] then
+        local foreignRecord = declaration
+            and declaration.coreDefinition
+            and inlineRecords[declaration]
+            and inlineRecords[declaration].definition.filename ~= owner.scope.path
+        if foreignRecord then
+            -- A record another module declares is that module's export:
+            -- `new m.R(...)` reads R's table through m's, which the caller
+            -- references as it does any value.
+            need(
+                node.call.obj and node.call.obj.kind ~= "name",
+                "another module's record is constructed through its module"
+            )
+            local item = {
+                id = #p.calls,
+                owner = owner.id,
+                node = node.call,
+                definition = declaration.coreDefinition,
+                construct = true,
+                classExpr = node.call.obj
+            }
+            p.calls[#p.calls + 1], p.callByNode[node.call] = item, item
+            loopForms[node.call] = true
+            collect(node.call.obj, owner)
+        elseif declaration and declaration.coreDefinition and inlineRecords[declaration] then
             local base = inlineRecords[declaration]
             local classToken: any = {
                 kind = "name",
@@ -665,7 +688,18 @@ function program.describe(modules: {any}, entryModule: string): any
             and not target.node.inlineStatic
             and inlineRecords[target.node]
             or nil
-        if base then
+        if base and base.definition.filename ~= owner.scope.path then
+            -- Another module's record: its table is the receiver's metatable.
+            local item = {
+                id = #p.calls,
+                owner = owner.id,
+                node = node,
+                definition = method,
+                method = true,
+                metatable = true
+            }
+            p.calls[#p.calls + 1], p.callByNode[node] = item, item
+        elseif base then
             local classToken: any = {
                 kind = "name",
                 text = base.text,
@@ -951,7 +985,10 @@ function program.verify(p: any): boolean
                 node.kind == "methodCall" and p.callByNode[node] == item and node.name.definition == item.definition,
                 "method callsite identity mismatch"
             )
-            need(referenceOwners[item.classToken] == item.owner, "method callsite does not belong to its checked owner")
+            need(
+                item.metatable or referenceOwners[item.classToken] == item.owner,
+                "method callsite does not belong to its checked owner"
+            )
         elseif item.iterator then
             need(
                 node.kind == "forinStmt"
@@ -968,7 +1005,10 @@ function program.verify(p: any): boolean
                 and node.constructorEntry.declaration.coreDefinition == item.definition,
                 "construction callsite identity mismatch"
             )
-            need(referenceOwners[item.classToken] == item.owner, "construction callsite does not belong to its owner")
+            need(
+                item.classExpr or referenceOwners[item.classToken] == item.owner,
+                "construction callsite does not belong to its owner"
+            )
         elseif item.field then
             need(
                 (

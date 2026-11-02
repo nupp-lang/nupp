@@ -563,7 +563,8 @@ local function construct(ctx: any, node: any, origin: any): any
     need(site.construct and site.owner == ctx.fn.id, "construction callsite belongs to another owner")
     local target = need(p.functionsByDefinition[site.definition], "construction lacks its constructor")
     local contract = graph.constructContract(target, call)
-    local class = ctx.expression({kind = "name", token = site.classToken, site.classToken}, "tagged")
+    local class = site.classExpr and ctx.expression(site.classExpr, "tagged")
+        or ctx.expression({kind = "name", token = site.classToken, site.classToken}, "tagged")
     if class == nil then
         return nil
     end
@@ -905,25 +906,54 @@ local function invokeMethod(ctx: any, node: any, keepResult: boolean, count: int
     need(site.method and site.owner == ctx.fn.id, "method callsite belongs to another owner")
     local target = need(p.functionsByDefinition[site.definition], "method call lacks its checked method")
     local contract = graph.invokeContract(target, node)
-    local class = ctx.expression({kind = "name", token = site.classToken, site.classToken}, "tagged")
-    if class == nil then
-        return nil
-    end
-    local heldClass = ctx.hold(class)
-    -- The overload the checker selected has a member of its own.
-    local key = ctx.emit(node, "K", {pool(ctx, "str", node.overloadMember or node.name.text)}, "tagged")
-    local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldClass), key}, "tagged"))
-    ctx.release(heldClass)
     local exprs, kinds = {node.obj}, {"tagged"}
     for _, argument in ipairs(node.args.exprs or {}) do
         need(argument.kind ~= "vararg", "a method call cannot spread `...` yet")
         exprs[#exprs + 1], kinds[#kinds + 1] = argument, "tagged"
     end
-    local args = ctx.operands(exprs, kinds)
-    local value = ctx.readHeld(callee)
-    ctx.release(callee)
-    if args == nil then
-        return nil
+    -- The overload the checker selected has a member of its own.
+    local member = node.overloadMember or node.name.text
+    local value: integer = 0
+    local args: any = nil
+    if site.metatable then
+        -- Another module's record: its table is the receiver's metatable.
+        local receiver = ctx.expression(node.obj, "tagged")
+        if receiver == nil then
+            return nil
+        end
+        local heldReceiver = ctx.hold(receiver)
+        local class = ctx.emit(node, "LibCall", {29, ctx.readHeld(heldReceiver)}, "tagged")
+        local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
+        local callee = ctx.hold(ctx.emit(node, "GetIdx", {class, key}, "tagged"))
+        table.remove(exprs, 1)
+        table.remove(kinds, 1)
+        local rest = ctx.operands(exprs, kinds)
+        value = ctx.readHeld(callee)
+        ctx.release(callee)
+        local first = ctx.readHeld(heldReceiver)
+        ctx.release(heldReceiver)
+        if rest == nil then
+            return nil
+        end
+        args = {first}
+        for _, item in ipairs(rest) do
+            args[#args + 1] = item
+        end
+    else
+        local class = ctx.expression({kind = "name", token = site.classToken, site.classToken}, "tagged")
+        if class == nil then
+            return nil
+        end
+        local heldClass = ctx.hold(class)
+        local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
+        local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldClass), key}, "tagged"))
+        ctx.release(heldClass)
+        args = ctx.operands(exprs, kinds)
+        value = ctx.readHeld(callee)
+        ctx.release(callee)
+        if args == nil then
+            return nil
+        end
     end
     if count then
         return ctx.invokeMany(node, value, args, contract, count)

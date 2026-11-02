@@ -1,0 +1,21 @@
+module nupp.core.catalogmodulesboxes
+
+-- A module exporting a record: its constructor and methods reach across
+-- the module table.
+export record Box
+    width: integer
+    height: integer = 1
+
+    constructor(self, width: integer, height: integer)
+        self.width = width
+        self.height = height
+    end
+
+    function area(self): integer
+        return self.width * self.height
+    end
+end
+
+export function square(n: integer): Box
+    return new Box(n, n)
+end
