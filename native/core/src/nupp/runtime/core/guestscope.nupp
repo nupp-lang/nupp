@@ -221,6 +221,11 @@ end
 export const META_INDEX: uint64 = 0ULL
 export const META_NEWINDEX: uint64 = 1ULL
 export const META_METATABLE: uint64 = 2ULL
+export const META_ADD: uint64 = 3ULL
+export const META_SUB: uint64 = 4ULL
+export const META_MUL: uint64 = 5ULL
+export const META_MOD: uint64 = 6ULL
+export const META_LEN: uint64 = 7ULL
 
 -- The interned name of a metatable field: "__index", "__newindex" or
 -- "__metatable".
@@ -235,6 +240,16 @@ export function metaKey(ctx: voidptr, which: uint64): uint64
         elseif which == META_NEWINDEX then
             refused = strings.appendWord(h, builder, 0x646e6977656e5f5fULL, 8ULL)
                 | strings.appendWord(h, builder, 0x7865ULL, 2ULL)
+        elseif which == META_ADD then
+            refused = strings.appendWord(h, builder, 0x6464615f5fULL, 5ULL)
+        elseif which == META_SUB then
+            refused = strings.appendWord(h, builder, 0x6275735f5fULL, 5ULL)
+        elseif which == META_MUL then
+            refused = strings.appendWord(h, builder, 0x6c756d5f5fULL, 5ULL)
+        elseif which == META_MOD then
+            refused = strings.appendWord(h, builder, 0x646f6d5f5fULL, 5ULL)
+        elseif which == META_LEN then
+            refused = strings.appendWord(h, builder, 0x6e656c5f5fULL, 5ULL)
         else
             refused = strings.appendWord(h, builder, 0x61746174656d5f5fULL, 8ULL)
                 | strings.appendWord(h, builder, 0x656c62ULL, 3ULL)
@@ -298,6 +313,28 @@ export function metaSelf(ctx: voidptr): uint64
     @unsafe do
         return native.load64(native.loadPointer(ctx, context.SERVICE_SCOPE), native.fieldOffset<Services>("metaSelf"))
     end
+end
+
+-- The `which` metamethod of an operation on `a` and `b`: the first
+-- operand's when it has one, else the second's; 0 when neither is a table
+-- with it.
+export function binaryMeta(ctx: voidptr, which: uint64, a: uint64, b: uint64): uint64
+    local first = tableOf(a)
+    if first ~= 0ULL then
+        local found = metaField(ctx, first, which)
+        if found ~= values.NIL then
+            return found
+        end
+    end
+    local second = tableOf(b)
+    if second ~= 0ULL then
+        local found = metaField(ctx, second, which)
+        if found ~= values.NIL then
+            return found
+        end
+    end
+
+    return 0ULL
 end
 
 -- Lua's t[k]: the raw value, else through the metatable's __index while it

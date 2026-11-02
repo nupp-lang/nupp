@@ -551,8 +551,8 @@ end
 -- top of the frame's call window (slot valueCount - 4) and `nargs`
 -- arguments after it; its result lands in `resultSlot`, and the frame
 -- resumes after `pc`, as if the handler had finished. Answers 1 once the
--- callee's frame is published, 0 after recording the failure. The callee
--- must take exactly those arguments.
+-- callee's frame is published, 0 after recording the failure. A callee
+-- that takes fewer arguments gets the first of them, as Lua drops extras.
 export function metaCall(ctx: voidptr, frame: voidptr, pc: voidptr, nargs: uint64, resultSlot: uint64): uint64
     local found = current(ctx, frame, pc)
     local nv = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
@@ -589,15 +589,16 @@ export function metaCall(ctx: voidptr, frame: voidptr, pc: voidptr, nargs: uint6
     )
     if native.load64(target, native.fieldOffset<catalog.Function>("kind")) ~= catalog.FUNCTION
         or native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 1ULL
-        or native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount")) ~= nargs
+        or native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount")) > nargs
     then
         fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return 0ULL
     end
+    local taken = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
     local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
     local kinds = native.load64(signature, native.fieldOffset<catalog.Signature>("parameters"))
     local at: uint64 = 0ULL
-    while at < nargs do
+    while at < taken do
         local kind = native.load64(data, native.index(kinds + at * 8ULL))
         if catalog.scalar(kind, native.load64(window, native.index((base + 1ULL + at) * 8ULL))) == 0ULL then
             fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
@@ -616,7 +617,7 @@ export function metaCall(ctx: voidptr, frame: voidptr, pc: voidptr, nargs: uint6
     local s = native.loadPointer(ctx, context.STATE)
     local resumePC = resume(ctx, frame, pc)
     checkpoint(ctx, frame, pc)
-    local child = frames.prepareFixed(s, frame, info, callee, base, nargs, resultSlot, plan)
+    local child = frames.prepareFixed(s, frame, info, callee, base, taken, resultSlot, plan)
     if child == 0ULL then
         failure(ctx, RESOURCE)
         return 0ULL

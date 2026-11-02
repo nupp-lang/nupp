@@ -48,4 +48,20 @@ proxy.q = 21
 if rawget(proxy, "q") == nil then
     score = score * 100 + (sink.q or 0)
 end
+local vmeta = {
+    __add = function(a, b)
+        return (a.x or 0) * 10 + (b.x or 0)
+    end,
+    __mod = function(a, b)
+        return (a.x or 0) + b
+    end,
+    __len = function(a)
+        return (a.x or 0) * 2
+    end
+}
+local p = setmetatable({x = 3}, vmeta)
+local q = setmetatable({x = 4}, vmeta)
+local sum = p + q
+local rest = p % 5
+score = (score % 1000003) * 10000 + sum * 100 + rest * 10 + #q
 return score

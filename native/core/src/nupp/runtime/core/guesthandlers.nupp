@@ -406,8 +406,27 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     if result == values.NIL then
         result = wideResult(ctx, ADD, left, right)
     end
-    -- Arithmetic on a non-number is a guest error, as Lua raises one.
+    -- Arithmetic on a non-number calls a table operand's metamethod, or is a
+    -- guest error, as Lua raises one.
     if result == values.TRUE then
+        local callee = guestscope.binaryMeta(ctx, guestscope.META_ADD, left, right)
+        if callee ~= 0ULL then
+            local top = native.index(count - 4ULL)
+            slots.writeValue(frame, regs, top, callee)
+            slots.writeValue(frame, regs, top + 1, left)
+            slots.writeValue(frame, regs, top + 2, right)
+            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst)) ~= 1ULL then
+                return native.fail()
+            end
+            local s = native.pointer(ops.state(ctx))
+            local current = native.pointer(access.active(s))
+            local currentValues = native.pointer(access.values(s, current))
+            local currentIntegers = native.pointer(access.integers(s, current))
+            local currentFloats = native.pointer(access.floats(s, current))
+            local currentPC = native.pointer(access.pc(s, current))
+            access.refresh(s, current, ctx)
+            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        end
         guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
@@ -455,8 +474,27 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     if result == values.NIL then
         result = wideResult(ctx, SUB, left, right)
     end
-    -- Arithmetic on a non-number is a guest error, as Lua raises one.
+    -- Arithmetic on a non-number calls a table operand's metamethod, or is a
+    -- guest error, as Lua raises one.
     if result == values.TRUE then
+        local callee = guestscope.binaryMeta(ctx, guestscope.META_SUB, left, right)
+        if callee ~= 0ULL then
+            local top = native.index(count - 4ULL)
+            slots.writeValue(frame, regs, top, callee)
+            slots.writeValue(frame, regs, top + 1, left)
+            slots.writeValue(frame, regs, top + 2, right)
+            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst)) ~= 1ULL then
+                return native.fail()
+            end
+            local s = native.pointer(ops.state(ctx))
+            local current = native.pointer(access.active(s))
+            local currentValues = native.pointer(access.values(s, current))
+            local currentIntegers = native.pointer(access.integers(s, current))
+            local currentFloats = native.pointer(access.floats(s, current))
+            local currentPC = native.pointer(access.pc(s, current))
+            access.refresh(s, current, ctx)
+            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        end
         guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
@@ -504,8 +542,27 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     if result == values.NIL then
         result = wideResult(ctx, MUL, left, right)
     end
-    -- Arithmetic on a non-number is a guest error, as Lua raises one.
+    -- Arithmetic on a non-number calls a table operand's metamethod, or is a
+    -- guest error, as Lua raises one.
     if result == values.TRUE then
+        local callee = guestscope.binaryMeta(ctx, guestscope.META_MUL, left, right)
+        if callee ~= 0ULL then
+            local top = native.index(count - 4ULL)
+            slots.writeValue(frame, regs, top, callee)
+            slots.writeValue(frame, regs, top + 1, left)
+            slots.writeValue(frame, regs, top + 2, right)
+            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst)) ~= 1ULL then
+                return native.fail()
+            end
+            local s = native.pointer(ops.state(ctx))
+            local current = native.pointer(access.active(s))
+            local currentValues = native.pointer(access.values(s, current))
+            local currentIntegers = native.pointer(access.integers(s, current))
+            local currentFloats = native.pointer(access.floats(s, current))
+            local currentPC = native.pointer(access.pc(s, current))
+            access.refresh(s, current, ctx)
+            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        end
         guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
@@ -553,8 +610,27 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     if result == values.NIL then
         result = wideResult(ctx, MOD, left, right)
     end
-    -- Arithmetic on a non-number is a guest error, as Lua raises one.
+    -- Arithmetic on a non-number calls a table operand's metamethod, or is a
+    -- guest error, as Lua raises one.
     if result == values.TRUE then
+        local callee = guestscope.binaryMeta(ctx, guestscope.META_MOD, left, right)
+        if callee ~= 0ULL then
+            local top = native.index(count - 4ULL)
+            slots.writeValue(frame, regs, top, callee)
+            slots.writeValue(frame, regs, top + 1, left)
+            slots.writeValue(frame, regs, top + 2, right)
+            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst)) ~= 1ULL then
+                return native.fail()
+            end
+            local s = native.pointer(ops.state(ctx))
+            local current = native.pointer(access.active(s))
+            local currentValues = native.pointer(access.values(s, current))
+            local currentIntegers = native.pointer(access.integers(s, current))
+            local currentFloats = native.pointer(access.floats(s, current))
+            local currentPC = native.pointer(access.pc(s, current))
+            access.refresh(s, current, ctx)
+            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        end
         guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
@@ -1158,6 +1234,25 @@ export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     local header = tableHeader(value)
     local size: uint64 = 0ULL
     if header ~= 0ULL then
+        -- A table whose metatable has __len answers what it returns.
+        local callee = guestscope.binaryMeta(ctx, guestscope.META_LEN, value, values.NIL)
+        if callee ~= 0ULL then
+            local top = native.index(count - 4ULL)
+            slots.writeValue(frame, regs, top, callee)
+            slots.writeValue(frame, regs, top + 1, value)
+            slots.writeValue(frame, regs, top + 2, value)
+            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst)) ~= 1ULL then
+                return native.fail()
+            end
+            local s = native.pointer(ops.state(ctx))
+            local current = native.pointer(access.active(s))
+            local currentValues = native.pointer(access.values(s, current))
+            local currentIntegers = native.pointer(access.integers(s, current))
+            local currentFloats = native.pointer(access.floats(s, current))
+            local currentPC = native.pointer(access.pc(s, current))
+            access.refresh(s, current, ctx)
+            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        end
         size = tables.length(header)
     else
         local text = strings.header(value)

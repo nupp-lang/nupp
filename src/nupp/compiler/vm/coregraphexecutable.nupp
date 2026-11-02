@@ -158,9 +158,14 @@ local function derive(g: any, catalog: any): any
                 maximumArguments = math.max(maximumArguments, #block.args[at] - 1) as integer
             elseif op == "LibCall" then
                 maximumArguments = math.max(maximumArguments, #block.args[at] - 1) as integer
-            elseif op == "GetIdx" or op == "SetIdx" then
-                -- An __index or __newindex function is called from the top of
-                -- the call window: its callee, then up to three arguments.
+            elseif op == "GetIdx"
+                or op == "SetIdx"
+                or catalog.schema.version >= 8
+                and (op == "Add" or op == "Sub" or op == "Mul" or op == "Mod" or op == "Len")
+            then
+                -- A metamethod (__index, __newindex, __add, __len, ...) is
+                -- called from the top of the call window: its callee, then up
+                -- to three arguments.
                 maximumArguments = math.max(maximumArguments, 3) as integer
                 metaCalls = true
             end
