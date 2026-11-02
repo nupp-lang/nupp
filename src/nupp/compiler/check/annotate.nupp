@@ -301,7 +301,7 @@ function annotate.install(c: state.Checker): annotate.Ops
                 member = members[arg.name.text]
                 if not member then
                     c.diag("NUPP2115", arg.name, ("@%s has no member %q"):format(definition2.name, arg.name.text))
-                elseif provided[arg.name.text] then
+                elseif provided[member.name] then
                     c.diag(
                         "NUPP2115",
                         arg.name,
@@ -481,7 +481,11 @@ function annotate.install(c: state.Checker): annotate.Ops
                 ("@%s is reserved for %s, which is not implemented"):format(application.name.text, annotation.reserved)
             )
         end
-        if (application.name.text == "annotationValue" or application.name.text == "ref")
+        if (
+            application.name.text == "annotationValue"
+            or application.name.text == "annotationvalue"
+            or application.name.text == "ref"
+        )
             and not (owner and owner.isAnnotationDefinition)
         then
             c.diag(
@@ -541,7 +545,7 @@ function annotate.install(c: state.Checker): annotate.Ops
                 members[name] = member
                 order[#order + 1] = name
                 for _, attached in ipairs(entry.annotations or {}) do
-                    if attached.name.text == "annotationValue" then
+                    if attached.name.text == "annotationValue" or attached.name.text == "annotationvalue" then
                         if singleValue then
                             c.diag("NUPP2114", attached, "an annotation has only one @annotationValue member")
                         else

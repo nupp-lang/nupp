@@ -35,4 +35,94 @@ function M.rejectsMalformedImportedTypeDescriptors()
     testAssert.eq(packFailure.code, "NUPP2415", "a malformed pack uses the provider diagnostic")
 end
 
+local function invoke(state, intrinsic, ...)
+    return state.intrinsics[intrinsic](nil, {n = select("#", ...), ...})
+end
+
+function M.acceptingTypeNamesShareHandlesAndPrivateBlueprints()
+    local state, values = {}, {}
+    providers.installEvaluator(state, values)
+    local library = values.types
+    for _, names in ipairs({
+        {"bool", "boolean"},
+        {"niltype", "nil_"},
+        {"tabletype", "table_"},
+        {"functiontype", "function_"},
+        {"len", "length"},
+    }) do
+        testAssert.eq(library[names[1]], library[names[2]], names[1] .. " shares its preceding handle")
+    end
+    testAssert.eq(state.opaque[library.bool].payload.name, "boolean")
+    testAssert.eq(state.opaque[library.niltype].payload.name, "nil")
+    testAssert.eq(state.opaque[library.tabletype].payload.name, "table")
+    local parameters = assert(invoke(state, library.pack, {library.string}))
+    local results = assert(invoke(state, library.pack, {library.bool, library.niltype}))
+    local current = assert(invoke(state, library.functiontype, parameters, results))
+    testAssert.eq(current, assert(invoke(state, library.function_, parameters, results)))
+    testAssert.eq(state.opaque[current].payload.kind, "function")
+    local bounded = assert(invoke(state, library.len, library.string, 1, 4))
+    testAssert.eq(bounded, assert(invoke(state, library.length, library.string, 1, 4)))
+    testAssert.eq(state.opaque[bounded].payload.lengthwise, true)
+    local refused, failure = invoke(state, library.len, library.string, 4, 1)
+    local oldRefused, oldFailure = invoke(state, library.length, library.string, 4, 1)
+    testAssert.eq(refused, nil)
+    testAssert.eq(oldRefused, nil)
+    testAssert.eq(failure.code, oldFailure.code)
+    testAssert.eq(failure.message, oldFailure.message)
+end
+
+function M.acceptingDescribeKeysPreservePrivateGraphKeys()
+    local state, values = {}, {}
+    providers.installEvaluator(state, values)
+    local library = values.types
+    local descriptor = {
+        schema = reflection.SCHEMA,
+        root = 1,
+        types = {
+            {kind = "map", readKey = 2, readValue = 3, writeKey = 2, writeValue = 3},
+            {kind = "string"},
+            {kind = "integer"}
+        },
+    }
+    local imported = assert(providers.importTypeDescriptor(state, descriptor))
+    local described = assert(invoke(state, library.describe, imported))
+    testAssert.eq(described.sourcekind, "map")
+    testAssert.eq(described.sourcekind, described.sourceKind)
+    for _, names in ipairs({
+        {"readkey", "readKey"},
+        {"readvalue", "readValue"},
+        {"writekey", "writeKey"},
+        {"writevalue", "writeValue"}
+    }) do
+        testAssert.eq(described[names[1]], described[names[2]], "descriptor aliases share exact handles")
+        assert(described[names[1]])
+    end
+    local nominal = assert(
+        providers.importTypeDescriptor(
+            state,
+            {
+                schema = reflection.SCHEMA,
+                root = 1,
+                types = {
+                    {
+                        kind = "record",
+                        nominal = true,
+                        name = "Fixture",
+                        referenceFingerprint = "fixture-record",
+                        fields = {}
+                    }
+                },
+            },
+            nil,
+            "fixture"
+        )
+    )
+    local nominalDescription = assert(invoke(state, library.describe, nominal))
+    testAssert.eq(nominalDescription.declarationkind, "record")
+    testAssert.eq(nominalDescription.declarationkind, nominalDescription.declarationKind)
+    testAssert.eq(state.opaque[imported].payload.readkey, nil, "private blueprint keys are unchanged")
+    testAssert.eq(state.opaque[imported].payload.sourcekind, nil)
+    testAssert.eq(state.opaque[nominal].payload.nominal.kind, "record")
+end
+
 return M

@@ -3259,4 +3259,78 @@ local value: types.formatarguments("%d")
     )
 end
 
+function M.acceptingTypeNamesWorkInRealTypePositions()
+    clean(
+        [[
+@comptime local function Bool(): type return types.bool end
+@comptime local function Nil(): type return types.niltype end
+@comptime local function Table(): type return types.tabletype end
+@comptime local function Callable(): type
+    return types.functiontype(types.pack({types.string}), types.pack({types.bool, types.niltype}))
+end
+local type Short = types.len(string, 1, 4)
+local type PrecedingShort = types.length(string, 1, 4)
+local flag: Bool() = true
+local nothing: Nil() = nil
+local object: Table() = {}
+local word: Short = "word"
+local preceding: PrecedingShort = word
+local predicate: Callable() = function(value: string): (boolean, nil) return value ~= "", nil end
+return flag, nothing, object, preceding, predicate
+]]
+    )
+    testAssert.eq(codes('local type Bad = types.len(string, 4, 1)'), "NUPP2422")
+end
+
+function M.acceptingMetadataKeysAreDeclaredWithoutDroppingPrecedingKeys()
+    clean(
+        [[
+@comptime local function Recipe(info: types.derive.Info, field: types.derive.Field): string
+    assert(info.qualifiedname == info.qualifiedName)
+    assert(info.provideridentity == info.providerIdentity and info.owneridentity == info.ownerIdentity)
+    assert(info.ownertype == info.ownerType and info.interfacetype == info.interfaceType)
+    assert(info.hasconstructor == info.hasConstructor)
+    assert(field.readtype == field.readType and field.writetype == field.writeType)
+    assert(field.hasdefault == field.hasDefault and field.defaultvalue == field.defaultValue)
+    return info.qualifiedname
+end
+@comptime local function Reflected(info: types.reflect.Info, field: types.reflect.Field, edge: types.reflect.Entry, node: types.reflect.Node): string
+    assert(info.qualifiedname == info.qualifiedName and field.typename == field.typeName)
+    assert(field.hasdefault == field.hasDefault and field.defaultvalue == field.defaultValue)
+    assert(edge.hasdefault == edge.hasDefault and edge.defaultvalue == edge.defaultValue)
+    assert(node.staticfields == node.staticFields and node.nestedtypes == node.nestedTypes)
+    assert(node.associatedtypes == node.associatedTypes and node.typeparameters == node.typeParameters)
+    assert(node.typebounds == node.typeBounds and node.packparameters == node.packParameters)
+    assert(node.constparameters == node.constParameters and node.parameterkinds == node.parameterKinds)
+    assert(node.typearguments == node.typeArguments and node.packarguments == node.packArguments)
+    assert(node.constarguments == node.constArguments and node.noreturn == node.noReturn and node.noyield == node.noYield)
+    return info.qualifiedname
+end
+@comptime local function Described(T: type): type
+    local info = types.describe(T)
+    assert(info.sourcekind == info.sourceKind and info.declarationkind == info.declarationKind)
+    assert(info.readkey == info.readKey and info.readvalue == info.readValue)
+    assert(info.writekey == info.writeKey and info.writevalue == info.writeValue)
+    return T
+end
+local value: Described(string) = "checked"
+return value
+]]
+    )
+end
+
+function M.acceptingAliasMemberKeepsItsExclusiveCallbackContract()
+    clean(
+        [[
+local record Value
+    count: integer
+end
+local function inspect(handle: alias(Value)): nil
+    handle:withexclusive(function(exclusive value: Value): integer return value.count end)
+    handle:withExclusive(function(exclusive value: Value): integer return value.count end)
+end
+]]
+    )
+end
+
 return M

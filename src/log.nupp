@@ -755,4 +755,7 @@ function log.levelname(severity: log.Severity): log.Level
     return (NAMES[severity] or "off") as log.Level
 end
 
+-- Removed after the accepting seed owns the lowercase prologue helper.
+log.formodule = log.forModule
+
 export = log

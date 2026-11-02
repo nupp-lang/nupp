@@ -210,7 +210,18 @@ local function TaskType(F: type): type
         {name = "await", read = types.function_(types.pack({types.any}), types.results(F)),},
 
         --- Reports whether the task has settled without waiting.
-        {name = "isDone", read = types.function_(types.pack({types.any}), types.pack({types.boolean})),},
+        {
+            name = "isDone",
+            read = types.function_(
+                types.pack({
+                    types.any
+                }),
+                types.pack({
+                    types.boolean
+                })
+            ),
+        },
+        {name = "isdone", read = types.function_(types.pack({types.any}), types.pack({types.boolean})),},
 
         --- Returns the task's current scheduling state.
         {

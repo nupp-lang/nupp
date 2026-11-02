@@ -216,6 +216,8 @@ local record TaskImpl
     --- Whether the child has settled and its reply has reached this Lua state.
     isDone: @nosuspend function(TaskImpl): boolean
 
+    isdone: @nosuspend function(TaskImpl): boolean
+
     status: @nosuspend function(TaskImpl): string
 
     cancel: @nosuspend function(TaskImpl, string?): boolean
@@ -1635,6 +1637,9 @@ function TaskImpl:isDone(): boolean
 
     return self._state == "done" or self._state == "failed" or self._state == "cancelled"
 end
+
+-- A0 seed transition: retain the private provider method and share its exact handle.
+TaskImpl.isdone = TaskImpl.isDone as any
 
 function TaskImpl:status(): string
     if not self:isDone() then

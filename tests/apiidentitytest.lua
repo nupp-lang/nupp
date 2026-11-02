@@ -831,7 +831,7 @@ export function info(format: string, value: integer?): nil end
             local expectedModule = "log"
             test.eq(stats[#stats].expr.logIntrinsic, 3, source)
             test.eq(stats[#stats].expr.logModule, expectedModule, source)
-            if not code:find('require("' .. expectedModule .. '").forModule', 1, true) then
+            if not code:find('require("' .. expectedModule .. '").formodule', 1, true) then
                 missingModules[#missingModules + 1] = expectedModule .. ": " .. source
             end
         end
@@ -1061,6 +1061,85 @@ return api.identity(5), shadow.submitted(7)
         local ordinary = env.resolveModuleExports(env, "ordinary")
         test.eq(ordinary.comptimeFunctions.identity, nil)
     end)
+end
+
+function M.acceptingWorkUsesTheExistingWorkerCallSurface()
+    local surfaces = require("nupp.compiler.check.surfaces").COMPILER_SURFACES["nupp.tasks"].Scope
+    test.eq(surfaces.work, surfaces.fork, "the exact existing effect and rotation descriptor is shared")
+    for _, member in ipairs({"fork", "work"}) do
+        local source = (
+            [[
+module acceptingwork
+export function submit(borrows scope: coroutine.Scope): (integer, string?, nil)
+    local task = scope:%s(7, function(value: integer): (integer, string?, nil)
+        return value + 1, "tail", nil
+    end)
+    local done: boolean = task:isdone()
+    return task:await()
+end
+]]
+        ):format(member)
+        local _, errors, parsed = compile(source)
+        test.eq(errors, "", errors)
+        local found = {}
+
+        local function visit(node)
+            if type(node) ~= "table" or not node.kind then
+                return
+            end
+            if node.trailingCallableCall then
+                found[#found + 1] = node
+            end
+            for _, child in ipairs(node) do
+                visit(child)
+            end
+        end
+
+        visit(parsed.root)
+        test.eq(#found, 1)
+        test.eq(found[1].trailingCallableMember, member)
+        test.eq(found[1].compilerFeatureEffect, "runtime.workers")
+        local _, escaping = compile(
+            (
+                [[
+module acceptingescape
+export function escape(borrows scope: coroutine.Scope): coroutine.Task<function(): integer>
+    return scope:%s(function(): integer return 1 end)
+end
+]]
+            ):format(member)
+        )
+        assert(escaping:find("NUPP2608", 1, true), escaping)
+        local _, capture = compile(
+            (
+                [[
+module acceptingcapture
+export function refuse(borrows scope: coroutine.Scope, value: thread): nil
+    scope:%s(function(): thread return value end)
+end
+]]
+            ):format(member)
+        )
+        assert(capture ~= "" and capture:find("thread", 1, true), capture)
+    end
+    local ordinary = run(
+        [[
+local function ordinary(scope: {work: function(any, integer, string): integer}): integer
+    return scope:work(7, "last")
+end
+return ordinary
+]]
+    )
+    test.eq(
+        ordinary({
+            work = function(_, value, last)
+                assert(last == "last")
+                return value
+            end
+        }),
+        7,
+        "an unrelated work method keeps its ordinary argument order"
+    )
 end
 
 return M

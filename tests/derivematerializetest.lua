@@ -84,4 +84,68 @@ function M.revalidatesMutableRecipeInputsAtFinalization()
     assert(finalizeFailure and finalizeFailure.code == "NUPP2810", "mutated recipe used the wrong diagnostic")
 end
 
+function M.acceptsLowercaseInfoAndFieldKeysWithoutRewritingUserViews()
+    local state = evaluator()
+    local ownerType, interfaceType, readType, writeType = {}, {}, {}, {}
+    local input = {
+        schema = 2,
+        kind = "record",
+        name = "Fixture",
+        qualifiedName = "fixture.Fixture",
+        providerIdentity = "fixture.provider",
+        ownerIdentity = "fixture.owner",
+        ownerType = ownerType,
+        interfaceType = interfaceType,
+        hasConstructor = true,
+        reference = "owner",
+        fingerprint = "fixture-fingerprint",
+        fields = {
+            {
+                name = "value",
+                readable = true,
+                writable = true,
+                readType = readType,
+                writeType = writeType,
+                hasDefault = true,
+                defaultValue = {readType = "legacy-data", readtype = "current-data"},
+                reference = "field"
+            }
+        },
+    }
+    local info = providers.materializeDeriveInfo(state, input)
+    for _, names in ipairs({
+        {"qualifiedname", "qualifiedName"},
+        {"provideridentity", "providerIdentity"},
+        {"owneridentity", "ownerIdentity"},
+        {"ownertype", "ownerType"},
+        {"interfacetype", "interfaceType"},
+        {"hasconstructor", "hasConstructor"},
+    }) do
+        local current, problem = providers.index(state, info, names[1])
+        assert(problem == nil, names[1] .. " was rejected")
+        local preceding = providers.index(state, info, names[2])
+        assert(current == preceding and current ~= nil, names[1] .. " changed the payload")
+        assert(state.opaque[info].payload[names[1]] == nil, "public aliases leaked into the private Info payload")
+    end
+    local fields = assert(providers.index(state, info, "fields"))
+    local field = assert(providers.index(state, fields, 1))
+    for _, names in ipairs({
+        {"readtype", "readType"},
+        {"writetype", "writeType"},
+        {"hasdefault", "hasDefault"},
+        {"defaultvalue", "defaultValue"},
+    }) do
+        local current, problem = providers.index(state, field, names[1])
+        assert(problem == nil, names[1] .. " was rejected")
+        local preceding = providers.index(state, field, names[2])
+        assert(current == preceding and current ~= nil, names[1] .. " changed the payload")
+        assert(state.opaque[field].payload[names[1]] == nil, "public aliases leaked into the private Field payload")
+    end
+    local default = assert(providers.index(state, field, "defaultvalue"))
+    assert(providers.index(state, default, "readType") == "legacy-data", "a user data key was remapped")
+    assert(providers.index(state, default, "readtype") == "current-data", "distinct user data keys were merged")
+    local unknown, failure = providers.index(state, field, "READTYPE")
+    assert(unknown == nil and failure and failure.code == "NUPP2810", "unknown keys must still be refused")
+end
+
 return M

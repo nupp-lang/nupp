@@ -103,7 +103,7 @@ function M.aStatementCallWithALiteralFormatIsLowered()
     testAssert.eq(line, 1, "the line is a constant")
     assert(message:find("string.format", 1, true) ~= nil, "the message is built at the site")
     assert(
-        code:find('require("log").forModule("amb")', 1, true) ~= nil,
+        code:find('require("log").formodule("amb")', 1, true) ~= nil,
         "the module name is named once, in the prologue"
     )
 end
@@ -164,7 +164,7 @@ end
 -- Lua's own module loading.
 function M.theLoggingViewIsBoundThroughRequire()
     local code = compile("log.warn('m')", "amb")
-    assert(code:find('require("log").forModule(', 1, true) ~= nil, "the module view is bound through require")
+    assert(code:find('require("log").formodule(', 1, true) ~= nil, "the module view is bound through require")
     testAssert.eq(
         code:find('rawset(__nupp,"log"', 1, true),
         nil,

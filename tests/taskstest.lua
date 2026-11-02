@@ -1486,4 +1486,84 @@ function M.runRefusesABadLimit()
     assert(tostring(problem):find("limit must be a positive integer", 1, true) ~= nil, tostring(problem))
 end
 
+function M.acceptingTaskCompletionNameSharesTheExistingMethod()
+    scoped(nil, function(scope)
+        local child = scope:spawn(function()
+            return 17, nil, "tail"
+        end)
+        testAssert.eq(child.isdone, child.isDone, "completion aliases share one method handle")
+        testAssert.eq(child:isdone(), false)
+        local first, middle, last = child:await()
+        testAssert.eq(first, 17)
+        testAssert.eq(middle, nil)
+        testAssert.eq(last, "tail")
+        testAssert.eq(child:isdone(), true)
+        testAssert.eq(child:isdone(), child:isDone())
+    end)
+end
+
+function M.acceptingWorkNameRunsTheExistingWorkerSubmission()
+    local taskName, providerName = "nupp.tasks", "nupp.runtime.workersprovider"
+    local previousTasks, previousProvider = package.loaded[taskName], package.loaded[providerName]
+    local submitted, closed = 0, 0
+    local ok, problem = pcall(function()
+        local workerScope = {}
+        local observer
+        local done = function()
+            return true
+        end
+        local child
+        function workerScope:spawn(body, ...)
+            submitted = submitted + 1
+            child = {values = {body(...)}, count = 3, isDone = done}
+            observer.created(self, child)
+            observer.settled(self, child, "done", nil)
+
+            return child
+        end
+
+        function workerScope:close()
+            closed = closed + 1
+        end
+
+        function workerScope:_settleOldest()
+            return false
+        end
+
+        package.loaded[providerName] = {
+            provider = {
+                openScope = function(_, callbacks)
+                    observer = callbacks
+                    return workerScope
+                end,
+                settle = function(task)
+                    return "done", task.values, task.count, nil
+                end,
+            }
+        }
+        package.loaded[taskName] = nil
+        local isolated = require(taskName)
+        local scope = isolated.open()
+        testAssert.eq(scope.work, scope.fork, "worker aliases share one method handle")
+        local handle = scope:work(
+            function(value)
+                return value + 1, nil, "tail"
+            end,
+            6
+        )
+        testAssert.eq(handle.isdone, handle.isDone, "worker completion shares one method handle")
+        testAssert.eq(handle:isdone(), true)
+        local first, middle, last = handle:await()
+        testAssert.eq(first, 7)
+        testAssert.eq(middle, nil)
+        testAssert.eq(last, "tail")
+        testAssert.eq(select("#", handle:await()), 3, "the complete result pack survives the alias")
+        scope:close()
+    end)
+    package.loaded[taskName], package.loaded[providerName] = previousTasks, previousProvider
+    assert(ok, tostring(problem))
+    testAssert.eq(submitted, 1)
+    testAssert.eq(closed, 1)
+end
+
 return M

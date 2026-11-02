@@ -10186,7 +10186,7 @@ function gen.generate(
         local view = compilerModules[logModule .. "#view"]
         if view then
             code = (
-                "const %s = require(%q).forModule(%q); "
+                "const %s = require(%q).formodule(%q); "
             ):format(view, logModule, result.moduleName or filename or "?") .. code
         end
     end
