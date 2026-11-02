@@ -228,14 +228,11 @@ export NUPP_NATIVE_LIBRARY="$LUA_ROOT/build/lib/$RUST_NATIVE_FILENAME"
 # `scripts/toolchain` decides where the build lands and how it is cached, which
 # is why nothing here names a directory: the answer is keyed by the compiler
 # this machine has, and shared by every worktree of this checkout.
-# A directory test, not a build: whether any pinned LLVM tree has finished
-# under the shared toolchain cache, or one is named outright.
+# An availability query, not a build: the exact pinned LLVM tree for this
+# toolchain must be complete, or named outright for the builder to validate.
 llvm_is_available() {
     [ -n "${NUPP_LLVM_PREFIX:-}" ] && return 0
-    for complete in "$(dirname "$TOOLCHAIN_PREFIX")"/llvm/*/.complete; do
-        [ -f "$complete" ] && return 0
-    done
-    return 1
+    "$ROOT/scripts/toolchain" llvm --available >/dev/null 2>&1
 }
 
 build_native() {

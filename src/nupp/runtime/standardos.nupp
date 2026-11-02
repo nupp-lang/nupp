@@ -18,7 +18,6 @@ See [system services](docs/learn/runtime/system.md) for facts, clocks, and UUIDs
 
 local system = require("nupp.runtime.system")
 local clocks = require("nupp.runtime.clocks").selected
-local uuid = require("nupp.util.internal.uuid")
 local entropy = require("nupp.runtime.entropy")
 
 --- The executing ABI and the available parallelism at the time of a query.
@@ -47,11 +46,27 @@ export const monotonic: function(): number = clocks.now
 --- Returns milliseconds since the Unix epoch.
 export const walltime: function(): number = clocks.walltime
 
+const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.util.internal.uuid"
+
+-- UUID features carry the helper; clocks and system facts do not need it.
+local function uuidImplementation(name: string): any
+    local ok, implementation = pcall(require, name)
+    if not ok then
+        error(implementation, 0)
+    end
+
+    return implementation
+end
+
 --- Generates a random version 4 UUID using the retained host service.
-export const uuid4: function(): string = uuid.uuid4
+export function uuid4(): string
+    return uuidImplementation("nupp.util.internal.uuid").uuid4()
+end
 
 --- Generates a time-ordered version 7 UUID using the retained host service.
-export const uuid7: function(): string = uuid.uuid7
+export function uuid7(): string
+    return uuidImplementation("nupp.util.internal.uuid").uuid7()
+end
 
 --- Returns cryptographically secure random bytes from the selected host.
 --- @param count the requested byte count, from zero through 1048576

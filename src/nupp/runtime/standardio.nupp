@@ -363,7 +363,12 @@ const _DYNAMIC_REQUIRES = "@requires-dynamically io.internal.process"
 -- The popen feature carries this implementation when a program uses it. Merely
 -- loading the byte I/O installer must not select a process provider.
 local function processImplementation(name: string): any
-    return require(name)
+    local ok, implementation = pcall(require, name)
+    if not ok then
+        error(implementation, 0)
+    end
+
+    return implementation
 end
 
 local function openProcess(command: any, ...: any): ...any

@@ -175,10 +175,14 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "uuid_runtime",
         globals = {"os.uuid4", "os.uuid7"},
-        exports = {"os.uuid4", "os.uuid7"},
+        exports = {"os.uuid4", "os.uuid7", "nupp.runtime.standardos.uuid4", "nupp.runtime.standardos.uuid7"},
         runtimeModule = "nupp.runtime.uuidprovider",
-        portableRuntime = true
+        portableRuntime = true,
+        requires = {"runtime.uuid_helpers"}
     },
+    [
+        "runtime.uuid_helpers"
+    ] = {name = "uuid_helpers", runtimeModule = "nupp.util.internal.uuid", portableRuntime = true},
     [
         "runtime.bitops"
     ] = {name = "bitops", runtimeModule = "nupp.runtime.bitops", portableRuntime = true, requires = {}},

@@ -594,6 +594,80 @@ function M.aDamagedCachedLuajitIsBuiltAgain()
     os.execute("rm -rf " .. quote(directory))
 end
 
+-- A completed LLVM from a different toolchain is not the code generator the
+-- native provider builder would select for this launcher.
+function M.launcherCodegenMarkersFollowTheExactAvailableLlvm()
+    local directory = temporary()
+    local root = directory .. "/root"
+    local cache = directory .. "/cache"
+    assert(os.execute("mkdir -p " .. quote(root .. "/scripts") .. " " .. quote(cache .. "/llvm/old")) == 0)
+    write(cache .. "/llvm/old/.complete", "an unrelated completed LLVM\n")
+    write(root .. "/provider", "fixture provider\n")
+    write(
+        root .. "/scripts/toolchain",
+        [[#!/bin/sh
+case "$1" in
+    llvm)
+        [ "$2" = --available ] || exit 91
+        printf queried >> "$ROOT/queries"
+        [ -f "$ROOT/exact-llvm" ] || exit 1
+        printf '%s\n' "$ROOT/exact-prefix"
+        ;;
+    native-rust)
+        printf '%s\n' "$2" > "$ROOT/features"
+        printf '%s\n' "$ROOT/provider"
+        ;;
+    *) exit 92 ;;
+esac
+]]
+    )
+    assert(os.execute("chmod +x " .. quote(root .. "/scripts/toolchain")) == 0)
+    local launcher = read(ROOT .. "/bin/nupp")
+    local available = assert(launcher:match("(llvm_is_available%(%) {.-\n})"))
+    local buildNative = assert(launcher:match("(build_native%(%) {.-\n})"))
+    local script = directory .. "/stage.sh"
+    write(
+        script,
+        "#!/bin/sh\nset -eu\n" .. "ROOT=" .. quote(
+            forPath(root)
+        ) .. "\nexport ROOT\n" .. "TOOLCHAIN_PREFIX=" .. quote(
+            forPath(cache .. "/current")
+        )
+        .. "\n"
+        .. "NUPP_NATIVE_LIBRARY=\"$ROOT/build/lib/provider\"\n"
+        .. available
+        .. "\n"
+        .. buildNative
+        .. "\nbuild_native\n"
+    )
+    assert(os.execute("chmod +x " .. quote(script)) == 0)
+    for _, selection in ipairs({"unrelated", "exact", "explicit"}) do
+        os.remove(root .. "/exact-llvm")
+        os.remove(root .. "/queries")
+        if selection == "exact" then
+            write(root .. "/exact-llvm", "done\n")
+        end
+        local prefix = selection == "explicit" and forPath(root .. "/explicit-prefix") or ""
+        local status, output = run({NUPP_LLVM_PREFIX = prefix}, "", script)
+        assert(status == 0, output)
+        local features = read(root .. "/features")
+        local expected = selection ~= "unrelated"
+        assert((features:find(",codegen", 1, true) ~= nil) == expected, selection .. ": " .. features)
+        local marker = io.open(root .. "/build/lib/provider.codegen", "rb")
+        assert((marker ~= nil) == expected, selection .. ": staged marker disagrees with selected features")
+        if marker then
+            marker:close()
+        end
+        local queried = io.open(root .. "/queries", "rb")
+        assert((queried ~= nil) == (selection ~= "explicit"), selection .. ": unexpected LLVM query")
+        if queried then
+            queried:close()
+        end
+        assert(read(root .. "/build/lib/provider") == "fixture provider\n")
+    end
+    os.execute("rm -rf " .. quote(directory))
+end
+
 -- The LLVM and LLD notices ship in every release archive, and nothing held them
 -- to the source they describe. A drifted one now stops the LLVM build before any
 -- of it is configured, the way a drifted LuaJIT or LPeg notice does.
