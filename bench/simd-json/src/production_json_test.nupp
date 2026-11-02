@@ -111,7 +111,7 @@ function test.run(): nil
     local renamed = serde.binding(
         FastEnvelope,
         new serde.Options(
-            unknownMembers = "ignore",
+            unknownmembers = "ignore",
             fields = {
                 id = new serde.FieldOptions(name = "i\"d"),
                 child = new serde.FieldOptions(),

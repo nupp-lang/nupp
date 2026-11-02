@@ -1103,8 +1103,8 @@ local function directRecord<T>(selected: access.Access<unknown>, recipe: lowerin
         if stored == nil or not nativeCarrier(selected.info, stored.read, field.target) then
             return
         end
-        local default = stored.defaultValue
-        if stored.hasDefault
+        local default = stored.defaultvalue
+        if stored.hasdefault
             and default ~= nil
             and type(default) ~= "number"
             and type(default) ~= "string"
@@ -1115,8 +1115,8 @@ local function directRecord<T>(selected: access.Access<unknown>, recipe: lowerin
     end
     for _, field in ipairs(recipe.syntax.fields) do
         local stored = fields[field.name]
-        field.hasDefault = stored.hasDefault == true
-        field.defaultValue = stored.defaultValue
+        field.hasDefault = stored.hasdefault == true
+        field.defaultValue = stored.defaultvalue
     end
     recipe.syntax.access = "record"
     recipe.syntax.typeObject = assert2(reflect.runtimetype(selected.info, selected.typeindex))

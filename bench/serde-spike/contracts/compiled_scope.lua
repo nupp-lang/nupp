@@ -116,11 +116,11 @@ local wrapped = {
 assert(not compiled.supports(wrapped, operations.plan))
 assert(
     compiled.select(wrapped, operations.plan, {
-        compileSerde = function()
+        compileserde = function()
             attempts = attempts + 1;
             error("unexpected compile")
         end,
-        decodeSerde = function()
+        decodeserde = function()
             attempts = attempts + 1;
             error("unexpected decode")
         end,

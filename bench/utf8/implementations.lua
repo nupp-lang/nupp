@@ -13,7 +13,7 @@ implementations.aot = require("utf8bench").isValid
 implementations.scalar = assert(loadfile("build/scalar/utf8bench.lua"), "build the utf8-scalar target first")().isValid
 
 --- `utf8` as it ships: ordinary Nupp, `string.byte`, binary64 cursor.
-implementations.shipped = assert(loadfile("build/aot/utf8.lua"), "build the utf8 target first")().isValid
+implementations.shipped = assert(loadfile("build/aot/utf8.lua"), "build the utf8 target first")().isvalid
 
 --- The lookup validator on the general `simd` algebra, a vector at a
 --- time. Built by the project in `../utf8simd`, which is separate because a
