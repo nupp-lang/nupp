@@ -1,7 +1,7 @@
 -- The derived command registry and shared terminal policy.
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
-local ansi = require("arg")
+local ansi = require("io.cli")
 local cli = require("nupp.tools.cli")
 local json = require("testjson")
 
@@ -866,14 +866,16 @@ function M.runGivesTheProgramItsOwnArgTable()
     assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
     local files = {
         ["nupp.lua"] = 'return {include = {"."}}\n',
-        ["s.lua"] = 'assert(require("arg") == arg)\n' .. 'print(arg[0], arg[1], arg[2], #arg, select("#", ...))\n',
+        [
+            "s.lua"
+        ] = 'assert(require("io.cli").args == arg)\n' .. 'print(arg[0], arg[1], arg[2], #arg, select("#", ...))\n',
         [
             "v.nupp"
-        ] = 'local args = rawget(_G, "arg") as {[integer]: string}\n'
-        .. 'local library = require("arg")\n'
-        .. 'assert(library == arg and library == args)\n'
+        ] = 'local args = io.cli.args\n'
+        .. 'local library = require("io.cli")\n'
+        .. 'assert(library.args == args and library ~= args)\n'
         .. 'local later = require("later")\n'
-        .. 'assert(require("arg") == arg and require("arg") == args)\n'
+        .. 'assert(require("io.cli").args == args)\n'
         .. 'print(args[0], args[1], args[2], #args, later)\n',
         ["later.nupp"] = "local answer = comptime do\n    return 6 * 7\nend\n\nreturn answer\n",
     }
@@ -1342,13 +1344,13 @@ function M.theNativeHostRaisesTheSameLimits()
 end
 
 -- The cli module's header example, checked from a directory outside the repository.
--- There arg comes from the declarations the compiler carries rather than from
+-- There io.cli comes from the sources the compiler carries rather than from
 -- src/, and one module it imports was not carried, so loading it failed, every export
 -- was dropped, and `@derive(cli.Arguments)` named no provider (ER-010).
 function M.theCliHeaderExampleChecksOutsideTheRepository()
-    local header = assert(io.open(HERE .. "/../src/arg/init.nupp", "rb")):read("*a")
+    local header = assert(io.open(HERE .. "/../src/io/cli/init.nupp", "rb")):read("*a")
     local example = assert(header:match("```nupp\n(.-)```"), "the module header carries an example")
-    assert(example:find("@derive(cli.arguments)", 1, true), "the example derives through its local require")
+    assert(example:find("@derive(cli.arguments)", 1, true), "the example derives through its direct CLI alias")
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "'") == 0)

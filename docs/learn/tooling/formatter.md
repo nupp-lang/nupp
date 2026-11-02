@@ -48,8 +48,8 @@ Three measurements are fixed:
 
 ### Module and type imports
 
-Absolute references to declared modules become local bindings. Calls use a short
-module name; types used only in annotations use an erased selection:
+Builtin namespaces remain qualified, including type references. The formatter
+does not add imports for them:
 
 ::: code-group
 ```nupp [Written]
@@ -61,20 +61,17 @@ return io.files.read("notes.txt"), count
 ```
 
 ```nupp [Formatted]
-const {type Span} = require("binary.span")
-const files = require("io.files")
-
-local function count(values: Span<uint8>): integer
+local function count(values: binary.span.Span<uint8>): integer
     return #values
 end
 
-return files.read("notes.txt"), count
+return io.files.read("notes.txt"), count
 ```
 :::
 
-Imports follow the `module` header and its module documentation when present.
-Repeated references share
-one binding. Existing module bindings are reused when they are initialized,
+References to user modules become local bindings. Their imports follow the
+`module` header and its module documentation when present. Repeated references
+share one binding. Existing module bindings are reused when they are initialized,
 unmodified and unshadowed. A simple local type alias becomes a type selection
 with the same name and position. A name already used in the file gets a numeric
 suffix, including when the conflicting name lives in an inner scope. Type-only selections remain

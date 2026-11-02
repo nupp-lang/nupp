@@ -25,9 +25,9 @@ terminal, because a build's output has been quiet on success for as long as
 there have been build scripts reading it, and `--quiet` and `NUPP_PROGRESS` are
 there to overrule the guess in either direction.
 ]]
-const terminal2 = require("io.terminal")
+const terminal2 = require("io.cli")
 
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
 local progress = {}
 
@@ -123,7 +123,7 @@ const progress.SLOWEST = 5
 -- the disk, and none of that is this process's CPU time however long the user spends
 -- watching it. LuaJIT has no wall clock of its own beyond `os.time`, whose one-second
 -- resolution would report most builds as zero, so this goes through the FFI and is
--- guarded at every step the way `arg` guards `isatty`: a build must not
+-- guarded at every step the way `io.cli` guards `isatty`: a build must not
 -- fail to start because a timer could not be declared. The fallback is CPU time, which
 -- is wrong in the direction of being too small and is still better than nothing.
 local function makeClock(): function(): number

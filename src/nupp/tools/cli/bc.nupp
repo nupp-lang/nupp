@@ -20,14 +20,14 @@ the bytecode finds it without running anything, which is what makes it usable as
 a gate -- no quiet machine, no threshold, and the same answer every time.
 ]]
 
-const terminal2 = require("io.terminal")
+const terminal2 = require("io.cli")
 
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
 local usageError = require("nupp.tools.cli.error").forCommand("bc")
 local report = require("nupp.tools.cli.report")
 local listing = require("nupp.tools.bytecodelisting")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 
 local REPORT_SCHEMA = {
     type = "object",

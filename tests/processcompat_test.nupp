@@ -6,12 +6,12 @@
 -- its one runtime assertion can run.
 const {type Buffer} = require("io")
 
-local process = require("nupp.io.process")
+local process = require("io")
 
 local M = {}
 
-local function tecsCallSites(options: process.Options, exclusive buffer: Buffer): nil
-    local child = assert(process.spawn(options))
+local function tecsCallSites(options: process.ProcessOptions, exclusive buffer: Buffer): nil
+    local child = assert(process.popen(options))
 
     local pid: integer = child.pid
     assert(pid >= 0)

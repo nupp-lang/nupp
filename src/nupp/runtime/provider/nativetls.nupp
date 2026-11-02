@@ -7,12 +7,12 @@ Native TLS session implementation used as a built-in module fallback.
 
 Sessions wrap stream handles from the native network implementation. The native
 runtime owns TLS state and certificate processing; this adapter supplies the
-receiver-based polling protocol in [](io.tls.spi). It preserves
+receiver-based polling protocol in [](io.net.tls.spi). It preserves
 hostname, certificate, authority, verification, and ALPN options when creating a
 session. A separately selected network provider must expose compatible handles.
 
 Handshake, read, write, flush, and close-notify operations report pending work to
-the caller. The public [](io.tls) layer drives networking readiness and
+the caller. The public [](io.net.tls) layer drives networking readiness and
 suspension. Verification and negotiated protocol results describe the established
 session rather than the requested policy.
 
@@ -21,7 +21,7 @@ public session controls that lifecycle through `destroy`. Requiring the facade
 fixes the implementation; individual TLS operations never perform SPI lookups.
 ]]
 
-local contract = require("io.tls.spi")
+local contract = require("io.net.tls.spi")
 local ffi = require("ffi")
 local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any
 const READ_SIZE = 65536

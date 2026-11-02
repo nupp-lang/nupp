@@ -286,12 +286,12 @@ function M.aReaderTransfersIntoADigestAndAChecksum(): nil
     local expected = byHand:hexdigest()
 
     local rolling = digest.newdigest("sha256")
-    local source = io.newstringreader(message)
+    local source = io.newreader(message)
     test(source:transferto(rolling) == #message)
     test(rolling:hexdigest() == expected)
 
     local sum = checksum.newchecksum("crc32c")
-    local again = io.newstringreader(message)
+    local again = io.newreader(message)
     test(again:transferto(sum) == #message)
     test(sum:value() == checksum.value("crc32c", message))
 end

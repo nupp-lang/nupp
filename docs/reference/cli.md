@@ -441,7 +441,7 @@ Examples:
     nupp aot --emit ir src/kernel.nupp
     nupp aot --emit llvm src/kernel.nupp
     nupp aot --emit asm --function scale src/kernel.nupp
-    nupp aot --emit wgsl --function transform src/gpu.nupp
+    nupp aot --emit wgsl --function transform src/io.gpu.nupp
     nupp aot --format json src/kernel.nupp
 
 Usage:
@@ -1505,7 +1505,7 @@ nupp completions fish > ~/.config/fish/completions/nupp.fish
 ```
 
 ```text [nupp completions bash]
-# Completion for nupp; generated from arg.
+# Completion for nupp; generated from io.cli.
 _nupp() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   local words=( "${COMP_WORDS[@]:1}" )
@@ -1862,10 +1862,10 @@ Options:
 ```
 
 The first non-option argument is the program; everything after it goes to the
-program, options included. Arguments arrive as the chunk's varargs and in the
-global `arg`, where `arg[0]` is the program and `arg[1]` onwards what followed
-it, as for a script `luajit` runs. A `.nupp` file is compiled first; anything
-else is loaded as Lua directly.
+program, options included. Arguments arrive as the chunk's varargs and in
+`io.cli.args`, where `io.cli.args[0]` is the program and index 1 onwards holds
+what followed it. Plain Lua scripts see the same table as their global `arg`.
+A `.nupp` file is compiled first; anything else is loaded as Lua directly.
 
 ```text [nupp run src/main.nupp]
 Hello, world

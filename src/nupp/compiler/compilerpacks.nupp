@@ -121,7 +121,8 @@ function packs.resolve(target: string?): (packs.Pack?, string?)
         -- payload. `arg[0]` remains the source-launcher fallback, where there is
         -- no native host and its spelling is controlled by `bin/nupp`.
         local hosted = rawget(_G, "__NUPP_EXECUTABLE")
-        local executable = type(hosted) == "string" and hosted or tostring(arg and arg[0] or "")
+        local arguments: any = rawget(_G, "arg")
+        local executable = type(hosted) == "string" and hosted or tostring(arguments and arguments[0] or "")
         local bin = executable:match("^(.*)[/\\][^/\\]+$")
         if bin == nil then
             return nil, nil

@@ -1579,7 +1579,7 @@ function M.standardIOApiHasCompleteDocumentation()
             "src/io/uri/init.nupp"
         ] = {types = {URI = true, Components = true,}, functions = {newuri = true, validate = true, isuri = true,},},
         [
-            "src/nupp/io/files/init.nupp"
+            "src/io/files/init.nupp"
         ] = {
             types = {File = true, TemporaryPath = true, Info = true, Entry = true,},
             functions = {info = true, open = true, read = true, glob = true,},
@@ -1863,7 +1863,7 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
     for _, name in ipairs({
         "nupp/runtime/standardio.nupp",
         "nupp/runtime/standardos.nupp",
-        "io/terminal.nupp",
+        "io/cli/init.nupp",
         "nupp/cli/internal/terminal.nupp",
         "nupp/cli/internal/table.nupp",
     }) do
@@ -1887,7 +1887,7 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
     for _, item in ipairs(publicOS.items) do
         osItems[item.name] = item
     end
-    for _, item in ipairs(assert(modules["io.terminal"], "terminal has no public page").items) do
+    for _, item in ipairs(assert(modules["io.cli"], "terminal has no public page").items) do
         terminalItems[item.name] = item
     end
     for _, name in ipairs({"ColorMode", "Style", "Cell", "TableOptions", "Alignment", "Column"}) do
@@ -1909,7 +1909,7 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
     }) do
         assert(terminalItems[name], "the terminal member is missing: " .. name)
         assert(
-            terminalItems[name].signature:find("function io.terminal.", 1, true)
+            terminalItems[name].signature:find("function io.cli.", 1, true)
             and not terminalItems[name].signature:find("terminalTypes.", 1, true)
             and not terminalItems[name].signature:find("tables.", 1, true),
             terminalItems[name].signature
@@ -4577,7 +4577,7 @@ end
 
 function M.exportedTablesUseCanonicalPublicNamesInEveryOutput()
     local examples = {
-        {path = "src/arg/init.nupp", name = "arg", member = "application", hidden = "cliModule."},
+        {path = "src/io/cli/init.nupp", name = "io.cli", member = "application", hidden = "cliModule."},
         {
             path = "src/debug/bench.nupp",
             name = "debug.bench",
@@ -4952,11 +4952,11 @@ function M.builtinNavigationKeepsEveryDeclaredGlobalAndLibrary()
         "newproxy",
         "_G",
         "_VERSION",
-        "arg",
         "warn"
     }) do
         assert(globals[name], "lost a callable, array, value or function global: " .. name)
     end
+    assert(not globals.arg, "raw host argv became a checked public global")
     assert(not globals.__nuppCloseFile, "compiler helper became a public global")
     assert(not libraries.number and not libraries.int32, "primitive types became runtime namespaces")
     assert(not libraries.lpeg and not libraries.re, "third-party modules became Lua builtins")
@@ -4996,7 +4996,7 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
         }),
         ["src/io/path.nupp"] = library("io.path", {"join"}),
         ["src/assert/init.nupp"] = library("assert", {"equal"}),
-        ["src/arg/init.nupp"] = library("arg", {"parse"}),
+        ["src/io/cli/init.nupp"] = library("io.cli", {"parse"}),
         ["src/warn.nupp"] = library("warn", {"emit"}),
         ["src/types/init.nupp"] = library("types", {"newStore"}),
         ["src/example/tools/widget.nupp"] = library("example.tools.widget", {"work"}),
@@ -5026,7 +5026,7 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
     local api = assert(sidebar:match('>API reference</a></summary>(.*)'))
     assert(not api:find('<details open', 1, true), "an API branch starts open, including the active one")
     for _, name in ipairs({
-        "arg",
+        "io.cli",
         "assert",
         "warn",
         "io",
@@ -5055,7 +5055,8 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
         assert(not api:find("#" .. anchor .. '\"', 1, true), "a declaration became a left navigation leaf: " .. anchor)
     end
     assert(api:find('href="../../../modules/assert/index.html"', 1, true), "callable global lost its module page")
-    assert(api:find('href="../../../modules/arg/index.html"', 1, true), "array global lost its module page")
+    assert(api:find('href="../../../modules/io/cli/index.html"', 1, true), "the CLI module lost its page")
+    assert(not api:find('data-module="arg"', 1, true), "the retired argument library has a page")
     assert(api:find('data-module="io.path"', 1, true), "a submodule disappeared")
     assert(api:find('href="../../../modules/io/path/index.html"', 1, true), "a submodule lost its page link")
     for _, name in ipairs({"example", "example.tools", "example.tools.widget"}) do
@@ -5116,13 +5117,13 @@ function assert.equal(): nil end
 return assert
 ]=],
         [
-            "src/arg/init.nupp"
-        ] = [=[module arg
+            "src/io/cli/init.nupp"
+        ] = [=[module io.cli
 --[[Parses command arguments.]]
-local arg = {}
+local cli = {}
 --- Parses the arguments.
-function arg.parse(): nil end
-return arg
+function cli.parse(): nil end
+return cli
 ]=],
         [
             "src/warn.nupp"
@@ -5168,7 +5169,7 @@ end
     local stringPage = readFile(dir .. "/site/modules/string/index.html")
     assert(stringPage:find('id="string.format"', 1, true))
     assert(not stringPage:find('Nothing is required by this name', 1, true), "builtin kept a namespace placeholder")
-    for _, name in ipairs({"assert", "arg", "warn"}) do
+    for _, name in ipairs({"assert", "warn"}) do
         local text = readFile(dir .. "/site/modules/" .. name .. "/llms.txt")
         assert(text:find('<a id="' .. name .. '"></a>', 1, true), "missing global declaration on " .. name)
         local _, anchors = text:gsub('<a id="' .. name .. '"></a>', '')
@@ -5186,7 +5187,7 @@ end
     end
     local index = readFile(dir .. "/site/reference/lua/llms.txt")
     assert(not index:find('<a id="ffi.ffi.new"></a>', 1, true), "obsolete wrapper anchor retained")
-    for _, name in ipairs({"io", "debug.bench", "string.extension", "assert", "arg", "ffi", "jit.util"}) do
+    for _, name in ipairs({"io", "debug.bench", "string.extension", "assert", "io.cli", "ffi", "jit.util"}) do
         assert(index:find("[`" .. name .. "`](", 1, true), "index misses module " .. name)
     end
     assert(not index:find("```nupp\nlocal open:", 1, true), "index duplicates library signatures")
@@ -5592,11 +5593,11 @@ end
 end
 
 function M.gpuDocumentsApplicationOperationsAndHidesGeneratedBindings()
-    local source = readFile(HERE .. "/../src/gpu/init.nupp")
-    local module = assert(doc.extract(source, "src/gpu/init.nupp", "gpu"))
+    local source = readFile(HERE .. "/../src/io/gpu/init.nupp")
+    local module = assert(doc.extract(source, "src/io/gpu/init.nupp", "io.gpu"))
     local foundOpen, foundContext = false, false
     for _, item in ipairs(module.items) do
-        if item.name == "gpu.open" or item.name == "open" then
+        if item.name == "io.gpu.open" or item.name == "open" then
             foundOpen = true
         end
         assert(
@@ -5630,7 +5631,7 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
         "layout.nupp",
         "layoutfacts.nupp"
     }) do
-        local base = (path == "init.nupp" or path == "layout.nupp") and "src/gpu/" or "src/nupp/gpu/"
+        local base = (path == "init.nupp" or path == "layout.nupp") and "src/io/gpu/" or "src/nupp/gpu/"
         files[base .. path] = readFile(HERE .. "/../" .. base .. path)
     end
     local dir = tempProject(files)
@@ -5661,7 +5662,7 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
     assert(not text:find("implementation%.%w"), "public GPU signatures expose an implementation alias")
     -- Private implementations must not create a second application-facing Binding.
     for _, relative in ipairs({
-        "src/gpu/spi.nupp",
+        "src/io/gpu/spi.nupp",
         "src/nupp/runtime/provider/nativegpu.nupp",
         "src/nupp/runtime/browser/webgpu/internal.nupp",
     }) do
@@ -5679,11 +5680,11 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
         for _, item in ipairs(module.items) do
             assert(not paths[item.path], "duplicate declaration " .. item.path)
             paths[item.path] = true
-            if item.path == "gpu.Buffer" then
+            if item.path == "io.gpu.Buffer" then
                 assert(item.kind == "interface", "a private implementation replaced the exported Buffer contract")
             end
-            assert(item.path ~= "gpu.Binding", "a private provider record leaked onto the application API")
-            if item.path == "gpu.spi.Binding" then
+            assert(item.path ~= "io.gpu.Binding", "a private provider record leaked onto the application API")
+            if item.path == "io.gpu.spi.Binding" then
                 providerBinding = item
             end
         end
@@ -5712,7 +5713,7 @@ function M.ioPublicPageKeepsStorageAndScalarContracts()
         "reservewrite",
         "readinto",
         "readuint32",
-        "newscalarwriter",
+        "newswriter",
         "newlines"
     }) do
         assert(text:find(public, 1, true), "I/O documentation lost " .. public)

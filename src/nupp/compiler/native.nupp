@@ -72,8 +72,7 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "files_runtime",
         module = "io.files",
-        modules = {"nupp.io.files"},
-        runtimeModule = "nupp.io.files",
+        runtimeModule = "io.files",
         portableRuntime = true,
         requires = {
             "runtime.files_messages",
@@ -84,14 +83,12 @@ local FEATURES: {[string]: native.Feature} = {
             "stdlib.io",
         }
     },
-    [
-        "runtime.files_messages"
-    ] = {name = "files_messages", runtimeModule = "nupp.io.files.messages", portableRuntime = true},
+    ["runtime.files_messages"] = {name = "files_messages", runtimeModule = "io.files.messages", portableRuntime = true},
     [
         "runtime.files_path"
     ] = {
         name = "files_path",
-        runtimeModule = "nupp.io.files.path",
+        runtimeModule = "io.files.internal.path",
         portableRuntime = true,
         requires = {"runtime.path", "stdlib.io"},
     },
@@ -99,7 +96,7 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.files_spi"
     ] = {
         name = "files_spi",
-        runtimeModule = "nupp.io.files.spi",
+        runtimeModule = "io.files.spi",
         portableRuntime = true,
         requires = {"runtime.files_messages", "runtime.files_path", "stdlib.io"},
     },
@@ -123,8 +120,9 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.process"
     ] = {
         name = "process_runtime",
-        module = "nupp.io.process",
-        runtimeModule = "nupp.io.process",
+        module = "io.internal.process",
+        globals = {"io.popen"},
+        runtimeModule = "io.internal.process",
         portableRuntime = true,
         requires = {"runtime.suspension"}
     },
@@ -132,9 +130,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.tls"
     ] = {
         name = "tls_runtime",
-        module = "io.tls",
-        modules = {"nupp.io.tls"},
-        runtimeModule = "nupp.io.tls",
+        module = "io.net.tls",
+        runtimeModule = "io.net.tls",
         portableRuntime = true,
         requires = {"runtime.suspension"}
     },
@@ -228,24 +225,30 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.tls_contract"
     ] = {
         name = "tls_contract",
-        runtimeModule = "nupp.io.tls.spi",
+        runtimeModule = "io.net.tls.spi",
         portableRuntime = true,
         requires = {"runtime.tls_types"}
     },
     [
         "runtime.tls_types"
-    ] = {name = "tls_types", runtimeModule = "nupp.io.tls.types", portableRuntime = true, requires = {}},
+    ] = {name = "tls_types", runtimeModule = "io.net.tls.internal.types", portableRuntime = true, requires = {}},
     [
         "runtime.process_contract"
     ] = {
         name = "process_contract",
-        runtimeModule = "nupp.io.process.spi",
+        runtimeModule = "io.internal.process.spi",
         portableRuntime = true,
         requires = {"runtime.process_types"}
     },
     [
         "runtime.process_types"
-    ] = {name = "process_types", runtimeModule = "nupp.io.process.types", portableRuntime = true, requires = {}},
+    ] = {
+        name = "process_types",
+        globals = {"io.processexit"},
+        runtimeModule = "io.internal.process.types",
+        portableRuntime = true,
+        requires = {}
+    },
     [
         "runtime.http_messages"
     ] = {name = "http_messages", runtimeModule = "nupp.io.http.messages", portableRuntime = true, requires = {}},
@@ -300,16 +303,16 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.gpu_layout"
     ] = {
         name = "gpu_layout",
-        modules = {"gpu.layout"},
-        runtimeModule = "gpu.layout",
+        modules = {"io.gpu.layout"},
+        runtimeModule = "io.gpu.layout",
         portableRuntime = true,
         requires = {"runtime.gpu_layoutfacts"},
     },
     [
         "runtime.gpu_layoutfacts"
     ] = {name = "gpu_layoutfacts", runtimeModule = "nupp.gpu.layoutfacts", portableRuntime = true},
-    ["runtime.gpu_api"] = {name = "gpu_api", runtimeModule = "gpu", portableRuntime = true},
-    ["runtime.gpu"] = {name = "gpu_runtime", module = "gpu", runtimeModule = "gpu", portableRuntime = true},
+    ["runtime.gpu_api"] = {name = "gpu_api", runtimeModule = "io.gpu", portableRuntime = true},
+    ["runtime.gpu"] = {name = "gpu_runtime", module = "io.gpu", runtimeModule = "io.gpu", portableRuntime = true},
     ["native.gpu"] = {
         name = "gpu",
         modules = {"nupp.runtime.provider.nativegpu"},
@@ -405,10 +408,10 @@ local FEATURES: {[string]: native.Feature} = {
         globals = {
             "io.newbuffer",
             "io.newlines",
-            "io.newqueuereader",
-            "io.newscalarreader",
-            "io.newscalarwriter",
-            "io.newstringreader",
+            "io.newreader",
+            "io.newwriter",
+            "io.newsreader",
+            "io.newswriter",
             "io.readall",
         },
         modules = {"nupp.io"},

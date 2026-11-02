@@ -4,7 +4,7 @@ module io.http.spi
 `io.http.spi` defines the HTTP implementation contracts.
 
 ```nupp
-local contract = require("io.http.spi")
+local contract = io.http.spi
 local type Provider = contract.Provider
 ```
 

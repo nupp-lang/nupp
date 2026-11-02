@@ -1,15 +1,13 @@
-@!internal
-
-module nupp.io.tls
+module io.net.tls
 
 --[[
-`io.tls` takes ownership of a connection [](io.net) already opened
+`io.net.tls` takes ownership of a connection [](io.net) already opened
 and turns it into an encrypted connection.
 
 ```nupp
 local function fetch(): string
     local stream = assert(io.net.connect({host = "example.com", port = 443}))
-    local session = assert(io.tls.client(stream, {
+    local session = assert(io.net.tls.client(stream, {
         hostname = "example.com",
     }))
     assert(session:handshake())
@@ -60,17 +58,17 @@ local span = require("binary.span")
 local physical = require("nupp.runtime.storage")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
 
-const contract = require("nupp.io.tls.spi")
+const contract = require("io.net.tls.spi")
 local provider: contract.Provider = do
-    const chosen = spi.select(spi.providers<contract.Provider>("nupp.io.tls.spi.Provider"))
+    const chosen = spi.select(spi.providers<contract.Provider>("io.net.tls.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end
-    assert2(target.host == "native", "nupp.io.tls: no implementation is available")
+    assert2(target.host == "native", "io.net.tls: no implementation is available")
     yield _G.require("nupp.runtime.provider.nativetls") as contract.Provider
 end
 local tls = {}
-const shared = require("nupp.io.tls.types")
+const shared = require("io.net.tls.internal.types")
 
 --- How a client session is opened.
 type tls.ClientOptions = shared.ClientOptions
@@ -129,7 +127,7 @@ local function await(operation: string, ready: function(): boolean): nil
         -- resume it twice.
         local resumed = false
         const source = context:source(
-            "nupp.io.tls",
+            "io.net.tls",
             50,
             function(): integer
                 net.pump(0)
@@ -282,7 +280,7 @@ record tls.Session is Reader, Writer
             return true
         end
         local failure: io.Error? = nil
-        await("nupp.io.tls handshake", function(): boolean
+        await("io.net.tls handshake", function(): boolean
             const done, why = self:step()
             if done == nil then
                 failure = why or io.toError("the handshake failed")
@@ -326,7 +324,7 @@ record tls.Session is Reader, Writer
         -- holds exclusively.
         const provider = self._provider
         const session = self._session
-        await("nupp.io.tls read", function(): boolean
+        await("io.net.tls read", function(): boolean
             const got, why = provider:read(session, wanted)
             if why ~= nil then
                 failure = why
@@ -444,7 +442,7 @@ record tls.Session is Reader, Writer
             local took: integer? = nil
             local failure: string? = nil
             const remaining = bytes:sub(at)
-            await("nupp.io.tls write", function(): boolean
+            await("io.net.tls write", function(): boolean
                 const moved, why = backend:write(session, remaining)
                 if why ~= nil then
                     failure = why
@@ -499,7 +497,7 @@ record tls.Session is Reader, Writer
 
         local complete = false
         local failure: string? = nil
-        await("nupp.io.tls flush", function(): boolean
+        await("io.net.tls flush", function(): boolean
             const done, why = self._provider:flushed(self._session)
             if why ~= nil then
                 failure = why
@@ -536,7 +534,7 @@ record tls.Session is Reader, Writer
             -- truncation a `close_notify` exists to rule out. The provider
             -- answers once they are out or once the drain's time is spent.
             const chosen, session = self._provider, self._session
-            await("nupp.io.tls close", function(): boolean
+            await("io.net.tls close", function(): boolean
                 const sent, why = chosen:closenotify(session)
 
                 return sent or why ~= nil

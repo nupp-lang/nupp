@@ -1,6 +1,6 @@
 module fastmath
 
-local span = require("binary.span")
+local span = binary.span
 
 @aot(target = "gpu")
 local function exactExp(exclusive output: span.WriteSpan<float>, borrows input: span.Span<float>): nil

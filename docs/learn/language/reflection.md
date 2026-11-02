@@ -114,8 +114,7 @@ chooses how that declaration participates in a data model, and a codec chooses
 the wire representation:
 
 ```nupp
-local serde = require("serde")
-local json = require("serde.json")
+local json = serde.json
 local record User
     id: uint32
     name: string

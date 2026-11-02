@@ -198,7 +198,7 @@ launcher_notice() {
     fi
 }
 
-# The compiler lists directories through `nupp.io.files`, so it needs that
+# The compiler lists directories through `io.files`, so it needs that
 # facility's native provider the way any other program using one does. A built
 # program finds its library beside itself; the compiler's own output tree puts
 # `build/lib` one level further out than the generated loader looks, so name it

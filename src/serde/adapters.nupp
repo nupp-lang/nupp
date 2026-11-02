@@ -12,9 +12,8 @@ own member identities instead, so its codec policy can read shape identifiers,
 XML namespaces, or field numbers off them.
 
 ```nupp
-local serde = require("serde")
-local adapters = require("serde.adapters")
-local json = require("serde.json")
+local adapters = serde.adapters
+local json = serde.json
 local plain = json.codec(json.membernamepolicy)
 
 -- The model's own member type. A real library would carry its schema here.
@@ -162,10 +161,9 @@ export const atom = scalars.atom
 --- [](serde.document.adapter).
 ---
 --- ```nupp
---- local serde = require("serde")
---- local adapters = require("serde.adapters")
---- local document = require("serde.document")
---- local json = require("serde.json")
+--- local adapters = serde.adapters
+--- local document = serde.document
+--- local json = serde.json
 --- local plain = json.codec(json.membernamepolicy)
 --- local record Member is serde.Member
 ---     @readonly name: string
@@ -185,9 +183,8 @@ export const document = scalars.document
 --- Converts between an application value and one an adapter already handles.
 ---
 --- ```nupp
---- local serde = require("serde")
---- local adapters = require("serde.adapters")
---- local json = require("serde.json")
+--- local adapters = serde.adapters
+--- local json = serde.json
 --- local plain = json.codec(json.membernamepolicy)
 --- local record Member is serde.Member
 ---     @readonly name: string
@@ -317,9 +314,8 @@ export const inspect = structures.inspect
 --- trip both.
 ---
 --- ```nupp
---- local serde = require("serde")
---- local adapters = require("serde.adapters")
---- local json = require("serde.json")
+--- local adapters = serde.adapters
+--- local json = serde.json
 --- local plain = json.codec(json.membernamepolicy)
 --- local record Member is serde.Member
 ---     @readonly name: string

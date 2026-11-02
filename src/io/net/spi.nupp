@@ -4,7 +4,7 @@ module io.net.spi
 `io.net.spi` defines the network transport contract.
 
 ```nupp
-local contract = require("io.net.spi")
+local contract = io.net.spi
 local type Provider = contract.Provider
 ```
 

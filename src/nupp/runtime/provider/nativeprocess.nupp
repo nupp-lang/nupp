@@ -2,10 +2,10 @@
 
 module nupp.runtime.provider.nativeprocess
 
---[[The native process provider adapts the host ABI to [](io.process.spi).
+--[[The native process provider adapts the host ABI to `io.ProcessProvider`.
 
 Loading requires the native process feature. Spawn translates the shared
-[](io.process.types) options into native argument, environment, directory,
+`io.ProcessOptions` options into native argument, environment, directory,
 and stream descriptors. A successful result owns a child handle and any piped
 stdin, stdout, and stderr handles; inherited and redirected streams may have no
 separate pipe value.
@@ -16,13 +16,13 @@ are constructed with the shared `exited` function. Per-stream scratch storage an
 release flags belong to this Lua state. Counts and status tags are checked before
 they become Lua strings or state-machine progress.
 
-The [](io.process) facade resolves this table once. Closing streams and
+The `io.popen` facade resolves this table once. Closing streams and
 reaping the child remain distinct operations. Cleanup releases every native
 handle even when a process is killed or a caller stops reading its output.
 ]]
 
-local contract = require("nupp.io.process.spi")
-local shared = require("nupp.io.process.types")
+local contract = require("io.internal.process.spi")
+local shared = require("io.internal.process.types")
 
 const native = require("nupp.runtime.native")
 

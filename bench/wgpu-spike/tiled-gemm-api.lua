@@ -3,7 +3,7 @@
 local ffi = require("ffi")
 local span = require("binary.span")
 local generated = require("gemm")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 local now = dofile(here .. "../simd-mandelbrot/clock.lua")

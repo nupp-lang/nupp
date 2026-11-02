@@ -273,7 +273,7 @@ end
 io.stdout:setvbuf("no")
 print(("NUPP_BENCH_PID %d"):format(nativeProcessId()))
 
-const mode = arg[1] or "benchmark"
+const mode = io.cli.args[1] or "benchmark"
 if mode == "net-slow-reader" then
     netSlowReader()
 elseif mode == "net-slow-writer" then

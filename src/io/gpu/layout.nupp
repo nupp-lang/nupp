@@ -1,15 +1,15 @@
-module gpu.layout
+module io.gpu.layout
 
 --[[
-`gpu.layout` computes tensor views from shapes, strides, and offsets.
+`io.gpu.layout` computes tensor views from shapes, strides, and offsets.
 
-A layout is a shape, a stride per dimension, and an offset. [](gpu) uses
+A layout is a shape, a stride per dimension, and an offset. [](io.gpu) uses
 these to say what a view of a buffer covers without copying it, and the algebra
 here -- slicing, transposing, reshaping -- returns a new layout over the same
 storage.
 
 ```nupp
-const layout = require("gpu.layout")
+const layout = io.gpu.layout
 
 const rows = layout.new({4, 4}, {4, 1})
 const column = layout.subview(rows, {0, 2}, {4, 1})

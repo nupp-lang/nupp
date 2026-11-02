@@ -4,7 +4,7 @@ module coroutine.workers.spi
 `coroutine.workers.spi` defines the worker implementation contracts.
 
 ```nupp
-local contract = require("coroutine.workers.spi")
+local contract = coroutine.workers.spi
 local type Provider = contract.Provider
 ```
 

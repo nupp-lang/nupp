@@ -5,7 +5,7 @@ module io.net
 and connections this process opens itself.
 
 ```nupp
-local net = require("io.net")
+local net = io.net
 local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
 local sender = assert(net.connect({host = "127.0.0.1", port = listener:port()}))
 assert(sender:write("x"))

@@ -6,7 +6,7 @@ Cryptographic digests, checksums and keyed authentication use the separate
 [](binary.hash.digest), [](binary.hash.checksum) and [](binary.hash.mac) modules.
 
 ```nupp
-local hash = require("binary.hash")
+local hash = binary.hash
 print(hash.fnv1a64("hello"))
 ```
 ]]

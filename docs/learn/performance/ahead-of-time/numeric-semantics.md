@@ -38,7 +38,7 @@ iteration. CPU AOT preserves this behavior for the admitted implicit step of
 one, including signed counter limits, `uint32` bounds and binary64 bounds.
 Explicit steps remain a positioned refusal. A loop whose index is assigned
 must use a separately proved cursor for span access. GPU counted loops retain
-their [narrower signed-int32 contract](gpu.md). Loop entry also matches
+their [narrower signed-int32 contract](io.gpu.md). Loop entry also matches
 the selected runtime. The pinned ARM64 LuaJIT uses dual numbers: a negative-zero
 start becomes positive zero when the limit is exactly representable as `int32`;
 other limits retain its sign. The pinned x86/x64 LuaJIT uses single numbers and
@@ -382,7 +382,7 @@ initializers, assignments, arguments, return values, and loop conditions, when:
   predicate it never evaluated.
 
 ```nupp
-local span = require("binary.span")
+local span = binary.span
 
 local struct Code
     value: int32

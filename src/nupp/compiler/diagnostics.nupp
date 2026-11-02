@@ -22,7 +22,7 @@ See `docs/reference/diagnostics.md` for the shape of what is being rendered, and
 `nupp check --json` for the form meant for programs.
 ]]
 
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
 local diagnostics = {}
 

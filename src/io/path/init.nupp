@@ -7,7 +7,7 @@ filesystem name or takes one apart, rather than when it reads the bytes behind
 one.
 
 ```nupp:playground
-const path = require("io.path")
+const path = io.path
 
 local source = path.newpath("src", "app", "..", "main.nupp"):normalize()
 assert(source:tostring() == "src" .. path.sep() .. "main.nupp")
@@ -25,7 +25,7 @@ another path. `Path` has no public constructor; creation goes through `newpath`,
 which interns recent paths in a bounded LRU cache.
 
 ```nupp
-const path = require("io.path")
+const path = io.path
 
 local native = path.newpath("out"):join("lib", "native")
 assert(native:filename() == "native")
@@ -35,7 +35,7 @@ assert(native:filename() == "native")
 record, because neither builds a path out of components:
 
 ```nupp
-const path = require("io.path")
+const path = io.path
 
 local current, reason = path.cwd()
 assert(current, reason)
@@ -49,7 +49,7 @@ assert(log:extension() == "jsonl")
 filesystem, so it returns even for a path that does not exist:
 
 ```nupp
-const path = require("io.path")
+const path = io.path
 
 assert(path.newpath("src", "app", "..", "main.nupp"):normalize():stem() == "main")
 ```
@@ -68,7 +68,7 @@ with a reason when it does.
   that stays where the base already is.
 
 ```nupp
-const path = require("io.path")
+const path = io.path
 
 local real, reason = path.newpath("."):canonicalize()
 assert(real, reason)
@@ -82,7 +82,7 @@ the final component, that component without its extension, and the extension
 without its dot:
 
 ```nupp
-const path = require("io.path")
+const path = io.path
 
 local source = path.newpath("src", "main.nupp")
 assert(source:filename() == "main.nupp")
@@ -97,7 +97,7 @@ into a file name is reported where it was written rather than carried into the
 path it would have produced:
 
 ```nupp
-const path = require("io.path")
+const path = io.path
 
 local report = path.newpath("out", "report.tmp"):withextension("json")
 assert(report:filename() == "report.json")

@@ -1,13 +1,14 @@
-module arg
+module io.cli
 
 --[[
-`arg` turns command-line arguments into typed options and commands.
+`io.cli` turns command-line arguments into typed options and commands.
+It also formats terminal styles and aligned tables.
 
 The usual way in is a record: the types decide the conversion, the doc comments
 become the help text.
 
 ```nupp
-local cli = require("arg")
+local cli = io.cli
 
 @derive(cli.arguments)
 local record Options
@@ -24,7 +25,7 @@ local record Options
     files: {string} = {}
 end
 
-const options, problem = Options.fromcli(arg)
+const options, problem = Options.fromcli(cli.args)
 
 assert(options ~= nil, problem and problem.message)
 ```
@@ -35,7 +36,7 @@ from the top down. Underneath both, `optparser` and `getopt` are the
 syntax-only foundation: a token stream with no types attached, for when the
 shape of the command line is not a record.
 
-Terminal styling and aligned tables are available through `io.terminal`.
+Use `style` for terminal colors and `table` for aligned columns.
 
 See
 [command-line-applications.md](docs/learn/projects/command-line-applications.md).
@@ -58,7 +59,7 @@ type cliModule.ApplicationOptions = ApplicationOptions
 type cliModule.Application = Application
 type cliModule.Invocation = Invocation
 
---- Marker implemented by a record deriving `arg.arguments`.
+--- Marker implemented by a record deriving `io.cli.arguments`.
 interface cliModule.ArgumentRecord
 end
 
@@ -67,7 +68,7 @@ interface cliModule.Runnable
     run: function(self): integer
 end
 
---- A record type deriving `arg.command`.
+--- A record type deriving `io.cli.command`.
 type cliModule.CommandType = Type<cliModule.Runnable>
 
 --- A shell-neutral completion candidate.
@@ -744,6 +745,87 @@ function cliModule.schema<T is table>(subject: Type<T>): table?
     return entry and entry.schema.data.cli or nil
 end
 
-local argv: {string} = rawget(_G, "arg") as {string}
+--- The current process arguments, including the program name at index zero.
+---
+--- This is the host's original argument table. CLI helpers live on `io.cli`,
+--- separately from its entries and metatable.
+---
+--- ```nupp
+--- local options = io.cli.optparser(io.cli.args)
+--- ```
+local hostArgs = rawget(_G, "arg")
 
-export = setmetatable(argv, {__index = cliModule})
+cliModule.args = type(hostArgs) == "table" and hostArgs as {string} or {}
+
+const {type ColorMode, type Style} = require("nupp.cli.internal.terminal")
+const {type Alignment, type Cell, type Column, type Options as TableOptions} = require("nupp.cli.internal.table")
+
+type cliModule.ColorMode = ColorMode
+type cliModule.Style = Style
+type cliModule.Alignment = Alignment
+type cliModule.Cell = Cell
+type cliModule.Column = Column
+type cliModule.TableOptions = TableOptions
+
+--- Sets the process-wide default color policy.
+function cliModule.setcolormode(wanted: cliModule.ColorMode): nil
+    return require("nupp.cli.internal.terminal").setColorMode(wanted)
+end
+
+--- Runs a body under one color policy and restores the previous policy.
+function cliModule.withcolormode(wanted: cliModule.ColorMode, body: function(): nil): nil
+    return require("nupp.cli.internal.terminal").withColorMode(wanted, body)
+end
+
+--- Reports whether escapes should be written to a stream.
+function cliModule.colorenabled(stream: LuaFile): boolean
+    return require("nupp.cli.internal.terminal").colorEnabled(stream)
+end
+
+--- Reports whether a stream is connected to a terminal.
+function cliModule.isterminal(stream: LuaFile): boolean
+    return require("nupp.cli.internal.terminal").isTerminal(stream)
+end
+
+--- Reports how many columns a stream's terminal has, when it has one.
+function cliModule.columns(stream: LuaFile): integer?
+    return require("nupp.cli.internal.terminal").columns(stream)
+end
+
+--- Returns the generic styles selected for a stream.
+function cliModule.style(stream: LuaFile): cliModule.Style
+    return require("nupp.cli.internal.terminal").style(stream)
+end
+
+--- Renders aligned columns, painting each cell after it is padded.
+function cliModule.table(options: cliModule.TableOptions): string
+    return require("nupp.cli.internal.table").render(options)
+end
+
+--- Renders aligned columns straight to a stream.
+function cliModule.writetable(stream: LuaFile, options: cliModule.TableOptions): nil
+    return require("nupp.cli.internal.table").write(stream, options)
+end
+
+--- A plain table cell.
+function cliModule.cell(value: string): cliModule.Cell
+    return require("nupp.cli.internal.table").text(value)
+end
+
+--- A table cell that paints itself, whatever its column says.
+function cliModule.paintedcell(value: string, paint: function(string): string): cliModule.Cell
+    return require("nupp.cli.internal.table").painted(value, paint)
+end
+
+--- A table cell carrying an aside, measured with the cell and painted apart
+--- from it.
+function cliModule.annotatedcell(value: string, note: string, paint: (function(string): string)?): cliModule.Cell
+    return require("nupp.cli.internal.table").annotated(value, note, paint)
+end
+
+--- Selects the color associated with a diagnostic severity.
+function cliModule.severity(styles: cliModule.Style, name: string?): function(string): string
+    return require("nupp.cli.internal.terminal").forSeverity(styles, name)
+end
+
+export = cliModule

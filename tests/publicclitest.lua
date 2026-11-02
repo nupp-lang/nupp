@@ -17,7 +17,7 @@ end
 
 function M.runsAProgramRequiringTheProcessModuleFromTheRepositoryRoot()
     -- ER-011: the repository root is a project whose sources include
-    -- nupp.io.process itself, so the runner compiles that copy on demand. A
+    -- io.internal.process itself, so the runner compiles that copy on demand. A
     -- compile path that required the same module mid-load reported "loop or
     -- previous error loading module".
     local status, output = process.capture({NUPP, "run", HERE .. "/fixtures/processrequire.nupp"}, {cwd = ROOT})
@@ -62,7 +62,7 @@ function M.primitiveLoadingDoesNotPullInHigherLayers()
     local probe = (
         [[
 package.path = %q
-local cli = require("arg")
+local cli = require("io.cli")
 assert(package.loaded["nupp.cli.internal.optparser"])
 assert(not package.loaded["nupp.cli.internal.decode"])
 assert(not package.loaded["nupp.cli.internal.application"])

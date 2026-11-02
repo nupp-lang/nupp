@@ -1,16 +1,18 @@
-module nupp.io.process.spi
+@!internal
+
+module io.internal.process.spi
 
 --[[
 Implementation interface for process transports.
 
 Importing this declaration starts no child. Every operation receives the
 retained provider table as its first argument. Options, Exit, and Interest use
-the canonical declarations in [](nupp.io.process.types).
+the canonical declarations in [](io.internal.process.types).
 
 Spawn returns the child owner, optional stdin/stdout/stderr handles, process ID,
 and optional failure message. Pipes and process lifetime are separate resources:
 closeStream releases a pipe, while reap releases the child owner after settlement.
-Construct exit results with `nupp.io.process.types.exited` so callers receive the
+Construct exit results with `io.processexit` so callers receive the
 shared identity and timeout/killed semantics.
 
 Readiness probes must distinguish pending input from EOF and backpressure from a
@@ -19,7 +21,7 @@ completion for a bounded interval; now supplies its monotonic millisecond clock.
 Process cleanup must remain valid after cancellation, kill, and partial spawn.
 ]]
 
-local {type Options, type Exit, type Interest} = require("nupp.io.process.types")
+local {type Options, type Exit, type Interest} = require("io.internal.process.types")
 
 export interface Provider
     @readonly priority: integer?

@@ -807,7 +807,7 @@ end
 
 function M.workerJobsRefillTheCanonicalArgvBetweenRuns()
     local job = require("job")
-    local argv = require("arg")
+    local argv = require("io.cli").args
     local originalArg = arg
     local originalMeta = getmetatable(argv)
     local originalValues = {}
@@ -855,8 +855,8 @@ function M.workerJobsRefillTheCanonicalArgvBetweenRuns()
             test.eq(paths[1], "tests/run.lua")
             test.eq(paths[2], "tests/run.lua")
             test.eq(arg, originalArg, "worker jobs retain the raw argv object")
-            test.eq(require("arg"), argv, "imports retain the same initialized module")
-            test.eq(getmetatable(argv), originalMeta, "the CLI facade remains installed")
+            test.eq(require("io.cli").args, argv, "the CLI exposes the current raw argv object")
+            test.eq(getmetatable(argv), originalMeta, "the raw argv metatable is unchanged")
         end,
         debug.traceback
     )
@@ -1318,7 +1318,7 @@ end}
         {args = "--jobs=1 --json", marker = "", json = true},
         {args = "--jobs=2 --json", marker = "", json = true, host = true},
         {args = "--jobs=2 --json", marker = '-- os.execute("true")\n', json = true},
-        {args = "--jobs=2 --json", marker = '-- require("nupp.io.process")\n', json = true},
+        {args = "--jobs=2 --json", marker = '-- require("io.internal.process")\n', json = true},
     }
     for _, selection in ipairs(selections) do
         write(dir .. "/tests/aearlytest.lua", selection.marker .. failure)
@@ -1667,7 +1667,7 @@ local function runnerProject(suite, source)
     write(dir .. "/tests/run.lua", read(ROOT .. "/tests/run.lua"))
 
     write(dir .. "/tests/" .. suite .. ".lua", source)
-    write(dir .. "/tests/quiettest.lua", '-- require("nupp.io.process")\nreturn {passes = function() end}\n')
+    write(dir .. "/tests/quiettest.lua", '-- require("io.internal.process")\nreturn {passes = function() end}\n')
 
     return dir
 end
@@ -1676,7 +1676,7 @@ end
 -- the case. The suite names the process module so it runs in the isolated lane,
 -- where each piece is a worker process of its own.
 local LINGERING = [[
--- require("nupp.io.process")
+-- require("io.internal.process")
 local function linger()
     assert(os.execute(
         "sh -c 'trap \"\" HUP INT TERM; echo $$ > lingering.tmp; mv lingering.tmp lingering.pid;"

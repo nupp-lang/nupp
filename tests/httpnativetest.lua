@@ -17,7 +17,7 @@ local root, http, buffers, process, files, port, server
 local priorPreload, priorLoaded, unavailable
 
 local function startProcess(options)
-    return assert(process.spawn(options))
+    return assert(process.popen(options))
 end
 
 local function newHttpClient(options)
@@ -96,7 +96,7 @@ function M.beforeAll()
     priorLoaded = package.loaded["nupp.runtime.native"]
     preloadProvider("nupp.runtime.native", "NUPP_NATIVE_LIBRARY", libraryPath)
     assert(loadstring(stdlib.bootstrap(effects)))()
-    process = require("nupp.io.process")
+    process = require("io")
     http = require("io.http")
     buffers = require("io")
     files = require("io.files")
@@ -359,7 +359,7 @@ end
 function M.genericReadersAndLargeDownloadsStayProgressive()
     local client = ready()
     local payload = string.rep("reader-", 8192)
-    local reader = buffers.newstringreader(payload)
+    local reader = buffers.newreader(payload)
     local response, reason = client:send({
         url = endpoint("/echo"),
         method = "POST",

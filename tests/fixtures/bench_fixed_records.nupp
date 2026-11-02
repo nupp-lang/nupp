@@ -2,9 +2,9 @@
 local json = require("serde.json")
 
 local function option(name)
-    for index = 1, #arg do
-        if arg[index] == name then
-            return arg[index + 1]
+    for index = 1, #io.cli.args do
+        if io.cli.args[index] == name then
+            return io.cli.args[index + 1]
         end
     end
 end

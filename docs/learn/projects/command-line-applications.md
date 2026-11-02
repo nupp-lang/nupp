@@ -4,11 +4,11 @@ order: 570
 
 # Command-line applications
 
-`arg` parses raw option tokens or derives complete applications from typed
+`io.cli` parses raw option tokens or derives complete applications from typed
 records. Types control argument conversion, while doc comments supply help text.
 
 ```nupp
-local cli = require("arg")
+local cli = io.cli
 
 @derive(cli.arguments)
 local record Options
@@ -25,7 +25,7 @@ local record Options
     files: {string} = {}
 end
 
-local options, problem = Options.fromcli(arg)
+local options, problem = Options.fromcli(io.cli.args)
 assert(options ~= nil, problem and problem.message)
 ```
 
@@ -37,9 +37,9 @@ ends. `next` returns a token kind; the token's data remains on the parser until
 the following `next` call.
 
 ```nupp
-local cli = require("arg")
+local cli = io.cli
 
-local parser = cli.optparser(arg, {
+local parser = cli.optparser(io.cli.args, {
     arity = {output = cli.required, verbose = cli.none},
 })
 while true do
@@ -66,7 +66,7 @@ errors. `--` makes every remaining word an argument.
 until an argument matches, so a required positional can follow them.
 
 ```nupp
-local cli = require("arg")
+local cli = io.cli
 
 @derive(cli.arguments)
 local record Input
@@ -90,7 +90,7 @@ parent returns its children from `subcommands`, so the tree reads from the top
 down.
 
 ```nupp
-local cli = require("arg")
+local cli = io.cli
 
 --- Search files.
 @cli(name = "gmatch")
@@ -127,10 +127,10 @@ function Tool.subcommands(): {cli.CommandType}
     return {Gmatch}
 end
 
-return cli.application(Tool):main(arg)
+return cli.application(Tool):main(io.cli.args)
 ```
 
-Any command can be an application root. `cli.application(Gmatch):main(arg)`
+Any command can be an application root. `cli.application(Gmatch):main(io.cli.args)`
 runs the same command without the `tool gmatch` prefix.
 
 ## Complete dynamic values
@@ -147,7 +147,7 @@ local record Files
         request: cli.CompletionRequest
     ): {cli.CompletionCandidate}
         local out: {cli.CompletionCandidate} = {}
-        local entries = require("io.files").list(request.cwd) or {}
+        local entries = io.files.list(request.cwd) or {}
         for _, entry in ipairs(entries) do
             if entry.name:sub(1, #request.prefix) == request.prefix then
                 out[#out + 1] = new cli.CompletionCandidate(
@@ -174,11 +174,11 @@ hidden `__complete` command, so the answer is always the current grammar's.
 
 ## Use terminal colors
 
-`io.terminal.style(stream)` returns styles that become identity functions when
+`io.cli.style(stream)` returns styles that become identity functions when
 color is disabled.
 
 ```nupp:fragment
-const terminal = require("io.terminal")
+const terminal = io.cli
 
 local styles = terminal.style(io.stderr)
 io.stderr:write(styles.strong("error:") .. " bad input\n")
@@ -186,4 +186,4 @@ io.stderr:write(styles.strong("error:") .. " bad input\n")
 
 Automatic color respects the output stream, `NO_COLOR`, `CLICOLOR_FORCE`, and
 `TERM=dumb`; override it with
-`io.terminal.setcolormode("always" | "never" | "auto")`.
+`io.cli.setcolormode("always" | "never" | "auto")`.

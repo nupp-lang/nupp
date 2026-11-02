@@ -106,9 +106,9 @@ local target = require("nupp.runtime.target")
 
 local contracts = require("nupp.io.http.spi")
 local messages = require("nupp.io.http.messages")
-const {type Path} = require("nupp.io.files")
+const {type Path} = require("io.files")
 const paths = require("io.path")
-const appPaths = require("nupp.io.files.path")
+const appPaths = require("io.files.internal.path")
 local provider: contracts.Provider = do
     const chosen = spi.select(spi.providers<contracts.Provider>("nupp.io.http.spi.Provider"))
     if chosen ~= nil then

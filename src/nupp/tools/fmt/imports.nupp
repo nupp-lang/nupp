@@ -153,6 +153,25 @@ function imports.new(environment: any?, enabled: boolean?): any
         -- synthetic lowering nodes must never become the formatter's input.
         local checked = parser.parse(source, filename)
         check.check(checked, filename or "format.nupp", env)
+
+        -- Builtin namespaces already have their public names. Keep direct aliases
+        -- and qualified accesses instead of turning them into authored imports.
+        -- Public carried modules also cover roots without an ambient value, such as
+        -- binary.span; extension implementations retain the builtin root's identity.
+        local function builtinAccess(moduleName: string?, path: {any}): boolean
+            local root = path[1]
+            local entry = root and env.globals and env.globals[root.text]
+            if entry and root.definition and root.definition == entry.definition then
+                return true
+            end
+            local shipped = moduleName and env.bundled and env.bundled[moduleName]
+
+            return shipped ~= nil
+                and shipped ~= false
+                and env.bundledInternal ~= nil
+                and not env.bundledInternal(moduleName)
+        end
+
         local uses: {Use} = {}
         local covered = {}
         local shadowedRequire = false
@@ -174,7 +193,10 @@ function imports.new(environment: any?, enabled: boolean?): any
                 and #node.exprs == 1
                 then
                     local value = node.exprs[1]
-                    if value.qualifiedModule and #(value.qualifiedMembers or {}) == 0 then
+                    if value.qualifiedModule
+                    and #(value.qualifiedMembers or {}) == 0
+                    and not builtinAccess(value.qualifiedModule, names(value))
+                    then
                         local first, last = cst.firstToken(value), cst.lastToken(value)
                         local moduleName = value.qualifiedModule
                         if first
@@ -203,7 +225,12 @@ function imports.new(environment: any?, enabled: boolean?): any
                 and not node.annotations
                 then
                     local value = node.value
-                    if value and value.kind == "tname" and value.qualifiedTypeModule and not value.typeArgs then
+                    if value
+                    and value.kind == "tname"
+                    and value.qualifiedTypeModule
+                    and not value.typeArgs
+                    and not builtinAccess(value.qualifiedTypeModule, names(value))
+                    then
                         local path = names(value)
                         local first, last = cst.firstToken(node), cst.lastToken(node)
                         if not first or not last then
@@ -270,7 +297,7 @@ function imports.new(environment: any?, enabled: boolean?): any
                         return
                     end
                 end
-                if not moduleName or not count or count < 1 or not path[count] then
+                if not moduleName or not count or count < 1 or not path[count] or builtinAccess(moduleName, path) then
                     return
                 end
                 local first, last = path[1], path[count]

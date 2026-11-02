@@ -1,6 +1,4 @@
-@!internal
-
-module nupp.io.tls.spi
+module io.net.tls.spi
 
 --[[
 Implementation interface for TLS transports.

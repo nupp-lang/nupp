@@ -3,7 +3,7 @@
 local ffi = require("ffi")
 local span = require("binary.span")
 local generated = require("gemm")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 
 local function now()
     return generated.now() * 1e-3

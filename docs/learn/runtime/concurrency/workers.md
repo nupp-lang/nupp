@@ -564,7 +564,7 @@ lanes privately; `work` is the only way in.
 The same rule applies to nontermination: an infinite worker task makes its
 scope infinite. Worker tasks are for bounded CPU work. Durable work, retries
 across process failure, and jobs that outlive the caller belong to a broker or
-[](nupp.io.process), not this scheduler.
+[](io.Process), not this scheduler.
 
 ## Browser lanes
 

@@ -26,7 +26,7 @@ const {type Listing} = require("nupp.compiler.aot.instructions")
 
 local usageError = require("nupp.tools.cli.error").forCommand("aot")
 local report = require("nupp.tools.cli.report")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 
 local REPORT_SCHEMA = {
     type = "object",

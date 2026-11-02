@@ -1970,7 +1970,7 @@ maps one whole-span loop iteration to one GPU invocation. With the native `aot =
 canonical SPIR-V for the Rust WGPU provider and replaces the declaration with
 a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
-resident `gpu.Buffer<T>` values in the span parameters' order and types, and
+resident `io.gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
 The kernel returned by `compile` borrows its context, and the binding returned
 by `bind` borrows its kernel; both are closeable.
@@ -1998,7 +1998,7 @@ indices and use its physical extent for cursor bounds. Host transfers and
 dispatch-indexed spans remain dense; broadcast views are read-only because
 their zero strides alias.
 
-A structured kernel calls `gpu.workgroups(groups, size, controller)` with
+A structured kernel calls `io.gpu.workgroups(groups, size, controller)` with
 `groups` written as `u32.div(u32.wrap(#span), size)` and a literal `size` from
 1 through 256. It runs exactly that many groups, floor(`#span` / `size`), on
 the CPU and on the device alike: when the span is not a whole number of groups,

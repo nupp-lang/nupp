@@ -9,7 +9,7 @@ local ROOTS: {
 } = {
     ["nupp.simd"] = "simd",
     ["nupp.events"] = "events",
-    ["nupp.gpu"] = "gpu",
+    ["nupp.gpu"] = "io.gpu",
     ["nupp.math"] = "math",
     ["nupp.log"] = "log",
 }
@@ -50,9 +50,9 @@ function apiidentity.canonical(path: string): string
 end
 
 function apiidentity.legacy(path: string): string
-    if path:sub(1, 4) == "gpu." then
+    if path:sub(1, 7) == "io.gpu." then
         for _, private in ipairs(PRIVATE_MODULES) do
-            local invented = private:sub(6)
+            local invented = "io." .. private:sub(6)
             if path == invented or path:sub(1, #invented + 1) == invented .. "." then
                 return path
             end

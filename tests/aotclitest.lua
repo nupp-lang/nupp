@@ -816,7 +816,7 @@ return {
         ] = [[
 local span = require("binary.span")
 local array = require("nupp.mem.array")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 
 @aot(target = "gpu")
 local function addMask(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>, mask: uint32): nil
@@ -1297,7 +1297,7 @@ return {coordinates = coordinates, coordinatesCpu = coordinatesCpu}
 end
 
 local GPU_PHASE_DECLARATIONS = [[
-module gpu
+module io.gpu
 
 export record Shared<T>
     @readonly count: integer
@@ -1326,11 +1326,11 @@ export const workgroups: function(
 
 function M.gpuTargetEmitsStructuredWorkgroupPhasesAndFixedTreeReduction()
     local dir = project({
-        ["gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
+        ["io/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
         [
             "reduce.nupp"
         ] = [[
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local span = require("binary.span")
 
 @aot(target = "gpu")
@@ -1379,11 +1379,11 @@ end
 
 function M.gpuTargetSkipsBarriersForScratchFreeWorkgroups()
     local dir = project({
-        ["gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
+        ["io/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
         [
             "map.nupp"
         ] = [[
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local span = require("binary.span")
 
 @aot(target = "gpu")
@@ -1413,11 +1413,11 @@ end
 
 function M.gpuTargetLoadsReadonlyStructOnce()
     local dir = project({
-        ["gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
+        ["io/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
         [
             "fields.nupp"
         ] = [[
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local span = require("binary.span")
 
 local struct Pair
@@ -1462,11 +1462,11 @@ end
 
 function M.gpuTargetEmitsDeterministicInclusiveScan()
     local dir = project({
-        ["gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
+        ["io/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
         [
             "scan.nupp"
         ] = [[
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local span = require("binary.span")
 
 @aot(target = "gpu")
@@ -1502,11 +1502,11 @@ end
 
 function M.gpuTargetRefusesNonDisjointWorkgroupScratchWrites()
     local dir = project({
-        ["gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
+        ["io/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
         [
             "bad-phase.nupp"
         ] = [[
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local span = require("binary.span")
 
 @aot(target = "gpu")
@@ -1530,11 +1530,11 @@ end
 
 function M.gpuTargetRefusesSamePhaseCrossLaneScratchRace()
     local dir = project({
-        ["gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
+        ["io/gpu.d.nupp"] = GPU_PHASE_DECLARATIONS,
         [
             "racy-phase.nupp"
         ] = [[
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local span = require("binary.span")
 
 @aot(target = "gpu")

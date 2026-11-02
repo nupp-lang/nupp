@@ -650,7 +650,7 @@ function M.privateParentFilesKeepPublicChildrenAndCanonicalTypeOwners()
     withProject(
         {
             ["src/nupp/io.nupp"] = "@!internal\nmodule nupp.io\nexport record Token value: integer end\n",
-            ["src/nupp/io/process.nupp"] = "module nupp.io.process\nexport const answer: integer = 29\n",
+            ["src/nupp/io/child.nupp"] = "module nupp.io.child\nexport const answer: integer = 29\n",
             [
                 "src/io/facade.nupp"
             ] = [[
@@ -664,7 +664,7 @@ export const Token = implementation.Token
             ] = [[
 module app
 local facade = require("io.facade")
-local process = require("nupp.io.process")
+local process = require("nupp.io.child")
 export const token: facade.Token = new facade.Token(value = process.answer)
 ]],
         },
@@ -687,7 +687,7 @@ export const token: facade.Token = new facade.Token(value = process.answer)
                 local denied = diagnosticContaining(diags, "is internal to package namespace")
                 assert(denied and denied.code == "NUPP2144")
             end
-            testAssert.eq(env.moduleAccess(env, "app", "nupp.io.process"), nil)
+            testAssert.eq(env.moduleAccess(env, "app", "nupp.io.child"), nil)
         end
     )
 end

@@ -27,7 +27,7 @@ local browserGpuEnv = envMod.new(HERE .. "/..", {
 local M = {}
 
 function M.gpuLayoutUsesOnlyCanonicalMethodKeys()
-    local layout = require("gpu.layout")
+    local layout = require("io.gpu.layout")
     local rows = layout.new({2, 2}, {2, 1})
     assert(rows:isdense() and rows:isinjective())
     assert(rows.isDense == nil and rows.isInjective == nil)
@@ -134,6 +134,21 @@ return {accumulate = accumulate}
 ]],
         "",
         "numeric loops and branches are admitted"
+    )
+end
+
+function M.directReducerNamespacesKeepTheirOwnershipContract()
+    reports(
+        [[
+@aot
+local function unfinished(): number
+    local sum = simd.reducer.algebraicsum(0.0)
+    sum:add(1.0)
+    return 0.0
+end
+]],
+        "NUPP2904",
+        "a direct nested reducer still requires finalization"
     )
 end
 
@@ -446,7 +461,7 @@ function M.gpuTargetBindsACompilerGeneratedTypedObject()
     reportsGpu(
         [[
 local span = require("binary.span")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local array = require("nupp.mem.array")
 
 @aot(target = "gpu")
@@ -474,7 +489,7 @@ return true
     reportsGpu(
         [[
 local span = require("binary.span")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 
 local struct Input value: float end
 local struct Output value: float end
@@ -507,7 +522,7 @@ end
 function M.gpuResourcesAreClosableChildrenOfTheirContext()
     local header = [[
 local span = require("binary.span")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local array = require("nupp.mem.array")
 
 @aot(target = "gpu")
@@ -585,7 +600,7 @@ end
 function M.gpuBuffersExposeCheckedTensorLayouts()
     reportsGpu(
         [[
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local array = require("nupp.mem.array")
 
 local context = gpu.open()
@@ -593,7 +608,7 @@ local tensor = context:tensor(array.float, {4, 8})
 local bytes: gpu.Buffer<int8>? = nil
 local row = tensor:subview({2, 0}, {1, 8})
 local tensorLayout: gpu.Layout = tensor:layout()
-local layout = require("gpu.layout")
+local layout = require("io.gpu.layout")
 local columns = tensor:view(layout.transpose(tensorLayout, {2, 1}))
 local repeated = row:view(layout.broadcast(row:layout(), {4, 8}))
 local gapped = tensor:subview({0, 0}, {4, 4})
@@ -612,7 +627,7 @@ return true
     )
     reportsGpu(
         [[
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local array = require("nupp.mem.array")
 
 local context = gpu.open()
@@ -625,7 +640,7 @@ return true
     )
     reportsGpu(
         [[
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local array = require("nupp.mem.array")
 
 local struct Pair
@@ -652,7 +667,7 @@ return true
     )
     reportsGpu(
         [[
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local array = require("nupp.mem.array")
 
 local function wordCount(borrows buffer: gpu.Buffer<uint32>): integer

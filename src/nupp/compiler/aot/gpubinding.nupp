@@ -129,7 +129,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     local uniformBlock = freshName(dispatchReserved, "uniforms")
     local lines: {string} = {}
     local recordDeclaration = artifact.exportTypes and "export record " or "local record "
-    local runtimeModule = "gpu"
+    local runtimeModule = "io.gpu"
 
     append(lines, "local " .. runtime .. " = require(\"" .. runtimeModule .. "\")")
     append(lines, "local " .. implementation .. " = require(\"nupp.gpu.internal\")")

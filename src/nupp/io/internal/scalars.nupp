@@ -579,7 +579,7 @@ local function openScalarReader(source: any): ScalarReader
     elseif queueLike(source) then
         queue = source
     else
-        error("nupp: io.newScalarReader needs bytes, a snapshot, a buffer, a reader or a byte queue", 2)
+        error("nupp: io.newsreader needs bytes, a snapshot, a buffer, a reader or a byte queue", 2)
     end
 
     return new Scalars(_pending = pending, _reader = reader, _queue = queue, _closed = false)
@@ -599,7 +599,7 @@ local function openScalarWriter(destination: any): ScalarWriter
     elseif type(destination) == "table" and destination.setstring ~= nil then
         buffer = destination
     else
-        error("nupp: io.newScalarWriter needs a buffer, a writer, or nothing", 2)
+        error("nupp: io.newswriter needs a buffer, a writer, or nothing", 2)
     end
 
     return new ScalarSink(_buffer = buffer, _writer = writer, _ownsBuffer = ownsBuffer, _closed = false)
@@ -617,7 +617,7 @@ end
 ---
 --- ```nupp:fragment
 --- do
----     local cursor = io.newscalarreader(header)
+---     local cursor = io.newsreader(header)
 ---     local magic = cursor:readuint32()
 ---     local count = cursor:readuint16()
 --- end
@@ -638,10 +638,9 @@ export const newScalarReader: function(source: string | ByteQueue): affine(Scala
 --- `ScalarWriter:buffer` hands back.
 ---
 --- ```nupp
---- local io = require("io")
 ---
 --- do
----     local cursor = io.newscalarwriter()
+---     local cursor = io.newswriter()
 ---     cursor:writeuint32(0x4d495355):writeuint16(2)
 ---     local bytes = cursor:buffer()
 ---     assert(bytes ~= nil and bytes:getstring() ~= "")

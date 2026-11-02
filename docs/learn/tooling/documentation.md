@@ -147,7 +147,7 @@ The type is the value `error` is called with. An ordinary Lua message is a
 links the name to that declaration's own documentation:
 
 ```nupp:fragment
-const tasks = require("coroutine")
+const tasks = coroutine
 
 --- Waits for the batch to settle.
 ---

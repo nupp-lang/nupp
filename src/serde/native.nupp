@@ -6,8 +6,7 @@ host. See [serde.md](docs/learn/runtime/data/serde.md#native-persistence) for
 what a frame preserves.
 
 ```nupp
-local serde = require("serde")
-local native = require("serde.native")
+local native = serde.native
 local record Save
     level: integer
     inventory: {string}
@@ -474,8 +473,8 @@ end
 --- Encodes a document's contents as a frame, keeping every scalar's exact form.
 ---
 --- ```nupp
---- local document = require("serde.document")
---- local native = require("serde.native")
+--- local document = serde.document
+--- local native = serde.native
 --- local value = document.list({document.numbertoken("1e400"), document.bytes("\0\1")})
 --- local restored = native.decodedocument(document.adapter(), native.encodedocument(document.adapter(), value))
 --- assert(restored:at(1):numbertoken() == "1e400" and restored:at(2):bytes() == "\0\1")

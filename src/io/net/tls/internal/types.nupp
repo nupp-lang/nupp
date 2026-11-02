@@ -1,6 +1,6 @@
 @!internal
 
-module nupp.io.tls.types
+module io.net.tls.internal.types
 
 local tls = {}
 

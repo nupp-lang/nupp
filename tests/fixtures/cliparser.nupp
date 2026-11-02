@@ -1,8 +1,8 @@
 module tests.fixtures.cliparser
 
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 
 -- Runtime-facing aliases are retired, while the real token values stay canonical.
 assert((cliModule as any).shortOption == nil)

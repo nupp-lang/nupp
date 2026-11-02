@@ -6,7 +6,7 @@ components from the parse rather than from a substring. Reach for it when a
 program routes, rewrites or inspects a resource identifier.
 
 ```nupp
-const uri = require("io.uri")
+const uri = io.uri
 
 local endpoint, reason = uri.newuri("https://user@example.com:8443/api?q=1#top")
 assert(endpoint, reason)
@@ -28,7 +28,7 @@ resolved, a special scheme's host is lowercased and an IPv4 address written as
 non-ASCII text are percent-encoded as UTF-8:
 
 ```nupp
-const uri = require("io.uri")
+const uri = io.uri
 
 local route = assert(uri.newuri("https://example.com/public/%2e%2e/secret"))
 assert(route:path() == "/secret")
@@ -53,7 +53,7 @@ the URI names none. `username` is empty when there is no user information. Every
 other component is optional and returns nil when the URI does not write it:
 
 ```nupp
-const uri = require("io.uri")
+const uri = io.uri
 
 local plain = assert(uri.newuri("mailto:someone@example.com"))
 assert(plain:host() == nil)
@@ -72,7 +72,7 @@ an ordinary answer. `uri.validate` asks the same question without retaining an
 object, and `uri.isuri` separates a URI from a string or a record:
 
 ```nupp
-const uri = require("io.uri")
+const uri = io.uri
 
 local ok, why = uri.validate("http://[")
 assert(not ok and why)
@@ -86,7 +86,7 @@ Supplying a component equal to its current normalized value returns the receiver
 itself rather than reparsing:
 
 ```nupp
-const uri = require("io.uri")
+const uri = io.uri
 
 local endpoint = assert(uri.newuri("https://user:pass@example.com:8443/api?q=1"))
 local production = endpoint:withuserinfo(nil):withhost("api.example.com")
@@ -105,7 +105,7 @@ that would make the rest of the URI parse with a different host.
 `concatpath` appends path text without interpreting it as a reference:
 
 ```nupp
-const uri = require("io.uri")
+const uri = io.uri
 
 local api = assert(uri.newuri("https://api.example.com/v1"))
 assert(api:concatpath("users"):path() == "/v1/users")
@@ -124,7 +124,7 @@ and `\` separates segments where `/` does in a special scheme. It returns nil
 and a reason when the reference cannot be resolved:
 
 ```nupp
-const uri = require("io.uri")
+const uri = io.uri
 
 local page = assert(uri.newuri("https://example.com/docs/guide/index.html"))
 local image, reason = page:resolve("../images/avatar.png")
@@ -139,7 +139,7 @@ like any record. The components are assembled into text and then parsed, so one
 grammar decides what is valid:
 
 ```nupp
-const uri = require("io.uri")
+const uri = io.uri
 
 local status = assert(uri.newuri(new uri.Components(
     scheme = "https",

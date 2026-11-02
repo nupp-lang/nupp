@@ -5,7 +5,7 @@ local testAssert = require("assert")
 -- verified, and an unverifiable peer is refused. Two narrow fake-provider cases
 -- check the facade's bounds without pretending to implement TLS.
 local net = require("io.net")
-local tls = require("io.tls")
+local tls = require("io.net.tls")
 
 local function slurp(path)
     local f = assert(io.open(path, "rb"), "cannot open " .. path)

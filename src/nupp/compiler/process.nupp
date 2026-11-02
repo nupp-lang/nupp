@@ -10,7 +10,7 @@ of this module, and callers pass an argv and never build a command line.
 ]]
 const assert2 = require("assert")
 
-const {type Process as NativeProcess} = require("nupp.io.process")
+const {type Process as NativeProcess} = require("nupp.runtime.standardio")
 const {type Error as IoError} = require("io")
 
 local process = {}
@@ -290,8 +290,8 @@ end
 function process.captureIsolated(argv: {string}, opts: process.Options?): integer, string
     opts = (opts or {}) as process.Options
     local args = boundedArgs(argv, opts)
-    local native = require("nupp.io.process")
-    local nativeOptions: native.Options = {
+    local native = require("nupp.runtime.standardio")
+    local nativeOptions: native.ProcessOptions = {
         args = args,
         cwd = opts.cwd,
         env = opts.env,
@@ -300,7 +300,7 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
         stderr = "stdout",
         timeoutms = opts.timeoutMs,
     }
-    local child, problem = native.spawn(nativeOptions)
+    local child, problem = native.popen(nativeOptions)
     if child == nil then
         error(tostring(problem), 0)
     end
@@ -369,8 +369,8 @@ function process.startIsolated(argv: {string}, opts: process.Options?): (affine(
         "process.startIsolated leaves deadlines and cancellation to the session caller"
     )
     local args = boundedArgs(argv, opts)
-    local native = require("nupp.io.process")
-    local nativeOptions: native.Options = {
+    local native = require("nupp.runtime.standardio")
+    local nativeOptions: native.ProcessOptions = {
         args = args,
         cwd = opts.cwd,
         env = opts.env,
@@ -379,7 +379,7 @@ function process.startIsolated(argv: {string}, opts: process.Options?): (affine(
         stderr = "pipe",
     }
 
-    return native.spawn(nativeOptions)
+    return native.popen(nativeOptions)
 end
 
 export = process

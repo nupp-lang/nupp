@@ -1,6 +1,6 @@
 module tests.fixtures.clicompleterinvalid
 
-local cli = require("arg")
+local cli = require("io.cli")
 
 local record NotACompleter
 end

@@ -16,8 +16,8 @@ for index = 1, 16 do
     value.id = math.u32.wrap(index)
     inputs[index] = codec:encode(binding, value)
 end
-local mode = arg[1] or "new-decode"
-local requested = assert(tonumber(arg[2] or "20000"))
+local mode = io.cli.args[1] or "new-decode"
+local requested = assert(tonumber(io.cli.args[2] or "20000"))
 assert(requested > 0 and requested % 1 == 0)
 local count = requested as integer
 local strings: {string} = {}

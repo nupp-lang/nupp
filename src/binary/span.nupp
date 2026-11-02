@@ -7,7 +7,7 @@ access and an [affine lifetime](docs/learn/runtime/ownership/index.md), so the p
 cannot outlive or overlap its owner.
 
 ```nupp
-local span = require("binary.span")
+local span = binary.span
 
 const text = "hello"
 const bytes = span.fromstring(text)
@@ -29,7 +29,7 @@ count. `fromstring(source)` creates the byte-specialized `ByteSpan`. Both keep
 their source rooted for the lifetime of the view.
 
 ```nupp
-local span = require("binary.span")
+local span = binary.span
 
 local struct Point
     x: float
@@ -57,8 +57,8 @@ preserving the exact count for checks and generated code.
 `WriteSpan<T>` contract is what a function accepting exclusive access names:
 
 ```nupp
-local span = require("binary.span")
-local indexed = require("binary.span")
+local span = binary.span
+local indexed = binary.span
 
 local struct Point
     x: float
@@ -114,8 +114,8 @@ trusted Span or [SoA view](docs/learn/runtime/data/structure-of-arrays.md) and
 returns a record whose `first` and `last` are ordinary integers:
 
 ```nupp
-local span = require("binary.span")
-local indexed = require("binary.span")
+local span = binary.span
+local indexed = binary.span
 
 local struct Value
     n: integer

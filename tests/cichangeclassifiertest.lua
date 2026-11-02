@@ -80,7 +80,12 @@ function M.utilityRootsRetainTheirExistingLibrarySurfaces()
 end
 
 function M.finalApiRootsPreserveTheirExistingCorrectnessObligations()
-    for _, path in ipairs({"src/assert/init.nupp", "src/arg/init.nupp", "src/types/init.nupp", "src/own/init.nupp"}) do
+    for _, path in ipairs({
+        "src/assert/init.nupp",
+        "src/io/cli/init.nupp",
+        "src/types/init.nupp",
+        "src/own/init.nupp"
+    }) do
         local selection = classifier().classify({path})
         test(selection.surfaces.library, path .. " is a library")
         test(not selection.surfaces.unclassified, path .. " has an explicit classification")
@@ -204,7 +209,7 @@ end
 
 function M.gpuChangeSelectsBothAdapters()
     selects("src/nupp/gpu/kernel.nupp", {"gpu-linux", "gpu-windows", "fast-checks", "linux-integration"})
-    selects("src/gpu/kernel.nupp", {"gpu-linux", "gpu-windows", "fast-checks", "linux-integration"})
+    selects("src/io/gpu/kernel.nupp", {"gpu-linux", "gpu-windows", "fast-checks", "linux-integration"})
 end
 
 function M.nativeChangeSelectsEveryPlatform()

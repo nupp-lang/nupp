@@ -6,8 +6,8 @@ without blocking the caller's frame. Reach for it when a program needs a client
 that works the same in a CLI, a scheduler and a game host.
 
 ```nupp
-local http = require("io.http")
-local uri = require("io.uri")
+local http = io.http
+local uri = io.uri
 
 local client = http.newclient()
 local response = assert(client:send(new http.Request(
@@ -49,9 +49,9 @@ coroutine of its own, and the one waiting on the network is what lets the next
 one send:
 
 ```nupp
-local http = require("io.http")
+local http = io.http
 local tasks = coroutine
-local uri = require("io.uri")
+local uri = io.uri
 
 local function storeStatus(client: alias(http.Client), codes: {integer}, index: integer, url: string): nil
     local status = client:with(function(borrows open: http.Client): integer

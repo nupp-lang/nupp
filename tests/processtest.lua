@@ -5,8 +5,7 @@ local testAssert = require("assert")
 -- Driven by a fake backend, on purpose. What is being checked here is the lifecycle,
 -- the draining and the deadlines -- the policy above the Rust-backed provider -- so
 -- the test supplies the platform and the module supplies the behaviour.
-local process = require("nupp.io.process")
-local processTypes = require("nupp.io.process.types")
+local processTypes = require("io.internal.process.types")
 local suspension = require("coroutine.suspension")
 local suspensionHost = require("coroutine.suspension.host")
 
@@ -27,6 +26,10 @@ end
 -- A script where every write is accepted whole and every read is immediately ready
 -- cannot tell a combined step from a sequential one, which is what made the first
 -- version of these tests pass against a deadlocking implementation.
+local function packed(...)
+    return {n = select("#", ...), ...}
+end
+
 local function fakeBackend(script)
     local clock = 0
     local self = {}
@@ -1450,6 +1453,71 @@ function M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     child:close()
     testAssert.eq(result.output, "onetwo", "everything arrived")
     assert(sleeps > 0, "the driver slept in the platform between quiet passes")
+end
+
+function M.popenPreservesLuaCallsAndLoadsStructuredProcessesLazily()
+    local loads, received = 0
+    local handle = {}
+    local host = {
+        popen = function(...)
+            received = packed(...)
+            return handle, nil, "tail"
+        end,
+    }
+    local options = {args = {"fixture"}}
+    local child, problem = {}, {}
+    local facade = require("providerstate").processIO(host, function()
+        loads = loads + 1
+        return {
+            spawn = function(given)
+                testAssert.eq(given, options)
+                return child, problem
+            end,
+        }
+    end)
+    testAssert.eq(facade.value, host)
+    testAssert.eq(host.popen, facade.popen)
+    testAssert.eq(loads, 0, "loading io does not select a process provider")
+
+    local result = packed(host.popen("printf fixture", "r", nil, "extra"))
+    testAssert.eq(received.n, 4)
+    testAssert.eq(received[1], "printf fixture")
+    testAssert.eq(received[2], "r")
+    testAssert.eq(received[4], "extra")
+    testAssert.eq(result.n, 3)
+    testAssert.eq(result[1], handle)
+    testAssert.eq(result[2], nil)
+    testAssert.eq(result[3], "tail")
+    testAssert.eq(loads, 0, "the Lua form uses the captured host function")
+
+    result = packed(host.popen(options))
+    testAssert.eq(result.n, 2)
+    testAssert.eq(result[1], child)
+    testAssert.eq(result[2], problem)
+    testAssert.eq(loads, 1)
+    host.popen(options)
+    testAssert.eq(loads, 1, "the structured implementation is shared")
+    testAssert.eq(facade.processexit, processTypes.exited)
+    testAssert.eq(host.processexit, processTypes.exited)
+    assert(host.processexit(0, false, false):succeeded())
+    assert(not host.processexit(0, true, false):succeeded())
+end
+
+function M.popenPropagatesTheCapturedLuaError()
+    local sentinel = {}
+    local facade = require("providerstate").processIO(
+        {
+            popen = function()
+                error(sentinel)
+            end
+        },
+        function()
+            error("the string form must not load a process implementation")
+        end
+    )
+    local ok, problem = pcall(facade.popen, "fixture")
+    testAssert.eq(ok, false)
+    testAssert.eq(problem, sentinel)
 end
 
 return M

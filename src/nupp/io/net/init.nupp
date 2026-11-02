@@ -36,7 +36,7 @@ const io = require("nupp.io")
 const {type Reader} = require("nupp.io")
 const {type Writer} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
-const {type Path} = require("nupp.io.files")
+const {type Path} = require("io.files")
 
 local suspension = require("coroutine.suspension")
 local span = require("binary.span")

@@ -2,7 +2,7 @@
 
 module nupp.io.http.messages
 
-const {type Path} = require("nupp.io.files")
+const {type Path} = require("io.files")
 const uri = require("io.uri")
 local http = {}
 

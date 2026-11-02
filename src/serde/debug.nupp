@@ -6,8 +6,7 @@ and error messages. See [derives.md](docs/reference/derives.md#debug) for the
 `Debug` derive and its field annotations.
 
 ```nupp
-local serde = require("serde")
-local debug = require("serde.debug")
+local debug = serde.debug
 local record Login
     user: string
     @debug(redact = true)
@@ -534,8 +533,7 @@ end
 --- Appends a value's text to a Buffer.
 ---
 --- ```nupp
---- local serde = require("serde")
---- local debug = require("serde.debug")
+--- local debug = serde.debug
 --- local struct Vec2
 ---     x: float
 ---     y: float

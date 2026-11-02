@@ -1,4 +1,4 @@
-local gpu = require("gpu")
+local gpu = io.gpu
 local generated = require("mandelbrot")
 
 local function prepare(borrows context: gpu.Context): nil

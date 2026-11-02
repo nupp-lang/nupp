@@ -109,7 +109,7 @@ function generators.run(root, outDir, config, records, previous): ({[string]: an
                 return nil, writeErr
             end
             local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
-            local executable = compilerRoot and fs.join(compilerRoot, "bin/nupp") or tostring(arg[0] or "nupp")
+            local executable = compilerRoot and fs.join(compilerRoot, "bin/nupp") or tostring(io.cli.args[0] or "nupp")
             -- Isolated so the deadline and the address-space ceiling hold: `run`
             -- would start the worker with neither, and a generator that hangs
             -- would hang the build with it.

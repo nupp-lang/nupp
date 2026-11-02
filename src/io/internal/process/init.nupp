@@ -1,18 +1,19 @@
-module nupp.io.process
+@!internal
+
+module io.internal.process
 
 --[[
 Starts a child process and drains its streams without deadlocking.
 
 ```nupp
-local process = nupp.io.process
 
-local child = assert(process.spawn({args = {"cc", "--version"}}))
+local child = assert(io.popen({args = {"cc", "--version"}}))
 local result = assert(child:communicate())
 print(result.output)
 child:close()
 ```
 
-`spawn` returns nil and a reason when the child cannot be started, the way every
+`popen` returns nil and a reason when the child cannot be started, the way every
 other acquisition of an operating-system resource does, and raises only for
 options that could never describe a child.
 
@@ -35,17 +36,17 @@ local physical = require("nupp.runtime.storage")
 local span = require("binary.span")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
 
-const contract = require("nupp.io.process.spi")
+const contract = require("io.internal.process.spi")
 local provider: contract.Provider = do
-    const chosen = spi.select(spi.providers<contract.Provider>("nupp.io.process.spi.Provider"))
+    const chosen = spi.select(spi.providers<contract.Provider>("io.ProcessProvider"))
     if chosen ~= nil then
         yield chosen
     end
-    assert2(target.host == "native", "nupp.io.process: no implementation is available")
+    assert2(target.host == "native", "io.popen: no implementation is available")
     yield _G.require("nupp.runtime.provider.nativeprocess") as contract.Provider
 end
 local process = {}
-const shared = require("nupp.io.process.types")
+const shared = require("io.internal.process.types")
 
 ----------------------------------------------------------------------------
 -- What a process is described by
@@ -1082,7 +1083,7 @@ local function ensurePump(self: any): nil
     if self.pump ~= nil then
         return
     end
-    self.pump = suspension.source("nupp.io.process", 50, function(): integer
+    self.pump = suspension.source("io.internal.process", 50, function(): integer
         return pumpOnce(self)
     end)
 end
@@ -1151,7 +1152,7 @@ awaitTick = function(self: any, operation: string, scoped interest: function(): 
         -- resume it twice.
         local resumed = false
         local source = context:source(
-            "nupp.io.process.tick",
+            "io.internal.process.tick",
             50,
             function(): integer
                 if resumed then
@@ -1225,7 +1226,7 @@ await = function(
     local function subscribe(resume: function(boolean), context: any): function()?
         local resumed = false
         local source = context:source(
-            "nupp.io.process.wait",
+            "io.internal.process.wait",
             50,
             function(): integer
                 local moved = pumpOnce(self)
@@ -1381,7 +1382,7 @@ end
 --- rather than raising, as `files.open` and `net.connect` do.
 ---
 --- ```nupp:fragment
---- local child = assert(process.spawn({
+--- local child = assert(io.popen({
 ---     args = {"grep", "-c", "nupp"},
 ---     stderr = "stdout",
 --- }))

@@ -14,15 +14,15 @@ module nupp.tools.benchrunner
 --- directory, starts children, and merges JSON.
 ---
 --- Called by `nupp bench`.
-const terminal2 = require("io.terminal")
+const terminal2 = require("io.cli")
 
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
 local json = require("serde.json")
 
 local buildProcess = require("nupp.compiler.process")
 local files = require("io.files")
-local process = require("nupp.io.process")
+local process = require("nupp.runtime.standardio")
 local random = require("nupp.random")
 local statistics = require("nupp.bench.internal.statistics")
 local system = os.info()
@@ -238,12 +238,12 @@ local function nuppRun(
         args[#args + 1] = entry
     end
     local childArgs = buildProcess.isolatedArguments(args)
-    local child, spawnProblem = process.spawn({
+    local child, spawnProblem = process.popen({
         args = childArgs,
         stdin = "inherit",
         stdout = "pipe",
         stderr = "pipe",
-        timeoutMs = timeoutMs,
+        timeoutms = timeoutMs,
     })
     if child == nil then
         return false, tostring(spawnProblem or "could not start the child")

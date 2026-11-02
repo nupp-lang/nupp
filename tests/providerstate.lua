@@ -51,7 +51,7 @@ local function instance(owned, replacements, preloads, globals)
 end
 
 function M.load(kind, provider)
-    local facade = "nupp.io." .. kind
+    local facade = kind == "files" and "io.files" or kind == "process" and "io.internal.process" or "nupp.io." .. kind
     setmetatable(provider, {
         __index = function(_, name)
             if name == "priority" then
@@ -64,9 +64,17 @@ function M.load(kind, provider)
     })
 
     return instance({["nupp.runtime.packages"] = true, [facade] = true, ["nupp.io.net.internal"] = true}, {
-        ["nupp.spi.index"] = {[facade .. ".spi.Provider"] = {"fixture.provider"}},
+        [
+            "nupp.spi.index"
+        ] = {[kind == "process" and "io.ProcessProvider" or facade .. ".spi.Provider"] = {"fixture.provider"}},
         ["fixture.provider"] = provider,
     })(facade)
+end
+
+function M.processIO(host, preload)
+    return instance({["nupp.runtime.standardio"] = true}, nil, {["io.internal.process"] = preload,}, {
+        io = host
+    })("nupp.runtime.standardio")
 end
 
 function M.tls(provider)
@@ -81,8 +89,8 @@ function M.tls(provider)
         end
     })
 
-    return instance({["nupp.runtime.packages"] = true, ["nupp.io.tls"] = true}, {
-        ["nupp.spi.index"] = {["nupp.io.tls.spi.Provider"] = {"fixture.provider"}},
+    return instance({["nupp.runtime.packages"] = true, ["io.net.tls"] = true}, {
+        ["nupp.spi.index"] = {["io.net.tls.spi.Provider"] = {"fixture.provider"}},
         ["fixture.provider"] = provider,
         ["nupp.io.net"] = {
             pump = function()
@@ -93,7 +101,7 @@ function M.tls(provider)
                 return stream
             end
         },
-    })("nupp.io.tls")
+    })("io.net.tls")
 end
 
 function M.browserHttp(memory)

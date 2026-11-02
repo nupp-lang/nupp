@@ -82,7 +82,6 @@ event's fields in declaration order:
 
 ```nupp:fragment
 local host = nupp.host
-local events = require("events")
 
 @derive(events.event)
 local struct PointerMove

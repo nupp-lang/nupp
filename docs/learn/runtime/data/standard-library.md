@@ -74,7 +74,7 @@ intrinsic namespaces and the declared modules:
 - [](io.files) owns filesystem metadata and directories.
 - [](io.net) owns listeners and the connections they accept, and connections a
   program opens itself.
-- [](io.tls) encrypts one of those connections.
+- [](io.net.tls) encrypts one of those connections.
 - [](io.path) models filesystem paths, and [](io.uri) models resource names.
 - [](log) owns leveled logging over a swappable destination.
 - [](math) owns scalar and two-dimensional vector helpers.
@@ -82,8 +82,8 @@ intrinsic namespaces and the declared modules:
 - [`nupp.mem.soa`](structure-of-arrays.md) stores every top-level field of a
   reified struct in its own column.
 - [](nupp.mem.arena) leases zero-filled struct rows from pages that never move.
-- [](gpu) owns resident buffers, generated kernel dispatches, and tensor views.
-  [](gpu.layout) owns the checked layout algebra.
+- [](io.gpu) owns resident buffers, generated kernel dispatches, and tensor views.
+  [](io.gpu.layout) owns the checked layout algebra.
 - [](os.randombytes) provides cryptographically secure random bytes.
   [](nupp.random) owns deterministic pseudo-random sequences with explicit,
   serializable state.
@@ -94,7 +94,7 @@ intrinsic namespaces and the declared modules:
 - [](os) provides monotonic and wall clocks. [](coroutine) owns sleeps and
   deadlines.
 
-See [gpu.md](../../performance/ahead-of-time/gpu.md) for generated GPU kernels and the
+See [io.gpu.md](../../performance/ahead-of-time/io.gpu.md) for generated GPU kernels and the
 browser provider, and [workers.md](../concurrency/workers.md) for the worker
 scheduler and sendable values.
 

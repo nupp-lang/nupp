@@ -70,8 +70,6 @@ the `jit.*` modules are LuaJIT facilities, so the compatibility profile rejects
 them. Use an ordinary pure-Lua dependency when stock Lua 5.1 support is required.
 
 ```nupp
-const bit = require("bit")
-
 print(bit.tohex(bit.bswap(0x11223344))) -- 44332211
 ```
 
@@ -104,13 +102,13 @@ module. Shared storage, struct, memory-host, and integer declarations remain in
 Its native adapter uses LuaJIT's `string.buffer`. Explicitly native pointer and
 serialization facilities remain on the native `string.buffer` surface.
 
-GPU providers use the shared interfaces in `gpu.spi`. Each context retains its
+GPU providers use the shared interfaces in `io.gpu.spi`. Each context retains its
 device methods. CPU workgroups and tensor layout operations are ordinary code.
 HTTP clients are created with `io.http.newclient(options)` and retain their
 response and body cleanup responsibilities.
 
 Host code pumps network events with `io.net.pump(milliseconds)`. Process
-providers construct exit values with `nupp.io.process.types.exited`.
+providers construct exit values with `io.processexit`.
 
 ## Dependency providers
 

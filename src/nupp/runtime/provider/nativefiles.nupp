@@ -18,7 +18,7 @@ A file's bytes move through the same `Reader` and `Writer` contracts a buffer
 uses, so a parser written against [byte I/O](io) works over a file without
 knowing one is there.
 
-A path argument is a string, a [](io.path.Path), or an application path
+A path argument is a string, a [](io.path.Path), or an app path
 returned by `configurationpath`, `datapath`, or `cachepath`; a path result is a
 [](io.path.Path). An operation that fails because of the environment
 returns nil or false with a reason, and a malformed argument raises at the call
@@ -308,7 +308,7 @@ const io = require("io")
 local privateIo = require("nupp.io")
 const span = require("binary.span")
 const messages = require("io.files.messages")
-const appPaths = require("nupp.io.files.path")
+const appPaths = require("io.files.internal.path")
 
 -- The record is declared here rather than in the runtime cdef below, because
 -- `ffi.new` names it and the checker has to know the type to accept that. It reaches
@@ -493,7 +493,7 @@ local function named(value: any, what: string, level: integer): string
         return value as string
     end
     if appPaths.is(value) then
-        return (value as appPaths.ApplicationPath):tostring()
+        return (value as appPaths.AppPath):tostring()
     end
     if type(value) == "table" and (value as any).tostring ~= nil then
         return (value as paths.Path):tostring()
@@ -1668,16 +1668,12 @@ export function capabilities(): messages.Capabilities
     )
 end
 
-local APPLICATION_BASES = {configuration = 0, data = 1, cache = 2,}
+local APP_BASES = {configuration = 0, data = 1, cache = 2,}
 
-export function applicationPath(
-    kind: string,
-    organization: string,
-    application: string
-): (appPaths.ApplicationPath?, string?)
-    local code = APPLICATION_BASES[kind]
+export function apppath(kind: string, organization: string, app: string): (appPaths.AppPath?, string?)
+    local code = APP_BASES[kind]
     if code == nil then
-        return nil, "unknown application path kind"
+        return nil, "unknown app path kind"
     end
     requireFiles()
     local output = ffi.new("uint64_t[1]")
@@ -1685,7 +1681,7 @@ export function applicationPath(
     if base == nil then
         return nil, reason
     end
-    local value = appPaths.native(base, organization, application)
+    local value = appPaths.native(base, organization, app)
     local made, failure = done(C.nuppNativeFilesCreateDirectory(slice(value:tostring())))
     if not made then
         return nil, failure

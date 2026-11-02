@@ -959,27 +959,29 @@ function lower.callIdentity(node: cst.Node?): string?
     if node == nil then
         return nil
     end
-    local direct = (node as any).exactCallExport
-    if direct ~= nil then
-        return apiidentity.canonical(direct.identity)
+    local token = node.kind == "name" and (node as cst.NameExpr).token or nil
+    local definition = token ~= nil and (token as any).definition or nil
+    local exact = (node as any).exactCallExport or definition ~= nil and definition.exactCallExport or nil
+    if exact ~= nil then
+        return apiidentity.canonical(exact.identity)
+    end
+    local namespace = (node as any).namespacePath or definition ~= nil and definition.namespacePath or nil
+    if namespace ~= nil then
+        return apiidentity.canonical(namespace)
+    end
+    local moduleName = (node as any).qualifiedModule
+    if moduleName ~= nil then
+        local members = (node as any).qualifiedMembers or {}
+        return apiidentity.canonical(moduleName .. (#members > 0 and "." .. table.concat(members, ".") or ""))
     end
     if node.kind == "dotIndex" then
         local indexed = node as cst.DotIndex
-        local base = indexed.obj
-        local token = base ~= nil and base.kind == "name" and (base as cst.NameExpr).token or nil
-        local definition = token ~= nil and (token as any).definition or nil
-        local moduleName = definition ~= nil and definition.requiredModule or nil
-        if moduleName ~= nil and indexed.name ~= nil then
-            return apiidentity.canonical(moduleName .. "." .. (indexed.name as lexer.Token).text)
+        local base = lower.callIdentity(indexed.obj)
+        if base ~= nil and indexed.name ~= nil then
+            return apiidentity.canonical(base .. "." .. (indexed.name as lexer.Token).text)
         end
-    end
-    if node.kind == "name" then
-        local token = (node as cst.NameExpr).token
-        local definition = token ~= nil and (token as any).definition or nil
-        local aliased = definition ~= nil and definition.exactCallExport or nil
-        if aliased ~= nil then
-            return apiidentity.canonical(aliased.identity)
-        end
+    elseif definition ~= nil and definition.requiredModule ~= nil then
+        return apiidentity.canonical(definition.requiredModule)
     end
 
     return nil
@@ -1184,7 +1186,7 @@ record lower.Kernel
     --- Uint32 locals known to equal one scratch buffer's initialized length.
     scratchLengthBounds: {[string]: string}
 
-    --- Present while lowering the compiler-recognized `gpu.workgroups`
+    --- Present while lowering the compiler-recognized `io.gpu.workgroups`
     --- controller. Scratch names are structural bindings rather than runtime
     --- values; phase callbacks lower their local index to a dedicated IR value.
     phasesName: string?
@@ -10132,8 +10134,8 @@ function lower.program(
             local candidate = expression as cst.Call
             local path = lower.dottedName(candidate.obj)
             local root = path ~= nil and (path as string):match("^([^.]+)%.workgroups$") or nil
-            if lower.callIdentity(candidate.obj) == "gpu.workgroups"
-                or root ~= nil and apiidentity.canonical(declarations.modules[root as string] or "") == "gpu"
+            if lower.callIdentity(candidate.obj) == "io.gpu.workgroups"
+                or root ~= nil and apiidentity.canonical(declarations.modules[root as string] or "") == "io.gpu"
             then
                 workgroupCall = candidate
             end
@@ -10145,7 +10147,7 @@ function lower.program(
             if statements[index].kind ~= "localStmt" then
                 context.reject(
                     lower.site(statements[index]),
-                    "only initialized scalar locals may precede gpu.workgroups"
+                    "only initialized scalar locals may precede io.gpu.workgroups"
                 )
             end
         end
@@ -10158,7 +10160,7 @@ function lower.program(
         if #args ~= 3 or args[3].kind ~= "funcExpr" then
             context.reject(
                 lower.site(workgroupCall),
-                "gpu.workgroups takes groups, a static size, and an immediate function"
+                "io.gpu.workgroups takes groups, a static size, and an immediate function"
             )
         end
         local sizeToken = cst.firstToken(args[2])

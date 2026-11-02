@@ -44,8 +44,8 @@ export function run(
         return getenv(name)
     end
 
-    -- The public arg module shares the raw argv table with the process root.
-    -- Refill that table so imported aliases keep observing the same arguments.
+    -- Refill the original raw argv table so aliases keep observing each job.
+    local arg = io.cli.args
     for index in pairs<integer, string>(arg) do
         rawset(arg, index, nil)
     end

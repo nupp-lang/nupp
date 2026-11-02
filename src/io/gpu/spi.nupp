@@ -1,9 +1,9 @@
-module gpu.spi
+module io.gpu.spi
 
 --[[
-`gpu.spi` defines the shared interfaces for GPU providers.
+`io.gpu.spi` defines the shared interfaces for GPU providers.
 
-The [](gpu) module selects a device implementation during initialization.
+The [](io.gpu) module selects a device implementation during initialization.
 `open` is a receiver-free function; it returns a closeable `KernelContext`.
 
 Implementations define private records satisfying the shared context, buffer,

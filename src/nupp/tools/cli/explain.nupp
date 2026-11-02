@@ -8,11 +8,11 @@ rule behind it, a program that breaks the rule, and the same program corrected.
 The catalog is `nupp.tools.explain`; nothing here knows any of the content.
 ]]
 
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
 local cliError = require("nupp.tools.cli.error")
 local usageError = cliError.forCommand("explain")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 
 local report = require("nupp.tools.cli.report")
 

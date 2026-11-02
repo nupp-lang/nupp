@@ -5,22 +5,95 @@ module io.files.messages
 Providers and callers share the same entry and information types.
 
 ```nupp
-local messages = require("io.files.messages")
+local messages = io.files.messages
 local function isfile(info: messages.Info): boolean
     return info.kind == "file"
 end
 ```
 ]]
-local source1 = require("nupp.io.files.messages")
-export type Capabilities = source1.Capabilities
-export type Entry = source1.Entry
-export type Info = source1.Info
-export type Kind = source1.Kind
-export type Mode = source1.Mode
-export type Origin = source1.Origin
-export type TemporaryOptions = source1.TemporaryOptions
-export type UserFolder = source1.UserFolder
-export const Capabilities = source1.Capabilities
-export const Entry = source1.Entry
-export const Info = source1.Info
-export const TemporaryOptions = source1.TemporaryOptions
+local paths = require("io.path")
+
+export type Kind = "file" | "directory" | "symlink" | "other"
+export type UserFolder = "home" | "documents" | "downloads" | "desktop" | "pictures" | "music" | "videos"
+export type Mode = "r" | "w" | "a" | "r+" | "w+" | "a+"
+export type Origin = "set" | "current" | "end"
+
+--- Metadata about one resolved filesystem object.
+export record Info
+    --- The object's filesystem kind.
+    kind: Kind
+
+    --- Its byte size, or zero for a directory.
+    size: integer
+
+    --- Its modification time in milliseconds since the Unix epoch, the unit
+    --- `os.walltime` returns in, with whatever fraction the platform
+    --- records.
+    modified: number
+
+    --- Whether the native platform refuses writes.
+    readonly: boolean
+end
+
+--- An immediate child of a listed directory.
+export record Entry
+    --- The child's name relative to the listed directory.
+    name: string
+
+    --- The child's kind without following a symbolic link.
+    kind: Kind
+end
+
+--- Naming and placement options for a native temporary path.
+export record TemporaryOptions
+    --- The native directory to create the path in.
+    directory: (string | paths.Path)?
+
+    --- A sep-free fragment placed before the random portion of the name.
+    prefix: string?
+
+    --- A sep-free fragment placed after the random portion of the name.
+    suffix: string?
+end
+
+--- The exact filesystem guarantees supplied by a provider.
+export record Capabilities
+    --- Whether filesystem access is available at all.
+    available: boolean
+
+    --- Whether ordinary native paths are accepted.
+    arbitrarypaths: boolean
+
+    --- Whether symbolic links can be queried and created.
+    symlinks: boolean
+
+    --- Whether read-only attributes can be changed.
+    readonlyattributes: boolean
+
+    --- Whether filesystem globbing is supported.
+    glob: boolean
+
+    --- Whether paths can be renamed.
+    rename: boolean
+
+    --- Whether atomic replacement writes are supported.
+    atomicwrite: boolean
+
+    --- Whether temporary path owners can be created.
+    tmppaths: boolean
+
+    --- Whether the same file may have several open handles.
+    concurrentopenhandles: boolean
+
+    --- Whether a process working directory exists.
+    cwd: boolean
+
+    --- Whether conventional user folders can be resolved.
+    userfolders: boolean
+
+    --- Whether the running executable's directory can be resolved.
+    executabledirectory: boolean
+
+    --- Whether persistent browser storage can be requested.
+    persistentstoragerequest: boolean
+end

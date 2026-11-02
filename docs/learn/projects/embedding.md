@@ -298,8 +298,8 @@ Loading, starting, and releasing are separate operations.
    features and name collisions, and installs module loaders.
 2. `nupp_export_find` may obtain a library export before the application entry
    starts.
-3. `nupp_component_start` runs the entry exactly once and installs its `arg`
-   table from the supplied arguments.
+3. `nupp_component_start` runs the entry exactly once and installs the supplied
+   arguments, available to checked code through `io.cli.args`.
 4. `nupp_component_release` releases the C name, not the modules installed in
 the runtime. Like the other releases it takes the runtime and returns a status,
 refusing a component already released or loaded by another runtime.

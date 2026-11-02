@@ -23,7 +23,7 @@ difference.
 ## Declaring a case
 
 ```nupp
-local bench = require("debug.bench")
+local bench = debug.bench
 
 local function sized(b: bench.Case): nil
     for _ = 1, b.n do
@@ -122,8 +122,8 @@ A suite runs several implementations against the same workloads, expanding
 every case × parameter × variant into its own isolated benchmark:
 
 ```nupp
-local bench = require("debug.bench")
-const {type Invocation} = require("debug.bench")
+local bench = debug.bench
+local type Invocation = debug.bench.Invocation
 
 local function numbers(invocation: Invocation): any
     local values: {number} = {}
@@ -403,7 +403,7 @@ A frame loop is a latency question, and a distribution answers it: one frame in
 a hundred over budget is a visible stutter and an unmoved mean.
 
 ```nupp:fragment
-local bench = require("debug.bench")
+local bench = debug.bench
 
 local frames = bench.frames("frame", 16.6, 60)
 while running and frames:more() do

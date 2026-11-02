@@ -1487,7 +1487,6 @@ local coroutine: {
 --- Nupp provides access to LuaJIT's BitOp library, which every target has.
 ---
 --- ```nupp
---- const bit = require("bit")
 ---
 --- -- No operator spells these, so the module does.
 --- print(bit.tohex(bit.bswap(0x11223344))) -- 44332211
@@ -1811,11 +1810,6 @@ local debug: {
     --- @return the registry table
     getregistry: function(): table
 }
-
---- The command-line arguments of the running script, where `arg[1]` is the first one.
---- Index 0 holds the script name, and negative indices hold the interpreter and the
---- options it was given.
-local arg: {string}
 
 --- Joins its messages and routes a warning through the shared log sink.
 local warn: function(message: string, ...: string): nil

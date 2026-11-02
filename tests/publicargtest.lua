@@ -1,21 +1,23 @@
 local test = require("assert")
 local M = {}
 
-function M.theArgumentLibraryKeepsTheActualRawArgv()
+function M.theCliLibraryKeepsTheRawArgvSeparate()
     local original = rawget(_G, "arg")
     local before, sequential = {}, {}
+    local metatable = getmetatable(original)
     for key, value in pairs(original) do
         before[key] = value
     end
     for key, value in ipairs(original) do
         sequential[key] = value
     end
-    local count = #original
-    local argv = require("arg")
+    local cli = require("io.cli")
+    local argv = cli.args
     test.eq(argv, original)
-    test.eq(argv, arg)
-    test.eq(require("arg"), argv)
-    test.eq(#argv, count)
+    test.ne(cli, argv)
+    test.eq(require("io.cli"), cli)
+    test.eq(#argv, #original)
+    test.eq(getmetatable(argv), metatable, "loading CLI helpers must not change argv's metatable")
     local after, traversed = {}, {}
     for key, value in pairs(argv) do
         after[key] = value
@@ -25,15 +27,45 @@ function M.theArgumentLibraryKeepsTheActualRawArgv()
     end
     test.deepeq(after, before)
     test.deepeq(traversed, sequential)
-    for _, name in ipairs({"parse", "schema", "optparser", "getopt", "application", "descriptor"}) do
+    for _, name in ipairs({"parse", "schema", "optparser", "getopt", "application", "descriptor", "style", "table"}) do
         test.eq(rawget(argv, name), nil, name)
-        test.eq(type(argv[name]), "function", name)
-        test.eq(argv[name], getmetatable(argv).__index[name])
+        test.eq(argv[name], nil, "argv has no library helper " .. name)
+        test.eq(type(cli[name]), "function", name)
     end
-    test.eq(rawget(argv, "Arguments"), nil, "derive providers remain erased")
-    test.eq(rawget(argv, "Command"), nil, "derive providers remain erased")
-    test.eq(argv.decodeAs, nil)
-    test.eq(argv.style, nil)
+    test.eq(cli.arguments, nil, "derive providers remain erased")
+    test.eq(cli.command, nil, "derive providers remain erased")
+end
+
+function M.embeddedHostsGetAnEmptyArgumentTable()
+    local previousArgs, previousModule = rawget(_G, "arg"), package.loaded["io.cli"]
+    rawset(_G, "arg", nil)
+    package.loaded["io.cli"] = nil
+    local ok, problem = pcall(function()
+        local cli = require("io.cli")
+        test.eq(type(cli.args), "table")
+        test.eq(next(cli.args), nil)
+        test.eq(rawget(_G, "arg"), nil, "loading CLI helpers must not create a global")
+    end)
+    rawset(_G, "arg", previousArgs)
+    package.loaded["io.cli"] = previousModule
+    assert(ok, problem)
+end
+
+function M.bareArgIsNotACheckedGlobal()
+    local parser = require("nupp.compiler.syntax.parser")
+    local checker = require("fragment")
+    local env = require("nupp.compiler.project.env").new(".")
+    test.eq(env.globals.arg, nil, "arg must not remain an ambient library")
+    test.eq(env.bundledImplementation("arg"), nil, "the old argument module must not remain carried")
+    test.eq(env.bundledImplementation("io.terminal"), nil, "the old terminal facade must not remain carried")
+    local source = parser.parse("return arg\n", "bare-arg.nupp")
+    local diagnostics = checker.check(source, "bare-arg.nupp", env)
+    local refused = false
+    for _, diagnostic in ipairs(diagnostics) do
+        refused = refused
+            or diagnostic.code == "NUPP2105" and diagnostic.msg:find('unknown variable "arg"', 1, true) ~= nil
+    end
+    test(refused, "bare arg must not expose the CLI library or raw argv")
 end
 
 function M.theTypedFacadeKeepsProvidersAliasesAndShadowing()
@@ -71,7 +103,7 @@ function M.theTypedFacadeKeepsProvidersAliasesAndShadowing()
         test(code, reason)
         assert(loadstring(code, "@tests/fixtures/argfacade.nupp"))()
         local acceptingSource = [[
-local cli = require("arg")
+local cli = require("io.cli")
 
 @cli(preserveunknown = true)
 @derive(cli.arguments)

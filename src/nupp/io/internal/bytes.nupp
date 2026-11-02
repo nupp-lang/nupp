@@ -931,7 +931,6 @@ end
 --- content, and the buffer is still empty afterwards.
 ---
 --- ```nupp
---- const io = io
 ---
 --- do
 ---     local buffer = io.newbuffer("hello")
@@ -948,10 +947,10 @@ end
 --- @export
 export function newBuffer(initial: integer | string?): affine(Buffer)
     if initial ~= nil and type(initial) ~= "number" and type(initial) ~= "string" then
-        error("nupp: io.newBuffer initial value must be bytes or a capacity", 2)
+        error("nupp: io.newbuffer initial value must be bytes or a capacity", 2)
     end
     local bytes = type(initial) == "string" and initial as string or ""
-    local capacity = type(initial) == "number" and integer_(initial, "io.newBuffer capacity", 2) or #bytes
+    local capacity = type(initial) == "number" and integer_(initial, "io.newbuffer capacity", 2) or #bytes
     local data = physical.allocateBytes(math.max(capacity, 1))
     if #bytes > 0 then
         physical.copy(data, bytes, #bytes)
@@ -967,9 +966,8 @@ end
 --- changing:
 ---
 --- ```nupp
---- local io = require("io")
 ---
---- local reader = io.newstringreader("hello")
+--- local reader = io.newreader("hello")
 --- assert(reader:read(5) == "hello")
 --- assert(reader:read(1) == "")
 --- ```
@@ -980,7 +978,7 @@ end
 --- @export
 export function newStringReader(text: string): Reader
     if type(text) ~= "string" then
-        error("nupp: io.newStringReader needs a string", 2)
+        error("nupp: io.newreader needs a string", 2)
     end
 
     return newReaderOver(text)
@@ -998,10 +996,33 @@ end
 --- @export
 export function newQueueReader(source: ByteQueue): Reader
     if not queueLike(source) then
-        error("nupp: io.newQueueReader needs a byte queue", 2)
+        error("nupp: io.newreader needs a byte queue", 2)
     end
 
     return new QueueReader(_source = source, _closed = false)
+end
+
+-- Both buffer and view inputs are copied into an independent snapshot.
+local function openReader(source: any): Reader
+    if type(source) == "string" then
+        return newStringReader(source as string)
+    elseif queueLike(source) then
+        return newQueueReader(source as ByteQueue)
+    end
+
+    return newReaderOver(source:getstring() as string)
+end
+
+--- Opens a byte reader over a string, queue, buffer, or view.
+---
+--- Buffers and views are copied into independent snapshots. A queue remains
+--- live and is drained as the reader advances; closing leaves the queue open.
+export const newReader: function(source: string | ByteQueue): Reader
+    & function(borrows source: Buffer | ByteView): Reader = openReader as any
+
+--- Opens a byte writer that clears and exclusively borrows a buffer.
+export function newWriter(exclusive destination: Buffer): affine(Writer) borrows (destination)
+    return destination:newwriter()
 end
 
 --- Reads a reader to its end and returns everything it held as a string.
@@ -1018,7 +1039,7 @@ end
 export function readAll(takes reader: Reader, maxbytes: integer?): (string?, string?)
     local limit: integer? = nil
     if maxbytes ~= nil then
-        limit = positive(maxbytes, "io.readAll maxBytes", 2)
+        limit = positive(maxbytes, "io.readall maxbytes", 2)
     end
     local parts: {string} = {}
     local total: integer = 0

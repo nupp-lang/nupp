@@ -630,7 +630,7 @@ function resolve.install(c: state.Checker): nil
         local origin = (t.origin or t) as T.Nominal
         local isGpuBuffer = origin.name == "Buffer"
             and (
-                apiidentity.canonical(origin.moduleName or "") == "gpu"
+                apiidentity.canonical(origin.moduleName or "") == "io.gpu"
                 or origin.moduleName == "nupp.gpu.internal"
                 or origin.moduleName == "nupp.gpu.types"
                 or origin.moduleName == "nupp.gpu.api"

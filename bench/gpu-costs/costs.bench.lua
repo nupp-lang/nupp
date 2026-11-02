@@ -10,7 +10,7 @@ assert(
 )
 local ffi = require("ffi")
 local span = require("binary.span")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local bench = require("debug.bench")
 
 local function host(invocation)

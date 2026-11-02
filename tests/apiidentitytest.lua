@@ -52,7 +52,7 @@ function M.canonicalizesOnlyRegisteredPublicIdentities()
     test.eq(identities.canonical("nupp.__Debug"), "types.Debug")
     test.eq(identities.canonical("nupp.compiler.types"), "nupp.compiler.types")
     test.eq(identities.canonical("nupp.gpu.types.Buffer"), "nupp.gpu.types.Buffer")
-    test.eq(identities.legacy("gpu.internal.Image"), "gpu.internal.Image")
+    test.eq(identities.legacy("io.gpu.internal.Image"), "io.gpu.internal.Image")
     test.eq(identities.canonical("types.array"), "types.array")
     test.eq(identities.canonical("types.derive.array"), "types.derive.array")
 end

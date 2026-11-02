@@ -1,6 +1,6 @@
-const files = require("io.files")
+const files = io.files
 
-files.setapplicationidentity("nupp", "browser-files-test")
+files.setappid("nupp", "browser-files-test")
 local root, rootReason = files.datapath()
 assert(root, rootReason)
 files.remove(root, true)

@@ -227,7 +227,7 @@ export record Application
     --- shell's own path completion.
     function completion(self, shell: "bash" | "zsh" | "fish"): string
         local program = self:programname()
-        local generated = "# Completion for " .. program .. "; generated from arg.\n"
+        local generated = "# Completion for " .. program .. "; generated from io.cli.\n"
         if shell == "bash" then
             return generated .. "_" .. program .. "() {\n" .. "  local cur=\"${COMP_WORDS[COMP_CWORD]}\"\n"
                 -- Sliced before IFS changes: Bash 3.2 joins a quoted slice on IFS.

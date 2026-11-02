@@ -1,22 +1,21 @@
-module gpu
+module io.gpu
 
 --[[
-`gpu` manages resident compute buffers over the selected GPU provider.
+`io.gpu` manages resident compute buffers over the selected GPU provider.
 
 The context owns every buffer, compiled kernel and binding made from it. Each
 is closeable and borrows the context, so checked code cannot close the device
 while one is live, or use one after closing it. Uploads, dispatches, and
 downloads only enqueue commands; `synchronize()` is the explicit CPU boundary.
-`gpu.available()` says whether a device can be opened at all, since `open`
+`io.gpu.available()` says whether a device can be opened at all, since `open`
 raises when none can.
 
 ```nupp:fragment
-local gpu = require("gpu")
 local array = nupp.mem.array
 local kernels = require("kernels")
 
 do
-    local context = gpu.open()
+    local context = io.gpu.open()
     do
         local input = context:buffer(array.float, 1024)
         local output = context:buffer(array.float, 1024)
@@ -42,7 +41,7 @@ boundary; a chain of kernels keeps its intermediate buffers resident and pays
 upload/download only where the program asks for them.
 
 `context:tensor(element, shape)` allocates dense row-major storage. A checked
-`gpu.Layout` can be sliced, transposed, broadcast, or explicitly strided, then
+`io.gpu.Layout` can be sliced, transposed, broadcast, or explicitly strided, then
 applied with `buffer:view(layout)` without allocating device storage.
 Transfers remain dense; layout-aware kernels consume the explicit metadata.
 ]]
@@ -52,9 +51,9 @@ local target = require("nupp.runtime.target")
 
 local api = require("nupp.gpu.api")
 local implementation = require("nupp.gpu.types")
-local contract = require("gpu.spi")
+local contract = require("io.gpu.spi")
 local provider: contract.Provider = do
-    const chosen = spi.select(spi.providers<contract.Provider>("gpu.spi.Provider"))
+    const chosen = spi.select(spi.providers<contract.Provider>("io.gpu.spi.Provider"))
     if chosen ~= nil then
         yield chosen
     end
@@ -64,7 +63,7 @@ local provider: contract.Provider = do
     yield _G.require("nupp.runtime.browser.webgpu.internal") as contract.Provider
 end
 local operations = require("nupp.gpu.operations")
-local tensorlayout = require("gpu.layout")
+local tensorlayout = require("io.gpu.layout")
 
 export type Layout = tensorlayout.Layout
 export const Layout = tensorlayout.Layout

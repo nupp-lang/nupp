@@ -19,7 +19,7 @@ const {type Session} = require("nupp.tools.cli.watch")
 local errors = require("nupp.tools.cli.error")
 local usageError = errors.forCommand("run")
 local report = require("nupp.tools.cli.report")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 
 local SITE_LOCATION = {
     type = "object",
@@ -250,7 +250,7 @@ local function run(options: any): integer
 
     local function activateArguments(arguments: any): nil
         rawset(_G, "arg", arguments)
-        package.loaded.arg = arguments
+        cliModule.args = arguments
     end
 
     local compileProject: function(modulePath: string, env: any): (string?, string?) = compileLoaded

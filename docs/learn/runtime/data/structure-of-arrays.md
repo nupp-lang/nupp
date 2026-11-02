@@ -267,8 +267,7 @@ The private native call receives column pointers and a row count; entry and
 exit copy no row payloads.
 
 ```nupp:fragment
-local array = require("nupp.mem.array")
-local simd = require("simd")
+local array = nupp.mem.array
 
 @aot
 local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil

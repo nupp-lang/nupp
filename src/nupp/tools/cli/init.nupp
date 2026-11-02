@@ -15,9 +15,9 @@ Command files require heavier compiler code inside `run`, so building the tree
 loads only their small declarations.
 ]]
 
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
-local ansi = require("arg")
+local ansi = require("io.cli")
 
 local cli = {}
 

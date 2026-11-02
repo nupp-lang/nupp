@@ -396,7 +396,7 @@ local options = {
 }
 
 local function readOptions(): nil
-    local argv = _G.arg as {string}?
+    local argv = io.cli.args as {string}?
     if not argv then
         return
     end
@@ -698,7 +698,7 @@ local function openSample(): any?
     if not options.sampleOut then
         return nil
     end
-    local argv = _G.arg as {string}?
+    local argv = io.cli.args as {string}?
     local root = options.sampleRoot or (argv and argv[0] and argv[0]:match("([^/\\]+)$") or nil)
     local session = profile.sample({intervalMs = options.sampleIntervalMs, zone = options.sampleZone, root = root,})
     session:pause()

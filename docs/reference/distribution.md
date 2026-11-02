@@ -182,13 +182,14 @@ Cargo, and is already part of the artifact key.
 
 A stub does six things, in this order.
 
-1. Locate its own executable. Not `arg[0]`, which is whatever the caller typed:
+1. Locate its own executable. Not `io.cli.args[0]`, which is whatever the caller typed:
    `/proc/self/exe`, `_NSGetExecutablePath`, `GetModuleFileNameW`.
 2. Read the last 48 bytes. No magic, or a version it does not know: report that
    plainly and exit non-zero. Do not fall back to guessing.
 3. Verify the payload's length and truncated digest.
 4. Load the payload as a Lua chunk, named so tracebacks are readable.
-5. Set `arg` from the command line, dropping nothing the program should see.
+5. Set the host Lua `arg` table from the command line, dropping nothing the
+   program should see. Checked programs read that table through `io.cli.args`.
 6. Run it. The program's exit status is the process's.
 
 A stub with no payload is a plain interpreter: it runs the file named as its

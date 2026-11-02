@@ -111,6 +111,65 @@ function M.finalAndLegacyImportsProduceTheSameVerifiedIR()
     end
 end
 
+local DIRECT_REDUCERS = [[
+local array = nupp.mem.array
+local span = binary.span
+@aot
+local function total(borrows values: span.Span<number>): number
+    local species = simd.species(array.number)
+    local sum = simd.reducer.algebraicsum(0.0)
+    for at, active in species:over(#values) do
+        sum:add(species:load(values, at, active), active)
+    end
+    return sum:value()
+end
+@aot
+local function dot(borrows left: span.Span<float>, borrows right: span.Span<float>): float
+    local species = simd.species(array.float)
+    local sum = simd.reducer.pairwisedot(array.float, 0.0)
+    for at, active in species:over(#left) do
+        sum:add(species:load(left, at, active), species:load(right, at, active), active)
+    end
+    return sum:value()
+end
+]]
+
+function M.directNestedReducerNamespacesKeepCheckedIdentity()
+    local env = envMod.new(HERE .. "/..")
+    for _, source in ipairs({
+        DIRECT_REDUCERS,
+        "local reducers = simd.reducer\n" .. DIRECT_REDUCERS:gsub("simd%.reducer%.", "reducers.")
+    }) do
+        local parsed = parser.parse(source, "direct-reducers.nupp")
+        test.eq(#parsed.errors, 0)
+        local diagnostics = checker.check(parsed, "direct-reducers.nupp", env)
+        test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+        local programs, problems = compile.lower(source, "direct-reducers.nupp", parsed)
+        test.eq(#problems, 0, problems[1] and problems[1].message)
+        test.eq(#programs, 2)
+    end
+end
+
+function M.lexicalReducerNamespaceShadowIsNotAnIntrinsic()
+    local source = [[
+local simd = {reducer = {algebraicsum = function(value: number): number
+    return value
+end}}
+@aot
+local function total(): number
+    return simd.reducer.algebraicsum(1.0)
+end
+]]
+    local env = envMod.new(HERE .. "/..")
+    local parsed = parser.parse(source, "shadow-reducers.nupp")
+    test.eq(#parsed.errors, 0)
+    local diagnostics = checker.check(parsed, "shadow-reducers.nupp", env)
+    test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    local _, problems = compile.lower(source, "shadow-reducers.nupp", parsed)
+    assert(#problems > 0, "a lexical lookalike must not acquire intrinsic identity")
+    test.eq(problems[1].code, "NUPP2905")
+end
+
 local WORKGROUP = [[
 local gpu = require(%q)
 local span = require("binary.span")
@@ -128,10 +187,17 @@ local function increment(exclusive output: span.WriteSpan<uint32>, borrows input
 end
 ]]
 
-function M.finalAndLegacyGpuImportsProduceTheSameVerifiedWorkgroupIR()
+function M.gpuImportAndDirectNamespaceProduceTheSameVerifiedWorkgroupIR()
     local before
-    for _, module in ipairs({"nupp.gpu", "gpu"}) do
-        local programs, problems = compile.lower(WORKGROUP:format(module), "gpu-identity.nupp")
+    local direct = WORKGROUP:format("io.gpu"):gsub('local gpu = require%("io%.gpu"%)', "", 1)
+    direct = direct:gsub("%f[%w_]gpu%.", "io.gpu.")
+    local env = envMod.new(HERE .. "/..")
+    for _, source in ipairs({WORKGROUP:format("io.gpu"), direct}) do
+        local parsed = parser.parse(source, "gpu-identity.nupp")
+        test.eq(#parsed.errors, 0)
+        local diagnostics = checker.check(parsed, "gpu-identity.nupp", env)
+        test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+        local programs, problems = compile.lower(source, "gpu-identity.nupp", parsed)
         test.eq(#problems, 0, problems[1] and problems[1].message)
         test.eq(#programs, 1)
         test.eq(programs[1].executionTarget, "gpu")
@@ -141,6 +207,18 @@ function M.finalAndLegacyGpuImportsProduceTheSameVerifiedWorkgroupIR()
         end
         before = after
     end
+end
+
+function M.lexicalWorkgroupNamespaceShadowIsNotAnIntrinsic()
+    test.eq(
+        lower.callIdentity({
+            kind = "dotIndex",
+            obj = {kind = "name", token = {text = "gpu", definition = {}}},
+            name = {text = "workgroups"}
+        }),
+        nil,
+        "a lexical lookalike does not gain the GPU entry identity"
+    )
 end
 
 function M.finalRootAndDirectImportRetainTheSameFunction()
@@ -178,10 +256,19 @@ end
 
 function M.formerPublicModulesAreAbsentAndGpuImplementationStaysPrivate()
     local env = envMod.new(HERE .. "/..")
-    for _, name in ipairs({"nupp.gpu", "nupp.gpu.layout", "nupp.gpu.spi", "nupp.simd", "nupp.events"}) do
+    for _, name in ipairs({
+        "gpu",
+        "gpu.layout",
+        "gpu.spi",
+        "nupp.gpu",
+        "nupp.gpu.layout",
+        "nupp.gpu.spi",
+        "nupp.simd",
+        "nupp.events"
+    }) do
         test.eq(env.resolveModule(env, name), nil, name)
     end
-    test.eq(env.moduleAccess(env, "gpu", "nupp.gpu.api"), nil)
+    test.eq(env.moduleAccess(env, "io.gpu", "nupp.gpu.api"), nil)
     local reason = env.moduleAccess(env, "application", "nupp.gpu.api")
     assert(reason and reason:find("internal", 1, true), tostring(reason))
 end

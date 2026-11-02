@@ -6,8 +6,7 @@ Use [](encode) and [](decode) for bindings, or [](encodevalue) and
 [](decodevalue) for schema-free values.
 
 ```nupp
-local serde = require("serde")
-local json = require("serde.json")
+local json = serde.json
 local record Order
     id: integer
     items: {string}
@@ -435,9 +434,8 @@ export const defaultpolicy: plans.PolicyFactory = defaults.factory
 --- Use it for a model whose names are already the wire names.
 ---
 --- ```nupp
---- local serde = require("serde")
---- local adapters = require("serde.adapters")
---- local json = require("serde.json")
+--- local adapters = serde.adapters
+--- local json = serde.json
 --- local record Member is serde.Member
 ---     @readonly name: string
 ---     @readonly index: integer?
@@ -479,8 +477,7 @@ export const fieldname = documents.name
 --- Makes a [](Codec).
 ---
 --- ```nupp
---- local serde = require("serde")
---- local json = require("serde.json")
+--- local json = serde.json
 --- local record Item
 ---     id: integer
 --- end
@@ -504,8 +501,7 @@ local shared = codec()
 --- Encodes a value as JSON text.
 ---
 --- ```nupp
---- local serde = require("serde")
---- local json = require("serde.json")
+--- local json = serde.json
 --- local record Pair
 ---     left: string
 ---     right: string?
@@ -539,8 +535,7 @@ end
 --- value the codec then has to reject is dropped through the binding.
 ---
 --- ```nupp
---- local serde = require("serde")
---- local json = require("serde.json")
+--- local json = serde.json
 --- local record Range
 ---     low: integer
 ---     high: integer = 100
@@ -573,8 +568,7 @@ end
 --- for embedding bound values in JSON assembled by hand.
 ---
 --- ```nupp
---- local serde = require("serde")
---- local json = require("serde.json")
+--- local json = serde.json
 --- local record Tag
 ---     name: string
 --- end

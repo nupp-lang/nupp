@@ -10,18 +10,20 @@ local extensions = {}
 local ROOTS = {
     warn = {module = "warn", direct = true},
     assert = {module = "assert", direct = true},
-    arg = {module = "arg", direct = true},
     table = {module = "nupp.runtime.standardtable", members = {move = true, Pool = true, newpool = true}},
     io = {
         module = "nupp.runtime.standardio",
+        replace = {popen = true},
         members = {
             Error = true,
+            popen = true,
+            processexit = true,
             newbuffer = true,
             newlines = true,
-            newqueuereader = true,
-            newscalarreader = true,
-            newscalarwriter = true,
-            newstringreader = true,
+            newreader = true,
+            newwriter = true,
+            newsreader = true,
+            newswriter = true,
             readall = true,
         }
     },
@@ -128,14 +130,26 @@ function extensions.type(c: any, root: string): any
     if not extension or not original or not specification.direct and original.t.tag ~= "shape" then
         return nil
     end
-    local fields, seen = {}, {}
+    local view = members.view(extension)
+    local fields, seen, replaced = {}, {}, {}
     for _, field in ipairs(not specification.direct and original.t.fields or {}) do
-        fields[#fields + 1] = field
-        seen[field.name] = true
+        if specification.replace and specification.replace[field.name] and view.byname[field.name] then
+            replaced[field.name] = field
+        else
+            fields[#fields + 1] = field
+            seen[field.name] = true
+        end
     end
-    for _, field in ipairs(members.view(extension).ordered) do
+    for _, field in ipairs(view.ordered) do
         if not specification.direct and specification.members[field.name] and not seen[field.name] then
-            fields[#fields + 1] = {name = field.name, read = field.readType, write = field.writeType}
+            local preceding = replaced[field.name]
+            fields[
+                #fields + 1
+            ] = {
+                name = field.name,
+                read = field.readType,
+                write = field.writeType or preceding and preceding.write and field.readType,
+            }
         end
     end
     local merged = specification.direct and extension

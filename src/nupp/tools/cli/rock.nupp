@@ -4,7 +4,7 @@ module nupp.tools.cli.rock
 --
 -- Starting one is `nupp init lib`, which writes the layout this validates.
 
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 
 local function operate(name: string, rockspec: string?): integer
     local library = require("nupp.tools.rock")

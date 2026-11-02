@@ -8,7 +8,7 @@ local encoded = serde.json.encodevalue({ok = true})
 log.info("wrote %d bytes", #encoded)
 ```
 
-The documented `nupp.host`, `nupp.io.process`, `nupp.mem`, `nupp.profile`,
+The documented `nupp.host`, `nupp.mem`, `nupp.profile`,
 `nupp.random`, and `nupp.text` namespaces retain their current contracts.
 I/O, system facts, tasks, types, binary codecs, and serialization use `io`,
 `os`, `coroutine`, `types`, `binary`, and `serde` respectively. Private

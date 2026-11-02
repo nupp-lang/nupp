@@ -15,7 +15,7 @@ local root, process, buffers, priorPreload, priorLoaded
 local unavailable
 
 local function startProcess(options)
-    return process.spawn(options)
+    return process.popen(options)
 end
 
 local function temporaryRoot()
@@ -71,7 +71,7 @@ function M.beforeAll()
     priorLoaded = package.loaded["nupp.runtime.native"]
     preloadProvider(libraryPath)
     assert(loadstring(stdlib.bootstrap({["native.process"] = true, ["stdlib.io"] = true,})))()
-    process = require("nupp.io.process")
+    process = require("io")
     buffers = require("io")
 end
 
@@ -257,7 +257,7 @@ end
 
 function M.thePublicModuleSelectsOnlyItsPrivateProvider()
     ready()
-    test.eq(native.forModule("nupp.io.process"), "runtime.process")
+    test.eq(native.forModule("io.internal.process"), "runtime.process")
     local feature = assert(native.feature("native.process"))
     test.eq(feature.providerFeature, "process")
     test.eq(feature.provider, "nupp_native")

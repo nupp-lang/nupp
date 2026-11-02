@@ -19,7 +19,7 @@ do
     own.drop(rows)
 end
 local output = array.scalar(array.uint32, 2)
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 do
     local context = gpu.open();
     do

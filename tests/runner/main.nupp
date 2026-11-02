@@ -4,16 +4,15 @@ module main
 -- source of discovery, planning, reporting, and the serial fallback used by its
 -- own tests. Keeping that policy in one place prevents the two entry points from
 -- drifting.
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
 rawset(_G, "__NUPP_TEST_WORKER_HOST", true)
-arg[0] = "tests/run.lua"
+io.cli.args[0] = "tests/run.lua"
 
 -- The runner is loaded as a file, so its dependency is invisible to the module
 -- graph unless the host names it. Keeping the public module loaded also means every
 -- worker state and every suite observes the same assertion implementation.
 package.loaded["assert"] = require("assert")
-require("arg")
 local _ = terminal.style
 
 -- File-loaded suites share these host facilities in the parent and worker states.
@@ -34,11 +33,11 @@ require("io.uri")
 require("nupp.text")
 require("coroutine")
 require("io.net")
-require("nupp.io.process")
-require("io.tls")
+const carriedprocess = io.popen
+require("io.net.tls")
 require("io.http")
-require("gpu")
+require("io.gpu")
 require("coroutine.workers")
 
-const run = assert(loadfile(arg[0]))
+const run = assert(loadfile(io.cli.args[0]))
 run()

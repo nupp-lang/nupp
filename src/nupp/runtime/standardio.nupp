@@ -23,8 +23,8 @@ one it has.
 
 The remaining I/O operations have their own modules. See [](io.path) for filesystem names,
 [](io.uri) for resource identifiers, [](io.files) for the filesystem
-itself, [](nupp.io.process) for running a child process, [](io.net) for
-network connections, [](io.tls) for encrypting one, and [](io.http)
+itself, `io.popen` for running a child process, [](io.net) for
+network connections, [](io.net.tls) for encrypting one, and [](io.http)
 for the asynchronous HTTP client.
 Keeping them apart is what lets a program that wants a byte buffer carry a byte
 buffer rather than every provider behind the name.
@@ -103,13 +103,13 @@ buffer.
 
 ## Readers
 
-A `io.Reader` is a forward-only byte source. `newstringreader(text)` reads
-a string; `buffer:newreader()` reads a snapshot of the buffer's current
-contents. A reader owns its close obligation and closes automatically at the
+An `io.Reader` is a forward-only byte source. `newreader(source)` accepts a
+string, a byte queue, a buffer, or a view. Buffers and views become independent
+snapshots; queues are drained as the reader advances. A reader owns its close obligation and closes automatically at the
 end of its scope unless `close()` consumes it earlier.
 
 ```nupp
-local reader = io.newstringreader("abcdef")
+local reader = io.newreader("abcdef")
 assert(reader:read(2) == "ab")
 
 local destination = io.newbuffer()
@@ -137,14 +137,14 @@ one string, closing the reader on the way out. A limit is checked as the bytes
 arrive, so a source larger than it returns a reason rather than a string:
 
 ```nupp
-assert(io.readall(io.newstringreader("whole")) == "whole")
-local text, reason = io.readall(io.newstringreader("too long"), 3)
+assert(io.readall(io.newreader("whole")) == "whole")
+local text, reason = io.readall(io.newreader("too long"), 3)
 assert(text == nil and reason ~= nil)
 ```
 
 ## Writers
 
-`buffer:newwriter()` clears the buffer and returns a forward-only writer
+`newwriter(buffer)` clears the buffer and returns a forward-only writer
 targeting it. A writer likewise closes automatically; `flush()` publishes
 pending work without consuming that ownership. The writer holds its buffer
 exclusively for as long as it is live, so the buffer is read once the writer is
@@ -153,7 +153,7 @@ gone:
 ```nupp
 local destination = io.newbuffer()
 do
-    local writer = destination:newwriter()
+    local writer = io.newwriter(destination)
     assert(writer:write("prefix:"))
 
     local payload = io.newbuffer("body")
@@ -178,7 +178,7 @@ The terminator is not returned, and a final fragment before EOF is still a
 line:
 
 ```nupp
-local lines = io.newlines(io.newstringreader("one\r\ntwo\nlast"))
+local lines = io.newlines(io.newreader("one\r\ntwo\nlast"))
 assert(lines:read() == "one")
 assert(lines:read() == "two")
 assert(lines:read() == "last")
@@ -190,17 +190,17 @@ with a reason. Closing or dropping the line reader closes the source it took.
 
 ## Typed scalars
 
-A reader and a writer move bytes. `newscalarreader` and `newscalarwriter` add
+A reader and a writer move bytes. `newsreader` and `newswriter` add
 the missing piece, a sized integer or float landing on those bytes without an
 `ffi.cast` at every call site.
 
 ```nupp
-local writer = io.newscalarwriter()
+local writer = io.newswriter()
 writer:writeuint32(1447383632):writefloat64(1.5)
 
 local stored = writer:buffer()
 assert(stored ~= nil)
-local reader = io.newscalarreader(stored)
+local reader = io.newsreader(stored)
 assert(reader:readuint32() == 1447383632)
 assert(reader:readfloat64() == 1.5)
 assert(reader:atend())
@@ -213,12 +213,12 @@ the format said, and there is no partial value to hand back.
 
 ### Scalar sources
 
-`newscalarreader` takes whatever holds the bytes. A string, a `ByteView` or a
+`newsreader` takes whatever holds the bytes. A string, a `ByteView` or a
 `Buffer` is read from a copy taken there and then, so `remaining()` knows the
 count:
 
 ```nupp
-local reader = io.newscalarreader("\1\2\3\4")
+local reader = io.newsreader("\1\2\3\4")
 assert(reader:remaining() == 4)
 ```
 
@@ -230,14 +230,14 @@ reader exactly once.
 
 ### Scalar destinations
 
-`newscalarwriter` appends to a `Buffer`, keeping what that buffer already
+`newswriter` appends to a `Buffer`, keeping what that buffer already
 holds, or writes through a `Writer`. Given nothing it starts a buffer of its
 own, which `buffer()` hands back:
 
 ```nupp
 local destination = io.newbuffer("header:")
 do
-    local scalars = io.newscalarwriter(destination)
+    local scalars = io.newswriter(destination)
     scalars:writeuint8(33)
 end
 assert(destination:getstring() == "header:!")
@@ -274,7 +274,7 @@ buffer or a string reader returns through the same contract.
 ## Byte queues
 
 A [`nupp.text`](nupp.text) buffer is a byte queue: `put` appends to the back
-and `get` consumes from the front. `newscalarreader` accepts one directly, so
+and `get` consumes from the front. `newsreader` accepts one directly, so
 bytes assembled there are read without copying everything in it first, and the
 queue's own `get` stays usable over the same bytes.
 
@@ -283,14 +283,14 @@ local queue = nupp.text.newbuffer()
 queue:put("header:")
 queue:put("!")
 
-local reader = io.newscalarreader(queue)
+local reader = io.newsreader(queue)
 assert(reader:readbytes(7) == "header:")
 assert(queue:tostring() == "!")
 assert(reader:readuint8() == 33)
 ```
 
 Reading drains the queue, and `remaining()` reports what it still holds.
-`newqueuereader` is the same bridge one layer down: it returns an ordinary
+`newreader` is the same bridge one layer down: it returns an ordinary
 `Reader` over the queue, for `transferto`, `readinto`, and everything else that
 contract already covers.
 
@@ -299,7 +299,7 @@ local destination = io.newbuffer()
 local queue = nupp.text.newbuffer()
 queue:put("payload")
 do
-    local reader = io.newqueuereader(queue)
+    local reader = io.newreader(queue)
     assert(reader:transferto(destination:newwriter()) == 7)
 end
 assert(destination:getstring() == "payload")
@@ -333,22 +333,60 @@ export type Writer = source1.Writer
 export const Error = source1.Error
 export const newbuffer = source1.newBuffer
 export const newlines = source1.newLines
-export const newqueuereader = source1.newQueueReader
-export const newscalarreader = source1.newScalarReader
-export const newscalarwriter = source1.newScalarWriter
-export const newstringreader = source1.newStringReader
+export const newreader = source1.newReader
+export const newwriter = source1.newWriter
+export const newsreader = source1.newScalarReader
+export const newswriter = source1.newScalarWriter
 export const readall = source1.readAll
+
+const {type Process as ChildProcess} = require("io.internal.process")
+const {type Provider as ChildProcessProvider} = require("io.internal.process.spi")
+local processTypes = require("io.internal.process.types")
+
+export type Process = ChildProcess
+export type ProcessOptions = processTypes.Options
+export type ProcessResult = processTypes.Result
+export type ProcessExit = processTypes.Exit
+export type CommunicateOptions = processTypes.CommunicateOptions
+export type StreamMode = processTypes.StreamMode
+export type ErrorMode = processTypes.ErrorMode
+export type ProcessProvider = ChildProcessProvider
+
+--- Creates an exit result for a process provider.
+export const processexit = processTypes.exited
+
+local original: any = rawget(_G, "io")
+local luaPopen = original.popen
+
+local function openProcess(command: any, ...: any): ...any
+    if type(command) == "table" then
+        local implementation = require("io.internal.process") as any
+        return implementation.spawn(command)
+    end
+
+    return luaPopen(command, ...)
+end
+
+--- Starts a child from an argument vector or opens a Lua shell pipe.
+---
+--- A table supplies process options and returns an owned process. A command string
+--- follows Lua's `io.popen` behavior and returns an owned file handle.
+export const popen = openProcess as(
+    function(options: ProcessOptions): (affine(Process)?, Error?)
+    & function(cmd: string, mode: string?): (affine(LuaFile, __nuppCloseFile)?, string?)
+)
 
 --- @internal
 export const value: table = do
-    local original = rawget(_G, "io") as any
     original.Error = Error
     original.newbuffer = newbuffer
     original.newlines = newlines
-    original.newqueuereader = newqueuereader
-    original.newscalarreader = newscalarreader
-    original.newscalarwriter = newscalarwriter
-    original.newstringreader = newstringreader
+    original.newreader = newreader
+    original.newwriter = newwriter
+    original.newsreader = newsreader
+    original.newswriter = newswriter
     original.readall = readall
+    original.processexit = processexit
+    original.popen = popen
     yield original
 end

@@ -34,7 +34,7 @@ local platformLibraries = {
         return require("assert")
     end,
     function()
-        return require("arg")
+        return require("io.cli")
     end,
     function()
         return require("types")
@@ -88,7 +88,7 @@ local platformLibraries = {
         return require("io.http")
     end,
     function()
-        return require("gpu")
+        return require("io.gpu")
     end,
     function()
         return require("coroutine")

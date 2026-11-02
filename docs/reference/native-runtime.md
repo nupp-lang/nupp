@@ -45,7 +45,7 @@ GPU-free program does not acquire WGPU.
 | TCP, UDP, DNS, and Unix path sockets | `net` | `native-net` |
 | TLS over a Rust-owned network stream | `tls` | `native-tls` |
 | child processes and pipes | `process` | `native-process` |
-| native GPU compute | `gpu` | provider archive |
+| native GPU compute | `io.gpu` | provider archive |
 | workers and shared immutable bytes | host-owned | `workers` |
 | `lpeg` | retained LPeg | `lpeg` |
 
@@ -243,5 +243,5 @@ which restores the old ownership model.
 - [Distribution](distribution.md) for stubs, payloads, signing, and link kits
 - [Embedding Nupp](../learn/projects/embedding.md) for the public C SDK
 - [Building projects](../learn/projects/build.md) for standalone and sidecar native artifacts
-- [Native GPU AOT](../learn/performance/ahead-of-time/gpu.md) for the WGPU contract
+- [Native GPU AOT](../learn/performance/ahead-of-time/io.gpu.md) for the WGPU contract
 :::

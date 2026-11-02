@@ -5,7 +5,7 @@ module coroutine.suspension
 The installed handler runs other work until the wait settles.
 
 ```nupp:fragment
-local suspension = require("coroutine.suspension")
+local suspension = coroutine.suspension
 
 local function readLine(reader: Reader): string
     return suspension.suspend("example.readLine", function(

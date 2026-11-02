@@ -9,7 +9,7 @@ requires, not something the checker merely reads.
 ]]
 
 local usageError = require("nupp.tools.cli.error").forCommand("import-c")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 local report = require("nupp.tools.cli.report")
 
 local REPORT_SCHEMA = {

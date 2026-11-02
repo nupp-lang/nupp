@@ -638,8 +638,8 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             browser = "nupp.runtime.browser.uri"
         },
         {
-            module = "nupp.io.files",
-            interface = "nupp.io.files.spi.Provider",
+            module = "io.files",
+            interface = "io.files.spi.Provider",
             native = "nupp.runtime.provider.nativefiles",
             browser = "nupp.runtime.browser.files",
             member = "capabilities"
@@ -863,11 +863,11 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
     end
 end
 
-function M.memoizedApplicationPathsAreRecreated()
+function M.memoizedAppPathsAreRecreated()
     local root = {}
     local resolved, created = 0, 0
     local provider = {
-        applicationPath = function()
+        apppath = function()
             resolved = resolved + 1
             return root
         end,
@@ -878,10 +878,10 @@ function M.memoizedApplicationPathsAreRecreated()
         end,
     }
     local files = require("providerstate").load("files", provider)
-    files.setApplicationIdentity("example", "application-path-test")
+    files.setappid("example", "application-path-test")
 
-    assert(files.dataPath() == root)
-    assert(files.dataPath() == root)
+    assert(files.datapath() == root)
+    assert(files.datapath() == root)
     assert(resolved == 1, "the platform root is resolved once")
     assert(created == 1, "a cached root is recreated if the caller removed it")
 end
@@ -1002,14 +1002,14 @@ local SELECTING_FACADES = {
     {"nupp.codec.json.provider", "serde.json.spi.Provider"},
     {"binary.compress", "binary.compress.spi.Provider"},
     {"binary.hash.digest", "binary.hash.digest.spi.Provider"},
-    {"gpu", "gpu.spi.Provider"},
+    {"io.gpu", "io.gpu.spi.Provider"},
     {"nupp.host", "nupp.host.spi.Provider"},
-    {"nupp.io.files", "nupp.io.files.spi.Provider"},
+    {"io.files", "io.files.spi.Provider"},
     {"nupp.io.http", "nupp.io.http.spi.Provider"},
     {"nupp.io.net", "nupp.io.net.spi.Provider"},
     {"nupp.io.path.provider", "io.path.spi.Provider"},
-    {"nupp.io.process", "nupp.io.process.spi.Provider"},
-    {"nupp.io.tls", "nupp.io.tls.spi.Provider"},
+    {"io.internal.process", "io.ProcessProvider"},
+    {"io.net.tls", "io.net.tls.spi.Provider"},
     {"nupp.io.uri.provider", "io.uri.spi.Provider"},
     {"binary.hash.mac", "binary.hash.mac.spi.Provider"},
     {"nupp.runtime.entropy", "nupp.random.spi.Provider"},

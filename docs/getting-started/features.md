@@ -65,7 +65,7 @@ print(pending.name)
   SIMD, Lua-value construction, native artifacts, and Wasm side modules.
 - [SIMD programming](../learn/performance/ahead-of-time/simd-programming.md)
   teaches what SIMD is and how a Nupp loop uses lanes, starting from nothing.
-- [GPU compute](../learn/performance/ahead-of-time/gpu.md) covers generated resident-buffer
+- [GPU compute](../learn/performance/ahead-of-time/io.gpu.md) covers generated resident-buffer
   kernels, structured workgroups, tensor layouts, and the browser WebGPU
   profiles.
 

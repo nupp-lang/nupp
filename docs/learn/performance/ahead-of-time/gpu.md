@@ -9,7 +9,7 @@ specification. Native targets emit SPIR-V for the Rust WGPU provider, while
 browser targets emit WGSL from the same checked operation sequence.
 
 ```nupp
-local span = require("binary.span")
+local span = binary.span
 
 @aot(target = "gpu")
 local function scale(
@@ -42,7 +42,6 @@ specification. The application allocates buffers, compiles the specification,
 binds buffers in parameter order, and dispatches scalar uniforms separately:
 
 ```nupp:fragment
-local gpu = require("gpu")
 local kernels = require("kernels")
 local array = nupp.mem.array
 
@@ -50,7 +49,7 @@ local source = array.scalar(array.float, 1024)
 local result = array.scalar(array.float, 1024)
 
 do
-    local context = gpu.open()
+    local context = io.gpu.open()
     do
         local input = context:buffer(array.float, 1024)
         local output = context:buffer(array.float, 1024)
@@ -81,8 +80,8 @@ borrows the closed value, and any use after a close. A local in a `do` block
 gives each one lexical extent; `own.drop(buffer)` releases a buffer early.
 Closing a root buffer
 releases its allocation, and closing a view ends only the view. No close
-suspends. `gpu.open()` raises when no device can be opened, so a program with
-another way to run asks `gpu.available()` first.
+suspends. `io.gpu.open()` raises when no device can be opened, so a program with
+another way to run asks `io.gpu.available()` first.
 
 ## Map kernels
 
@@ -112,13 +111,12 @@ position.
 
 ## Structured workgroups
 
-`gpu.workgroups(groups, size, controller)` describes a fixed-size workgroup.
+`io.gpu.workgroups(groups, size, controller)` describes a fixed-size workgroup.
 The controller allocates bounded scratch and divides execution into immediate
 `phases:run` callbacks:
 
 ```nupp
-local gpu = require("gpu")
-local span = require("binary.span")
+local span = binary.span
 
 @aot(target = "gpu")
 local function reduce(
@@ -129,7 +127,7 @@ local function reduce(
         math.u32.wrap(#input),
         math.u32.wrap(4)
     )
-    gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
+    io.gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: io.gpu.Phases)
         local shared = phases:scratch(math.f32.narrow(0.0), 4)
         phases:run(function(localIndex: uint32)
             local cursor = math.u32.add(
@@ -164,7 +162,7 @@ artifact; unordered and atomic reductions are not part of this contract.
 ## Tensor layouts and fixed-width storage
 
 `Context:tensor(element, shape)` allocates dense row-major storage. The
-`gpu.layout` module (imported as `layout`) builds one with
+`io.gpu.layout` module (imported as `layout`) builds one with
 `layout.new(shape, strides, offset?)` and provides `layout.subview`,
 `layout.transpose`, `layout.broadcast`, and `layout.asStrided` to transform
 checked layout values without allocating. A layout provides `dimensions()`,
@@ -200,7 +198,7 @@ kernels use `binary.span.Span` and `binary.span.WriteSpan`; the Worker transfers
 bounded copies between guest storage and WebGPU buffers:
 
 ```nupp
-local span = require("binary.span")
+local span = binary.span
 local array = nupp.mem.array
 
 @aot(target = "gpu")
@@ -238,7 +236,7 @@ host around this kernel.
 translates that module for Metal internally; Nupp does not ship a second Metal
 artifact or a shader translator. `nupp aot --emit wgsl FILE` prints the browser
 WebGPU artifact when the kernel belongs to the portable profile. The AOT report
-records the GPU family and the compiler's verified resource facts. Its `gpu`
+records the GPU family and the compiler's verified resource facts. Its `io.gpu`
 object names the shader digest, authored source position, entrypoint and
 workgroup width. `nupp build --remarks-out` also records `GPU-DISPATCH` at the
 authored declaration, including that same digest.
@@ -261,6 +259,6 @@ host before dispatch.
   for the exact `@aot` arguments
 - [build-and-artifacts.md](build-and-artifacts.md) for AOT target policies and
   artifact caching
-- [](gpu) for the generated binding and resident-buffer API
-- [](gpu.layout) for layout functions
+- [](io.gpu) for the generated binding and resident-buffer API
+- [](io.gpu.layout) for layout functions
 :::

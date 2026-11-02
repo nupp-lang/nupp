@@ -1,14 +1,14 @@
 module gemm
 
-const assert2 = require("assert")
+const assert2 = assert
 
 -- Naive GEMM over row-major binary32 matrices: c[m x n] = a[m x k] * b[k x n].
 -- Each dispatched thread owns one output element. Its one-based loop index is
 -- converted to a zero-based row and column, and every a/b access is a proved
 -- cursor whose bound check the shader keeps, so the matrix buffers may have the
 -- independently sized dimensions the uniforms describe.
-local span = require("binary.span")
-local gpu = require("gpu")
+local span = binary.span
+local gpu = io.gpu
 
 -- Small conformance kernels separate storage binding and scalar-uniform
 -- failures before the full GEMM makes either one look like a zero result.

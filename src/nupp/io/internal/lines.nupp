@@ -138,7 +138,7 @@ end
 --- @raises string when limit is not a positive integer
 --- @export
 export function newLines(takes source: Reader, limit: integer?): affine(Lines)
-    const bound = positive(limit or 65536, "io.newLines limit", 2)
+    const bound = positive(limit or 65536, "io.newlines limit", 2)
 
     return new LineReader(_source = source, _held = "", _at = 0, _limit = bound, _closed = false, _ended = false)
 end

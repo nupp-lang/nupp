@@ -7,7 +7,7 @@ module nupp.text
 other, and the string is built once instead of once per concatenation.
 
 ```nupp
-local text = require("nupp.text")
+local text = nupp.text
 
 const out = text.newbuffer()
 out:put("hello", ", ", "world")

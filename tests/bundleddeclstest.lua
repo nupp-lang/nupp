@@ -110,9 +110,9 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         ["io.http.spi"] = "/io/http/spi.nupp",
         ["io.net"] = "/io/net/init.nupp",
         ["io.net.spi"] = "/io/net/spi.nupp",
-        ["io.terminal"] = "/io/terminal.nupp",
-        ["io.tls"] = "/io/tls/init.nupp",
-        ["io.tls.spi"] = "/io/tls/spi.nupp",
+        ["io.cli"] = "/io/cli/init.nupp",
+        ["io.net.tls"] = "/io/net/tls/init.nupp",
+        ["io.net.tls.spi"] = "/io/net/tls/spi.nupp",
         ["nupp.runtime.standardcoroutine"] = "/nupp/runtime/standardcoroutine.nupp",
     }
     for name, path in pairs(sources) do
@@ -445,7 +445,7 @@ end
 -- A public standard module the compiler ships but cannot load the types of
 -- resolves to `unknown` at every consumer, and a field read on `unknown` says
 -- "no field X in unknown" rather than naming the module that was never loaded.
--- That is how `nupp.io.net` and `nupp.io.tls` sat unresolvable: both were
+-- That is how `nupp.io.net` and `io.net.tls` sat unresolvable: both were
 -- staged into the distribution and classified as public, and neither was in
 -- the table the checker loads types from. A consumer got `unknown` for the
 -- whole module, so a call to a function that does not exist read the same as
@@ -510,7 +510,7 @@ function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()
     local overrides = {
         ["/nupp/io/init.nupp"] = false,
         ["/nupp/io.nupp"] = "@!internal\nmodule nupp.io\nexport record Token value: integer end\n",
-        ["/nupp/io/process/init.nupp"] = "module nupp.io.process\nexport const answer: integer = 29\n",
+        ["/nupp/io/child/init.nupp"] = "module nupp.io.child\nexport const answer: integer = 29\n",
         ["/nupp/tasks.nupp"] = false,
         ["/nupp/tasks/init.nupp"] = "@!internal\nmodule nupp.tasks\nexport record Token value: integer end\n",
     }
@@ -530,7 +530,7 @@ function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()
         testAssert.eq(ioModule.resource, "/nupp/io.nupp")
         testAssert.eq(env.bundledImplementation("nupp.io"), "/nupp/io.nupp")
         assert(env.moduleAccess(env, "application", "nupp.io"))
-        testAssert.eq(env.moduleAccess(env, "application", "nupp.io.process"), nil)
+        testAssert.eq(env.moduleAccess(env, "application", "nupp.io.child"), nil)
         testAssert.eq(env.moduleAccess(env, "io.facade", "nupp.io"), nil)
         local tasks = env.loadBundledModule("nupp.tasks")
         assert(tasks and tasks.exports.types.Token)

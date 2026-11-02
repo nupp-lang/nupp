@@ -9,8 +9,7 @@ A binding defines how a value is read and constructed, and a codec chooses its
 wire representation. Select the binding at the call site:
 
 ```nupp:playground
-local serde = require("serde")
-local json = require("serde.json")
+local json = serde.json
 local record User
     id: uint32
     name: string?
@@ -44,8 +43,7 @@ same Nupp record.
 Mapping options belong to a binding. A field mapping is a whitelist:
 
 ```nupp
-local serde = require("serde")
-local json = require("serde.json")
+local json = serde.json
 local record User
     name: string
     token: string?
@@ -99,9 +97,8 @@ record.
 model's own member type:
 
 ```nupp
-local serde = require("serde")
-local adapters = require("serde.adapters")
-local json = require("serde.json")
+local adapters = serde.adapters
+local json = serde.json
 local record Member is serde.Member
     @readonly name: string
     @readonly index: integer?
@@ -134,8 +131,8 @@ profile. They distinguish a document boundary from its contents, so a protocol
 can interpret a document-valued member separately from the value inside it.
 
 ```nupp
-local document = require("serde.document")
-local json = require("serde.json")
+local document = serde.document
+local json = serde.json
 local adapter = document.adapter()
 local value = document.object({
     new document.Entry(name = "count", value = document.numbertoken("18446744073709551615")),
@@ -163,9 +160,8 @@ A typed view retains its value and explicit binding without building a document
 tree. Serialization reads the current value through that binding:
 
 ```nupp
-local serde = require("serde")
-local document = require("serde.document")
-local json = require("serde.json")
+local document = serde.document
+local json = serde.json
 local record Counter
     count: integer
 end
@@ -222,8 +218,7 @@ same bindings. It preserves rich scalar values and document boundaries, and
 refuses unsupported hosts before selecting a binding.
 
 ```nupp
-local serde = require("serde")
-local native = require("serde.native")
+local native = serde.native
 local record Save
     level: integer
     inventory: {string}

@@ -5,7 +5,7 @@ module coroutine.suspension.host
 Schedulers use its driver operations to pass waits to the enclosing host.
 
 ```nupp:fragment
-local host = require("coroutine.suspension.host")
+local host = coroutine.suspension.host
 
 local function application(): nil
     do

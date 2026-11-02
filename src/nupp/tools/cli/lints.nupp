@@ -8,11 +8,11 @@ what would be enforced in this tree. A lint whose level a project moved says so
 beside its summary, since the difference is the thing worth noticing.
 ]]
 
-const terminal2 = require("io.terminal")
+const terminal2 = require("io.cli")
 
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 local report = require("nupp.tools.cli.report")
 
 local REPORT_SCHEMA = {

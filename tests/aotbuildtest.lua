@@ -1382,7 +1382,7 @@ function M.gpuDispatchesPastOneDimensionsWorkgroupLimit()
 module gpucheck
 
 local span = require("binary.span")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 
 @aot(target = "gpu")
 local function increment(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
@@ -1420,7 +1420,7 @@ export const tiled = tiled
 io.stdout:setvbuf("no")
 require("nupp.runtime.standardcoroutine")
 local ffi = require("ffi")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local span = require("binary.span")
 local gpucheck = require("gpucheck")
 local opened, context = pcall(gpu.open)
@@ -1524,7 +1524,7 @@ function M.gpuWorkgroupsRunTheGroupsTheirCpuDefinitionRuns()
 module gpucheck
 
 local span = require("binary.span")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 
 @aot(target = "gpu")
 local function tiled(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): nil
@@ -1549,7 +1549,7 @@ export const tiledCpu = tiledCpu
     local script = searchPathPrelude()
         .. [[
 local ffi = require("ffi")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local span = require("binary.span")
 local array = require("nupp.mem.array")
 local gpucheck = require("gpucheck")

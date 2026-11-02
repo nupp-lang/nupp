@@ -14,7 +14,7 @@ the files a change touched rather than on the whole tree.
 ]]
 
 local usageError = require("nupp.tools.cli.error").forCommand("fmt")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 
 local REPORT_SCHEMA = {
     type = "object",

@@ -518,7 +518,7 @@ end
 
 function M.aWritableViewThatRepeatsAnElementIsRefused()
     local context, element, kernel = gpuContext()
-    local layout = require("gpu.layout")
+    local layout = require("io.gpu.layout")
     local output = context:buffer(element, 4)
     local binding = context:bindkernel(kernel, 4)
     -- Every element of the view is the allocation's first: four threads would race to
@@ -536,7 +536,7 @@ end
 
 function M.oneAllocationCannotBeBoundForReadingAndWriting()
     local context, element, kernel = gpuContext()
-    local layout = require("gpu.layout")
+    local layout = require("io.gpu.layout")
     local shared = context:buffer(element, 8)
     local other = context:buffer(element, 8)
 
@@ -583,7 +583,7 @@ function M.aTaskCancelledInAFileOperationSettlesCancelled()
     local seen = {}
     local ok, status = app.run(
         function()
-            local path = assert(files.applicationPath("data", "org", "app"))
+            local path = assert(files.apppath("data", "org", "app"))
             local child
             scoped(tasks, function(scope)
                 child = scope:spawn(function()
