@@ -1541,6 +1541,45 @@ function tagged.forVersion(version: integer): any
 
                 return stepped(stat, state, 8, 2)
             end
+            -- `for names in f, s, c`: f(s, c) each step, as Lua runs any
+            -- iterator, a wrapped coroutine's included; the loop leaves at a
+            -- nil first result.
+            if graph.genericIterator(stat) then
+                need(#stat.names >= 1 and #stat.names <= 16, "a generic for names one to sixteen values")
+                local values: any = nil
+                if #stat.exprs == 1 and graph.expandsResults(source) then
+                    values = profile.callResults(ctx, source, 3)
+                else
+                    need(#stat.exprs <= 3, "a generic for takes at most three values")
+                    local kinds = {}
+                    for index = 1, #stat.exprs do
+                        kinds[index] = "tagged"
+                    end
+                    values = ctx.operands(stat.exprs, kinds)
+                end
+                if values == nil then
+                    return nil
+                end
+                local controls = {}
+                for index = 1, 3 do
+                    controls[index] = values[index] or ctx.emit(stat, "Nil", {}, "tagged")
+                end
+
+                return {
+                    values = controls,
+                    iterate = function(c: any, node: any, v: any): {integer}?
+                        local contract = graph.iteratorInvokeContract(stat, #stat.names)
+                        return landed(c, node, c.invokeMany(node, v[1], {v[2], v[3]}, contract, #stat.names))
+                    end,
+                    ended = function(c: any, node: any, first: integer): integer
+                        local none = c.emit(node, "Nil", {}, "tagged")
+                        return c.emit(node, "Eq", {first, none}, "tagged")
+                    end,
+                    none = function(c: any, node: any): integer
+                        return c.emit(node, "Nil", {}, "tagged")
+                    end
+                }
+            end
             need(
                 #stat.exprs == 1
                 and source.kind == "call"

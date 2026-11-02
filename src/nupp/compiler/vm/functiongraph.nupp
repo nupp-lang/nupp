@@ -1298,90 +1298,158 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     finishTemporaries(statementDepth, stat)
                     return
                 end
-                need(#plan.values >= 1 and plan.values[1] > g.nparams, "numeric for counter must be a fresh value")
-                local held = {}
-                for index, value in ipairs(plan.values) do
-                    held[index] = ctx.hold(value)
-                end
-
-                local function controls(): any
-                    local result = {}
-                    for index, handle in ipairs(held) do
-                        result[index] = ctx.readHeld(handle)
+                if generic and plan.iterate then
+                    -- `for names in f, s, c`: each iteration calls f(s, c),
+                    -- which may run any code, so the call opens the header;
+                    -- a nil first result leaves, and it is the next control.
+                    -- Every loop value lives in a handle made before the loop.
+                    local held = {}
+                    for index, value in ipairs(plan.values) do
+                        held[index] = ctx.hold(value)
                     end
-
-                    return result
-                end
-
-                -- Lua's shape: a guard before the first iteration and a test
-                -- after every advance. They differ for floating NaN controls,
-                -- so the profile supplies both; either may be negated.
-                local function test(hook: any): (integer, boolean)
+                    local named = {held[3]}
+                    for index = 2, #stat.names do
+                        named[index] = ctx.hold(plan.none(ctx, stat))
+                    end
+                    local before = block
+                    local header = branch()
+                    before.term = {kind = "jump", edges = {header.edge}, pos = position(stat)}
+                    resume(header)
                     context()
-                    local value, negate = hook(ctx, stat, controls())
-                    need(ctx.block == block, "numeric for test must stay in its block")
-                    return value, negate == true
-                end
-
-                local function decide(value: integer, negate: boolean, enter: any, leave: any): nil
-                    block.term = {
-                        kind = "branch",
-                        value = value,
-                        edges = negate and {leave, enter} or {enter, leave},
-                        pos = position(stat)
-                    }
-                    block = nil
-                end
-
-                local guard, negateGuard = test(plan.first)
-                local before = block
-                local body, exit = branch(), branch()
-                block = before
-                decide(guard, negateGuard, body.edge, exit.edge)
-                resume(body)
-                -- `continue` advances the counter, so the latch exists before
-                -- the body. Its parameters are the body's loop-carried state.
-                local latch = branch()
-                loops[#loops + 1] = {exit = exit, continueTo = latch, cleanupDepth = #cleanups}
-                if generic then
-                    context()
-                    local bound = plan.bind(ctx, stat, controls())
+                    local results = plan.iterate(ctx, stat, {
+                        ctx.readHeld(held[1]),
+                        ctx.readHeld(held[2]),
+                        ctx.readHeld(held[3])
+                    })
                     block = ctx.block
-                    for index, name in ipairs(stat.names) do
-                        local key = name.definition or name
-                        ctx.bind(
-                            key,
-                            initializeBinding(stat, key, need(bound[index], "generic for name lacks a value"))
-                        )
+                    if block and results then
+                        for index, handle in ipairs(named) do
+                            bindings[handle] = need(results[index], "generic for name lacks a value")
+                        end
+                        context()
+                        local ended = plan.ended(ctx, stat, ctx.readHeld(named[1]))
+                        need(ctx.block == block, "generic for test must stay in its block")
+                        local body, exit = branch(), branch()
+                        block.term = {
+                            kind = "branch",
+                            value = ended,
+                            edges = {exit.edge, body.edge},
+                            pos = position(stat)
+                        }
+                        block = nil
+                        loops[#loops + 1] = {exit = exit, continueTo = header, cleanupDepth = #cleanups}
+                        resume(body)
+                        for index, name in ipairs(stat.names) do
+                            local key = name.definition or name
+                            ctx.bind(key, initializeBinding(stat, key, ctx.readHeld(named[index])))
+                        end
+                        local depth = #cleanups
+                        statements(stat.body.stats)
+                        if cleanupEnabled then
+                            finishScope(depth, stat)
+                        end
+                        if block then
+                            jump(header, stat)
+                        end
+                        loops[#loops] = nil
+                        resume(exit)
+                    end
+                    for index = #named, 2, -1 do
+                        ctx.release(named[index])
+                    end
+                    for index = #held, 1, -1 do
+                        ctx.release(held[index])
+                    end
+                    if not block then
+                        finishTemporaries(statementDepth, stat)
+                        return
                     end
                 else
-                    local key = stat.var.definition or stat.var
-                    ctx.bind(key, initializeBinding(stat, key, controls()[1]))
-                end
-                local depth = #cleanups
-                statements(stat.body.stats)
-                if cleanupEnabled then
-                    finishScope(depth, stat)
-                end
-                if block then
-                    jump(latch, stat)
-                end
-                loops[#loops] = nil
-                resume(latch)
-                context()
-                local advanced, wrapped = plan.advance(ctx, stat, controls())
-                need(ctx.block == block, "numeric for advance must stay in its block")
-                bindings[held[1]] = advanced
-                if wrapped then
-                    local stay = branch()
-                    decide(wrapped, false, currentEdge(exit), stay.edge)
-                    resume(stay)
-                end
-                local continuing, negate = test(plan.test)
-                decide(continuing, negate, currentEdge(body), currentEdge(exit))
-                resume(exit)
-                for index = #held, 1, -1 do
-                    ctx.release(held[index])
+                    need(#plan.values >= 1 and plan.values[1] > g.nparams, "numeric for counter must be a fresh value")
+                    local held = {}
+                    for index, value in ipairs(plan.values) do
+                        held[index] = ctx.hold(value)
+                    end
+
+                    local function controls(): any
+                        local result = {}
+                        for index, handle in ipairs(held) do
+                            result[index] = ctx.readHeld(handle)
+                        end
+
+                        return result
+                    end
+
+                    -- Lua's shape: a guard before the first iteration and a test
+                    -- after every advance. They differ for floating NaN controls,
+                    -- so the profile supplies both; either may be negated.
+                    local function test(hook: any): (integer, boolean)
+                        context()
+                        local value, negate = hook(ctx, stat, controls())
+                        need(ctx.block == block, "numeric for test must stay in its block")
+                        return value, negate == true
+                    end
+
+                    local function decide(value: integer, negate: boolean, enter: any, leave: any): nil
+                        block.term = {
+                            kind = "branch",
+                            value = value,
+                            edges = negate and {leave, enter} or {enter, leave},
+                            pos = position(stat)
+                        }
+                        block = nil
+                    end
+
+                    local guard, negateGuard = test(plan.first)
+                    local before = block
+                    local body, exit = branch(), branch()
+                    block = before
+                    decide(guard, negateGuard, body.edge, exit.edge)
+                    resume(body)
+                    -- `continue` advances the counter, so the latch exists before
+                    -- the body. Its parameters are the body's loop-carried state.
+                    local latch = branch()
+                    loops[#loops + 1] = {exit = exit, continueTo = latch, cleanupDepth = #cleanups}
+                    if generic then
+                        context()
+                        local bound = plan.bind(ctx, stat, controls())
+                        block = ctx.block
+                        for index, name in ipairs(stat.names) do
+                            local key = name.definition or name
+                            ctx.bind(
+                                key,
+                                initializeBinding(stat, key, need(bound[index], "generic for name lacks a value"))
+                            )
+                        end
+                    else
+                        local key = stat.var.definition or stat.var
+                        ctx.bind(key, initializeBinding(stat, key, controls()[1]))
+                    end
+                    local depth = #cleanups
+                    statements(stat.body.stats)
+                    if cleanupEnabled then
+                        finishScope(depth, stat)
+                    end
+                    if block then
+                        jump(latch, stat)
+                    end
+                    loops[#loops] = nil
+                    resume(latch)
+                    context()
+                    local advanced, wrapped = plan.advance(ctx, stat, controls())
+                    need(ctx.block == block, "numeric for advance must stay in its block")
+                    bindings[held[1]] = advanced
+                    if wrapped then
+                        local stay = branch()
+                        decide(wrapped, false, currentEdge(exit), stay.edge)
+                        resume(stay)
+                    end
+                    local continuing, negate = test(plan.test)
+                    decide(continuing, negate, currentEdge(body), currentEdge(exit))
+                    resume(exit)
+                    for index = #held, 1, -1 do
+                        ctx.release(held[index])
+                    end
                 end
             elseif stat.kind == "repeatStmt" then
                 -- The condition is evaluated in the body's scope and closes it;

@@ -523,6 +523,10 @@ function verify.resultKind(g: any, signature: any, output: any): string
         if term.kind == "return" then
             -- The copied term still distinguishes absent return from NIL SSA.
             local kind = term.value and need(kinds[term.value], "unresolved return") or "nil"
+            -- From v8 a closure is returned as the value it is.
+            if dynamic and kind:sub(1, 9) == "function:" then
+                kind = "value"
+            end
             -- Several results, or a spread pack, are dynamic values.
             if term.values ~= nil or term.spread ~= nil then
                 need(dynamic, "several results need dynamic values")

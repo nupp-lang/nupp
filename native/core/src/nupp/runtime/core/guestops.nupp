@@ -265,21 +265,13 @@ export function uncallable(ctx: voidptr, callee: uint64): uint64
     return 0ULL
 end
 
--- 1 when a dynamic callsite's signature admits the callee's: the same
--- parameter count, and a result the site takes as given or as any value.
+-- 1 when a dynamic callsite's signature admits the callee's: a result the
+-- site takes as given or as any value. The counts may differ: as Lua calls,
+-- extra arguments are dropped and missing ones are nil.
 local function compatibleSignatures(c: voidptr, site: uint64, callee: uint64): uint64
     local records = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures"))
     local a = native.offset(records, native.index(site * native.sizeOf<catalog.Signature>()))
     local b = native.offset(records, native.index(callee * native.sizeOf<catalog.Signature>()))
-    -- A variadic site signature, an erased generic pack's, takes any count.
-    if native.load64(a, native.fieldOffset<catalog.Signature>("variadic")) ~= 1ULL
-        and native.load64(
-            a,
-            native.fieldOffset<catalog.Signature>("parameterCount")
-        ) ~= native.load64(b, native.fieldOffset<catalog.Signature>("parameterCount"))
-    then
-        return 0ULL
-    end
     local wanted = native.load64(a, native.fieldOffset<catalog.Signature>("resultKind"))
     if wanted ~= catalog.VALUE and wanted ~= native.load64(b, native.fieldOffset<catalog.Signature>("resultKind")) then
         return 0ULL
@@ -381,10 +373,10 @@ export function prepare(
     local fixed = declared
     if variadic then
         fixed = declared - 1ULL
-        if nargs < fixed then
+        if nargs < fixed and not dynamic then
             return 0ULL
         end
-    elseif declared ~= nargs then
+    elseif declared ~= nargs and not dynamic then
         return 0ULL
     end
     local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
@@ -393,7 +385,12 @@ export function prepare(
     at = 0ULL
     while at < fixed do
         local kind = native.load64(data, native.index(kinds + at * 8ULL))
-        if catalog.scalar(kind, native.load64(window, native.index((base + 1ULL + at) * 8ULL))) == 0ULL then
+        -- A parameter past the arguments given is nil.
+        local value = values.NIL
+        if at < nargs then
+            value = native.load64(window, native.index((base + 1ULL + at) * 8ULL))
+        end
+        if catalog.scalar(kind, value) == 0ULL then
             return 0ULL
         end
         at = at + 1ULL
@@ -446,14 +443,15 @@ export function packVarargs(ctx: voidptr, frame: voidptr, child: voidptr, base: 
     end
     local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
     local fixed = declared - 1ULL
-    if nargs < fixed then
-        return 0ULL
-    end
     local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
     local pack = guestscope.newTable(ctx)
     local slots = native.loadPointer(child, native.fieldOffset<frames.Frame>("values"))
     native.store64(slots, native.index(declared * 8ULL), values.TAG_OBJ | pack)
-    local count = nargs - fixed
+    -- A dynamic call may give fewer than the fixed ones: then none extra.
+    local count: uint64 = 0ULL
+    if nargs > fixed then
+        count = nargs - fixed
+    end
     guestscope.tableSet(ctx, pack, values.TAG_INTEGER, values.TAG_INTEGER | count)
     local k: uint64 = 0ULL
     while k < count do

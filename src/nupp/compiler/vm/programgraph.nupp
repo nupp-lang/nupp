@@ -648,6 +648,12 @@ function program.describe(modules: {any}, entryModule: string): any
             local item = {id = #p.calls, owner = owner.id, node = node, field = true}
             p.calls[#p.calls + 1], p.callByNode[node] = item, item
         end
+        -- A generic `for` over anything but ipairs, pairs or gmatch calls its
+        -- iterator each step: the statement is that call's callsite.
+        if node.kind == "forinStmt" and graph.genericIterator(node) then
+            local item = {id = #p.calls, owner = owner.id, node = node, iterator = true}
+            p.calls[#p.calls + 1], p.callByNode[node] = item, item
+        end
         -- A record method call reaches its method through the table the
         -- record's name holds, so the caller references that binding: a
         -- synthetic token per call, which capture analysis then transports.
@@ -946,6 +952,14 @@ function program.verify(p: any): boolean
                 "method callsite identity mismatch"
             )
             need(referenceOwners[item.classToken] == item.owner, "method callsite does not belong to its checked owner")
+        elseif item.iterator then
+            need(
+                node.kind == "forinStmt"
+                and graph.genericIterator(node)
+                and p.callByNode[node] == item
+                and item.definition == nil,
+                "iterator callsite identity mismatch"
+            )
         elseif item.construct then
             need(
                 node.kind == "call"

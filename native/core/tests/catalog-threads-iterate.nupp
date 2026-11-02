@@ -1,0 +1,113 @@
+module nupp.core.catalogthreadsiterate
+
+-- Generic `for` over wrapped coroutines, and typed coroutine protocols: a
+-- body that declares what it yields and what it is resumed with.
+local score = 0
+
+local function upTo(n: integer): any
+    return coroutine.wrap(function(): nil
+        for i = 1, n do
+            coroutine.yield(i)
+        end
+    end)
+end
+
+local sum = 0
+for value in upTo(4) do
+    sum = sum + value
+end
+if sum == 10 then
+    score = score + 1
+end
+
+-- Several values per step, the loop ending at the first nil.
+local pairsOf = coroutine.wrap(function(): nil
+    coroutine.yield(1, "a")
+    coroutine.yield(2, "bb")
+end)
+local joined = ""
+local total = 0
+for index, text in pairsOf do
+    joined = joined .. text
+    total = total + index
+end
+if joined == "abb" and total == 3 then
+    score = score + 2
+end
+
+-- A typed protocol: what the body yields and what resumes it.
+local function worker(start: integer) yields(integer) resumes(boolean): string
+    local again: boolean = coroutine.yield(start)
+    local count = start
+    while again do
+        count = count + 1
+        again = coroutine.yield(count)
+    end
+
+    return "stopped at " .. tostring(count)
+end
+
+local co = coroutine.create(worker)
+local _, first = coroutine.resume(co, 5)
+local _, second = coroutine.resume(co, true)
+local _, third = coroutine.resume(co, true)
+local _, last = coroutine.resume(co, false)
+if first == 5 and second == 6 and third == 7 and last == "stopped at 7" then
+    score = score + 4
+end
+
+-- Nested generators: an outer one draws from an inner one.
+local function evens(limit: integer): any
+    return coroutine.wrap(function(): nil
+        for value in upTo(limit) do
+            if value % 2 == 0 then
+                coroutine.yield(value)
+            end
+        end
+    end)
+end
+
+local product = 1
+for value in evens(8) do
+    product = product * value
+end
+if product == 384 then
+    score = score + 8
+end
+
+-- Plain iterators: a closure, and a function given its state and control.
+local function counter(limit: integer): function(): integer?
+    local i: integer = 0
+    return function(): integer?
+        i = i + 1
+        if i <= limit then
+            return i
+        end
+
+        return nil
+    end
+end
+
+local counted = 0
+for n in counter(3) do
+    counted = counted + n
+end
+
+local function nextOf(t: {integer}, i: integer): (integer?, integer?)
+    local j = i + 1
+    local v = t[j]
+    if v == nil then
+        return nil, nil
+    end
+
+    return j, v
+end
+
+local weighted = 0
+for i, v in nextOf, {5, 6, 7}, 0 do
+    weighted = weighted + i * (v or 0)
+end
+if counted == 6 and weighted == 38 then
+    score = score + 16
+end
+export = score

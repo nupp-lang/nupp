@@ -1404,9 +1404,32 @@ local function invokeContract(contract: any): nil
             handled = true,
             callback = true,
             given = true,
-            spread = true
+            spread = true,
+            iterator = true
         })
         local call, called = contract.call, contract.callSignature
+        -- A generic `for` calling its iterator: the state and the control
+        -- in, as many values out as it names, checked as a call through
+        -- `any` is.
+        if contract.iterator then
+            assert(
+                type(call) == "table"
+                and call.kind == "forinStmt"
+                and graph.genericIterator(call)
+                and anySignatures[call] == called
+                and contract.given == 2,
+                "iterator invoke identity differs"
+            )
+            invokeSignature(called)
+            assert(
+                contract.effects.mayCollect == true
+                and contract.effects.mayRaise == true
+                and contract.effects.mayPark == false
+                and contract.effects.pure == false,
+                "invoke requires conservative scalar guest effects"
+            )
+            return
+        end
         -- A library call's callback: the argument it calls, with the values
         -- the library supplies.
         local callback = contract.callback
@@ -1734,6 +1757,55 @@ end
 -- checked as calls through `any` are.
 local function alternativeResults(called: any): boolean
     return called.tag == "func" and called.retPack ~= nil and called.retPack.alternatives ~= nil
+end
+
+-- Whether a generic `for` calls its iterator: any but the forms the profile
+-- lowers itself, `ipairs(t)`, `pairs(t)` and `s:gmatch(p)`.
+function graph.genericIterator(stat: any): boolean
+    local source = stat.exprs and stat.exprs[1]
+    if source == nil then
+        return false
+    end
+    if #stat.exprs == 1
+        and source.kind == "call"
+        and (source.resolvedGlobal == "ipairs" or source.resolvedGlobal == "pairs")
+    then
+        return false
+    end
+
+    return not (#stat.exprs == 1 and graph.coreLibraryCall(source) == "string.gmatch")
+end
+
+-- The contract of a generic `for`'s call of its iterator, keeping `count`
+-- results: two values in, all `any`.
+function graph.iteratorInvokeContract(stat: any, count: integer): any
+    local held = anySignatures[stat]
+    if held == nil or #held.rets ~= count then
+        local params, modes = {{tag = "any"}, {tag = "any"}}, {"plain", "plain"}
+        local rets, retModes = {}, {}
+        for index = 1, count do
+            rets[index], retModes[index] = {tag = "any"}, "plain"
+        end
+        held = {
+            tag = "func",
+            params = params,
+            paramPack = {head = params, modes = modes},
+            rets = rets,
+            retPack = {head = rets, modes = retModes}
+        }
+        anySignatures[stat] = held
+    end
+    local contract = {
+        dynamic = true,
+        iterator = true,
+        given = 2,
+        call = stat,
+        callSignature = held,
+        effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
+    }
+    invokeContract(contract)
+
+    return contract
 end
 
 -- `count`: the results the call keeps, which a call through `any` declares.
@@ -2483,8 +2555,9 @@ end
 function graph.verify(g: any): nil
     verifyGraph(g, function(term: any, index: integer): integer
         invokeContract(term.contract)
-        -- A library call's callback takes the values the library supplies.
-        if term.contract.callback then
+        -- A library call's callback takes the values the library supplies, and
+        -- a generic `for`'s iterator its state and control.
+        if term.contract.callback or term.contract.iterator then
             return term.contract.given
         end
         -- A spread `...` last is the term's pack, not one of its arguments; a

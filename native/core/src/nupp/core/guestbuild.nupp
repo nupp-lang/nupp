@@ -94,7 +94,8 @@ local CASES: {[string]: {
     recordsAffineReturns = {fixture = "catalog-records-affine-returns", version = 8},
     threadsBasic = {fixture = "catalog-threads-basic", version = 8},
     threadsCalls = {fixture = "catalog-threads-calls", version = 8},
-    threadsClose = {fixture = "catalog-threads-close", version = 8}
+    threadsClose = {fixture = "catalog-threads-close", version = 8},
+    threadsIterate = {fixture = "catalog-threads-iterate", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.
