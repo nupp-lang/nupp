@@ -371,8 +371,7 @@ input {
 .nuppdoc-content {
     width: min(100% - 10rem, var(--nuppdoc-content-width));
     margin: 0 auto;
-    padding: 1.25rem 0 6rem;
-    font-size: .88rem
+    padding: 1.25rem 0 6rem
 }
 
 .nuppdoc-content h1,
@@ -1843,12 +1842,6 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 
     .nuppdoc-sidebar a,
     .nuppdoc-sidebar-section summary {
-        font-size: 1rem
-    }
-}
-
-@media(max-width:760px) {
-    .nuppdoc-content {
         font-size: 1rem
     }
 }
