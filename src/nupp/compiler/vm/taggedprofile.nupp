@@ -9,6 +9,31 @@ local tagged = {booleanKind = "tagged"}
 -- fields), whose calls report ownership moves to it.
 local cleanupGraphs: {[any]: boolean} = setmetatable({}, {__mode = "k"})
 
+-- After a call in a function that owns affine values: when an error landed
+-- here, the failure path destroys the owners and raises it again.
+local function landed(ctx: any, node: any, result: any): any
+    if not cleanupGraphs[ctx.g] or ctx.block == nil then
+        return result
+    end
+    local none = ctx.emit(node, "Nil", {}, "tagged")
+    local status = ctx.emit(node, "LibCall", {45, none}, "tagged")
+    if type(result) == "table" then
+        local held = {}
+        for index, value in ipairs(result) do
+            held[index] = ctx.hold(value)
+        end
+        ctx.afterCall(node, nil, status)
+        local values = {}
+        for index, handle in ipairs(held) do
+            values[index] = ctx.readHeld(handle)
+            ctx.release(handle)
+        end
+        return values
+    end
+
+    return ctx.afterCall(node, result, status)
+end
+
 local function need(ok: any, message: string): any
     assert(ok, "tagged graph: " .. message)
     return ok
@@ -449,10 +474,10 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
         ctx.beforeCall(node)
     end
     if count then
-        return ctx.invokeMany(node, value, args, contract, count, pack)
+        return landed(ctx, node, ctx.invokeMany(node, value, args, contract, count, pack))
     end
 
-    return ctx.invoke(node, value, args, contract, keepResult, pack)
+    return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult, pack))
 end
 
 -- A field's default, which the checker keeps as its closed value: an
@@ -776,6 +801,7 @@ end
 
 -- A true constant, for the cleanup protocol's conditions: a guest error
 -- unwinds in the runtime, so no call or terminal reports failure here.
+
 local function always(ctx: any, node: any): integer
     return ctx.emit(node, "K", {pool(ctx, "true", "")}, "tagged") as integer
 end
@@ -832,10 +858,10 @@ local function cleanupProfile(base: any): any
     end
     -- Unreachable while every status is true; a failure still has to end its
     -- block, so it raises.
+    -- The landed error goes on, as it was, once the owners are destroyed.
     profile.failure = function(ctx: any, node: any): nil
-        local message = ctx.emit(node, "K", {pool(ctx, "str", "cleanup failed")}, "tagged")
-        ctx.emit(node, "LibCall", {22, message}, "tagged")
         local none = ctx.emit(node, "Nil", {}, "tagged")
+        ctx.emit(node, "LibCall", {46, none}, "tagged")
         ctx.block.term = {kind = "return", value = none, edges = {}, pos = ctx.position(node)}
         ctx.block = nil
     end

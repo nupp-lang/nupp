@@ -42,6 +42,10 @@ export struct Services
     metaSelf: uint64
     -- The value the last recovered error carried, for xpcall's handler.
     lastError: uint64
+    -- 1 while an error landed at a frame that owns affine values: its next
+    -- status check (LANDED) takes the failure path, destroys them and raises
+    -- lastError again.
+    landed: uint64
 end
 
 -- tableSet's answer when a __newindex function is to be called instead.
@@ -126,6 +130,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("raisedLevel"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("fault"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("metaCallee"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("landed"), 0ULL)
     end
 
     return 1ULL
@@ -844,6 +849,58 @@ local function runtimeError(ctx: voidptr): uint64
     end
 end
 
+-- 1 when the function a frame runs owns affine values (its catalog record
+-- lands errors).
+local function lands(ctx: voidptr, frame: uint64): boolean
+    @unsafe do
+        local c = native.loadPointer(ctx, context.CATALOG)
+        local owner = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("functionId"))
+        if owner >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
+            return false
+        end
+        local fn = native.pointer(
+            native.load64(c, native.fieldOffset<catalog.Catalog>("records")) + owner * native.sizeOf<catalog.Function>()
+        )
+        return native.load64(fn, native.fieldOffset<catalog.Function>("lands")) == 1ULL
+    end
+end
+
+-- The frame an error lands at: one that owns affine values and waits on the
+-- call the error came from, if there is one before the nearest protected
+-- call; 0 otherwise.
+local function landingFrame(ctx: voidptr, state: voidptr): uint64
+    @unsafe do
+        local at = native.load64(state, native.fieldOffset<frames.State>("active"))
+        while at ~= 0ULL do
+            if native.load64(
+                native.pointer(at),
+                native.fieldOffset<frames.Frame>("resultKind")
+            ) == frames.PROTECTED_DESTINATION then
+                return 0ULL
+            end
+            local parent = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
+            if parent ~= 0ULL and lands(ctx, parent) then
+                return parent
+            end
+            at = parent
+        end
+        return 0ULL
+    end
+end
+
+-- After a call in a function that owns affine values: false once, when an
+-- error has landed there, else true.
+export function takeLanded(ctx: voidptr): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        if native.load64(services, native.fieldOffset<Services>("landed")) == 1ULL then
+            native.store64(services, native.fieldOffset<Services>("landed"), 0ULL)
+            return values.FALSE
+        end
+        return values.TRUE
+    end
+end
+
 -- After a guest error stops the handlers: unwinds it to the nearest protected
 -- call (frames.recover) and answers the pc to resume at, or 0 when the stop
 -- was not a guest error (a refusal, budget or cancellation is not one) or no
@@ -871,7 +928,18 @@ export function recoverEntry(ctx: voidptr): uint64
         end
         native.store64(services, native.fieldOffset<Services>("lastError"), value)
         local state = native.loadPointer(ctx, context.STATE)
-        local parent = frames.recover(state, value)
+        -- A frame that owns affine values and waits on a call nearer than any
+        -- protected call takes the error first.
+        local landing = landingFrame(ctx, state)
+        local parent: uint64 = 0ULL
+        if landing ~= 0ULL then
+            parent = frames.land(state, landing)
+            if parent ~= 0ULL then
+                native.store64(services, native.fieldOffset<Services>("landed"), 1ULL)
+            end
+        else
+            parent = frames.recover(state, value)
+        end
         if parent == 0ULL then
             return 0ULL
         end

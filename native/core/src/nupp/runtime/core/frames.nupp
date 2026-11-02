@@ -1499,6 +1499,50 @@ export function protect(state: voidptr, child: voidptr): uint64
     return 1ULL
 end
 
+-- Unwinds an error to `target`, a frame on the active chain waiting on a
+-- call: every frame above it is retired, the call it waits on answers
+-- nils, and it is active again, to resume after that call. Answers target,
+-- or 0 when the frames are not as expected.
+export function land(state: voidptr, target: uint64): uint64
+    if validState(state) == 0ULL or target == 0ULL then
+        return 0ULL
+    end
+    local active = native.load64(state, native.fieldOffset<State>("active"))
+    if active == target then
+        return 0ULL
+    end
+    local child = native.load64(native.pointer(active), native.fieldOffset<Frame>("child"))
+    if child ~= 0ULL and native.load64(native.pointer(child), native.fieldOffset<Frame>("phase")) == PREPARED then
+        if abortPrepared(state, native.pointer(active), native.pointer(child)) ~= 1ULL then
+            return 0ULL
+        end
+    end
+    local slot: uint64 = 0ULL
+    local wanted: uint64 = 0ULL
+    while native.load64(state, native.fieldOffset<State>("active")) ~= target do
+        local top = native.load64(state, native.fieldOffset<State>("active"))
+        if top == 0ULL then
+            return 0ULL
+        end
+        if native.load64(native.pointer(top), native.fieldOffset<Frame>("previous")) == target then
+            slot = native.load64(native.pointer(top), native.fieldOffset<Frame>("resultSlot"))
+            wanted = native.load64(native.pointer(top), native.fieldOffset<Frame>("resultCount"))
+        end
+        if abortActive(state, native.pointer(top)) ~= 1ULL then
+            return 0ULL
+        end
+    end
+    local slots = native.loadPointer(native.pointer(target), native.fieldOffset<Frame>("values"))
+    local i: uint64 = 0ULL
+    while i < wanted do
+        native.store64(slots, native.index((slot + i) * 8ULL), values.NIL)
+        i = i + 1ULL
+    end
+    native.store64(state, native.fieldOffset<State>("lastResultCount"), wanted)
+
+    return target
+end
+
 -- Unwinds an error to the nearest protected frame: every frame above it is
 -- retired (an unpublished child of the active frame first), then the
 -- protected frame itself, and its caller gets false and `value` in the

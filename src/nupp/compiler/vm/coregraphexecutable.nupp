@@ -150,6 +150,8 @@ end
 local function derive(g: any, catalog: any): any
     local maximumArguments: integer = 0
     local metaCalls = false
+    -- A function that destroys owners lands errors from its calls.
+    local lands = false
     for _, block in ipairs(g.blocks) do
         -- A capturing closure stages its captures in the call window too.
         for at, op in ipairs(block.op) do
@@ -164,9 +166,12 @@ local function derive(g: any, catalog: any): any
                     maximumArguments = math.max(maximumArguments, 3) as integer
                     metaCalls = true
                 end
+            elseif op == "Destroy" then
+                maximumArguments = math.max(maximumArguments, 3) as integer
+                metaCalls = true
+                lands = true
             elseif op == "GetIdx"
                 or op == "SetIdx"
-                or op == "Destroy"
                 or catalog.schema.version >= 8
                 and (
                     op == "Add"
@@ -514,6 +519,7 @@ local function derive(g: any, catalog: any): any
         constants = copy(g.constants),
         calls = calls,
         metaCalls = metaCalls,
+        lands = lands,
         closureCount = closureCount
     }
 end
