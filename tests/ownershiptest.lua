@@ -5130,10 +5130,10 @@ function M.aQualifiedFunctionCarriesAnAutomaticallyDischargedOwnedContract()
             table.concat(
                 {
                     "local m = {}",
-                    "local function closeFile(takes file: LuaFile): nil",
+                    "local function closeFile(takes file: io.File): nil",
                     "   file:close()",
                     "end",
-                    "function m.open(path: string): affine(LuaFile, closeFile)",
+                    "function m.open(path: string): affine(io.File, closeFile)",
                     "   local file = io.stdin",
                     "   return file",
                     "end",
@@ -5219,10 +5219,10 @@ function M.aQualifiedFunctionAcquiresIntoAnAutomaticLocal()
         table.concat(
             {
                 "local m = {}",
-                "local function closeFile(takes file: LuaFile): nil",
+                "local function closeFile(takes file: io.File): nil",
                 "   file:close()",
                 "end",
-                "function m.open(path: string): affine(LuaFile, closeFile)",
+                "function m.open(path: string): affine(io.File, closeFile)",
                 "   local file = io.stdin",
                 "   return file",
                 "end",

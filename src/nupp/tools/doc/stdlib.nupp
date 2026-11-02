@@ -30,7 +30,6 @@ type stdlib.Navigation = {
     libraries: {stdlib.Entry},
     globals: {stdlib.Entry},
     types: {stdlib.Entry},
-    reflection: {stdlib.Entry},
     annotations: {stdlib.Entry}?
 }
 
@@ -87,13 +86,13 @@ local SOURCES: {
 -- https://www.lua.org/source/5.1/lbaselib.c.html installs newproxy. The public
 -- path identifies the API even when its implementation belongs to Nupp.
 local LUA_NAMES = {
-    ["LuaFile.close"] = true,
-    ["LuaFile.flush"] = true,
-    ["LuaFile.lines"] = true,
-    ["LuaFile.read"] = true,
-    ["LuaFile.seek"] = true,
-    ["LuaFile.setvbuf"] = true,
-    ["LuaFile.write"] = true,
+    ["io.File.close"] = true,
+    ["io.File.flush"] = true,
+    ["io.File.lines"] = true,
+    ["io.File.read"] = true,
+    ["io.File.seek"] = true,
+    ["io.File.setvbuf"] = true,
+    ["io.File.write"] = true,
     ["assert"] = true,
     ["bit32.arshift"] = true,
     ["bit32.band"] = true,
@@ -273,19 +272,6 @@ local TYPES = "The types the declarations above name in their signatures. They a
     .. "written by the prelude rather than by a program, which is why they have no "
     .. "module of their own to be documented from."
 
-local REFLECTION = "What the compiler hands a program about a reified `struct`'s "
-    .. "memory. `layoutof` returns a [](Layout); semantic descriptors instead "
-    .. "live with the callable `types.reflect` namespace. Layout types sit apart from "
-    .. "the types above because reading them is metaprogramming rather than calling "
-    .. "a library."
-
--- The reflection surface, by name. A type belongs here when a program reaches it by
--- asking about a type rather than by calling something. The semantic descriptor graph
--- now belongs to `types.reflect`; this page retains only the intrinsic `Layout` graph a
--- struct's memory is described by. Naming those types is what keeps the list honest --
--- a prelude type added later stays under Types until someone decides it is reflection.
-local REFLECTION_TYPES: {[string]: boolean} = {Layout = true, LayoutField = true,}
-
 -- A value is a global, a type is a type, and everything else on this page is a library
 -- of its own. `item.module` is set on a declaration whose name qualifies it into
 -- another module -- a prelude-qualified record belongs to its owning namespace
@@ -296,10 +282,6 @@ end
 
 local function isType(item: extractMod.Item): boolean
     return not item.module and item.kind ~= "function" and item.kind ~= "variable"
-end
-
-local function isReflection(item: extractMod.Item): boolean
-    return REFLECTION_TYPES[item.name] == true
 end
 
 local function only(items: {extractMod.Item}, wanted: function(extractMod.Item): boolean): {extractMod.Item}
@@ -409,15 +391,7 @@ local function indexMarkdown(page: stdlib.Page): string
             ] = "- [`" .. item.name .. "`](" .. prefix .. urlsMod.moduleFile(owner) .. "#" .. item.path .. ")"
         end
     end
-    section(
-        out,
-        "Types",
-        TYPES,
-        only(page.typeItems, function(item: extractMod.Item): boolean
-            return not isReflection(item)
-        end)
-    )
-    section(out, "Reflection", REFLECTION, only(page.typeItems, isReflection))
+    section(out, "Types", TYPES, page.typeItems)
     section(
         out,
         "Annotations",
@@ -443,7 +417,6 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
         libraries = {},
         globals = {},
         types = {},
-        reflection = {},
         annotations = navigationItems(annotationItems)
     }
     for _, source in ipairs(SOURCES) do
@@ -487,28 +460,29 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
             end
         end
     end
-    -- A qualified declaration belongs to the library that already publishes its
-    -- namespace. Keep that one contract rather than dropping it from both the
-    -- standalone Types list and its actual module page.
+    -- Callable namespaces may have no shape declaration to create their page.
+    -- Keep qualified types with their namespace in either case.
+    local byModule: {[string]: extractMod.Module} = {}
+    for _, library in ipairs(modules) do
+        byModule[library.name] = library
+    end
     for _, item in ipairs(qualified) do
-        for _, library in ipairs(modules) do
-            if library.name == item.module then
-                item.path = library.name .. "." .. item.name
-                for _, member in ipairs(item.members or {}) do
-                    member.path = item.path .. "." .. member.name
-                end
-                library.items[#library.items + 1] = item
-                break
-            end
+        local name = item.module as string
+        local library = byModule[name]
+        if not library then
+            library = {name = name, text = "", items = {}}
+            byModule[name] = library
+            modules[#modules + 1] = library
+            navigation.libraries[#navigation.libraries + 1] = libraryEntry(library)
         end
+        item.path = name .. "." .. item.name
+        for _, member in ipairs(item.members or {}) do
+            member.path = item.path .. "." .. member.name
+        end
+        library.items[#library.items + 1] = item
     end
     anchorByName(types)
-    navigation.types = navigationItems(
-        only(types, function(item: extractMod.Item): boolean
-            return not isReflection(item)
-        end)
-    )
-    navigation.reflection = navigationItems(only(types, isReflection))
+    navigation.types = navigationItems(types)
     markLua(globals)
     markLua(types)
     for _, library in ipairs(modules) do

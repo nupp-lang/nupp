@@ -13,28 +13,10 @@ assert(value == "ready" and gap == nil and count == 2)
 ```
 ]]
 
-local interface Callable
-    eq: function(any, any, string?): any
-    ne: function(any, any, string?): any
-    deepeq: function(any, any, string?): any
-    matches: function(any, string, string?): string
-    raises: function(function(...: any): any, string?): any
-    suite: {
-        skip: function(string): never,
-        isskip: function(any): boolean,
-        skipreason: function(any): string?,
-        cases: function({any}, function(any, integer): string, function(any, integer): any): any,
-        notexecuted: function(string): never,
-        isnotexecuted: function(any): boolean,
-        notexecutedreason: function(any): string?,
-        requirecapability: function(string, boolean, any?): nil,
-        fact: function(string, any): nil,
-        metric: function(string, number, string?): nil,
-        work: function(string, integer): nil,
-        fixture: function(string, function(string): any): (string, any, boolean)
-    }
-    metamethod __call: function<A...>(self, A...): A...
-end
+--- Callable assertions and test-suite operations.
+export type Assertion = assert.Assertion
+
+local type Callable = Assertion
 
 local type BuiltinAssert = function<A...>(A...): A...
 local original = rawget(_G, "assert") as BuiltinAssert

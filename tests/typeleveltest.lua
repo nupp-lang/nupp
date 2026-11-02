@@ -838,7 +838,7 @@ function M.osDateDerivesItsResultFromALiteralFormat()
                 "local utc = os.date('!*t')",
                 "const storedFormat = '*t'",
                 "local stored = os.date(storedFormat)",
-                "local chosen: DateFields | string = os.date(...)",
+                "local chosen: os.DateFields | string = os.date(...)",
                 "local at: number = os.time(os.date('*t'))",
                 "local year: integer, dst: boolean = fields.year, fields.isdst",
                 "return stamp, default, utc.yday, stored.wday, chosen, at, year, dst",

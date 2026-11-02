@@ -261,7 +261,7 @@ end
 ---
 --- The width is taken from the stream rather than asked of the caller, so a command
 --- gets the fitting by printing through here and does not have to know it wanted it.
-export function write(stream: LuaFile, options: Options): nil
+export function write(stream: io.File, options: Options): nil
     local fitted = options
     if options.width == nil then
         -- Asked only of a terminal. `columns` answers for anything, falling back to

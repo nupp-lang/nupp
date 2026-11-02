@@ -18,7 +18,7 @@ end
 local record Lines is Reader
     associated type Item = string
 
-    handle: LuaFile
+    handle: io.File
 end
 ```
 

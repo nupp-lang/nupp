@@ -61,8 +61,8 @@ function toolruns.processors(): integer
     else
         local handle = io.popen("getconf _NPROCESSORS_ONLN 2>/dev/null")
         if handle ~= nil then
-            local line = (handle as LuaFile):read("*l");
-            (handle as LuaFile):close()
+            local line = (handle as io.File):read("*l");
+            (handle as io.File):close()
             found = finite(tonumber(line or "")) as integer?
         end
     end

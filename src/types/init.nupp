@@ -27,6 +27,9 @@ local api = {}
 --- The interface implemented by the Debug provider.
 type api.Debug = nupp.__Debug
 
+--- The C memory layout of a reified struct, with fields of type `Layout.Field`.
+type api.Layout = types.Layout
+
 --- A typed identity for a value in a [](Store).
 type api.Key<T> = store.Key<T>
 

@@ -191,7 +191,7 @@ end
 
 -- "auto", "always" or "never". `0` and `1` are taken too, because an environment
 -- variable is the one place people write those and meaning them is unambiguous.
-local function resolve(mode: string?, stream: LuaFile): boolean
+local function resolve(mode: string?, stream: io.File): boolean
     local wanted = mode or os.getenv("NUPP_PROGRESS") or "auto"
     if wanted == "never" or wanted == "0" then
         return false
@@ -220,7 +220,7 @@ end
 --- Every method is safe to call on a reporter that is not showing anything; the timing
 --- still accumulates, which is what `--json` reads back.
 record progress.Reporter
-    stream: LuaFile
+    stream: io.File
 
     --- Whether anything at all is written.
     showing: boolean
@@ -505,7 +505,7 @@ end
 --- A reporter writing to `stream`, showing what `mode` asks for: "always", "never", or
 --- "auto" to write only to a terminal. Absent, the mode is `NUPP_PROGRESS`, and absent
 --- that, "auto".
-function progress.new(mode: string?, stream: LuaFile?): progress.Reporter
+function progress.new(mode: string?, stream: io.File?): progress.Reporter
     local target = stream or io.stderr
     local showing = resolve(mode, target)
     local started = clock()

@@ -171,7 +171,7 @@ local sink = assert(io.open("game.log", "a"))
 log.setsink(sink)
 ```
 
-`io.open` returns `LuaFile?`, and `setsink` takes a target rather than a maybe,
+`io.open` returns `io.File?`, and `setsink` takes a target rather than a maybe,
 so the `assert` is what turns one into the other. The target is taken: the log
 owns it from then on, and `sink()` reads which one is in force.
 
@@ -264,7 +264,7 @@ type log.Formatter = function(
 
 --- Where lines go: a sink function, or anything file-like to write to.
 --- @export
-type log.Target = log.Sink | LuaFile
+type log.Target = log.Sink | io.File
 
 --- A logger carrying a fixed name, for subsystems and for call sites the intrinsic
 --- cannot rewrite. Changing the level or target restamps every logger, so a filtered

@@ -11,8 +11,8 @@ local terminal = require("nupp.cli.internal.terminal")
 export type ApplicationOptions = {
     name: string?,
     version: string?,
-    stdout: LuaFile?,
-    stderr: LuaFile?,
+    stdout: io.File?,
+    stderr: io.File?,
     cwd: string?,
     environment: {[string]: string}?,
     width: integer?,
@@ -359,12 +359,12 @@ export record Application
     end
 
     --- @internal
-    function stdout(self): LuaFile
+    function stdout(self): io.File
         return self.options.stdout or io.stdout
     end
 
     --- @internal
-    function stderr(self): LuaFile
+    function stderr(self): io.File
         return self.options.stderr or io.stderr
     end
 
@@ -657,7 +657,7 @@ export record Application
     end
 
     --- @internal
-    function styled(self, text: string, stream: LuaFile): string
+    function styled(self, text: string, stream: io.File): string
         local style = terminal.style(stream)
         local inExamples = false
         local lines: {string} = {}

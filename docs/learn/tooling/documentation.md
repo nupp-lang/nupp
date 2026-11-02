@@ -623,8 +623,9 @@ function, and a Lua badge identifies functions with Lua API names even when
 Nupp implements them.
 
 The index links every documented module and groups standalone functions under
-Globals. Intrinsic types and the `Layout` graph appear after the modules.
-The API navigation starts with each library collapsed.
+Globals. Types appear on their owning module pages, including `types.Layout`
+and `types.Layout.Field` on the `types` page. The API navigation starts with
+each library collapsed.
 
 The builtin declarations come from the compiler's prelude and its library
 declaration files, so the reference uses the signatures the checker enforces.

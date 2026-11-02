@@ -62,7 +62,7 @@ and lexical scopes make C pointer lifetimes and deterministic cleanup visible to
 the checker.
 
 ```nupp
-local function consume(borrows file: LuaFile): string
+local function consume(borrows file: io.File): string
     return file:read("*a")
 end
 

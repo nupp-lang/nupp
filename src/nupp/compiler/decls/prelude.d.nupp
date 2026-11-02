@@ -4,7 +4,7 @@
 The `nupp` namespace itself: the intrinsics the compiler owns, and the ambient
 library namespaces reached without a `require`. `nupp` loads this file into every
 check environment with `declare_globals`, after `lua.d.nupp`, so the declarations
-below may name Lua types such as `LuaFile`.
+below may name Lua types such as `io.File`.
 
 ## Conventions
 

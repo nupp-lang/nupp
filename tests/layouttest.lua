@@ -46,6 +46,67 @@ end
 
 local M = {}
 
+function M.descriptorTypesUseTheirOwningNamespaces()
+    local value = runs(
+        [[
+local struct NamespacedLayout
+    x: float
+end
+const {type Layout} = require("types")
+const {type File} = require("io")
+const {type Assertion} = require("assert")
+const {type DateFields} = require("os")
+local layout: types.Layout = layoutof(NamespacedLayout)
+local imported: Layout = layout
+local importedField: Layout.Field = imported.fields[1]
+local field: types.Layout.Field = layout.fields[1]
+local function file(handle: io.File): io.File
+    return handle
+end
+local assertion: assert.Assertion = assert
+local importedAssertion: Assertion = assertion
+local date: os.DateFields = os.date("*t")
+local importedDate: DateFields = date
+local function importedFile(handle: File): File
+    return handle
+end
+importedAssertion(importedField.name == field.name)
+return field.size > 0 and date.month >= 1
+]],
+        "namespaced descriptors"
+    )
+    testAssert.eq(value, true)
+end
+
+function M.fileTypeDoesNotLoadItsImplementation()
+    local isolated = envMod.new(HERE .. "/..")
+    local resolve = isolated.resolveModule
+    local loaded = 0
+    isolated.resolveModule = function(environment, name, ...)
+        if name == "nupp.runtime.standardio" then
+            loaded = loaded + 1
+        end
+        return resolve(environment, name, ...)
+    end
+    local parsed = parser.parse("local function same(handle: io.File): io.File return handle end\nreturn same", "test")
+    for _, diagnostic in ipairs(check.check(parsed, "test", isolated)) do
+        testAssert.ne(diagnostic.severity, "error", diagnostic.msg)
+    end
+    testAssert.eq(loaded, 0, "a prelude type must not initialize the I/O implementation")
+end
+
+function M.retiredGlobalDescriptorTypesAreRejected()
+    for _, name in ipairs({"Layout", "LayoutField", "LuaFile", "Assertion", "DateFields"}) do
+        local found = false
+        for _, diagnostic in ipairs(diagnostics("local value: " .. name .. " = nil\n")) do
+            if diagnostic.severity == "error" and diagnostic.msg:find(name, 1, true) then
+                found = true
+            end
+        end
+        testAssert.eq(found, true, name .. " must not remain global")
+    end
+end
+
 function M.reportsFieldsInDeclarationOrder()
     local l = runs([[
 local struct Vec3

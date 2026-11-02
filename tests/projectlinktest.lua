@@ -732,7 +732,7 @@ function M.aMisspelledCleanupIsReportedAtItsDeclaration()
             ] = [[
 local res = {}
 
-function res.open(path: string): affine(LuaFile, closeFyle)
+function res.open(path: string): affine(io.File, closeFyle)
     local file = io.open(path, "r")
     if not file then error("cannot open " .. path) end
     return file

@@ -20,6 +20,9 @@ local system = require("nupp.runtime.system")
 local clocks = require("nupp.runtime.clocks").selected
 local entropy = require("nupp.runtime.entropy")
 
+--- Calendar fields returned by `os.date("*t")`.
+export type DateFields = os.DateFields
+
 --- The executing ABI and the available parallelism at the time of a query.
 export record Info
     @readonly platform: string

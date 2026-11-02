@@ -179,8 +179,8 @@ local function capable(fd: integer): boolean
 end
 
 local mode: ColorMode = "auto"
-local decided: {[LuaFile]: boolean} = {}
-local terminals: {[LuaFile]: boolean} = {}
+local decided: {[io.File]: boolean} = {}
+local terminals: {[io.File]: boolean} = {}
 local DESCRIPTOR = {[io.stdin] = 0, [io.stdout] = 1, [io.stderr] = 2}
 
 --- Sets the process-wide default color policy.
@@ -203,7 +203,7 @@ export function withColorMode(wanted: ColorMode, body: function(): nil): nil
 end
 
 --- Reports whether escapes should be written to a stream.
-export function colorEnabled(stream: LuaFile): boolean
+export function colorEnabled(stream: io.File): boolean
     local known = decided[stream]
     if known ~= nil then
         return known
@@ -226,7 +226,7 @@ export function colorEnabled(stream: LuaFile): boolean
 end
 
 --- Reports whether a stream is attached to a terminal.
-export function isTerminal(stream: LuaFile): boolean
+export function isTerminal(stream: io.File): boolean
     local known = terminals[stream]
     if known == nil then
         known = isatty(DESCRIPTOR[stream] or 1)
@@ -241,7 +241,7 @@ end
 --- The terminal itself is asked first, because `COLUMNS` is a shell variable
 --- that is usually not exported and is stale whenever it is: a window resized
 --- after the shell started still reports the width it had at login.
-export function columns(stream: LuaFile): integer?
+export function columns(stream: io.File): integer?
     local measured = ioctlColumns(DESCRIPTOR[stream] or 1)
     if measured ~= nil then
         return measured
@@ -252,7 +252,7 @@ export function columns(stream: LuaFile): integer?
 end
 
 --- Returns a stable style table for a stream.
-export function style(stream: LuaFile): Style
+export function style(stream: io.File): Style
     return colorEnabled(stream) and COLORED or PLAIN
 end
 

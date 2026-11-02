@@ -1813,18 +1813,3 @@ local debug: {
 
 --- Joins its messages and routes a warning through the shared log sink.
 local warn: function(message: string, ...: string): nil
-
---- @internal
-type Layout = types.Layout
-
---- @internal
-type LayoutField = types.Layout.Field
-
---- @internal
-type LuaFile = io.File
-
---- @internal
-type Assertion = assert.Assertion
-
---- @internal
-type DateFields = os.DateFields

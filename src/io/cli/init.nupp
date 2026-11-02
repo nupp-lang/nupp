@@ -778,22 +778,22 @@ function cliModule.withcolormode(wanted: cliModule.ColorMode, body: function(): 
 end
 
 --- Reports whether escapes should be written to a stream.
-function cliModule.colorenabled(stream: LuaFile): boolean
+function cliModule.colorenabled(stream: io.File): boolean
     return require("nupp.cli.internal.terminal").colorEnabled(stream)
 end
 
 --- Reports whether a stream is connected to a terminal.
-function cliModule.isterminal(stream: LuaFile): boolean
+function cliModule.isterminal(stream: io.File): boolean
     return require("nupp.cli.internal.terminal").isTerminal(stream)
 end
 
 --- Reports how many columns a stream's terminal has, when it has one.
-function cliModule.columns(stream: LuaFile): integer?
+function cliModule.columns(stream: io.File): integer?
     return require("nupp.cli.internal.terminal").columns(stream)
 end
 
 --- Returns the generic styles selected for a stream.
-function cliModule.style(stream: LuaFile): cliModule.Style
+function cliModule.style(stream: io.File): cliModule.Style
     return require("nupp.cli.internal.terminal").style(stream)
 end
 
@@ -803,7 +803,7 @@ function cliModule.table(options: cliModule.TableOptions): string
 end
 
 --- Renders aligned columns straight to a stream.
-function cliModule.writetable(stream: LuaFile, options: cliModule.TableOptions): nil
+function cliModule.writetable(stream: io.File, options: cliModule.TableOptions): nil
     return require("nupp.cli.internal.table").write(stream, options)
 end
 

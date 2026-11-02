@@ -319,6 +319,10 @@ empty leaves an empty queue rather than a released one.
 ]]
 
 local source1 = require("nupp.io")
+
+--- A Lua stream handle returned by `io.open` and `io.popen`.
+export type File = io.File
+
 export type Buffer = source1.Buffer
 export type BufferWriteLease = source1.BufferWriteLease
 export type ByteQueue = source1.ByteQueue
@@ -386,7 +390,7 @@ end
 --- follows Lua's `io.popen` behavior and returns an owned file handle.
 export const popen = openProcess as(
     function(options: ProcessOptions): (affine(Process)?, Error?)
-    & function(cmd: string, mode: string?): (affine(LuaFile, __nuppCloseFile)?, string?)
+    & function(cmd: string, mode: string?): (affine(io.File, __nuppCloseFile)?, string?)
 )
 
 --- @internal

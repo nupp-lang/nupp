@@ -1140,7 +1140,7 @@ function M.documentsDeclarationsWrappedInAnnotations()
             "--- Opens an owned handle.",
             "--- @param path Where to open it.",
             "--- @return The owned handle.",
-            "function resources.open(path: string): affine(LuaFile, close)",
+            "function resources.open(path: string): affine(io.File, close)",
             "   return assert(io.open(path))",
             "end",
         },
@@ -4661,7 +4661,7 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
     local page = assert(stdlib.page({path = "luajit"}))
     assert(page.path == "luajit")
     assert(page.title == "API reference")
-    local sections = {"Globals", "Modules", "Types", "Reflection"}
+    local sections = {"Globals", "Modules", "Annotations"}
     for _, section in ipairs(sections) do
         assert(page.markdown:find("\n## " .. section .. "\n", 1, true), "no section for " .. section)
     end
@@ -4688,8 +4688,7 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
         "the module page lost the builtin signature or documentation"
     )
     assert(page.markdown:find("### `print`", 1, true), "no ambient global")
-    assert(page.markdown:find("### `LuaFile`", 1, true), "no ambient LuaFile type")
-    assert(page.symbols and page.symbols.LuaFile == "LuaFile", "LuaFile has no generated-page symbol")
+    assert(not page.markdown:find("### `io.File`", 1, true), "file type leaked into the root index")
 end
 
 function M.tableBuiltinsUseFunctionCategoriesAndLuaBadges()
@@ -4747,19 +4746,29 @@ function M.stdlibIndexIsStaticThroughout()
     assert(not page.markdown:find(":playground", 1, true), "a fence would open as an editor")
 end
 
--- Layout is reached by asking about a reified type rather than by calling a library,
--- so its graph sits apart from the types the signatures above merely name. Semantic
--- reflection owns its graph under `types.reflect` instead of leaking ambient types.
-function M.stdlibIndexSectionsReflectionApartFromTypes()
+-- Public descriptor types belong to their library pages.
+function M.stdlibTypesBelongToTheirNamespaces()
     local stdlib = require("nupp.tools.doc.stdlib")
-    local page = assert(stdlib.page({path = "luajit"}))
-    local reflection = assert(page.markdown:find("\n## Reflection\n", 1, true))
-    local types = assert(page.markdown:find("\n## Types\n", 1, true))
-
-    assert(types < reflection, "reflection is a section of its own after the types")
-    assert(page.markdown:find("### `Layout`", 1, true) > reflection, "Layout left behind")
-    assert(not page.markdown:find("### `TypeInfo`", 1, true), "TypeInfo still ambient")
-    assert(page.markdown:find("### `LuaFile`", 1, true) < reflection, "an ordinary type was moved")
+    local page = assert(stdlib.page({path = "api"}))
+    assert(not page.markdown:find("\n## Reflection\n", 1, true), "retired reflection section")
+    local libraries = {}
+    for _, module in ipairs(page.modules) do
+        libraries[module.name] = module
+    end
+    for _, contract in ipairs({
+        {"types", "types.Layout", "types.Layout.Field"},
+        {"io", "io.File"},
+        {"assert", "assert.Assertion"},
+        {"os", "os.DateFields"},
+    }) do
+        local rendered = require("nupp.tools.doc").markdown({assert(libraries[contract[1]])})
+        for index = 2, #contract do
+            assert(rendered:find('<a id="' .. contract[index] .. '"></a>', 1, true), "missing " .. contract[index])
+        end
+    end
+    for _, name in ipairs({"Layout", "LayoutField", "LuaFile", "Assertion", "DateFields"}) do
+        assert(not page.symbols[name], "retired global type " .. name)
+    end
 end
 
 -- A global's anchor is the name a program writes. `print` is not a member of the file
@@ -4795,7 +4804,7 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
             "--- An owned handle.",
             "record Handle is own.Closeable",
             "   --- Its backing Lua stream.",
-            "   file: LuaFile",
+            "   file: io.File",
             "   --- Closes it.",
             "   function close(takes self): nil",
             "   end",
@@ -4845,8 +4854,8 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
     assert(not sidebar:find(">LuaJIT standard library</a>", 1, true), sidebar)
     local modulePage = readFile(dir .. "/site/modules/math/index.html")
     assert(
-        modulePage:find('href="../../reference/luajit/index.html#LuaFile"', 1, true),
-        "a module signature did not link the ambient LuaFile type"
+        modulePage:find('href="../../modules/io/index.html#io.File"', 1, true),
+        "a module signature did not link io.File"
     )
     assert(
         modulePage:find('href="../../modules/own/index.html#own.Closeable"', 1, true),
@@ -4976,7 +4985,6 @@ function M.builtinNavigationKeepsEveryDeclaredGlobalAndLibrary()
 
     anchors(catalog.globals)
     anchors(catalog.types)
-    anchors(catalog.reflection)
     for _, library in ipairs(catalog.libraries) do
         assert(page.markdown:find("[`" .. library.name .. "`](", 1, true), "missing module link " .. library.name)
     end
@@ -5054,8 +5062,8 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
         assert(api:find('data-module="' .. name .. '"', 1, true), "missing nested builtin " .. name)
     end
     assert(api:find('>Globals</a>', 1, true), "standalone functions need their own group")
-    assert(api:find('>Intrinsic types</a>', 1, true), "intrinsic types confused with public types")
-    assert(api:find('>Layout reflection</a>', 1, true))
+    assert(not api:find('>Intrinsic types</a>', 1, true), "empty root type category")
+    assert(not api:find('>Layout reflection</a>', 1, true), "retired root reflection category")
     assert(api:find('<code>types</code>', 1, true), "the public types root disappeared")
     for _, anchor in ipairs({"io.write", "io.style", "io.open", "_G", "print"}) do
         assert(not api:find("#" .. anchor .. '\"', 1, true), "a declaration became a left navigation leaf: " .. anchor)
@@ -5068,7 +5076,7 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
     for _, name in ipairs({"example", "example.tools", "example.tools.widget"}) do
         assert(api:find('data-module="' .. name .. '"', 1, true), "a qualified namespace disappeared: " .. name)
     end
-    local sectionAnchors = {globals = true, types = true, reflection = true, annotations = true}
+    local sectionAnchors = {globals = true, types = true, annotations = true}
     for anchor in api:gmatch('href="[^\"]*#([^\"]+)"') do
         assert(sectionAnchors[anchor], "a declaration became a left navigation leaf: " .. anchor)
     end
@@ -5228,8 +5236,8 @@ end
     assert(globalPage:find('nuppdoc-kind-Lua">Lua</span>', 1, true), "global Lua function lacks its badge")
     assert(index:find("`print` _[^_]+_ _Lua_"), "Markdown lost Lua provenance")
     local fileRead
-    for _, item in ipairs(assert(stdlib.page({})).typeItems) do
-        if item.name == "LuaFile" then
+    for _, item in ipairs(modules.io.items) do
+        if item.path == "io.File" then
             for _, member in ipairs(item.members) do
                 if member.name == "read" then
                     fileRead = member
