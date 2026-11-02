@@ -2,22 +2,22 @@
   "format": "nupp-bootstrap-seed-1",
   "hosts": {
     "aarch64-apple-darwin": {
-      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.3/nupp-seed-aarch64-apple-darwin-788c2fde6094161377e69d4e4603a3004636c9a7.tar.gz",
-      "sha256": "453eba8f2eac9544604a1ac832314e35e04a6b9cc4b02759be3a89bfdec15fa5",
+      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.4/nupp-seed-aarch64-apple-darwin-507e8e4c08cf85cf10b2b237c420588093303682.tar.gz",
+      "sha256": "519bfbeeae132f3071629efa57dfd95720464ba8249b5d4cb4852e14ccfa2b77",
       "runtimeSha256": "023c81cffa4c108a3ac846c869e1084db4eebaf8b7a16b9a34f7a0ae88cc6fec",
-      "imageSha256": "1761de843caea3ea93c18eb7b8540f3d0799035fdb3b65b022c74363bad47878"
+      "imageSha256": "7c83dcdd6f82df5ea7c015408643903b0439f3d5393693485e7305041542ac89"
     },
     "x86_64-unknown-linux-gnu": {
-      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.3/nupp-seed-x86_64-unknown-linux-gnu-788c2fde6094161377e69d4e4603a3004636c9a7.tar.gz",
-      "sha256": "498f1d88d9e628b4250a61de529e84e998aa939cb564927ddefd29ce5c8fefcc",
+      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.4/nupp-seed-x86_64-unknown-linux-gnu-507e8e4c08cf85cf10b2b237c420588093303682.tar.gz",
+      "sha256": "54c6a8aa5f0e6464c7c1f313b749336fe4a0e6362aefce3d31de6889f80518ff",
       "runtimeSha256": "287be283a060dceda9e39a205d8353ac94dd960ec26108d0ca3399c7008d5ad3",
-      "imageSha256": "1761de843caea3ea93c18eb7b8540f3d0799035fdb3b65b022c74363bad47878"
+      "imageSha256": "7c83dcdd6f82df5ea7c015408643903b0439f3d5393693485e7305041542ac89"
     },
     "x86_64-pc-windows-gnu": {
-      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.3/nupp-seed-x86_64-pc-windows-gnu-788c2fde6094161377e69d4e4603a3004636c9a7.tar.gz",
-      "sha256": "a868c5096231ab14d9cd9f99ca4a4540c8c50031f767537dbb4333eaca90e2ed",
+      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.4/nupp-seed-x86_64-pc-windows-gnu-507e8e4c08cf85cf10b2b237c420588093303682.tar.gz",
+      "sha256": "9b51529b7f333db57565f8f3bbf8625db3f5925ebed616688957ba411a95cbd2",
       "runtimeSha256": "ae7ed494ed599fa07ba025692be236cda7b8e0c0b64fcc0761fa5a5d5db9d94b",
-      "imageSha256": "1761de843caea3ea93c18eb7b8540f3d0799035fdb3b65b022c74363bad47878"
+      "imageSha256": "7c83dcdd6f82df5ea7c015408643903b0439f3d5393693485e7305041542ac89"
     }
   }
 }
