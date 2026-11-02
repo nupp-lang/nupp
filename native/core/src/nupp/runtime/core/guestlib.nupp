@@ -45,6 +45,10 @@ export const MATCH_ALL: uint64 = 24ULL
 export const BYTE_ALL: uint64 = 25ULL
 export const GSUB: uint64 = 26ULL
 export const GSUB_ALL: uint64 = 27ULL
+export const SETMETATABLE: uint64 = 28ULL
+export const GETMETATABLE: uint64 = 29ULL
+export const RAWGET: uint64 = 30ULL
+export const RAWSET: uint64 = 31ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -1094,7 +1098,24 @@ local function packCopy(ctx: voidptr, packValue: uint64): uint64
     end
 end
 
--- Library call `id` with `count` arguments; answers the result value.
+-- error's level argument: an integer (a float with an integer value too),
+-- 0 for none or a negative one; anything else is the default, 1.
+export function errorLevel(value: uint64): uint64
+    local level: int64 = 1
+    if ints.isInteger(value) then
+        level = native.index(ints.bitsOf(value))
+    elseif value & values.QNAN ~= values.QNAN and ints.integralFloat(value) then
+        level = native.index(ints.floatToBits(value))
+    end
+    if level < 0 then
+        return 0ULL
+    end
+
+    return native.word(level)
+end
+
+-- Library call `id` with `count` arguments; answers the result value. error
+-- (ERROR) is raised by its handler, which records where.
 export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
     if id == TOSTRING then
         return tostring(ctx, a)
@@ -1144,13 +1165,18 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return gsub(ctx, a, b, c, d, false)
     elseif id == GSUB_ALL then
         return gsub(ctx, a, b, c, d, true)
+    elseif id == SETMETATABLE then
+        return guestscope.setMetatable(ctx, a, b)
+    elseif id == GETMETATABLE then
+        return guestscope.getMetatable(ctx, a)
+    elseif id == RAWGET then
+        return guestscope.rawGet(ctx, a, b)
+    elseif id == RAWSET then
+        return guestscope.rawSet(ctx, a, b, c)
     elseif id == SELECT then
         return select(a, b)
     elseif id == PACK_COPY then
         return packCopy(ctx, a)
-    elseif id == ERROR then
-        guestscope.raise(ctx, a)
-        return values.NIL
     end
     error("unknown core library call")
 

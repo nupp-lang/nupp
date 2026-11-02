@@ -26,8 +26,11 @@ export struct Services
     scope: servicescope.ServiceScope
     heap: uint64
     arena: uint64
-    -- The value error() raised that no protected call has taken yet, or 0.
+    -- The value error() raised that no protected call has taken yet, or 0,
+    -- and the level it was raised at: 1 cites where error was called, 2 that
+    -- function's caller, 0 nothing.
     raised: uint64
+    raisedLevel: uint64
 end
 
 const LEDGER: uint64 = 256ULL
@@ -98,6 +101,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("heap"), native.address(h))
         native.store64(services, native.fieldOffset<Services>("arena"), native.address(a))
         native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("raisedLevel"), 0ULL)
     end
 
     return 1ULL
@@ -192,21 +196,181 @@ export function newTable(ctx: voidptr): uint64
     end
 end
 
--- Reads through coretables.lookup on the entry's heap.
-export function tableGet(ctx: voidptr, table: uint64, key: uint64): uint64
+export const META_INDEX: uint64 = 0ULL
+export const META_NEWINDEX: uint64 = 1ULL
+export const META_METATABLE: uint64 = 2ULL
+
+-- The interned name of a metatable field: "__index", "__newindex" or
+-- "__metatable".
+export function metaKey(ctx: voidptr, which: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        return tables.lookup(native.pointer(guestHeap(ctx)) as heap.Heap*, table, key)
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local builder = state as strings.Builder*
+        local refused: uint64 = 0ULL
+        if which == META_INDEX then
+            refused = strings.appendWord(h, builder, 0x7865646e695f5fULL, 7ULL)
+        elseif which == META_NEWINDEX then
+            refused = strings.appendWord(h, builder, 0x646e6977656e5f5fULL, 8ULL)
+                | strings.appendWord(h, builder, 0x7865ULL, 2ULL)
+        else
+            refused = strings.appendWord(h, builder, 0x61746174656d5f5fULL, 8ULL)
+                | strings.appendWord(h, builder, 0x656c62ULL, 3ULL)
+        end
+        if refused ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        local s = strings.finish(h, builder)
+        tables.drain(h)
+        return values.TAG_OBJ | s
     end
 end
 
--- Stores through coretables.set on the entry's heap; answers its status.
+-- The table a value names, or 0.
+local function tableOf(value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ then
+        return 0ULL
+    end
+    @unsafe do
+        local header = native.pointer(value & values.PAYLOAD)
+        if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_TABLE then
+            return 0ULL
+        end
+    end
+
+    return value & values.PAYLOAD
+end
+
+-- The `which` field of a table's metatable, nil when it has none.
+export function metaField(ctx: voidptr, table: uint64, which: uint64): uint64
+    local mt = tableOf(tables.meta(table))
+    if mt == 0ULL then
+        return values.NIL
+    end
+
+    return tables.get(mt, metaKey(ctx, which))
+end
+
+-- Lua's t[k]: the raw value, else through the metatable's __index while it
+-- names a table. An __index function is not yet called.
+export function tableGet(ctx: voidptr, table: uint64, key: uint64): uint64
+    @unsafe do
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local t = table
+        local depth: uint64 = 0ULL
+        while true do
+            local value = tables.lookup(h, t, key)
+            if value ~= values.NIL or tables.meta(t) == values.NIL then
+                return value
+            end
+            local index = metaField(ctx, t, META_INDEX)
+            if index == values.NIL then
+                return values.NIL
+            end
+            t = tableOf(index)
+            if t == 0ULL then
+                error("an __index that is not a table is not yet supported by the core")
+            end
+            depth = depth + 1ULL
+            if depth >= 2000ULL then
+                error("'__index' chain too long; possible loop")
+            end
+        end
+
+        return values.NIL
+    end
+end
+
+-- Lua's t[k] = v: a key the table holds, or one its metatable has no
+-- __newindex for, is stored in place; otherwise in the table __newindex
+-- names. Answers coretables.set's status.
 export function tableSet(ctx: voidptr, table: uint64, key: uint64, value: uint64): uint64
     @unsafe do
         local h = native.pointer(guestHeap(ctx)) as heap.Heap*
-        local status = tables.set(h, table, key, value)
+        local t = table
+        local depth: uint64 = 0ULL
+        while tables.meta(t) ~= values.NIL and tables.lookup(h, t, key) == values.NIL do
+            local newindex = metaField(ctx, t, META_NEWINDEX)
+            if newindex == values.NIL then
+                break
+            end
+            t = tableOf(newindex)
+            if t == 0ULL then
+                error("a __newindex that is not a table is not yet supported by the core")
+            end
+            depth = depth + 1ULL
+            if depth >= 2000ULL then
+                error("'__newindex' chain too long; possible loop")
+            end
+        end
+        local status = tables.set(h, t, key, value)
         tables.drain(h)
 
         return status
+    end
+end
+
+-- setmetatable(t, mt): answers t; a metatable with __metatable set is
+-- protected.
+export function setMetatable(ctx: voidptr, value: uint64, mt: uint64): uint64
+    local t = tableOf(value)
+    if t == 0ULL then
+        error("bad argument #1 to 'setmetatable' (table expected)")
+    end
+    if mt ~= values.NIL and tableOf(mt) == 0ULL then
+        error("bad argument #2 to 'setmetatable' (nil or table expected)")
+    end
+    if metaField(ctx, t, META_METATABLE) ~= values.NIL then
+        error("cannot change a protected metatable")
+    end
+    @unsafe do
+        tables.setMeta(native.pointer(guestHeap(ctx)) as heap.Heap*, t, mt)
+    end
+
+    return value
+end
+
+-- getmetatable(v): a table's metatable, or its __metatable field when it
+-- has one; nil for anything else.
+export function getMetatable(ctx: voidptr, value: uint64): uint64
+    local t = tableOf(value)
+    if t == 0ULL then
+        return values.NIL
+    end
+    local protected = metaField(ctx, t, META_METATABLE)
+    if protected ~= values.NIL then
+        return protected
+    end
+
+    return tables.meta(t)
+end
+
+-- rawset(t, k, v): stores past any metatable; answers t.
+export function rawSet(ctx: voidptr, value: uint64, key: uint64, item: uint64): uint64
+    local t = tableOf(value)
+    if t == 0ULL then
+        error("bad argument #1 to 'rawset' (table expected)")
+    end
+    @unsafe do
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        if tables.set(h, t, key, item) ~= tables.OK then
+            error("invalid key to 'rawset'")
+        end
+        tables.drain(h)
+    end
+
+    return value
+end
+
+-- rawget(t, k): the raw value.
+export function rawGet(ctx: voidptr, value: uint64, key: uint64): uint64
+    local t = tableOf(value)
+    if t == 0ULL then
+        error("bad argument #1 to 'rawget' (table expected)")
+    end
+    @unsafe do
+        return tables.lookup(native.pointer(guestHeap(ctx)) as heap.Heap*, t, key)
     end
 end
 
@@ -259,14 +423,91 @@ export function integer(ctx: voidptr, bits: uint64): uint64
     end
 end
 
--- error(value): the value is kept for the protected call it unwinds to, and
--- the entry fails as any guest error does.
-export function raise(ctx: voidptr, value: uint64): nil
+-- error(value [, level]): the value and level are kept for the protected
+-- call the entry's failure unwinds to (`recoverEntry`); the caller fails the
+-- entry as any guest error does.
+export function raise(ctx: voidptr, value: uint64, level: uint64): nil
     @unsafe do
         local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
         native.store64(services, native.fieldOffset<Services>("raised"), value)
+        native.store64(services, native.fieldOffset<Services>("raisedLevel"), level)
     end
-    error("error raised by the guest")
+end
+
+-- A string message with Lua's position before it, "chunk:line: ", naming
+-- the frame `level` calls out from the one that failed: 1 is that frame at
+-- the pc its failure recorded, 2 its caller at the call. Anything else, or a
+-- frame with no known line, answers the message as it is. pcall has no line,
+-- so a level past a protected call's own frame names nothing.
+local function positioned(ctx: voidptr, message: uint64, level: uint64): uint64
+    local state0 = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local s = strings.header(message)
+        if s == 0ULL or level == 0ULL then
+            return message
+        end
+        local state = native.loadPointer(ctx, context.STATE)
+        local frame = native.load64(state, native.fieldOffset<frames.State>("active"))
+        local owner = native.load64(ctx, context.ERROR_OWNER)
+        local pc = native.load64(ctx, context.ERROR_PC)
+        local k: uint64 = 1ULL
+        while k < level do
+            if frame == 0ULL
+                or native.load64(
+                    native.pointer(frame),
+                    native.fieldOffset<frames.Frame>("resultKind")
+                ) == frames.PROTECTED_DESTINATION
+            then
+                return message
+            end
+            frame = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
+            if frame == 0ULL then
+                return message
+            end
+            owner = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("functionId"))
+            local resume = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("resumePC"))
+            if resume == 0ULL then
+                return message
+            end
+            pc = resume - 1ULL
+            k = k + 1ULL
+        end
+        local c = native.loadPointer(ctx, context.CATALOG)
+        if owner >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
+            return message
+        end
+        local data = native.load64(c, native.fieldOffset<catalog.Catalog>("data"))
+        local fn = native.pointer(
+            native.load64(c, native.fieldOffset<catalog.Catalog>("records")) + owner * native.sizeOf<catalog.Function>()
+        )
+        local lines = native.load64(fn, native.fieldOffset<catalog.Function>("lines"))
+        local chunk = native.load64(fn, native.fieldOffset<catalog.Function>("chunk"))
+        if lines == 0ULL
+            or chunk == 0ULL
+            or pc >= native.load64(fn, native.fieldOffset<catalog.Function>("instructionCount"))
+        then
+            return message
+        end
+        local line = native.load64(native.pointer(data + lines + pc * 8ULL), 0)
+        if line == 0ULL then
+            return message
+        end
+        local at = data + (chunk & values.PAYLOAD)
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local builder = state0 as strings.Builder*
+        if strings.append(h, builder, at + 8ULL, native.load64(native.pointer(at), 0)) ~= 0ULL
+            or strings.appendWord(h, builder, 58ULL, 1ULL) ~= 0ULL
+            or strings.appendInteger(h, builder, native.index(line)) ~= 0ULL
+            or strings.appendWord(h, builder, 0x203aULL, 2ULL) ~= 0ULL
+            or strings.appendString(h, builder, s) ~= 0ULL
+        then
+            strings.release(builder)
+            return message
+        end
+        local result = strings.finish(h, builder)
+        tables.drain(h)
+        return values.TAG_OBJ | result
+    end
 end
 
 -- The message an error carries when nothing named one: "runtime error".
@@ -302,8 +543,15 @@ export function recoverEntry(ctx: voidptr): uint64
             return 0ULL
         end
         local value = native.load64(services, native.fieldOffset<Services>("raised"))
+        local level = native.load64(services, native.fieldOffset<Services>("raisedLevel"))
         if value == 0ULL then
             value = runtimeError(ctx)
+            level = 1ULL
+        end
+        -- A failure the handlers recorded names its owner and pc; one a
+        -- library leaf raised does not.
+        if status == context.GUEST_ERROR_STATUS then
+            value = positioned(ctx, value, level)
         end
         local state = native.loadPointer(ctx, context.STATE)
         local parent = frames.recover(state, value)
@@ -315,6 +563,7 @@ export function recoverEntry(ctx: voidptr): uint64
         native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorOwner"), 0ULL)
         native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("raisedLevel"), 0ULL)
         access.refresh(state, native.pointer(parent), ctx)
         return access.pc(state, native.pointer(parent))
     end

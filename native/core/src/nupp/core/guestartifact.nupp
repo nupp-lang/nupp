@@ -94,6 +94,23 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             end
         end
     end
+    -- From v8 each function's source lines follow, a word per instruction,
+    -- and its chunk name joins the string payloads.
+    local lineOffsets: {integer} = {}
+    if version >= 8 then
+        for index, fn in ipairs(code.functions) do
+            local chunk = fn.chunk
+            if type(chunk) == "string" and stringOffsets[chunk] == nil then
+                stringOffsets[chunk] = cursor
+                stringOrder[#stringOrder + 1] = chunk
+                cursor += 8 + ((#chunk + 8) // 8) * 8
+            end
+            if fn.lines and #fn.lines == fn.instructionCount then
+                lineOffsets[index] = cursor
+                cursor += fn.instructionCount * 8
+            end
+        end
+    end
     assert(cursor <= 67108864 and cursor % 8 == 0, "guest artifact byte budget")
     local bytes = {}
     for index = 1, cursor do
@@ -196,8 +213,18 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             constants = constantOffsets[index],
             constantCount = #fn.constants,
             firstCall = nextCall,
-            callCount = #fn.calls
+            callCount = #fn.calls,
+            lines = lineOffsets[index] or 0,
+            chunk = type(fn.chunk) == "string"
+            and lineOffsets[index]
+            and STRING_CONSTANT | assert(stringOffsets[fn.chunk])
+            or 0
         })
+        if lineOffsets[index] then
+            for pc, line in ipairs(fn.lines) do
+                word((lineOffsets[index] + (pc - 1) * 8) as integer, line)
+            end
+        end
         nextCall += #fn.calls
         word((targetOffset + (index - 1) * 8) as integer, owner.id)
         for ci, constant in ipairs(fn.constants) do

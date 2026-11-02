@@ -91,7 +91,9 @@ local CASES = {
     {"callsSpread", 0x7FFF001B69EC548D},
     {"recordsMethods", 0x7FFF000AFDC52FB5},
     {"callsProtected", 0x7FFF00001E76EFC7},
-    {"recordsInline", 0x7FFF0000000A1A00}
+    {"recordsInline", 0x7FFF0000000A1A00},
+    {"errorsPositions", 0x7FFF00000001B207},
+    {"tablesMeta", 0x7FFF000002735A42}
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their
@@ -135,7 +137,9 @@ local NUMERIC = {
     callsSpread = "catalog-calls-spread",
     recordsMethods = "catalog-records-methods",
     callsProtected = "catalog-calls-protected",
-    recordsInline = "catalog-records-inline"
+    recordsInline = "catalog-records-inline",
+    errorsPositions = "catalog-errors-positions",
+    tablesMeta = "catalog-tables-meta"
 }
 local FIXTURES = {
     "catalog-boolean",

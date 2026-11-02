@@ -233,6 +233,21 @@ export function nextKey(table: uint64, key: uint64): uint64
     end
 end
 
+-- The table's metatable value, nil when it has none.
+export function meta(table: uint64): uint64
+    @unsafe do
+        return native.load64(native.pointer(table + heap.HEADER_BYTES), native.fieldOffset<heap.TableBody>("meta"))
+    end
+end
+
+-- Sets the table's metatable value (a table, or nil for none).
+export function setMeta(h: heap.Heap*, table: uint64, value: uint64): nil
+    @unsafe do
+        collector.barrier(h, native.pointer(table) as heap.Header*, value)
+        native.store64(native.pointer(table + heap.HEADER_BYTES), native.fieldOffset<heap.TableBody>("meta"), value)
+    end
+end
+
 -- A border: the array part's length, which the hash part never extends.
 export function length(table: uint64): uint64
     @unsafe do
