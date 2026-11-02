@@ -1947,6 +1947,7 @@ function tagged.forVersion(version: integer): any
                 return tagged.call(ctx, node, expected)
             end
             local library = graph.coreLibraryCall(node)
+            need(library ~= "io.write", "io.write's result, its file, is not yet supported")
             if library == "tostring" or library == "table.concat" then
                 return libraryCall(ctx, node, library == "tostring" and 1 or 3, node.args.exprs or {})
             elseif library == "tonumber" then
@@ -2104,6 +2105,12 @@ function tagged.forVersion(version: integer): any
                 invokeMethod(ctx, node, false)
             elseif graph.coreLibraryCall(node) == "pcall" or graph.coreLibraryCall(node) == "xpcall" then
                 invokeProtected(ctx, node, false)
+            elseif graph.coreLibraryCall(node) == "io.write" then
+                -- io.write(...): its values in a pack, written as they are.
+                local pack = valuesPack(ctx, node, node.args.exprs or {})
+                if pack ~= nil then
+                    ctx.emit(node, "LibCall", {83, pack}, "tagged")
+                end
             elseif node.kind == "call" and graph.coreLibraryCall(node) ~= nil then
                 -- error, setmetatable and the other library calls made for
                 -- their effect.

@@ -148,7 +148,7 @@ local borrowed = open(5)
 local callback = function(): integer takes (taken) borrows (borrowed)
     return taken.value + borrowed.value
 end
-io.write(callback())
+print(callback() + os.time())
 own.drop(borrowed)
 ]]
     )

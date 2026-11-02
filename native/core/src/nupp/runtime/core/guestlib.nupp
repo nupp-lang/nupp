@@ -131,7 +131,7 @@ end
 
 -- Appends Lua's tostring of `value`: strings as they are, integers in
 -- decimal, booleans and nil by name.
-local function appendText(h: heap.Heap*, b: strings.Builder*, value: uint64): uint64
+export function appendText(h: heap.Heap*, b: strings.Builder*, value: uint64): uint64
     local s = strings.header(value)
     if s ~= 0ULL then
         return strings.appendString(h, b, s)

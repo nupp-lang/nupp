@@ -1,0 +1,66 @@
+module nupp.runtime.core.guestio
+
+-- io.write on the core: its values written to the host's standard output
+-- as they are, strings raw and numbers as tostring writes them.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const os = require("nupp.runtime.vm.os")
+const context = require("nupp.runtime.core.context")
+const strings = require("nupp.runtime.core.corestrings")
+const tables = require("nupp.runtime.core.coretables")
+const ints = require("nupp.runtime.core.coreintegers")
+const guestscope = require("nupp.runtime.core.guestscope")
+const guestlib = require("nupp.runtime.core.guestlib")
+const texts = require("nupp.runtime.core.guesttexts")
+
+-- io.write's LibCall id: its values in one pack.
+export const LIB_WRITE: uint64 = 83ULL
+
+-- Writes the builder's bytes and empties it.
+local function flush(b: strings.Builder*): nil
+    @unsafe do
+        if b.length == 0ULL then
+            return
+        end
+        local written = os.writeOutput(native.pointer(b.base), b.length)
+        local length = b.length
+        strings.release(b)
+        if written < 0 or native.word(written) ~= length then
+            error("cannot write output")
+        end
+    end
+end
+
+-- io.write(...) with the values of the pack `packValue`. A value neither a
+-- string nor a number raises once the values before it are written, as
+-- Lua's does.
+export function write(ctx: voidptr, packValue: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    guestscope.nameLibrary(ctx, texts.NAME_WRITE)
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local h = native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+        local pack = packValue & values.PAYLOAD
+        local n = ints.bitsOf(tables.get(pack, values.TAG_INTEGER))
+        guestscope.countLibrary(ctx, n)
+        local builder = state as strings.Builder*
+        local i: uint64 = 1ULL
+        while i <= n do
+            local value = tables.get(pack, values.TAG_INTEGER | i)
+            local number = ints.isInteger(value) or value & values.QNAN ~= values.QNAN or value == values.QNAN
+            if strings.header(value) == 0ULL and not number then
+                flush(builder)
+                texts.argumentError(ctx, i, texts.TEXT_STRING, 0ULL, value)
+            end
+            if guestlib.appendText(h, builder, value) ~= 0ULL then
+                strings.release(builder)
+                error("not enough memory")
+            end
+            i = i + 1ULL
+        end
+        flush(builder)
+
+        return values.NIL
+    end
+end

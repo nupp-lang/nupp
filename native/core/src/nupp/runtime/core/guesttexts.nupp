@@ -112,6 +112,7 @@ export const TEXT_FUNCTION: uint64 = 99ULL
 export const TEXT_CLOSE_MAIN: uint64 = 100ULL
 export const TEXT_CLOSE_NORMAL: uint64 = 101ULL
 export const NAME_CLOSE: uint64 = 102ULL
+export const NAME_WRITE: uint64 = 103ULL
 
 export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
     if id == TEXT_BAD then
@@ -495,6 +496,9 @@ export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64
     elseif id == NAME_CLOSE then
         -- "close"
         return strings.appendWord(h, b, 0x65736f6c63ULL, 5ULL)
+    elseif id == NAME_WRITE then
+        -- "write"
+        return strings.appendWord(h, b, 0x6574697277ULL, 5ULL)
     end
 
     return 0ULL

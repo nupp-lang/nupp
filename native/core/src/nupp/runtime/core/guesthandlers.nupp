@@ -16,6 +16,7 @@ const tables = require("nupp.runtime.core.coretables")
 const heap = require("nupp.runtime.vm.heap")
 const wide = require("nupp.runtime.core.coreintegers")
 const threads = require("nupp.runtime.core.threads")
+const guestio = require("nupp.runtime.core.guestio")
 
 -- The closed checked producer binds these program/slot reads to corebytecode's
 -- canonical opcode recipes and its retained complete graph-derived byte stream.
@@ -1546,7 +1547,11 @@ export function LibCall(
         end
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
-    slots.writeValue(frame, regs, dst, guestlib.call(ctx, libraryId, native.word(count), a, b, c, d))
+    if libraryId == guestio.LIB_WRITE then
+        slots.writeValue(frame, regs, dst, guestio.write(ctx, a))
+    else
+        slots.writeValue(frame, regs, dst, guestlib.call(ctx, libraryId, native.word(count), a, b, c, d))
+    end
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)

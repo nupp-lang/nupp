@@ -690,6 +690,18 @@ export function nameLibrary(ctx: voidptr, name: uint64): nil
     end
 end
 
+-- The argument count a library call taking its values as one pack has: its
+-- errors count them, not the pack.
+export function countLibrary(ctx: voidptr, count: uint64): nil
+    @unsafe do
+        native.store64(
+            native.loadPointer(ctx, context.SERVICE_SCOPE),
+            native.fieldOffset<Services>("libraryCount"),
+            count
+        )
+    end
+end
+
 export function libraryNameOf(ctx: voidptr): uint64
     @unsafe do
         return native.load64(
