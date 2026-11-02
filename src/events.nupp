@@ -19,7 +19,7 @@ local record Damage
     kind: string = "physical"
 end
 
-local bus: events.MessageBus<integer> = events.newmessagebus()
+local bus: events.MessageBus<integer> = events.newbus()
 bus:observe(7, Damage, |event| -> print(event.amount, event.kind), "log")
 bus:emit(7, Damage, amount = 10, source = 3)
 ```
@@ -495,7 +495,7 @@ end
 
 --- Registers an observer of an event type at an address.
 ---
---- Observers run in registration order. A name lets `stopobserving` remove this
+--- Observers run in registration order. A name lets `stop` remove this
 --- registration by name; a name already registered at the same address and
 --- event is an error, since the second could never be removed alone.
 --- @param source the bus or world that owns the observer registry and event
@@ -528,7 +528,7 @@ end
 --- @param id an optional name for removal
 --- @raises string when the type did not derive `events.event`, or the name is
 ---     taken
-function events.observeonce<A, S is events.Source<A>, E is events.Emittable>(
+function events.once<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,
     event: Type<E>,
@@ -549,13 +549,13 @@ end
 --- @param source the bus or world observed through
 --- @param address where the registration was made
 --- @param event the event declaration
---- @param callbackOrId the callback registered, or the name it was given
+--- @param callbackorid the callback registered, or the name it was given
 --- @return whether anything was removed
-function events.stopobserving<A, S is events.Source<A>, E is events.Emittable>(
+function events.stop<A, S is events.Source<A>, E is events.Emittable>(
     exclusive source: S,
     borrows address: A,
     event: Type<E>,
-    callbackOrId: events.Observer<E> | string
+    callbackorid: events.Observer<E> | string
 ): boolean
     local observers = source.observers as any
     if observers.count == 0 then
@@ -567,14 +567,14 @@ function events.stopobserving<A, S is events.Source<A>, E is events.Emittable>(
     if list == nil then
         return false
     end
-    local byName = type(callbackOrId) == "string"
+    local byName = type(callbackorid) == "string"
     local removed: integer = 0
     local n: integer = list.n
     for index = 1, n do
         local base = (index - 1) * STRIDE
         local callback = list[base + 2]
         if callback ~= tombstone then
-            local matches = byName and list[base + 1] == callbackOrId or not byName and callback == callbackOrId
+            local matches = byName and list[base + 1] == callbackorid or not byName and callback == callbackorid
             if matches then
                 list[base + 2] = tombstone
                 if list[base + 3] then
@@ -603,7 +603,7 @@ end
 --- @param address the address to ask about
 --- @param event the event declaration
 --- @return whether a delivery there would reach an observer
-function events.hasobservers<A, S is events.Source<A>, E is events.Emittable>(
+function events.contains<A, S is events.Source<A>, E is events.Emittable>(
     borrows source: S,
     borrows address: A,
     event: Type<E>
@@ -640,7 +640,7 @@ end
 --- observes the world itself.
 --- @param source the bus or world
 --- @param address the address to clear
-function events.clearaddress<A, S is events.Source<A>>(exclusive source: S, borrows address: A): nil
+function events.clear<A, S is events.Source<A>>(exclusive source: S, borrows address: A): nil
     local observers = source.observers as any
     local map = observers.byAddress[address]
     if map == nil then
@@ -666,7 +666,7 @@ function events.reset<A, S is events.Source<A>>(exclusive source: S): nil
         addresses[#addresses + 1] = address
     end
     for index = 1, #addresses do
-        events.clearaddress(source, addresses[index] as A)
+        events.clear(source, addresses[index] as A)
     end
 end
 
@@ -876,8 +876,8 @@ record events.MessageBus<A> is events.Source<A>
     ): nil
 
     --- Registers an observer consumed on first delivery; see
-    --- [](events.observeonce).
-    observeOnce: function<E is events.Emittable>(
+    --- [](events.once).
+    once: function<E is events.Emittable>(
         exclusive self: MessageBus<A>,
         address: A,
         event: Type<E>,
@@ -885,17 +885,17 @@ record events.MessageBus<A> is events.Source<A>
         id: string?
     ): nil
 
-    --- Removes registrations; see [](events.stopobserving).
-    stopObserving: function<E is events.Emittable>(
+    --- Removes registrations; see [](events.stop).
+    stop: function<E is events.Emittable>(
         exclusive self: MessageBus<A>,
         address: A,
         event: Type<E>,
-        callbackOrId: events.Observer<E> | string
+        callbackorid: events.Observer<E> | string
     ): boolean
 
     --- Whether anything observes an event here; see
-    --- [](events.hasobservers).
-    hasObservers: function<E is events.Emittable>(self: MessageBus<A>, address: A, event: Type<E>): boolean
+    --- [](events.contains).
+    contains: function<E is events.Emittable>(self: MessageBus<A>, address: A, event: Type<E>): boolean
 
     --- Constructs and delivers an event; see [](events.emit).
     emit: function<E is events.Emittable>(
@@ -914,14 +914,14 @@ record events.MessageBus<A> is events.Source<A>
     ): nil
 
     --- Removes every registration at an address; see
-    --- [](events.clearaddress).
-    clearAddress: function(exclusive self: MessageBus<A>, address: A): nil
+    --- [](events.clear).
+    clear: function(exclusive self: MessageBus<A>, address: A): nil
 
     --- Removes every registration; see [](events.reset).
     reset: function(exclusive self: MessageBus<A>): nil
 
     --- Installs storage for an event type; see [](events.setallocator).
-    setAllocator: function<E is events.Emittable>(
+    setallocator: function<E is events.Emittable>(
         exclusive self: MessageBus<A>,
         event: Type<E>,
         allocator: events.Allocator<E>
@@ -938,31 +938,31 @@ function events.MessageBus.observe<A, E is events.Emittable>(
     events.observe(self, address, event, callback, id)
 end
 
-function events.MessageBus.observeOnce<A, E is events.Emittable>(
+function events.MessageBus.once<A, E is events.Emittable>(
     exclusive self: events.MessageBus<A>,
     address: A,
     event: Type<E>,
     callback: events.Observer<E>,
     id: string?
 ): nil
-    events.observeonce(self, address, event, callback, id)
+    events.once(self, address, event, callback, id)
 end
 
-function events.MessageBus.stopObserving<A, E is events.Emittable>(
+function events.MessageBus.stop<A, E is events.Emittable>(
     exclusive self: events.MessageBus<A>,
     address: A,
     event: Type<E>,
-    callbackOrId: events.Observer<E> | string
+    callbackorid: events.Observer<E> | string
 ): boolean
-    return events.stopobserving(self, address, event, callbackOrId)
+    return events.stop(self, address, event, callbackorid)
 end
 
-function events.MessageBus.hasObservers<A, E is events.Emittable>(
+function events.MessageBus.contains<A, E is events.Emittable>(
     self: events.MessageBus<A>,
     address: A,
     event: Type<E>
 ): boolean
-    return events.hasobservers(self, address, event)
+    return events.contains(self, address, event)
 end
 
 function events.MessageBus.emit<A, E is events.Emittable>(
@@ -983,15 +983,15 @@ function events.MessageBus.deliver<A, E is events.Emittable>(
     events.deliver(self, address, event, instance)
 end
 
-function events.MessageBus.clearAddress<A>(exclusive self: events.MessageBus<A>, address: A): nil
-    events.clearaddress(self, address)
+function events.MessageBus.clear<A>(exclusive self: events.MessageBus<A>, address: A): nil
+    events.clear(self, address)
 end
 
 function events.MessageBus.reset<A>(exclusive self: events.MessageBus<A>): nil
     events.reset(self)
 end
 
-function events.MessageBus.setAllocator<A, E is events.Emittable>(
+function events.MessageBus.setallocator<A, E is events.Emittable>(
     exclusive self: events.MessageBus<A>,
     event: Type<E>,
     allocator: events.Allocator<E>
@@ -1002,9 +1002,9 @@ end
 --- A bus with no observers.
 ---
 --- The address type is whatever the binding asks for:
---- `local bus: events.MessageBus<integer> = events.newmessagebus()`.
+--- `local bus: events.MessageBus<integer> = events.newbus()`.
 --- @return the bus
-function events.newmessagebus<A>(): events.MessageBus<A>
+function events.newbus<A>(): events.MessageBus<A>
     local observers: events.Observers<A> = events.newobservers()
     return new events.MessageBus(observers = observers)
 end

@@ -298,7 +298,7 @@ end
 function scenarios.streams()
     local hostevents = require("hostevents")
     local events = require("events")
-    local bus = events.newmessagebus()
+    local bus = events.newbus()
     local moves, keys, order = {}, {}, {}
     bus:observe(
         1,
@@ -353,7 +353,7 @@ end
 function scenarios.streamObserverFails()
     local hostevents = require("hostevents")
     local events = require("events")
-    local bus = events.newmessagebus()
+    local bus = events.newbus()
     local order = {}
     bus:observe(
         1,

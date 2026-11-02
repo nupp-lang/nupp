@@ -23,7 +23,7 @@ local struct Contact
     impulse: float
 end
 
-local bus: events.MessageBus<integer> = events.newmessagebus()
+local bus: events.MessageBus<integer> = events.newbus()
 local seen: {string} = {}
 
 bus:observe(
@@ -38,7 +38,7 @@ bus:observe(
 bus:observe(7, Damage, function(event)
     seen[#seen + 1] = ("second %s"):format(event.amount)
 end)
-bus:observeOnce(7, Heal, |event| -> do
+bus:once(7, Heal, |event| -> do
     seen[#seen + 1] = ("heal %s"):format(event.amount)
 end)
 bus:observe(0, Contact, |event| -> do
@@ -53,15 +53,15 @@ bus:emit(7, Heal, amount = 5)
 bus:emit(0, Contact, 1.5, 2.5, 0.25)
 local held = new Damage(amount = 99, source = 4)
 bus:deliver(7, Damage, held)
-seen[#seen + 1] = tostring(bus:stopObserving(7, Damage, "first"))
+seen[#seen + 1] = tostring(bus:stop(7, Damage, "first"))
 bus:emit(7, Damage, amount = 2, source = 2)
-bus:clearAddress(7)
+bus:clear(7)
 seen[
     #seen + 1
 ] = (
     "%s %d %d %s %d"
 ):format(
-    tostring(bus:hasObservers(7, Damage)),
+    tostring(bus:contains(7, Damage)),
     events.id(Damage),
     events.id(Contact),
     events.name(Heal),

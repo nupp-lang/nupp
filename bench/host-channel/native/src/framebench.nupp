@@ -20,7 +20,7 @@ local hostevents = require("hostevents")
 local packetText: string = ""
 local consumed: integer = 0
 local pending: {number} = {}
-local bus: events.MessageBus<integer> = events.newmessagebus()
+local bus: events.MessageBus<integer> = events.newbus()
 local route: host.Route? = nil
 local session = pump.newpump()
 

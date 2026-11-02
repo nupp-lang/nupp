@@ -41,7 +41,7 @@ local record Action
     end
 end
 local description = Action.reflect()
-local bus: events.MessageBus<integer> = events.newmessagebus()
+local bus: events.MessageBus<integer> = events.newbus()
 local result = 0
 bus:observe(1, Action, |event| -> do result = event:evaluate() end)
 bus:emit(1, Action, callback = function(): integer return 7 end)
