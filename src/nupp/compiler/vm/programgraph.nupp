@@ -270,7 +270,7 @@ function program.describe(modules: {any}, entryModule: string): any
         end
         if node.kind == "recordDecl" and node.name then
             for _, entry in ipairs(node.entries or {}) do
-                if entry.kind == "inlineMethod" then
+                if entry.kind == "inlineMethod" or entry.kind == "constructorDecl" then
                     inlineRecords[entry] = node.name
                 end
             end
@@ -330,6 +330,22 @@ function program.describe(modules: {any}, entryModule: string): any
             local declaration = (node.kind == "localFuncStmt" or node.kind == "inlineMethod") and node.name
                 or node.kind == "funcStmt" and node.name[#node.name]
                 or nil
+            -- A constructor has no name: it is given a synthetic one, which its
+            -- construction callsites name.
+            if node.kind == "constructorDecl" and inlineRecords[node] then
+                local record = inlineRecords[node]
+                local token: any = {
+                    kind = "name",
+                    text = "constructor",
+                    line = record.line,
+                    col = record.col,
+                    offset = record.offset,
+                    trivia = {}
+                }
+                token.definition = {lexical = true, token = token, functionDepth = 0, constant = true}
+                node.coreDefinition = token.definition
+                declaration = token
+            end
             if declaration then
                 child.definition = need(declaration.definition, "checked function declaration required")
                 need(
@@ -487,6 +503,33 @@ function program.describe(modules: {any}, entryModule: string): any
         -- `new R(...)` of a plain record builds its value in place, so the
         -- record's name is a type use there, not a read of its runtime value.
         if node.kind == "newExpr" and node.call and node.call.recordFields and not node.call.constructorEntry then
+            loopForms[node.call] = true
+        end
+        -- `new R(...)` with a constructor calls it, the fresh instance first,
+        -- through the table R's name holds.
+        local entry = node.kind == "newExpr" and node.call and node.call.constructorEntry
+        local declaration = entry and entry.declaration
+        if declaration and declaration.coreDefinition and inlineRecords[declaration] then
+            local base = inlineRecords[declaration]
+            local classToken: any = {
+                kind = "name",
+                text = base.text,
+                line = base.line,
+                col = base.col,
+                offset = base.offset,
+                trivia = {},
+                definition = base.definition
+            }
+            reference(classToken, owner)
+            local item = {
+                id = #p.calls,
+                owner = owner.id,
+                node = node.call,
+                definition = declaration.coreDefinition,
+                construct = true,
+                classToken = classToken
+            }
+            p.calls[#p.calls + 1], p.callByNode[node.call] = item, item
             loopForms[node.call] = true
         end
         if node.kind == "name" then
@@ -838,6 +881,15 @@ function program.verify(p: any): boolean
                 "method callsite identity mismatch"
             )
             need(referenceOwners[item.classToken] == item.owner, "method callsite does not belong to its checked owner")
+        elseif item.construct then
+            need(
+                node.kind == "call"
+                and p.callByNode[node] == item
+                and node.constructorEntry
+                and node.constructorEntry.declaration.coreDefinition == item.definition,
+                "construction callsite identity mismatch"
+            )
+            need(referenceOwners[item.classToken] == item.owner, "construction callsite does not belong to its owner")
         elseif item.field then
             need(
                 node.kind == "call"

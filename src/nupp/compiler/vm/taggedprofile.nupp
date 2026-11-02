@@ -39,7 +39,8 @@ function tagged.initialize(fn: any, options: any): any
         fn.node.kind == "localFuncStmt"
         or fn.node.kind == "funcExpr"
         or fn.node.kind == "funcStmt"
-        or fn.node.kind == "inlineMethod",
+        or fn.node.kind == "inlineMethod"
+        or fn.node.kind == "constructorDecl",
         "unsupported function declaration form"
     )
     local body = fn.body
@@ -53,7 +54,9 @@ function tagged.initialize(fn: any, options: any): any
         "pack and const generic parameters are unsupported"
     )
     need(
-        #fn.signature.rets <= 16 and not fn.signature.retPack.tail and not fn.signature.retPack.alternatives,
+        -- A constructor's results are dropped: its construction is the instance.
+        fn.node.kind == "constructorDecl"
+        or #fn.signature.rets <= 16 and not fn.signature.retPack.tail and not fn.signature.retPack.alternatives,
         "open results are unsupported"
     )
     ordinaryCaptures(fn)
@@ -362,7 +365,8 @@ function tagged.closure(ctx: any, node: any, expected: string?): integer
         node.kind == "localFuncStmt"
         or node.kind == "funcExpr"
         or node.kind == "funcStmt"
-        or node.kind == "inlineMethod",
+        or node.kind == "inlineMethod"
+        or node.kind == "constructorDecl",
         "unsupported function declaration form"
     )
     local target = need(catalog(ctx).byBody[node.body], "closure lacks checked owner")
@@ -427,6 +431,68 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
     end
 
     return ctx.invoke(node, value, args, contract, keepResult, pack)
+end
+
+-- A field's default, which the checker keeps as its closed value: an
+-- integer, string or Boolean. Floats and tables are not admitted yet.
+local function defaultConstant(ctx: any, node: any, value: any): integer
+    if type(value) == "string" then
+        return ctx.emit(node, "K", {pool(ctx, "str", value)}, "tagged") as integer
+    elseif type(value) == "boolean" then
+        return ctx.emit(node, "K", {pool(ctx, value and "true" or "false", "")}, "tagged") as integer
+    end
+    need(math.type(value) == "integer", "only integer, string and Boolean field defaults are admitted")
+
+    return ctx.emit(node, "K", {pool(ctx, "int64", tostring(value))}, "tagged") as integer
+end
+
+-- `new R(...)` with a constructor: a fresh instance with R's field
+-- defaults, then R's constructor called with it first (from the table R's
+-- name holds); the instance is the value.
+local function construct(ctx: any, node: any, origin: any): any
+    local p = catalog(ctx)
+    local call = node.call
+    local site = need(p.callByNode[call], "construction lacks its checked callsite")
+    need(site.construct and site.owner == ctx.fn.id, "construction callsite belongs to another owner")
+    local target = need(p.functionsByDefinition[site.definition], "construction lacks its constructor")
+    local contract = graph.constructContract(target, call)
+    local class = ctx.expression({kind = "name", token = site.classToken, site.classToken}, "tagged")
+    if class == nil then
+        return nil
+    end
+    local heldClass = ctx.hold(class)
+    local name = "\0new" .. tostring(call.constructorEntry.index)
+    local key = ctx.emit(node, "K", {pool(ctx, "str", name)}, "tagged")
+    local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldClass), key}, "tagged"))
+    ctx.release(heldClass)
+    local instance = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+    for _, field in ipairs(origin.fieldOrder or {}) do
+        local default = origin.fieldDefaults and origin.fieldDefaults[field]
+        if default then
+            local value = defaultConstant(ctx, node, default.value)
+            local slot = need(recordSlot(origin, field), "record field is not declared")
+            local slotKey = ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
+            ctx.emit(node, "SetIdx", {ctx.readHeld(instance), slotKey, value}, nil)
+        end
+    end
+    local exprs, kinds = {}, {}
+    for _, argument in ipairs(call.args and call.args.exprs or {}) do
+        need(argument.kind ~= "vararg", "a constructor call cannot spread `...` yet")
+        exprs[#exprs + 1], kinds[#kinds + 1] = argument, "tagged"
+    end
+    local args = ctx.operands(exprs, kinds)
+    if args == nil then
+        return nil
+    end
+    local first: integer = ctx.readHeld(instance)
+    table.insert(args, 1, first)
+    local value = ctx.readHeld(callee)
+    ctx.release(callee)
+    ctx.invoke(call, value, args, contract, false)
+    local result = ctx.readHeld(instance)
+    ctx.release(instance)
+
+    return result
 end
 
 -- pcall(f, ...): f called as a protected call, its results after true, or
@@ -545,8 +611,10 @@ function tagged.erasedStatement(ctx: any, stat: any): nil
         need(stat.declKind == "record" and not stat.generics, "only plain record declarations are admitted")
         for _, entry in ipairs(stat.entries or {}) do
             need(
-                entry.kind == "fieldDecl" or entry.kind == "inlineMethod" and entry.overloadMember == nil,
-                "record constructors, metamethods and overloaded methods are unsupported"
+                entry.kind == "fieldDecl"
+                or entry.kind == "inlineMethod" and entry.overloadMember == nil
+                or entry.kind == "constructorDecl",
+                "record metamethods and overloaded methods are unsupported"
             )
         end
         return
@@ -763,19 +831,31 @@ function tagged.forVersion(version: integer): any
             need(expected == nil or expected == "tagged", "record requires tagged destination")
             local origin = recordOrigin(node.inferredType)
             local call = node.call
+            if origin and call and call.constructorEntry then
+                return construct(ctx, node, origin) as integer
+            end
             need(
                 origin and call and not call.constructorEntry and type(call.recordFields) == "table",
                 "only plain record construction is admitted"
             )
-            local nodes, kinds, slots = {}, {}, {}
-            for index, binding in ipairs(call.recordFields) do
-                nodes[index] = need(binding.node or binding.defaultValue, "record initializer is missing")
-                kinds[index] = "tagged"
-                slots[index] = need(recordSlot(origin, binding.name), "record field is not declared")
+            -- Written fields are expressions; a default is its closed value.
+            local nodes, kinds, slots, defaults = {}, {}, {}, {}
+            for _, binding in ipairs(call.recordFields) do
+                if binding.node then
+                    nodes[#nodes + 1], kinds[#kinds + 1] = binding.node, "tagged"
+                    slots[#slots + 1] = need(recordSlot(origin, binding.name), "record field is not declared")
+                else
+                    need(binding.isDefault, "record initializer is missing")
+                    defaults[#defaults + 1] = binding
+                end
             end
             local values = ctx.operands(nodes, kinds)
             if values == nil then
                 return nil as any
+            end
+            for _, binding in ipairs(defaults) do
+                values[#values + 1] = defaultConstant(ctx, node, binding.defaultValue)
+                slots[#slots + 1] = need(recordSlot(origin, binding.name), "record field is not declared")
             end
             local record = ctx.emit(node, "NewTable", {}, "tagged")
             for index, value in ipairs(values) do
@@ -979,9 +1059,13 @@ function tagged.forVersion(version: integer): any
             end
             local held = ctx.hold(ctx.emit(stat, "NewTable", {}, "tagged"))
             for _, entry in ipairs(stat.entries or {}) do
-                if entry.kind == "inlineMethod" then
+                -- A constructor is stored under a key no field name can be.
+                local name = entry.kind == "inlineMethod" and entry.name.text
+                    or entry.kind == "constructorDecl" and "\0new" .. tostring(entry.constructorIndex)
+                    or nil
+                if name then
                     local closure = ctx.hold(tagged.closure(ctx, entry))
-                    local key = ctx.emit(entry, "K", {pool(ctx, "str", entry.name.text)}, "tagged")
+                    local key = ctx.emit(entry, "K", {pool(ctx, "str", name)}, "tagged")
                     ctx.emit(entry, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(closure)}, nil)
                     ctx.release(closure)
                 end

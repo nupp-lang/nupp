@@ -1,0 +1,37 @@
+module nupp.core.catalogrecordsconstructors
+
+-- Record constructors: `new R(...)` makes the instance with R's field
+-- defaults, runs R's constructor on it and is that instance; a constructor
+-- may capture what is in scope, and the instance's methods work as usual.
+local made: integer = 0
+
+local record Counter
+    count: integer
+    step: integer = 2
+
+    constructor(self, start: integer)
+        self.count = start
+        made = made + 1
+    end
+
+    function bump(self): integer
+        self.count = self.count + self.step
+        return self.count
+    end
+end
+
+local record Pair
+    a: integer
+    b: integer
+
+    constructor(self, a: integer, b: integer)
+        self.a = a
+        self.b = b * 10
+    end
+end
+
+local c = new Counter(5)
+c:bump()
+local d = new Counter(1)
+local p = new Pair(3, 4)
+export = c.count * 10000 + p.a * 1000 + p.b + made * 100000 + d.count
