@@ -158,6 +158,7 @@ local RESOURCES = {
     {source = "src/binary/init.nupp", output = "nupp/compiler/binary/init.nupp"},
     {source = "src/nupp/runtime/entropy.nupp", output = "nupp/compiler/nupp/runtime/entropy.nupp"},
     {source = "src/nupp/runtime/reflectionshape.nupp", output = "nupp/compiler/nupp/runtime/reflectionshape.nupp"},
+    {source = "src/nupp/runtime/hotreload.nupp", output = "nupp/compiler/nupp/runtime/hotreload.nupp"},
     {source = "src/simd.nupp", output = "nupp/compiler/simd.nupp"},
     {source = "src/serde/valuebuilder.nupp", output = "nupp/compiler/serde/valuebuilder.nupp"},
     {

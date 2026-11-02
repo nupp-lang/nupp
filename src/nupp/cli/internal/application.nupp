@@ -541,8 +541,8 @@ export record Application
             local name = field.names[index]
             if field.constants[name] == nil and field.conversion ~= "boolean" then
                 rendered = rendered .. (
-                    field.arity == "attachedOnly" and "=" .. field.value
-                    or field.arity == "optionalAttached" and "[=" .. field.value .. "]"
+                    field.arity == "attachedonly" and "=" .. field.value
+                    or field.arity == "optionalattached" and "[=" .. field.value .. "]"
                     or " " .. field.value
                 )
             end
@@ -774,7 +774,7 @@ export record Application
             for _, candidate in ipairs(schema.fields) do
                 if candidate.role == "option" and not candidate.hidden then
                     for _, shown in ipairs(self:optionspellings(candidate)) do
-                        if candidate.arity == "attachedOnly" then
+                        if candidate.arity == "attachedonly" then
                             shown = shown .. "="
                         end
                         self:addcandidate(out, shown, candidate.documentation, "value", prefix)

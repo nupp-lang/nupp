@@ -283,7 +283,7 @@ function M.composingRefusesComponentsThatShiftBoundaries()
         {{scheme = "https", host = "evil@example.com"}, "host cannot contain a component delimiter"},
         {
             {scheme = "https", userinfo = "u/v", host = "example.com", path = "/"},
-            "userInfo cannot contain a component delimiter"
+            "userinfo cannot contain a component delimiter"
         },
     }
     for _, row in ipairs(refused) do

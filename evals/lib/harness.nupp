@@ -189,7 +189,7 @@ function harness.run(
         stdin = "null",
         stdout = "pipe",
         stderr = "pipe",
-        timeoutMs = timeoutSeconds ~= nil
+        timeoutms = timeoutSeconds ~= nil
         and assert2(
             math.tointeger(math.floor(timeoutSeconds * 1000)),
             "eval command timeout must fit a finite integer number of milliseconds"
@@ -207,10 +207,10 @@ function harness.run(
     end
 
     return {
-        returncode = result.exit.exitCode,
+        returncode = result.exit.exitcode,
         stdout = result.output,
-        stderr = result.errorOutput,
-        timedOut = result.exit.timedOut,
+        stderr = result.erroroutput,
+        timedOut = result.exit.timedout,
     }
 end
 

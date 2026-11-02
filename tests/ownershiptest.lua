@@ -5769,7 +5769,7 @@ end
 -- runtime; `tasks.deadline()` is the absolute instant it becomes.
 function M.aTaskScopeTakesItsTimeoutInMilliseconds()
     assertClean(
-        "local tasks = require(\"coroutine\")\nwith scope = tasks.scope(limit = 2, timeoutMs = 5) do\n   print(scope)\nend"
+        "local tasks = require(\"coroutine\")\nwith scope = tasks.scope(limit = 2, timeoutms = 5) do\n   print(scope)\nend"
     )
     local refused = codes(
         "local tasks = require(\"coroutine\")\nlocal scope = tasks.scope(deadline = 5)\nnupp.drop(scope)"

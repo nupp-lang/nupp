@@ -241,9 +241,9 @@ end
 -- The scalar rules take the spelling convention as data, so both platforms are
 -- testable on one machine. These are Windows answers even on a POSIX runner.
 function M.windowsTextRulesArePlatformIndependent()
-    assert(pathtext.isabsolute("C:\\alpha", true))
-    assert(not pathtext.isabsolute("C:alpha", true))
-    assert(pathtext.isabsolute("\\alpha", true))
+    assert(pathtext.isAbsolute("C:\\alpha", true))
+    assert(not pathtext.isAbsolute("C:alpha", true))
+    assert(pathtext.isAbsolute("\\alpha", true))
     test.eq(pathtext.normalize("C:\\alpha\\.\\beta\\..\\file.txt", true), "C:/alpha/file.txt")
     test.eq(pathtext.normalize("C:alpha\\..\\beta", true), "C:beta")
     test.eq(pathtext.part("C:\\alpha\\.\\beta\\..\\file.tar.gz", 0, true), "C:/alpha/./beta/..")
