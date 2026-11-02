@@ -2,10 +2,10 @@ local test = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local checker = require("fragment")
 local program = require("program")
-local cst = require("nupp.compiler.syntax.cst")
 local loadImage = assert(rawget(_G, "__nupp_load_image"))
 local envMod = require("nupp.compiler.project.env")
 local M = {}
+local fixtureImage = 0
 
 local function loadProgram(compiled)
     return loadImage(compiled.image)
@@ -27,7 +27,9 @@ local function compile(source, filename, env)
     test.eq(table.concat(errors, "\n"), "", source)
     program.installSourceModules()
     local listing = {}
-    local image = program.image(parsed, cst.declaredModule(parsed.root) or filename, filename, listing)
+    -- Loading a fixture must not replace a canonical entry in the VM image registry.
+    fixtureImage = fixtureImage + 1
+    local image = program.image(parsed, "nupp.tests.builtinextension.fixture" .. fixtureImage, filename, listing)
     local lines = {}
     for _, entry in ipairs(listing) do
         lines[#lines + 1] = entry.image

@@ -67,23 +67,29 @@ end
 
 function M.directAndAliasedPublicKernelCallsProduceTheSameGraph()
     local before
-    for _, ending in ipairs({
-        "return lanes.horizontal.algebraicsum(species:splat(1))",
-        "local reduce = lanes.horizontal.algebraicsum\nreturn reduce(species:splat(1))",
-    }) do
+    for _, aliased in ipairs({false, true}) do
         local source = [[
 local array = require("nupp.mem.array")
 local lanes = require("simd")
+]] .. (
+            aliased and "local reduce = lanes.horizontal.algebraicsum\n" or ""
+        ) .. [[
 local function sum(): float64
     local species = lanes.species(array.float64, 4)
-]]
-            .. ending
-            .. "\nend\n"
+]] .. (
+            aliased and "return reduce(species:splat(1))" or "return lanes.horizontal.algebraicsum(species:splat(1))"
+        ) .. "\nend\n"
         local parsed = parser.parse(source, "vm-kernel-identity.nupp")
         test.eq(#parsed.errors, 0)
         local diagnostics = checker.check(parsed, "vm-kernel-identity.nupp", environment.new(ROOT))
         test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-        local result, reason = kernels.tryBuild(parsed.root.blocks[1].stats[3].body)
+        local sum
+        for _, statement in ipairs(parsed.root.blocks[1].stats) do
+            if statement.kind == "localFuncStmt" and statement.name.text == "sum" then
+                sum = statement
+            end
+        end
+        local result, reason = kernels.tryBuild(assert(sum).body)
         assert(result, reason)
         graph.verify(result)
         local operations = {}

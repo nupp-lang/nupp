@@ -265,8 +265,8 @@ function M.nativeCoroutineFacadeReusesTaskConstructorsAndCompleteResults()
         [[
 local private = require("nupp.tasks")
 local public = require("coroutine")
-assert(public.Scope == private.Scope)
-assert(public.Cancellation == private.Cancellation)
+assert(public.Scope == private.Scope, "public Scope must reuse the private constructor")
+assert(public.Cancellation == private.Cancellation, "public Cancellation must reuse the private constructor")
 local type Work = function(integer): (integer, string?, nil)
 local function inspect(borrows task: coroutine.Task<Work>): (integer, string?, nil)
     return task:await()
@@ -277,12 +277,12 @@ end
 with scope = coroutine.scope() do
     local child = scope:spawn(7, work)
     local n, text, tail = inspect(child)
-    assert(n == 7 and text == "kept" and tail == nil)
-    assert(select("#", inspect(child)) == 3)
+    assert(n == 7 and text == "kept" and tail == nil, "spawn preserves heterogeneous result positions")
+    assert(select("#", inspect(child)) == 3, "spawn preserves the trailing nil result count")
     local forked = scope:fork(9, work)
     local m, other, last = inspect(forked)
-    assert(m == 9 and other == "kept" and last == nil)
-    assert(select("#", inspect(forked)) == 3)
+    assert(m == 9 and other == "kept" and last == nil, "fork preserves heterogeneous result positions")
+    assert(select("#", inspect(forked)) == 3, "fork preserves the trailing nil result count")
 end
 return true
 ]],
