@@ -146,9 +146,75 @@ local function tostring(ctx: voidptr, value: uint64): uint64
     end
 end
 
--- string.format with %d, %s and %%; up to three arguments after the format.
+-- An integer argument as Lua reads one: an integer, or a float with an exact
+-- integer value; `absent` when the argument is nil.
+local function integerArgument(value: uint64, absent: int64, name: uint64): int64
+    if value == values.NIL then
+        return absent
+    end
+    if ints.isInteger(value) then
+        return native.index(ints.bitsOf(value))
+    end
+    if value & values.QNAN ~= values.QNAN and ints.integralFloat(value) then
+        return native.index(ints.floatToBits(value))
+    end
+    if value & values.QNAN ~= values.QNAN then
+        error("bad argument to string function (number has no integer representation)")
+    end
+    error("bad argument to string function (number expected)")
+
+    return absent
+end
+
+-- Appends `value` in base `radix` (8, 10 or 16), as an unsigned 64-bit
+-- number, upper-case digits when `upper`; at least `digits` digits.
+local function appendRadix(
+    h: heap.Heap*,
+    b: strings.Builder*,
+    value: uint64,
+    radix: uint64,
+    upper: boolean,
+    digits: uint64
+): uint64
+    @unsafe do
+        if strings.reserve(h, b, 72ULL + digits) ~= 0ULL then
+            return 1ULL
+        end
+        local count: uint64 = 0ULL
+        local scan = value
+        while scan ~= 0ULL do
+            count = count + 1ULL
+            scan = scan // radix
+        end
+        if count < digits then
+            count = digits
+        end
+        local at = b.length + count
+        local rest = value
+        while at > b.length do
+            at = at - 1ULL
+            local digit = rest % radix
+            local ch = 48ULL + digit
+            if digit >= 10ULL then
+                ch = 87ULL + digit
+                if upper then
+                    ch = 55ULL + digit
+                end
+            end
+            native.store8(native.pointer(b.base), native.index(at), ch)
+            rest = rest // radix
+        end
+        b.length = b.length + count
+        return 0ULL
+    end
+end
+
+-- string.format: %d %i %x %X %o %c %s and %%, with Lua's flags (-, +,
+-- space, #, 0), width and precision; up to three arguments after the
+-- format. Float conversions (%f, %g, %e, %a) and %q are not yet the core's.
 local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: uint64, c: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local pieceState = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
         local f = strings.header(fmt)
@@ -156,45 +222,173 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
             error("bad argument #1 to 'format' (string expected)")
         end
         local builder = state as strings.Builder*
+        local piece = pieceState as strings.Builder*
         local p = strings.bytes(f)
         local finish = p + strings.length(f)
         local next: uint64 = 1ULL
+        local refused: uint64 = 0ULL
         while p < finish do
             local ch = native.word(native.load8(native.pointer(p), 0))
             if ch ~= 37ULL then
-                strings.append(h, builder, p, 1ULL)
+                refused = refused | strings.append(h, builder, p, 1ULL)
                 p = p + 1ULL
-            else
-                if p + 1ULL >= finish then
-                    error("invalid conversion '%' to 'format'")
-                end
-                local directive = native.word(native.load8(native.pointer(p + 1ULL), 0))
-                if directive == 37ULL then
-                    strings.append(h, builder, p, 1ULL)
-                else
-                    if next >= count then
-                        error("bad argument to 'format' (no value)")
-                    end
-                    local argument = a
-                    if next == 2ULL then
-                        argument = b
-                    elseif next == 3ULL then
-                        argument = c
-                    end
-                    next = next + 1ULL
-                    if directive == 100ULL then
-                        if not ints.isInteger(argument) then
-                            error("bad argument to 'format' (number has no integer representation)")
-                        end
-                        strings.appendInteger(h, builder, native.index(ints.bitsOf(argument)))
-                    elseif directive == 115ULL then
-                        appendText(h, builder, argument)
-                    else
-                        error("format directive not yet supported by the core")
-                    end
-                end
+            elseif p + 1ULL < finish and native.word(native.load8(native.pointer(p + 1ULL), 0)) == 37ULL then
+                refused = refused | strings.append(h, builder, p, 1ULL)
                 p = p + 2ULL
+            else
+                p = p + 1ULL
+                -- Flags, then width, then precision.
+                local left = false
+                local plus = false
+                local space = false
+                local alternate = false
+                local zero = false
+                while p < finish do
+                    local flag = native.word(native.load8(native.pointer(p), 0))
+                    if flag == 45ULL then
+                        left = true
+                    elseif flag == 43ULL then
+                        plus = true
+                    elseif flag == 32ULL then
+                        space = true
+                    elseif flag == 35ULL then
+                        alternate = true
+                    elseif flag == 48ULL then
+                        zero = true
+                    else
+                        break
+                    end
+                    p = p + 1ULL
+                end
+                local width: uint64 = 0ULL
+                while p < finish
+                    and native.word(native.load8(native.pointer(p), 0)) >= 48ULL
+                    and native.word(native.load8(native.pointer(p), 0)) <= 57ULL do
+                    width = width * 10ULL + native.word(native.load8(native.pointer(p), 0)) - 48ULL
+                    p = p + 1ULL
+                end
+                local precise = false
+                local precision: uint64 = 0ULL
+                if p < finish and native.word(native.load8(native.pointer(p), 0)) == 46ULL then
+                    precise = true
+                    p = p + 1ULL
+                    while p < finish
+                        and native.word(native.load8(native.pointer(p), 0)) >= 48ULL
+                        and native.word(native.load8(native.pointer(p), 0)) <= 57ULL do
+                        precision = precision * 10ULL + native.word(native.load8(native.pointer(p), 0)) - 48ULL
+                        p = p + 1ULL
+                    end
+                end
+                if p >= finish or width > 99ULL or precision > 99ULL then
+                    strings.release(builder)
+                    strings.release(piece)
+                    error("invalid conversion to 'format'")
+                end
+                local directive = native.word(native.load8(native.pointer(p), 0))
+                p = p + 1ULL
+                if next >= count then
+                    strings.release(builder)
+                    strings.release(piece)
+                    error("bad argument to 'format' (no value)")
+                end
+                local argument = a
+                if next == 2ULL then
+                    argument = b
+                elseif next == 3ULL then
+                    argument = c
+                end
+                next = next + 1ULL
+                -- The converted text goes to `piece`; a sign or prefix is
+                -- counted apart, so zero padding goes between it and the digits.
+                local prefix: uint64 = 0ULL
+                local numeric = true
+                if directive == 100ULL or directive == 105ULL then
+                    local n = integerArgument(argument, 0, 2ULL)
+                    local magnitude = native.word(n)
+                    if n < 0 then
+                        refused = refused | strings.appendWord(h, piece, 45ULL, 1ULL)
+                        magnitude = 0ULL - magnitude
+                        prefix = 1ULL
+                    elseif plus then
+                        refused = refused | strings.appendWord(h, piece, 43ULL, 1ULL)
+                        prefix = 1ULL
+                    elseif space then
+                        refused = refused | strings.appendWord(h, piece, 32ULL, 1ULL)
+                        prefix = 1ULL
+                    end
+                    local digits: uint64 = 1ULL
+                    if precise then
+                        digits = precision
+                    end
+                    refused = refused | appendRadix(h, piece, magnitude, 10ULL, false, digits)
+                elseif directive == 120ULL or directive == 88ULL or directive == 111ULL then
+                    local n = native.word(integerArgument(argument, 0, 2ULL))
+                    local radix: uint64 = 16ULL
+                    if directive == 111ULL then
+                        radix = 8ULL
+                    end
+                    if alternate and n ~= 0ULL then
+                        if directive == 120ULL then
+                            refused = refused | strings.appendWord(h, piece, 0x7830ULL, 2ULL)
+                            prefix = 2ULL
+                        elseif directive == 88ULL then
+                            refused = refused | strings.appendWord(h, piece, 0x5830ULL, 2ULL)
+                            prefix = 2ULL
+                        else
+                            refused = refused | strings.appendWord(h, piece, 48ULL, 1ULL)
+                            prefix = 1ULL
+                        end
+                    end
+                    local digits: uint64 = 1ULL
+                    if precise then
+                        digits = precision
+                    end
+                    refused = refused | appendRadix(h, piece, n, radix, directive == 88ULL, digits)
+                elseif directive == 99ULL then
+                    numeric = false
+                    refused = refused
+                        | strings.appendWord(h, piece, native.word(integerArgument(argument, 0, 2ULL)) & 255ULL, 1ULL)
+                elseif directive == 115ULL then
+                    numeric = false
+                    refused = refused | appendText(h, piece, argument)
+                    if precise and piece.length > precision then
+                        piece.length = precision
+                    end
+                else
+                    strings.release(builder)
+                    strings.release(piece)
+                    error("format directive not yet supported by the core")
+                end
+                -- Precision decides an integer's digits, so 0 pads only without it.
+                local padZero = zero and not left and numeric and not precise
+                local length = piece.length
+                if not left and not padZero then
+                    while width > length do
+                        refused = refused | strings.appendWord(h, builder, 32ULL, 1ULL)
+                        width = width - 1ULL
+                    end
+                end
+                refused = refused | strings.append(h, builder, piece.base, prefix)
+                if padZero then
+                    while width > length do
+                        refused = refused | strings.appendWord(h, builder, 48ULL, 1ULL)
+                        width = width - 1ULL
+                    end
+                end
+                refused = refused | strings.append(h, builder, piece.base + prefix, length - prefix)
+                if left then
+                    while width > length do
+                        refused = refused | strings.appendWord(h, builder, 32ULL, 1ULL)
+                        width = width - 1ULL
+                    end
+                end
+                piece.length = 0ULL
             end
+        end
+        strings.release(piece)
+        if refused ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
         end
         return values.TAG_OBJ | strings.finish(h, builder)
     end
@@ -562,26 +756,6 @@ local function getenv(ctx: voidptr, name: uint64): uint64
         builder.length = native.word(length)
         return values.TAG_OBJ | strings.finish(h, builder)
     end
-end
-
--- An integer argument as Lua reads one: an integer, or a float with an exact
--- integer value; `absent` when the argument is nil.
-local function integerArgument(value: uint64, absent: int64, name: uint64): int64
-    if value == values.NIL then
-        return absent
-    end
-    if ints.isInteger(value) then
-        return native.index(ints.bitsOf(value))
-    end
-    if value & values.QNAN ~= values.QNAN and ints.integralFloat(value) then
-        return native.index(ints.floatToBits(value))
-    end
-    if value & values.QNAN ~= values.QNAN then
-        error("bad argument to string function (number has no integer representation)")
-    end
-    error("bad argument to string function (number expected)")
-
-    return absent
 end
 
 -- The string header of an argument, raising when it is not a string.

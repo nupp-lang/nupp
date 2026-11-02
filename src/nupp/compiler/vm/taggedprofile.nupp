@@ -1194,6 +1194,8 @@ function tagged.forVersion(version: integer): any
                 local form: {integer} = need(spec[library as string], "metatable library call")
                 need(#(node.args.exprs or {}) == form[2], tostring(library) .. " argument count is not admitted")
                 return libraryCall(ctx, node, form[1], node.args.exprs)
+            elseif library == "string.format" then
+                return libraryCall(ctx, node, 2, node.args.exprs or {})
             elseif library == "type" then
                 need(#(node.args.exprs or {}) == 1, "type takes one value")
                 return libraryCall(ctx, node, 32, node.args.exprs)
