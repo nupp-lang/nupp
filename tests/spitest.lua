@@ -651,7 +651,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             browser = "nupp.runtime.browser.crypto"
         },
         {
-            module = "nupp.random",
+            module = "nupp.runtime.entropy",
             interface = "nupp.random.spi.Provider",
             native = "nupp.runtime.provider.nativecrypto",
             browser = "nupp.runtime.browser.crypto",
@@ -1003,7 +1003,7 @@ local SELECTING_FACADES = {
     {"nupp.io.tls", "nupp.io.tls.spi.Provider"},
     {"nupp.io.uri.provider", "io.uri.spi.Provider"},
     {"binary.hash.mac", "binary.hash.mac.spi.Provider"},
-    {"nupp.random", "nupp.random.spi.Provider"},
+    {"nupp.runtime.entropy", "nupp.random.spi.Provider"},
     {"nupp.mem.representation", "nupp.mem.representation.spi.CstorageProvider"},
     {"nupp.runtime.timeprovider", "nupp.time.spi.Provider"},
     {"nupp.runtime.uuidprovider", "nupp.util.spi.UuidProvider"},

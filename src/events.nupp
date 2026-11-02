@@ -32,7 +32,7 @@ forward to the module functions below; the equivalent direct call is
 
 Observer state belongs to a source: `MessageBus<A>` is one, and any record with
 an `observers` field implements [](events.Source) and dispatches through
-the same functions. Record events draw from a [](nupp.util.Pool) and struct
+the same functions. Record events draw from a [](table.Pool) and struct
 events from a [](nupp.mem.arena), each created the first time an event type is
 emitted through a source; `setallocator` installs one the caller owns instead.
 ]]
@@ -69,7 +69,7 @@ type events.Observer<E> = function(borrows event: E): nil
 ---
 --- `acquire` hands out reusable storage of the event's own representation,
 --- which the emitting source initializes; `release` ends that lease when
---- delivery is over. [](nupp.util.Pool) and [](nupp.mem.arena) implement it.
+--- delivery is over. [](table.Pool) and [](nupp.mem.arena) implement it.
 --- @export
 interface events.Allocator<E>
     acquire: function(exclusive self: Allocator<E>): E

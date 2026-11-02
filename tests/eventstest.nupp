@@ -1,7 +1,7 @@
 -- events: addressed synchronous delivery over pooled and arena-backed storage.
 local arena = require("nupp.mem.arena")
 local events = require("events")
-const {type Pool, newpool as newPool} = require("nupp.util")
+const {type Pool, newpool as newPool} = require("table")
 local test = require("assert")
 
 local M = {}

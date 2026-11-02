@@ -254,7 +254,7 @@ end
 function M.poolIsOrdinaryTablesOnEveryHost()
     local source = table.concat(
         {
-            "local pool = require('nupp.util')",
+            "local pool = require('table')",
             "local record Event",
             "    id: integer",
             "end",

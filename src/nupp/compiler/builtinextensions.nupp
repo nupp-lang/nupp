@@ -11,7 +11,7 @@ local ROOTS = {
     warn = {module = "warn", direct = true},
     assert = {module = "assert", direct = true},
     arg = {module = "arg", direct = true},
-    table = {module = "nupp.runtime.standardtable", members = {move = true}},
+    table = {module = "nupp.runtime.standardtable", members = {move = true, Pool = true, newpool = true}},
     io = {
         module = "nupp.runtime.standardio",
         members = {
@@ -44,7 +44,7 @@ local ROOTS = {
     },
     os = {
         module = "nupp.runtime.standardos",
-        members = {info = true, uuid4 = true, uuid7 = true, monotonic = true, walltime = true,}
+        members = {info = true, uuid4 = true, uuid7 = true, monotonic = true, walltime = true, randombytes = true,}
     },
 }
 

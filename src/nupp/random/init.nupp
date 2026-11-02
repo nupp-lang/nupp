@@ -1,12 +1,11 @@
 module nupp.random
 
 --[[
-`nupp.random` provides unpredictable bytes and reproducible sequences.
+`nupp.random` provides reproducible random sequences.
+Each generator keeps its own mutable state.
 
 ```nupp
 local random = require("nupp.random")
-
-const nonce = random.randombytes(32)
 
 const dice = new random.Xoshiro128(42)
 
@@ -14,11 +13,9 @@ print(dice:integer(20))
 print(dice:next())
 ```
 
-`randomBytes` asks the host for cryptographically secure bytes, and is what a
-key, a nonce, or a token wants. A `Xoshiro128` is the opposite: an independent
-xoshiro128** sequence with nothing hidden in it, so the same seed always draws
-the same numbers. Omitting the seed picks a fixed one rather than reading a
-clock. Request a seed explicitly when a sequence must vary between runs.
+A `Xoshiro128` draws an independent xoshiro128** sequence, so the same seed
+always draws the same numbers. Omitting the seed picks a fixed one rather than
+reading a clock. Use `os.randombytes` when bytes must be unpredictable.
 
 A seed is one 32-bit word. A generator is mutable and is not safe to share
 between workers; give each lane its own.
@@ -27,27 +24,6 @@ between workers; give each lane its own.
 portable checkpoint format: keep them and the next draw is exactly the one that
 was coming.
 ]]
-
-local spi = require("nupp.runtime.packages")
-local target = require("nupp.runtime.target")
-
-local contracts = require("nupp.random.spi")
-local provider: contracts.Provider = do
-    const chosen = spi.select(spi.providers<contracts.Provider>("nupp.random.spi.Provider"))
-    if chosen ~= nil then
-        yield chosen
-    end
-    if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativecrypto") as contracts.Provider
-    end
-    yield _G.require("nupp.runtime.browser.crypto") as contracts.Provider
-end
-
---- Returns cryptographically secure random bytes from the selected host.
---- @param count the requested byte count, from zero through 1048576
---- @return the generated raw bytes
---- @raises string when the count is invalid or the host cannot supply randomness
-export const randombytes = provider.randomBytes
 
 const INV32 = 1.0 / 4294967296.0
 const TWO21 = 2097152

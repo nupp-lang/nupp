@@ -1,49 +1,25 @@
 module nupp.util
 
 --[[
-`nupp.util` provides bitsets, reusable pools, and protected calls. Use a pool to
-reuse cleared record instances.
+`nupp.util` provides protected calls with result-first returns. Use `try` or
+`trywith` when a raised value should be returned as a failure reason.
 
 ```nupp
-local record Damage
-    amount: integer
-end
-
-const set = new nupp.util.Bitset(128)
-set:set(7)
-
-const damage = nupp.util.newpool(Damage, 64)
-damage:release(damage:acquire())
-
+local util = require("nupp.util")
+local value, reason = util.try(function(): integer
+    return 42
+end)
+assert(reason == nil and value == 42)
 ```
 
-`Bitset` stores bit positions counting from zero. `Pool` reuses cleared
-instances of one declared record.
-
-`try` and `trywith` run a function protected and return `(result, reason)`.
-The `or return` suffix reads that layout directly.
-
+`WORD_BITS` records the word width of [](binary.Bitset).
 ]]
 
 local bitset = require("nupp.util.internal.bitset")
-local pool = require("nupp.util.internal.pool")
 local protected = require("nupp.util.internal.protected")
 
---- A growable set of bit positions counting from 0.
-export type Bitset = bitset.Bitset
-
-export const Bitset = bitset.Bitset
-
---- The bits a word of a [](Bitset) holds.
+--- The bits a word of a [](binary.Bitset) holds.
 export const WORD_BITS = bitset.WORD_BITS
-
---- A pool of instances stamped with a record declaration.
-export type Pool<T is table> = pool.Pool<T>
-
-export const Pool = pool.Pool
-
---- Creates a pool of instances of a record type.
-export const newpool = pool.new
 
 --- Runs a function under `pcall`, answering `(result, raised)` rather than
 --- `(ok, ...)`, which is the layout `or return` reads.

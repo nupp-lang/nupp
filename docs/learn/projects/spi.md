@@ -169,9 +169,9 @@ fallback under ordinary target and host conditions.
 
 An interface is named `Provider` where its module serves one concern. Where the
 name would not say which, it names the concern instead: the representation
-module declares several and keeps one name per storage concern, and
-`nupp.util.spi` declares `UuidProvider` because `nupp.util` is a grab bag
-rather than one facility.
+module declares several and keeps one name per storage concern. The UUID
+service uses `nupp.util.spi.UuidProvider`; its implementation interface is
+independent of the `os` namespace that exposes the service.
 
 An algorithm catalog overlays its entries on the built-in catalog, and each
 interface module declares the shared resource types and cleanup identities to

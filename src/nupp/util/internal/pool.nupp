@@ -13,7 +13,7 @@ local record Damage
     source: string
 end
 
-local damage = nupp.util.newpool(Damage, 64)
+local damage = table.newpool(Damage, 64)
 local hit = damage:acquire()
 hit.amount = 12
 hit.source = "trap"

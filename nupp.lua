@@ -154,6 +154,8 @@ local RESOURCES = {
     {source = "src/gpu/init.nupp", output = "nupp/compiler/gpu/init.nupp"},
     {source = "src/gpu/layout.nupp", output = "nupp/compiler/gpu/layout.nupp"},
     {source = "src/nupp/random/init.nupp", output = "nupp/compiler/nupp/random/init.nupp"},
+    {source = "src/binary/init.nupp", output = "nupp/compiler/binary/init.nupp"},
+    {source = "src/nupp/runtime/entropy.nupp", output = "nupp/compiler/nupp/runtime/entropy.nupp"},
     {source = "src/simd.nupp", output = "nupp/compiler/simd.nupp"},
     {source = "src/serde/valuebuilder.nupp", output = "nupp/compiler/serde/valuebuilder.nupp"},
     {

@@ -1,5 +1,5 @@
--- nupp.util.Pool: record instances leased from a free list, cleared on release.
-const {type Pool, newpool as newPool} = require("nupp.util")
+-- table.Pool: record instances leased from a free list, cleared on release.
+const {type Pool, newpool as newPool} = require("table")
 local test = require("assert")
 
 local M = {}
@@ -49,6 +49,25 @@ end
 
 local function hasNoFields(value: Event): boolean
     return next(value as any) == nil
+end
+
+function M.publicPoolPreservesTheHostTableAndRecordIdentity(): nil
+    local tables = require("table")
+    local events: Pool<Event> = tables.newpool(Event, 1)
+    test.eq(tables, table)
+    test.eq(getmetatable(events), tables.Pool)
+    local event = events:acquire()
+    test.eq(getmetatable(event), Event)
+    event.x = 17
+    events:release(event)
+    local reused = events:acquire()
+    test.eq(reused, event)
+    test(hasNoFields(reused))
+    events:release(reused)
+
+    local old: any = require("nupp.util")
+    test.eq(old.Pool, nil)
+    test.eq(old.newpool, nil)
 end
 
 function M.newReservesTheCapacityUpFront(): nil

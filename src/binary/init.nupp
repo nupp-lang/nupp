@@ -1,0 +1,28 @@
+module binary
+
+--[[
+`binary` provides bitsets and modules for byte-oriented data. Use `Bitset` for a
+mutable set of bit positions counting from zero.
+
+```nupp
+local binary = require("binary")
+local selected = new binary.Bitset(64)
+selected:set(31)
+selected:set(32)
+assert(selected:count() == 2)
+```
+
+A bitset keeps 32 positions in each stored word. Positions and word indexes
+start at zero; `wordAt` returns a signed 32-bit word. The set grows as positions
+are added, and clearing it retains capacity for reuse.
+
+See [](binary.span) for checked storage views, [](binary.hash) for byte hashing,
+and [](binary.compress) for compression streams.
+]]
+
+local bitset = require("nupp.util.internal.bitset")
+
+--- A growable set of bit positions counting from 0.
+export type Bitset = bitset.Bitset
+
+export const Bitset = bitset.Bitset

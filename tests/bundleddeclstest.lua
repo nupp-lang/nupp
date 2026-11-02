@@ -92,7 +92,10 @@ end
 function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     local env = envMod.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
     local sources = {
+        ["binary"] = "/binary/init.nupp",
         ["binary.span"] = "/binary/span.nupp",
+        ["nupp.runtime.entropy"] = "/nupp/runtime/entropy.nupp",
+        ["nupp.runtime.standardtable"] = "/nupp/runtime/standardtable.nupp",
         ["coroutine.suspension"] = "/coroutine/suspension/init.nupp",
         ["coroutine.suspension.cancellation"] = "/coroutine/suspension/cancellation.nupp",
         ["coroutine.suspension.host"] = "/coroutine/suspension/host.nupp",
@@ -127,6 +130,35 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     )
     local suspension = env.loadBundledModule("coroutine.suspension")
     testAssert.eq(suspension.exports.values.handled.rets[1].tag, "boolean")
+end
+
+function M.finalNamespaceHomesKeepCheckedTypesOutsideTheCheckout()
+    local env = envMod.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
+    local source = [[
+local binary = require("binary")
+local {type Pool, newpool} = require("table")
+local record Value
+    number: integer
+end
+local bits: binary.Bitset = new binary.Bitset(64)
+local values: Pool<Value> = newpool(Value, 4)
+local qualified: table.Pool<Value> = table.newpool(Value, 4)
+local bytes: string = os.randombytes(0)
+return bits, values, qualified, bytes
+]]
+    local parsed = parser.parse(source, "final-namespace-homes.nupp")
+    testAssert.eq(#parsed.errors, 0)
+    local errors = {}
+    for _, item in ipairs(check.check(parsed, "final-namespace-homes.nupp", env)) do
+        if item.severity == "error" then
+            errors[#errors + 1] = item.code .. ": " .. item.msg
+        end
+    end
+    testAssert.eq(table.concat(errors, "\n"), "")
+    assert(parsed.effects["runtime.crypto"])
+    local binary = env.resolveModuleExports(env, "binary")
+    local private = env.resolveModuleExports(env, "nupp.util.internal.bitset")
+    testAssert.eq(binary.types.Bitset, private.types.Bitset)
 end
 
 function M.uuidUsesItsContractWithoutNativeCompilerServices()

@@ -30,7 +30,7 @@ print(points[1].x)
 
 A view knows its element count, and every index and slice is checked against it
 before the only unsafe pointer arithmetic in the standard library. Record
-instances backed by a Lua table are [](nupp.util.Pool) instead, which needs no C
+instances backed by a Lua table are [](table.Pool) instead, which needs no C
 storage and so lives with the general-purpose types.
 
 See [c-interop.md](docs/learn/runtime/c-interop/index.md) for what crossing the

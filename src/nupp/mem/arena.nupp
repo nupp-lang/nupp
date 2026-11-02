@@ -31,7 +31,7 @@ a row that is out is never handed out twice. Releasing a row that is not live
 in this arena raises without changing its lease count.
 
 Pages are native-layout storage the VM manages. Table-backed record instances
-are [](nupp.util.Pool).
+are [](table.Pool).
 ]]
 
 local storage = require("nupp.runtime.storage")

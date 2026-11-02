@@ -1,0 +1,23 @@
+@!internal
+module nupp.runtime.entropy
+
+local spi = require("nupp.runtime.packages")
+local target = require("nupp.runtime.target")
+
+local contracts = require("nupp.random.spi")
+local provider: contracts.Provider = do
+    const chosen = spi.select(spi.providers<contracts.Provider>("nupp.random.spi.Provider"))
+    if chosen ~= nil then
+        yield chosen
+    end
+    if target.host == "native" then
+        yield _G.require("nupp.runtime.provider.nativecrypto") as contracts.Provider
+    end
+    yield _G.require("nupp.runtime.browser.crypto") as contracts.Provider
+end
+
+--- Returns cryptographically secure random bytes from the selected host.
+--- @param count the requested byte count, from zero through 1048576
+--- @return the generated raw bytes
+--- @raises string when the count is invalid or the host cannot supply randomness
+export const randombytes = provider.randomBytes

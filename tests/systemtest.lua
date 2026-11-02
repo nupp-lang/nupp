@@ -19,12 +19,12 @@ end
 
 function M.secureRandomBytesSizesAndValidation()
     for _, count in ipairs({0, 1, 32, 4096}) do
-        assert(#random.randombytes(count) == count)
+        assert(#os.randombytes(count) == count)
     end
     for _, count in ipairs({-1, 0.5, 1048577, math.huge, 0 / 0}) do
-        assert(not pcall(random.randombytes, count))
+        assert(not pcall(os.randombytes, count))
     end
-    assert(random.sha256 == nil and random.uuid4 == nil and random.hmacSha256 == nil)
+    assert(random.randombytes == nil and random.sha256 == nil and random.uuid4 == nil and random.hmacSha256 == nil)
 end
 
 function M.identifiersAreMembersOfTheOsNamespace()

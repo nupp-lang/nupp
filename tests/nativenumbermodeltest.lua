@@ -185,7 +185,7 @@ function M.numericConsumersKeepIntegerIndicesAndCounts()
     local parsed = checked(
         [[
 local random = require("nupp.random")
-local util = require("nupp.util")
+local binary = require("binary")
 local json = require("serde.json")
 local codec = require("serde.codec")
 local generator = new random.Xoshiro128(12345)
@@ -200,7 +200,7 @@ for _, value in ipairs(values) do
     sum += value
 end
 assert(sum == 10)
-local set = new util.Bitset(65)
+local set = new binary.Bitset(65)
 set:set(64)
 assert(set:get(64) and set:count() == 1)
 local array: any = {}
