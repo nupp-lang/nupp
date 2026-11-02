@@ -149,6 +149,105 @@ local function setEnvironment(name, value)
     end
 end
 
+local AOT_SCOPE_MODEL = [[
+module model
+export type Shape = {value: integer}
+export const path = io.path.newpath
+@aot
+local function twice(value: number): number
+    return value * 2.0
+end
+export const doubled = twice
+]]
+
+local function aotScopeFixture(entry)
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include={"src"},build={outDir="build",entries={"main"}}}\n',
+        ["src/main.nupp"] = entry,
+        ["src/model.nupp"] = AOT_SCOPE_MODEL,
+    })
+    local modules = require("nupp.tools.build.modules")
+    local target = {kind = "modules", entries = {"main"}, outDir = "build"}
+    local session = modules.session(dir, "build", {include = {"src"}}, target, {})
+    local main = dir .. "/src/main.nupp"
+    local checked = session.inc.checkFile(main)
+
+    local function valid(diagnostics, phase)
+        local failures = {}
+        for _, diagnostic in ipairs(diagnostics or {}) do
+            if require("nupp.compiler.diagnostics").isFatal(diagnostic) then
+                failures[
+                    #failures + 1
+                ] = tostring(diagnostic.code) .. ": " .. tostring(diagnostic.msg or diagnostic.message)
+            end
+        end
+        assert(#failures == 0, phase .. ": " .. table.concat(failures, "\n"))
+    end
+
+    valid(checked.diags, "scope fixture check")
+    assert(checked.result, "scope fixture did not produce a checked tree")
+    local generated, generationDiagnostics = require("nupp.compiler.lua.gen").generate(checked.result, main)
+    valid(generationDiagnostics, "scope fixture generation")
+    local scope, problem = modules.targetScope(dir, target, session)
+    assert(scope, problem)
+
+    return dir, session, scope, require("nupp.compiler.lua.gen").runtimeModules(generated)
+end
+
+function M.aotScopeOmitsErasedTypeImportsWithoutIgnoringTheirErrors()
+    local dir, session, scope, runtimeModules = aotScopeFixture(
+        [[
+module main
+const {type Shape} = require("model")
+export const value: Shape = {value = 1}
+]]
+    )
+    local main = dir .. "/src/main.nupp"
+    local model = dir .. "/src/model.nupp"
+    assert(scope[fs.normalize(main)], "the selected entry remains executable")
+    assert(
+        not scope[fs.normalize(model)],
+        "a type-only dependency's AOT body is not executable; entry runtime imports: " .. table.concat(
+            runtimeModules,
+            ", "
+        )
+    )
+    local dependencies = session.inc.moduleDependencies(main)
+    assert(table.concat(dependencies, " "):find("model", 1, true), "the checker still records the erased import")
+    write(model, AOT_SCOPE_MODEL .. '\nlocal broken: integer = "not an integer"\nprint(broken)\n')
+    local diagnostics = {}
+    testAssert.eq(
+        project.build(dir, {
+            checkOnly = true,
+            diagnostics = diagnostics
+        }),
+        1,
+        "an error in the erased dependency is still refused by the normal module check"
+    )
+    local found = false
+    for _, diagnostic in ipairs(diagnostics) do
+        found = found or diagnostic.code == "NUPP2001"
+    end
+    assert(found, "the imported module's type mismatch remains visible")
+    remove(dir)
+end
+
+function M.aotScopeKeepsValueImportsAndTheirPathtextRuntime()
+    local dir, session, scope = aotScopeFixture(
+        [[
+module main
+local model = require("model")
+export const value = model.doubled(2.0)
+]]
+    )
+    assert(scope[fs.normalize(dir .. "/src/model.nupp")], "the value-imported AOT body is executable")
+    for _, name in ipairs({"io.path", "nupp.io.path.pathtext"}) do
+        local path = session.inc.modulePath(name)
+        assert(path and scope[fs.normalize(path)], name .. " remains in the actual runtime closure")
+    end
+    remove(dir)
+end
+
 function M.moduleSourceChecksReuseOnlyMatchingSourceAndContext()
     local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n'})
     local env = compilerEnv.new(dir, {cache = false})
@@ -2944,23 +3043,27 @@ buffer:close()
     remove(dir)
 end
 
-function M.popenBundleStagesItsStructuredImplementationAndProvider()
+function M.popenBinaryStagesItsStructuredImplementationAndProvider()
     local dir = tempProject({
         [
             "nupp.lua"
-        ] = [[return {include = {"src"}, build = {kind = "bundle",
-   outDir = "out", output = "out/app.lua", entries = {"main"}}}]],
+        ] = [[return {include = {"src"}, build = {kind = "binary", stub = "nupp",
+   outDir = "out", output = "out/app", entries = {"main"}}}]],
         ["src/main.nupp"] = [[
 local open = io.popen
 local child = open({args = {"fixture-child"}})
 ]],
     })
     testAssert.eq(project.build(dir), 0)
-    local payload = read(dir .. "/out/app.lua")
+    assert(exists(executableName(dir .. "/out/app")), "popen emits a binary with its provider directory")
+    local state = json.decode(read(dir .. "/out/.nupp-state.json"))
     for _, name in ipairs({"io.internal.process", "nupp.runtime.provider.nativeprocess"}) do
-        assert(payload:find(('package.preload[%q]'):format(name), 1, true), "popen failed to package " .. name)
+        assert(state.modules[name], "popen failed to stage " .. name)
     end
-    assert(exists(dir .. "/out/lib/" .. deps.sharedLibraryName("nupp_native")), "popen stages its native provider")
+    assert(
+        exists(dir .. "/out/lib/" .. (jit.os == "Windows" and deps.sharedLibraryName("nupp_native") or "nupp_native")),
+        "popen stages its native provider"
+    )
     remove(dir)
 end
 
@@ -3038,6 +3141,49 @@ end
     end
 end
 
+function M.uuidBinaryStagesItsHelperAndSelectedProvider()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include = {"src"}, build = {kind = "binary", stub = "nupp",
+   outDir = "out", output = "out/app", entries = {"main"}}}]],
+        [
+            "src/main.nupp"
+        ] = [[
+local random = os.uuid4
+local ordered = os.uuid7
+local first = os.uuid4()
+local second = random()
+local third = ordered()
+assert(#first == 36 and first:sub(15, 15) == "4")
+assert(#second == 36 and second:sub(15, 15) == "4")
+assert(#third == 36 and third:sub(15, 15) == "7")
+print("uuid-sidecar-ok")
+]],
+    })
+    testAssert.eq(project.build(dir), 0)
+    local state = json.decode(read(dir .. "/out/.nupp-state.json"))
+    for _, name in ipairs({
+        "nupp.util.internal.uuid",
+        "nupp.runtime.uuidprovider",
+        "nupp.runtime.provider.nativeuuid"
+    }) do
+        assert(state.modules[name], "the UUID binary failed to stage " .. name)
+    end
+    assert(
+        exists(dir .. "/out/lib/" .. (jit.os == "Windows" and deps.sharedLibraryName("nupp_native") or "nupp_native")),
+        "UUID generation stages its native provider"
+    )
+    local library = os.getenv("NUPP_NATIVE_LIBRARY")
+    setEnvironment("NUPP_NATIVE_LIBRARY", nil)
+    local ok, code, text = pcall(process.capture, {executableName(dir .. "/out/app")})
+    setEnvironment("NUPP_NATIVE_LIBRARY", library)
+    assert(ok, code)
+    testAssert.eq(code, 0, text)
+    testAssert.eq(text:match("[^\r\n]+"), "uuid-sidecar-ok")
+    remove(dir)
+end
+
 function M.standaloneBinaryLinksClocksAndTimersIntoItsOwnHost()
     local dir = tempProject({
         [
@@ -3053,8 +3199,7 @@ local started = os.monotonic()
 assert(os.walltime() > 1000000000000)
 coroutine.sleep(2)
 assert(os.monotonic() - started >= 2)
-local host = rawget(_G, "__nuppHost") as any
-assert(host.hostFeatures["native-time"])
+assert(rawget(_G, "__nuppHost") == nil)
 assert(rawget(_G, "__nuppNativeLibrary") == ffi.C)
 print("static-clocks-ok")
 ]],

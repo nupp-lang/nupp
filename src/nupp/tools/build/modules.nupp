@@ -2599,12 +2599,10 @@ end
 --- The source files a target reaches, or nothing when it reaches the project.
 ---
 --- A target that names `sources` owns that selection plus whatever its entries
---- and those sources require; a target that names none retains the
---- whole-project contract and is answered with `nil` so a caller keeps whatever
---- it does for a project-wide scope. The closure is the same one the module
---- build seeds with, walked through the same query graph, so a phase that runs
---- before the build cannot decide a different set of modules is in the
---- deliverable than the build then compiles.
+--- and those sources require at runtime; a target that names none retains the
+--- whole-project contract and is answered with `nil`. The shared checker still
+--- resolves every type dependency, while generation identifies the executable
+--- closure after type-only imports are erased.
 ---
 --- @param session the graph the closure is walked through, shared with the
 ---   build that follows so each import is answered once
@@ -2617,9 +2615,13 @@ local function targetScope(root: string, target: Target, session: modules.Sessio
     local inc = session.inc
     local reached: {[string]: boolean} = {}
     local queue: {string} = {}
+    local moduleNames: {[string]: string} = {}
 
-    local function seed(path: string): nil
+    local function seed(path: string, moduleName: string?): nil
         local file = normalize(path)
+        if moduleName ~= nil then
+            moduleNames[file] = moduleName
+        end
         if not reached[file] then
             reached[file] = true
             queue[#queue + 1] = file
@@ -2651,17 +2653,48 @@ local function targetScope(root: string, target: Target, session: modules.Sessio
         local path = inc.modulePath(implementation.implementation)
             or session.stageBundled(implementation.implementation)
         if path ~= nil then
-            seed(path)
+            seed(path, implementation.implementation)
         end
     end
+
+    -- Checking and generation share the build's graph, without optimizing or
+    -- replacing the authored AOT bodies. Interface queries include erased type
+    -- imports; only generated runtime imports select executable AOT units.
+    local function executableDependencies(path: string): {string}
+        local checked = inc.checkFile(path)
+        local usable = checked.missing ~= true and checked.syntax ~= true and checked.result ~= nil
+        for _, diagnostic in ipairs(checked.diags or {}) do
+            if isFatal(diagnostic) then
+                usable = false
+            end
+        end
+        if usable then
+            local code, diagnostics = gen.generate(checked.result, path)
+            for _, diagnostic in ipairs(diagnostics) do
+                if isFatal(diagnostic) then
+                    usable = false
+                end
+            end
+            if usable then
+                local name = moduleNames[normalize(path)] or envMod.moduleNameForPath(inc.env, path) or ""
+                return runtimeImports(name, code, inc.env.config, target)
+            end
+        end
+
+        -- Normal checking/generation owns these diagnostics. Keep its original
+        -- dependency scope when there is no sound generated projection.
+
+        return inc.moduleDependencies(path)
+    end
+
     local cursor: integer = 1
     while cursor <= #queue do
         local path = queue[cursor] as string
         cursor = cursor + 1
-        for _, dependency in ipairs(inc.moduleDependencies(path)) do
-            local dependencyPath = inc.modulePath(dependency)
+        for _, dependency in ipairs(executableDependencies(path)) do
+            local dependencyPath = inc.modulePath(dependency) or session.stageBundled(dependency)
             if dependencyPath ~= nil then
-                seed(dependencyPath as string)
+                seed(dependencyPath as string, dependency)
             end
         end
     end

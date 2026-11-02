@@ -1892,18 +1892,24 @@ function M.byteIoInstallerDoesNotSelectStructuredProcesses()
     local file = assert(io.open(path, "rb"))
     local source = file:read("*a")
     file:close()
-    local result = parser.parse(source, path)
-    testAssert.eq(#result.errors, 0, "the actual byte I/O installer parses")
-    local env = envMod.new(HERE .. "/..", {cache = false})
-    testAssert.eq(#check.check(result, path, env), 0, "the actual byte I/O installer checks")
-    local code, diagnostics, _, emitted = gen.generate(result, path)
-    testAssert.eq(#diagnostics, 0, "the actual byte I/O installer generates")
-    local expanded = native.expand(emitted)
-    assert(not expanded["runtime.process"], "loading byte I/O must not select structured processes")
-    assert(not expanded["native.process"], "loading byte I/O must not select the native process provider")
-    assert(not expanded["native.time"], "loading byte I/O must not select native timers")
-    for _, name in ipairs(gen.runtimeModules(code)) do
-        assert(name ~= "io.internal.process", "the lazy dispatcher must not create an unconditional packaging edge")
+    for _, level in ipairs({0, 1, 2}) do
+        local result = parser.parse(source, path)
+        testAssert.eq(#result.errors, 0, "the actual byte I/O installer parses")
+        local env = envMod.new(HERE .. "/..", {cache = false})
+        testAssert.eq(#check.check(result, path, env), 0, "the actual byte I/O installer checks")
+        optimize.run(result, {level = level})
+        local code, diagnostics, _, emitted = gen.generate(result, path)
+        testAssert.eq(#diagnostics, 0, "the actual byte I/O installer generates at O" .. level)
+        local expanded = native.expand(emitted)
+        assert(not expanded["runtime.process"], "loading byte I/O must not select structured processes")
+        assert(not expanded["native.process"], "loading byte I/O must not select the native process provider")
+        assert(not expanded["native.time"], "loading byte I/O must not select native timers")
+        for _, name in ipairs(gen.runtimeModules(code)) do
+            assert(
+                name ~= "io.internal.process",
+                "the optimized lazy dispatcher must not add a packaging edge at O" .. level
+            )
+        end
     end
 end
 
@@ -1919,15 +1925,33 @@ function M.popenAliasesKeepTheirExplicitProcessFeature()
         .. "do local child = open({args = {'fixture-child'}}) end",
     }
     for _, source in ipairs(sources) do
-        local result = parser.parse(source, "popen-features.nupp")
+        local path = source:match("^module nupp%.fixture") and HERE .. "/../src/nupp/fixture.nupp"
+            or "popen-features.nupp"
+        local result = parser.parse(source, path)
         testAssert.eq(#result.errors, 0, source)
         local env = envMod.new(HERE .. "/..", {cache = false})
-        testAssert.eq(#check.check(result, "popen-features.nupp", env), 0, source)
-        local _, diagnostics, _, emitted = gen.generate(result, "popen-features.nupp")
+        local messages = {}
+        for _, diagnostic in ipairs(check.check(result, path, env)) do
+            messages[#messages + 1] = diagnostic.code .. ": " .. diagnostic.msg
+        end
+        testAssert.eq(table.concat(messages, "\n"), "", source)
+        local _, diagnostics, _, emitted = gen.generate(result, path)
         testAssert.eq(#diagnostics, 0, source)
         assert(emitted["runtime.process"], "a direct or aliased popen read must carry its implementation: " .. source)
     end
     testAssert.eq(native.feature("runtime.process").runtimeModule, "io.internal.process")
+    local sentinel = {}
+    local facade = require("providerstate").processIO(
+        {
+            popen = function()
+            end
+        },
+        function()
+            error(sentinel, 0)
+        end
+    )
+    local ok, problem = pcall(facade.popen, {args = {"fixture-child"}})
+    assert(not ok and problem == sentinel, "the structured loader must preserve the original error object")
 end
 
 function M.nativeFeaturesAreResolvedEffects()
