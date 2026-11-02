@@ -147,6 +147,15 @@ local stringLibrary: {[string]: {integer}} = {
     ["math.tointeger"] = {42, 1, 1},
     ["math.type"] = {43, 1, 1},
     ["math.sqrt"] = {44, 1, 1},
+    ["math.exp"] = {57, 1, 1},
+    ["math.log"] = {58, 1, 2},
+    ["math.sin"] = {59, 1, 1},
+    ["math.cos"] = {60, 1, 1},
+    ["math.tan"] = {61, 1, 1},
+    ["math.asin"] = {62, 1, 1},
+    ["math.acos"] = {63, 1, 1},
+    ["math.atan"] = {64, 1, 2},
+    ["math.fmod"] = {65, 2, 2},
     -- The table library calls guestlib implements, by the same shape.
     ["table.insert"] = {34, 2, 3},
     ["table.remove"] = {35, 1, 2},
@@ -314,7 +323,7 @@ local function binary(ctx: any, node: any, expected: string?, version: integer):
     local operation = node.op.text
     need(expected == nil or expected == "tagged", "tagged result required")
     -- From v8 `..`, `/` and `//` are core library calls (guestlib).
-    local library = version >= 8 and ({[".."] = 5, ["/"] = 6, ["//"] = 7})[operation]
+    local library = version >= 8 and ({[".."] = 5, ["/"] = 6, ["//"] = 7, ["^"] = 56})[operation]
     if library then
         return libraryCall(ctx, node, library, {node.lhs, node.rhs})
     end

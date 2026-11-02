@@ -1447,6 +1447,8 @@ export function LibCall(
         which = guestscope.META_DIV
     elseif word == guestlib.FLOOR_DIVIDE then
         which = guestscope.META_IDIV
+    elseif word == guestlib.POW then
+        which = guestscope.META_POW
     elseif word == guestlib.TOSTRING then
         which = guestscope.META_TOSTRING
     elseif word == guestlib.UNM then

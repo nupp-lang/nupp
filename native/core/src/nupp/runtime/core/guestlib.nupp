@@ -83,6 +83,17 @@ export const GSUB_FINISH_ALL: uint64 = 53ULL
 export const FORMAT_PACK: uint64 = 54ULL
 -- print(...), its values in a pack.
 export const PRINT: uint64 = 55ULL
+-- a ^ b, and the math library functions C's math library answers.
+export const POW: uint64 = 56ULL
+export const MATH_EXP: uint64 = 57ULL
+export const MATH_LOG: uint64 = 58ULL
+export const MATH_SIN: uint64 = 59ULL
+export const MATH_COS: uint64 = 60ULL
+export const MATH_TAN: uint64 = 61ULL
+export const MATH_ASIN: uint64 = 62ULL
+export const MATH_ACOS: uint64 = 63ULL
+export const MATH_ATAN: uint64 = 64ULL
+export const MATH_FMOD: uint64 = 65ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -2152,6 +2163,71 @@ export function errorLevel(value: uint64): uint64
     return native.word(level)
 end
 
+-- C's math function `op` (os.mathFunction's numbering) of the numbers a and
+-- b, as a float.
+local function hostMath(op: uint64, a: uint64, b: uint64): uint64
+    return floatValue(os.mathFunction(op, floatOf(a), floatOf(b)))
+end
+
+-- a ^ b: always a float, by C's pow.
+local function power(a: uint64, b: uint64): uint64
+    if floatOf(a) == values.NIL or floatOf(b) == values.NIL then
+        error("attempt to perform arithmetic on a non-number value")
+    end
+
+    return hostMath(0ULL, a, b)
+end
+
+-- math.log(x [, base]): base 2 and 10 by their own functions, any other as
+-- a quotient of natural logarithms.
+local function mathLog(count: uint64, x: uint64, base: uint64): uint64
+    local value = numberArgument(x)
+    if count < 2ULL then
+        return hostMath(2ULL, value, value)
+    end
+    -- 2.0 and 10.0 by their bits.
+    local b = floatOf(numberArgument(base))
+    if b == 0x4000000000000000ULL then
+        return hostMath(3ULL, value, value)
+    elseif b == 0x4024000000000000ULL then
+        return hostMath(4ULL, value, value)
+    end
+    local numerator = native.fromBits(os.mathFunction(2ULL, floatOf(value), 0ULL))
+    local denominator = native.fromBits(os.mathFunction(2ULL, floatOf(base), 0ULL))
+
+    return floatValue(native.bits(numerator / denominator))
+end
+
+-- math.fmod(a, b): for integers, the remainder of truncated division (an
+-- error for zero); otherwise C's fmod.
+local function mathFmod(ctx: voidptr, a: uint64, b: uint64): uint64
+    local x = numberArgument(a)
+    local y = numberArgument(b)
+    if ints.isInteger(x) and ints.isInteger(y) then
+        local n = ints.bitsOf(x)
+        local d = ints.bitsOf(y)
+        if d == 0ULL then
+            error("bad argument #2 to 'fmod' (zero)")
+        end
+        local negative = native.index(n) < 0
+        local magnitude = n
+        if negative then
+            magnitude = 0ULL - n
+        end
+        local divisor = d
+        if native.index(d) < 0 then
+            divisor = 0ULL - d
+        end
+        local r = magnitude % divisor
+        if negative then
+            r = 0ULL - r
+        end
+        return guestscope.integer(ctx, r)
+    end
+
+    return hostMath(11ULL, x, y)
+end
+
 -- Library call `id` with `count` arguments; answers the result value. error
 -- (ERROR) is raised by its handler, which records where.
 export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
@@ -2159,6 +2235,22 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return tostring(ctx, a)
     elseif id == FORMAT then
         return format(ctx, count, a, b, c, d, 0ULL)
+    elseif id == POW then
+        return power(a, b)
+    elseif id == MATH_EXP then
+        return hostMath(1ULL, numberArgument(a), a)
+    elseif id == MATH_LOG then
+        return mathLog(count, a, b)
+    elseif id >= MATH_SIN and id <= MATH_ACOS then
+        return hostMath(id - MATH_SIN + 5ULL, numberArgument(a), a)
+    elseif id == MATH_ATAN then
+        local x = values.TAG_INTEGER | 1ULL
+        if count >= 2ULL then
+            x = numberArgument(b)
+        end
+        return hostMath(10ULL, numberArgument(a), x)
+    elseif id == MATH_FMOD then
+        return mathFmod(ctx, a, b)
     elseif id == PRINT then
         return printValues(ctx, a)
     elseif id == FORMAT_PACK then

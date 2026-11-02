@@ -57,5 +57,11 @@ local record Os
     --- is not one numeral.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     parseNumber: function(text: voidptr, bytes: uint64, out: voidptr): int64
+
+    --- C's math function `op` of the binary64 bits `x` (and `y` for the
+    --- two-operand ones), as binary64 bits: 0 pow, 1 exp, 2 log, 3 log2,
+    --- 4 log10, 5 sin, 6 cos, 7 tan, 8 asin, 9 acos, 10 atan2(x, y), 11 fmod.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    mathFunction: function(op: uint64, x: uint64, y: uint64): uint64
 end
 return Os

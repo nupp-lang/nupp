@@ -51,7 +51,8 @@ local osNames = {
     environment = true,
     formatNumber = true,
     parseNumber = true,
-    writeOutput = true
+    writeOutput = true,
+    mathFunction = true
 }
 
 local function need(ok: any, message: string): any

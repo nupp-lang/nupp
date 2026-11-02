@@ -303,3 +303,49 @@ pub unsafe extern "C" fn write_output(base: u64, bytes: u64) -> u64 {
         Err(_) => u64::MAX,
     }
 }
+
+unsafe extern "C" {
+    fn pow(x: f64, y: f64) -> f64;
+    fn exp(x: f64) -> f64;
+    fn log(x: f64) -> f64;
+    fn log2(x: f64) -> f64;
+    fn log10(x: f64) -> f64;
+    fn sin(x: f64) -> f64;
+    fn cos(x: f64) -> f64;
+    fn tan(x: f64) -> f64;
+    fn asin(x: f64) -> f64;
+    fn acos(x: f64) -> f64;
+    fn atan2(y: f64, x: f64) -> f64;
+    fn fmod(x: f64, y: f64) -> f64;
+}
+
+/// C's math function `op` of the binary64 `x` (and `y`, for the two-operand
+/// ones), as its binary64 bits: 0 pow, 1 exp, 2 log, 3 log2, 4 log10, 5 sin,
+/// 6 cos, 7 tan, 8 asin, 9 acos, 10 atan2(x, y), 11 fmod. NaN for any other.
+fn math(op: u64, x: u64, y: u64) -> u64 {
+    let (x, y) = (f64::from_bits(x), f64::from_bits(y));
+    let value = unsafe {
+        match op {
+            0 => pow(x, y),
+            1 => exp(x),
+            2 => log(x),
+            3 => log2(x),
+            4 => log10(x),
+            5 => sin(x),
+            6 => cos(x),
+            7 => tan(x),
+            8 => asin(x),
+            9 => acos(x),
+            10 => atan2(x, y),
+            11 => fmod(x, y),
+            _ => f64::NAN,
+        }
+    };
+    value.to_bits()
+}
+
+/// C's math function `op` of `x` and `y`, binary64 bits in and out (see
+/// `math`). The guest's `^` and math library.
+pub unsafe extern "C" fn math_function(op: u64, x: u64, y: u64) -> u64 {
+    math(op, x, y)
+}

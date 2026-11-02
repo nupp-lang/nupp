@@ -242,6 +242,7 @@ export const META_IDIV: uint64 = 13ULL
 export const META_TOSTRING: uint64 = 14ULL
 export const META_UNM: uint64 = 15ULL
 export const META_CALL: uint64 = 16ULL
+export const META_POW: uint64 = 17ULL
 
 -- The interned name of a metatable field: "__index", "__newindex" or
 -- "__metatable".
@@ -285,6 +286,8 @@ export function metaKey(ctx: voidptr, which: uint64): uint64
             refused = strings.appendWord(h, builder, 0x6d6e755f5fULL, 5ULL)
         elseif which == META_CALL then
             refused = strings.appendWord(h, builder, 0x6c6c61635f5fULL, 6ULL)
+        elseif which == META_POW then
+            refused = strings.appendWord(h, builder, 0x776f705f5fULL, 5ULL)
         else
             refused = strings.appendWord(h, builder, 0x61746174656d5f5fULL, 8ULL)
                 | strings.appendWord(h, builder, 0x656c62ULL, 3ULL)
