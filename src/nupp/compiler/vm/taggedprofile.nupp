@@ -175,8 +175,14 @@ local function packSpec(library: string?): integer?
     return packLibrary[library]
 end
 
+local gsubWith: function(any, any, any, boolean): integer
+
 -- A core library call (guestlib): its arguments staged as values.
 local function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
+    -- gsub with a function replacement calls it, so it is a loop.
+    if (id == 26 or id == 27) and graph.callbackArgument(node) ~= nil then
+        return gsubWith(ctx, node, arguments, id == 27)
+    end
     need(#arguments >= 1 and #arguments <= 4, "core library calls take one to four arguments")
     need(arguments[#arguments].kind ~= "vararg", "a library call cannot spread `...` yet")
     local kinds = {}
@@ -629,6 +635,56 @@ local function sortWith(ctx: any, node: any): integer
     end
 
     return ctx.emit(node, "Nil", {}, "tagged") as integer
+end
+
+-- string.gsub(s, p, f [, n]): the gsub step advances to each match and
+-- leaves its captures as a pack, f is called with them, and its answer
+-- replaces the match. The finished string comes alone or, with `all`, in a
+-- pack with the count.
+gsubWith = function(ctx: any, node: any, arguments: any, all: boolean): integer
+    local p = catalog(ctx)
+    local site = need(p.callByNode[node], "gsub lacks its function's callsite")
+    need(site.field and site.owner == ctx.fn.id, "gsub callsite belongs to another owner")
+    need(#arguments == 3 or #arguments == 4, "gsub takes a subject, pattern, function and an optional count")
+    local kinds = {}
+    for index = 1, #arguments do
+        kinds[index] = "tagged"
+    end
+    local operands = ctx.operands(arguments, kinds)
+    if operands == nil then
+        return nil as any
+    end
+    table.insert(operands, 1, 50)
+    local state = ctx.hold(ctx.emit(node, "LibCall", operands, "tagged"))
+    local contract = graph.callbackInvokeContract(node, 0, true)
+    ctx.loop(
+        node,
+        function(c: any, n: any): integer
+            return c.emit(n, "LibCall", {51, c.readHeld(state)}, "tagged")
+        end,
+        function(c: any, n: any): nil
+            local fnKey = c.emit(n, "K", {pool(c, "int64", "3")}, "tagged")
+            local fn = c.emit(n, "GetIdx", {c.readHeld(state), fnKey}, "tagged")
+            local packKey = c.emit(n, "K", {pool(c, "int64", "9")}, "tagged")
+            local captures = c.emit(n, "GetIdx", {c.readHeld(state), packKey}, "tagged")
+            if cleanupGraphs[c.g] then
+                c.beforeCall(n)
+            end
+            local answer = landed(c, n, c.invoke(n, fn, {}, contract, true, captures))
+            if c.block == nil then
+                return
+            end
+            local key = c.emit(n, "K", {pool(c, "int64", "10")}, "tagged")
+            c.emit(n, "SetIdx", {c.readHeld(state), key, answer}, nil)
+        end
+    )
+    local finished = ctx.readHeld(state)
+    ctx.release(state)
+    if ctx.block == nil then
+        return nil as any
+    end
+
+    return ctx.emit(node, "LibCall", {all and 53 or 52, finished}, "tagged") as integer
 end
 
 -- A record method call, `c:m(...)`: the method is loaded from the table the

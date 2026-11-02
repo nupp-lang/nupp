@@ -72,6 +72,12 @@ export const RERAISE: uint64 = 46ULL
 export const TABLE_SORT: uint64 = 47ULL
 export const SORT_BEGIN: uint64 = 48ULL
 export const SORT_STEP: uint64 = 49ULL
+-- string.gsub with a function replacement: its state, its step, and the
+-- finished string alone or in a pack with the count.
+export const GSUB_BEGIN: uint64 = 50ULL
+export const GSUB_STEP: uint64 = 51ULL
+export const GSUB_FINISH: uint64 = 52ULL
+export const GSUB_FINISH_ALL: uint64 = 53ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -1740,6 +1746,222 @@ local function sortStep(ctx: voidptr, value: uint64): uint64
     end
 end
 
+-- gsub's state for a function replacement, a table keyed 1 to 16: the
+-- subject, pattern and function, the byte offsets the search has reached
+-- and the last match ended at (plus one, so 0 is none), the count and its
+-- limit, the pieces of the result and their number, the captures awaiting
+-- the function and its answer, the match they came from, PENDING (1 while
+-- an answer is awaited, 2 once finished), the anchor, and the offset the
+-- unreplaced text runs from.
+const GSUB_SUBJECT: int64 = 1
+const GSUB_PATTERN: int64 = 2
+const GSUB_FUNCTION: int64 = 3
+const GSUB_SRC: int64 = 4
+const GSUB_LAST: int64 = 5
+const GSUB_N: int64 = 6
+const GSUB_LIMIT: int64 = 7
+const GSUB_PIECES: int64 = 8
+const GSUB_CAPTURES: int64 = 9
+const GSUB_ANSWER: int64 = 10
+const GSUB_AT: int64 = 11
+const GSUB_END: int64 = 12
+const GSUB_PENDING: int64 = 13
+const GSUB_ANCHOR: int64 = 14
+const GSUB_COPY: int64 = 15
+const GSUB_COUNT: int64 = 16
+
+-- Adds the subject's bytes [from, to) to the result's pieces.
+local function gsubPiece(h: heap.Heap*, st: uint64, subject: uint64, from: int64, to: int64): nil
+    @unsafe do
+        if to <= from then
+            return
+        end
+        local count = sortGet(st, GSUB_COUNT) + 1
+        local piece = strings.make(h, subject + native.word(from), native.word(to - from))
+        storeAt(h, loadAt(st, GSUB_PIECES) & values.PAYLOAD, count, values.TAG_OBJ | piece)
+        sortPut(h, st, GSUB_COUNT, count)
+    end
+end
+
+-- gsub(s, p, f [, n])'s state, before its first match.
+local function gsubBegin(ctx: voidptr, value: uint64, pv: uint64, fn: uint64, maxValue: uint64): uint64
+    @unsafe do
+        local s = stringArgument(value)
+        local p = stringArgument(pv)
+        local limit = integerArgument(maxValue, native.index(strings.length(s)) + 1, 4ULL)
+        local state = guestscope.newTable(ctx)
+        local pieces = guestscope.newTable(ctx)
+        local h = guestHeap(ctx)
+        storeAt(h, state, GSUB_SUBJECT, value)
+        storeAt(h, state, GSUB_PATTERN, pv)
+        storeAt(h, state, GSUB_FUNCTION, fn)
+        storeAt(h, state, GSUB_PIECES, values.TAG_OBJ | pieces)
+        sortPut(h, state, GSUB_SRC, 0)
+        sortPut(h, state, GSUB_LAST, 0)
+        sortPut(h, state, GSUB_N, 0)
+        sortPut(h, state, GSUB_LIMIT, 0)
+        if limit > 0 then
+            sortPut(h, state, GSUB_LIMIT, limit)
+        end
+        sortPut(h, state, GSUB_PENDING, 0)
+        local anchor = strings.length(p) > 0ULL
+            and native.word(native.load8(native.pointer(strings.bytes(p)), 0)) == 94ULL
+        sortPut(h, state, GSUB_ANCHOR, native.index(native.asWord(anchor)))
+        sortPut(h, state, GSUB_COPY, 0)
+        sortPut(h, state, GSUB_COUNT, 0)
+        tables.drain(h)
+        return values.TAG_OBJ | state
+    end
+end
+
+-- Advances gsub to its next match: true when the function must be called
+-- with the captures at state[9] (its answer goes to state[10]), false once
+-- the subject is done.
+local function gsubStep(ctx: voidptr, value: uint64): uint64
+    local ms0 = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestHeap(ctx)
+        local st = value & values.PAYLOAD
+        local pending = sortGet(st, GSUB_PENDING)
+        if pending == 2 then
+            return values.FALSE
+        end
+        local s = strings.header(loadAt(st, GSUB_SUBJECT))
+        local p = strings.header(loadAt(st, GSUB_PATTERN))
+        local subject = strings.bytes(s)
+        local length = native.index(strings.length(s))
+        local anchor = sortGet(st, GSUB_ANCHOR) == 1
+        local src = sortGet(st, GSUB_SRC)
+        local last = sortGet(st, GSUB_LAST)
+        local finished = false
+        if pending == 1 then
+            -- The function's answer replaces the match: false or nil keeps it,
+            -- a string or number is its text.
+            local at = sortGet(st, GSUB_AT)
+            local e = sortGet(st, GSUB_END)
+            gsubPiece(h, st, subject, sortGet(st, GSUB_COPY), at)
+            local answer = loadAt(st, GSUB_ANSWER)
+            if answer == values.NIL or answer == values.FALSE then
+                gsubPiece(h, st, subject, at, e)
+            elseif strings.header(answer) ~= 0ULL or ints.isInteger(answer) or isFloat(answer) then
+                local text = answer
+                if strings.header(answer) == 0ULL then
+                    text = tostring(ctx, answer)
+                end
+                local count = sortGet(st, GSUB_COUNT) + 1
+                storeAt(h, loadAt(st, GSUB_PIECES) & values.PAYLOAD, count, text)
+                sortPut(h, st, GSUB_COUNT, count)
+            elseif objectKind(answer) == heap.KIND_TABLE then
+                error("invalid replacement value (a table)")
+            elseif objectKind(answer) == heap.KIND_CLOSURE then
+                error("invalid replacement value (a function)")
+            else
+                error("invalid replacement value (a boolean)")
+            end
+            sortPut(h, st, GSUB_COPY, e)
+            src = e
+            last = e + 1
+            finished = anchor
+        end
+        if not finished then
+            local pattern = strings.bytes(p)
+            local pEnd = pattern + strings.length(p)
+            if anchor then
+                pattern = pattern + 1ULL
+            end
+            local ms = ms0 as patterns.MatchState*
+            if patterns.prepare(h, ms, subject, strings.length(s), pEnd) ~= 0ULL then
+                patterns.release(ms)
+                error("not enough memory")
+            end
+            local n = sortGet(st, GSUB_N)
+            local limit = sortGet(st, GSUB_LIMIT)
+            while n < limit do
+                local e = patterns.match(h, ms, subject + native.word(src), pattern)
+                if e ~= 0ULL and (last == 0 or e ~= subject + native.word(last - 1)) then
+                    -- The captures, or the whole match without any, as the
+                    -- pack the function is called with.
+                    local pack = guestscope.newTable(ctx)
+                    local level = patterns.level(ms)
+                    if level == 0ULL then
+                        packPut(
+                            h,
+                            pack,
+                            1ULL,
+                            values.TAG_OBJ | strings.make(h, subject + native.word(src), e - subject - native.word(src))
+                        )
+                        level = 1ULL
+                    else
+                        local i: uint64 = 0ULL
+                        while i < level do
+                            packPut(h, pack, i + 1ULL, capture(h, ms, subject, i))
+                            i = i + 1ULL
+                        end
+                    end
+                    packed(h, pack, level, values.NIL)
+                    patterns.release(ms)
+                    storeAt(h, st, GSUB_CAPTURES, values.TAG_OBJ | pack)
+                    sortPut(h, st, GSUB_N, n + 1)
+                    sortPut(h, st, GSUB_AT, src)
+                    sortPut(h, st, GSUB_END, native.index(e - subject))
+                    sortPut(h, st, GSUB_SRC, src)
+                    sortPut(h, st, GSUB_LAST, last)
+                    sortPut(h, st, GSUB_PENDING, 1)
+                    tables.drain(h)
+                    return values.TRUE
+                elseif src < length then
+                    src = src + 1
+                else
+                    break
+                end
+                if anchor then
+                    break
+                end
+            end
+            patterns.release(ms)
+        end
+        gsubPiece(h, st, subject, sortGet(st, GSUB_COPY), length)
+        sortPut(h, st, GSUB_PENDING, 2)
+        tables.drain(h)
+        return values.FALSE
+    end
+end
+
+-- gsub's result once its step answers false: the pieces joined, alone or
+-- with `all` in a pack with the count of matches.
+local function gsubFinish(ctx: voidptr, value: uint64, all: boolean): uint64
+    local buffer = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local pack: uint64 = 0ULL
+        if all then
+            pack = guestscope.newTable(ctx)
+        end
+        local h = guestHeap(ctx)
+        local st = value & values.PAYLOAD
+        local pieces = loadAt(st, GSUB_PIECES) & values.PAYLOAD
+        local count = sortGet(st, GSUB_COUNT)
+        local builder = buffer as strings.Builder*
+        local refused: uint64 = 0ULL
+        local i: int64 = 1
+        while i <= count do
+            refused = refused | strings.appendString(h, builder, strings.header(loadAt(pieces, i)))
+            i = i + 1
+        end
+        if refused ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        local result = values.TAG_OBJ | strings.finish(h, builder)
+        if pack ~= 0ULL then
+            packPut(h, pack, 1ULL, result)
+            packPut(h, pack, 2ULL, values.TAG_INTEGER | native.word(sortGet(st, GSUB_N)))
+        end
+        tables.drain(h)
+
+        return packed(h, pack, 2ULL, result)
+    end
+end
+
 -- select(i, ...) over a variadic pack {[0] = n, ...}: the i-th value, from
 -- the end when negative; nil past the end.
 local function select(packValue: uint64, index: uint64): uint64
@@ -1867,6 +2089,14 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return sortBegin(ctx, a, b)
     elseif id == SORT_STEP then
         return sortStep(ctx, a)
+    elseif id == GSUB_BEGIN then
+        return gsubBegin(ctx, a, b, c, d)
+    elseif id == GSUB_STEP then
+        return gsubStep(ctx, a)
+    elseif id == GSUB_FINISH then
+        return gsubFinish(ctx, a, false)
+    elseif id == GSUB_FINISH_ALL then
+        return gsubFinish(ctx, a, true)
     elseif id == MATH_ABS then
         return mathAbs(ctx, a)
     elseif id == MATH_CEIL then
