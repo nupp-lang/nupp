@@ -7,12 +7,12 @@ Native TLS session implementation used as a built-in module fallback.
 
 Sessions wrap stream handles from the native network implementation. The native
 runtime owns TLS state and certificate processing; this adapter supplies the
-receiver-based polling protocol in [](io.net.tls.spi). It preserves
+receiver-based polling protocol in [](io.net.spi). It preserves
 hostname, certificate, authority, verification, and ALPN options when creating a
 session. A separately selected network provider must expose compatible handles.
 
 Handshake, read, write, flush, and close-notify operations report pending work to
-the caller. The public [](io.net.tls) layer drives networking readiness and
+the caller. The public [](io.net) layer drives networking readiness and
 suspension. Verification and negotiated protocol results describe the established
 session rather than the requested policy.
 
@@ -21,7 +21,7 @@ public session controls that lifecycle through `destroy`. Requiring the facade
 fixes the implementation; individual TLS operations never perform SPI lookups.
 ]]
 
-local contract = require("io.net.tls.spi")
+local contract = require("io.net.spi")
 local ffi = require("ffi")
 local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any
 const READ_SIZE = 65536
@@ -101,7 +101,7 @@ local function readBuffer(): any
     return scratch
 end
 
-local function create(): contract.Provider
+local function create(): contract.TlsProvider
     const scalar = ffi.new("int32_t[1]")
     const state = ffi.new("uint32_t[1]")
     const length = ffi.new("size_t[1]")
@@ -111,7 +111,7 @@ local function create(): contract.Provider
 
     return {
         wrap = function(
-            self: contract.Provider,
+            self: contract.TlsProvider,
             handle: any,
             server: boolean,
             hostname: string,
@@ -139,7 +139,7 @@ local function create(): contract.Provider
             return handleOutput[0]
         end,
 
-        handshake = function(self: contract.Provider, session: any): (boolean?, string?)
+        handshake = function(self: contract.TlsProvider, session: any): (boolean?, string?)
             const status = C.nuppNativeTlsHandshake(session, state)
             if status ~= 0 then
                 return nil, lastError("nupp: the handshake failed")
@@ -148,7 +148,7 @@ local function create(): contract.Provider
             return state[0] == TLS_READY
         end,
 
-        verified = function(self: contract.Provider, session: any): boolean
+        verified = function(self: contract.TlsProvider, session: any): boolean
             if C.nuppNativeTlsVerified(session, scalar) ~= 0 then
                 return false
             end
@@ -156,7 +156,7 @@ local function create(): contract.Provider
             return scalar[0] ~= 0
         end,
 
-        resumed = function(self: contract.Provider, session: any): boolean
+        resumed = function(self: contract.TlsProvider, session: any): boolean
             if C.nuppNativeTlsResumed(session, scalar) ~= 0 then
                 return false
             end
@@ -164,7 +164,7 @@ local function create(): contract.Provider
             return scalar[0] ~= 0
         end,
 
-        read = function(self: contract.Provider, session: any, wanted: integer): (string?, string?)
+        read = function(self: contract.TlsProvider, session: any, wanted: integer): (string?, string?)
             const taking = wanted < READ_SIZE and wanted or READ_SIZE
             const into = readBuffer()
             const status = C.nuppNativeTlsRead(session, into, taking, state, length)
@@ -181,7 +181,7 @@ local function create(): contract.Provider
             return ffiString(into, tonumber(length[0]) as integer)
         end,
 
-        write = function(self: contract.Provider, session: any, bytes: string): (integer?, string?)
+        write = function(self: contract.TlsProvider, session: any, bytes: string): (integer?, string?)
             const status = C.nuppNativeTlsWrite(session, bytes, #bytes, state, length)
             if status ~= 0 then
                 return nil, lastError("nupp: could not write")
@@ -196,7 +196,7 @@ local function create(): contract.Provider
             return tonumber(length[0]) as integer
         end,
 
-        flushed = function(self: contract.Provider, session: any): (boolean, string?)
+        flushed = function(self: contract.TlsProvider, session: any): (boolean, string?)
             const status = C.nuppNativeTlsFlushed(session, scalar)
             if status ~= 0 then
                 return false, lastError("nupp: could not flush")
@@ -205,7 +205,7 @@ local function create(): contract.Provider
             return scalar[0] ~= 0
         end,
 
-        closenotify = function(self: contract.Provider, session: any): (boolean, string?)
+        closenotify = function(self: contract.TlsProvider, session: any): (boolean, string?)
             const status = C.nuppNativeTlsCloseNotify(session, scalar)
             if status ~= 0 then
                 return false, lastError("nupp: could not send close_notify")
@@ -214,11 +214,11 @@ local function create(): contract.Provider
             return scalar[0] ~= 0
         end,
 
-        destroy = function(self: contract.Provider, session: any): nil
+        destroy = function(self: contract.TlsProvider, session: any): nil
             C.nuppNativeTlsRelease(session)
         end,
 
-        connected = function(self: contract.Provider, session: any): boolean
+        connected = function(self: contract.TlsProvider, session: any): boolean
             if C.nuppNativeTlsConnected(session, scalar) ~= 0 then
                 return false
             end
@@ -226,7 +226,7 @@ local function create(): contract.Provider
             return scalar[0] ~= 0
         end,
 
-        protocol = function(self: contract.Provider, session: any): string?
+        protocol = function(self: contract.TlsProvider, session: any): string?
             const status = C.nuppNativeTlsProtocol(session, protocolBuffer, PROTOCOL_SIZE, length, present)
             if status ~= 0 or present[0] == 0 then
                 return nil

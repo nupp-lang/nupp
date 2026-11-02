@@ -1,7 +1,7 @@
 module nupp.util.internal.hash
 
 --[[General-purpose noncryptographic hashing. For message digests use
-binary.hash.digest; for error-detection checksums use binary.hash.checksum.]]
+binary.digest; for error-detection checksums use binary.checksum.]]
 const {type ByteView} = require("io")
 const bit = require("bit")
 

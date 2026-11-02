@@ -6,10 +6,10 @@ order: 180
 
 Nupp's standard library provides types, text, data formats, I/O, and application
 tools. Its APIs live in builtin tables such as `math` and in declared modules
-such as `binary.hash.digest`.
+such as `binary.digest`.
 
 ```nupp:playground
-local digest = binary.hash.digest.hexdigest("sha256", "payload")
+local digest = binary.digest.hexdigest("sha256", "payload")
 print(#digest, math.lerp(10, 20, 0.25))
 ```
 
@@ -46,12 +46,12 @@ for how a declared module is named and resolved.
 The standard surface is deliberately small. These pages cover both the
 intrinsic namespaces and the declared modules:
 
-- [](binary.hash.digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512
+- [](binary.digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512
   with provider lookup, output-size metadata and consuming finalization.
-- [](binary.hash.checksum) provides Adler-32 and explicitly named CRC variants
+- [](binary.checksum) provides Adler-32 and explicitly named CRC variants
   as numeric values; protocols choose their serialization byte order.
-- [](binary.hash.mac) provides keyed authentication, including HMAC-SHA256.
-- [](binary.hash.fnv1a64) hashes bytes with FNV-1a.
+- [](binary.mac) provides keyed authentication, including HMAC-SHA256.
+- [](binary.fnv1a64) hashes bytes with FNV-1a.
 - [](serde.json), [](serde.base64) and [](serde.hex) encode and decode
   representations. [](serde.valuebuilder) supports codec authors.
 - [](utf8) validates and walks UTF-8 text.
@@ -72,9 +72,7 @@ intrinsic namespaces and the declared modules:
 - [](io) owns byte buffers, readers, writers, and typed scalar reads and writes
   over them.
 - [](io.files) owns filesystem metadata and directories.
-- [](io.net) owns listeners and the connections they accept, and connections a
-  program opens itself.
-- [](io.net.tls) encrypts one of those connections.
+- [](io.net) owns listeners, plain connections, and TLS sessions.
 - [](io.path) models filesystem paths, and [](io.uri) models resource names.
 - [](log) owns leveled logging over a swappable destination.
 - [](math) owns scalar and two-dimensional vector helpers.

@@ -1,6 +1,6 @@
-module binary.hash.digest.spi
+module binary.digest.spi
 
---[[Implementation interfaces for `binary.hash.digest` algorithm catalogs.
+--[[Implementation interfaces for `binary.digest` algorithm catalogs.
 
 The facade chooses the unique highest priority during module initialization.
 Importing this declaration does not load storage or algorithms.

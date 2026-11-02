@@ -71,6 +71,26 @@ end
 
 local M = {}
 
+function M.tlsOverviewExampleChecksAgainstItsPublicApi()
+    local source = assert(require("nupp.compiler.bundled").source("/io/net/init.nupp"))
+    local example = assert(source:match("## TLS.-```nupp\n(.-)\n```"))
+    testAssert.eq(diagsUnderPrelude(example), "")
+end
+
+function M.retiredTlsAndHashNamespacesAreNotBundled()
+    local env = strictEnv()
+    for _, name in ipairs({
+        "io.net.tls",
+        "io.net.tls.spi",
+        "binary.hash",
+        "binary.hash.digest",
+        "binary.hash.checksum",
+        "binary.hash.mac"
+    }) do
+        testAssert.eq(env.bundledImplementation(name), nil, name)
+    end
+end
+
 function M.compilerCarriesEveryFeatureRuntimeSource()
     local manifest = assert(loadfile(ROOT .. "/nupp.lua"))()
     local resources = {}
@@ -117,8 +137,7 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         ["io.net"] = "/io/net/init.nupp",
         ["io.net.spi"] = "/io/net/spi.nupp",
         ["io.cli"] = "/io/cli/init.nupp",
-        ["io.net.tls"] = "/io/net/tls/init.nupp",
-        ["io.net.tls.spi"] = "/io/net/tls/spi.nupp",
+        ["io.net.internal.tls"] = "/io/net/internal/tls.nupp",
         ["nupp.runtime.standardcoroutine"] = "/nupp/runtime/standardcoroutine.nupp",
     }
     for name, path in pairs(sources) do
@@ -144,6 +163,11 @@ function M.finalNamespaceHomesKeepCheckedTypesOutsideTheCheckout()
     local env = envMod.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
     local source = [[
 local binary = require("binary")
+local client: io.net.TlsClientOptions = {hostname = "example.com"}
+local server: io.net.TlsServerOptions = {certificate = "certificate", privatekey = "key"}
+local function ready(borrows session: io.net.TlsSession): boolean
+    return session:isready()
+end
 local {type Pool, newpool} = require("table")
 local record Value
     number: integer
@@ -483,7 +507,7 @@ end
 -- A public standard module the compiler ships but cannot load the types of
 -- resolves to `unknown` at every consumer, and a field read on `unknown` says
 -- "no field X in unknown" rather than naming the module that was never loaded.
--- That is how `nupp.io.net` and `io.net.tls` sat unresolvable: both were
+-- That is how `nupp.io.net` and `io.net` sat unresolvable: both were
 -- staged into the distribution and classified as public, and neither was in
 -- the table the checker loads types from. A consumer got `unknown` for the
 -- whole module, so a call to a function that does not exist read the same as

@@ -1,46 +1,9 @@
-module io.net.tls
+@!internal
 
---[[
-`io.net.tls` takes ownership of a connection [](io.net) already opened
-and turns it into an encrypted connection.
+module io.net.internal.tls
 
-```nupp
-local function fetch(): string
-    local stream = assert(io.net.connect({host = "example.com", port = 443}))
-    local session = assert(io.net.tls.client(stream, {
-        hostname = "example.com",
-    }))
-    assert(session:handshake())
-    assert(session:write("GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n"))
-    const body = assert(session:read(1024))
-    session:close()
+--[[Private TLS transport implementation for `io.net`.]]
 
-    return body
-end
-```
-
-Passing `authority` selects exactly those PEM roots. Omitting it uses the
-platform's root certificates. `SSL_CERT_FILE` and `SSL_CERT_DIR` override the
-platform on every system; without them, macOS reads Security.framework anchors,
-Windows reads its root stores, and other Unix systems search the ordinary
-distribution locations. The roots are loaded once per process. An explicitly
-configured file which cannot be read is a failure rather than permission to
-silently trust something else.
-
-A session reads and writes through the same `Reader` and `Writer` contracts a
-plain connection does, so a parser written against byte I/O reads an encrypted
-connection without knowing it has one.
-
-The session owns the connection. There is no plaintext handle alongside it and
-no second reactor polling the same socket. Closing the session sends
-`close_notify`, drains it, and closes the transport.
-
-Compatible client and server configurations are cached in bounded native
-process state so Rustls can reuse its resumption state across sessions and
-worker lanes. It is not persistent across processes. Resumption never sends
-application data before the handshake: TLS 1.3 early data is deliberately not
-enabled because accepting it requires an application-level replay policy.
-]]
 const assert2 = require("assert")
 
 local spi = require("nupp.runtime.packages")
@@ -58,23 +21,23 @@ local span = require("binary.span")
 local physical = require("nupp.runtime.storage")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
 
-const contract = require("io.net.tls.spi")
-local provider: contract.Provider = do
-    const chosen = spi.select(spi.providers<contract.Provider>("io.net.tls.spi.Provider"))
+const contract = require("io.net.spi")
+local provider: contract.TlsProvider = do
+    const chosen = spi.select(spi.providers<contract.TlsProvider>("io.net.spi.TlsProvider"))
     if chosen ~= nil then
         yield chosen
     end
-    assert2(target.host == "native", "io.net.tls: no implementation is available")
-    yield _G.require("nupp.runtime.provider.nativetls") as contract.Provider
+    assert2(target.host == "native", "io.net: no implementation is available")
+    yield _G.require("nupp.runtime.provider.nativetls") as contract.TlsProvider
 end
 local tls = {}
-const shared = require("io.net.tls.internal.types")
+const shared = require("io.net.internal.tlstypes")
 
 --- How a client session is opened.
-type tls.ClientOptions = shared.ClientOptions
+type tls.TlsClientOptions = shared.ClientOptions
 
 --- How a server session is opened.
-type tls.ServerOptions = shared.ServerOptions
+type tls.TlsServerOptions = shared.ServerOptions
 
 --- The smallest set of operations a platform has to answer for this module.
 
@@ -127,7 +90,7 @@ local function await(operation: string, ready: function(): boolean): nil
         -- resume it twice.
         local resumed = false
         const source = context:source(
-            "io.net.tls",
+            "tls",
             50,
             function(): integer
                 net.pump(0)
@@ -158,8 +121,8 @@ end
 --- Owns the connection it encrypts over. Closing the session sends
 --- `close_notify`, drains it, and closes the socket.
 --- @export
-record tls.Session is Reader, Writer
-    @private _provider: contract.Provider
+record tls.TlsSession is Reader, Writer
+    @private _provider: contract.TlsProvider
     @private _session: any
 
     @private _closed: boolean
@@ -280,7 +243,7 @@ record tls.Session is Reader, Writer
             return true
         end
         local failure: io.Error? = nil
-        await("io.net.tls handshake", function(): boolean
+        await("io.net handshake", function(): boolean
             const done, why = self:step()
             if done == nil then
                 failure = why or io.toError("the handshake failed")
@@ -316,7 +279,7 @@ record tls.Session is Reader, Writer
         if not self._ready then
             return nil, "the handshake has not finished"
         end
-        const wanted = positive(count, "tls.Session read count", 2)
+        const wanted = positive(count, "io.net.TlsSession read count", 2)
         local chunk: string? = nil
         local failure: string? = nil
         local ended = false
@@ -324,7 +287,7 @@ record tls.Session is Reader, Writer
         -- holds exclusively.
         const provider = self._provider
         const session = self._session
-        await("io.net.tls read", function(): boolean
+        await("io.net read", function(): boolean
             const got, why = provider:read(session, wanted)
             if why ~= nil then
                 failure = why
@@ -357,7 +320,7 @@ record tls.Session is Reader, Writer
     --- Reads directly into a checked writable span. A zero answer is the end.
     --- @raises string when the destination is empty
     function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
-        const wanted = positive(#destination, "tls.Session readSpan destination length", 2)
+        const wanted = positive(#destination, "io.net.TlsSession readspan destination length", 2)
         const chunk, why = self:read(wanted)
         if chunk == nil then
             return nil, why
@@ -378,7 +341,7 @@ record tls.Session is Reader, Writer
         offset: integer?,
         count: integer?
     ): (integer?, string?)
-        const wanted = positive(count or READ_SIZE, "tls.Session readInto count", 2)
+        const wanted = positive(count or READ_SIZE, "io.net.TlsSession readinto count", 2)
         const chunk, why = self:read(wanted)
         if chunk == nil then
             return nil, why
@@ -442,7 +405,7 @@ record tls.Session is Reader, Writer
             local took: integer? = nil
             local failure: string? = nil
             const remaining = bytes:sub(at)
-            await("io.net.tls write", function(): boolean
+            await("io.net write", function(): boolean
                 const moved, why = backend:write(session, remaining)
                 if why ~= nil then
                     failure = why
@@ -497,7 +460,7 @@ record tls.Session is Reader, Writer
 
         local complete = false
         local failure: string? = nil
-        await("io.net.tls flush", function(): boolean
+        await("io.net flush", function(): boolean
             const done, why = self._provider:flushed(self._session)
             if why ~= nil then
                 failure = why
@@ -534,7 +497,7 @@ record tls.Session is Reader, Writer
             -- truncation a `close_notify` exists to rule out. The provider
             -- answers once they are out or once the drain's time is spent.
             const chosen, session = self._provider, self._session
-            await("io.net.tls close", function(): boolean
+            await("io.net close", function(): boolean
                 const sent, why = chosen:closenotify(session)
 
                 return sent or why ~= nil
@@ -557,12 +520,12 @@ end
 --- @return why it could not be made, when unsuccessful
 --- @raises string when verification is asked for without a name to verify against
 --- @export
-function tls.client(takes stream: net.Stream, options: tls.ClientOptions?): (affine(tls.Session)?, io.Error?)
+function tls.tlsclient(takes stream: net.Stream, options: tls.TlsClientOptions?): (affine(tls.TlsSession)?, io.Error?)
     const chosen = provider
-    const given: tls.ClientOptions = options or {}
+    const given: tls.TlsClientOptions = options or {}
     const verify = given.verify ~= false
     if verify and (given.hostname == nil or given.hostname == "") then
-        error("nupp: tls.client needs a hostname to verify the peer against", 2)
+        error("nupp: io.net.tlsclient needs a hostname to verify the peer against", 2)
     end
     const protocols = packProtocols(given.protocols, 2)
     const session, why = chosen:wrap(
@@ -579,7 +542,7 @@ function tls.client(takes stream: net.Stream, options: tls.ClientOptions?): (aff
         return nil, io.toError(why)
     end
 
-    return new tls.Session(_provider = chosen, _session = session, _closed = false, _ready = false, _ended = false)
+    return new tls.TlsSession(_provider = chosen, _session = session, _closed = false, _ready = false, _ended = false)
 end
 
 --- Encrypts a connection as the server.
@@ -588,7 +551,7 @@ end
 --- @return the session, which the caller owns and must close
 --- @return why it could not be made, when unsuccessful
 --- @export
-function tls.server(takes stream: net.Stream, options: tls.ServerOptions): (affine(tls.Session)?, io.Error?)
+function tls.tlsserver(takes stream: net.Stream, options: tls.TlsServerOptions): (affine(tls.TlsSession)?, io.Error?)
     const chosen = provider
     const protocols = packProtocols(options.protocols, 2)
     const session, why = chosen:wrap(
@@ -605,7 +568,7 @@ function tls.server(takes stream: net.Stream, options: tls.ServerOptions): (affi
         return nil, io.toError(why)
     end
 
-    return new tls.Session(_provider = chosen, _session = session, _closed = false, _ready = false, _ended = false)
+    return new tls.TlsSession(_provider = chosen, _session = session, _closed = false, _ready = false, _ended = false)
 end
 
 export = tls

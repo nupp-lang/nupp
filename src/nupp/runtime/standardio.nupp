@@ -24,7 +24,7 @@ one it has.
 The remaining I/O operations have their own modules. See [](io.path) for filesystem names,
 [](io.uri) for resource identifiers, [](io.files) for the filesystem
 itself, `io.popen` for running a child process, [](io.net) for
-network connections, [](io.net.tls) for encrypting one, and [](io.http)
+plain and encrypted network connections, and [](io.http)
 for the asynchronous HTTP client.
 Keeping them apart is what lets a program that wants a byte buffer carry a byte
 buffer rather than every provider behind the name.

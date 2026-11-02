@@ -1,4 +1,4 @@
-const digests = require("binary.hash.digest")
+const digests = require("binary.digest")
 const time = require("coroutine")
 const json = require("serde.json")
 

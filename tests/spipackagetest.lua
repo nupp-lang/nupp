@@ -375,7 +375,7 @@ return {
         [
             "src/main.nupp"
         ] = [[
-local mac = require("binary.hash.mac")
+local mac = require("binary.mac")
 local rolling = mac.newmac("hmac-sha256", "key")
 assert(rolling:digestsize() == 32)
 rolling:write("The quick brown fox ")
@@ -395,12 +395,12 @@ build = {type = "builtin", modules = {["acme.hmac_sha256"] = "provider.lua"},
    copy_directories = {"nupp"}}
 ]],
         ["vendor/crypto/nupp/spi.json"] = [[
-{"binary.hash.mac.spi.Provider":["acme.hmac_sha256"]}
+{"binary.mac.spi.Provider":["acme.hmac_sha256"]}
 ]],
         [
             "vendor/crypto/nupp/acme/hmac_sha256.d.nupp"
         ] = [[
-local {type Provider} = require("binary.hash.mac.spi")
+local {type Provider} = require("binary.mac.spi")
 local provider: Provider
 return provider
 ]],

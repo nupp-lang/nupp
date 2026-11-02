@@ -89,8 +89,8 @@ function M.tls(provider)
         end
     })
 
-    return instance({["nupp.runtime.packages"] = true, ["io.net.tls"] = true}, {
-        ["nupp.spi.index"] = {["io.net.tls.spi.Provider"] = {"fixture.provider"}},
+    return instance({["nupp.runtime.packages"] = true, ["io.net.internal.tls"] = true}, {
+        ["nupp.spi.index"] = {["io.net.spi.TlsProvider"] = {"fixture.provider"}},
         ["fixture.provider"] = provider,
         ["nupp.io.net"] = {
             pump = function()
@@ -101,7 +101,7 @@ function M.tls(provider)
                 return stream
             end
         },
-    })("io.net.tls")
+    })("io.net.internal.tls")
 end
 
 function M.browserHttp(memory)
@@ -175,7 +175,7 @@ end
 -- Each fixture owns an ordinary immutable discovery index and module cache.
 function M.family(kind, providers)
     local hash = kind == "checksum" or kind == "digest" or kind == "mac"
-    local facade = kind == "compression" and "binary.compress" or (hash and "binary.hash." or "nupp.") .. kind
+    local facade = kind == "compression" and "binary.compress" or (hash and "binary." or "nupp.") .. kind
     local names, preloads = {}, {}
     for index, provider in ipairs(providers or {}) do
         local name = "fixture.provider" .. index

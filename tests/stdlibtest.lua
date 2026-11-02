@@ -41,7 +41,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
         local _, diagnostics = diagsOf(
             table.concat(
                 {
-                    "local rolling = binary.hash.digest.newdigest('sha256')",
+                    "local rolling = binary.digest.newdigest('sha256')",
                     "local result = rolling:" .. finalizer,
                     "rolling:write('too late')",
                 },
@@ -59,7 +59,7 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
     assertClean(
         table.concat(
             {
-                "local sum = binary.hash.checksum.newchecksum('crc32c')",
+                "local sum = binary.checksum.newchecksum('crc32c')",
                 "local before = sum:value()",
                 "sum:write('still open')",
                 "local after = sum:value()",
@@ -409,7 +409,7 @@ function M.digestUsesPortableBitops()
     assertClean(
         table.concat(
             {
-                "local digest = require('binary.hash.digest')",
+                "local digest = require('binary.digest')",
                 "local rolling = digest.newdigest('sha256')",
                 "rolling:write('message')",
                 "return rolling:hexdigest()",
@@ -422,7 +422,7 @@ end
 function M.oneShotHmacUsesOrdinaryCode()
     local source = table.concat(
         {
-            "local mac = require('binary.hash.mac')",
+            "local mac = require('binary.mac')",
             "return mac.hexdigest('hmac-sha256', 'key', 'message'), #mac.digest('hmac-sha256', 'key', 'message')",
         },
         "\n"
@@ -878,7 +878,7 @@ end
 
 function M.optionBagsArePlainTables()
     -- http's options were a record built with `new`, where net, tls and process take
-    -- a table. They are one shape now, and tls.client's table is optional because
+    -- a table. They are one shape now, and tls.tlsclient's table is optional because
     -- every field in it is.
     assertClean(
         table.concat(
@@ -900,9 +900,9 @@ function M.optionBagsArePlainTables()
         table.concat(
             {
                 "const net = require(\"io.net\")",
-                "const tls = require(\"io.net.tls\")",
+                "const tls = require(\"io.net\")",
                 "local stream = assert(net.connect({host = 'example.com', port = 443}))",
-                "local session = tls.client(stream)",
+                "local session = tls.tlsclient(stream)",
                 "print(session)",
             },
             "\n"
@@ -1992,7 +1992,7 @@ function M.nativeFeaturesAreResolvedEffects()
 
     local shadowed = effectsOf(
         table.concat(
-            {"local binary = {hash = {digest = {hexDigest = function() end}}}", "binary.hash.digest.hexDigest()",},
+            {"local binary = {hash = {digest = {hexDigest = function() end}}}", "binary.digest.hexDigest()",},
             "\n"
         )
     )
@@ -2196,8 +2196,8 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
     local isolated = envMod.new(os.tmpname() .. "-nupp-streaming-hash-surface")
     local source = table.concat(
         {
-            "local digest = require('binary.hash.digest')",
-            "local mac = require('binary.hash.mac')",
+            "local digest = require('binary.digest')",
+            "local mac = require('binary.mac')",
             "local rolling = digest.newdigest('sha256')",
             "rolling:write('message')",
             "assert(#rolling:digest() == 32)",
@@ -2281,9 +2281,9 @@ function M.compilerProvidedPureLibraries()
       assert(math.lerp(10, 20, 0.25) == 12.5)
       assert(math.lerp(10, 20, 1) == 20)
       assert(math.lerp(10, 20, 1.5) == 25)
-      local checksum = require("binary.hash.checksum")
-      local digest = require("binary.hash.digest")
-      local hash = require("binary.hash")
+      local checksum = require("binary.checksum")
+      local digest = require("binary.digest")
+      local hash = require("binary")
       assert(hash.fnv1a64("hello") == "a430d84680aabd0b")
       assert(checksum.value("crc32", "123456789") == 3421780262ULL)
       assert(digest.hexdigest("sha256", "abc") ==

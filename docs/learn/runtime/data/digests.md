@@ -7,13 +7,13 @@ title: Digests and checksums
 
 Message digests produce fixed-size opaque bytes. Checksums produce numeric
 error-detection values. General-purpose hashes such as FNV are
-[](binary.hash.fnv1a64).
+[](binary.fnv1a64).
 Base64 and hexadecimal are reversible codecs.
 
 ## Incremental digests
 
 ```nupp
-local algorithm = binary.hash.digest.algorithm("sha256")
+local algorithm = binary.digest.algorithm("sha256")
 assert(algorithm.digestsize == 32)
 local rolling = algorithm:newdigest()
 rolling:write("first chunk")
@@ -21,7 +21,7 @@ rolling:write("second chunk")
 local raw: string = rolling:digest()
 ```
 
-`binary.hash.digest.newdigest(name)` is shorthand for
+`binary.digest.newdigest(name)` is shorthand for
 `algorithm(name):newdigest()`.
 `lookup(name)` returns nil when an algorithm is unavailable; `algorithm` and
 `newdigest` raise instead. `algorithms()` returns sorted canonical names.
@@ -46,7 +46,7 @@ Every finalization consumes the digest; it neither snapshots nor resets it.
 Scope exit closes an unfinished provider context.
 
 ```nupp
-local rolling = binary.hash.digest.newdigest("sha256")
+local rolling = binary.digest.newdigest("sha256")
 rolling:write("payload")
 local bytes = nupp.mem.array.bytes(rolling:digestsize())
 local output = bytes:write()
@@ -62,15 +62,15 @@ is written; pass a slice to choose an offset. A short destination raises before
 any output is written. The digest is consumed and the provider context is closed
 even when finalization fails. The destination remains owned by the caller.
 
-One-shot conveniences are `binary.hash.digest.digest(name, bytes)` and
-`binary.hash.digest.hexdigest(name, bytes)`. Encoding is also available
+One-shot conveniences are `binary.digest.digest(name, bytes)` and
+`binary.digest.hexdigest(name, bytes)`. Encoding is also available
 separately:
 `serde.hex.encode(raw)` or `serde.base64.encode(raw)`.
 
 ## Checksums and MACs
 
 ```nupp
-local sum = binary.hash.checksum.newchecksum("crc32c")
+local sum = binary.checksum.newchecksum("crc32c")
 assert(sum:width() == 32)
 sum:write("1234")
 local partial = sum:value()
@@ -89,7 +89,7 @@ It differs from Smithy's `CRC64NVME` algorithm.
 The checksum API chooses no byte order: a protocol writes the value using its
 own scalar serialization rules. Checksums provide no authentication.
 
-`binary.hash.mac.newmac("hmac-sha256", key)` accepts a raw-byte key and returns
+`binary.mac.newmac("hmac-sha256", key)` accepts a raw-byte key and returns
 the same writer and consuming finalization as a digest. Its descriptor has
 `digestsize = 32`. The one-shot forms are `mac.digest(name, key, bytes)` and
 `mac.hexdigest(name, key, bytes)`.
@@ -104,14 +104,14 @@ Each family declares its shared types beside the public module:
 
 | Facade | Interface module | Provider contents |
 | --- | --- | --- |
-| `binary.hash.digest` | `binary.hash.digest.spi` | `algorithms: {[string]: Algorithm}` |
-| `binary.hash.checksum` | `binary.hash.checksum.spi` | `algorithms: {[string]: Algorithm}` |
-| `binary.hash.mac` | `binary.hash.mac.spi` | `algorithms: {[string]: Algorithm}` |
+| `binary.digest` | `binary.digest.spi` | `algorithms: {[string]: Algorithm}` |
+| `binary.checksum` | `binary.checksum.spi` | `algorithms: {[string]: Algorithm}` |
+| `binary.mac` | `binary.mac.spi` | `algorithms: {[string]: Algorithm}` |
 
 A package advertises its module in `nupp/spi.json`:
 
 ```json
-{"binary.hash.digest.spi.Provider":["acme.digests"]}
+{"binary.digest.spi.Provider":["acme.digests"]}
 ```
 
 The implementation exports a `Provider` directly, with an optional integer

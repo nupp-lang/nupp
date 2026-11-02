@@ -2,8 +2,8 @@
 -- one suspension boundary to the application Worker and its browser APIs.
 
 local time = require("coroutine")
-local mac = require("binary.hash.mac")
-local digests = require("binary.hash.digest")
+local mac = require("binary.mac")
+local digests = require("binary.digest")
 
 time.sleep(10)
 local key = os.uuid4()

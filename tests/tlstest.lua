@@ -5,7 +5,7 @@ local testAssert = require("assert")
 -- verified, and an unverifiable peer is refused. Two narrow fake-provider cases
 -- check the facade's bounds without pretending to implement TLS.
 local net = require("io.net")
-local tls = require("io.net.tls")
+local tls = require("io.net")
 
 local function slurp(path)
     local f = assert(io.open(path, "rb"), "cannot open " .. path)
@@ -66,7 +66,7 @@ local M = {}
 
 local function boundarySession(provider)
     local facade = require("providerstate").tls(provider)
-    local session = assert(facade.client({}, {verify = false}))
+    local session = assert(facade.tlsclient({}, {verify = false}))
     assert(session:handshake(), "the boundary fixture handshake completes")
 
     return session
@@ -78,8 +78,8 @@ end
 if os.getenv("NUPP_TLS_SYSTEM_ROOTS_CHILD") == "1" then
     function M.omittedAuthorityUsesTheConfiguredSystemRoots()
         local listener, clientSock, serverSock = sockets()
-        local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
-        local client = assert(tls.client(clientSock, {hostname = "localhost"}))
+        local server = assert(tls.tlsserver(serverSock, {certificate = CERT, privatekey = KEY}))
+        local client = assert(tls.tlsclient(clientSock, {hostname = "localhost"}))
         local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
         assert(clientDone, "the client trusts SSL_CERT_FILE: " .. tostring(clientWhy))
         assert(serverDone, "the server completes: " .. tostring(serverWhy))
@@ -91,8 +91,8 @@ if os.getenv("NUPP_TLS_SYSTEM_ROOTS_CHILD") == "1" then
         listener:close()
 
         listener, clientSock, serverSock = sockets()
-        server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
-        client, clientWhy = tls.client(clientSock, {hostname = "localhost", authority = ""})
+        server = assert(tls.tlsserver(serverSock, {certificate = CERT, privatekey = KEY}))
+        client, clientWhy = tls.tlsclient(clientSock, {hostname = "localhost", authority = ""})
         if client ~= nil then
             clientDone, clientWhy = shake(client, server)
         else
@@ -116,8 +116,8 @@ end
 -- then drains for a bounded time rather than waiting for room that never comes.
 function M.closeReturnsWhenThePeerHasStoppedReading()
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
-    local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
+    local server = assert(tls.tlsserver(serverSock, {certificate = CERT, privatekey = KEY}))
+    local client = assert(tls.tlsclient(clientSock, {hostname = "localhost", authority = CERT}))
     local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
     assert(clientDone and serverDone, tostring(clientWhy or serverWhy))
     local provider = require("nupp.runtime.provider.nativetls")
@@ -165,8 +165,14 @@ function M.aClientResumesAStoredSession()
     local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
 
     local firstSock, firstServed = connectTo(listener)
-    local firstServer = assert(tls.server(firstServed, {certificate = CERT, privatekey = KEY, protocols = {"h2"},}))
-    local firstClient = assert(tls.client(firstSock, {hostname = "localhost", authority = CERT, protocols = {"h2"},}))
+    local firstServer = assert(tls.tlsserver(firstServed, {certificate = CERT, privatekey = KEY, protocols = {"h2"},}))
+    local firstClient = assert(
+        tls.tlsclient(firstSock, {
+            hostname = "localhost",
+            authority = CERT,
+            protocols = {"h2"},
+        })
+    )
     assert((shake(firstClient, firstServer)), "the first handshake completes")
     assert(firstServer:write("ticket follows"), "the server writes after its ticket")
     testAssert.eq(
@@ -180,8 +186,20 @@ function M.aClientResumesAStoredSession()
     firstSock:close()
 
     local secondSock, secondServed = connectTo(listener)
-    local secondServer = assert(tls.server(secondServed, {certificate = CERT, privatekey = KEY, protocols = {"h2"},}))
-    local secondClient = assert(tls.client(secondSock, {hostname = "localhost", authority = CERT, protocols = {"h2"},}))
+    local secondServer = assert(
+        tls.tlsserver(secondServed, {
+            certificate = CERT,
+            privatekey = KEY,
+            protocols = {"h2"},
+        })
+    )
+    local secondClient = assert(
+        tls.tlsclient(secondSock, {
+            hostname = "localhost",
+            authority = CERT,
+            protocols = {"h2"},
+        })
+    )
     local clientDone, clientWhy, serverDone, serverWhy = shake(secondClient, secondServer)
     assert(clientDone, "the resumed client finishes: " .. tostring(clientWhy))
     assert(serverDone, "the resumed server finishes: " .. tostring(serverWhy))
@@ -201,13 +219,19 @@ function M.resumptionCacheSeparatesProtocolsAndTrustMaterial()
 
     local firstSock, firstServed = connectTo(listener)
     local firstServer = assert(
-        tls.server(firstServed, {
+        tls.tlsserver(firstServed, {
             certificate = CERT,
             privatekey = KEY,
             protocols = {"h2", "http/1.1"},
         })
     )
-    local firstClient = assert(tls.client(firstSock, {hostname = "localhost", authority = CERT, protocols = {"h2"},}))
+    local firstClient = assert(
+        tls.tlsclient(firstSock, {
+            hostname = "localhost",
+            authority = CERT,
+            protocols = {"h2"},
+        })
+    )
     assert((shake(firstClient, firstServer)), "the cache seed handshake completes")
     assert(firstServer:write("seed"), "the first server writes")
     testAssert.eq(assert(firstClient:read(16)), "seed", "and the client collects its ticket")
@@ -218,14 +242,14 @@ function M.resumptionCacheSeparatesProtocolsAndTrustMaterial()
 
     local changedSock, changedServed = connectTo(listener)
     local changedServer = assert(
-        tls.server(changedServed, {
+        tls.tlsserver(changedServed, {
             certificate = CERT,
             privatekey = KEY,
             protocols = {"h2", "http/1.1"},
         })
     )
     local changedClient = assert(
-        tls.client(changedSock, {
+        tls.tlsclient(changedSock, {
             hostname = "localhost",
             authority = CERT,
             protocols = {"http/1.1"},
@@ -242,14 +266,14 @@ function M.resumptionCacheSeparatesProtocolsAndTrustMaterial()
 
     local trustSock, trustServed = connectTo(listener)
     local trustServer = assert(
-        tls.server(trustServed, {
+        tls.tlsserver(trustServed, {
             certificate = CERT,
             privatekey = KEY,
             protocols = {"h2", "http/1.1"},
         })
     )
     local trustClient = assert(
-        tls.client(trustSock, {
+        tls.tlsclient(trustSock, {
             hostname = "localhost",
             authority = CERT .. CERT,
             protocols = {"h2"},
@@ -270,13 +294,13 @@ function M.aRejectedTicketFallsBackToAFullHandshake()
 
     local firstSock, firstServed = connectTo(listener)
     local firstServer = assert(
-        tls.server(firstServed, {
+        tls.tlsserver(firstServed, {
             certificate = CERT,
             privatekey = KEY,
             protocols = {"h2", "http/1.1"},
         })
     )
-    local firstClient = assert(tls.client(firstSock, {verify = false, protocols = {"h2", "http/1.1"},}))
+    local firstClient = assert(tls.tlsclient(firstSock, {verify = false, protocols = {"h2", "http/1.1"},}))
     assert((shake(firstClient, firstServer)), "the cache seed handshake completes")
     assert(firstServer:write("seed"), "the first server writes")
     testAssert.eq(assert(firstClient:read(16)), "seed", "and the client collects its ticket")
@@ -290,13 +314,13 @@ function M.aRejectedTicketFallsBackToAFullHandshake()
     -- cannot decrypt it and Rustls must continue with a full handshake.
     local fallbackSock, fallbackServed = connectTo(listener)
     local fallbackServer = assert(
-        tls.server(fallbackServed, {
+        tls.tlsserver(fallbackServed, {
             certificate = CERT,
             privatekey = KEY,
             protocols = {"http/1.1", "h2"},
         })
     )
-    local fallbackClient = assert(tls.client(fallbackSock, {verify = false, protocols = {"h2", "http/1.1"},}))
+    local fallbackClient = assert(tls.tlsclient(fallbackSock, {verify = false, protocols = {"h2", "http/1.1"},}))
     assert((shake(fallbackClient, fallbackServer)), "the fallback handshake completes")
     testAssert.eq(fallbackClient:isresumed(), false, "offering a rejected ticket is not reported as resumption")
     testAssert.eq(
@@ -314,8 +338,8 @@ end
 
 function M.aVerifiedHandshakeCarriesBytesBothWays()
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
-    local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
+    local server = assert(tls.tlsserver(serverSock, {certificate = CERT, privatekey = KEY}))
+    local client = assert(tls.tlsclient(clientSock, {hostname = "localhost", authority = CERT}))
 
     local clientDone, clientWhy, serverDone = shake(client, server)
     assert(clientDone, "the client finished the handshake: " .. tostring(clientWhy))
@@ -339,8 +363,8 @@ function M.anUntrustedCertificateIsRefused()
     -- The property that makes verification worth having: the machine's ordinary
     -- roots must not trust this private self-signed fixture.
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
-    local client = assert(tls.client(clientSock, {hostname = "localhost"}))
+    local server = assert(tls.tlsserver(serverSock, {certificate = CERT, privatekey = KEY}))
+    local client = assert(tls.tlsclient(clientSock, {hostname = "localhost"}))
 
     local clientDone, clientWhy = shake(client, server)
     testAssert.eq(clientDone, false, "the handshake does not complete")
@@ -355,8 +379,8 @@ end
 
 function M.verificationCanBeTurnedOffDeliberately()
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
-    local client = assert(tls.client(clientSock, {verify = false}))
+    local server = assert(tls.tlsserver(serverSock, {certificate = CERT, privatekey = KEY}))
+    local client = assert(tls.tlsclient(clientSock, {verify = false}))
 
     local clientDone, clientWhy, serverDone = shake(client, server)
     assert(clientDone, "an unverified handshake completes: " .. tostring(clientWhy))
@@ -376,7 +400,7 @@ function M.verifyingWithNoNameIsAMistakeAtTheCallSite()
     -- anybody, so asking for one is refused where it is written.
     local listener, clientSock, serverSock = sockets()
     local ok = pcall(function()
-        return tls.client(clientSock, {authority = CERT})
+        return tls.tlsclient(clientSock, {authority = CERT})
     end)
     testAssert.eq(ok, false, "verifying with no hostname is refused")
     serverSock:close()
@@ -388,8 +412,8 @@ function M.closeNotifyReadsAsTheEnd()
     -- TLS's end, which is not the socket's: a session that ends with
     -- close_notify has said so, and a truncated one has not.
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
-    local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
+    local server = assert(tls.tlsserver(serverSock, {certificate = CERT, privatekey = KEY}))
+    local client = assert(tls.tlsclient(clientSock, {hostname = "localhost", authority = CERT}))
     local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
     assert(clientDone, "the client handshake completes: " .. tostring(clientWhy))
     assert(serverDone, "the server handshake completes: " .. tostring(serverWhy))
@@ -409,7 +433,7 @@ end
 
 function M.readingBeforeTheHandshakeIsRefused()
     local listener, clientSock, serverSock = sockets()
-    local client = assert(tls.client(clientSock, {verify = false}))
+    local client = assert(tls.tlsclient(clientSock, {verify = false}))
     local got, why = client:read(16)
     testAssert.eq(got, nil, "reading before the handshake answers nil")
     assert(why ~= nil, "and says why")
@@ -424,8 +448,8 @@ end
 
 function M.closingDuringAHandshakeIsImmediateAndTerminal()
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
-    local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
+    local server = assert(tls.tlsserver(serverSock, {certificate = CERT, privatekey = KEY}))
+    local client = assert(tls.tlsclient(clientSock, {hostname = "localhost", authority = CERT}))
 
     local done, why = client:step()
     testAssert.eq(done, false, "one client pass leaves the handshake pending")
@@ -445,7 +469,7 @@ end
 
 function M.aPeerCloseDuringHandshakeBecomesAFailure()
     local listener, clientSock, serverSock = sockets()
-    local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
+    local client = assert(tls.tlsclient(clientSock, {hostname = "localhost", authority = CERT}))
     testAssert.eq(client:step(), false, "the client emits its first handshake flight")
     serverSock:close()
 
@@ -471,7 +495,7 @@ function M.aReleasedSessionAnswersItsQuestionsRatherThanCrashing()
     -- session is asking freed memory, which a plain-Lua caller can do however
     -- firmly the affine layer forbids it in typed code.
     local listener, clientSock, serverSock = sockets()
-    local client = assert(tls.client(clientSock, {verify = false}))
+    local client = assert(tls.tlsclient(clientSock, {verify = false}))
     client:close()
     testAssert.eq(client:isconnected(), false, "a released session is not connected")
     testAssert.eq(client:isreleased(), true, "and says it was released")
@@ -482,7 +506,7 @@ end
 
 function M.aBadCertificateIsReportedRatherThanRaising()
     local listener, clientSock, serverSock = sockets()
-    local session, why = tls.server(serverSock, {
+    local session, why = tls.tlsserver(serverSock, {
         certificate = "-----BEGIN CERTIFICATE-----\nnot a certificate\n-----END CERTIFICATE-----\n",
         privatekey = KEY,
     })
@@ -496,14 +520,14 @@ end
 function M.alpnNegotiatesOneProtocol()
     local listener, clientSock, serverSock = sockets()
     local server = assert(
-        tls.server(serverSock, {
+        tls.tlsserver(serverSock, {
             certificate = CERT,
             privatekey = KEY,
             protocols = {"http/1.1", "h2"},
         })
     )
     local client = assert(
-        tls.client(clientSock, {
+        tls.tlsclient(clientSock, {
             hostname = "localhost",
             authority = CERT,
             protocols = {"h2", "http/1.1"},
@@ -527,8 +551,14 @@ function M.alpnSharingNothingRefusesTheHandshake()
     -- Naming protocols is a commitment: a server that speaks only h2 does not
     -- quietly continue with a client that speaks only http/1.1.
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY, protocols = {"h2"},}))
-    local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT, protocols = {"http/1.1"},}))
+    local server = assert(tls.tlsserver(serverSock, {certificate = CERT, privatekey = KEY, protocols = {"h2"},}))
+    local client = assert(
+        tls.tlsclient(clientSock, {
+            hostname = "localhost",
+            authority = CERT,
+            protocols = {"http/1.1"},
+        })
+    )
     local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
     assert(not clientDone or not serverDone, "a handshake with no protocol in common does not complete")
     assert(clientWhy ~= nil or serverWhy ~= nil, "and one side says why")
@@ -542,8 +572,8 @@ end
 
 function M.noProtocolsMeansNoNegotiation()
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
-    local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
+    local server = assert(tls.tlsserver(serverSock, {certificate = CERT, privatekey = KEY}))
+    local client = assert(tls.tlsclient(clientSock, {hostname = "localhost", authority = CERT}))
     assert((shake(client, server)), "the handshake completes without ALPN")
     testAssert.eq(client:protocol(), nil, "and nothing was negotiated")
     testAssert.eq(server:protocol(), nil, "on either side")
@@ -558,11 +588,11 @@ end
 function M.aProtocolNameIsChecked()
     local listener, clientSock, serverSock = sockets()
     local empty = pcall(function()
-        return tls.client(clientSock, {verify = false, protocols = {""}})
+        return tls.tlsclient(clientSock, {verify = false, protocols = {""}})
     end)
     testAssert.eq(empty, false, "an empty protocol name is refused at the call site")
     local long = pcall(function()
-        return tls.client(clientSock, {verify = false, protocols = {("x"):rep(256)}})
+        return tls.tlsclient(clientSock, {verify = false, protocols = {("x"):rep(256)}})
     end)
     testAssert.eq(long, false, "and so is one longer than a byte can count")
     serverSock:close()
@@ -644,11 +674,11 @@ function M.aClientNeedsNoOptionsTable()
         destroy = function()
         end,
     })
-    local ok, why = pcall(facade.client, {})
+    local ok, why = pcall(facade.tlsclient, {})
     testAssert.eq(ok, false, "an unnamed verified client is refused")
     assert(tostring(why):find("needs a hostname", 1, true) ~= nil, "for want of a name: " .. tostring(why))
     testAssert.eq(#wrapped, 0, "before anything reached the provider")
-    local session = assert(facade.client({}, {hostname = "example.com"}))
+    local session = assert(facade.tlsclient({}, {hostname = "example.com"}))
     testAssert.eq(wrapped[1].verify, true, "a named client verifies by default")
     testAssert.eq(wrapped[1].hostname, "example.com", "against the name it was given")
     session:close()

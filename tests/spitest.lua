@@ -998,10 +998,10 @@ end
 -- table is the consumer inventory; a new facade that selects a provider
 -- belongs in it.
 local SELECTING_FACADES = {
-    {"binary.hash.checksum", "binary.hash.checksum.spi.Provider"},
+    {"binary.checksum", "binary.checksum.spi.Provider"},
     {"nupp.codec.json.provider", "serde.json.spi.Provider"},
     {"binary.compress", "binary.compress.spi.Provider"},
-    {"binary.hash.digest", "binary.hash.digest.spi.Provider"},
+    {"binary.digest", "binary.digest.spi.Provider"},
     {"io.gpu", "io.gpu.spi.Provider"},
     {"nupp.host", "nupp.spi.HostProvider"},
     {"io.files", "io.files.spi.Provider"},
@@ -1009,9 +1009,9 @@ local SELECTING_FACADES = {
     {"nupp.io.net", "nupp.io.net.spi.Provider"},
     {"nupp.io.path.provider", "io.path.spi.Provider"},
     {"io.internal.process", "io.ProcessProvider"},
-    {"io.net.tls", "io.net.tls.spi.Provider"},
+    {"io.net", "io.net.spi.TlsProvider"},
     {"nupp.io.uri.provider", "io.uri.spi.Provider"},
-    {"binary.hash.mac", "binary.hash.mac.spi.Provider"},
+    {"binary.mac", "binary.mac.spi.Provider"},
     {"nupp.runtime.entropy", "nupp.spi.EntropyProvider"},
     {"nupp.mem.representation", "nupp.spi.CstorageProvider"},
     {"nupp.runtime.timeprovider", "nupp.spi.ClockProvider"},
@@ -1054,7 +1054,17 @@ local function loadWithProviders(facade, interface, priorities)
     package.loaded["nupp.runtime.packages"] = nil
     package.loaded[facade] = nil
     package.loaded["nupp.spi.index"] = {[interface] = names}
-    local ok, problem = pcall(require, facade)
+    if interface == "io.net.spi.TlsProvider" then
+        package.loaded["io.net.internal.tls"] = nil
+    end
+    local ok, problem = pcall(function()
+        local api = require(facade)
+        if interface == "io.net.spi.TlsProvider" then
+            return api.tlsclient({}, {verify = false})
+        end
+
+        return api
+    end)
     for name in pairs(package.loaded) do
         if before[name] == nil then
             package.loaded[name] = nil

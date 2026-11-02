@@ -1,4 +1,4 @@
-module binary.hash.mac.spi
+module binary.mac.spi
 
 --[[Implementation interfaces for keyed authentication algorithm catalogs.
 
@@ -17,7 +17,7 @@ define private records satisfying the canonical `State` interface rather than
 substituting its identity.
 ]]
 
-local {type State} = require("binary.hash.digest.spi")
+local {type State} = require("binary.digest.spi")
 
 --- Fixed-output authentication algorithm and a factory for keyed state.
 export interface Algorithm

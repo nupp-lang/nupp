@@ -165,9 +165,10 @@ Importing these contracts does not select or initialize an implementation.
 | `nupp.spi` | `EntropyProvider`, `SystemProvider`, `ClockProvider`, `UuidProvider`, `BufferProvider`, `HostProvider`, `CstorageProvider`, `StructvalueProvider` |
 | `serde.json.spi` | `Provider` |
 | `io.path.spi`, `io.uri.spi` | `Provider` |
-| `binary.hash.digest.spi`, `binary.hash.checksum.spi`, `binary.hash.mac.spi` | `Provider` |
+| `binary.digest.spi`, `binary.checksum.spi`, `binary.mac.spi` | `Provider` |
 | `binary.compress.spi`, `io.gpu.spi` | `Provider` |
-| `io.files.spi`, `io.http.spi`, `io.net.spi`, `io.net.tls.spi` | `Provider` |
+| `io.files.spi`, `io.http.spi`, `io.net.spi` | `Provider` |
+| `io.net.spi` | `TlsProvider` |
 | `io` | `ProcessProvider` |
 | `coroutine.suspension.spi`, `coroutine.workers.spi` | `Provider` |
 

@@ -206,6 +206,22 @@ end
 
 local M = {}
 
+function M.publicNetworkImportDoesNotInitializeTls()
+    local underlying = {
+        connect = function()
+        end
+    }
+    local load = require("providerstate").instance({["io.net"] = true}, {["nupp.io.net"] = underlying,}, {
+        ["io.net.internal.tls"] = function()
+            error("plain network import initialized TLS")
+        end,
+    })
+    local api = load("io.net")
+    assert(api.connect == underlying.connect)
+    assert(type(api.tlsclient) == "function" and type(api.tlsserver) == "function")
+    assert(api.tls == nil and api.client == nil and api.server == nil)
+end
+
 function M.aQuietConnectionIsNotTheEnd()
     -- The whole point of the three-state read: a gap in the middle of a stream
     -- must not read as end of stream, or a parser stops on the first lull.

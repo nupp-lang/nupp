@@ -22,10 +22,10 @@ const carriedpool = table.newpool
 const carriedentropy = os.randombytes
 const _ = os.info
 require("utf8")
-require("binary.hash")
-require("binary.hash.digest")
-require("binary.hash.checksum")
-require("binary.hash.mac")
+require("binary")
+require("binary.digest")
+require("binary.checksum")
+require("binary.mac")
 require("binary.compress")
 require("serde.json")
 require("io.path")
@@ -34,7 +34,7 @@ require("nupp.text")
 require("coroutine")
 require("io.net")
 const carriedprocess = io.popen
-require("io.net.tls")
+require("io.net")
 require("io.http")
 require("io.gpu")
 require("coroutine.workers")

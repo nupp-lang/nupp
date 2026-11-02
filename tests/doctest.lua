@@ -1537,7 +1537,7 @@ end
 
 -- Public UTF-8 and digest modules document their complete declared surface.
 function M.standardDataApiHasCompleteDocumentation()
-    local modules = {"src/utf8.nupp", "src/binary/hash/digest/init.nupp",}
+    local modules = {"src/utf8.nupp", "src/binary/digest/init.nupp",}
     for _, relative in ipairs(modules) do
         local source = assert(readFile(HERE .. "/../" .. relative), "no module at " .. relative)
         local name = relative:match("^src/(.+)%.nupp$"):gsub("/", "."):gsub("%.init$", "")

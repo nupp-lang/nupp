@@ -73,13 +73,13 @@ local platformLibraries = {
         return require("nupp.random")
     end,
     function()
-        return require("binary.hash.mac")
+        return require("binary.mac")
     end,
     function()
-        return require("binary.hash.digest")
+        return require("binary.digest")
     end,
     function()
-        return require("binary.hash")
+        return require("binary")
     end,
     function()
         return require("nupp.io.storage")

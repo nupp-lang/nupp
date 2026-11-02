@@ -24,7 +24,7 @@ The rest of what `io` means is a module of its own, because each has a luacase
 name and so can have one. See [](io.path) for filesystem names,
 [](io.uri) for resource identifiers, [](io.files) for the filesystem
 itself, `popen` for running a child process, [](io.net) for
-network connections, [](io.net.tls) for encrypting one, and [](io.http)
+plain and encrypted network connections, and [](io.http)
 for the asynchronous HTTP client.
 Keeping them apart is what lets a program that wants a byte buffer carry a byte
 buffer rather than every provider behind the name.

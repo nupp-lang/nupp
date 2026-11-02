@@ -566,7 +566,7 @@ end
 function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
     withProject({["src/app/main.nupp"] = "module app.main\n"}, function(dir)
         local env = projectEnv(dir)
-        for _, consumer in ipairs({"nupp.tools.consumer", "serde.json", "binary.hash.digest", "coroutine.workers"}) do
+        for _, consumer in ipairs({"nupp.tools.consumer", "serde.json", "binary.digest", "coroutine.workers"}) do
             for _, implementation in ipairs({
                 "nupp.runtime.packages",
                 "nupp.serde.internal.value",

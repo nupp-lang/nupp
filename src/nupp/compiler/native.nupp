@@ -131,8 +131,9 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.tls"
     ] = {
         name = "tls_runtime",
-        module = "io.net.tls",
-        runtimeModule = "io.net.tls",
+        module = "io.net.internal.tls",
+        exports = {"io.net.tlsclient", "io.net.tlsserver"},
+        runtimeModule = "io.net.internal.tls",
         portableRuntime = true,
         requires = {"runtime.suspension"}
     },
@@ -228,15 +229,10 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {name = "net_internal", runtimeModule = "nupp.io.net.internal", portableRuntime = true, requires = {}},
     [
         "runtime.tls_contract"
-    ] = {
-        name = "tls_contract",
-        runtimeModule = "io.net.tls.spi",
-        portableRuntime = true,
-        requires = {"runtime.tls_types"}
-    },
+    ] = {name = "tls_contract", runtimeModule = "io.net.spi", portableRuntime = true, requires = {"runtime.tls_types"}},
     [
         "runtime.tls_types"
-    ] = {name = "tls_types", runtimeModule = "io.net.tls.internal.types", portableRuntime = true, requires = {}},
+    ] = {name = "tls_types", runtimeModule = "io.net.internal.tlstypes", portableRuntime = true, requires = {}},
     [
         "runtime.process_contract"
     ] = {

@@ -1,6 +1,6 @@
 @!internal
 
-module io.net.tls.internal.types
+module io.net.internal.tlstypes
 
 local tls = {}
 

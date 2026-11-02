@@ -15,7 +15,7 @@ isolated. Eligible closure captures cross only as independent copies.
 module jobs
 
 export function hash(bytes: string): string
-    return binary.hash.fnv1a64(bytes)
+    return binary.fnv1a64(bytes)
 end
 ```
 

@@ -1,8 +1,8 @@
-local digest = require("binary.hash.digest")
-local mac = require("binary.hash.mac")
-local checksum = require("binary.hash.checksum")
+local digest = require("binary.digest")
+local mac = require("binary.mac")
+local checksum = require("binary.checksum")
 local io = require("io")
-local hash = require("binary.hash")
+local hash = require("binary")
 local array = require("nupp.mem.array")
 local span = require("binary.span")
 local hex = require("serde.hex")
@@ -13,10 +13,10 @@ function M.hashFamiliesKeepSeparateAlgorithmCatalogs(): nil
     test(checksum.lookup("sha256") == nil)
     test(digest.lookup("crc32") == nil)
     test(mac.lookup("sha256") == nil)
-    test(checksum == require("binary.hash.checksum"))
-    test(digest == require("binary.hash.digest"))
-    test(mac == require("binary.hash.mac"))
-    test(hash == require("binary.hash"))
+    test(checksum == require("binary.checksum"))
+    test(digest == require("binary.digest"))
+    test(mac == require("binary.mac"))
+    test(hash == require("binary"))
 end
 
 function M.publishedFnv1a64VectorsAndByteViews(): nil

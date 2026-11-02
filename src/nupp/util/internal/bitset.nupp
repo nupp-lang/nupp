@@ -2,7 +2,6 @@ module nupp.util.internal.bitset
 
 local data = {}
 local bit: any = require("nupp.runtime.bitops")
-local physical = require("nupp.runtime.storage")
 const band: function(number, number): integer = bit.band
 const bnot: function(number): integer = bit.bnot
 const bor: function(number, number): integer = bit.bor
@@ -48,6 +47,7 @@ local function buildTables(): nil
     if POPCOUNT_HALF ~= nil then
         return
     end
+    local physical = require("nupp.runtime.storage")
     local population = physical.allocateBytes(65536) as uint8[?]
     local trailing = physical.allocateBytes(65536) as uint8[?]
     @unsafe do
@@ -148,6 +148,7 @@ record data.Bitset
         end
         buildTables()
         local words = wordsFor(bits)
+        local physical = require("nupp.runtime.storage")
         self.words = physical.allocateArray(physical.scalar("uint32"), words) as uint32[?]
         self.capacity = words
         self.used = 0
@@ -171,6 +172,7 @@ record data.Bitset
 
         local doubled = self.capacity * 2
         local grown = needed > doubled ? needed : doubled
+        local physical = require("nupp.runtime.storage")
         local fresh = physical.allocateArray(physical.scalar("uint32"), grown) as uint32[?]
         physical.copy(fresh as any, self.words as any, self.capacity * 4)
         self.words = fresh
@@ -385,6 +387,7 @@ record data.Bitset
     --- allocating once it has reached its peak.
     function clearall(self): nil
         if self.used > 0 then
+            local physical = require("nupp.runtime.storage")
             physical.fill(self.words as any, self.used * 4, 0)
             self.used = 0
         end
@@ -609,6 +612,7 @@ record data.Bitset
         end
 
         if otherUsed > 0 then
+            local physical = require("nupp.runtime.storage")
             physical.copy(self.words as any, other.words as any, otherUsed * 4)
         end
         local words = self.words

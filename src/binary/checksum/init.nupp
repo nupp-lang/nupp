@@ -1,4 +1,4 @@
-module binary.hash.checksum
+module binary.checksum
 
 --[[
 Numeric checksums, for noticing that bytes got corrupted.
@@ -6,7 +6,7 @@ Numeric checksums, for noticing that bytes got corrupted.
 One call for a whole string, or a context you feed in pieces.
 
 ```nupp
-const checksum = binary.hash.checksum
+const checksum = binary.checksum
 
 print(checksum.value("crc32c", "hello"))
 
@@ -19,7 +19,7 @@ print(running:value())
 `value` is a snapshot rather than a finish, so a context keeps going after one
 is taken. A context is an [`io.Writer`](io.Writer), so
 `reader:transferto(running)` checksums a whole stream without holding it. These say nothing about whether bytes were changed on purpose: for
-that reach for [](binary.hash.mac).
+that reach for [](binary.mac).
 
 ## Built-in algorithms
 
@@ -40,7 +40,7 @@ which selects hardware acceleration when the CPU supports it.
 A snapshot is a number, so whatever writes one to the wire picks its byte order.
 
 A host may supply its own catalog through
-[](binary.hash.checksum.spi), selected during setup before this module
+[](binary.checksum.spi), selected during setup before this module
 loads. Its entries override the built-ins of the same name and may add others,
 and the ones it does not name stay available. The catalog is read once, at load,
 so no lookup or update resolves a service.
@@ -49,7 +49,7 @@ so no lookup or update resolves a service.
 local spi = require("nupp.runtime.packages")
 
 const span = require("binary.span")
-const provider = require("binary.hash.checksum.spi")
+const provider = require("binary.checksum.spi")
 const {type Writer} = require("io")
 
 --- Owned incremental checksum state with non-consuming numeric reads.
@@ -160,7 +160,7 @@ local function validate(selected: provider.Provider): nil
 end
 
 local selected: provider.Provider = spi.select(
-    spi.providers<provider.Provider>("binary.hash.checksum.spi.Provider")
+    spi.providers<provider.Provider>("binary.checksum.spi.Provider")
 ) ?? standard
 validate(selected)
 local available: {[string]: Algorithm} = {}
