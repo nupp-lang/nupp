@@ -550,6 +550,12 @@ local function snapshot(r: Replay*): nil
     end
 end
 
+local function buffersArena(r: Replay*, borrows a: arena.Arena*): nil
+    @unsafe do
+        r.buffersArena = a
+    end
+end
+
 -- Replays standard input; writes the counts and answers the disagreements.
 local function replayTrace(): int64
     @unsafe do
@@ -568,7 +574,7 @@ local function replayTrace(): int64
                 r.h.automatic = false
                 r.input = native.address(input)
                 r.buffers = native.address(lists)
-                r.buffersArena = small
+                buffersArena(r, small)
                 local objectsRaw = arena.alloc(a, 24, 8)
                 local rootsRaw = arena.alloc(a, 24, 8)
                 if objectsRaw == nil or rootsRaw == nil then
