@@ -78,6 +78,33 @@ export function bytes(s: uint64): uint64
     return native.load64(native.pointer(s), native.fieldOffset<heap.Header>("auxPtr"))
 end
 
+-- Whether string a sorts before string b (or equals it, with `orEqual`),
+-- byte by byte as Lua's C locale orders them.
+export function less(a: uint64, b: uint64, orEqual: boolean): boolean
+    local n = length(a)
+    local m = length(b)
+    local count = n
+    if m < count then
+        count = m
+    end
+    local x = bytes(a)
+    local y = bytes(b)
+    local i: uint64 = 0ULL
+    while i < count do
+        local c = native.word(native.load8(native.pointer(x), native.index(i)))
+        local d = native.word(native.load8(native.pointer(y), native.index(i)))
+        if c ~= d then
+            return c < d
+        end
+        i = i + 1ULL
+    end
+    if orEqual then
+        return n <= m
+    end
+
+    return n < m
+end
+
 -- Room for `more` bytes; answers 0, or 1 when backing is refused.
 export function reserve(h: heap.Heap*, b: Builder*, more: uint64): uint64
     @unsafe do

@@ -587,6 +587,50 @@ local function invokeProtected(ctx: any, node: any, keepResult: boolean, count: 
     return ctx.invoke(node, value, args, contract, keepResult)
 end
 
+-- table.sort(t, f): a merge sort the sort step advances until it needs f's
+-- answer, which a call of f here gives it. The step leaves the state table
+-- {t, f, a, b, answer, ...} asking whether a sorts before b, and answers
+-- false once t is sorted.
+local function sortWith(ctx: any, node: any): integer
+    local p = catalog(ctx)
+    local site = need(p.callByNode[node], "table.sort lacks its comparator's callsite")
+    need(site.field and site.owner == ctx.fn.id, "comparator callsite belongs to another owner")
+    local operands = ctx.operands(node.args.exprs, {"tagged", "tagged"})
+    if operands == nil then
+        return nil as any
+    end
+    local state = ctx.hold(ctx.emit(node, "LibCall", {48, operands[1], operands[2]}, "tagged"))
+    local contract = graph.callbackInvokeContract(node, 2)
+    ctx.loop(
+        node,
+        function(c: any, n: any): integer
+            return c.emit(n, "LibCall", {49, c.readHeld(state)}, "tagged")
+        end,
+        function(c: any, n: any): nil
+            local fields = {}
+            for index = 2, 4 do
+                local key = c.emit(n, "K", {pool(c, "int64", tostring(index))}, "tagged")
+                fields[index] = c.emit(n, "GetIdx", {c.readHeld(state), key}, "tagged")
+            end
+            if cleanupGraphs[c.g] then
+                c.beforeCall(n)
+            end
+            local answer = landed(c, n, c.invoke(n, fields[2], {fields[3], fields[4]}, contract, true))
+            if c.block == nil then
+                return
+            end
+            local key = c.emit(n, "K", {pool(c, "int64", "5")}, "tagged")
+            c.emit(n, "SetIdx", {c.readHeld(state), key, answer}, nil)
+        end
+    )
+    ctx.release(state)
+    if ctx.block == nil then
+        return nil as any
+    end
+
+    return ctx.emit(node, "Nil", {}, "tagged") as integer
+end
+
 -- A record method call, `c:m(...)`: the method is loaded from the table the
 -- record's name holds and called with the receiver first. With `count`, it
 -- keeps that many results and answers them as a list.
@@ -1436,6 +1480,14 @@ function tagged.forVersion(version: integer): any
                 return libraryCall(ctx, node, form[1], node.args.exprs)
             elseif library == "string.format" then
                 return libraryCall(ctx, node, 2, node.args.exprs or {})
+            elseif library == "table.sort" then
+                -- Without a comparator the sort step compares with `<` itself.
+                local count = #(node.args.exprs or {})
+                need(count == 1 or count == 2, "table.sort takes a table and an optional comparator")
+                if count == 2 then
+                    return sortWith(ctx, node)
+                end
+                return libraryCall(ctx, node, 47, node.args.exprs)
             elseif library == "type" then
                 need(#(node.args.exprs or {}) == 1, "type takes one value")
                 return libraryCall(ctx, node, 32, node.args.exprs)

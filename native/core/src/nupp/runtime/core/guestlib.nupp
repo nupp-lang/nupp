@@ -68,6 +68,10 @@ export const MATH_SQRT: uint64 = 44ULL
 export const LANDED: uint64 = 45ULL
 -- The landed error raised again, as it was, once the owners are destroyed.
 export const RERAISE: uint64 = 46ULL
+-- table.sort(t) by `<`; with a comparator, its state and its step.
+export const TABLE_SORT: uint64 = 47ULL
+export const SORT_BEGIN: uint64 = 48ULL
+export const SORT_STEP: uint64 = 49ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -1537,6 +1541,205 @@ local function tableUnpack(ctx: voidptr, list: uint64, a: uint64, b: uint64, all
     end
 end
 
+-- table.sort's state, a table keyed 1 to 15: the list and comparator, the
+-- pair awaiting the comparator's answer and the answer, then where the merge
+-- sort stands. PENDING is 1 while an answer is awaited and 2 once sorted.
+const SORT_LIST: int64 = 1
+const SORT_LESS: int64 = 2
+const SORT_A: int64 = 3
+const SORT_B: int64 = 4
+const SORT_ANSWER: int64 = 5
+const SORT_N: int64 = 6
+const SORT_WIDTH: int64 = 7
+const SORT_LO: int64 = 8
+const SORT_MID: int64 = 9
+const SORT_HI: int64 = 10
+const SORT_I: int64 = 11
+const SORT_J: int64 = 12
+const SORT_K: int64 = 13
+const SORT_BUFFER: int64 = 14
+const SORT_PENDING: int64 = 15
+
+local function sortGet(st: uint64, key: int64): int64
+    return native.index(loadAt(st, key) & values.PAYLOAD)
+end
+
+local function sortPut(h: heap.Heap*, st: uint64, key: int64, n: int64): nil
+    storeAt(h, st, key, values.TAG_INTEGER | native.word(n))
+end
+
+-- Whether a sorts before b by `<`, for table.sort without a comparator:
+-- numbers by value, strings byte by byte.
+local function sortLess(a: uint64, b: uint64): boolean
+    local ai = ints.isInteger(a)
+    local bi = ints.isInteger(b)
+    if ai and bi then
+        return native.index(ints.bitsOf(a)) < native.index(ints.bitsOf(b))
+    end
+    if ai and isFloat(b) then
+        return ints.intFloatLess(ints.bitsOf(a), b, false)
+    end
+    if isFloat(a) and bi then
+        return ints.floatIntLess(a, ints.bitsOf(b), false)
+    end
+    if isFloat(a) and isFloat(b) then
+        return native.fromBits(a) < native.fromBits(b)
+    end
+    local x = strings.header(a)
+    local y = strings.header(b)
+    if x == 0ULL or y == 0ULL then
+        error("attempt to compare two values that are not both numbers or strings")
+    end
+
+    return strings.less(x, y, false)
+end
+
+-- The merge of runs [lo, lo + width - 1] and [lo + width, hi], the second
+-- cut short by the list's end.
+local function sortAt(h: heap.Heap*, st: uint64, lo: int64, width: int64): nil
+    local n = sortGet(st, SORT_N)
+    local hi = lo + 2 * width - 1
+    if hi > n then
+        hi = n
+    end
+    sortPut(h, st, SORT_WIDTH, width)
+    sortPut(h, st, SORT_LO, lo)
+    sortPut(h, st, SORT_MID, lo + width - 1)
+    sortPut(h, st, SORT_HI, hi)
+    sortPut(h, st, SORT_I, lo)
+    sortPut(h, st, SORT_J, lo + width)
+    sortPut(h, st, SORT_K, lo)
+end
+
+-- The next pair of runs to merge, doubling the width once a pass ends.
+-- False once one run spans the list.
+local function sortRuns(h: heap.Heap*, st: uint64): boolean
+    local n = sortGet(st, SORT_N)
+    local width = sortGet(st, SORT_WIDTH)
+    local lo = sortGet(st, SORT_LO) + 2 * width
+    if lo + width > n then
+        width = width * 2
+        lo = 1
+        if width >= n then
+            return false
+        end
+    end
+    sortAt(h, st, lo, width)
+
+    return true
+end
+
+-- table.sort's state for list t and comparator `less` (nil for `<`), at the
+-- first merge. A bottom-up merge sort: stable, and O(n log n) comparisons.
+local function sortBegin(ctx: voidptr, list: uint64, less: uint64): uint64
+    @unsafe do
+        local t = tableArgument(list)
+        local state = guestscope.newTable(ctx)
+        local buffer = guestscope.newTable(ctx)
+        local h = guestHeap(ctx)
+        storeAt(h, state, SORT_LIST, list)
+        storeAt(h, state, SORT_LESS, less)
+        storeAt(h, state, SORT_BUFFER, values.TAG_OBJ | buffer)
+        local n = native.index(tables.length(t))
+        sortPut(h, state, SORT_N, n)
+        sortPut(h, state, SORT_PENDING, 0)
+        if n < 2 then
+            sortPut(h, state, SORT_PENDING, 2)
+        else
+            sortAt(h, state, 1, 1)
+        end
+        tables.drain(h)
+        return values.TAG_OBJ | state
+    end
+end
+
+-- Advances the sort: true when the comparator must say whether state[3]
+-- sorts before state[4] (its answer goes to state[5]), false once sorted.
+-- Without a comparator it runs to the end.
+local function sortStep(ctx: voidptr, value: uint64): uint64
+    @unsafe do
+        local h = guestHeap(ctx)
+        local st = value & values.PAYLOAD
+        local pending = sortGet(st, SORT_PENDING)
+        if pending == 2 then
+            return values.FALSE
+        end
+        local t = loadAt(st, SORT_LIST) & values.PAYLOAD
+        local buffer = loadAt(st, SORT_BUFFER) & values.PAYLOAD
+        local less = loadAt(st, SORT_LESS)
+        local mid = sortGet(st, SORT_MID)
+        local hi = sortGet(st, SORT_HI)
+        local i = sortGet(st, SORT_I)
+        local j = sortGet(st, SORT_J)
+        local k = sortGet(st, SORT_K)
+        if pending == 1 then
+            -- The right element goes first only when it sorts before the left,
+            -- which keeps equal elements in order.
+            local answer = loadAt(st, SORT_ANSWER)
+            if answer ~= values.NIL and answer ~= values.FALSE then
+                storeAt(h, buffer, k, loadAt(t, j))
+                j = j + 1
+            else
+                storeAt(h, buffer, k, loadAt(t, i))
+                i = i + 1
+            end
+            k = k + 1
+        end
+        while true do
+            if i <= mid and j <= hi then
+                local right = loadAt(t, j)
+                local left = loadAt(t, i)
+                if less ~= values.NIL then
+                    storeAt(h, st, SORT_A, right)
+                    storeAt(h, st, SORT_B, left)
+                    sortPut(h, st, SORT_I, i)
+                    sortPut(h, st, SORT_J, j)
+                    sortPut(h, st, SORT_K, k)
+                    sortPut(h, st, SORT_PENDING, 1)
+                    tables.drain(h)
+                    return values.TRUE
+                end
+                if sortLess(right, left) then
+                    storeAt(h, buffer, k, right)
+                    j = j + 1
+                else
+                    storeAt(h, buffer, k, left)
+                    i = i + 1
+                end
+                k = k + 1
+            else
+                while i <= mid do
+                    storeAt(h, buffer, k, loadAt(t, i))
+                    i = i + 1
+                    k = k + 1
+                end
+                while j <= hi do
+                    storeAt(h, buffer, k, loadAt(t, j))
+                    j = j + 1
+                    k = k + 1
+                end
+                local at = sortGet(st, SORT_LO)
+                while at <= hi do
+                    storeAt(h, t, at, loadAt(buffer, at))
+                    at = at + 1
+                end
+                if not sortRuns(h, st) then
+                    sortPut(h, st, SORT_PENDING, 2)
+                    tables.drain(h)
+                    return values.FALSE
+                end
+                mid = sortGet(st, SORT_MID)
+                hi = sortGet(st, SORT_HI)
+                i = sortGet(st, SORT_I)
+                j = sortGet(st, SORT_J)
+                k = sortGet(st, SORT_K)
+            end
+        end
+
+        return values.FALSE
+    end
+end
+
 -- select(i, ...) over a variadic pack {[0] = n, ...}: the i-th value, from
 -- the end when negative; nil past the end.
 local function select(packValue: uint64, index: uint64): uint64
@@ -1657,6 +1860,13 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return tableUnpack(ctx, a, b, c, false)
     elseif id == TABLE_UNPACK_ALL then
         return tableUnpack(ctx, a, b, c, true)
+    elseif id == TABLE_SORT then
+        sortStep(ctx, sortBegin(ctx, a, values.NIL))
+        return values.NIL
+    elseif id == SORT_BEGIN then
+        return sortBegin(ctx, a, b)
+    elseif id == SORT_STEP then
+        return sortStep(ctx, a)
     elseif id == MATH_ABS then
         return mathAbs(ctx, a)
     elseif id == MATH_CEIL then

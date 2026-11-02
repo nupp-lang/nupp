@@ -334,6 +334,17 @@ local function wideOrder(orEqual: boolean, left: uint64, right: uint64): uint64
     return 2ULL
 end
 
+-- Comparisons of two strings, byte by byte: 1 true, 0 false, 2 not strings.
+local function stringOrder(orEqual: boolean, left: uint64, right: uint64): uint64
+    local a = strings.header(left)
+    local b = strings.header(right)
+    if a == 0ULL or b == 0ULL then
+        return 2ULL
+    end
+
+    return native.asWord(strings.less(a, b, orEqual))
+end
+
 -- 1 for true, 0 for false, 2 for an operand that is not a number.
 local function order(orEqual: boolean, left: uint64, right: uint64): uint64
     local leftInteger = integerWord(left)
@@ -692,6 +703,9 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         result = wideOrder(false, left, right)
     end
     if result > 1ULL then
+        result = stringOrder(false, left, right)
+    end
+    if result > 1ULL then
         -- A table operand's __lt decides, as a boolean.
         local callee = guestscope.binaryMeta(ctx, guestscope.META_LT, left, right)
         if callee ~= 0ULL then
@@ -748,6 +762,9 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     local result = order(true, left, right)
     if result > 1ULL then
         result = wideOrder(true, left, right)
+    end
+    if result > 1ULL then
+        result = stringOrder(true, left, right)
     end
     if result > 1ULL then
         -- A table operand's __le decides, as a boolean.
