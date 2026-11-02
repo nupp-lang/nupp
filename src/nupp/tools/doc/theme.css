@@ -481,10 +481,9 @@ input {
 
 .nuppdoc-content pre {
     overflow: auto;
-    padding: .8rem .9rem;
-    border: 1px solid var(--nuppdoc-border);
-    border-radius: 8px;
-    background: var(--nuppdoc-code-background);
+    padding: 0;
+    border: 0;
+    background: transparent;
     line-height: 1.55
 }
 
@@ -854,7 +853,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     margin: 1.25rem 0;
     border: 1px solid var(--nuppdoc-border);
     border-radius: var(--nuppdoc-code-block-radius);
-    background: var(--nuppdoc-code-background);
+    background: transparent;
     box-shadow: none
 }
 
