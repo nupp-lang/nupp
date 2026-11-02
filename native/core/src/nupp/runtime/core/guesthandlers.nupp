@@ -17,6 +17,7 @@ const heap = require("nupp.runtime.vm.heap")
 const wide = require("nupp.runtime.core.coreintegers")
 const threads = require("nupp.runtime.core.threads")
 const guestio = require("nupp.runtime.core.guestio")
+const modules = require("nupp.runtime.core.modules")
 
 -- The closed checked producer binds these program/slot reads to corebytecode's
 -- canonical opcode recipes and its retained complete graph-derived byte stream.
@@ -85,6 +86,33 @@ export function Require(
     if target < 0 then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
+    end
+    -- From v8 a module's chunk runs when first required, as a call; later
+    -- requires take the value it answered.
+    if modules.lazy(ctx) == 1ULL then
+        local loaded = modules.cached(ctx, native.word(target))
+        if loaded == 0ULL then
+            ops.checkpoint(ctx, frame, pc)
+            if modules.begin(ctx, frame, pc, native.word(target), native.word(dst)) ~= 1ULL then
+                ops.failure(ctx, ops.INVALID)
+                return native.fail()
+            end
+            local s = native.pointer(ops.state(ctx))
+            local current = native.pointer(access.active(s))
+            local currentValues = native.pointer(access.values(s, current))
+            local currentIntegers = native.pointer(access.integers(s, current))
+            local currentFloats = native.pointer(access.floats(s, current))
+            local currentPC = native.pointer(access.pc(s, current))
+            access.refresh(s, current, ctx)
+            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        end
+        slots.writeValue(frame, regs, dst, loaded)
+        local after = ops.branch(ctx, frame, pc, 0)
+        if after == 0ULL then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
     local value = ops.moduleValue(ctx, frame, pc, native.word(target))
     if value == 0ULL then
@@ -1809,6 +1837,10 @@ export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.PACK_DESTINATION then
         value = guestscope.packValues(ctx, native.offset(regs, native.index(native.word(src) * 8ULL)), 1ULL, 0ULL)
     end
+    -- A required module's value is kept for later requires.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.MODULE_DESTINATION then
+        modules.store(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")), value)
+    end
     local returned = frames.returnScalar(s, frame, value)
     if returned ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
@@ -1880,6 +1912,9 @@ export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         return native.fail()
     end
     local returned: uint64 = 0ULL
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.MODULE_DESTINATION then
+        modules.store(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")), value)
+    end
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.PACK_DESTINATION then
         -- A caller taking every result as one pack gets them in a pack.
         local packed = guestscope.packValues(
@@ -2137,6 +2172,9 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
             return native.fail()
         end
         return native.fail()
+    end
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.MODULE_DESTINATION then
+        modules.store(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")), value)
     end
     local returned = frames.returnValues(s, frame, native.offset(regs, native.index(native.word(src) * 8ULL)), count)
     if returned ~= 1ULL then

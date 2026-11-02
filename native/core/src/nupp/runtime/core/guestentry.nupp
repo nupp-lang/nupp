@@ -191,7 +191,12 @@ export function start(binding: voidptr, ordinal: uint64): uint64
             return 0ULL
         end
     end
-    if version ~= 1ULL and native.load64(world, native.fieldOffset<instances.World>("modulePhase")) ~= ordinal then
+    -- Before v8 the modules run in order, each its own entry; from v8 only
+    -- the entry module runs, and requires run the rest.
+    if version ~= 1ULL
+        and version < 8ULL
+        and native.load64(world, native.fieldOffset<instances.World>("modulePhase")) ~= ordinal
+    then
         return 0ULL
     end
     if instances.initialize(world, registry, entries, capacity, targets, owners * 8ULL, owners) == 0ULL then

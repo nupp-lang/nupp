@@ -1,0 +1,11 @@
+module nupp.core.catalogmodulesshapes
+
+-- A module whose value is a table of a function and a name; it says when
+-- it loads, which must be once.
+print("shapes loading")
+
+local function area(w: integer, h: integer): integer
+    return w * h
+end
+
+export = {area = area, name = "shapes"}

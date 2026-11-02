@@ -60,7 +60,15 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
     end
     local executable = source.executable
     local moduleCount = #executable.initializers
-    assert(moduleCount >= 1 and moduleCount <= 3 and executable.initializers[moduleCount] == executable.entry)
+    -- From v8 only the entry module runs; the others run as it requires
+    -- them, so one context, binding and storage serve.
+    local lazy = (executable.version as integer) >= 8
+    local slots = lazy and 1 or moduleCount
+    assert(
+        moduleCount >= 1
+        and moduleCount <= (lazy and 256 or 3)
+        and executable.initializers[moduleCount] == executable.entry
+    )
     local descriptorLayout = source.executable.semantic.schema.version >= 3 and layouts.Descriptor
         or moduleCount == 1 and layouts.DescriptorV1
         or layouts.Descriptor
@@ -81,10 +89,10 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
     local poolBytes = raw and 4096 or (executable.frameDepth as integer) * maximumFrame
     assert(poolBytes > 0 and poolBytes <= 1048576, "guest logical pool bound")
     local contextBytes = align(context.SIZE)
-    local worldOffset = align(contextBytes * moduleCount)
+    local worldOffset = align(contextBytes * slots)
     local bindingOffset = align((worldOffset + layouts.World.size) as integer)
-    local storageOffset = align((bindingOffset + moduleCount * layouts.Binding.size) as integer)
-    local dispatchOffset = align((storageOffset + moduleCount * storageBytes) as integer)
+    local storageOffset = align((bindingOffset + slots * layouts.Binding.size) as integer)
+    local dispatchOffset = align((storageOffset + slots * storageBytes) as integer)
     local poolOffset = align(dispatchOffset + 256 * 8)
     -- The entry's services (page ledger, scope, heap handle): see guestscope.
     local servicesOffset = align((poolOffset + poolBytes) as integer)
@@ -303,7 +311,7 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
         refuse(1)
     end
     local beginCalls: {integer}, completeCalls: {integer}, stoppedBranches: {integer} = {}, {}, {}
-    for moduleIndex = 1, moduleCount do
+    for moduleIndex = 1, slots do
         local contextOffset = (moduleIndex - 1) * contextBytes
         local moduleBindingOffset = (bindingOffset + (moduleIndex - 1) * layouts.Binding.size) as integer
         local moduleStorageOffset = storageOffset + (moduleIndex - 1) * storageBytes
@@ -378,7 +386,7 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
             emit(arm.str(8, 16, 14, binding[field[2]]))
         end
         emit(arm.mov_reg(64, 0, 14));
-        immediate(1, moduleIndex - 1)
+        immediate(1, lazy and moduleCount - 1 or moduleIndex - 1)
         beginCalls[moduleIndex] = #words + 1;
         emit(arm.bl(0))
         emit(arm.cmp_imm(64, 0, 0, 0));
@@ -473,7 +481,7 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
         else
             refuse(1)
         end
-        if moduleIndex == moduleCount then
+        if moduleIndex == slots then
             emit(arm.ldr(8, 16, 19, context.ROOT_CONTROL));
             emit(arm.ldr(8, 17, 16, layouts.RootControl.offsets.value))
             emit(arm.ldr(8, 16, 31, 160));
@@ -564,7 +572,7 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
         local target = linked.offsets[servicesIndex + 4] as integer
         linked.words[call] = arm.bl(target - (call - 1) * 4)
     end
-    for moduleIndex = 1, moduleCount do
+    for moduleIndex = 1, slots do
         local beginCall, completeCall = beginCalls[moduleIndex], completeCalls[moduleIndex]
         linked.words[beginCall] = arm.bl((linked.offsets[startIndex] as integer) - (beginCall - 1) * 4)
         linked.words[completeCall] = arm.bl((linked.offsets[completeIndex] as integer) - (completeCall - 1) * 4)

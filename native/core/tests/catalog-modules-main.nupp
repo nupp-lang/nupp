@@ -1,0 +1,15 @@
+module nupp.core.catalogmodulesmain
+
+-- Modules run when first required, in the requirer's order; a later
+-- require takes the value the first one kept.
+print("main start")
+const counter = require("nupp.core.catalogmodulescounter")
+const shapes = require("nupp.core.catalogmodulesshapes")
+print("main required")
+counter.next()
+counter.next()
+local score = counter.next() * 100 + shapes.area(3, 4)
+if counter.shape == "shapes" then
+    score = score + 1000
+end
+export = score

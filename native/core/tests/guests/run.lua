@@ -124,7 +124,8 @@ local CASES = {
     {"threadsIterate", 0x7FFF00000000001F},
     {"outputWrite", 0x7FFF000000000001},
     {"librarySpread", 0x7FFF000000000C8D},
-    {"tablesLibraryMeta", 0x7FFF000000000007}
+    {"tablesLibraryMeta", 0x7FFF000000000007},
+    {"modulesLazy", 0x7FFF000000000520}
 }
 -- What the cases that print write to the host's output, as Lua 5.5 writes it.
 local OUTPUT = {
@@ -132,7 +133,8 @@ local OUTPUT = {
         .. "line\t1\nline\t2\nline\t3\n",
     callsExpand = "1\t2\nx\t1\t2\n",
     outputWrite = "hello 42 1.5\n3.0 -0.0 9.2233720368547758e+18\nab\nx7\np\n",
-    librarySpread = "1\t2\t3\n3\t3\n97\t98\t99\n2\t3\ntrue\t1\t2\n"
+    librarySpread = "1\t2\t3\n3\t3\n97\t98\t99\n2\t3\ntrue\t1\t2\n",
+    modulesLazy = "main start\nshapes loading\ncounter loading\nmain required\n"
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their
@@ -213,7 +215,8 @@ local NUMERIC = {
     threadsIterate = "catalog-threads-iterate",
     outputWrite = "catalog-output-write",
     librarySpread = "catalog-library-spread",
-    tablesLibraryMeta = "catalog-tables-library-meta"
+    tablesLibraryMeta = "catalog-tables-library-meta",
+    modulesLazy = "catalog-modules-main"
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -422,7 +425,10 @@ local function stage()
             "catalog-module-prefix",
             "catalog-module-main",
             "catalog-module-middle",
-            "catalog-module-triple"
+            "catalog-module-triple",
+            "catalog-modules-shapes",
+            "catalog-modules-counter",
+            "catalog-modules-main"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",

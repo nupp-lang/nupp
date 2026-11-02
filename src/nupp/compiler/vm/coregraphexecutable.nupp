@@ -582,6 +582,9 @@ local function deriveCatalog(normalized: any): any
         bound(index)
     end
     local initializers, capacity, creations, depth = {}, 1, 0, 1
+    -- From v8 a module's chunk runs as a call from its first requirer, so
+    -- chunks nest: their depths add up.
+    local nested = 0
     for index, module in ipairs(normalized.modules) do
         local owner = module.chunk
         local extent = bounds[owner + 1]
@@ -589,7 +592,11 @@ local function deriveCatalog(normalized: any): any
         capacity = math.max(capacity, extent.instances)
         creations += extent.instances
         depth = math.max(depth, extent.depth)
+        nested += extent.depth
         need(creations <= 1048576, "module instance budget exceeded")
+    end
+    if normalized.schema.version >= 8 then
+        depth = math.max(depth, nested)
     end
     if recursive then
         depth = math.max(depth, RECURSION_DEPTH)
@@ -613,7 +620,10 @@ end
 -- This issuer is not a native loader or production frame/effect authority.
 function executable.fromChecked(compiled: any, version: integer?): any
     local normalized = contracts.normalize(compiled, version)
-    need(#normalized.modules <= 3, "at most three module initializers are executable")
+    need(
+        #normalized.modules <= 3 or normalized.schema.version >= 8,
+        "at most three module initializers are executable before v8"
+    )
     need(normalized.modules[#normalized.modules].chunk == normalized.entry, "entry module must initialize last")
     local result = deriveCatalog(normalized)
     issued[result] = {compiled = compiled, version = version, snapshot = copy(result)}

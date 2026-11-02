@@ -624,7 +624,7 @@ function verify.catalog(p: any): any
     need(count > 0 and dense(p.graphs, 256) == count, "complete semantic graph table required")
     local moduleCount = dense(p.modules, 256)
     need(moduleCount > 0 and moduleCount <= count, "complete semantic module table required")
-    need(p.schema.version < 5 or moduleCount == 1, "loop profile requires one scalar initializer")
+    need(p.schema.version < 5 or moduleCount == 1 or p.schema.version >= 8, "loop profile requires one scalar initializer")
     dense(p.signatures, 256)
     dense(p.contracts, 1048576)
     local modulesByOwner, moduleNames = {}, {}

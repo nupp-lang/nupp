@@ -242,14 +242,51 @@ function contracts.normalize(compiled: any, version: integer?): any
     need(dense(compiled.header.shapes, 1048576) == 0, "shape-free graph catalog required")
     local moduleCount = dense(compiled.header.modules, 256)
     need(moduleCount > 0 and dense(p.modules, 256) == moduleCount, "complete module table required")
-    need(not loops or moduleCount == 1, "loop profile requires one scalar initializer")
+    -- From v8 a program's modules run as their requirers call them.
+    need(not loops or moduleCount == 1 or v >= 8, "loop profile requires one scalar initializer")
     need(#p.owners == #graphs, "complete graph table required")
     for _, key in ipairs({"externals", "externalReferences", "intrinsics"}) do
         need(type(p[key]) == "table" and next(p[key]) == nil, "unsupported catalog " .. key)
     end
     local requireSite
+    -- From v8 every require is a site of its own, each naming one of the
+    -- program's modules.
+    local requireSites: {any} = {}
     need(type(p.imports) == "table" and type(p.requires) == "table", "checked import tables required")
-    if #p.imports ~= 0 or #p.requires ~= 0 then
+    if v >= 8 and (#p.imports ~= 0 or #p.requires ~= 0) then
+        local byName, byChunk = {}, {}
+        for _, module in ipairs(p.modules) do
+            byName[module.name], byChunk[module.chunk] = module, module
+        end
+        need(type(p.requireByNode) == "table", "checked require source required")
+        for _, site in ipairs(p.requires) do
+            local target = type(site) == "table" and byName[site.module] or nil
+            need(
+                target ~= nil
+                and type(site.node) == "table"
+                and site.target == target.chunk
+                and not site.typeOnly
+                and site.node.runtimeLoader == "require"
+                and p.requireByNode[site.node] == site,
+                "checked require target or source identity differs"
+            )
+            requireSites[#requireSites + 1] = site
+        end
+        for _, imported in ipairs(p.imports) do
+            local binding = type(imported) == "table"
+                and type(imported.binding) == "number"
+                and p.bindings[imported.binding + 1]
+                or nil
+            local target = type(imported) == "table" and byChunk[imported.target] or nil
+            need(
+                type(binding) == "table"
+                and type(binding.definition) == "table"
+                and target ~= nil
+                and binding.definition.requiredModule == target.name,
+                "checked import target or source identity differs"
+            )
+        end
+    elseif #p.imports ~= 0 or #p.requires ~= 0 then
         need(
             moduleCount == 2 and #p.imports == 1 and #p.requires == 1,
             "only one checked two-module import is executable"
@@ -275,6 +312,7 @@ function contracts.normalize(compiled: any, version: integer?): any
             and binding.definition.requiredModule == first.name,
             "checked import target or source identity differs"
         )
+        requireSites = {requireSite}
     end
     local definition = schema.describe(v)
     local output: any = {
@@ -337,17 +375,23 @@ function contracts.normalize(compiled: any, version: integer?): any
                     need(v >= 7 or #block.args[at] == 1, "captures are unsupported")
                 elseif op == "Require" then
                     foundRequires += 1
-                    need(requireSite and record.id == requireSite.owner, "foreign checked require")
                     local constant = need(g.constants[block.args[at][1] + 1], "require name is missing")
-                    local token = need(cst.firstToken(requireSite.node), "checked require source position is missing")
                     local position = need(g.positions[block.pos[at]], "require graph position is missing")
-                    need(
-                        constant.kind == "str"
-                        and constant.value == requireSite.module
-                        and position.line == token.line
-                        and position.column == token.col,
-                        "require graph differs from checked callsite"
-                    )
+                    -- The site of this owner's require of this module at this
+                    -- position.
+                    local matched = nil
+                    for _, site in ipairs(requireSites) do
+                        local token = site.owner == record.id and cst.firstToken(site.node) or nil
+                        if token
+                            and constant.kind == "str"
+                            and constant.value == site.module
+                            and position.line == token.line
+                            and position.column == token.col
+                        then
+                            matched = site
+                        end
+                    end
+                    need(matched ~= nil, "require graph differs from checked callsite")
                 end
                 record.effect = math.max(record.effect, policy.effect)
             end
@@ -404,7 +448,7 @@ function contracts.normalize(compiled: any, version: integer?): any
             end
         end
     end
-    need(foundRequires == (requireSite and 1 or 0), "checked require graph is incomplete")
+    need(foundRequires == #requireSites, "checked require graph is incomplete")
     -- v7 admits recursion; its depth is bounded by the entry's frame pool.
     if v < 7 then
         semantic.topological(output.catalog, callEdges, nil)

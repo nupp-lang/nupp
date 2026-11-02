@@ -67,6 +67,9 @@ export struct Services
     -- coroutine.running has made one.
     running: uint64
     main: uint64
+    -- The loaded modules (`modules`): a table from chunk ids to values, once
+    -- one is required.
+    loaded: uint64
     -- 1 while coroutine.close unwinds a suspended thread: its error lands at
     -- every frame that owns affine values, and no protected call takes it.
     closing: uint64
@@ -148,8 +151,9 @@ export function open(
         collector.register(h, world, worldWords)
         native.store64(services, native.fieldOffset<Services>("running"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("main"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("loaded"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("closing"), 0ULL)
-        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 2ULL)
+        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 3ULL)
         -- Collect-at-every-allocation: a whole cycle at every safepoint.
         h.stress = stress ~= 0ULL
         native.store64(services, native.fieldOffset<Services>("heap"), native.address(h))

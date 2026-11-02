@@ -203,7 +203,8 @@ local function valid(data: voidptr, bytes: uint64): uint64
         or ns > 256ULL
         or nc > 1048576ULL
         or nm == 0ULL
-        or nm > 3ULL
+        or nm > 3ULL and version < 8ULL
+        or nm > 256ULL
         or nm > count
         or depth == 0ULL
         or depth > count and (version < 7ULL or depth > 4096ULL)

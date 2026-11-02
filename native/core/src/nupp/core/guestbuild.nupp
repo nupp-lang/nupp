@@ -20,7 +20,8 @@ local build = {}
 -- Each case's fixture and graph profile version.
 local CASES: {[string]: {
     fixture: string,
-    version: integer
+    version: integer,
+    modules: {string}?
 }} = {
     boolean = {fixture = "catalog-boolean", version = 2},
     nilValue = {fixture = "catalog-nil", version = 2},
@@ -98,13 +99,18 @@ local CASES: {[string]: {
     threadsIterate = {fixture = "catalog-threads-iterate", version = 8},
     outputWrite = {fixture = "catalog-output-write", version = 8},
     librarySpread = {fixture = "catalog-library-spread", version = 8},
-    tablesLibraryMeta = {fixture = "catalog-tables-library-meta", version = 8}
+    tablesLibraryMeta = {fixture = "catalog-tables-library-meta", version = 8},
+    modulesLazy = {
+        fixture = "catalog-modules-main",
+        version = 8,
+        modules = {"catalog-modules-shapes", "catalog-modules-counter"}
+    }
 }
 
 -- The handlers a profile version dispatches, in table order.
 local function handlerNames(caseName: string, version: integer): {string}
     local names = {"K", "Nil", "Move", "NewClosure", "CallK", "Ret", "Jmp", "JmpIf", "Invalid"}
-    if caseName == "modulePair" then
+    if caseName == "modulePair" or version >= 8 then
         table.insert(names, 2, "Require")
     end
     local introduced: {
@@ -295,6 +301,16 @@ local function compileProgram(caseName: string, fixture: string, version: intege
     local names = caseName == "modulePair" and {"catalog-module-prefix", fixture}
         or caseName == "moduleTriple" and {"catalog-module-prefix", "catalog-module-middle", fixture}
         or {fixture}
+    -- A case's other modules come first, so the modules it requires precede it.
+    local declared = CASES[caseName]
+    local others = declared and declared.modules
+    if others then
+        names = {}
+        for _, name in ipairs(others) do
+            names[#names + 1] = name
+        end
+        names[#names + 1] = fixture
+    end
     local staged = root .. "/build/core-guest-programs/source"
     local project: any = nil
     if #names > 1 then

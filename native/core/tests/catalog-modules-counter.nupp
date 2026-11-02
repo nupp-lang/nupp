@@ -1,0 +1,15 @@
+module nupp.core.catalogmodulescounter
+
+-- A module requiring another as it loads, and keeping state its functions
+-- share across calls.
+const shapes = require("nupp.core.catalogmodulesshapes")
+
+print("counter loading")
+local count: integer = 0
+
+local function next(): integer
+    count = count + 1
+    return count
+end
+
+export = {next = next, shape = shapes.name}

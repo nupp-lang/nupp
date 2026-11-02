@@ -1,0 +1,100 @@
+module nupp.runtime.core.modules
+
+-- `require` on the core from profile v8: a module's chunk runs the first time
+-- something requires it, as a call whose value the caller takes, and the
+-- loaded cache keeps that value for every later `require` (a table from
+-- chunk ids to values in the Services; nil is kept as true, as Lua's
+-- package.loaded keeps it).
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const frames = require("nupp.runtime.core.frames")
+const context = require("nupp.runtime.core.context")
+const catalog = require("nupp.runtime.core.guestcatalog")
+const guestscope = require("nupp.runtime.core.guestscope")
+const tables = require("nupp.runtime.core.coretables")
+
+local function services(ctx: voidptr): voidptr
+    return native.loadPointer(ctx, context.SERVICE_SCOPE)
+end
+
+-- 1 when the entry's profile requires modules lazily (v8 and later).
+export function lazy(ctx: voidptr): uint64
+    local c = native.loadPointer(ctx, context.CATALOG)
+    local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
+    if native.load64(data, native.fieldOffset<catalog.DescriptorV1>("version")) >= 8ULL then
+        return 1ULL
+    end
+
+    return 0ULL
+end
+
+-- The value module chunk `target` answered, or 0 before it has run.
+export function cached(ctx: voidptr, target: uint64): uint64
+    local loaded = native.load64(services(ctx), native.fieldOffset<guestscope.Services>("loaded"))
+    if loaded == 0ULL then
+        return 0ULL
+    end
+    local value = tables.get(loaded & values.PAYLOAD, values.TAG_INTEGER | target)
+    if value == values.NIL then
+        return 0ULL
+    end
+
+    return value
+end
+
+-- Keeps the value module chunk `target` answered; nil is kept as true.
+export function store(ctx: voidptr, target: uint64, value: uint64): nil
+    @unsafe do
+        local h = native.pointer(native.load64(services(ctx), native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+        local scope = services(ctx)
+        local loaded = native.load64(scope, native.fieldOffset<guestscope.Services>("loaded"))
+        if loaded == 0ULL then
+            -- The value is in the returning frame, which roots it meanwhile.
+            loaded = values.TAG_OBJ | guestscope.newTable(ctx)
+            native.store64(scope, native.fieldOffset<guestscope.Services>("loaded"), loaded)
+        end
+        local kept = value
+        if kept == values.NIL then
+            kept = values.TRUE
+        end
+        if tables.set(h, loaded & values.PAYLOAD, values.TAG_INTEGER | target, kept) == tables.NO_MEMORY then
+            error("not enough memory")
+        end
+        tables.drain(h)
+    end
+end
+
+-- Runs module chunk `target` as a call from `frame` at `pc`, its value to
+-- land in `slot`: the chunk's frame is prepared and published, and the
+-- context runs it. Answers 1, or 0 when the frames are not as expected.
+export function begin(ctx: voidptr, frame: voidptr, pc: voidptr, target: uint64, slot: uint64): uint64
+    local c = native.loadPointer(ctx, context.CATALOG)
+    if target >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
+        return 0ULL
+    end
+    local record = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
+        native.index(target * native.sizeOf<catalog.Function>())
+    )
+    if native.load64(record, native.fieldOffset<catalog.Function>("kind")) ~= catalog.INITIALIZER then
+        return 0ULL
+    end
+    local info = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("infos")),
+        native.index(target * native.sizeOf<frames.FunctionInfo>())
+    )
+    local plan = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("plans")),
+        native.index(target * native.sizeOf<frames.WindowPlan>())
+    )
+    local state = native.loadPointer(ctx, context.STATE)
+    local child = frames.prepareFixed(state, frame, info, values.NIL, slot, 0ULL, slot, plan)
+    if child == 0ULL or frames.moduleResult(state, native.pointer(child)) ~= 1ULL then
+        return 0ULL
+    end
+    local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+    local resumePC = (native.address(pc) - code) // 16ULL + 1ULL
+
+    return frames.publish(state, frame, native.pointer(child), resumePC)
+end
