@@ -78,6 +78,9 @@ export const GSUB_BEGIN: uint64 = 50ULL
 export const GSUB_STEP: uint64 = 51ULL
 export const GSUB_FINISH: uint64 = 52ULL
 export const GSUB_FINISH_ALL: uint64 = 53ULL
+-- string.format with more values than a library call carries: the format
+-- and a pack of the values.
+export const FORMAT_PACK: uint64 = 54ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -257,7 +260,41 @@ end
 -- by the host's C formatting) and %%, with Lua's flags (-, +, space, #, 0),
 -- width and precision; up to three arguments after the format. %q is not
 -- yet the core's.
-local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: uint64, c: uint64): uint64
+-- Appends %q's form of string s: quoted, with `"`, `\` and newline escaped
+-- and other control bytes as decimal escapes, padded to three digits when a
+-- digit follows. Answers 1 when backing is refused.
+local function appendQuoted(h: heap.Heap*, b: strings.Builder*, s: uint64): uint64
+    local refused = strings.appendWord(h, b, 34ULL, 1ULL)
+    local n = strings.length(s)
+    local at = strings.bytes(s)
+    local i: uint64 = 0ULL
+    while i < n do
+        local c = native.word(native.load8(native.pointer(at), native.index(i)))
+        if c == 34ULL or c == 92ULL or c == 10ULL then
+            refused = refused | strings.appendWord(h, b, 92ULL | (c << 8ULL), 2ULL)
+        elseif c < 32ULL or c == 127ULL then
+            local digit = false
+            if i + 1ULL < n then
+                local d = native.word(native.load8(native.pointer(at), native.index(i + 1ULL)))
+                digit = d >= 48ULL and d <= 57ULL
+            end
+            refused = refused | strings.appendWord(h, b, 92ULL, 1ULL)
+            if digit then
+                refused = refused | appendRadix(h, b, c, 10ULL, false, 3ULL)
+            else
+                refused = refused | strings.appendInteger(h, b, native.index(c))
+            end
+        else
+            refused = refused | strings.appendWord(h, b, c, 1ULL)
+        end
+        i = i + 1ULL
+    end
+
+    return refused | strings.appendWord(h, b, 34ULL, 1ULL)
+end
+
+-- string.format's values are a, b and c, or with `pack` that pack's.
+local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: uint64, c: uint64, pack: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     local pieceState = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
@@ -337,7 +374,9 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                     error("bad argument to 'format' (no value)")
                 end
                 local argument = a
-                if next == 2ULL then
+                if pack ~= 0ULL then
+                    argument = tables.get(pack, values.TAG_INTEGER | next)
+                elseif next == 2ULL then
                     argument = b
                 elseif next == 3ULL then
                     argument = c
@@ -454,6 +493,61 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                     refused = refused | appendText(h, piece, argument)
                     if precise and piece.length > precision then
                         piece.length = precision
+                    end
+                elseif directive == 113ULL then
+                    -- %q: the value as Lua source reads it back.
+                    if left or plus or space or alternate or zero or width > 0ULL or precise then
+                        strings.release(builder)
+                        strings.release(piece)
+                        error("specifier '%q' cannot have modifiers")
+                    end
+                    numeric = false
+                    local quoted = strings.header(argument)
+                    if quoted ~= 0ULL then
+                        refused = refused | appendQuoted(h, piece, quoted)
+                    elseif ints.isInteger(argument) then
+                        local n = ints.bitsOf(argument)
+                        if n == 0x8000000000000000ULL then
+                            refused = refused
+                                | strings.appendWord(h, piece, 0x7830ULL, 2ULL)
+                                | appendRadix(h, piece, n, 16ULL, false, 1ULL)
+                        else
+                            refused = refused | strings.appendInteger(h, piece, native.index(n))
+                        end
+                    elseif floatOf(argument) ~= values.NIL then
+                        -- Hexadecimal, which reads back exactly; infinities
+                        -- and NaN as the expressions that make them.
+                        local x = native.fromBits(argument)
+                        if argument == 0x7ff0000000000000ULL then
+                            refused = refused | strings.appendWord(h, piece, 0x393939396531ULL, 6ULL)
+                        elseif argument == 0xfff0000000000000ULL then
+                            refused = refused | strings.appendWord(h, piece, 0x3939393965312dULL, 7ULL)
+                        elseif x ~= x then
+                            refused = refused | strings.appendWord(h, piece, 0x29302f3028ULL, 5ULL)
+                        else
+                            refused = refused
+                                | strings.appendWord(h, piece, 0x006125ULL, 3ULL)
+                                | strings.reserve(h, piece, 520ULL)
+                            if refused == 0ULL then
+                                local length = os.formatNumber(
+                                    argument,
+                                    native.pointer(piece.base),
+                                    512ULL | 0x8000000000000000ULL
+                                )
+                                if length < 0 or length > 511 then
+                                    strings.release(builder)
+                                    strings.release(piece)
+                                    error("invalid conversion to 'format'")
+                                end
+                                piece.length = native.word(length)
+                            end
+                        end
+                    elseif argument == values.NIL or argument == values.TRUE or argument == values.FALSE then
+                        refused = refused | appendText(h, piece, argument)
+                    else
+                        strings.release(builder)
+                        strings.release(piece)
+                        error("bad argument to 'format' (value has no literal form)")
                     end
                 else
                     strings.release(builder)
@@ -2029,7 +2123,12 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     if id == TOSTRING then
         return tostring(ctx, a)
     elseif id == FORMAT then
-        return format(ctx, count, a, b, c, d)
+        return format(ctx, count, a, b, c, d, 0ULL)
+    elseif id == FORMAT_PACK then
+        -- The pack holds its count at key 0.
+        local pack = b & values.PAYLOAD
+        local n = native.word(integerValue(tables.get(pack, values.TAG_INTEGER)))
+        return format(ctx, n + 1ULL, a, values.NIL, values.NIL, values.NIL, pack)
     elseif id == CONCAT then
         return concat(ctx, count, a, b)
     elseif id == GMATCH_NEXT then

@@ -104,7 +104,8 @@ local CASES = {
     {"recordsAffine", 0x7FFF000000007D88},
     {"recordsAffineErrors", 0x7FFF00000632F03D},
     {"tablesSort", 0x7FFF000000560C7F},
-    {"stringsGsubFunction", 0x7FFF00000000003F}
+    {"stringsGsubFunction", 0x7FFF00000000003F},
+    {"stringsQuoted", 0x7FFF00000000003F}
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their
@@ -161,7 +162,8 @@ local NUMERIC = {
     recordsAffine = "catalog-records-affine",
     recordsAffineErrors = "catalog-records-affine-errors",
     tablesSort = "catalog-tables-sort",
-    stringsGsubFunction = "catalog-strings-gsubfn"
+    stringsGsubFunction = "catalog-strings-gsubfn",
+    stringsQuoted = "catalog-strings-quoted"
 }
 local FIXTURES = {
     "catalog-boolean",

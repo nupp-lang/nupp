@@ -176,12 +176,16 @@ local function packSpec(library: string?): integer?
 end
 
 local gsubWith: function(any, any, any, boolean): integer
+local formatMany: function(any, any, any): integer
 
 -- A core library call (guestlib): its arguments staged as values.
 local function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
     -- gsub with a function replacement calls it, so it is a loop.
     if (id == 26 or id == 27) and graph.callbackArgument(node) ~= nil then
         return gsubWith(ctx, node, arguments, id == 27)
+    end
+    if id == 2 and #arguments > 4 then
+        return formatMany(ctx, node, arguments)
     end
     need(#arguments >= 1 and #arguments <= 4, "core library calls take one to four arguments")
     need(arguments[#arguments].kind ~= "vararg", "a library call cannot spread `...` yet")
@@ -635,6 +639,30 @@ local function sortWith(ctx: any, node: any): integer
     end
 
     return ctx.emit(node, "Nil", {}, "tagged") as integer
+end
+
+-- string.format with more than three values: they go in a pack, its count
+-- at key 0, beside the format.
+formatMany = function(ctx: any, node: any, arguments: any): integer
+    need(arguments[#arguments].kind ~= "vararg", "a library call cannot spread `...` yet")
+    local kinds = {}
+    for index = 1, #arguments do
+        kinds[index] = "tagged"
+    end
+    local operands = ctx.operands(arguments, kinds)
+    if operands == nil then
+        return nil as any
+    end
+    local pack = ctx.emit(node, "NewTable", {}, "tagged")
+    for index = 2, #operands do
+        local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(index - 1))}, "tagged")
+        ctx.emit(node, "SetIdx", {pack, key, operands[index]}, nil)
+    end
+    local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
+    local count = ctx.emit(node, "K", {pool(ctx, "int64", tostring(#operands - 1))}, "tagged")
+    ctx.emit(node, "SetIdx", {pack, zero, count}, nil)
+
+    return ctx.emit(node, "LibCall", {54, operands[1], pack}, "tagged") as integer
 end
 
 -- string.gsub(s, p, f [, n]): the gsub step advances to each match and
