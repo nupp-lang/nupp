@@ -272,6 +272,16 @@ local function emitterProgram(
     if lowered == nil or kept == nil then
         io.stderr:write("nupp: the pinned emitter could not lower the program; lowering it here\n")
         writeFile(refused, image as string)
+        -- The running generation lowers these sources (it was built from
+        -- them), so it becomes the pin: the next CLI rebuild starts its cache
+        -- once, and programs are lowered by it from then on.
+        local generation = (os.getenv("NUPP_VM_CLI_IMAGE") or ""):match("/%.nupp/vm%-cli/(%x+)/compiler%.image$")
+        if generation then
+            local pin = join(compilerRoot as string, ".nupp/vm-cli/emitter")
+            if writeFile(pin .. ".new", generation .. "\n") then
+                os.rename(pin .. ".new", pin)
+            end
+        end
         return nil, nil
     end
     local facilities: {string} = {}

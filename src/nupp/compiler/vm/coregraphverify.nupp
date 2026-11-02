@@ -412,7 +412,7 @@ function verify.resultKind(g: any, signature: any, output: any): string
                     assign(dst, "boolean")
                     yield nil
                 end
-                case "SetIdx" -> nil
+                case "SetIdx", "Destroy" -> nil
                 else -> error("core graph contracts: unsupported operation", 0)
             end
         end
@@ -479,7 +479,10 @@ function verify.resultKind(g: any, signature: any, output: any): string
         end
         for at, op in ipairs(block.op) do
             local args = block.args[at]
-            need(op == "SetCell" or op == "SetIdx" or kinds[block.dst[at]] ~= nil, "unresolved scalar operation")
+            need(
+                op == "SetCell" or op == "SetIdx" or op == "Destroy" or kinds[block.dst[at]] ~= nil,
+                "unresolved scalar operation"
+            )
             if op == "MathFloor" then
                 need(fits(kinds[args[1]], "number"), "numeric operation needs numeric operands")
             elseif op == "Not" then
@@ -488,6 +491,8 @@ function verify.resultKind(g: any, signature: any, output: any): string
                 for index = 2, #args do
                     need(kinds[args[index]] ~= nil, "unresolved library argument")
                 end
+            elseif op == "Destroy" then
+                need(kinds[args[1]] ~= nil and kinds[args[2]] ~= nil, "unresolved destructor operand")
             elseif op == "NewCell"
                 or op == "GetCell"
                 or op == "SetCell"

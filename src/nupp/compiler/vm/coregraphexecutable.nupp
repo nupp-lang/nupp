@@ -166,6 +166,7 @@ local function derive(g: any, catalog: any): any
                 end
             elseif op == "GetIdx"
                 or op == "SetIdx"
+                or op == "Destroy"
                 or catalog.schema.version >= 8
                 and (
                     op == "Add"
@@ -364,6 +365,10 @@ local function derive(g: any, catalog: any): any
                 end
                 case "Len" -> do
                     emit({"Len", physical(dst), physical(args[1])}, position)
+                    yield nil
+                end
+                case "Destroy" -> do
+                    emit({"Destroy", physical(args[1]), physical(args[2])}, position)
                     yield nil
                 end
                 case "MathFloor" -> do

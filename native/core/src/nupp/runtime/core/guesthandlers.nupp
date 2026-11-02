@@ -1995,6 +1995,46 @@ export function XPHandle(
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
 
+-- An affine value's destructor called on it: the callee and the value are
+-- staged at the top of the call window, and the frame resumes after this
+-- instruction once the destructor returns, its result dropped.
+export function Destroy(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local callee, value = program.readByte(pc, 1), program.readByte(pc, 2)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(callee) >= count or native.word(value) >= count or count < 5ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local top = native.index(count - 4ULL)
+    local destructor = slots.readValue(frame, regs, callee)
+    local owned = slots.readValue(frame, regs, value)
+    slots.writeValue(frame, regs, top, destructor)
+    slots.writeValue(frame, regs, top + 1, owned)
+    if ops.metaCall(ctx, frame, pc, 1ULL, count - 1ULL, 0ULL) ~= 1ULL then
+        return native.fail()
+    end
+    local s = native.pointer(ops.state(ctx))
+    local current = native.pointer(access.active(s))
+    local currentValues = native.pointer(access.values(s, current))
+    local currentIntegers = native.pointer(access.integers(s, current))
+    local currentFloats = native.pointer(access.floats(s, current))
+    local currentPC = native.pointer(access.pc(s, current))
+    access.refresh(s, current, ctx)
+
+    return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+end
+
 export function Jmp(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
     if ops.current(ctx, frame, pc) == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)

@@ -98,7 +98,10 @@ local CASES = {
     {"callsXpcall", 0x7FFF000000005277},
     {"tablesMetaops", 0x7FFF000000A98AC7},
     {"tablesLibrary", 0x7FFF000000CC9B63},
-    {"stringsFormat", 0x7FFF0016A53A7E1D}
+    {"stringsFormat", 0x7FFF0016A53A7E1D},
+    {"recordsConstructors", 0x7FFF000000042A91},
+    {"numbersMath", 0x7FFF00000010F44A},
+    {"recordsAffine", 0x7FFF000000007D88}
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their
@@ -149,7 +152,10 @@ local NUMERIC = {
     callsXpcall = "catalog-calls-xpcall",
     tablesMetaops = "catalog-tables-metaops",
     tablesLibrary = "catalog-tables-library",
-    stringsFormat = "catalog-strings-format"
+    stringsFormat = "catalog-strings-format",
+    recordsConstructors = "catalog-records-constructors",
+    numbersMath = "catalog-numbers-math",
+    recordsAffine = "catalog-records-affine"
 }
 local FIXTURES = {
     "catalog-boolean",

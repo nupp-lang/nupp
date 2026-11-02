@@ -55,6 +55,10 @@ local function empty(value: any, description: string): nil
 end
 
 local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
+    -- An owned value passes as the value it owns.
+    while dynamic and value and (value.tag == "affine" or value.tag == "borrowed" or value.tag == "pinned") do
+        value = value.inner
+    end
     need(value and value.tag ~= "literal" and value.tag ~= "const", "qualified scalar signatures are unsupported")
     -- v8 passes strings, tables and functions as dynamic values, checked where
     -- used.
@@ -91,8 +95,10 @@ end
 -- The wire's absent index, for a dynamic call's missing target.
 local ABSENT = 4294967295
 
--- A callable signature record from a checked function type.
-local function typeSignature(signature: any, numeric: boolean, dynamic: boolean): any
+-- A callable signature record from a checked function type. A
+-- constructor's results are dropped (`resultsIgnored`): they may be open,
+-- and its result kind is any value.
+local function typeSignature(signature: any, numeric: boolean, dynamic: boolean, resultsIgnored: boolean?): any
     need(signature and signature.tag == "func", "checked function type required")
     -- From v8 a typed `...` passes its values in a pack, the last parameter.
     local tail = signature.paramPack and signature.paramPack.tail
@@ -127,7 +133,7 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean)
         "borrowed callable signature"
     )
     local params, result = {}, nil
-    for _, pack in ipairs({signature.paramPack, signature.retPack}) do
+    for _, pack in ipairs(resultsIgnored and {signature.paramPack} or {signature.paramPack, signature.retPack}) do
         need(
             pack and (not pack.tail or variadic and pack == signature.paramPack) and not pack.alternatives,
             "closed signature pack required"
@@ -142,18 +148,24 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean)
         end
     end
     -- v8 admits up to sixteen fixed results, as dynamic values.
-    local results = dense(signature.rets, dynamic and 16 or 1)
-    need(
-        dense(signature.params, 239) == #signature.paramPack.head
-        and results >= 1
-        and #signature.retPack.head == results,
-        "fixed single-result signature required"
-    )
+    local results: integer = 1
+    if resultsIgnored then
+        need(dense(signature.params, 239) == #signature.paramPack.head, "checked parameter pack differs")
+        result = "value"
+    else
+        results = dense(signature.rets, dynamic and 16 or 1)
+        need(
+            dense(signature.params, 239) == #signature.paramPack.head
+            and results >= 1
+            and #signature.retPack.head == results,
+            "fixed single-result signature required"
+        )
+    end
     for index, value in ipairs(signature.params) do
         need(value == signature.paramPack.head[index], "checked parameter pack differs")
         params[index] = scalar(value, numeric, dynamic)
     end
-    for index, value in ipairs(signature.rets) do
+    for index, value in ipairs(resultsIgnored and {} or signature.rets) do
         need(value == signature.retPack.head[index], "checked result pack differs")
         result = scalar(value, numeric, dynamic)
     end
@@ -185,11 +197,14 @@ local function checkedSignature(owner: any, numeric: boolean, dynamic: boolean):
         "unknown callable effects"
     )
 
-    local result = typeSignature(signature, numeric, dynamic)
+    local result = typeSignature(signature, numeric, dynamic, owner.node.kind == "constructorDecl")
     -- A method's receiver is its first parameter on the core, though its
     -- function type leaves it out: a `:` method's implicit one, or the `self`
     -- an instance method in a record body spells.
-    if owner.body.coreSelfParam or owner.node.kind == "inlineMethod" and not owner.node.inlineStatic then
+    if owner.body.coreSelfParam
+        or owner.node.kind == "inlineMethod" and not owner.node.inlineStatic
+        or owner.node.kind == "constructorDecl"
+    then
         table.insert(result.params, 1, "value")
     end
 

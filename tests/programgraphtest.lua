@@ -288,19 +288,10 @@ return Point
                 end,
                 "methods and constructors are unsupported"
             )
-            -- The tagged profile lowers a method written in a record body;
-            -- constructors are not admitted yet.
-            if f.node.kind == "constructorDecl" then
-                refuses(
-                    function()
-                        program.functionGraph(p, f, tagged)
-                    end,
-                    "unsupported function declaration form"
-                )
-            else
-                local ok, problem = pcall(program.functionGraph, p, f, tagged)
-                assert(ok or not tostring(problem):find("unsupported function declaration form", 1, true), problem)
-            end
+            -- The tagged profile lowers methods and constructors written in a
+            -- record body.
+            local ok, problem = pcall(program.functionGraph, p, f, tagged)
+            assert(ok or not tostring(problem):find("unsupported function declaration form", 1, true), problem)
         end
     end
     assert(found.inlineMethod and found.constructorDecl)

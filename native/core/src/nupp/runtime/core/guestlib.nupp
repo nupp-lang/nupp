@@ -56,6 +56,13 @@ export const TABLE_INSERT: uint64 = 34ULL
 export const TABLE_REMOVE: uint64 = 35ULL
 export const TABLE_UNPACK: uint64 = 36ULL
 export const TABLE_UNPACK_ALL: uint64 = 37ULL
+export const MATH_ABS: uint64 = 38ULL
+export const MATH_CEIL: uint64 = 39ULL
+export const MATH_MAX: uint64 = 40ULL
+export const MATH_MIN: uint64 = 41ULL
+export const MATH_TOINTEGER: uint64 = 42ULL
+export const MATH_TYPE: uint64 = 43ULL
+export const MATH_SQRT: uint64 = 44ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -540,6 +547,120 @@ local function negate(ctx: voidptr, a: uint64): uint64
     -- Times -1.0 (its bits, since a leaf has no unary minus), as Lua negates.
 
     return floatValue(native.bits(native.fromBits(x) * native.fromBits(0xbff0000000000000ULL)))
+end
+
+local function isFloat(value: uint64): boolean
+    return value & values.QNAN ~= values.QNAN or value == values.QNAN
+end
+
+-- The number a math function takes, raising as Lua does for anything else.
+local function numberArgument(value: uint64): uint64
+    if not ints.isInteger(value) and not isFloat(value) then
+        error("bad argument #1 to math function (number expected)")
+    end
+
+    return value
+end
+
+-- An integral float as the integer it equals when one does, else nil.
+local function integral(ctx: voidptr, value: uint64): uint64
+    if ints.isInteger(value) then
+        return value
+    end
+    if isFloat(value) and ints.integralFloat(value) then
+        return guestscope.integer(ctx, ints.floatToBits(value))
+    end
+
+    return values.NIL
+end
+
+-- math.abs: integers wrap at the minimum, as Lua's do.
+local function mathAbs(ctx: voidptr, a: uint64): uint64
+    numberArgument(a)
+    if ints.isInteger(a) then
+        local bits = ints.bitsOf(a)
+        if bits >> 63ULL == 1ULL then
+            return guestscope.integer(ctx, 0ULL - bits)
+        end
+        return a
+    end
+
+    return floatValue(a & 0x7fffffffffffffffULL)
+end
+
+-- math.ceil: an integer when the result fits one, else the float.
+local function mathCeil(ctx: voidptr, a: uint64): uint64
+    numberArgument(a)
+    if ints.isInteger(a) then
+        return a
+    end
+    local minusOne = native.fromBits(0xbff0000000000000ULL)
+    local ceiled = floatValue(native.bits(native.floor(native.fromBits(a) * minusOne) * minusOne))
+    local exact = integral(ctx, ceiled)
+    if exact ~= values.NIL then
+        return exact
+    end
+
+    return ceiled
+end
+
+-- a < b for two numbers: exact between integers, through floats otherwise.
+local function numberLess(a: uint64, b: uint64): boolean
+    if ints.isInteger(a) and ints.isInteger(b) then
+        return native.index(ints.bitsOf(a)) < native.index(ints.bitsOf(b))
+    end
+
+    return native.fromBits(floatOf(a)) < native.fromBits(floatOf(b))
+end
+
+-- math.max and math.min over one to four numbers: the first extreme one, as
+-- given (an integer stays one).
+local function mathExtreme(count: uint64, a: uint64, b: uint64, c: uint64, d: uint64, largest: boolean): uint64
+    if count == 0ULL then
+        error("bad argument #1 to math function (number expected)")
+    end
+    local best = numberArgument(a)
+    local i: uint64 = 2ULL
+    while i <= count do
+        local next = b
+        if i == 3ULL then
+            next = c
+        elseif i == 4ULL then
+            next = d
+        end
+        numberArgument(next)
+        if largest and numberLess(best, next) or not largest and numberLess(next, best) then
+            best = next
+        end
+        i = i + 1ULL
+    end
+
+    return best
+end
+
+-- math.type: "integer", "float", or nil for anything else.
+local function mathType(ctx: voidptr, a: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        if not ints.isInteger(a) and not isFloat(a) then
+            return values.NIL
+        end
+        local h = guestHeap(ctx)
+        local builder = state as strings.Builder*
+        local refused: uint64 = 0ULL
+        if ints.isInteger(a) then
+            refused = strings.appendWord(h, builder, 0x72656765746e69ULL, 7ULL)
+        else
+            refused = strings.appendWord(h, builder, 0x74616f6c66ULL, 5ULL)
+        end
+        if refused ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        local s = strings.finish(h, builder)
+        tables.drain(h)
+        return values.TAG_OBJ | s
+    end
 end
 
 -- Lua's /: always float.
@@ -1474,6 +1595,20 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return tableUnpack(ctx, a, b, c, false)
     elseif id == TABLE_UNPACK_ALL then
         return tableUnpack(ctx, a, b, c, true)
+    elseif id == MATH_ABS then
+        return mathAbs(ctx, a)
+    elseif id == MATH_CEIL then
+        return mathCeil(ctx, a)
+    elseif id == MATH_MAX then
+        return mathExtreme(count, a, b, c, d, true)
+    elseif id == MATH_MIN then
+        return mathExtreme(count, a, b, c, d, false)
+    elseif id == MATH_TOINTEGER then
+        return integral(ctx, a)
+    elseif id == MATH_TYPE then
+        return mathType(ctx, a)
+    elseif id == MATH_SQRT then
+        return floatValue(native.bits(native.sqrt(native.fromBits(floatOf(numberArgument(a))))))
     elseif id == TYPE then
         return guestscope.typeName(ctx, a)
     elseif id == UNM then

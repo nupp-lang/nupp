@@ -200,6 +200,12 @@ function program.describe(modules: {any}, entryModule: string): any
         requireByNode = {},
         calls = {},
         callByNode = {},
+        -- Per cleanup site (a local's statement, a with binding), the record
+        -- declaration whose destructor it runs, mapped to a synthetic
+        -- reference to that record's name.
+        cleanupTokens = {},
+        -- The owners (by id) with any such site.
+        cleanupOwners = {},
         byDefinition = {},
         functionsByDefinition = {},
         byBody = {},
@@ -270,7 +276,7 @@ function program.describe(modules: {any}, entryModule: string): any
         end
         if node.kind == "recordDecl" and node.name then
             for _, entry in ipairs(node.entries or {}) do
-                if entry.kind == "inlineMethod" then
+                if entry.kind == "inlineMethod" or entry.kind == "constructorDecl" then
                     inlineRecords[entry] = node.name
                 end
             end
@@ -330,6 +336,22 @@ function program.describe(modules: {any}, entryModule: string): any
             local declaration = (node.kind == "localFuncStmt" or node.kind == "inlineMethod") and node.name
                 or node.kind == "funcStmt" and node.name[#node.name]
                 or nil
+            -- A constructor has no name: it is given a synthetic one, which its
+            -- construction callsites name.
+            if node.kind == "constructorDecl" and inlineRecords[node] then
+                local record = inlineRecords[node]
+                local token: any = {
+                    kind = "name",
+                    text = "constructor",
+                    line = record.line,
+                    col = record.col,
+                    offset = record.offset,
+                    trivia = {}
+                }
+                token.definition = {lexical = true, token = token, functionDepth = 0, constant = true}
+                node.coreDefinition = token.definition
+                declaration = token
+            end
             if declaration then
                 child.definition = need(declaration.definition, "checked function declaration required")
                 need(
@@ -484,9 +506,80 @@ function program.describe(modules: {any}, entryModule: string): any
         if node.kind == "call" and graph.coreLibraryCall(node) then
             loopForms[node] = true
         end
+        -- So are the library constants it folds (math.pi).
+        if graph.coreLibraryField(node) then
+            loopForms[node] = true
+        end
+
+        -- An affine local or with binding runs its record's destructor at
+        -- scope exit, reached through the table the record's name holds: a
+        -- synthetic reference per site, which capture analysis transports.
+        local function cleanupToken(site: any, t: any, anchor: any): nil
+            local inner = t and t.tag == "affine" and t.inner
+            local origin = inner and (inner.origin or inner)
+            local declaration = origin and origin.deriveDeclaration
+            if not (declaration and declaration.kind == "recordDecl" and declaration.name) then
+                return
+            end
+            local token: any = {
+                kind = "name",
+                text = declaration.name.text,
+                line = anchor.line,
+                col = anchor.col,
+                offset = anchor.offset,
+                trivia = {},
+                definition = declaration.name.definition
+            }
+            reference(token, owner)
+            p.cleanupTokens[site] = p.cleanupTokens[site] or {}
+            p.cleanupTokens[site][declaration] = token
+            p.cleanupOwners[owner.id] = true
+        end
+
+        if node.kind == "localStmt" and node.automaticOwners then
+            for index, automatic in pairs(node.automaticOwners) do
+                local anchor = node.names and node.names[index]
+                if anchor then
+                    cleanupToken(node, automatic.type, anchor)
+                end
+            end
+        elseif node.kind == "withStmt" then
+            for _, binding in ipairs(node.bindings or {}) do
+                if binding.name then
+                    cleanupToken(binding, binding.acquiredType, binding.name)
+                end
+            end
+        end
         -- `new R(...)` of a plain record builds its value in place, so the
         -- record's name is a type use there, not a read of its runtime value.
         if node.kind == "newExpr" and node.call and node.call.recordFields and not node.call.constructorEntry then
+            loopForms[node.call] = true
+        end
+        -- `new R(...)` with a constructor calls it, the fresh instance first,
+        -- through the table R's name holds.
+        local entry = node.kind == "newExpr" and node.call and node.call.constructorEntry
+        local declaration = entry and entry.declaration
+        if declaration and declaration.coreDefinition and inlineRecords[declaration] then
+            local base = inlineRecords[declaration]
+            local classToken: any = {
+                kind = "name",
+                text = base.text,
+                line = base.line,
+                col = base.col,
+                offset = base.offset,
+                trivia = {},
+                definition = base.definition
+            }
+            reference(classToken, owner)
+            local item = {
+                id = #p.calls,
+                owner = owner.id,
+                node = node.call,
+                definition = declaration.coreDefinition,
+                construct = true,
+                classToken = classToken
+            }
+            p.calls[#p.calls + 1], p.callByNode[node.call] = item, item
             loopForms[node.call] = true
         end
         if node.kind == "name" then
@@ -838,6 +931,15 @@ function program.verify(p: any): boolean
                 "method callsite identity mismatch"
             )
             need(referenceOwners[item.classToken] == item.owner, "method callsite does not belong to its checked owner")
+        elseif item.construct then
+            need(
+                node.kind == "call"
+                and p.callByNode[node] == item
+                and node.constructorEntry
+                and node.constructorEntry.declaration.coreDefinition == item.definition,
+                "construction callsite identity mismatch"
+            )
+            need(referenceOwners[item.classToken] == item.owner, "construction callsite does not belong to its owner")
         elseif item.field then
             need(
                 node.kind == "call"
@@ -918,7 +1020,9 @@ function program.functionGraph(p: any, owner: any, profile: any): any
     for _, intrinsic in ipairs(p.intrinsics) do
         need(intrinsic.owner ~= owner.id, "intrinsic execution is not established: " .. intrinsic.operation)
     end
-    local g = lower.functionGraph(owner, {program = p}, profile)
+    -- A profile may give a function that acquires cleanups its own variant.
+    local chosen = profile.forOwner and profile.forOwner(p, owner) or profile
+    local g = lower.functionGraph(owner, {program = p}, chosen)
     g.name, g.module, g.path, g.programOwner = owner.name, owner.scope.name, owner.scope.path, owner.id
 
     return g

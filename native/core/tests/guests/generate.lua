@@ -214,8 +214,16 @@ function generate.program(seed, size)
         elseif roll == 9 then
             -- A record method, for its value or as a statement, one written in
             -- the record's body, or a static one called through its table.
-            local how = pick(4)
-            if how == 1 then
+            local how = pick(5)
+            if how == 5 then
+                local into = target()
+                local argument = expression(1)
+                emit(
+                    "local box" .. into .. " = new Box(" .. argument .. ")",
+                    "local box" .. into .. " = newBox(" .. argument .. ")"
+                )
+                emit(into .. " = (" .. into .. " + box" .. into .. ".value) % 1000003")
+            elseif how == 1 then
                 emit(target() .. " = acc:add(" .. expression(1) .. ")")
             elseif how == 2 then
                 emit("acc:add(" .. expression(1) .. ")")
@@ -361,6 +369,19 @@ function generate.program(seed, size)
     emit("    return self.value")
     emit("end")
     emit("local acc = new Acc(value = 0)", "local acc = setmetatable({value = 0}, {__index = Acc})")
+    -- A record built by its constructor, with a field default.
+    lines[#lines + 1] = "local record Box"
+    lines[#lines + 1] = "    value: integer"
+    lines[#lines + 1] = "    scale: integer = 3"
+    lines[#lines + 1] = "    constructor(self, v: integer)"
+    lines[#lines + 1] = "        self.value = v * self.scale % 65521"
+    lines[#lines + 1] = "    end"
+    lines[#lines + 1] = "end"
+    lua[#lua + 1] = "local function newBox(v)"
+    lua[#lua + 1] = "    local self = {scale = 3}"
+    lua[#lua + 1] = "    self.value = v * self.scale % 65521"
+    lua[#lua + 1] = "    return self"
+    lua[#lua + 1] = "end"
     emit("local t: {[integer]: integer} = {}", "local t = {}")
     emit("local Defaults: {[string]: integer} = {bonus = 5}", "local Defaults = {bonus = 5}")
     emit(

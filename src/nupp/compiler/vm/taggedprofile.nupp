@@ -1,8 +1,13 @@
 module nupp.compiler.vm.taggedprofile
 
 local graph = require("nupp.compiler.vm.graph")
+local graphimage = require("nupp.compiler.vm.graphimage")
 local cst = require("nupp.compiler.syntax.cst")
 local tagged = {booleanKind = "tagged"}
+
+-- The graphs built with the cleanup protocol (a graph carries no extra
+-- fields), whose calls report ownership moves to it.
+local cleanupGraphs: {[any]: boolean} = setmetatable({}, {__mode = "k"})
 
 local function need(ok: any, message: string): any
     assert(ok, "tagged graph: " .. message)
@@ -39,7 +44,8 @@ function tagged.initialize(fn: any, options: any): any
         fn.node.kind == "localFuncStmt"
         or fn.node.kind == "funcExpr"
         or fn.node.kind == "funcStmt"
-        or fn.node.kind == "inlineMethod",
+        or fn.node.kind == "inlineMethod"
+        or fn.node.kind == "constructorDecl",
         "unsupported function declaration form"
     )
     local body = fn.body
@@ -53,7 +59,9 @@ function tagged.initialize(fn: any, options: any): any
         "pack and const generic parameters are unsupported"
     )
     need(
-        #fn.signature.rets <= 16 and not fn.signature.retPack.tail and not fn.signature.retPack.alternatives,
+        -- A constructor's results are dropped: its construction is the instance.
+        fn.node.kind == "constructorDecl"
+        or #fn.signature.rets <= 16 and not fn.signature.retPack.tail and not fn.signature.retPack.alternatives,
         "open results are unsupported"
     )
     ordinaryCaptures(fn)
@@ -62,7 +70,11 @@ function tagged.initialize(fn: any, options: any): any
         -- An anonymous `...` last is the hidden pack parameter.
         local pack = parameter.vararg and not parameter.name and index == #params
         need(
-            (parameter.name and not parameter.vararg or pack) and not parameter.modeTok and not parameter.constTok,
+            -- `takes` moves ownership, a fact the checker settled: the core passes
+            -- the value.
+            (parameter.name and not parameter.vararg or pack)
+            and (not parameter.modeTok or parameter.modeTok.text == "takes")
+            and not parameter.constTok,
             "parameter ownership or variadic lowering is unsupported"
         )
     end
@@ -102,6 +114,14 @@ local stringLibrary: {[string]: {integer}} = {
     ["string.find"] = {18, 2, 4},
     ["string.match"] = {19, 2, 3},
     ["string.gsub"] = {26, 3, 4},
+    -- The math library calls guestlib implements.
+    ["math.abs"] = {38, 1, 1},
+    ["math.ceil"] = {39, 1, 1},
+    ["math.max"] = {40, 1, 4},
+    ["math.min"] = {41, 1, 4},
+    ["math.tointeger"] = {42, 1, 1},
+    ["math.type"] = {43, 1, 1},
+    ["math.sqrt"] = {44, 1, 1},
     -- The table library calls guestlib implements, by the same shape.
     ["table.insert"] = {34, 2, 3},
     ["table.remove"] = {35, 1, 2},
@@ -149,8 +169,10 @@ end
 
 -- The nominal record type behind a checked type, or nil.
 local function recordOrigin(t: any): any
-    while t and (t.tag == "const" or t.tag == "literal") do
-        t = t.tag == "const" and t.inner or t.base
+    -- Ownership qualifiers (affine, borrowed, pinned) wrap the record type.
+    while t
+        and (t.tag == "const" or t.tag == "literal" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
+        t = t.tag == "literal" and t.base or t.inner
     end
     local origin = t and (t.origin or t)
     if origin and origin.tag == "nominal" and origin.declKind == "record" and origin.fieldOrder then
@@ -362,7 +384,8 @@ function tagged.closure(ctx: any, node: any, expected: string?): integer
         node.kind == "localFuncStmt"
         or node.kind == "funcExpr"
         or node.kind == "funcStmt"
-        or node.kind == "inlineMethod",
+        or node.kind == "inlineMethod"
+        or node.kind == "constructorDecl",
         "unsupported function declaration form"
     )
     local target = need(catalog(ctx).byBody[node.body], "closure lacks checked owner")
@@ -422,11 +445,76 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
     local value = ctx.readHeld(callee)
     ctx.release(callee)
     local pack = spreads and ctx.varargPack() or nil
+    if cleanupGraphs[ctx.g] and node.kind == "call" then
+        ctx.beforeCall(node)
+    end
     if count then
         return ctx.invokeMany(node, value, args, contract, count, pack)
     end
 
     return ctx.invoke(node, value, args, contract, keepResult, pack)
+end
+
+-- A field's default, which the checker keeps as its closed value: an
+-- integer, string or Boolean. Floats and tables are not admitted yet.
+local function defaultConstant(ctx: any, node: any, value: any): integer
+    if type(value) == "string" then
+        return ctx.emit(node, "K", {pool(ctx, "str", value)}, "tagged") as integer
+    elseif type(value) == "boolean" then
+        return ctx.emit(node, "K", {pool(ctx, value and "true" or "false", "")}, "tagged") as integer
+    end
+    need(math.type(value) == "integer", "only integer, string and Boolean field defaults are admitted")
+
+    return ctx.emit(node, "K", {pool(ctx, "int64", tostring(value))}, "tagged") as integer
+end
+
+-- `new R(...)` with a constructor: a fresh instance with R's field
+-- defaults, then R's constructor called with it first (from the table R's
+-- name holds); the instance is the value.
+local function construct(ctx: any, node: any, origin: any): any
+    local p = catalog(ctx)
+    local call = node.call
+    local site = need(p.callByNode[call], "construction lacks its checked callsite")
+    need(site.construct and site.owner == ctx.fn.id, "construction callsite belongs to another owner")
+    local target = need(p.functionsByDefinition[site.definition], "construction lacks its constructor")
+    local contract = graph.constructContract(target, call)
+    local class = ctx.expression({kind = "name", token = site.classToken, site.classToken}, "tagged")
+    if class == nil then
+        return nil
+    end
+    local heldClass = ctx.hold(class)
+    local name = "\0new" .. tostring(call.constructorEntry.index)
+    local key = ctx.emit(node, "K", {pool(ctx, "str", name)}, "tagged")
+    local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldClass), key}, "tagged"))
+    ctx.release(heldClass)
+    local instance = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+    for _, field in ipairs(origin.fieldOrder or {}) do
+        local default = origin.fieldDefaults and origin.fieldDefaults[field]
+        if default then
+            local value = defaultConstant(ctx, node, default.value)
+            local slot = need(recordSlot(origin, field), "record field is not declared")
+            local slotKey = ctx.emit(node, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
+            ctx.emit(node, "SetIdx", {ctx.readHeld(instance), slotKey, value}, nil)
+        end
+    end
+    local exprs, kinds = {}, {}
+    for _, argument in ipairs(call.args and call.args.exprs or {}) do
+        need(argument.kind ~= "vararg", "a constructor call cannot spread `...` yet")
+        exprs[#exprs + 1], kinds[#kinds + 1] = argument, "tagged"
+    end
+    local args = ctx.operands(exprs, kinds)
+    if args == nil then
+        return nil
+    end
+    local first: integer = ctx.readHeld(instance)
+    table.insert(args, 1, first)
+    local value = ctx.readHeld(callee)
+    ctx.release(callee)
+    ctx.invoke(call, value, args, contract, false)
+    local result = ctx.readHeld(instance)
+    ctx.release(instance)
+
+    return result
 end
 
 -- pcall(f, ...): f called as a protected call, its results after true, or
@@ -545,8 +633,10 @@ function tagged.erasedStatement(ctx: any, stat: any): nil
         need(stat.declKind == "record" and not stat.generics, "only plain record declarations are admitted")
         for _, entry in ipairs(stat.entries or {}) do
             need(
-                entry.kind == "fieldDecl" or entry.kind == "inlineMethod" and entry.overloadMember == nil,
-                "record constructors, metamethods and overloaded methods are unsupported"
+                entry.kind == "fieldDecl"
+                or entry.kind == "inlineMethod" and entry.overloadMember == nil
+                or entry.kind == "constructorDecl",
+                "record metamethods and overloaded methods are unsupported"
             )
         end
         return
@@ -684,6 +774,104 @@ local function numericFor(ctx: any, stat: any): any
     }
 end
 
+-- A true constant, for the cleanup protocol's conditions: a guest error
+-- unwinds in the runtime, so no call or terminal reports failure here.
+local function always(ctx: any, node: any): integer
+    return ctx.emit(node, "K", {pool(ctx, "true", "")}, "tagged") as integer
+end
+
+-- The profile a function that owns affine values is built with: the
+-- common cleanup protocol (functiongraph), its terminals called through
+-- Destroy, which reaches each destructor through the table its record's name
+-- holds. Returns stage at most one value.
+local function cleanupProfile(base: any): any
+    local profile = {}
+    for name, member in pairs(base) do
+        profile[name] = member
+    end
+    profile.forOwner = nil
+    profile.initialize = function(owner: any, options: any): any
+        local g = base.initialize(owner, options)
+        cleanupGraphs[g] = true
+        return g
+    end
+    profile.initializeModule = function(owner: any, options: any): any
+        local g = base.initializeModule(owner, options)
+        cleanupGraphs[g] = true
+        return g
+    end
+    profile.cleanupFlag = function(ctx: any, node: any, value: boolean): integer
+        return ctx.emit(node, "K", {pool(ctx, value and "true" or "false", "")}, "tagged") as integer
+    end
+    profile.cleanupPlan = function(ctx: any, site: any, t: any, chain: any): any
+        local inner = t and t.tag == "affine" and t.inner
+        local origin = inner and (inner.origin or inner)
+        local declaration = origin and origin.deriveDeclaration
+        local tokens = catalog(ctx).cleanupTokens[site]
+        local token = need(tokens and declaration and tokens[declaration], "cleanup site lacks its record reference")
+        local methods = {}
+        for _, item in ipairs(chain) do
+            local record, method = tostring(item.name):match("^(.-)%.([%w_]+)$")
+            need(method and record == declaration.name.text, "only a record's own method cleans it up")
+            methods[#methods + 1] = method
+        end
+
+        return {token = token, methods = methods}
+    end
+    profile.cleanupAllowed = always
+    profile.cleanupStatus = always
+    profile.cleanupRun = function(ctx: any, node: any, plan: any, value: integer, reason: string): nil
+        local held = ctx.hold(value)
+        for index = #plan.methods, 1, -1 do
+            local class = ctx.expression({kind = "name", token = plan.token, plan.token}, "tagged")
+            local key = ctx.emit(node, "K", {pool(ctx, "str", plan.methods[index])}, "tagged")
+            local callee = ctx.emit(node, "GetIdx", {class, key}, "tagged")
+            ctx.emit(node, "Destroy", {callee, ctx.readHeld(held)}, nil)
+        end
+        ctx.release(held)
+    end
+    -- Unreachable while every status is true; a failure still has to end its
+    -- block, so it raises.
+    profile.failure = function(ctx: any, node: any): nil
+        local message = ctx.emit(node, "K", {pool(ctx, "str", "cleanup failed")}, "tagged")
+        ctx.emit(node, "LibCall", {22, message}, "tagged")
+        local none = ctx.emit(node, "Nil", {}, "tagged")
+        ctx.block.term = {kind = "return", value = none, edges = {}, pos = ctx.position(node)}
+        ctx.block = nil
+    end
+    profile.stageReturn = function(ctx: any, node: any, falling: boolean): any
+        local exprs = not falling and node.exprs or {}
+        if #exprs == 0 then
+            return {values = {}}
+        end
+        need(#exprs == 1 and exprs[1].kind ~= "vararg", "a function that cleans up returns one value")
+        local value = ctx.expression(exprs[1], "tagged")
+        if value == nil then
+            return nil
+        end
+
+        return {values = {value}}
+    end
+    profile.rootReturn = function(ctx: any, node: any, stage: any, held: any): any
+        return {}
+    end
+    profile.rootBacking = function(ctx: any, node: any, roots: any): {any}
+        return {}
+    end
+    profile.closeReturnRoots = function(ctx: any, node: any, plan: any, reason: string): integer
+        return always(ctx, node)
+    end
+    profile.retainRootBacking = function(ctx: any, node: any, plan: any): nil
+    end
+    profile.finishReturn = function(ctx: any, node: any, stage: any, values: any, roots: any): nil
+        local value = values[1] or ctx.emit(node, "Nil", {}, "tagged")
+        ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(node)}
+        ctx.block = nil
+    end
+
+    return profile
+end
+
 -- A profile for one checked-source graph version (see coregraphschema).
 function tagged.forVersion(version: integer): any
     local profile = {}
@@ -763,19 +951,31 @@ function tagged.forVersion(version: integer): any
             need(expected == nil or expected == "tagged", "record requires tagged destination")
             local origin = recordOrigin(node.inferredType)
             local call = node.call
+            if origin and call and call.constructorEntry then
+                return construct(ctx, node, origin) as integer
+            end
             need(
                 origin and call and not call.constructorEntry and type(call.recordFields) == "table",
                 "only plain record construction is admitted"
             )
-            local nodes, kinds, slots = {}, {}, {}
-            for index, binding in ipairs(call.recordFields) do
-                nodes[index] = need(binding.node or binding.defaultValue, "record initializer is missing")
-                kinds[index] = "tagged"
-                slots[index] = need(recordSlot(origin, binding.name), "record field is not declared")
+            -- Written fields are expressions; a default is its closed value.
+            local nodes, kinds, slots, defaults = {}, {}, {}, {}
+            for _, binding in ipairs(call.recordFields) do
+                if binding.node then
+                    nodes[#nodes + 1], kinds[#kinds + 1] = binding.node, "tagged"
+                    slots[#slots + 1] = need(recordSlot(origin, binding.name), "record field is not declared")
+                else
+                    need(binding.isDefault, "record initializer is missing")
+                    defaults[#defaults + 1] = binding
+                end
             end
             local values = ctx.operands(nodes, kinds)
             if values == nil then
                 return nil as any
+            end
+            for _, binding in ipairs(defaults) do
+                values[#values + 1] = defaultConstant(ctx, node, binding.defaultValue)
+                slots[#slots + 1] = need(recordSlot(origin, binding.name), "record field is not declared")
             end
             local record = ctx.emit(node, "NewTable", {}, "tagged")
             for index, value in ipairs(values) do
@@ -786,6 +986,16 @@ function tagged.forVersion(version: integer): any
             return record as integer
         end
         profile.fieldRead = function(ctx: any, node: any, expected: string?): integer
+            -- math.huge, math.pi, math.maxinteger and math.mininteger fold.
+            local libraryField = graph.coreLibraryField(node)
+            if libraryField == "math.huge" or libraryField == "math.pi" then
+                local number = libraryField == "math.pi" and math.pi or math.huge
+                return ctx.emit(node, "K", {pool(ctx, "num", graphimage.floatBytes(number))}, "tagged") as integer
+            elseif libraryField == "math.maxinteger" then
+                return ctx.emit(node, "K", {pool(ctx, "int64", "9223372036854775807")}, "tagged") as integer
+            elseif libraryField == "math.mininteger" then
+                return ctx.emit(node, "K", {pool(ctx, "int64", "-9223372036854775808")}, "tagged") as integer
+            end
             local slot = recordSlot(recordOrigin(node.obj.inferredType), node.name and node.name.text)
             -- A field of a plain table is its string key, and so is one of a
             -- record's name (`R.f`), which holds the table of its methods.
@@ -979,9 +1189,13 @@ function tagged.forVersion(version: integer): any
             end
             local held = ctx.hold(ctx.emit(stat, "NewTable", {}, "tagged"))
             for _, entry in ipairs(stat.entries or {}) do
-                if entry.kind == "inlineMethod" then
+                -- A constructor is stored under a key no field name can be.
+                local name = entry.kind == "inlineMethod" and entry.name.text
+                    or entry.kind == "constructorDecl" and "\0new" .. tostring(entry.constructorIndex)
+                    or nil
+                if name then
                     local closure = ctx.hold(tagged.closure(ctx, entry))
-                    local key = ctx.emit(entry, "K", {pool(ctx, "str", entry.name.text)}, "tagged")
+                    local key = ctx.emit(entry, "K", {pool(ctx, "str", name)}, "tagged")
                     ctx.emit(entry, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(closure)}, nil)
                     ctx.release(closure)
                 end
@@ -1301,6 +1515,18 @@ function tagged.forVersion(version: integer): any
             end
 
             return tagged.unary(ctx, node, expected)
+        end
+    end
+
+    if version >= 8 then
+        local withCleanup: any = nil
+        profile.forOwner = function(p: any, owner: any): any
+            if not (p.cleanupOwners and p.cleanupOwners[owner.id]) then
+                return profile
+            end
+            withCleanup = withCleanup or cleanupProfile(profile)
+
+            return withCleanup
         end
     end
 

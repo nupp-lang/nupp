@@ -105,6 +105,8 @@ signatures.Closure = "Vn"
 -- outside the frozen VM's table (corebytecode.coreOnly).
 signatures.MathFloor = "Vv"
 signatures.LibCall = "V#"
+-- An affine value's destructor called on it at the end of its scope.
+signatures.Destroy = "vv"
 signatures.U32Load = "Ivi"
 signatures.U32Store = "vii"
 signatures.U32Add = "Iii"
@@ -252,6 +254,7 @@ local macros = {
     Closure = true,
     MathFloor = true,
     LibCall = true,
+    Destroy = true,
     U32Load = true,
     U32Store = true,
     U32Add = true,
@@ -298,6 +301,7 @@ parsed.Closure.variadicClass = "v"
 parsed.Closure.coreOnly = true
 parsed.MathFloor.coreOnly = true
 parsed.LibCall.coreOnly = true
+parsed.Destroy.coreOnly = true
 parsed.LibCall.variadic = true
 parsed.LibCall.variadicClass = "v"
 
@@ -1281,7 +1285,10 @@ end
 
 local invokeScalar: function(any): nil
 invokeScalar = function(t: any): nil
-    while t and (t.tag == "literal" or t.tag == "const") do
+    -- An owned value passes as the value it owns; its cleanup is the
+    -- graph's, not the call's.
+    while t
+        and (t.tag == "literal" or t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
         t = t.tag == "literal" and t.base or t.inner
     end
     -- A union of admitted types (integer | number, say) passes as a value.
@@ -1303,7 +1310,9 @@ invokeScalar = function(t: any): nil
     )
 end
 
-local function invokeSignature(signature: any): nil
+-- `resultsIgnored`: a constructor's results, which its construction drops, may
+-- be open.
+local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
     assert(type(signature) == "table" and signature.tag == "func", "invoke requires a checked function signature")
     assert(
         not signature.foreign
@@ -1335,7 +1344,7 @@ local function invokeSignature(signature: any): nil
         not signature.borrowsParam and not signature.borrowsSelf and not signature.borrowsResult,
         "invoke borrowed result is unsupported"
     )
-    for _, pack in ipairs({signature.paramPack, signature.retPack}) do
+    for _, pack in ipairs(resultsIgnored and {signature.paramPack} or {signature.paramPack, signature.retPack}) do
         assert(
             type(pack) == "table"
             and (not pack.tail or pack == signature.paramPack and signature.vararg)
@@ -1355,16 +1364,16 @@ local function invokeSignature(signature: any): nil
         end
     end
     dense(signature.params)
-    dense(signature.rets)
-    assert(
-        #signature.paramPack.head == #signature.params
-        and #signature.retPack.head == #signature.rets
-        and #signature.rets >= 1
-        and #signature.rets <= 16,
-        "invoke requires one to sixteen checked scalar results"
-    )
-    for index, t in ipairs(signature.rets) do
-        assert(signature.retPack.head[index] == t, "invoke result pack identity differs")
+    assert(#signature.paramPack.head == #signature.params, "invoke parameter pack arity differs")
+    if not resultsIgnored then
+        dense(signature.rets)
+        assert(
+            #signature.retPack.head == #signature.rets and #signature.rets >= 1 and #signature.rets <= 16,
+            "invoke requires one to sixteen checked scalar results"
+        )
+        for index, t in ipairs(signature.rets) do
+            assert(signature.retPack.head[index] == t, "invoke result pack identity differs")
+        end
     end
     for index, t in ipairs(signature.params) do
         assert(signature.paramPack.head[index] == t, "invoke parameter pack identity differs")
@@ -1431,7 +1440,8 @@ local function invokeContract(contract: any): nil
         call = true,
         callSignature = true,
         summary = true,
-        effects = true
+        effects = true,
+        construct = true
     })
     local owner, call = contract.owner, contract.call
     assert(
@@ -1470,13 +1480,25 @@ local function invokeContract(contract: any): nil
     -- A method call names its method by definition and passes its receiver
     -- first.
     local method = type(call) == "table" and call.kind == "methodCall"
+    -- A construction calls its constructor, named by its synthetic definition,
+    -- with the instance first, through the constructor's signature.
+    local construct = contract.construct == true
     assert(
         type(call) == "table"
         and (
-            call.kind == "call" and call.obj and call.obj.kind == "name" and call.obj.token.definition == definition
-            or method and call.name and call.name.definition == definition
+            construct
+            and call.kind == "call"
+            and call.constructorEntry
+            and call.constructorEntry.declaration == owner.node
+            and owner.node.coreDefinition == definition
+            and call.signatureType == contract.callSignature
+            or not construct
+            and (
+                call.kind == "call" and call.obj and call.obj.kind == "name" and call.obj.token.definition == definition
+                or method and call.name and call.name.definition == definition
+            )
+            and (call.calleeType or call.signatureType) == contract.callSignature
         )
-        and (call.calleeType or call.signatureType) == contract.callSignature
         and not call.cdefCall
         and not call.scalarIntrinsic
         and not call.ownershipIntrinsic
@@ -1485,11 +1507,12 @@ local function invokeContract(contract: any): nil
         and not call.runtimeLoader,
         "invoke checked call identity differs"
     )
-    invokeSignature(contract.signature)
+    invokeSignature(contract.signature, construct)
     invokeSignature(contract.callSignature)
     local signature, called = contract.signature, contract.callSignature
+    -- A construction answers its instance whatever the constructor returns.
     assert(
-        #signature.params == #called.params and signature.rets[1] == called.rets[1],
+        #signature.params == #called.params and (construct or signature.rets[1] == called.rets[1]),
         "invoke checked call signature differs"
     )
     for index, t in ipairs(signature.params) do
@@ -1545,6 +1568,13 @@ local coreLibrary: {
     setmetatable = true,
     getmetatable = true,
     type = true,
+    ["math.abs"] = true,
+    ["math.ceil"] = true,
+    ["math.max"] = true,
+    ["math.min"] = true,
+    ["math.tointeger"] = true,
+    ["math.type"] = true,
+    ["math.sqrt"] = true,
     rawget = true,
     rawset = true,
     ["table.concat"] = true,
@@ -1575,6 +1605,21 @@ local function stringType(t: any): boolean
         t = t.tag == "const" and t.inner or t.base
     end
     return t ~= nil and t.tag == "string"
+end
+
+-- The library constants the core folds: `math.huge` and its kin, by name.
+local coreConstants: {
+    [string]: boolean
+} = {["math.huge"] = true, ["math.pi"] = true, ["math.maxinteger"] = true, ["math.mininteger"] = true}
+
+--- The library constant a field read names (`math.pi`), or nil.
+function graph.coreLibraryField(node: any): string?
+    if node and node.kind == "dotIndex" and node.name and preludeName(node.obj) then
+        local name = node.obj.token.text .. "." .. node.name.text
+        return coreConstants[name] and name or nil
+    end
+
+    return nil
 end
 
 function graph.coreLibraryCall(call: any): string?
@@ -1619,6 +1664,24 @@ function graph.protectedInvokeContract(call: any): any
         call = call,
         callSignature = callee and callee.inferredType,
         effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
+    }
+    invokeContract(contract)
+
+    return contract
+end
+
+-- The contract of `new R(...)`'s call of R's constructor `owner`.
+function graph.constructContract(owner: any, call: any): any
+    local contract = {
+        owner = owner,
+        body = owner.body,
+        definition = owner.definition,
+        signature = owner.signature,
+        call = call,
+        callSignature = call.signatureType,
+        summary = owner.body.effectSummary,
+        effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false},
+        construct = true
     }
     invokeContract(contract)
 
@@ -2247,7 +2310,7 @@ function graph.verify(g: any): nil
         if term.spread then
             count -= 1
         end
-        if term.contract.call.kind == "methodCall" then
+        if term.contract.call.kind == "methodCall" or term.contract.construct then
             count += 1
         end
         -- pcall's first argument is the callee.
