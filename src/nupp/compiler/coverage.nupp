@@ -67,7 +67,6 @@ const STATEMENTS: {
     breakStmt = true,
     continueStmt = true,
     gotoStmt = true,
-    withStmt = true,
     yieldStmt = true,
 }
 

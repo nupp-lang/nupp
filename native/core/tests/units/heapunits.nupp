@@ -47,7 +47,8 @@ end
 -- clearing its root: `survivors * 1000000 + remaining`.
 export function chain(count: uint64, stress: uint64): uint64
     local answer: uint64 = 0ULL
-    with a = arena.open(4194304ULL) do
+    do
+        local a = arena.open(4194304ULL)
         @unsafe do
             local h = heap.create(a)
             h.stress = stress == 1ULL
@@ -71,7 +72,8 @@ end
 -- Live objects after collecting `count` cells that nothing roots.
 export function garbage(count: uint64, stress: uint64): uint64
     local answer: uint64 = 0ULL
-    with a = arena.open(4194304ULL) do
+    do
+        local a = arena.open(4194304ULL)
         @unsafe do
             local h = heap.create(a)
             h.stress = stress == 1ULL
@@ -93,7 +95,8 @@ end
 -- garbage. Answers the live objects after a full cycle.
 export function alternate(count: uint64, stress: uint64): uint64
     local answer: uint64 = 0ULL
-    with a = arena.open(4194304ULL) do
+    do
+        local a = arena.open(4194304ULL)
         @unsafe do
             local h = heap.create(a)
             h.stress = stress == 1ULL

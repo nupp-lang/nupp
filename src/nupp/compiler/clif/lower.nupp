@@ -2078,26 +2078,6 @@ local function compileDirectFunction(fn: Fn, options: any): string
             local loop = need(loops[#loops], "continue outside a loop")
             runCleanups(loop.cleanupDepth)
             b.jump(loop.continueTo, {})
-        elseif kind == "withStmt" then
-            -- Each acquisition is held for the body and released at every way
-            -- out of it, right to left.
-            local depth = #cleanups
-            for _, binding in ipairs(stat.bindings or {}) do
-                local acquired = expression(binding.expr)
-                local held = tag(binding.acquiredType)
-                local variable = declare(binding.name, held, binding.acquiredType)
-                writeVariable(variable, b.here(), materialize(acquired, held))
-                for index = #(binding.ownerCleanups or {}), 1, -1 do
-                    cleanups[#cleanups + 1] = {variable = variable, kind = held, cleanup = binding.ownerCleanups[index]}
-                end
-            end
-            block(stat.body.stats)
-            if b.current then
-                runCleanups(depth)
-            end
-            while #cleanups > depth do
-                cleanups[#cleanups] = nil
-            end
         else
             error("lower: unsupported statement " .. tostring(kind), 0)
         end

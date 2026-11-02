@@ -809,10 +809,6 @@ local function widening(source: any, target: any): boolean
 end
 
 function physical.binding(owner: any, source: any, node: any, key: any): any
-    if node.kind == "withBinding" then
-        need(node.name.definition == key, "with definition differs")
-        return physical.ownerView(owner, source, node, nil)
-    end
     local expression = bindingExpression(owner, node, key, source.checkedType)
     need(expression.inferredType == source.checkedType, "binding checked RHS differs")
     local target = physical.describe(source.context, key.type)
@@ -1784,15 +1780,6 @@ local function ownerEvidence(owner: any, source: any, node: any, signature: any?
         and source.checkedType.inner.tag == "ptr",
         "owner view requires an exact nonnull affine pointer"
     )
-    if node.kind == "withBinding" then
-        local acquired = cleanup.acquisition(node)
-        local origin = acquiredOrigin(owner, source, node.expr)
-        need(origin.binding == nil, "with acquisition is already a local owner")
-        need(acquired == source.checkedType and node.expr.inferredType == acquired, "with acquisition source differs")
-        local definition = node.name.definition
-        need(definition.token == node.name, "with binding definition differs")
-        return {mode = "with", definition = definition, record = node, sourceType = acquired}
-    end
     need(
         node.kind == "name" and node.token.definition and node.inferredType == source.checkedType,
         "checked owning name required"
@@ -1847,9 +1834,6 @@ end
 function physical.ownerView(owner: any, source: any, node: any, signature: any?): any
     local evidence = ownerEvidence(owner, source, node, signature)
     local checked = require("nupp.compiler.types").borrowed(source.checkedType.inner)
-    if evidence.mode == "with" then
-        need(evidence.definition.type == checked, "with borrowed binding type differs")
-    end
     local target = physical.describe(source.context, checked)
     carryOrigin(source, target)
     origins[target].dependency = {keys = {evidence.definition}}
@@ -2460,9 +2444,6 @@ function physical.validateCast(contract: any): boolean
                 and origins[contract.target].dependency.keys[1] == evidence.definition,
                 "owner projection changed"
             )
-            if evidence.mode == "with" then
-                need(evidence.definition.type == view.checked, "with borrowed binding changed")
-            end
         elseif view.mode == "binding" then
             need(
                 bindingExpression(view.owner, view.node, view.definition, view.sourceType) == view.expression

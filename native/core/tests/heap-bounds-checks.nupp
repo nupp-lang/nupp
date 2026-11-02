@@ -11,7 +11,8 @@ const MAX_WORDS: uint64 = 0x1fffffffffffffffULL
 -- errors and mapping cleanup; the frozen VM must not execute these functions.
 export function arenaRefusals(): uint64
     @unsafe do
-        with a = arena.open(64ULL) do
+        do
+            local a = arena.open(64ULL)
             local before = a.cursor
             if arena.alloc(a, 8ULL, 0ULL) ~= nil then
                 return 1ULL
@@ -46,7 +47,8 @@ end
 -- allocator returned an out-of-bounds pointer after its first growth here.
 export function arenaGrowthAlignment(): uint64
     @unsafe do
-        with a = arena.openGrowable(0ULL) do
+        do
+            local a = arena.openGrowable(0ULL)
             local bytes = a.chunkBytes
             if bytes == 0ULL or (bytes & (bytes - 1ULL)) ~= 0ULL or bytes <= native.sizeOf<arena.Chunk>() then
                 return 1ULL
@@ -87,7 +89,8 @@ end
 -- Each remaining scenario must terminate at its bound error site, with no
 -- published result and no mapping acquired. A normal return is a test failure.
 export function arenaOpenOverflow(): uint64
-    with a = arena.open(MAXIMUM) do
+    do
+        local a = arena.open(MAXIMUM)
         return 1ULL
     end
 end

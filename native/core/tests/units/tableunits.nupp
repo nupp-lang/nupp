@@ -56,7 +56,8 @@ end
 -- the values plus a billion times the length; each refusal adds one.
 export function sequence(count: uint64): uint64
     local answer: uint64 = 0ULL
-    with a = arena.open(16777216ULL) do
+    do
+        local a = arena.open(16777216ULL)
         @unsafe do
             local h = heap.create(a)
             local t = fresh(a, h)
@@ -85,7 +86,8 @@ end
 -- times a billion plus the sum of the values, which are the keys.
 export function migrate(count: uint64): uint64
     local answer: uint64 = 0ULL
-    with a = arena.open(16777216ULL) do
+    do
+        local a = arena.open(16777216ULL)
         @unsafe do
             local h = heap.create(a)
             local t = fresh(a, h)
@@ -122,7 +124,8 @@ end
 -- length times a thousand plus the count of nil reads that should be nil.
 export function removal(count: uint64): uint64
     local answer: uint64 = 0ULL
-    with a = arena.open(16777216ULL) do
+    do
+        local a = arena.open(16777216ULL)
         @unsafe do
             local h = heap.create(a)
             local t = fresh(a, h)
@@ -161,7 +164,8 @@ end
 -- billion per refusal seen.
 export function objectKeys(count: uint64): uint64
     local answer: uint64 = 0ULL
-    with a = arena.open(16777216ULL) do
+    do
+        local a = arena.open(16777216ULL)
         @unsafe do
             local h = heap.create(a)
             local t = fresh(a, h)
@@ -207,7 +211,8 @@ end
 -- the drain, plus a billion per oracle disagreement.
 export function survives(count: uint64): uint64
     local answer: uint64 = 0ULL
-    with a = arena.open(16777216ULL) do
+    do
+        local a = arena.open(16777216ULL)
         @unsafe do
             local h = heap.create(a)
             h.automatic = false
@@ -244,7 +249,8 @@ end
 -- values seen, plus one when a key the table lacks is refused.
 export function traversal(count: uint64): uint64
     local answer: uint64 = 0ULL
-    with a = arena.open(16777216ULL) do
+    do
+        local a = arena.open(16777216ULL)
         @unsafe do
             local h = heap.create(a)
             local t = fresh(a, h)

@@ -18,7 +18,8 @@ export function locals(value: Word*): uint64
     return right.value
 end
 export function scoped(value: Word*): uint64
-    with owner = acquire(value) do
+    do
+        local owner = acquire(value)
         return owner.value
     end
 end
@@ -50,7 +51,7 @@ local function fixture(action)
     end
 end
 
-function M.checkedOwnerAndWithOccurrencesRemainDistinct()
+function M.checkedOwningLocalsRetainDistinctOccurrences()
     fixture(function(s, owners)
         local f = owners.locals
         local left = cleanup.localOwner(f.body.body.stats[1], 1)
@@ -61,10 +62,11 @@ function M.checkedOwnerAndWithOccurrencesRemainDistinct()
         assert(call.args.exprs[1].token.definition == left.entry.definition)
         local access = f.body.body.stats[4].exprs[1]
         assert(access.obj.inferredType == right.type)
-        local binding = owners.scoped.body.body.stats[1].bindings[1]
-        assert(cleanup.acquisition(binding).tag == "affine")
-        assert(binding.name.definition.type.tag == "borrowed")
-        assert(binding.name.definition.type.inner == binding.acquiredType.inner)
+        local stat = owners.scoped.body.body.stats[1].body.stats[1]
+        local owner = cleanup.localOwner(stat, 1)
+        assert(owner.type.tag == "affine")
+        assert(stat.names[1].definition.type == owner.type)
+        assert(owner.expr == stat.exprs[1])
         assert(owners.release.parameterTypes[1].tag == "affine")
         assert(owners.release.parameterModes[1] == "takes")
         assert(s.validate())
@@ -104,25 +106,22 @@ function M.equalLocalTypesDoNotIssueAcquisitionOrigins()
     end)
 end
 
-function M.WithCannotBorrowAPlainOrUnissuedAcquisition()
+function M.localsCannotBorrowAPlainOrUnissuedAcquisition()
     fixture(function(s, owners)
         local f = owners.scoped
-        local binding = f.body.body.stats[1].bindings[1]
+        local stat = f.body.body.stats[1].body.stats[1]
+        local owner = cleanup.localOwner(stat, 1)
+        local access = f.body.body.stats[1].body.stats[2].exprs[1]
         local context = unit.ownerContext(f)
         refuses(
             function()
-                physical.binding(
-                    f,
-                    physical.describe(context, binding.acquiredType.inner),
-                    binding,
-                    binding.name.definition
-                )
+                physical.ownerView(f, physical.describe(context, owner.type.inner), access.obj)
             end,
             "affine pointer"
         )
         refuses(
             function()
-                physical.binding(f, physical.describe(context, binding.acquiredType), binding, binding.name.definition)
+                physical.ownerView(f, physical.describe(context, owner.type), access.obj)
             end,
             "acquisition origin"
         )

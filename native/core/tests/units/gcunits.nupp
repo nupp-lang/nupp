@@ -75,7 +75,8 @@ end
 -- node, then `dropped - kept` more garbage nodes.
 export function listSurvives(kept: uint64, dropped: uint64): uint64
     local answer: uint64 = 0ULL
-    with a = arena.open(16777216ULL) do
+    do
+        local a = arena.open(16777216ULL)
         @unsafe do
             local h = heap.create(a)
             local roots = rootsIn(a, 1ULL)
@@ -104,7 +105,8 @@ end
 -- `count` rings of `size` nodes; every other ring loses its root.
 export function rings(count: uint64, size: uint64): uint64
     local answer: uint64 = 0ULL
-    with a = arena.open(16777216ULL) do
+    do
+        local a = arena.open(16777216ULL)
         @unsafe do
             local h = heap.create(a)
             local roots = rootsIn(a, count)
@@ -142,7 +144,8 @@ end
 -- own mappings); every other one is dropped.
 export function fanOut(width: uint64, bytes: uint64): uint64
     local answer: uint64 = 0ULL
-    with a = arena.open(16777216ULL) do
+    do
+        local a = arena.open(16777216ULL)
         @unsafe do
             local h = heap.create(a)
             local roots = rootsIn(a, 1ULL)
@@ -174,7 +177,8 @@ end
 -- which loses the child; 0 goes through it. Answers 1 when the child lives.
 export function barrier(skip: uint64): uint64
     local answer: uint64 = 0ULL
-    with a = arena.open(16777216ULL) do
+    do
+        local a = arena.open(16777216ULL)
         @unsafe do
             local h = heap.create(a)
             h.automatic = false
@@ -214,7 +218,8 @@ end
 -- when the child lives and the oracle agrees.
 export function initializedBlack(chain: uint64): uint64
     local answer: uint64 = 0ULL
-    with a = arena.open(16777216ULL) do
+    do
+        local a = arena.open(16777216ULL)
         @unsafe do
             local h = heap.create(a)
             h.automatic = false

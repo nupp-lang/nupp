@@ -485,7 +485,7 @@ function M.arenasOverMappedPagesOpenForAnExtentAndClose()
 end
 
 -- An arena's lifetime is the checker's: a borrow of it cannot leave the
--- `with`, and resetting it needs the sole live view.
+-- owning local's lexical scope, and resetting it needs the sole live view.
 local ARENA_PREFIX = 'module escapes\nconst arena = require("nupp.runtime.vm.arena")\n'
 
 local function compileArenaUse(body)
@@ -501,7 +501,7 @@ function M.theCheckerKeepsArenaBorrowsInsideTheirExtent()
         table.concat(
             {
                 "local function escape(): voidptr?",
-                "    with a = arena.open(4096) do",
+                "    do local a = arena.open(4096)",
                 "        return arena.alloc(a, 8, 8)",
                 "    end",
                 "end",
@@ -515,7 +515,7 @@ function M.theCheckerKeepsArenaBorrowsInsideTheirExtent()
         table.concat(
             {
                 "local function reset(): int64",
-                "    with a = arena.open(4096) do",
+                "    do local a = arena.open(4096)",
                 "        local raw = arena.alloc(a, 8, 8)",
                 "        arena.reset(a)",
                 "        if raw == nil then return 0 end",
@@ -532,7 +532,7 @@ function M.theCheckerKeepsArenaBorrowsInsideTheirExtent()
             table.concat(
                 {
                     "local function fine(): int64",
-                    "    with a = arena.open(4096) do",
+                    "    do local a = arena.open(4096)",
                     "        local raw = arena.alloc(a, 8, 8)",
                     "        if raw == nil then return 0 end",
                     "        return 1",

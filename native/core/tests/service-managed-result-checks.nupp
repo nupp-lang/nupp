@@ -441,25 +441,26 @@ local function entryCleanup(build: any): nil
                     local operation = service.operation(g, args[1])
                     local actual = g.nativePhysical.values[args[2]]
                     assert(operation.target == roles.close and service.arenaCleanup(g, args[1], actual))
-                    if operation.node.kind == "withBinding" then
-                        assert(operation.node.expr == acquisition, "with cleanup lost the original acquisition")
+                    if operation.node.kind == "localStmt" then
+                        local owner = operation.node.automaticOwners[1]
+                        assert(owner.expr == acquisition, "local cleanup lost the original acquisition")
                         bindings = bindings + 1
-                        local saved = operation.node.expr
-                        operation.node.expr = copy(saved)
+                        local saved = operation.node.exprs[1]
+                        operation.node.exprs[1] = copy(saved)
                         refuses(
                             function(): nil
                                 service.arenaCleanup(g, args[1], actual)
                             end,
-                            "with cleanup acquisition changed"
+                            "local cleanup acquisition changed"
                         )
-                        operation.node.expr = other
+                        operation.node.exprs[1] = other
                         refuses(
                             function(): nil
                                 service.arenaCleanup(g, args[1], actual)
                             end,
-                            "with cleanup acquisition changed"
+                            "local cleanup acquisition changed"
                         )
-                        operation.node.expr = saved
+                        operation.node.exprs[1] = saved
                         assert(service.arenaCleanup(g, args[1], actual))
                     else
                         assert(operation.node == acquisition, "temporary cleanup lost the original acquisition")
@@ -482,7 +483,7 @@ local function entryCleanup(build: any): nil
             end
         end
     end
-    assert(found > 0 and bindings > 0 and temporaries > 0, "entry temporary/with Arena cleanup is absent")
+    assert(found > 0 and bindings > 0 and temporaries > 0, "entry temporary/local Arena cleanup is absent")
     publicationChecks(g)
     verify(g)
     graph.prune(g)

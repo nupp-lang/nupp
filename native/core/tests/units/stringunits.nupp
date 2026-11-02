@@ -32,7 +32,8 @@ end
 export function basics(abc: uint64, ab: uint64, c: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     local answer: uint64 = 0ULL
-    with a = arena.open(16777216ULL) do
+    do
+        local a = arena.open(16777216ULL)
         @unsafe do
             local h = heap.create(a)
             h.automatic = false
@@ -69,7 +70,8 @@ end
 export function gmatch(s1: uint64, s2: uint64, s3: uint64, p1: uint64, p2: uint64, lengths: uint64): uint64
     local state = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     local answer: uint64 = 0ULL
-    with a = arena.open(16777216ULL) do
+    do
+        local a = arena.open(16777216ULL)
         @unsafe do
             local h = heap.create(a)
             h.automatic = false

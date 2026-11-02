@@ -252,8 +252,10 @@ end
 function M.nestedAcquisitionsAndEarlyReturnUnwindReverseOrder()
     local g, events = compile(
         [[
-with outer = acquire(1) do
-    with inner = acquire(2) do
+do
+    local outer = acquire(1)
+    do
+        local inner = acquire(2)
         return read(7)
     end
 end
@@ -266,10 +268,14 @@ end
 
 function M.laterAcquisitionFailureCleansOnlyCompletedAcquisitions()
     local g, events = compile([[
-with first = acquire(1), second = acquire(later()) do
+do
+    local first = acquire(1)
+    local second = acquire(later())
     return 7
 end
-]], {later = true})
+]], {
+        later = true
+    })
     local text = trace(g, events)
     assert(cleanupOrder(text) == "1" and not text:find("return:", 1, true), text)
     assert(text:find("call:later cleanup:1 failure", 1, true), text)
@@ -370,7 +376,8 @@ end
 function M.cleanupFailureDoesNotPublishOrLoseOwningReturn()
     local g, events = compile(
         [[
-with first = acquire(1) do
+do
+    local first = acquire(1)
     return acquire(2)
 end
 ]],
@@ -534,7 +541,8 @@ end
 
 function M.explicitCheckedRaiseUnwindsEnclosingAcquisitions()
     local g, events = compile([[
-with value = acquire(1) do
+do
+    local value = acquire(1)
     error("stop")
 end
 ]])
@@ -594,12 +602,12 @@ function M.partialMoveAndChangedOwnerMetadataRefuse()
 end
 
 function M.profileWithoutCleanupKeepsExplicitRefusal()
-    local owner = checked("with value = acquire(1) do return 7 end")
+    local owner = checked("do local value = acquire(1) return 7 end")
     refuses(
         function()
             frontend.compile(owner, {}, scalar)
         end,
-        "with requires a cleanup-aware profile"
+        "unsupported exact kind affine"
     )
 end
 

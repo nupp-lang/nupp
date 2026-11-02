@@ -506,7 +506,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
         need(cleanupOwners[owner] == nil, "cleanup owner registered twice")
         context()
         local active = heldScope()
-        local plan = need(profile.cleanupPlan(ctx, site, t, t.cleanups), "checked cleanup plan required")
+        local plan = need(profile.cleanupPlan(ctx, site, t, t.cleanups, owner), "checked cleanup plan required")
         need(ctx.block == block, "cleanup planning must not change control flow")
         checkHeldScope(active)
         local entry = {owner = owner, site = site, plan = plan, value = {}, live = {}, temporary = site.kind == "call"}
@@ -1392,37 +1392,6 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 if cleanupEnabled then
                     finishScope(depth, stat)
                 end
-                local scoped = {}
-                for _, key in ipairs(outer) do
-                    scoped[key] = bindings[key]
-                end
-                bindings, bindingOrder = scoped, outer
-            elseif stat.kind == "withStmt" then
-                need(cleanupEnabled, "with requires a cleanup-aware profile")
-                local depth, outer = #cleanups, {}
-                for index, key in ipairs(bindingOrder) do
-                    outer[index] = key
-                end
-                for _, binding in ipairs(stat.bindings) do
-                    local t = cleanup.acquisition(binding)
-                    local value = expression(binding.expr, profile.kind(t.inner))
-                    if not block then
-                        finishScope(depth, stat)
-                        local scoped = {}
-                        for _, key in ipairs(outer) do
-                            scoped[key] = bindings[key]
-                        end
-                        bindings, bindingOrder = scoped, outer
-                        return
-                    end
-                    assert(value ~= nil, "function graph: successful acquisition requires a value")
-                    transferExpression(binding.expr)
-                    registerCleanup(binding, binding, t, value)
-                    local key = binding.name.definition or binding.name
-                    ctx.bind(key, initializeBinding(binding, key, value))
-                end
-                statements(stat.body.stats)
-                finishScope(depth, stat)
                 local scoped = {}
                 for _, key in ipairs(outer) do
                     scoped[key] = bindings[key]

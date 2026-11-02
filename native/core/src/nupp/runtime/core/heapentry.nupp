@@ -116,7 +116,8 @@ export function run(binding: voidptr): uint64
         native.store64(outerResult, native.fieldOffset<roots.Result>("value"), values.NIL)
         native.store64(innerResult, native.fieldOffset<roots.Result>("value"), values.NIL)
         native.store64(input, 0, values.TRUE)
-        with a = arena.open(131072ULL) do
+        do
+            local a = arena.open(131072ULL)
             local h = heap.create(a)
             h.stress = stress == 1ULL
             local initial = rootentry.start(

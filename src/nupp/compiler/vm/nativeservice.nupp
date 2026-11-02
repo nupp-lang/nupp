@@ -1188,7 +1188,7 @@ function service.cleanupSignature(ctx: any, node: any, t: any, cleanup: any): an
     return graphs[ctx.g].state.owners[target].signature
 end
 
-function service.cleanupDeclaration(ctx: any, node: any, t: any, cleanup: any, declaration: any): any
+function service.cleanupDeclaration(ctx: any, node: any, t: any, cleanup: any, declaration: any, owner: any?): any
     local target = service.cleanupTarget(ctx, node, t, cleanup)
     local caller, callee = graphs[ctx.g], graphs[ctx.g].state.owners[target]
     need(declaration.service == callee.signature and declaration.result == "nil", "cleanup boundary differs")
@@ -1209,17 +1209,19 @@ function service.cleanupDeclaration(ctx: any, node: any, t: any, cleanup: any, d
     for key, value in pairs(declaration) do
         record.fields[key] = value
     end
-    if node.kind == "withBinding" then
+    if node.kind == "localStmt" then
+        need(owner and owner.stat == node, "local cleanup requires its checked owner")
         need(
-            require("nupp.compiler.vm.functioncleanup").acquisition(node) == t,
-            "with cleanup acquisition type differs"
+            require("nupp.compiler.vm.functioncleanup").localOwner(node, owner.index) == owner and owner.type == t,
+            "local cleanup acquisition type differs"
         )
-        unit.occurrence(ctx.fn, node.expr)
+        unit.occurrence(ctx.fn, owner.expr)
         need(
-            node.expr.kind == "call" and unit.checkedOccurrenceType(ctx.fn, node.expr) == t,
-            "with cleanup requires its checked acquisition call"
+            owner.expr.kind == "call" and unit.checkedOccurrenceType(ctx.fn, owner.expr) == t,
+            "local cleanup requires its checked acquisition call"
         )
-        record.acquisition = node.expr
+        record.owner = owner
+        record.acquisition = owner.expr
     end
     calls[declaration] = record
 
@@ -2183,16 +2185,21 @@ function service.arenaCleanup(g: any, declaration: any, actual: any?): boolean
     if not call or not call.cleanup then
         return false
     end
-    -- A with binding owns the call result after temporary ownership transfers.
-    -- Keep its registration site separate from that original acquisition call.
+    -- An automatic local owns the call result after temporary ownership transfers. Its
+    -- exact checked owner retains the acquisition independently of the cleanup site.
     local acquisition = call.acquisition or call.node
     if call.acquisition then
         unit.occurrence(call.caller.owner, call.node)
-        need(call.node.kind == "withBinding" and call.node.expr == call.acquisition, "with cleanup acquisition changed")
+        local owner = call.owner
         need(
-            require("nupp.compiler.vm.functioncleanup").acquisition(call.node) == call.cleanupType,
-            "with cleanup acquisition type differs"
+            owner
+            and call.node.kind == "localStmt"
+            and owner.expr == call.acquisition
+            and call.node.exprs[owner.index] == call.acquisition
+            and require("nupp.compiler.vm.functioncleanup").localOwner(call.node, owner.index) == owner,
+            "local cleanup acquisition changed"
         )
+        need(owner.type == call.cleanupType, "local cleanup acquisition type differs")
     end
     unit.occurrence(call.caller.owner, acquisition)
     local home = arenaHome(call.caller)

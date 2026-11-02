@@ -52,7 +52,8 @@ local function compilerDigest(root: string): string
         .. "' && ls src/nupp/compiler/vm/*.nupp src/nupp/runtime/vm/*.d.nupp "
         .. "spike/native-lowering/src/s0/*.nupp spike/native-lowering/nativegraph/src/nupp/compiler/s0/*.nupp | sort"
     local parts = {}
-    with listing = assert(io.popen(command)) do
+    do
+        local listing = assert(io.popen(command))
         for path in listing:lines() do
             parts[#parts + 1] = path .. "\0" .. (readFile(root .. "/" .. path) or "")
         end

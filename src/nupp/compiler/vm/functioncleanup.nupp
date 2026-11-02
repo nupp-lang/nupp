@@ -52,20 +52,6 @@ function cleanup.localOwner(stat: any, index: integer): any
     return owner
 end
 
-function cleanup.acquisition(binding: any): any
-    local t = need(cleanup.type(binding.acquiredType), "with requires a checked affine acquisition")
-    need(
-        binding.ownerCleanups == t.cleanups
-        and binding.name
-        and binding.name.definition
-        and binding.name.definition.type
-        and binding.name.definition.type.tag == "borrowed",
-        "with binding lost checked acquisition or borrowed view"
-    )
-
-    return t
-end
-
 function cleanup.move(move: any): any
     need(move and not move.field and not move.owner, "partial-field ownership transfer is unsupported")
     return move

@@ -511,7 +511,7 @@ function program.describe(modules: {any}, entryModule: string): any
             loopForms[node] = true
         end
 
-        -- An affine local or with binding runs its record's destructor at
+        -- An affine local runs its record's destructor at
         -- scope exit, reached through the table the record's name holds: a
         -- synthetic reference per site, which capture analysis transports.
         local function cleanupToken(site: any, t: any, anchor: any): nil
@@ -541,12 +541,6 @@ function program.describe(modules: {any}, entryModule: string): any
                 local anchor = node.names and node.names[index]
                 if anchor then
                     cleanupToken(node, automatic.type, anchor)
-                end
-            end
-        elseif node.kind == "withStmt" then
-            for _, binding in ipairs(node.bindings or {}) do
-                if binding.name then
-                    cleanupToken(binding, binding.acquiredType, binding.name)
                 end
             end
         end

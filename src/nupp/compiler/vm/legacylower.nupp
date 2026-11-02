@@ -4565,30 +4565,6 @@ function lower.emit(
             end
             local v = exprAs(f, bin, "v")
             assignTo(f, target, v, prepared)
-        elseif k == "withStmt" then
-            local depth = f.cleanupDepth or 0
-            f:push()
-            for _, binding in ipairs(node.bindings or {}) do
-                local value = exprAs(f, binding.expr, "v")
-                local reg, cell, spill = f:declare(tokText(binding.name), "v", true)
-                local stored = value
-                if cell then
-                    stored = f:reg()
-                    f:op("NewCell", stored, value)
-                end
-                if spill then
-                    f:storeSpill(spill, stored)
-                else
-                    f:op("Move", reg, stored)
-                end
-                for i = #(binding.ownerCleanups or {}), 1, -1 do
-                    deferCleanup(f, value, binding.ownerCleanups[i])
-                end
-            end
-            block(f, node.body)
-            f:op("Unwind", depth)
-            f.cleanupDepth = depth
-            f:pop()
         elseif k == "doStmt" then
             block(f, node.body or node)
         elseif k == "pragmaStmt" then
@@ -5733,15 +5709,6 @@ function lower.emit(
             chain[#chain + 1] = {}
             for _, t in ipairs(st.names or {}) do
                 chain[#chain][tokText(t)] = here
-            end
-            analyzeBlock(st.body, chain, here, seen)
-            chain[#chain] = nil
-        elseif k == "withStmt" then
-            chain[#chain + 1] = {}
-            for _, binding in ipairs(st.bindings or {}) do
-                analyzeExpr(binding.expr, chain, here, seen)
-                noteCleanups(binding, chain, here)
-                chain[#chain][tokText(binding.name)] = here
             end
             analyzeBlock(st.body, chain, here, seen)
             chain[#chain] = nil

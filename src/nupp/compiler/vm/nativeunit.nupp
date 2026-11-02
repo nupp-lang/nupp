@@ -789,10 +789,6 @@ function unit.cleanupTypes(fn: any, site: any): any
     end
 
     add(site.inferredType)
-    if site.acquiredType then
-        need(site.ownerCleanups == site.acquiredType.cleanups, "with cleanup metadata changed")
-        add(site.acquiredType)
-    end
     for index, owner in pairs(site.automaticOwners or {}) do
         need(
             site.kind == "localStmt"
