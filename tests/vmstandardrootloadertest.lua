@@ -204,7 +204,11 @@ function M.nativeTaskDeclarationsKeepCanonicalFunctionResultsAndScopeBorrows()
     local _, codes, messages = checkedCoroutine(
         [[
 local type Work = function(integer): (integer, string?, nil)
-local states: {coroutine.Status} = {"queued", "running", "done", "failed", "cancelled"}
+local queued: coroutine.Status = "queued"
+local running: coroutine.Status = "running"
+local done: coroutine.Status = "done"
+local failed: coroutine.Status = "failed"
+local cancelled: coroutine.Status = "cancelled"
 local function inspect(borrows task: coroutine.Task<Work>): (integer, string?, nil)
     local status: coroutine.Status = task:status()
     return task:await()
