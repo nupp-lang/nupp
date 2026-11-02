@@ -272,7 +272,7 @@ local type Token = lexer.Token
 
 --- Builds the same declared-field specification as `layoutof`, but marks it for the
 --- SoA runtime rather than exposing an AoS byte stride. Kept here because an aliased
---- `soa.allocate` has no syntactic relationship to the global layout intrinsic.
+--- `soa.alloc` has no syntactic relationship to the global layout intrinsic.
 --- Whether every argument is positional. A named or plucked argument is
 --- positional only after the adjustment the ordinary call path performs, so an
 --- intrinsic that goes around that path keeps its call when one is present.

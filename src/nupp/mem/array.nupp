@@ -6,15 +6,13 @@ Owned contiguous arrays of one scalar or struct type.
 ```nupp
 const array = nupp.mem.array
 
-do
-    const values = array.scalar(array.uint32, 4)
-    const writable = values:write()
+const values = array.scalar(array.uint32, 4)
+const writable = values:write()
 
-    writable[1] = 42
-    own.drop(writable)
+writable[1] = 42
+own.drop(writable)
 
-    print(values:read()[1])
-end -- the array is released here
+print(values:read()[1])
 ```
 
 The array owns its storage and releases it at the end of the scope that holds

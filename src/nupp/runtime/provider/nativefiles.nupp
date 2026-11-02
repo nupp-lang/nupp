@@ -137,11 +137,9 @@ what it created, and the checker runs that cleanup at the end of the scope
 whether the block falls through, returns early, or raises.
 
 ```nupp:fragment
-do
-    local scratch = assert(files.tmpfile(new files.TemporaryOptions(suffix = ".json")))
-    assert(files.write(scratch:path(), encoded))
-    assert(scratch:persist("out/report.json"))
-end
+local scratch = assert(files.tmpfile(new files.TemporaryOptions(suffix = ".json")))
+assert(files.write(scratch:path(), encoded))
+assert(scratch:persist("out/report.json"))
 ```
 
 `persist` moves it somewhere permanent and discharges the obligation, so the
@@ -192,10 +190,8 @@ file apart from a finished one.
 `open` hands over a `File` and the obligation to close it:
 
 ```nupp:fragment
-do
-    local file = assert(files.open("image.png"))
-    print(file:read(8))
-end
+local file = assert(files.open("image.png"))
+print(file:read(8))
 ```
 
 A file is itself a `io.Reader` and a `io.Writer`, the same shape as a
@@ -207,11 +203,9 @@ bound. `readinto` commits the destination buffer only after a successful read,
 and `transferto` streams a file of any size through a fixed window:
 
 ```nupp:fragment
-do
-    local source = assert(files.open("input.bin"))
-    local sink = assert(files.open("output.bin", "w"))
-    print(source:transferto(sink))
-end
+local source = assert(files.open("input.bin"))
+local sink = assert(files.open("output.bin", "w"))
+print(source:transferto(sink))
 ```
 
 `mode` is `r`, `w`, `a`, or the update modes `r+`, `w+` and `a+`, matching C and
@@ -1552,10 +1546,8 @@ end
 --- Read a header without holding the whole file:
 ---
 --- ```nupp
---- do
----     local file = assert(io.files.open("image.png"))
----     print(file:read(8))
---- end
+--- local file = assert(io.files.open("image.png"))
+--- print(file:read(8))
 --- ```
 --- @param path the file to open
 --- @param mode how it may be used, defaulting to reading
@@ -1592,12 +1584,10 @@ end
 --- Write somewhere nobody else can take, then move it into place:
 ---
 --- ```nupp:fragment
---- do
----     local options = new io.files.TemporaryOptions(directory = "build")
----     local scratch = assert(io.files.tmpfile(options))
----     assert(io.files.write(scratch:path(), bytes))
----     assert(scratch:persist("build/output.bin"))
---- end
+--- local options = new io.files.TemporaryOptions(directory = "build")
+--- local scratch = assert(io.files.tmpfile(options))
+--- assert(io.files.write(scratch:path(), bytes))
+--- assert(scratch:persist("build/output.bin"))
 --- ```
 --- @param options where to create it and how to name it
 --- @return the created path, or nil on failure

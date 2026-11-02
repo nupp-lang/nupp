@@ -309,7 +309,7 @@ export sealed interface Buffer is own.Closeable
     len: function(borrows self: Buffer): integer
     capacity: function(borrows self: Buffer): integer
     clear: function(exclusive self: Buffer): nil
-    ensurecapacity: function(exclusive self: Buffer, minimum: integer): nil
+    ensure: function(exclusive self: Buffer, minimum: integer): nil
     resize: function(exclusive self: Buffer, len: integer): nil
     getstring: function(borrows self: Buffer, offset: integer?, count: integer?): string
     setstring: function(exclusive self: Buffer, bytes: string, offset: integer?): nil
@@ -355,7 +355,7 @@ local record HeapBuffer is Buffer
         self._length = 0
     end
 
-    function ensurecapacity(exclusive self, minimum: integer): nil
+    function ensure(exclusive self, minimum: integer): nil
         opened(self._closed, "io.Buffer", 2)
         reserve(self, integer_(minimum, "io.Buffer capacity", 2))
     end
@@ -931,14 +931,11 @@ end
 --- content, and the buffer is still empty afterwards.
 ---
 --- ```nupp
+--- local buffer = io.newbuffer("hello")
+--- assert(buffer:len() == 5)
 ---
---- do
----     local buffer = io.newbuffer("hello")
----     assert(buffer:len() == 5)
----
----     local sized = io.newbuffer(4096)
----     assert(sized:len() == 0 and sized:capacity() == 4096)
---- end
+--- local sized = io.newbuffer(4096)
+--- assert(sized:len() == 0 and sized:capacity() == 4096)
 --- ```
 ---
 --- @param initial the starting bytes, a starting capacity, or nothing

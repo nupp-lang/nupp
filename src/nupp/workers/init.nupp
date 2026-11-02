@@ -14,16 +14,11 @@ module main
 const jobs = require("jobs")
 
 export function hashes(left: string, right: string): (string, string)
-    local first, second = "", ""
-    do
-        local scope = coroutine.scope()
-        const one = scope:work(left, jobs.hash)
-        const two = scope:work(right, jobs.hash)
+    local scope = coroutine.scope()
+    const one = scope:work(left, jobs.hash)
+    const two = scope:work(right, jobs.hash)
 
-        first, second = one:await(), two:await()
-    end
-
-    return first, second
+    return one:await(), two:await()
 end
 ```
 

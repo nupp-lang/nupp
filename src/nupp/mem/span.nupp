@@ -374,12 +374,10 @@ sealed interface span.WriteSpan<T> is span.WriteToken
     --- a pair of `slice` calls could not be. `mid` is how many elements go left.
     ---
     --- ```nupp:fragment
-    --- do
-    ---     local writable = values:write()
-    ---     local split = writable:splitat(2)
-    ---     split.left[1] = 11 as int32
-    ---     split.right[1] = 22 as int32
-    --- end
+    --- local writable = values:write()
+    --- local split = writable:splitat(2)
+    --- split.left[1] = 11 as int32
+    --- split.right[1] = 22 as int32
     --- ```
     @partition(left, right)
     splitat: function(exclusive self: WriteSpan<T>, mid: integer): span.WriteSplit<T> borrows (self)
@@ -733,11 +731,9 @@ end
 --- end
 ---
 --- const storage = carray(Value, 4)
---- do
----     local writable = span.writecarray(storage, 4)
----     writable[1] = new Value(42)
----     own.drop(writable)
---- end
+--- local writable = span.writecarray(storage, 4)
+--- writable[1] = new Value(42)
+--- own.drop(writable)
 ---
 --- const values = span.fromcarray(storage, 4)
 --- assert(values[1].n == 42)

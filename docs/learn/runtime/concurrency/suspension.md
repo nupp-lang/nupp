@@ -58,10 +58,8 @@ local function printCompilerVersion(): nil
 end
 
 local function application(): nil
-    do
-        local installation = coroutine.suspension.host.install(frame.handler)
-        printCompilerVersion()
-    end
+    local installation = coroutine.suspension.host.install(frame.handler)
+    printCompilerVersion()
 end
 
 frame.run(application)
@@ -229,13 +227,11 @@ local function childWork(): nil
 end
 
 local function application(): nil
-    do
-        local installation = coroutine.suspension.host.install(frame.handler)
-        local task = suspension.create(childWork)
-        local ok, problem = coroutine.resume(task)
-        if not ok then
-            error(problem)
-        end
+    local installation = coroutine.suspension.host.install(frame.handler)
+    local task = suspension.create(childWork)
+    local ok, problem = coroutine.resume(task)
+    if not ok then
+        error(problem)
     end
 end
 
@@ -423,10 +419,8 @@ them, and `goto` may reach a label outside:
 local frame = require("scheduler")
 
 local function choose(): integer
-    do
-        local installation = coroutine.suspension.host.install(frame.handler)
-        return 1
-    end
+    local installation = coroutine.suspension.host.install(frame.handler)
+    return 1
 end
 
 print(choose())

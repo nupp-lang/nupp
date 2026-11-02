@@ -62,7 +62,7 @@ zero-fills:
 
 ```nupp
 local bytes = io.newbuffer("hello")
-bytes:ensurecapacity(4096)
+bytes:ensure(4096)
 assert(bytes:capacity() >= 4096)
 bytes:resize(3)
 assert(bytes:getstring() == "hel")
@@ -70,7 +70,7 @@ assert(bytes:getstring() == "hel")
 
 Capacity is the allocation, not a recorded number. Growing at least doubles it,
 so appending through a writer costs amortized constant time per byte and
-`capacity()` reports bytes that are actually held. `ensurecapacity` reserves at
+`capacity()` reports bytes that are actually held. `ensure` reserves at
 least the minimum asked for.
 
 `close()` releases the buffer's storage and returns nothing, and an operation on

@@ -10,14 +10,12 @@ only through checked span views.
 ```nupp
 local heap = nupp.mem.heap
 
-do
-    local values = heap.alloc(ffi.typeof<int32>(), 4)
-    local writable = values:write()
-    writable[1] = 42 as int32
-    own.drop(writable)
-    local readable = values:read()
-    print(readable[1], #readable)
-end -- free runs here
+local values = heap.alloc(ffi.typeof<int32>(), 4)
+local writable = values:write()
+writable[1] = 42 as int32
+own.drop(writable)
+local readable = values:read()
+print(readable[1], #readable)
 ```
 
 An allocation here sits outside LuaJIT's GC allocation limit, which is the
@@ -116,10 +114,8 @@ end
 --- there.
 ---
 --- ```nupp:fragment
---- do
----     local values = heap.alloc(ffi.typeof<int32>(), 1000000)
----     print(values.count)
---- end
+--- local values = heap.alloc(ffi.typeof<int32>(), 1000000)
+--- print(values.count)
 --- ```
 ---
 --- @param element the ctype of an element

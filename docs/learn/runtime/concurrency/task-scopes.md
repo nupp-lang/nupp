@@ -13,19 +13,14 @@ failure.
 
 ```nupp:fragment
 export function load(): string
-    local loaded = ""
-    do
-        local scope = coroutine.scope()
-        const atlas = scope:spawn("load atlas", function(): string
-            return readAtlas()
-        end)
-        const settings = scope:spawn(function(): string
-            return readSettings()
-        end)
-        loaded = atlas:await() .. settings:await()
-    end
-
-    return loaded
+    local scope = coroutine.scope()
+    const atlas = scope:spawn("load atlas", function(): string
+        return readAtlas()
+    end)
+    const settings = scope:spawn(function(): string
+        return readSettings()
+    end)
+    return atlas:await() .. settings:await()
 end
 ```
 
@@ -70,11 +65,9 @@ holds a slot until its lane answers.
 
 ```nupp:fragment
 const sizes: {integer} = {}
-do
-    local scope = coroutine.scope(limit = 8)
-    for index, url in ipairs(urls) do
-        scope:spawn(sizes, index, url, storeSize)
-    end
+local scope = coroutine.scope(limit = 8)
+for index, url in ipairs(urls) do
+    scope:spawn(sizes, index, url, storeSize)
 end
 ```
 
@@ -84,14 +77,12 @@ in completion order by construction. A worker result comes back through the
 child that awaits it, which is the child that occupies the slot:
 
 ```nupp:fragment
-do
-    local scope = coroutine.scope(limit = os.info().parallelism)
-    for name, path in pairs(paths) do
-        scope:spawn(function(): nil
-            const size = scope:work(name, path, jobs.compress):await()
-            total = total + size
-        end)
-    end
+local scope = coroutine.scope(limit = os.info().parallelism)
+for name, path in pairs(paths) do
+    scope:spawn(function(): nil
+        const size = scope:work(name, path, jobs.compress):await()
+        total = total + size
+    end)
 end
 ```
 
@@ -134,18 +125,16 @@ is how the first result wins:
 
 ```nupp:fragment
 local winner: string? = nil
-do
-    local scope = coroutine.scope(limit = 4)
-    for _, mirror in ipairs(mirrors) do
-        if winner ~= nil then break end
-        scope:spawn(function(): nil
-            const answer = scope:work(mirror, jobs.probe):await()
-            if answer ~= nil and winner == nil then
-                winner = answer
-                scope:cancel("a mirror answered")
-            end
-        end)
-    end
+local scope = coroutine.scope(limit = 4)
+for _, mirror in ipairs(mirrors) do
+    if winner ~= nil then break end
+    scope:spawn(function(): nil
+        const answer = scope:work(mirror, jobs.probe):await()
+        if answer ~= nil and winner == nil then
+            winner = answer
+            scope:cancel("a mirror answered")
+        end
+    end)
 end
 ```
 
@@ -275,10 +264,8 @@ and may not extend what its parent already promised. `coroutine.deadline()`
 returns the current absolute deadline, or nil outside a bounded scope.
 
 ```nupp:fragment
-do
-    local scope = coroutine.scope(timeoutms = 5000)
-    index(scope:spawn(url, fetch):await())
-end
+local scope = coroutine.scope(timeoutms = 5000)
+index(scope:spawn(url, fetch):await())
 ```
 
 Expiry requests ordinary structured cancellation, and it reaches the block's own

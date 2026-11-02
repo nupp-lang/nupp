@@ -17,11 +17,9 @@ local struct Position
 end
 
 local positions = soa.alloc(ffi.typeof<Position>(), 128)
-do
-    local rows = positions:write()
-    for index = 1, #rows do
-        rows[index].x += rows[index].velocity
-    end
+local rows = positions:write()
+for index = 1, #rows do
+    rows[index].x += rows[index].velocity
 end
 ```
 
@@ -60,7 +58,7 @@ assert(layout.fields[2].name == "history")
 
 ## Owners and row views
 
-`soa.allocate` returns an [affine
+`soa.alloc` returns an [affine
 owner](../ownership/borrowing.md#declaring-affine-types) of one aligned
 native slab, and its lexical scope closes the allocation. `read()` borrows a
 shared row view; `write()` borrows an exclusive affine one.
@@ -78,7 +76,7 @@ local struct Particle
     dy: float
 end
 
-local particles = soa.allocate(ffi.typeof<Particle>(), 2)
+local particles = soa.alloc(ffi.typeof<Particle>(), 2)
 do
     local rows = particles:write()
     rows[1] = new Particle(1, 2, 3, 4)
@@ -149,13 +147,11 @@ A row slice preserves the column layout and adjusts the logical row offset. Its
 indexes start at one, like the parent view.
 
 ```nupp:fragment
-local samples = soa.allocate(ffi.typeof<Position>(), 3)
+local samples = soa.alloc(ffi.typeof<Position>(), 3)
 do
     local rows = samples:write()
-    do
-        local middle = rows:slice(2, 2)
-        middle[1].x = 12.5
-    end
+    local middle = rows:slice(2, 2)
+    middle[1].x = 12.5
 end
 
 local tail = samples:read():slice(2, 3)
@@ -173,8 +169,8 @@ created.
 both ranges before moving bytes, then performs one contiguous copy per field.
 
 ```nupp:fragment
-local source = soa.allocate(ffi.typeof<Particle>(), 2)
-local target = soa.allocate(ffi.typeof<Particle>(), 4)
+local source = soa.alloc(ffi.typeof<Particle>(), 2)
+local target = soa.alloc(ffi.typeof<Particle>(), 4)
 
 do
     local rows = source:write()
@@ -246,11 +242,9 @@ to direct typed-column loads and stores. An arbitrary index keeps its runtime
 bounds check.
 
 ```nupp:fragment
-do
-    local rows = particles:write()
-    for index = 1, #rows do
-        rows[index].x += rows[index].dx
-    end
+local rows = particles:write()
+for index = 1, #rows do
+    rows[index].x += rows[index].dx
 end
 ```
 
@@ -357,7 +351,7 @@ handle on a column. The container itself never yields a column pointer. See
 ### Can a record be stored in an SoA array?
 
 No. A record is a table, so it has no fixed C storage to split into columns,
-and `soa.allocate` reports one. Store a reified `struct`
+and `soa.alloc` reports one. Store a reified `struct`
 instead, and see [Limits](#limits) for the other field types the container
 refuses.
 

@@ -66,10 +66,8 @@ local function consume(borrows file: LuaFile): string
     return file:read("*a")
 end
 
-do
-    local report = assert(io.open("report.txt", "r"))
-    print(consume(report))
-end
+local report = assert(io.open("report.txt", "r"))
+print(consume(report))
 ```
 
 C headers import as checked declarations, and component builds embed checked

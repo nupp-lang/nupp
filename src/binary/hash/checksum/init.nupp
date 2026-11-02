@@ -10,12 +10,10 @@ const checksum = binary.hash.checksum
 
 print(checksum.value("crc32c", "hello"))
 
-do
-    local running = checksum.newchecksum("crc32")
-    running:write("hel")
-    running:write("lo")
-    print(running:value())
-end
+local running = checksum.newchecksum("crc32")
+running:write("hel")
+running:write("lo")
+print(running:value())
 ```
 
 `value` is a snapshot rather than a finish, so a context keeps going after one

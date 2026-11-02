@@ -29,16 +29,12 @@ local function finish<S is profile.Session>(borrows session: S): S.Report
     return session:stop()
 end
 
-do
-    local sampling = profile.sample()
-    local samples: profile.SampleReport = finish(sampling)
-    print(samples.samples)
-end
-do
-    local tracing = profile.trace()
-    local aborts: profile.TraceReport = finish(tracing)
-    print(aborts.totalaborts)
-end
+local sampling = profile.sample()
+local samples: profile.SampleReport = finish(sampling)
+print(samples.samples)
+local tracing = profile.trace()
+local aborts: profile.TraceReport = finish(tracing)
+print(aborts.totalaborts)
 ```
 
 See [Associated types](../language/types/associated-types.md) for details on
@@ -256,13 +252,11 @@ request, or the work after warm-up:
 ```nupp:fragment
 local profile = nupp.profile
 
-do
-    local session = profile.sample({intervalms = 2, zone = "frame/render"})
-    renderEverything()
-    local report = session:stop("render.out")
+local session = profile.sample({intervalms = 2, zone = "frame/render"})
+renderEverything()
+local report = session:stop("render.out")
 
-    print(report.samples, report.stacks)
-end
+print(report.samples, report.stacks)
 ```
 
 `stop` ends the session and returns a report. `tostring(report)` gives the same
@@ -278,14 +272,12 @@ the session starts and cannot be widened afterwards.
 Use `profile.trace()` to collect trace aborts:
 
 ```nupp:fragment
-do
-    local session = profile.trace()
-    runTheWorkload()
-    local report = session:stop()
+local session = profile.trace()
+runTheWorkload()
+local report = session:stop()
 
-    if report.blacklisted > 0 then
-        print(tostring(report))
-    end
+if report.blacklisted > 0 then
+    print(tostring(report))
 end
 ```
 

@@ -7,12 +7,10 @@ there compiled.
 ```nupp:fragment
 local profile = nupp.profile
 
-do
-    local session = profile.sample({intervalms = 5})
-    render()
-    local report = session:stop("profile.out")
-    print(report.samples, report.stacks)
-end
+local session = profile.sample({intervalms = 5})
+render()
+local report = session:stop("profile.out")
+print(report.samples, report.stacks)
 ```
 
 `profile.sample` is the statistical sampler. A timer interrupts the program and
@@ -570,12 +568,10 @@ end
 --- Starts sampling.
 ---
 --- ```nupp:fragment
---- do
----     local session = profile.sample({intervalms = 5, zone = "frame/render"})
----     render()
----     local report = session:stop("render.collapsed")
----     print(report.samples, report.stacks)
---- end
+--- local session = profile.sample({intervalms = 5, zone = "frame/render"})
+--- render()
+--- local report = session:stop("render.collapsed")
+--- print(report.samples, report.stacks)
 --- ```
 ---
 --- @param options omitted samples every zone at 10 ms to a depth of 16
@@ -933,12 +929,10 @@ end
 --- Starts collecting trace aborts.
 ---
 --- ```nupp:fragment
---- do
----     local session = profile.trace()
----     render()
----     local report = session:stop("aborts.csv")
----     print(report.blacklisted, report.totalaborts)
---- end
+--- local session = profile.trace()
+--- render()
+--- local report = session:stop("aborts.csv")
+--- print(report.blacklisted, report.totalaborts)
 --- ```
 ---
 --- @param options omitted leaves the benign trace-formation events out

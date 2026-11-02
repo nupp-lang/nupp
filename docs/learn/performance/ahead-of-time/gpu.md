@@ -48,24 +48,18 @@ local array = nupp.mem.array
 local source = array.scalar(array.float, 1024)
 local result = array.scalar(array.float, 1024)
 
+local context = io.gpu.open()
+local input = context:buffer(array.float, 1024)
+local output = context:buffer(array.float, 1024)
+local kernel = kernels.scale:compile(context)
 do
-    local context = io.gpu.open()
-    do
-        local input = context:buffer(array.float, 1024)
-        local output = context:buffer(array.float, 1024)
-        do
-            local kernel = kernels.scale:compile(context)
-            do
-                local binding = kernel:bind(output, input)
-                context:upload(input, source:read())
-                binding:dispatch(2.0)
-            end
-        end
-        context:enqueuedownload(output)
-        context:synchronize()
-        context:readdownloaded(output, result:write())
-    end
+    local binding = kernel:bind(output, input)
+    context:upload(input, source:read())
+    binding:dispatch(2.0)
 end
+context:enqueuedownload(output)
+context:synchronize()
+context:readdownloaded(output, result:write())
 ```
 
 Uploads, dispatches, and downloads enqueue work. `synchronize()` is the explicit

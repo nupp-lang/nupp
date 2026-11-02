@@ -720,10 +720,8 @@ cdef function buffer_free(takes buffer: nativeBuffer*) from"mini"
 
 cdef function buffer_create(size: uint64): affine(nativeBuffer*, buffer_free) from"mini"
 
-do
-    local buffer = buffer_create(4096)
-    print(buffer.size)
-end
+local buffer = buffer_create(4096)
+print(buffer.size)
 ```
 
 `affine(nativeBuffer*, buffer_free)` says the caller receives one cleanup

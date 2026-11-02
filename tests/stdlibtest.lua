@@ -3418,11 +3418,15 @@ function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
         {"reserveWrite", "reservewrite"},
         {"readSpan", "readspan"},
         {"isReleased", "isreleased"},
-        {"ensureCapacity", "ensurecapacity"},
+        {"ensureCapacity", "ensure"},
+        {"ensurecapacity", "ensure"},
     }) do
         testAssert.eq(type(storage[names[2]]), "function", names[2])
         testAssert.eq(storage[names[1]], nil, "the preceding IO storage member is absent")
     end
+    storage:ensure(64)
+    testAssert.eq(storage:len(), 4)
+    assert(storage:capacity() >= 64)
     testAssert.eq(storage:getstring(), "abcd")
     storage:close()
     local scalar = io.newsreader(string.char(1, 0, 0, 0))
