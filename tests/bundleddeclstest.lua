@@ -80,6 +80,8 @@ end
 function M.retiredNamespacesAreNotBundled()
     local env = strictEnv()
     for _, name in ipairs({
+        "io.uri",
+        "io.uri.spi",
         "io.path",
         "io.path.spi",
         "io.net.tls",

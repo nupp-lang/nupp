@@ -80,12 +80,12 @@ local function fakeBackend(script)
             if state.killPolls <= (state.killLag or 0) then
                 return nil
             end
-            state.exited = processTypes.exited(137, true, false)
+            state.exited = {exitcode = 137, killed = true, timedout = false}
             return state.exited
         end
         -- Having stopped reading, it is done: the next poll is what notices.
         if script.stopsReadingAfter ~= nil and #state.written >= script.stopsReadingAfter then
-            state.exited = processTypes.exited(script.code or 0, false, false)
+            state.exited = {exitcode = script.code or 0, killed = false, timedout = false}
 
             return state.exited
         end
@@ -96,7 +96,7 @@ local function fakeBackend(script)
         end
         -- Exits once both output scripts are spent and the script says so.
         if script.exitAfter ~= nil and state.polls >= script.exitAfter then
-            state.exited = processTypes.exited(script.code or 0, false, false)
+            state.exited = {exitcode = script.code or 0, killed = false, timedout = false}
             return state.exited
         end
 
@@ -309,7 +309,11 @@ function M.aKilledChildDidNotSucceed()
     local exit = child:wait()
     child:close()
     assert(exit.killed, "it was killed")
-    testAssert.eq(exit:succeeded(), false, "a killed child never succeeded, whatever status was reported")
+    testAssert.eq(
+        (not exit.killed and not exit.timedout and exit.exitcode == 0),
+        false,
+        "a killed child never succeeded, whatever status was reported"
+    )
 end
 
 function M.aDeadlineIsMeasuredFromTheStart()
@@ -322,7 +326,7 @@ function M.aDeadlineIsMeasuredFromTheStart()
     child:close()
     assert(exit.killed, "the deadline killed it")
     assert(exit.timedout, "and said that is why")
-    testAssert.eq(exit:succeeded(), false, "a timeout is not a success")
+    testAssert.eq((not exit.killed and not exit.timedout and exit.exitcode == 0), false, "a timeout is not a success")
 end
 
 function M.aDeadlineThatHasNotPassedDoesNotFire()
@@ -1497,10 +1501,8 @@ function M.popenPreservesLuaCallsAndLoadsStructuredProcessesLazily()
     testAssert.eq(loads, 1)
     host.popen(options)
     testAssert.eq(loads, 1, "the structured implementation is shared")
-    testAssert.eq(facade.processexit, processTypes.exited)
-    testAssert.eq(host.processexit, processTypes.exited)
-    assert(host.processexit(0, false, false):succeeded())
-    assert(not host.processexit(0, true, false):succeeded())
+    testAssert.eq(facade.processexit, nil)
+    testAssert.eq(host.processexit, nil)
 end
 
 function M.popenPropagatesTheCapturedLuaError()
@@ -1518,6 +1520,30 @@ function M.popenPropagatesTheCapturedLuaError()
     local ok, problem = pcall(facade.popen, "fixture")
     testAssert.eq(ok, false)
     testAssert.eq(problem, sentinel)
+end
+
+function M.exitValuesArePlainDataAndSuccessIncludesTerminationFlags()
+    for _, fields in ipairs({
+        {0, false, false, true},
+        {1, false, false, false},
+        {0, true, false, false},
+        {0, false, true, false},
+        {0, true, true, false},
+    }) do
+        local exit = {exitcode = fields[1], killed = fields[2], timedout = fields[3]}
+        local backend = fakeBackend({out = {}, err = {}, exitAfter = 1})
+        function backend:poll(_handle)
+            return exit
+        end
+
+        local child = spawnOn(backend, {args = {"fixture"}})
+        local result = assert(child:communicate())
+        assert(rawequal(result.exit, exit), "the provider returns plain exit data")
+        testAssert.eq(getmetatable(result.exit), nil)
+        testAssert.eq(result.exit.succeeded, nil)
+        testAssert.eq(result:succeeded(), fields[4])
+        child:close()
+    end
 end
 
 return M

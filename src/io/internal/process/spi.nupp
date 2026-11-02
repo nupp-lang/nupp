@@ -12,8 +12,8 @@ the canonical declarations in [](io.internal.process.types).
 Spawn returns the child owner, optional stdin/stdout/stderr handles, process ID,
 and optional failure message. Pipes and process lifetime are separate resources:
 closeStream releases a pipe, while reap releases the child owner after settlement.
-Construct exit results with `io.processexit` so callers receive the
-shared identity and timeout/killed semantics.
+Return plain `io.Process.Exit` data with `exitcode`, `killed`, and `timedout`
+fields. A zero code indicates success only when both flags are false.
 
 Readiness probes must distinguish pending input from EOF and backpressure from a
 closed pipe. waitReady services the requested read/write interests and child

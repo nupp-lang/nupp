@@ -164,12 +164,12 @@ Importing these contracts does not select or initialize an implementation.
 | --- | --- |
 | `nupp.spi` | `EntropyProvider`, `SystemProvider`, `ClockProvider`, `UuidProvider`, `BufferProvider`, `HostProvider`, `CstorageProvider`, `StructvalueProvider` |
 | `serde.json.spi` | `Provider` |
-| `io.spi`, `io.uri.spi` | `Provider` |
+| `io.spi` | `PathProvider`, `UriProvider` |
 | `binary.digest.spi`, `binary.checksum.spi`, `binary.mac.spi` | `Provider` |
 | `binary.compress.spi`, `io.gpu.spi` | `Provider` |
 | `io.files.spi`, `io.http.spi`, `io.net.spi` | `Provider` |
 | `io.net.spi` | `TlsProvider` |
-| `io` | `ProcessProvider` |
+| `io` | `Process.Provider` |
 | `coroutine.suspension.spi`, `coroutine.workers.spi` | `Provider` |
 
 The core interfaces name their concerns. A library-specific interface can keep

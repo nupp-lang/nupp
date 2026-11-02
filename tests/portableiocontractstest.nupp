@@ -124,7 +124,7 @@ function tests.stringReadersFillWritableSpans(): nil
 end
 
 function tests.linesKeepTerminatorsAndFinalFragments(): nil
-    local lines = standard.newlines(standard.newreader("one\r\ntwo\nlast"))
+    local lines = standard.newreader("one\r\ntwo\nlast"):lines()
     assert2(lines:read() == "one")
     assert2(lines:read() == "two")
     assert2(lines:read() == "last")

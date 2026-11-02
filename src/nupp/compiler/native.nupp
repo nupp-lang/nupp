@@ -243,13 +243,7 @@ local FEATURES: {[string]: native.Feature} = {
     },
     [
         "runtime.process_types"
-    ] = {
-        name = "process_types",
-        globals = {"io.processexit"},
-        runtimeModule = "io.internal.process.types",
-        portableRuntime = true,
-        requires = {}
-    },
+    ] = {name = "process_types", runtimeModule = "io.internal.process.types", portableRuntime = true, requires = {}},
     [
         "runtime.http_messages"
     ] = {name = "http_messages", runtimeModule = "nupp.io.http.messages", portableRuntime = true, requires = {}},
@@ -267,14 +261,6 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "io_internal_scalars",
         runtimeModule = "nupp.io.internal.scalars",
-        portableRuntime = true,
-        requires = {"runtime.io_internal_bytes"}
-    },
-    [
-        "runtime.io_internal_lines"
-    ] = {
-        name = "io_internal_lines",
-        runtimeModule = "nupp.io.internal.lines",
         portableRuntime = true,
         requires = {"runtime.io_internal_bytes"}
     },
@@ -408,7 +394,7 @@ local FEATURES: {[string]: native.Feature} = {
         name = "io",
         globals = {
             "io.newbuffer",
-            "io.newlines",
+            "io.Reader.lines",
             "io.newreader",
             "io.newwriter",
             "io.newsreader",
@@ -418,7 +404,7 @@ local FEATURES: {[string]: native.Feature} = {
         modules = {"nupp.io"},
         runtimeModule = "nupp.io",
         portableRuntime = true,
-        requires = {"runtime.io_internal_bytes", "runtime.io_internal_scalars", "runtime.io_internal_lines"},
+        requires = {"runtime.io_internal_bytes", "runtime.io_internal_scalars"},
     },
     [
         "runtime.text_buffer"
@@ -497,8 +483,23 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.uri"
     ] = {
         name = "uri_runtime",
-        module = "io.uri",
-        runtimeModule = "io.uri",
+        module = "io.internal.uri",
+        globals = {
+            "io.newuri",
+            "io.validateuri",
+            "io.URI.withscheme",
+            "io.URI.withuserinfo",
+            "io.URI.withhost",
+            "io.URI.withport",
+            "io.URI.withpath",
+            "io.URI.withquery",
+            "io.URI.withfragment",
+            "io.URI.concatpath",
+            "io.URI.resolve",
+            "io.URI.withendpoint"
+        },
+        exports = {"nupp.runtime.standardio.newuri", "nupp.runtime.standardio.validateuri"},
+        runtimeModule = "io.internal.uri",
         portableRuntime = true,
         requires = {"runtime.uri_whatwg"}
     },
@@ -813,6 +814,9 @@ function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: st
         end
         local t = entry and entry.t
         for index = 2, #parts do
+            if t and (t.tag == "typeobject" or t.tag == "metatable") then
+                t = t.of
+            end
             if index == #parts and t then
                 decorate(t, parts[index], effect)
                 -- A qualified namespace nominal also binds its

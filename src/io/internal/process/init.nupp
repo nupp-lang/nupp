@@ -37,7 +37,7 @@ local spanStringValue: function(borrows source: const uint8[?], count: integer):
 
 const contract = require("io.internal.process.spi")
 local provider: contract.Provider = do
-    const chosen = spi.select(spi.providers<contract.Provider>("io.ProcessProvider"))
+    const chosen = spi.select(spi.providers<contract.Provider>("io.Process.Provider"))
     if chosen ~= nil then
         yield chosen
     end
@@ -66,8 +66,6 @@ type process.CommunicateOptions = shared.CommunicateOptions
 
 --- How a child ended.
 type process.Exit = shared.Exit
-
-process.Exit = shared.Exit
 
 --- A completed duplex exchange.
 type process.Result = shared.Result
@@ -128,7 +126,7 @@ local releaseStream: function(borrows stream: process.Reader | process.Writer | 
 ---
 --- Borrowing the record through `asreader` keeps a single owner and makes its lifetime
 --- a question about Nupp values, which the checker can answer.
-record process.Reader is Reader2
+record process.Reader is io.Reader
     @private owner: any
     @private handle: any
     @private closed: boolean
@@ -611,6 +609,33 @@ end
 --- releases every stream, and the same runs when its scope ends. Reading a stream
 --- or waiting for the exit suspends, so a caller under a scheduler keeps its frame.
 record process.Process is own.Closeable
+    --- Options for starting a child process.
+    type Options = shared.Options
+
+    --- Options for a complete duplex exchange.
+    type CommunicateOptions = shared.CommunicateOptions
+
+    --- The result of a complete duplex exchange.
+    type Result = shared.Result
+
+    --- The settled exit status of a child process.
+    type Exit = shared.Exit
+
+    --- A readable child-process pipe.
+    type Reader = process.Reader
+
+    --- A writable child-process pipe.
+    type Writer = process.Writer
+
+    --- Readiness interests passed to a process provider.
+    type Interest = shared.Interest
+
+    --- Routes a process stream to a pipe, its parent, or nothing.
+    type StreamMode = shared.StreamMode
+
+    --- The interface implemented by process transports.
+    type Provider = contract.Provider
+
     @private state: Child
 
     --- Operating-system process identifier.

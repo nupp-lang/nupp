@@ -568,6 +568,7 @@ function M.aReadThatFailsMidFileSurfacesFromTheLineReader()
         open = function()
             local reads = 0
             return {
+                lines = require("nupp.io.internal.bytes").Reader.lines,
                 read = function(_, count)
                     reads = reads + 1
                     if reads == 1 then

@@ -1,0 +1,392 @@
+@!internal
+module io.internal.uritypes
+
+local contracts = require("io.spi")
+
+const _FACTORY_REQUIRES = "@requires-dynamically io.internal.uri"
+const _PARSER_REQUIRES = "@requires-dynamically nupp.io.uri.whatwg"
+local factory: any = nil
+local parser: any = nil
+
+local function implementation(name: string): any
+    if factory == nil then
+        factory = require(name)
+    end
+    return factory
+end
+
+local function referenceParser(name: string): any
+    if parser == nil then
+        parser = require(name)
+    end
+    return parser
+end
+
+local function newuri(value: any): (URI?, string?)
+    return implementation("io.internal.uri").newuri(value)
+end
+
+--- An immutable absolute URI. Equality compares normalized text.
+--- @export
+export record URI
+    --- The parts a URI is built from when it is not written out as text.
+    record Components
+        --- The scheme, which is required and may not be empty.
+        scheme: string
+
+        --- The user information before `@`, when there is any.
+        userinfo: string?
+
+        --- The host, when there is an authority.
+        host: string?
+
+        --- The port, 0 through 65535.
+        port: integer?
+
+        --- The path, which may be empty.
+        path: string?
+
+        --- The query after `?`, without the `?`.
+        query: string?
+
+        --- The fragment after `#`, without the `#`.
+        fragment: string?
+    end
+
+    @private _text: string
+    @private _scheme: string
+    @private _authority: string?
+    @private _username: string
+    @private _password: string?
+    @private _host: string?
+    @private _port: integer?
+    @private _path: string
+    @private _query: string?
+    @private _fragment: string?
+
+    --- Returns the normalized URI text.
+    --- @param self this URI
+    --- @return the URI text
+    function tostring(self): string
+        return self._text
+    end
+
+    --- Returns the normalized scheme without its colon.
+    --- @param self this URI
+    --- @return the scheme
+    function scheme(self): string
+        return self._scheme
+    end
+
+    --- Returns the authority between `//` and the path.
+    --- @param self this URI
+    --- @return the authority, or nil when there is none
+    function authority(self): string?
+        return self._authority
+    end
+
+    --- Returns the user name before any password.
+    --- @param self this URI
+    --- @return the user name, empty when there is none
+    function username(self): string
+        return self._username
+    end
+
+    --- Returns the password after the user name.
+    --- @param self this URI
+    --- @return the password, or nil when there is none
+    function password(self): string?
+        return self._password
+    end
+
+    --- Returns the normalized host.
+    --- @param self this URI
+    --- @return the host, or nil when there is no authority
+    function host(self): string?
+        return self._host
+    end
+
+    --- Returns a non-default port when explicitly specified.
+    --- @param self this URI
+    --- @return the port, or nil when the URI names none
+    function port(self): integer?
+        return self._port
+    end
+
+    --- Returns the normalized path, or an empty string when absent.
+    --- @param self this URI
+    --- @return the path
+    function path(self): string
+        return self._path
+    end
+
+    --- Returns the query without its `?`.
+    --- @param self this URI
+    --- @return the query, or nil when there is none
+    function query(self): string?
+        return self._query
+    end
+
+    --- Returns the fragment without its `#`.
+    --- @param self this URI
+    --- @return the fragment, or nil when there is none
+    function fragment(self): string?
+        return self._fragment
+    end
+
+    --- Returns the normalized user name and password together.
+    --- @param self this URI
+    --- @return the user information, or nil when there is none
+    function userinfo(self): string?
+        if self._username == "" and self._password == nil then
+            return nil
+        end
+        return self._username .. (self._password ~= nil and ":" .. self._password or "")
+    end
+
+    --- Returns a URI with its scheme replaced.
+    --- @param self this URI
+    --- @param value the scheme to use, without the colon
+    --- @return the new URI, or this one when nothing changes
+    --- @raises string when value is not a scheme, or when the rest of this URI
+    ---     would not keep its authority under the new scheme
+    function withscheme(self, value: string): URI
+        -- Checked before splicing: text beyond a scheme would otherwise be
+        -- reparsed as an authority, so `http://evil/` would become the host.
+        if not value:match("^[A-Za-z][A-Za-z0-9+.-]*$") then
+            error("nupp: a URI scheme is a letter and then letters, digits, +, - or ., not " .. ("%q"):format(value), 2)
+        end
+        local result, reason = newuri(value .. self._text:sub(#self._scheme + 1))
+        if result == nil then
+            error("nupp: the scheme " .. value .. " cannot be used here: " .. tostring(reason), 2)
+        end
+        -- A special scheme parses `mailto:evil.example` with a host, so the same
+        -- text could gain an authority it did not have. The host must survive.
+        local before, after = self._host, result:host()
+        if (before == nil) ~= (after == nil) or (before ~= nil and before:lower() ~= (after as string):lower()) then
+            error("nupp: the scheme " .. value .. " cannot be used here: it would change the host", 2)
+        end
+
+        return result
+    end
+
+    --- Returns a URI with its user information replaced.
+    --- @param self this URI
+    --- @param value the user information, or nil to remove it
+    --- @return the new URI, or this one when nothing changes
+    --- @raises string when the user information cannot be used here
+    function withuserinfo(self, value: string?): URI
+        return (
+            assert(
+                newuri(
+                    new URI.Components(
+                        scheme = self._scheme,
+                        userinfo = value,
+                        host = self._host,
+                        port = self._port,
+                        path = self._path,
+                        query = self._query,
+                        fragment = self._fragment
+                    )
+                )
+            )
+        )
+    end
+
+    --- Returns a URI with its host replaced.
+    --- @param self this URI
+    --- @param value the host, or nil to remove the authority
+    --- @return the new URI, or this one when nothing changes
+    --- @raises string when the host cannot be used here
+    function withhost(self, value: string?): URI
+        return (
+            assert(
+                newuri(
+                    new URI.Components(
+                        scheme = self._scheme,
+                        userinfo = value ~= nil and self:userinfo() or nil,
+                        host = value,
+                        port = value ~= nil and self._port or nil,
+                        path = self._path,
+                        query = self._query,
+                        fragment = self._fragment
+                    )
+                )
+            )
+        )
+    end
+
+    --- Returns a URI with its port replaced.
+    --- @param self this URI
+    --- @param value the port, 0 through 65535, or nil to remove it
+    --- @return the new URI, or this one when nothing changes
+    --- @raises string when port is not a port number
+    function withport(self, value: integer?): URI
+        return (
+            assert(
+                newuri(
+                    new URI.Components(
+                        scheme = self._scheme,
+                        userinfo = self:userinfo(),
+                        host = self._host,
+                        port = value,
+                        path = self._path,
+                        query = self._query,
+                        fragment = self._fragment
+                    )
+                )
+            )
+        )
+    end
+
+    --- Returns a URI with its path replaced.
+    --- @param self this URI
+    --- @param value the path
+    --- @return the new URI, or this one when nothing changes
+    --- @raises string when the path cannot be used here
+    function withpath(self, value: string): URI
+        if self._authority ~= nil and value ~= "" and value:sub(1, 1) ~= "/" then
+            value = "/" .. value
+        end
+        return (
+            assert(
+                newuri(
+                    new URI.Components(
+                        scheme = self._scheme,
+                        userinfo = self:userinfo(),
+                        host = self._host,
+                        port = self._port,
+                        path = value,
+                        query = self._query,
+                        fragment = self._fragment
+                    )
+                )
+            )
+        )
+    end
+
+    --- Returns a URI with its query replaced.
+    --- @param self this URI
+    --- @param value the query, without the `?`, or nil to remove it
+    --- @return the new URI, or this one when nothing changes
+    --- @raises string when the query cannot be used here
+    function withquery(self, value: string?): URI
+        return (
+            assert(
+                newuri(
+                    new URI.Components(
+                        scheme = self._scheme,
+                        userinfo = self:userinfo(),
+                        host = self._host,
+                        port = self._port,
+                        path = self._path,
+                        query = value,
+                        fragment = self._fragment
+                    )
+                )
+            )
+        )
+    end
+
+    --- Returns a URI with its fragment replaced.
+    --- @param self this URI
+    --- @param value the fragment, without the `#`, or nil to remove it
+    --- @return the new URI, or this one when nothing changes
+    --- @raises string when the fragment cannot be used here
+    function withfragment(self, value: string?): URI
+        return (
+            assert(
+                newuri(
+                    new URI.Components(
+                        scheme = self._scheme,
+                        userinfo = self:userinfo(),
+                        host = self._host,
+                        port = self._port,
+                        path = self._path,
+                        query = self._query,
+                        fragment = value
+                    )
+                )
+            )
+        )
+    end
+
+    --- Returns a URI with more text appended to its path.
+    --- @param self this URI
+    --- @param value the path to append
+    --- @return the new URI, or this one when path is empty
+    --- @raises string when the path cannot be appended
+    function concatpath(self, value: string): URI
+        if value == "" then
+            return self
+        end
+
+        return self:withpath(self._path:gsub("/$", "") .. "/" .. value:gsub("^/", ""))
+    end
+
+    --- Resolves a reference against this URI, as a browser resolves a link.
+    ---
+    --- The reference decides how much of this URI survives: an absolute one
+    --- replaces all of it, a rooted path keeps the scheme and authority, and a
+    --- relative path is taken from this one's directory.
+    ---
+    --- ```nupp:fragment
+    --- local page = assert(io.newuri("https://example.com/docs/a.html"))
+    --- assert(assert(page:resolve("b.html")):tostring()
+    ---     == "https://example.com/docs/b.html")
+    --- ```
+    --- @param self this URI
+    --- @param reference the reference to resolve
+    --- @return the resolved URI, or nil when the reference cannot be resolved
+    --- @return a failure reason, when unsuccessful
+    function resolve(self, reference: string): (URI?, string?)
+        local base = new contracts.UriParts(
+            text = self._text,
+            scheme = self._scheme,
+            authority = self._authority,
+            username = self._username,
+            password = self._password,
+            host = self._host,
+            port = self._port,
+            path = self._path,
+            query = self._query,
+            fragment = self._fragment
+        )
+        -- The standard's parser finds the text the reference names; the
+        -- provider then reads that text, which is where a host needing IDNA is
+        -- mapped or refused.
+        local parts, reason = referenceParser("nupp.io.uri.whatwg").parse(reference, base, true)
+        if parts == nil then
+            return nil, reason
+        end
+
+        return newuri(parts.text)
+    end
+
+    --- Returns a URI with another's scheme and authority.
+    --- @param self this URI
+    --- @param endpoint the URI to take the endpoint from
+    --- @return the new URI
+    --- @raises string when endpoint is not a URI
+    function withendpoint(self, endpoint: URI): URI
+        return endpoint:concatpath(self._path):withquery(self._query):withfragment(self._fragment)
+    end
+
+    metamethod __tostring: function(self): string
+    metamethod __eq: function(self, any): boolean
+end
+
+    ;
+(URI as {[string]: any}).__tostring = function(self: URI): string
+    return self:tostring()
+end;
+(URI as {[string]: any}).__eq = function(left: URI, right: URI): boolean
+    return left:tostring() == right:tostring()
+end
+
+--- Reports whether a value has the canonical URI identity.
+--- @param value the value to test
+--- @return whether it is a URI
+export function isuri(value: any): boolean
+    return type(value) == "table" and getmetatable(value) == URI
+end

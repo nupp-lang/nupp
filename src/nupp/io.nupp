@@ -22,7 +22,7 @@ one it has.
 
 The rest of what `io` means is a module of its own, because each has a luacase
 name and so can have one. See [](io) for filesystem names,
-[](io.uri) for resource identifiers, [](io.files) for the filesystem
+[](io) for resource identifiers, [](io.files) for the filesystem
 itself, `popen` for running a child process, [](io.net) for
 plain and encrypted network connections, and [](io.http)
 for the asynchronous HTTP client.
@@ -173,12 +173,12 @@ returns nothing, so a caller that has to know flushes first.
 
 ## Lines
 
-`newlines(reader, limit)` takes a reader and separates it at `\n` and `\r\n`.
+`Reader:lines(limit)` takes its reader and separates it at `\n` and `\r\n`.
 The terminator is not returned, and a final fragment before EOF is still a
 line:
 
 ```nupp
-local lines = io.newlines(io.newreader("one\r\ntwo\nlast"))
+local lines = io.newreader("one\r\ntwo\nlast"):lines()
 assert(lines:read() == "one")
 assert(lines:read() == "two")
 assert(lines:read() == "last")
@@ -322,7 +322,6 @@ empty leaves an empty queue rather than a released one.
 -- adapters.
 const bytes = require("nupp.io.internal.bytes")
 const scalars = require("nupp.io.internal.scalars")
-const lines = require("nupp.io.internal.lines")
 
 --- A forward-only byte source.
 ---
@@ -332,6 +331,9 @@ const lines = require("nupp.io.internal.lines")
 --- which it has.
 --- @export
 export type Reader = bytes.Reader
+
+--- @internal
+export const Reader = bytes.readerdefaults
 
 --- An appending byte sink.
 ---
@@ -364,28 +366,6 @@ export type BufferWriteLease = bytes.BufferWriteLease
 --- @export
 export type Buffer = bytes.Buffer
 
---- What kind of failure an io operation met, the same on every platform.
----
---- - `notfound`: the file, program, host or other name does not exist.
---- - `permission`: the platform refused the operation to this process.
---- - `timeout`: a deadline passed before the operation finished.
---- - `refused`: the peer turned the connection away.
---- - `closed`: the resource, or the far end of it, has already gone.
---- - `invalid`: what was sent or received was not well formed.
---- - `limit`: a size, count or capacity bound was reached.
---- - `unsupported`: this platform or provider cannot do it at all.
---- - `other`: anything else; the message says what.
---- @export
-export type ErrorKind = "notfound"
-    | "permission"
-    | "timeout"
-    | "refused"
-    | "closed"
-    | "invalid"
-    | "limit"
-    | "unsupported"
-    | "other"
-
 --- Why an io operation failed: a kind to branch on and a message to show.
 ---
 --- It prints as its message, and joins text as its message does, so code that
@@ -393,8 +373,32 @@ export type ErrorKind = "notfound"
 --- the message, which is the platform's own words and differs between them.
 --- @export
 export record Error
+    --- What kind of failure an io operation met, the same on every platform.
+    ---
+    --- - `notfound`: the file, program, host or other name does not exist.
+    --- - `permission`: the platform refused the operation to this process.
+    --- - `timeout`: a deadline passed before the operation finished.
+    --- - `refused`: the peer turned the connection away.
+    --- - `closed`: the resource, or the far end of it, has already gone.
+    --- - `invalid`: what was sent or received was not well formed.
+    --- - `limit`: a size, count or capacity bound was reached.
+    --- - `unsupported`: this platform or provider cannot do it at all.
+    --- - `other`: anything else; the message says what.
+    type Kind = "notfound"
+        | "permission"
+        | "timeout"
+        | "refused"
+        | "closed"
+        | "invalid"
+        | "limit"
+        | "unsupported"
+        | "other"
+
+    --- Routes a child's standard error to a pipe, its parent, nothing, or stdout.
+    type Mode = "pipe" | "inherit" | "null" | "stdout"
+
     --- What kind of failure it was.
-    kind: ErrorKind
+    kind: Kind
 
     --- What happened, in the platform's or the module's words.
     message: string
@@ -468,11 +472,11 @@ local KIND_PATTERNS: {
 --- @param message the platform's or the provider's words
 --- @return the kind those words describe
 --- @internal
-export function classify(message: string): ErrorKind
+export function classify(message: string): Error.Kind
     const lowered = message:lower()
     for _, entry in ipairs(KIND_PATTERNS) do
         if lowered:find(entry[2], 1, true) ~= nil then
-            return entry[1] as ErrorKind
+            return entry[1] as Error.Kind
         end
     end
 
@@ -485,7 +489,7 @@ end
 --- @param kind the kind to use instead of classifying text
 --- @return the error, or nil when there was no reason
 --- @internal
-export function toError(reason: string | Error | nil, kind: ErrorKind?): Error?
+export function toError(reason: string | Error | nil, kind: Error.Kind?): Error?
     if reason == nil then
         return nil
     end
@@ -512,7 +516,7 @@ export type ScalarWriter = scalars.ScalarWriter
 --- source rather than borrowing one: two things reading the same bytes would
 --- each see half of them.
 --- @export
-export type Lines = lines.Lines
+export type Lines = bytes.Lines
 
 --- Creates a buffer, optionally over starting bytes or a starting capacity.
 ---
@@ -625,15 +629,3 @@ export const newScalarWriter = scalars.newScalarWriter
 --- @raises string when maxbytes is not a positive integer
 --- @export
 export const readAll = bytes.readAll
-
---- Takes a reader apart into lines.
----
---- The source is taken rather than borrowed, and closing the result closes it:
---- a line reader holds the bytes it read past a terminator, so a second reader
---- over the same source would be reading a stream with holes in it.
---- @param source the reader to take
---- @param limit the most bytes one line may hold, or 65536
---- @return the line reader, owned by the caller
---- @raises string when limit is not a positive integer
---- @export
-export const newLines = lines.newLines

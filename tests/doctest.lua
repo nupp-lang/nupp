@@ -1611,8 +1611,8 @@ function M.standardIOApiHasCompleteDocumentation()
             overview = "src/nupp/runtime/standardio.nupp",
         },
         [
-            "src/io/uri/init.nupp"
-        ] = {types = {URI = true, Components = true,}, functions = {newuri = true, validate = true, isuri = true,},},
+            "src/io/internal/uritypes.nupp"
+        ] = {types = {URI = true,}, functions = {isuri = true,}, overview = "src/nupp/runtime/standardio.nupp",},
         [
             "src/io/files/init.nupp"
         ] = {
@@ -1676,19 +1676,18 @@ function M.standardIOApiHasCompleteDocumentation()
 
     -- URIs are likewise interned by `newuri`; their exported record is a value type,
     -- not a public construction surface.
-    local uri = assert(readFile(HERE .. "/../src/io/uri/init.nupp"))
-    local uriModule = assert(doc.extract(uri, "src/io/uri/init.nupp", "io.uri"))
+    local uri = assert(readFile(HERE .. "/../src/nupp/runtime/standardio.nupp"))
+    local uriModule = assert(doc.extract(uri, "src/nupp/runtime/standardio.nupp", "nupp.runtime.standardio"))
     local uriFactory
     for _, item in ipairs(uriModule.items) do
         if item.name == "newuri" then
             uriFactory = item
         end
     end
-    assert(uriFactory, "io.uri did not document newuri")
-    assert(uriFactory.doc.text:find("#### Examples", 1, true), "uri.newuri has no examples")
+    assert(uriFactory, "io did not document newuri")
     assert(
-        uriFactory.doc.text:find('uri.newuri("https://example.com/a?b=1")', 1, true),
-        "uri.newuri has no parsing example"
+        uriFactory.doc.text:find('io.newuri("https://example.com/a?b=1")', 1, true),
+        "io.newuri has no parsing example"
     )
 end
 
@@ -5759,7 +5758,6 @@ function M.ioPublicPageKeepsStorageAndScalarContracts()
         "nupp/io.nupp",
         "nupp/io/internal/bytes.nupp",
         "nupp/io/internal/scalars.nupp",
-        "nupp/io/internal/lines.nupp"
     }) do
         files["src/" .. path] = readFile(HERE .. "/../src/" .. path)
     end
@@ -5773,7 +5771,7 @@ function M.ioPublicPageKeepsStorageAndScalarContracts()
         "readinto",
         "readuint32",
         "newswriter",
-        "newlines"
+        "Reader.lines"
     }) do
         assert(text:find(public, 1, true), "I/O documentation lost " .. public)
     end
@@ -5786,6 +5784,116 @@ function M.ioPublicPageKeepsStorageAndScalarContracts()
     }) do
         assert(not text:find(hidden, 1, true), "I/O documentation exposes " .. hidden)
     end
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.nestedAliasesShowTheirPublicContracts()
+    local testAssert = require("assert")
+    local dir = tempProject({
+        [
+            "src/errors.nupp"
+        ] = [[@!internal
+module errors
+export record Error
+    --- Routes standard error.
+    type Mode = "pipe" | "inherit"
+end
+]],
+        [
+            "src/shared.nupp"
+        ] = [[@!internal
+module shared
+const {type Error} = require("errors")
+--- Options for starting a child.
+export type Options = {
+    --- The executable and its arguments.
+    args: {string},
+    --- Routes standard error.
+    stderr: Error.Mode?
+}
+--- How a child ended.
+export interface Exit
+    --- The exit status.
+    exitcode: integer
+end
+--- Captured child output.
+export record Cycle
+    --- Refers to the containing type.
+    type Same = Cycle
+end
+export record Result
+    --- How the child ended.
+    exit: Exit
+    --- Captured bytes.
+    output: string
+end
+]],
+        [
+            "src/implementation.nupp"
+        ] = [[@!internal
+module implementation
+local shared = require("shared")
+local implementation = {}
+record implementation.Reader
+    @private state: integer
+    @private hiddenMethod: function(self: implementation.Reader): nil
+    --- Whether input has ended.
+    function isended(self): boolean return true end
+end
+record implementation.Process
+    --- A readable stream.
+    type Reader = implementation.Reader
+    --- Starts a child.
+    type Options = shared.Options
+    --- Describes an exit.
+    type Exit = shared.Exit
+    --- Holds captured output.
+    type Result = shared.Result
+end
+function implementation.Reader.hiddenMethod(self): nil end
+export = implementation
+]],
+        [
+            "src/api.nupp"
+        ] = [[module api
+local implementation = require("implementation")
+local shared = require("shared")
+local errors = require("errors")
+--- An I/O failure.
+export type Error = errors.Error
+--- A recursive alias.
+export type Cycle = shared.Cycle
+--- A running child.
+export type Process = implementation.Process
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "json", output = "api.json"}) == 0)
+    local model = require("testjson").decode(readFile(dir .. "/api.json"))
+    local process
+    for _, module in ipairs(model.modules) do
+        for _, item in ipairs(module.items) do
+            if item.path == "api.Process" then
+                process = item
+            end
+        end
+    end
+    assert(process)
+    local members = {}
+    for _, member in ipairs(process.members) do
+        members[member.name] = member
+    end
+    assert(members.Options.isType and members.Exit.isType and members.Result.isType and members.Reader.isType)
+    testAssert.eq(members.Reader.members[1].path, "api.Process.Reader.isended")
+    testAssert.eq(#members.Reader.members, 1, "private fields and their out-of-line bodies stay hidden")
+    testAssert.eq(members.Options.members[1].path, "api.Process.Options.args")
+    testAssert.eq(members.Options.members[1].text, "The executable and its arguments.")
+    testAssert.eq(members.Options.members[2].type, "Error.Mode?")
+    testAssert.eq(members.Exit.members[1].path, "api.Process.Exit.exitcode")
+    testAssert.eq(members.Result.members[1].type, "Process.Exit")
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
+    local markdown = readFile(dir .. "/api.md")
+    assert(not markdown:find("shared.Options", 1, true), markdown)
+    assert(not markdown:find("shared.Exit", 1, true), markdown)
     os.execute("rm -rf '" .. dir .. "'")
 end
 

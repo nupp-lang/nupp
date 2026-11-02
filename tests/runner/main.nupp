@@ -29,7 +29,7 @@ require("binary.mac")
 require("binary.compress")
 require("serde.json")
 const carriedpath = io.newpath
-require("io.uri")
+const carrieduri = io.newuri
 require("nupp.text")
 require("coroutine")
 require("io.net")

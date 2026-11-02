@@ -4,7 +4,7 @@
 module nupp.runtime.standardio
 
 --[[
-`io` provides paths, file streams, byte storage, and readers and writers.
+`io` provides paths, URIs, file streams, byte storage, and readers and writers.
 Its byte interfaces work over buffers, files, and HTTP response bodies.
 
 ```nupp:playground
@@ -19,7 +19,7 @@ interfaces rather than the concrete things that satisfy them. Code written
 against either contract works over every implementation without knowing which
 one it has.
 
-See [](io.uri) for resource identifiers, [](io.files) for the filesystem
+See [](io.files) for the filesystem
 itself, `io.popen` for running a child process, [](io.net) for
 plain and encrypted network connections, and [](io.http)
 for the asynchronous HTTP client.
@@ -266,12 +266,12 @@ returns nothing, so a caller that has to know flushes first.
 
 ## Lines
 
-`newlines(reader, limit)` takes a reader and separates it at `\n` and `\r\n`.
+`Reader:lines(limit)` takes its reader and separates it at `\n` and `\r\n`.
 The terminator is not returned, and a final fragment before EOF is still a
 line:
 
 ```nupp
-local lines = io.newlines(io.newreader("one\r\ntwo\nlast"))
+local lines = io.newreader("one\r\ntwo\nlast"):lines()
 assert(lines:read() == "one")
 assert(lines:read() == "two")
 assert(lines:read() == "last")
@@ -412,6 +412,17 @@ empty leaves an empty queue rather than a released one.
 
 local source1 = require("nupp.io")
 const {type Path as NativePath} = require("io.internal.path")
+local uriTypes = require("io.internal.uritypes")
+
+--- An immutable absolute URI with normalized components.
+export type URI = uriTypes.URI
+
+export const URI = uriTypes.URI
+
+--- Reports whether a value is a URI rather than URI text or component data.
+--- @param value the value to test
+--- @return whether it is a URI
+export const isuri = uriTypes.isuri
 
 --- An immutable filesystem path. Build one with `io.newpath`.
 export type Path = NativePath
@@ -424,15 +435,17 @@ export type BufferWriteLease = source1.BufferWriteLease
 export type ByteQueue = source1.ByteQueue
 export type ByteView = source1.ByteView
 export type Error = source1.Error
-export type ErrorKind = source1.ErrorKind
 export type Lines = source1.Lines
 export type Reader = source1.Reader
+
+--- @internal
+export const Reader = source1.Reader
+
 export type ScalarReader = source1.ScalarReader
 export type ScalarWriter = source1.ScalarWriter
 export type Writer = source1.Writer
 export const Error = source1.Error
 export const newbuffer = source1.newBuffer
-export const newlines = source1.newLines
 export const newreader = source1.newReader
 export const newwriter = source1.newWriter
 export const newsreader = source1.newScalarReader
@@ -440,20 +453,9 @@ export const newswriter = source1.newScalarWriter
 export const readall = source1.readAll
 
 const {type Process as ChildProcess} = require("io.internal.process")
-const {type Provider as ChildProcessProvider} = require("io.internal.process.spi")
 local processTypes = require("io.internal.process.types")
 
 export type Process = ChildProcess
-export type ProcessOptions = processTypes.Options
-export type ProcessResult = processTypes.Result
-export type ProcessExit = processTypes.Exit
-export type CommunicateOptions = processTypes.CommunicateOptions
-export type StreamMode = processTypes.StreamMode
-export type ErrorMode = processTypes.ErrorMode
-export type ProcessProvider = ChildProcessProvider
-
---- Creates an exit result for a process provider.
-export const processexit = processTypes.exited
 
 local original: any = rawget(_G, "io")
 local luaPopen = original.popen
@@ -461,6 +463,44 @@ local luaOpen = original.open
 local luaLines = original.lines
 local luaInput = original.input
 local luaOutput = original.output
+
+const _URI_REQUIRES = "@requires-dynamically io.internal.uri"
+local uris: any = nil
+
+local function uriImplementation(name: string): any
+    if uris == nil then
+        uris = require(name)
+    end
+    return uris
+end
+
+--- Parses absolute URI text or assembles a URI from components.
+---
+--- Normalizes with the [WHATWG URL Standard](https://url.spec.whatwg.org/).
+--- A host needing IDNA requires a native or browser URL parser. Successful parses
+--- reuse the 1024 most recently used normalized URI values.
+---
+--- ```nupp
+--- local address = assert(io.newuri("https://example.com/a?b=1"))
+--- assert(address:host() == "example.com" and address:query() == "b=1")
+--- local endpoint = assert(io.newuri(new io.URI.Components(
+---     scheme = "https", host = "example.com", path = "/status"
+--- )))
+--- ```
+--- @param value absolute URI text or components to assemble
+--- @return the URI, or nil when it cannot be parsed
+--- @return a failure reason, when unsuccessful
+export function newuri(value: string | URI.Components): (URI?, string?)
+    return uriImplementation("io.internal.uri").newuri(value)
+end
+
+--- Reports whether text parses as an absolute URI without retaining a URI value.
+--- @param value the text to test
+--- @return whether it parses
+--- @return a failure reason, when unsuccessful
+export function validateuri(value: string): (boolean, string?)
+    return uriImplementation("io.internal.uri").validateuri(value)
+end
 
 const _PATH_REQUIRES = "@requires-dynamically io.internal.path"
 local paths: any = nil
@@ -574,12 +614,16 @@ end
 --- A table supplies process options and returns an owned process. A command string
 --- follows Lua's `io.popen` behavior and returns an owned file handle.
 export const popen = openProcess as(
-    function(options: ProcessOptions): (affine(Process)?, Error?)
+    function(options: processTypes.Options): (affine(Process)?, Error?)
     & function(cmd: string, mode: string?): (affine(io.File, __nuppCloseFile)?, string?)
 )
 
 --- @internal
 export const value: table = do
+    original.URI = URI
+    original.newuri = newuri
+    original.isuri = isuri
+    original.validateuri = validateuri
     original.newpath = newpath
     original.cwd = cwd
     original.sep = sep
@@ -589,13 +633,12 @@ export const value: table = do
     original.output = output
     original.Error = Error
     original.newbuffer = newbuffer
-    original.newlines = newlines
+    original.Reader = Reader
     original.newreader = newreader
     original.newwriter = newwriter
     original.newsreader = newsreader
     original.newswriter = newswriter
     original.readall = readall
-    original.processexit = processexit
     original.popen = popen
     yield original
 end

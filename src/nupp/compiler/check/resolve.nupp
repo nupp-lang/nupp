@@ -1216,12 +1216,13 @@ function resolve.install(c: state.Checker): nil
                         if not compilerOnlyAliasAvailable(declaredDef, node, key) then
                             return T.any
                         end
-                        if declared.tag == "nominal" and declared.declKind == "struct" then
-                            node.reified = declared.runtimePath or key
-                        elseif declared.tag == "nominal" and declared.declKind == "record" then
-                            node.recordName = recordRuntimeName(declared, c.result.moduleName)
-                        elseif declared.tag == "nominal" and declared.declKind == "interface" then
-                            node.interfaceName = declared.runtimePath or key
+                        local declaration = T.unwrapOwnership(declared)
+                        if declaration.tag == "nominal" and declaration.declKind == "struct" then
+                            node.reified = declaration.runtimePath or key
+                        elseif declaration.tag == "nominal" and declaration.declKind == "record" then
+                            node.recordName = recordRuntimeName(declaration, c.result.moduleName)
+                        elseif declaration.tag == "nominal" and declaration.declKind == "interface" then
+                            node.interfaceName = recordRuntimeName(declaration, c.result.moduleName)
                         elseif declared.tag == "union" then
                             node.recordNames = unionRecordNames(declared, c.result.moduleName)
                         end
@@ -1293,15 +1294,18 @@ function resolve.install(c: state.Checker): nil
                 if not lexical then
                     lexical = names[1] and c.lookupType(names[1]) or nil
                 end
+                lexical = lexical and T.unwrapOwnership(lexical) or nil
                 local lexicalNamespace = lexical and lexical.tag == "nominal"
                 if lexical then
                     for j = walkFrom, #names do
+                        lexical = T.unwrapOwnership(lexical)
                         lexical = lexical.tag == "nominal" and lexical.nestedTypes and lexical.nestedTypes[names[j]]
                             or nil
                         if not lexical then
                             break
                         end
                     end
+                    lexical = lexical and T.unwrapOwnership(lexical) or nil
                     lexical = lexical
                         and lexical.tag == "nominal"
                         and lexical.nestedTypes
@@ -1359,8 +1363,10 @@ function resolve.install(c: state.Checker): nil
                         step = c.env.resolveQualifiedType(c.env, c.filename, required, names[2])
                     end
                     for j = 3, #names do
+                        step = step and T.unwrapOwnership(step) or nil
                         step = step and step.tag == "nominal" and step.nestedTypes and step.nestedTypes[names[j]] or nil
                     end
+                    step = step and T.unwrapOwnership(step) or nil
                     local nested = step and step.tag == "nominal" and step.nestedTypes and step.nestedTypes[typeName]
                         or nil
                     if nested then
@@ -1418,12 +1424,13 @@ function resolve.install(c: state.Checker): nil
                     if not compilerOnlyAliasAvailable(def, node, moduleName .. "." .. typeName) then
                         return T.any
                     end
-                    if t.tag == "nominal" and t.declKind == "struct" then
+                    local declaration = T.unwrapOwnership(t)
+                    if declaration.tag == "nominal" and declaration.declKind == "struct" then
                         node.reified = ("require(%q).%s"):format(resolvedModule, typeName)
-                    elseif t.tag == "nominal" and t.declKind == "record" then
-                        node.recordName = recordRuntimeName(t, c.result.moduleName)
-                    elseif t.tag == "nominal" and t.declKind == "interface" then
-                        node.interfaceName = ("require(%q).%s"):format(resolvedModule, typeName)
+                    elseif declaration.tag == "nominal" and declaration.declKind == "record" then
+                        node.recordName = recordRuntimeName(declaration, c.result.moduleName)
+                    elseif declaration.tag == "nominal" and declaration.declKind == "interface" then
+                        node.interfaceName = recordRuntimeName(declaration, c.result.moduleName)
                     elseif t.tag == "union" then
                         node.recordNames = unionRecordNames(t, c.result.moduleName)
                     end
@@ -1568,11 +1575,7 @@ function resolve.install(c: state.Checker): nil
                 elseif namedType.tag == "nominal" and namedType.declKind == "interface" then
                     -- An interface has a table only when it carries defaults, and then
                     -- only so a declaration taking one can reach the body.
-                    if moduleName and visibility ~= "global" then
-                        node.interfaceName = ("require(%q).%s"):format(moduleName, name)
-                    else
-                        node.interfaceName = name
-                    end
+                    node.interfaceName = recordRuntimeName(namedType, c.result.moduleName)
                 end
                 return t
             end

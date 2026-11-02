@@ -9,7 +9,7 @@ that works the same in a CLI, a scheduler and a game host.
 
 ```nupp
 local http = io.http
-local uri = io.uri
+local uri = io
 
 local client = http.newclient()
 local response = assert(client:send(new http.Request(
@@ -53,7 +53,7 @@ one send:
 ```nupp
 local http = io.http
 local tasks = coroutine
-local uri = io.uri
+local uri = io
 
 local function storeStatus(client: alias(http.Client), codes: {integer}, index: integer, url: string): nil
     local status = client:with(function(borrows open: http.Client): integer
@@ -97,7 +97,7 @@ also closes a reader body transferred into it.
   reference
 - [suspension.md](docs/learn/runtime/concurrency/suspension.md) for what a wait
   does under a handler
-- [](io.uri) for the URI values a request is addressed with
+- [](io) for the URI values a request is addressed with
 :::
 ]]
 

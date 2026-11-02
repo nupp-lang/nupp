@@ -359,6 +359,11 @@ local function hiddenEntry(entry, includePrivate)
     if entry.privacy or entryDoc(entry).tags.internal then
         return true
     end
+    for _, annotation in ipairs(entry.annotations or {}) do
+        if annotation.name and annotation.name.text == "private" then
+            return true
+        end
+    end
 
     return entry.kind ~= "metamethodDecl" and privateName(entry.name and entry.name.text or "")
 end
@@ -1046,7 +1051,9 @@ local function buildMembers(
     for _, entry in ipairs(entries or {}) do
         local entryInfo = entryDoc(entry)
         local entryVisible = not hiddenEntry(entry, includePrivate)
-        if (entry.kind == "fieldDecl" or entry.kind == "metamethodDecl") and entryVisible then
+        if (entry.kind == "fieldDecl" or entry.kind == "tshapeField" or entry.kind == "metamethodDecl")
+            and entryVisible
+        then
             local fieldInfo = entryInfo
             local member = new extract.Member(
                 name = entry.name.text,
@@ -1454,6 +1461,8 @@ declarationItem = function(
     elseif declaredFunction then
         local details = typeFunctionDetails(declaredFunction, info)
         item.params, item.returns = details.params, details.returns
+    elseif stat.kind == "typeAlias" and stat.value and stat.value.kind == "tshape" then
+        item.members = buildMembers(stat.value.fields, item.path, includePrivate, info.fields)
     elseif stat.kind == "recordDecl" or stat.kind == "cdefStruct" then
         item.members = buildMembers(stat.entries, item.path, includePrivate, info.fields)
     end

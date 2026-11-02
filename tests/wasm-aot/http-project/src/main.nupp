@@ -2,7 +2,7 @@ const assert2 = require("assert")
 
 local http = require("io.http")
 local json = require("serde.json")
-local uri = require("io.uri")
+local uri = io
 local io = require("io")
 
 local client = http.newclient()

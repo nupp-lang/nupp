@@ -1,4 +1,4 @@
--- `io.uri` through the real provider.
+-- `io.URI` through the real provider.
 --
 -- What is checked here is one table of URIs and one table of derivations, both
 -- recorded from the implementation this replaced. A URI library's whole job is
@@ -58,7 +58,7 @@ function M.beforeAll()
     previous = rawget(_G, "nupp")
     _G.nupp = nil
     assert(loadstring(source))()
-    uri = require("io.uri")
+    uri = require("nupp.runtime.standardio").value
 end
 
 function M.afterAll()
@@ -188,6 +188,21 @@ local PARSED = {
 }
 
 local COMPONENTS = {"scheme", "authority", "username", "password", "host", "port", "path", "query", "fragment",}
+
+function M.rootIoUsesTheCanonicalUriAndNestedComponents()
+    local api = ready()
+    local parts = {scheme = "https", host = "example.com", path = "/status"}
+    test.eq(type(api.URI.Components), "table")
+    local address = assert(api.newuri(parts))
+    test.eq(address:host(), "example.com")
+    test.eq(address:path(), "/status")
+    test.eq(getmetatable(address), api.URI)
+    test.eq(api.isuri(address), true)
+    test.eq(api.isuri(parts), false)
+    local valid, why = api.validateuri("http://[")
+    test.eq(valid, false)
+    test.eq(type(why), "string")
+end
 
 function M.parsingAnswersTheRecordedComponents()
     local module = ready()

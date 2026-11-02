@@ -2162,6 +2162,17 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             ot = withoutNil(ot)
         end
         local rawReceiver = rawType(ot)
+        local featureEffects = c.env and c.env.featureEffects
+        local featureFields = featureEffects
+            and (
+                featureEffects[rawReceiver]
+                or rawReceiver.tag == "nominal" and rawReceiver.origin and featureEffects[rawReceiver.origin]
+            )
+        local feature = featureFields and featureFields[member.text]
+        if feature and c.recordEffect then
+            (node as any).compilerFeatureEffect = feature
+            c.recordEffect(feature)
+        end
         local indexedView = indexedViews.describe(rawReceiver)
         if indexedView and member.text == "slice" then
             node.indexedViewOperation = {kind = "slice", descriptor = indexedView,}

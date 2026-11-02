@@ -4,7 +4,7 @@ local json = require("serde.json")
 local hex = require("serde.hex")
 local text = require("nupp.text")
 local utf8 = require("utf8")
-local uri = require("io.uri")
+local uri = io
 
 local type Player = {
     name: string,

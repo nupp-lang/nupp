@@ -6,16 +6,16 @@ Native URI parser for `host.uri` API 1.
 
 The native runtime parses an absolute URI and exposes its normalized components.
 This adapter copies those components into the canonical UriParts record declared
-by [](io.uri.spi), preserving absent components separately
+by [](io.spi), preserving absent components separately
 from present empty strings. Parsing errors return `nil, message`.
 
 A native parse handle is temporary: it is released after extracting the result,
 with an FFI finalizer protecting interrupted extraction. Returned strings and
-records need no native cleanup. [](io.uri) owns the public URI type and
+records need no native cleanup. [](io) owns the public URI type and
 operations; provider selection does not create an alternative URI identity.
 ]]
 
-local contracts = require("io.uri.spi")
+local contracts = require("io.spi")
 const native = require("nupp.runtime.native")
 local ffi, C = native.ffi, native.C
 local provider = {}
@@ -74,5 +74,5 @@ function provider.parse(text: string): (contracts.UriParts?, string?)
     return parts
 end
 
-local checked: contracts.Provider = {parse = provider.parse}
+local checked: contracts.UriProvider = {parse = provider.parse}
 export = checked

@@ -9199,7 +9199,18 @@ function gen.generate(
                 for _, name in ipairs(stat.names or {}) do
                     names[#names + 1] = name.text
                 end
-            elseif stat.kind == "recordDecl" and (stat.declKind == "record" or stat.declKind == "struct") then
+            elseif stat.kind == "recordDecl"
+                and (
+                    stat.declKind == "record"
+                    or stat.declKind == "struct"
+                    or stat.declKind == "interface"
+                    and stat.resolvedType
+                    and (
+                        next(stat.resolvedType.defaultEntries or {}) ~= nil
+                        or next(stat.resolvedType.staticByname or {}) ~= nil
+                    )
+                )
+            then
                 names[1] = stat.name and stat.name.text
             end
             for _, name in ipairs(names) do

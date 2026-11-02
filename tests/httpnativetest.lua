@@ -123,7 +123,7 @@ local function ready()
 end
 
 local function endpoint(path)
-    return assert(require("io.uri").newuri("http://127.0.0.1:" .. port .. path))
+    return assert(require("io.internal.uri").newuri("http://127.0.0.1:" .. port .. path))
 end
 
 local function readAll(body, chunkSize)

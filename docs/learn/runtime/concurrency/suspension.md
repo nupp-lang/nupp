@@ -32,7 +32,7 @@ does not intercept other calls.
   the host runs other work.
 
 The library describes the wait. The handler owns scheduling policy, and the
-caller's result remains `io.ProcessResult` on every path. See [Child
+caller's result remains `io.Process.Result` on every path. See [Child
 processes](io) for the operation itself.
 
 ## Hosts supply scheduling policy
@@ -89,7 +89,7 @@ trip:
    which runs another coroutine, request, or frame.
 4. `suspension.poll()` discovers that the child has completed, the library
    resumes the wait, and the handler queues its coroutine again.
-5. The coroutine runs, and `communicate()` returns its `io.ProcessResult`.
+5. The coroutine runs, and `communicate()` returns its `io.Process.Result`.
 
 The handler decides when the coroutine runs again. It never supplies the result;
 the library's guarded `resume` function does that.

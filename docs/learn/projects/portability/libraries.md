@@ -110,7 +110,8 @@ HTTP clients are created with `io.http.newclient(options)` and retain their
 response and body cleanup responsibilities.
 
 Host code pumps network events with `io.net.pump(milliseconds)`. Process
-providers construct exit values with `io.processexit`.
+providers return plain `io.Process.Exit` data containing `exitcode`, `killed`,
+and `timedout`.
 
 ## Dependency providers
 

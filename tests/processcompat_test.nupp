@@ -10,7 +10,7 @@ local process = require("io")
 
 local M = {}
 
-local function tecsCallSites(options: process.ProcessOptions, exclusive buffer: Buffer): nil
+local function tecsCallSites(options: process.Process.Options, exclusive buffer: Buffer): nil
     local child = assert(process.popen(options))
 
     local pid: integer = child.pid
@@ -43,7 +43,7 @@ local function tecsCallSites(options: process.ProcessOptions, exclusive buffer: 
     if result == nil then
         error(communicateReason)
     end
-    assert(result:succeeded() == result.exit:succeeded())
+    assert(result:succeeded() == (not result.exit.killed and not result.exit.timedout and result.exit.exitcode == 0))
     assert(type(result.output) == "string" and type(result.erroroutput) == "string")
 
     local killed, killReason = child:kill(true)

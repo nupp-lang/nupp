@@ -2327,7 +2327,7 @@ local m = {}
 
 local http = require("io.http")
 local tasks = require("coroutine")
-local uri = require("io.uri")
+local uri = require("io.internal.uri")
 
 function m.statuses(urls: {string}): {integer}
     local function storeStatus(codes: {integer}, index: integer, url: string): nil

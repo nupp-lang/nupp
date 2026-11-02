@@ -342,7 +342,7 @@ end
 
 function M.lineReadersBoundPullsAndOwnTheirSources(): nil
     local state = {bytes = "abc\r\nrest", closes = 0, maxRead = 0}
-    local lines = io2.newlines(new ProbeReader(state = state), 3)
+    local lines = (new ProbeReader(state = state)):lines(3)
     assert2(lines:read() == "abc")
     assert2(state.maxRead <= 5)
     lines:close()
@@ -351,7 +351,7 @@ end
 
 function M.lineReadersPropagateFailuresAfterPartialInput(): nil
     local state = {bytes = "partial", closes = 0, failure = "cancelled"}
-    local lines = io2.newlines(new ProbeReader(state = state), 64)
+    local lines = (new ProbeReader(state = state)):lines(64)
     local line, reason = lines:read()
     assert2(line == nil and reason == "cancelled")
     lines:close()
@@ -360,12 +360,12 @@ end
 
 function M.lineReadersRejectInvalidLimitsAndSourcesThatOverread(): nil
     local ok, reason = pcall(function(): nil
-        local lines = io2.newlines(new ProbeReader(state = {closes = 0}), math.huge as integer)
+        local lines = (new ProbeReader(state = {closes = 0})):lines(math.huge as integer)
         lines:close()
     end)
     assert2(not ok)
 
-    local lines = io2.newlines(new ProbeReader(state = {bytes = "abcdef", closes = 0, overread = true}), 2)
+    local lines = (new ProbeReader(state = {bytes = "abcdef", closes = 0, overread = true})):lines(2)
     ok, reason = pcall(function(): nil
         lines:read()
     end)

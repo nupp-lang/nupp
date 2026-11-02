@@ -3,14 +3,14 @@
 module io.internal.process.types
 
 const {type Path} = require("io.files.internal.path")
-const {type Buffer} = require("nupp.io")
+const {type Buffer, type Error} = require("nupp.io")
 const {type ByteView} = require("nupp.io")
 
 local process = {}
 
 type process.StreamMode = "pipe" | "inherit" | "null"
 
-type process.ErrorMode = "pipe" | "inherit" | "null" | "stdout"
+type process.ErrorMode = Error.Mode
 
 type process.Options = {
     --- The program in `args[1]`, then its arguments. A program with no separator in
@@ -54,9 +54,9 @@ type process.CommunicateOptions = {
     maxoutputbytes: integer?
 }
 
-record process.Exit
+interface process.Exit
     --- The platform status code. A Unix signal is reported as 128 plus its number.
-    --- Zero conventionally means success; use `succeeded` to account for termination.
+    --- Zero indicates success only when neither `killed` nor `timedout` is set.
     exitcode: integer
 
     --- Whether it was terminated rather than exiting on its own.
@@ -65,9 +65,6 @@ record process.Exit
     --- Whether it was terminated because its deadline passed.
     timedout: boolean
 
-    --- Exited on its own with status zero. A killed child never succeeded, whatever
-    --- status the platform reported for it.
-    succeeded: function(process.Exit): boolean
 end
 
 record process.Result
@@ -82,7 +79,7 @@ record process.Result
 
     --- Whether the child exited normally with status zero.
     function succeeded(self): boolean
-        return self.exit:succeeded()
+        return not self.exit.killed and not self.exit.timedout and self.exit.exitcode == 0
     end
 end
 
@@ -96,18 +93,6 @@ record process.Interest
 
     --- Stream handles this wait wants to put bytes into.
     write: {any}
-end
-
-function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): process.Exit
-    return {
-        exitcode = exitCode,
-        killed = killed,
-        timedout = timedOut,
-        succeeded = function(self: process.Exit): boolean
-            -- A killed child never succeeded, whatever status the platform reported.
-            return not self.killed and not self.timedout and self.exitcode == 0
-        end,
-    } as process.Exit
 end
 
 export = process

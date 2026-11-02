@@ -77,7 +77,7 @@ local FORMER_DROP_OWNERS = {
     "local source = io.newbuffer('bytes')\nlocal owner = source:view()",
     "local owner = io.newsreader('abcd')",
     "local owner = io.newswriter()",
-    "local owner = io.newlines(io.newreader('one'))",
+    "local owner = io.newreader('one'):lines()",
     "local owner = assert(io.files.open('input.bin'))",
     "local owner = assert(io.files.tmpfile())",
     "local owner = nupp.mem.heap.alloc(ffi.typeof<int32>(), 4)",
@@ -124,10 +124,10 @@ function M.twoLiveReadersOverOneCursorAreRefused()
 end
 
 function M.aLineReaderReadTakesNoArguments()
-    local source = "local lines = io.newlines(io.newreader('a'))\nprint(lines:read(1))"
+    local source = "local lines = io.newreader('a'):lines()\nprint(lines:read(1))"
     local got = diagsOf(source)
     assert(got:find("NUPP", 1, true), "Lines:read takes nothing but the reader: " .. got)
-    assertClean("local lines = io.newlines(io.newreader('a'))\nprint(lines:read())")
+    assertClean("local lines = io.newreader('a'):lines()\nprint(lines:read())")
 end
 
 -- An invalid argument raises with the prefix every other standard module uses.
@@ -601,7 +601,7 @@ end
 
 function M.browserHttpRejectsMalformedSharedInputsBeforeEffects()
     local browser = require("providerstate").browserHttp()
-    local uri = require("io.uri")
+    local uri = require("io.internal.uri")
     local messages = require("nupp.io.http.messages")
 
     local function rejected(fields, expected)
@@ -774,7 +774,7 @@ function M.nativeHttpProviderRejectsMalformedBoundaries()
 
     local client = provider.newclient()
     local request = setmetatable(
-        {url = assert(require("io.uri").newuri("https://example.com/"))},
+        {url = assert(require("io.internal.uri").newuri("https://example.com/"))},
         require("nupp.io.http.messages").Request
     )
     head.status = 99
@@ -1170,7 +1170,7 @@ function M.browserHttpRejectsMalformedHostValuesAndReleasesBodies()
     local ok, problem = pcall(function()
         local browser = require("providerstate").browserHttp(memory)
         local request = setmetatable(
-            {url = assert(require("io.uri").newuri("https://example.com/"))},
+            {url = assert(require("io.internal.uri").newuri("https://example.com/"))},
             require("nupp.io.http.messages").Request
         )
         local client = browser.newclient({maxbytes = 4})
@@ -1272,7 +1272,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         }
         local request = setmetatable(
             {
-                url = assert(require("io.uri").newuri("https://example.com/")),
+                url = assert(require("io.internal.uri").newuri("https://example.com/")),
                 headers = {["x-test"] = "request", ["content-type"] = "request/type"},
                 body = require("io.http").reader(source, 6, "body/type"),
             },
@@ -1906,13 +1906,82 @@ function M.byteIoInstallerDoesNotSelectStructuredProcesses()
         assert(not expanded["native.time"], "loading byte I/O must not select native timers")
         assert(not expanded["runtime.path"], "loading byte I/O must not select path operations")
         assert(not expanded["native.path"], "loading byte I/O must not select the native path provider")
+        assert(not expanded["runtime.uri"], "loading byte I/O must not select URI parsing")
+        assert(not expanded["runtime.uri_provider"], "loading byte I/O must not select a URI provider")
         for _, name in ipairs(gen.runtimeModules(code)) do
             assert(
-                name ~= "io.internal.process" and name ~= "io.internal.path",
+                name ~= "io.internal.process"
+                and name ~= "io.internal.path"
+                and name ~= "io.internal.uri"
+                and name ~= "nupp.io.uri.whatwg",
                 "the optimized lazy dispatcher must not add a packaging edge at O" .. level
             )
         end
     end
+end
+
+function M.uriAndSubjectTypesResolveThroughIoAndImportedAliases()
+    local function effectsOf(source)
+        sharedEnv.loaded = {}
+        local parsed = parser.parse(source, "uri-effects.nupp")
+        testAssert.eq(#parsed.errors, 0)
+        local diagnostics = check.check(parsed, "uri-effects.nupp", sharedEnv)
+        testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "")
+
+        return parsed.effects or {}
+    end
+
+    assertClean(
+        [=[
+const {type URI, type Error, type Process} = require("io")
+local components: URI.Components = new io.URI.Components(scheme = "https", host = "example.com", path = "/status")
+local address: io.URI = assert(io.newuri(components))
+local valid, reason = io.validateuri("http://[")
+local kind: Error.Kind = "timeout"
+local mode: Error.Mode = "stdout"
+local options: Process.Options = {args = {"true"}, stderr = mode}
+local communication: Process.CommunicateOptions = {maxoutputbytes = 10}
+local stream: Process.StreamMode = "pipe"
+local function child(value: io.Process, result: Process.Result, exit: Process.Exit, provider: Process.Provider): nil
+    print(value.pid, result.output, exit.exitcode, provider.priority)
+end
+local function streams(borrows input: Process.Reader, borrows output: Process.Writer, interest: Process.Interest): nil
+    print(input:isended(), output:isreleased(), #interest.read)
+end
+print(address:host(), io.isuri(address), valid, reason, kind, options.args[1], communication.maxoutputbytes, stream)
+]=]
+    )
+    for _, name in ipairs({
+        "ErrorKind",
+        "ErrorMode",
+        "ProcessOptions",
+        "ProcessResult",
+        "ProcessExit",
+        "CommunicateOptions",
+        "StreamMode",
+        "ProcessProvider"
+    }) do
+        assert(diagsOf("local value: io." .. name .. " = nil as any") ~= "", "retired io type remains: " .. name)
+    end
+    local methods = effectsOf(
+        "local function resolve(value: io.URI): io.URI local result = assert(value:resolve('/next')); return result end"
+    )
+    assert(methods["runtime.uri"], "URI method use carries its lazy factory even without a local parse")
+    local getters = effectsOf("local function host(value: io.URI): string? return value:host() end")
+    assert(not getters["runtime.uri"], "reading a URI needs no parser")
+    local other = effectsOf(
+        [[local record Other
+        function resolve(self): string return "local" end
+    end
+    local value = new Other()
+    print(value:resolve())]]
+    )
+    assert(not other["runtime.uri"], "an unrelated method does not select URI parsing")
+    local pure = effectsOf("local parts = new io.URI.Components(scheme = 'https')\nprint(io.isuri(parts))")
+    assert(
+        not pure["runtime.uri"] and not pure["runtime.uri_provider"],
+        "component construction and identity tests select no parser"
+    )
 end
 
 function M.pathsAreRootIoTypesAndFilenameInputs()
@@ -2045,7 +2114,7 @@ function M.nativeFeaturesAreResolvedEffects()
         ["math.vec2.len(3, 4)"] = "stdlib.math",
         ["math.quat.len(0, 0, 0, 1)"] = "stdlib.math",
         ["io.sep()"] = "runtime.path",
-        ["io.uri.newuri('https://example.com')"] = "runtime.uri",
+        ["io.newuri('https://example.com')"] = "runtime.uri",
         ["os.uuid7()"] = "runtime.uuid",
         ["os.info()"] = "runtime.system",
         ["nupp.host.attached()"] = "runtime.host",
@@ -2065,11 +2134,11 @@ function M.nativeFeaturesAreResolvedEffects()
             {
                 "const {type Path} = require('io')",
                 "local source: io.Path = io.newpath('src', 'main.nupp')",
-                "local components: io.uri.Components = nil as any",
+                "local components: io.URI.Components = nil as any",
                 "local URIOf: function(",
-                "    value: string | io.uri.Components",
-                "): (io.uri.URI?, string?) = io.uri.newuri",
-                "local address: io.uri.URI? = URIOf(components)",
+                "    value: string | io.URI.Components",
+                "): (io.URI?, string?) = io.newuri",
+                "local address: io.URI? = URIOf(components)",
                 "print(source, address)",
             },
             "\n"
@@ -2170,10 +2239,10 @@ function M.popenKeepsBothAcquisitionContractsAndPublicProcessTypes()
     assertClean(
         [[
 const io = require("io")
-local function providerTypes(provider: io.ProcessProvider, options: io.ProcessOptions,
-    result: io.ProcessResult, exit: io.ProcessExit, communication: io.CommunicateOptions,
-    input: io.StreamMode, errors: io.ErrorMode): nil
-    local settled: io.ProcessExit = io.processexit(0, false, false)
+local function providerTypes(provider: io.Process.Provider, options: io.Process.Options,
+    result: io.Process.Result, exit: io.Process.Exit, communication: io.Process.CommunicateOptions,
+    input: io.Process.StreamMode, errors: io.Error.Mode): nil
+    local settled: io.Process.Exit = {exitcode = 0, killed = false, timedout = false}
 end
 local pipe = io.popen("true", "r")
 if pipe ~= nil then pipe:close() end
@@ -2442,7 +2511,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
             {
                 "const http = require(\"io.http\")",
                 "const io = require(\"io\")",
-                "const uri = require('io.uri')",
+                "const uri = require('io')",
                 "const process = require('io')",
                 "do local client = http.newclient() end",
                 "do",
@@ -2492,7 +2561,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
     assertClean(
         table.concat(
             {
-                "const uri = require('io.uri')",
+                "const uri = require('io')",
                 "local endpoint: uri.URI = assert(uri.newuri('https://example.com/api'))",
                 "print(endpoint)",
             },
@@ -2500,11 +2569,11 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
         )
     )
     testAssert.eq(
-        (diagsOf(table.concat({"const uri = require('io.uri')", "local value = new uri.URI()",}, "\n"))),
+        (diagsOf(table.concat({"const uri = require('io')", "local value = new uri.URI()",}, "\n"))),
         "NUPP2209:2"
     )
 
-    local uri = require("io.uri")
+    local uri = require("io.internal.uri")
     local firstURI = assert(uri.newuri("https://example.com/cache/first"))
     assert(
         rawequal(firstURI, assert(uri.newuri("https://example.com/cache/first"))),
@@ -2525,11 +2594,11 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
     )
     local validatedSentinel = assert(uri.newuri("https://example.com/cache/validated-sentinel"))
     for index = 1, 1024 do
-        assert(uri.validate("https://example.com/validated/" .. tostring(index)))
+        assert(uri.validateuri("https://example.com/validated/" .. tostring(index)))
     end
     assert(
         rawequal(validatedSentinel, assert(uri.newuri("https://example.com/cache/validated-sentinel"))),
-        "uri.validate does not retain parsed URIs or disturb the cache"
+        "uri.validateuri does not retain parsed URIs or disturb the cache"
     )
 end
 
@@ -3272,7 +3341,7 @@ function M.publicResourceAliasesKeepConstructionAndPrivacy()
     assertClean(
         [[
 const http = require("io.http")
-const uri = require("io.uri")
+const uri = io
 local request = new http.Request(url = assert(uri.newuri("https://example.com/")))
 request:close()
 ]]
@@ -3420,12 +3489,7 @@ end
             "scalar state must not belong to its public contract: " .. diagnostics
         )
     end
-    for _, name in ipairs({
-        "nupp.io.internal.bytes",
-        "nupp.io.internal.scalars",
-        "nupp.io.internal.lines",
-        "nupp.io.http.internal.transport"
-    }) do
+    for _, name in ipairs({"nupp.io.internal.bytes", "nupp.io.internal.scalars", "nupp.io.http.internal.transport"}) do
         local diagnostics = diagsOf(('local hidden = require(%q)'):format(name))
         assert(diagnostics:find("NUPP2144", 1, true), name .. " must reject application imports: " .. diagnostics)
     end
@@ -3464,6 +3528,21 @@ function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
     testAssert.eq(files.createtemporaryfile, nil)
     testAssert.eq(type(path.cwd), "function")
     testAssert.eq(path.currentdirectory, nil)
+end
+
+function M.lineAdaptersTakeTheirReaderAndRetireTheFactories()
+    local got = diagsOf([[local source = io.newreader("one\ntwo")
+local lines = source:lines()
+print(source:read(1))]])
+    assert(got:find("NUPP26%d%d:3"), "lines takes its source: " .. got)
+    for _, source in ipairs({
+        "local removed = io.newlines",
+        "local removed = io.processexit",
+        "local function removed(exit: io.Process.Exit): nil\nprint(exit.succeeded)\nend",
+    }) do
+        local diagnostics = diagsOf(source)
+        assert(diagnostics:find("NUPP2004", 1, true), diagnostics)
+    end
 end
 
 return M

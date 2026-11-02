@@ -371,7 +371,7 @@ export function lines(path: Path, limit: integer?): (affine(io.Lines)?, io.Error
         return nil, io.toError(reason)
     end
 
-    return io.newLines(file, limit), nil
+    return file:lines(limit), nil
 end
 
 --- Creates a native temporary file owner when the provider supports one.

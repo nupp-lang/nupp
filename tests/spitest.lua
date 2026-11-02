@@ -633,7 +633,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.io.uri.provider",
-            interface = "io.uri.spi.Provider",
+            interface = "io.spi.UriProvider",
             native = "nupp.runtime.provider.nativeuri",
             browser = "nupp.runtime.browser.uri"
         },
@@ -1008,9 +1008,9 @@ local SELECTING_FACADES = {
     {"nupp.io.http", "nupp.io.http.spi.Provider"},
     {"nupp.io.net", "nupp.io.net.spi.Provider"},
     {"nupp.io.path.provider", "io.spi.PathProvider"},
-    {"io.internal.process", "io.ProcessProvider"},
+    {"io.internal.process", "io.Process.Provider"},
     {"io.net", "io.net.spi.TlsProvider"},
-    {"nupp.io.uri.provider", "io.uri.spi.Provider"},
+    {"nupp.io.uri.provider", "io.spi.UriProvider"},
     {"binary.mac", "binary.mac.spi.Provider"},
     {"nupp.runtime.entropy", "nupp.spi.EntropyProvider"},
     {"nupp.mem.representation", "nupp.spi.CstorageProvider"},

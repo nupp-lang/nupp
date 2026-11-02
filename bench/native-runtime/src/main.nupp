@@ -1,7 +1,7 @@
 const http = require("io.http")
 const net = require("io.net")
 const time = require("coroutine")
-const uri = require("io.uri")
+const uri = io
 
 const SAMPLES = 9
 const WARMUPS = 2

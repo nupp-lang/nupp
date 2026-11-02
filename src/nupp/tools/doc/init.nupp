@@ -539,22 +539,61 @@ local function loadModules(root, config, settings, requested)
 
     local byPath = {}
     local declaringModule = {}
+
+    local function indexNested(owner: any, module: any): nil
+        for _, member in ipairs(owner.members or {}) do
+            if member.isType or member.isAlias then
+                local name = owner.name .. "." .. member.name
+                local nested = {
+                    name = name,
+                    path = member.path,
+                    line = owner.line,
+                    kind = member.isAlias and "type" or member.type,
+                    aliasSource = member.isAlias and member.type or nil,
+                    signature = member.isAlias and ("type " .. name .. " = " .. member.type)
+                    or (member.type .. " " .. name),
+                    doc = {
+                        text = member.text,
+                        fields = {},
+                        params = {},
+                        returns = {},
+                        raises = {},
+                        tags = {},
+                        typeargs = {}
+                    },
+                    members = member.members or {},
+                    params = {},
+                    returns = {},
+                    raises = {},
+                    typeargs = member.typeargs or {},
+                }
+                byPath[member.path], declaringModule[nested] = nested, module
+                indexNested(nested, module)
+            end
+        end
+    end
+
     for _, module in ipairs(modules) do
         for _, item in ipairs(module.items) do
             byPath[item.path] = item
             declaringModule[item] = module
+            indexNested(item, module)
         end
     end
 
     local function reference(path: string, context: any): any
+        if path:sub(1, #context.name + 1) == context.name .. "." and byPath[path] then
+            return byPath[path]
+        end
         local first, rest = path:match("^([%w_]+)%.(.*)$")
         first = first or path
         local imported = context.imports and context.imports[first]
         if imported then
             local member = context.importedMembers and context.importedMembers[first]
-            return byPath[imported .. "." .. (member or rest or "")]
+            local selected = member and (member .. (rest and "." .. rest or "")) or rest or ""
+            return byPath[imported .. "." .. selected]
         end
-        if first == context.moduleLocal and rest then
+        if (first == context.moduleLocal or first == context.name:match("([^.]+)$")) and rest then
             return byPath[context.name .. "." .. rest]
         end
 
@@ -617,6 +656,11 @@ local function loadModules(root, config, settings, requested)
 
     local function aliasTarget(item: any, module: any): any
         local aliasText = item.aliasSource and "= " .. item.aliasSource or item.signature
+        local path = aliasText:match("=%s*([%w_%.]+)%s*$") or aliasText:match("=%s*([%w_%.]+)%b<>%s*$")
+        local direct = path and reference(path, module)
+        if direct then
+            return direct
+        end
         local alias, member = aliasText:match("=%s*([%w_]+)%.([%w_]+)%s*$")
         if not alias then
             alias, member = aliasText:match("=%s*([%w_]+)%.([%w_]+)%b<>%s*$")
@@ -715,6 +759,36 @@ local function loadModules(root, config, settings, requested)
                 local names = publicNames[source] or {}
                 names[#names + 1] = item
                 publicNames[source] = names
+                local visiting = {}
+
+                local function nestedNames(owner: any, parentName: string, parentPath: string): nil
+                    if visiting[owner] then
+                        return
+                    end
+                    visiting[owner] = true
+                    local context = declaringModule[owner]
+                    for _, member in ipairs(owner.members or {}) do
+                        if member.isAlias or member.isType then
+                            local target = member.isAlias and reference(member.type, context) or nil
+                            target = target or byPath[member.path]
+                            target = target and original(target, {}) or nil
+                            if target then
+                                local public = {
+                                    name = parentName .. "." .. member.name,
+                                    path = parentPath .. "." .. member.name
+                                }
+                                declaringModule[public] = module
+                                local aliases = publicNames[target] or {}
+                                aliases[#aliases + 1] = public
+                                publicNames[target] = aliases
+                                nestedNames(target, public.name, public.path)
+                            end
+                        end
+                    end
+                    visiting[owner] = nil
+                end
+
+                nestedNames(source, item.name, item.path)
             end
         end
     end
@@ -879,7 +953,11 @@ local function loadModules(root, config, settings, requested)
 
     local function projected(item: any, module: any): any
         local candidate = original(item, {})
-        if candidate == item then
+        local hasAliases = false
+        for _, member in ipairs(candidate.members or {}) do
+            hasAliases = hasAliases or member.isAlias == true
+        end
+        if candidate == item and not hasAliases then
             return item
         end
         local context = declaringModule[candidate]
@@ -904,20 +982,44 @@ local function loadModules(root, config, settings, requested)
             documented = aliasTarget(documented, declaringModule[documented])
         end
 
-        local function fields(value: any, path: string): nil
-            value.type = value.type and references(value.type, context, module, binders, nil) or nil
+        local expanding = {}
+
+        local function fields(value: any, path: string, sourceContext: any): nil
+            value.type = value.type and references(value.type, sourceContext, module, binders, nil) or nil
             for _, key in ipairs({"params", "returns", "raises"}) do
                 for _, field in ipairs(value[key] or {}) do
-                    field.type = references(field.type, context, module, binders, nil)
+                    field.type = references(field.type, sourceContext, module, binders, nil)
                 end
             end
             for _, field in ipairs(value.members or {}) do
+                local fieldContext = sourceContext
+                local target = field.isAlias and reference(field.type, sourceContext) or nil
+                target = target and original(target, {}) or nil
+                local entered = target and not expanding[target]
+                if entered then
+                    expanding[target] = true
+                    fieldContext = declaringModule[target]
+                    if field.text == "" then
+                        field.text = target.doc.text
+                    end
+                    if #(target.members or {}) > 0 then
+                        field.isAlias, field.isType = nil, true
+                        field.type = target.kind
+                        field.members = copy(target.members)
+                        field.typeargs = copy(target.typeargs)
+                    elseif target.aliasSource then
+                        field.type = target.aliasSource
+                    end
+                end
                 field.path = path .. "." .. field.name
-                fields(field, field.path)
+                fields(field, field.path, fieldContext)
+                if entered then
+                    expanding[target] = nil
+                end
             end
         end
 
-        fields(expanded, item.path)
+        fields(expanded, item.path, context)
         for _, raised in ipairs(expanded.doc.raises or {}) do
             raised.type = references(raised.type, context, module, binders, nil)
         end

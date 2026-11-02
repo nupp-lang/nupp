@@ -69,7 +69,7 @@ function M.toolChangeSelectsWhatACompilerChangeDoes()
 end
 
 function M.utilityRootsRetainTheirExistingLibrarySurfaces()
-    for _, path in ipairs({"src/log.nupp", "src/warn.nupp", "src/io/internal/path.nupp", "src/io/uri/spi.nupp"}) do
+    for _, path in ipairs({"src/log.nupp", "src/warn.nupp", "src/io/internal/path.nupp", "src/io/spi.nupp"}) do
         local surfaces = classifier().surfacesOf(path)
         test(surfaces.library, path .. " is a library")
         test(not surfaces.unclassified, path .. " has an explicit classification")

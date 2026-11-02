@@ -58,7 +58,7 @@ local platformLibraries = {
         return require("io.internal.path")
     end,
     function()
-        return require("io.uri")
+        return require("io.internal.uri")
     end,
     function()
         return require("nupp.runtime.standardio")

@@ -2,10 +2,10 @@
 
 module nupp.runtime.provider.nativeprocess
 
---[[The native process provider adapts the host ABI to `io.ProcessProvider`.
+--[[The native process provider adapts the host ABI to `io.Process.Provider`.
 
 Loading requires the native process feature. Spawn translates the shared
-`io.ProcessOptions` options into native argument, environment, directory,
+`io.Process.Options` options into native argument, environment, directory,
 and stream descriptors. A successful result owns a child handle and any piped
 stdin, stdout, and stderr handles; inherited and redirected streams may have no
 separate pipe value.
@@ -216,7 +216,7 @@ local function create(): contract.Provider
                 return nil
             end
 
-            return shared.exited(tonumber(output[0].code) as integer, killed ~= 0, false)
+            return {exitcode = tonumber(output[0].code) as integer, killed = killed ~= 0, timedout = false}
         end,
         kill = function(self: contract.Provider, owner: any, force: boolean): nil
             configured(C.nuppNativeProcessKill(owner.handle, force and 1 or 0), "kill process")

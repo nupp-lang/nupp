@@ -1,5 +1,7 @@
 module nupp.compiler.process
 
+const {type Options as ChildOptions} = require("io.internal.process.types")
+
 --[[
 Running a subprocess, given its argument vector.
 
@@ -291,7 +293,7 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
     opts = (opts or {}) as process.Options
     local args = boundedArgs(argv, opts)
     local native = require("nupp.runtime.standardio")
-    local nativeOptions: native.ProcessOptions = {
+    local nativeOptions: ChildOptions = {
         args = args,
         cwd = opts.cwd,
         env = opts.env,
@@ -370,7 +372,7 @@ function process.startIsolated(argv: {string}, opts: process.Options?): (affine(
     )
     local args = boundedArgs(argv, opts)
     local native = require("nupp.runtime.standardio")
-    local nativeOptions: native.ProcessOptions = {
+    local nativeOptions: ChildOptions = {
         args = args,
         cwd = opts.cwd,
         env = opts.env,

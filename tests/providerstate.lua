@@ -66,7 +66,7 @@ function M.load(kind, provider)
     return instance({["nupp.runtime.packages"] = true, [facade] = true, ["nupp.io.net.internal"] = true}, {
         [
             "nupp.spi.index"
-        ] = {[kind == "process" and "io.ProcessProvider" or facade .. ".spi.Provider"] = {"fixture.provider"}},
+        ] = {[kind == "process" and "io.Process.Provider" or facade .. ".spi.Provider"] = {"fixture.provider"}},
         ["fixture.provider"] = provider,
     })(facade)
 end

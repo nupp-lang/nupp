@@ -121,7 +121,7 @@ end
 --- Owns the connection it encrypts over. Closing the session sends
 --- `close_notify`, drains it, and closes the socket.
 --- @export
-record tls.TlsSession is Reader, Writer
+record tls.TlsSession is io.Reader, Writer
     @private _provider: contract.TlsProvider
     @private _session: any
 

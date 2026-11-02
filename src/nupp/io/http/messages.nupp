@@ -3,7 +3,7 @@
 module nupp.io.http.messages
 
 const {type Path} = require("io.files")
-const uri = require("io.uri")
+const uri = require("io.internal.uri")
 local http = {}
 
 --- A portable byte source for an HTTP upload, with consuming teardown.

@@ -723,7 +723,7 @@ function M.anInterruptedCheckLeavesNoWorkers()
     end
     child:close()
     assert(
-        not exit:succeeded(),
+        not (not exit.killed and not exit.timedout and exit.exitcode == 0),
         (
             "the interrupted check did not stop: code=%s killed=%s timedOut=%s"
         ):format(tostring(exit.exitcode), tostring(exit.killed), tostring(exit.timedout)) .. " output=" .. said

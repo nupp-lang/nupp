@@ -1338,6 +1338,73 @@ return Person
     )
 end
 
+function M.defaultBodiesFollowTypeOnlyImportsAndAliases()
+    withProject(
+        {
+            [
+                "src/greet.nupp"
+            ] = [[
+module greet
+export interface Greeter
+    name: string
+    function hello(self): string
+        return "hello, " .. self.name
+    end
+end
+]],
+            ["src/facade.nupp"] = [[
+module facade
+local greet = require("greet")
+export type Renamed = greet.Greeter
+]],
+            [
+                "src/use.nupp"
+            ] = [[
+const {type Renamed as Greeting} = require("facade")
+local type Alias = Greeting
+local record Person is Alias
+    name: string
+end
+local person = new Person(name = "Ada")
+return person:hello()
+]],
+        },
+        function(dir)
+            local env = projectEnv(dir)
+            local path = dir .. "/src/use.nupp"
+            local parsed = parser.parse(readFile(path), path)
+            local diags = check.check(parsed, path, env)
+            testAssert.eq(#diags, 0, diags[1] and diags[1].msg or "")
+            local gen = require("nupp.compiler.lua.gen")
+            local code = gen.generate(parsed, path)
+            assert(code:find('require("greet").Greeter.hello', 1, true), code)
+            local greetPath = dir .. "/src/greet.nupp"
+            local greetParsed = parser.parse(readFile(greetPath), greetPath)
+            testAssert.eq(#check.check(greetParsed, greetPath, env), 0)
+            local greetCode = gen.generate(greetParsed, greetPath)
+            local greeting = assert(loadstring(greetCode))()
+            assert(type(greeting.Greeter.hello) == "function")
+            local actualRequire = require
+            local run = assert(loadstring(code))
+            setfenv(
+                run,
+                setmetatable(
+                    {
+                        require = function(name)
+                            if name == "greet" then
+                                return greeting
+                            end
+                            return actualRequire(name)
+                        end
+                    },
+                    {__index = _G}
+                )
+            )
+            testAssert.eq(run(), "hello, Ada")
+        end
+    )
+end
+
 -- An interface that only declares still emits nothing, so the runtime table is
 -- paid for by the feature rather than by every interface.
 function M.anInterfaceWithoutDefaultsStaysErased()
