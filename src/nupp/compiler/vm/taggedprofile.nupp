@@ -1180,6 +1180,10 @@ local function cleanupProfile(base: any): any
     -- `...`, an open call or a call last giving more than one spread, the
     -- pack staged last.
     profile.stageReturn = function(ctx: any, node: any, falling: boolean): any
+        -- A module with named exports answers its export table.
+        if falling and ctx.exports then
+            return {values = {ctx.readHeld(ctx.exports)}}
+        end
         local exprs = not falling and node.exprs or {}
         if #exprs == 0 then
             return {values = {}}
@@ -1283,6 +1287,35 @@ function tagged.forVersion(version: integer): any
     end
     profile.checkStatement = function(ctx: any, stat: any): nil
         checkStatement(ctx, stat, version)
+    end
+    -- A module with named exports: its export table, published as the
+    -- module's value before its body runs.
+    profile.moduleExports = function(ctx: any, node: any): integer
+        local exports = ctx.emit(node, "NewTable", {}, "tagged")
+        return ctx.emit(node, "LibCall", {84, exports}, "tagged") as integer
+    end
+    -- After a named export's statement: each name it declared, stored in the
+    -- export table under that name.
+    profile.exportNames = function(ctx: any, stat: any): nil
+        local inner = stat.stat
+        local names: {any} = {}
+        if inner.kind == "localFuncStmt" or inner.kind == "recordDecl" then
+            names = {inner.name}
+        elseif inner.kind == "localStmt" then
+            names = inner.names
+        elseif inner.kind == "funcStmt" then
+            need(inner.name and inner.name.base and #(inner.name.parts or {}) <= 1, "an exported function is named")
+            names = {inner.name.base}
+        end
+        for _, name in ipairs(names) do
+            local key = name.definition or name
+            local value = ctx.readname(stat, key)
+            if value ~= nil then
+                local text = need(name.text or name.token and name.token.text, "an exported name has its text")
+                local field = ctx.emit(stat, "K", {pool(ctx, "str", text)}, "tagged")
+                ctx.emit(stat, "SetIdx", {ctx.readHeld(ctx.exports), field, value}, nil)
+            end
+        end
     end
     -- `@unsafe` before a statement: the checker trusted what it says, a yield
     -- with affine values live; the statement runs as it would without it.
@@ -1935,7 +1968,8 @@ function tagged.forVersion(version: integer): any
             ctx.block = nil
         end
         profile.fallthrough = function(ctx: any, node: any): nil
-            local value = ctx.emit(node, "Nil", {}, "tagged")
+            -- A module with named exports answers its export table.
+            local value = ctx.exports and ctx.readHeld(ctx.exports) or ctx.emit(node, "Nil", {}, "tagged")
             ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(node.eof or node)}
             ctx.block = nil
         end
@@ -2174,7 +2208,13 @@ function tagged.forVersion(version: integer): any
 end
 
 function tagged.exportStatement(ctx: any, stat: any): nil
-    need(ctx.fn.kind == "module" and stat.value and not stat.stat, "named export assembly is unsupported")
+    need(ctx.fn.kind == "module", "an export belongs to a module")
+    -- A named export's statement runs as it is; exportNames stores it.
+    if stat.stat then
+        need(ctx.exports ~= nil, "named exports need the module's export table")
+        return
+    end
+    need(stat.value, "export needs a value")
     local value = ctx.expression(stat.value, "tagged")
     ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(stat)}
     ctx.block = nil

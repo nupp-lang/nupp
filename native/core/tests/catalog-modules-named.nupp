@@ -1,0 +1,12 @@
+module nupp.core.catalogmodulesnamed
+
+-- A module's named exports are its table's fields; a second require is
+-- the same table.
+const geometry = require("nupp.core.catalogmodulesgeometry")
+const again = require("nupp.core.catalogmodulesgeometry")
+geometry.bump()
+local score = geometry.scale(3) + geometry.unit + again.bump() * 100
+if geometry == again then
+    score = score + 1000
+end
+export = score

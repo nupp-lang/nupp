@@ -133,6 +133,20 @@ function frontend.compile(fn: any, options: any, profile: any): any
         end
         error("function graph: held-value order is incomplete", 0)
     end
+    -- The value a declaration's binding (`key`) holds now, read as a name
+    -- naming it would be, or nil when it has none.
+    ctx.readname = function(node: any, key: any): integer?
+        local value = bindings[key]
+        if value == nil then
+            return nil
+        end
+        context()
+        if profile.readBinding then
+            return profile.readBinding(ctx, node, key, value, nil)
+        end
+
+        return value
+    end
 
     local function heldScope(): any
         local active = {}
@@ -212,6 +226,20 @@ function frontend.compile(fn: any, options: any, profile: any): any
     local expression: function(any, string?): integer?
     local unwind: function(integer, any, string, any?): nil
     local registerCleanup: function(any, any, any, integer): nil
+    -- Whether a function statement names a bare name, not a table's field.
+    local function bareFunction(stat: any): boolean
+        if not (stat.name and stat.name.base) then
+            return false
+        end
+        for _, part in ipairs(stat.name) do
+            if type(part) == "table" and part ~= stat.name.base and part.kind == "name" then
+                return false
+            end
+        end
+
+        return true
+    end
+
     local transfer: function(any, any): nil
     local expressionBody: function(any, string?): integer?
     expressionBody = function(node: any, expected: string?): integer?
@@ -1056,10 +1084,13 @@ function frontend.compile(fn: any, options: any, profile: any): any
                         ctx.release(values[index])
                     end
                 end
-            elseif stat.kind == "funcStmt" and profile.functionStatement then
+            elseif stat.kind == "funcStmt" and profile.functionStatement and not bareFunction(stat) then
                 invoke("functionStatement", stat, nil)
-            elseif stat.kind == "localFuncStmt" and profile.closure then
-                local key = stat.name.definition or stat.name
+            elseif (stat.kind == "localFuncStmt" or stat.kind == "funcStmt" and bareFunction(stat)) and profile.closure then
+                -- `function f()` in a declared module binds a module local,
+                -- as `local function f()` does.
+                local name = stat.kind == "funcStmt" and stat.name.base or stat.name
+                local key = name.definition or name
                 local initial = invoke("recursiveBinding", stat, key)
                 if initial then
                     ctx.bind(key, initial)
@@ -1510,6 +1541,10 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 if stat.stat then
                     invoke("exportStatement", stat, nil)
                     statements({stat.stat})
+                    -- A named export stores what it declared in the export table.
+                    if block and ctx.exports and profile.exportNames then
+                        invoke("exportNames", stat, nil)
+                    end
                 else
                     invoke("exportStatement", stat, nil)
                 end
@@ -1566,6 +1601,20 @@ function frontend.compile(fn: any, options: any, profile: any): any
         ctx.bind(key, initializeBinding(named.name, key, value))
     end
     if moduleOwner then
+        -- A module with named exports builds its export table first, publishes
+        -- it as its value, and answers it at its end.
+        local named = false
+        for _, sourceBlock in ipairs(body.blocks) do
+            for _, stat in ipairs(sourceBlock.stats or {}) do
+                if stat.kind == "exportStmt" and stat.stat then
+                    named = true
+                end
+            end
+        end
+        if named and profile.moduleExports then
+            context()
+            ctx.exports = ctx.hold(invoke("moduleExports", fn.node, nil))
+        end
         for _, sourceBlock in ipairs(body.blocks) do
             need(sourceBlock.kind == "block" and sourceBlock.stats, "unsupported module initializer block")
             statements(sourceBlock.stats)
@@ -1578,6 +1627,18 @@ function frontend.compile(fn: any, options: any, profile: any): any
         cleanupReturn(fn.node, true)
     elseif block and profile.fallthrough then
         invoke("fallthrough", fn.node, nil)
+    end
+    -- The export table's handle ends with the body, whichever block last
+    -- carried it.
+    if ctx.exports then
+        handles[ctx.exports], bindings[ctx.exports] = false, nil
+        for index, key in ipairs(bindingOrder) do
+            if key == ctx.exports then
+                table.remove(bindingOrder, index)
+                break
+            end
+        end
+        ctx.exports = nil
     end
     if cleanupEnabled then
         forgetCleanups(0)

@@ -125,7 +125,8 @@ local CASES = {
     {"outputwrite", 0x7FFF000000000001},
     {"libraryspread", 0x7FFF000000000C8D},
     {"tableslibrarymeta", 0x7FFF000000000007},
-    {"moduleslazy", 0x7FFF000000000520}
+    {"moduleslazy", 0x7FFF000000000520},
+    {"modulesnamed", 0x7FFF0000000004D8}
 }
 -- What the cases that print write to the host's output, as Lua 5.5 writes it.
 local OUTPUT = {
@@ -216,7 +217,8 @@ local NUMERIC = {
     outputwrite = "catalog-output-write",
     libraryspread = "catalog-library-spread",
     tableslibrarymeta = "catalog-tables-library-meta",
-    moduleslazy = "catalog-modules-main"
+    moduleslazy = "catalog-modules-main",
+    modulesnamed = "catalog-modules-named"
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -428,7 +430,9 @@ local function stage()
             "catalog-module-triple",
             "catalog-modules-shapes",
             "catalog-modules-counter",
-            "catalog-modules-main"
+            "catalog-modules-main",
+            "catalog-modules-geometry",
+            "catalog-modules-named"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",

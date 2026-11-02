@@ -1577,6 +1577,9 @@ export function LibCall(
     end
     if libraryId == guestio.LIB_WRITE then
         slots.writeValue(frame, regs, dst, guestio.write(ctx, a))
+    elseif libraryId == modules.LIB_PUBLISH then
+        modules.store(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")), a)
+        slots.writeValue(frame, regs, dst, a)
     else
         slots.writeValue(frame, regs, dst, guestlib.call(ctx, libraryId, native.word(count), a, b, c, d))
     end

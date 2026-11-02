@@ -104,7 +104,8 @@ local CASES: {[string]: {
         fixture = "catalog-modules-main",
         version = 8,
         modules = {"catalog-modules-shapes", "catalog-modules-counter"}
-    }
+    },
+    modulesnamed = {fixture = "catalog-modules-named", version = 8, modules = {"catalog-modules-geometry"}}
 }
 
 -- The handlers a profile version dispatches, in table order.

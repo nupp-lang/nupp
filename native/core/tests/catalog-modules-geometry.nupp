@@ -1,0 +1,16 @@
+module nupp.core.catalogmodulesgeometry
+
+-- A module of named exports: a constant, functions, and state only its
+-- functions reach.
+export const unit: integer = 10
+
+export function scale(n: integer): integer
+    return n * unit
+end
+
+local count: integer = 0
+
+export function bump(): integer
+    count = count + 1
+    return count
+end
