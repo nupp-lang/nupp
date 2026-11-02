@@ -47,7 +47,7 @@ end
 local candidate = {}
 
 function candidate.make(name: string): Scenario
-    local bus: events.MessageBus<integer> = events.newmessagebus()
+    local bus: events.MessageBus<integer> = events.newbus()
     local checksum: number = 0
     local calls: integer = 0
 
@@ -162,7 +162,7 @@ function candidate.make(name: string): Scenario
         return new Scenario(
             run = function(n: integer): nil
                 for index = 1, n do
-                    bus:observeOnce(1, Tick, tick)
+                    bus:once(1, Tick, tick)
                     bus:emit(1, Tick, index)
                 end
             end,
@@ -176,7 +176,7 @@ function candidate.make(name: string): Scenario
             run = function(n: integer): nil
                 for index = 1, n do
                     bus:observe(index, Tick, tick, "churn")
-                    bus:stopObserving(index, Tick, "churn")
+                    bus:stop(index, Tick, "churn")
                 end
             end,
             read = read

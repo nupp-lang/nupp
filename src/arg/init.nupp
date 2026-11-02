@@ -163,10 +163,21 @@ end
 
 @comptime
 local function option(items, name: string): any
+    -- A0 seed transition: accept lower metadata while existing consumers keep
+    -- their current keys. Retire these mappings with seed4 source adoption.
+    local acceptedName = name == "constantAliases" and "constantaliases"
+        or name == "preserveUnknown" and "preserveunknown"
+        or name == "stopAtFirstArgument" and "stopatfirstargument"
+        or name
     for _, item in ipairs(items) do
         if item.name == "cli" then
             for _, argument in ipairs(item.arguments) do
-                if argument.name == name then
+                if argument.name == name or argument.name == acceptedName then
+                    if name == "arity" and argument.value == "optionalattached" then
+                        return "optionalAttached"
+                    elseif name == "arity" and argument.value == "attachedonly" then
+                        return "attachedOnly"
+                    end
                     return argument.value
                 end
             end

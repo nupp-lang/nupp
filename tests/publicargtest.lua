@@ -73,6 +73,52 @@ function M.theTypedFacadeKeepsProvidersAliasesAndShadowing()
         local code, reason = compile("tests/fixtures/argfacade.nupp", environment)
         test(code, reason)
         assert(loadImage(code))()
+        local acceptingSource = [[
+local cli = require("arg")
+
+@cli(preserveunknown = true)
+@derive(cli.arguments)
+local record Forwarded
+    @cli(arity = "optionalattached", constant = "")
+    profile: string?
+    @cli(constantaliases = {json = "json"})
+    format: "text" | "json" = "text"
+    @cli(arity = "attachedonly")
+    output: string?
+    @cli(remainder = true)
+    arguments: {string} = {}
+end
+
+local value, problem = cli.parse(Forwarded, {"--json", "--profile=fast", "--output=out", "--other", "value"})
+assert(value ~= nil, problem and problem.message)
+assert(value.format == "json" and value.profile == "fast" and value.output == "out")
+assert(#value.arguments == 2 and value.arguments[1] == "--other" and value.arguments[2] == "value")
+local bare = assert(cli.parse(Forwarded, {"--profile"}))
+assert(bare.profile == "")
+local separated, missingAttached = cli.parse(Forwarded, {"--output", "out"})
+assert(separated == nil and missingAttached ~= nil)
+local schema = assert(cli.schema(Forwarded))
+assert(schema.preserveUnknown == true)
+assert(schema.fields[1].arity == "optionalAttached" and schema.fields[3].arity == "attachedOnly")
+
+@cli(stopatfirstargument = true)
+@derive(cli.arguments)
+local record Stopped
+    flag: boolean = false
+    @cli(remainder = true)
+    arguments: {string} = {}
+end
+local stopped = assert(cli.parse(Stopped, {"program", "--flag"}))
+assert(not stopped.flag and #stopped.arguments == 2 and stopped.arguments[2] == "--flag")
+]]
+        local accepted, failure = compile(
+            "tests/fixtures/arg_annotation_acceptor.nupp",
+            environment,
+            nil,
+            acceptingSource
+        )
+        test(accepted, failure)
+        assert(loadImage(accepted))()
     end)
     removeLoader()
     if not ok then

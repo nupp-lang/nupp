@@ -93,7 +93,7 @@ local struct PointerMove
 end
 
 const WINDOW = 1
-local input: events.MessageBus<integer> = events.newmessagebus()
+local input: events.MessageBus<integer> = events.newbus()
 input:observe(WINDOW, PointerMove, |move| -> print(move.x, move.y), "cursor")
 local route = host.route("app.pointer.move", PointerMove, input, WINDOW, "dropOldest", 64)
 ```

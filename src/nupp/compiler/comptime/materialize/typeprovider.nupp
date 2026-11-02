@@ -714,7 +714,9 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         return {
             kind = payload.kind,
             sourceKind = payload.sourceKind,
+            sourcekind = payload.sourceKind,
             declarationKind = payload.nominal and payload.nominal.kind,
+            declarationkind = payload.nominal and payload.nominal.kind,
             name = payload.name,
             value = payload.value,
             element = payload.element,
@@ -722,9 +724,13 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             fields = payload.fields,
             indexer = payload.indexer,
             readKey = payload.readKey,
+            readkey = payload.readKey,
             readValue = payload.readValue,
+            readvalue = payload.readValue,
             writeKey = payload.writeKey,
+            writekey = payload.writeKey,
             writeValue = payload.writeValue,
+            writevalue = payload.writeValue,
             nominal = payload.nominal,
             head = payload.head,
             tail = payload.tail,
@@ -905,6 +911,14 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         end
         return nil, failure("NUPP2420", args[1])
     end)
+
+    -- A0 seed transition: both public keys must denote the existing handle.
+    -- Remove the preceding keys after the accepting seed is pinned.
+    library.bool = library.boolean
+    library.niltype = library.nil_
+    library.tabletype = library.table_
+    library.functiontype = library.function_
+    library.len = library.length
 
     env.nupp = env.nupp or {}
     env.types = library

@@ -16,6 +16,7 @@ local fieldcodec = require("nupp.compiler.comptime.materialize.fieldcodec") as {
     finalize: function(any, any): (any, any),
     lower: function(any, any, any): (any, any, any)
 }
+local reflectionshape = require("nupp.runtime.reflectionshape")
 local typeprovider = require("nupp.compiler.comptime.materialize.typeprovider") as {
     installEvaluator: function(any, any, any, any),
     opaqueKind: function(any, any): string?,
@@ -114,6 +115,7 @@ end
 function providers.installEvaluator(state: any, env: any)
     state.opaque = {}
     state.reflectionViews = {}
+    state.reflectionPublic = {}
     state.intrinsics = {}
     installTest(state, env)
 
@@ -154,8 +156,14 @@ local function reflectionValue(state, value, at)
 end
 
 function providers.reflect(state: any, descriptor: any, at: any): any
-    local handle = opaque(state, "reflection", "TypeInfo", descriptor, provenance(at, "reflect"))
+    local public = state.reflectionPublic[descriptor]
+    if public == nil then
+        public = reflectionshape.accept(descriptor)
+        state.reflectionPublic[descriptor] = public
+    end
+    local handle = opaque(state, "reflection", "TypeInfo", public, provenance(at, "reflect"))
     state.reflectionViews[descriptor] = handle
+    state.reflectionViews[public] = handle
 
     return handle
 end

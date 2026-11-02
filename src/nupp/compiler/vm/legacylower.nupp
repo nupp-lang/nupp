@@ -4592,7 +4592,7 @@ function lower.emit(
 
             local logModule, forModule, moduleName = f:reg(), f:reg(), f:reg()
             f:op("Require", logModule, f:const("str", call.logModule or "log"))
-            f:op("GetField", forModule, logModule, f:const("str", "forModule"))
+            f:op("GetField", forModule, logModule, f:const("str", "formodule"))
             f:op("K", moduleName, f:const("str", currentModule or "?"))
             local view = exprAs(
                 f,

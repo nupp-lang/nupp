@@ -427,8 +427,25 @@ function deriveProvider.materializeInfo(state: any, input: any, opaque: any, pro
     )
 end
 
+-- A0 seed transition: accept new public keys without changing private payloads.
+-- Remove the preceding public keys after the accepting seed is pinned.
+local INFO_KEYS: {
+    [string]: string
+} = {
+    qualifiedname = "qualifiedName",
+    provideridentity = "providerIdentity",
+    owneridentity = "ownerIdentity",
+    ownertype = "ownerType",
+    interfacetype = "interfaceType",
+    hasconstructor = "hasConstructor",
+}
+local FIELD_KEYS: {
+    [string]: string
+} = {readtype = "readType", writetype = "writeType", hasdefault = "hasDefault", defaultvalue = "defaultValue",}
+
 function deriveProvider.index(state: any, entry: any, key: any): any, any
     if entry.family == "Info" then
+        key = INFO_KEYS[key] or key
         local payload = entry.payload
         if key == "reference" then
             return payload.referenceHandle
@@ -452,6 +469,7 @@ function deriveProvider.index(state: any, entry: any, key: any): any, any
             return payload[key]
         end
     elseif entry.family == "Field" then
+        key = FIELD_KEYS[key] or key
         local payload = entry.payload
         if key == "reference" then
             return payload.referenceHandle

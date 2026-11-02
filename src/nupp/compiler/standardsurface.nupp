@@ -155,6 +155,7 @@ local MODULES: {[string]: {
     ["debug.bench"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.random"] = {kind = "common"},
     ["nupp.runtime.entropy"] = facility("host", "runtime.crypto"),
+    ["nupp.runtime.reflectionshape"] = {kind = "common"},
     ["binary"] = {kind = "unavailable", capability = "cstorage"},
     ["simd"] = {kind = "common"},
     ["nupp.suspension"] = {kind = "common"},

@@ -1,0 +1,100 @@
+@!internal
+module nupp.runtime.reflectionshape
+
+-- Public metadata names are adapted separately from private blueprint keys.
+-- Only descriptor records are copied; annotation values and defaults stay intact.
+
+local fieldnames: {
+    [string]: string
+} = {["defaultValue"] = "defaultvalue", ["hasDefault"] = "hasdefault", ["typeName"] = "typename",}
+
+local entrynames: {[string]: string} = {["defaultValue"] = "defaultvalue", ["hasDefault"] = "hasdefault",}
+
+local nodenames: {
+    [string]: string
+} = {
+    ["associatedTypes"] = "associatedtypes",
+    ["constArguments"] = "constarguments",
+    ["constParameters"] = "constparameters",
+    ["nestedTypes"] = "nestedtypes",
+    ["noReturn"] = "noreturn",
+    ["noYield"] = "noyield",
+    ["packArguments"] = "packarguments",
+    ["packParameters"] = "packparameters",
+    ["parameterKinds"] = "parameterkinds",
+    ["staticFields"] = "staticfields",
+    ["typeArguments"] = "typearguments",
+    ["typeBounds"] = "typebounds",
+    ["typeParameters"] = "typeparameters",
+}
+
+local infonames: {[string]: string} = {["qualifiedName"] = "qualifiedname",}
+
+local function copy(value: any, names: {[string]: string}): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local result: any = {}
+    for key, held in pairs(value) do
+        result[key] = held
+    end
+    for old, name in pairs(names) do
+        if value[old] ~= nil then
+            result[name] = value[old]
+        end
+    end
+
+    return result
+end
+
+local function field(value: any): any
+    return copy(value, fieldnames)
+end
+
+local function entry(value: any): any
+    return copy(value, entrynames)
+end
+
+local function list(values: any, transform: function(any): any): any
+    if type(values) ~= "table" then
+        return values
+    end
+    local result: any = {}
+    for index, value in pairs(values) do
+        result[index] = transform(value)
+    end
+
+    return result
+end
+
+local entrylists = {"fields", "staticFields", "metamethods", "nestedTypes", "associatedTypes", "parameters"}
+
+local function node(value: any): any
+    local result = copy(value, nodenames)
+    if type(value) ~= "table" then
+        return result
+    end
+    for _, name in ipairs(entrylists) do
+        if value[name] ~= nil then
+            local entries = list(value[name], entry)
+            result[name] = entries
+            local alias = nodenames[name]
+            if alias ~= nil then
+                result[alias] = entries
+            end
+        end
+    end
+
+    return result
+end
+
+-- Both key sets are needed until the accepting seed can build renamed sources.
+export function accept(value: any): any
+    local result = copy(value, infonames)
+    if type(value) == "table" then
+        result.fields = list(value.fields, field)
+        result.types = list(value.types, node)
+    end
+
+    return result
+end

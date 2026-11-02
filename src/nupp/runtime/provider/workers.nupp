@@ -95,6 +95,8 @@ function Task.isDone(self: any): boolean
     return self.done
 end
 
+Task.isdone = Task.isDone
+
 function Task.status(self: any): string
     poll()
     return self.done and self.state or self.raw:status()

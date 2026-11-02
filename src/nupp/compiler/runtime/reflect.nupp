@@ -28,6 +28,7 @@ See [reflection.md](docs/learn/language/reflection.md) for what a program does w
 
 local reflectruntime = {}
 local extensions = require("nupp.compiler.runtime.extensions")
+local reflectionshape = require("nupp.runtime.reflectionshape")
 
 --- Reads a namespace member, installing a default when nothing is there yet.
 ---
@@ -140,7 +141,7 @@ function reflectruntime.install(namespace: any): any
             return state and state.type
         end
 
-        return state and state.blueprint[key]
+        return state and state.public[key]
     end
 
     Info.__newindex = function(): nil
@@ -156,7 +157,7 @@ function reflectruntime.install(namespace: any): any
         if not declared then
             error("nupp: type has no reflection blueprint", 2)
         end
-        local state: any = {type = typeObject, blueprint = declared}
+        local state: any = {type = typeObject, blueprint = declared, public = reflectionshape.accept(declared)}
         local info = setmetatable({}, {
             __index = function(_: any, key: string): any
                 return Info.read(state, key)

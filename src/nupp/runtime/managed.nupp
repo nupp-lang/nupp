@@ -130,6 +130,8 @@ export function install(__nupp: any, runtime: any): nil
             return result, nil
         end
 
+        __nuppManagedAlias.withexclusive = __nuppManagedAlias.withExclusive
+
         function __nuppManagedAlias:take()
             local cell, problem = __nuppAliasCell(self);
             if not cell then

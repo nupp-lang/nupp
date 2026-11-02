@@ -300,6 +300,14 @@ record tasks.Scope is own.Closeable
         ...: unpackof nupp.workers.spi.Submitted(F)
     ): tasks.Task<F> borrows (self)
 
+    -- A0 seed transition: same borrowed worker submission; retire fork after the new
+    -- seed pin.
+    work: function<F is Submittable>(
+        borrows self: tasks.Scope,
+        F,
+        ...: unpackof nupp.workers.spi.Submitted(F)
+    ): tasks.Task<F> borrows (self)
+
     --- Requests cancellation of every child.
     cancel: function(borrows self: tasks.Scope, reason: string?): nil
 
@@ -914,6 +922,8 @@ function TaskMT.isDone(self: any): boolean
     return status == "done" or status == "failed" or status == "cancelled"
 end
 
+TaskMT.isdone = TaskMT.isDone
+
 function TaskMT.status(self: any): string
     return (self._child as Child).status
 end
@@ -1221,6 +1231,8 @@ function ForkMT.isDone(self: any): boolean
     return (self._task as any):isDone()
 end
 
+ForkMT.isdone = ForkMT.isDone
+
 function ForkMT.status(self: any): string
     return (self._task as any):status()
 end
@@ -1371,6 +1383,7 @@ end
 --- @raises tasks.Cancellation its cancellation, where a deadline passed
 @unsafe do
     tasks.Scope.fork = forkSurface as any
+    tasks.Scope.work = tasks.Scope.fork
 end
 
 --- Requests cancellation of every child, as the scope's own decision.

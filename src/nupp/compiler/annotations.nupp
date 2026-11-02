@@ -116,7 +116,7 @@ function Registry:define(spec)
     if not identifier(spec.name) then
         return nil, "annotation name must be an identifier"
     end
-    local previous = self.byname[spec.name]
+    local previous = self:get(spec.name)
     if previous and (not spec.source or not sameSource(previous.source, spec.source)) then
         return nil, ("annotation @%s is already defined"):format(spec.name)
     end
@@ -203,7 +203,9 @@ function Registry:definedBy(source)
 end
 
 function Registry:get(name)
-    return self.byname[name]
+    -- A0 seed transition: one canonical definition until seed4 source adoption.
+    -- Keep this out of byname so enumeration does not publish duplicate entries.
+    return self.byname[name] or name == "annotationvalue" and self.byname.annotationValue or nil
 end
 
 local function categories(node)
@@ -506,11 +508,15 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
         return value
     end
 
+    local constantaliases = cliMember("constantAliases", typesApi.map(typesApi.string, typesApi.string))
+    local preserveunknown = cliMember("preserveUnknown", typesApi.boolean)
+    local stopatfirstargument = cliMember("stopAtFirstArgument", typesApi.boolean)
     cli.members = {
         name = cliMember("name", typesApi.string),
         long = cliMember("long", typesApi.boolean),
         aliases = cliMember("aliases", typesApi.array(typesApi.string)),
-        constantAliases = cliMember("constantAliases", typesApi.map(typesApi.string, typesApi.string)),
+        constantAliases = constantaliases,
+        constantaliases = constantaliases,
         short = cliMember("short", typesApi.string),
         value = cliMember("value", typesApi.string),
         display = cliMember("display", typesApi.string),
@@ -521,15 +527,19 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
                 typesApi.literal("none"),
                 typesApi.literal("required"),
                 typesApi.literal("optionalAttached"),
-                typesApi.literal("attachedOnly")
+                typesApi.literal("attachedOnly"),
+                typesApi.literal("optionalattached"),
+                typesApi.literal("attachedonly")
             })
         ),
         positional = cliMember("positional", typesApi.string),
         remainder = cliMember("remainder", typesApi.boolean),
         hidden = cliMember("hidden", typesApi.boolean),
         group = cliMember("group", typesApi.boolean),
-        preserveUnknown = cliMember("preserveUnknown", typesApi.boolean),
-        stopAtFirstArgument = cliMember("stopAtFirstArgument", typesApi.boolean),
+        preserveUnknown = preserveunknown,
+        preserveunknown = preserveunknown,
+        stopAtFirstArgument = stopatfirstargument,
+        stopatfirstargument = stopatfirstargument,
         constant = cliMember("constant", typesApi.union({typesApi.string, typesApi.integer, typesApi.boolean})),
         pattern = cliMember("pattern", typesApi.string),
         choices = cliMember("choices", typesApi.array(typesApi.string)),

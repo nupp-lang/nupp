@@ -146,7 +146,7 @@ local record Damage
     kind: string = "physical"
 end
 
-local bus: events.MessageBus<integer> = events.newmessagebus()
+local bus: events.MessageBus<integer> = events.newbus()
 bus:observe(7, Damage, |event| -> print(event.kind))
 bus:emit(7, Damage, amount = 10, source = 3)
 ```

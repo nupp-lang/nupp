@@ -1488,4 +1488,49 @@ function M.runRefusesABadLimit()
     assert(tostring(problem):find("limit must be a positive integer", 1, true) ~= nil, tostring(problem))
 end
 
+function M.acceptingTaskCompletionNameSharesTheExistingMethod()
+    scoped(nil, function(scope)
+        local child = scope:spawn(function()
+            return 17, nil, "tail"
+        end)
+        testAssert.eq(child.isdone, child.isDone, "completion aliases share one method handle")
+        testAssert.eq(child:isdone(), false)
+        local first, middle, last = child:await()
+        testAssert.eq(first, 17)
+        testAssert.eq(middle, nil)
+        testAssert.eq(last, "tail")
+        testAssert.eq(child:isdone(), true)
+        testAssert.eq(child:isdone(), child:isDone())
+    end)
+end
+
+function M.acceptingWorkNameRunsTheExistingWorkerSubmission()
+    local parser = require("nupp.compiler.syntax.parser")
+    local checker = require("fragment")
+    local program = require("program")
+    local environment = require("nupp.compiler.project.env").new(".")
+    local source = [[
+return coroutine.run(function(borrows scope: coroutine.Scope): (integer, nil, string, boolean, boolean, integer)
+    assert(scope.work == scope.fork)
+    local handle = scope:work(6, function(value: integer): (integer, nil, string)
+        return value + 1, nil, "tail"
+    end)
+    assert(handle.isdone == handle.isDone)
+    local first, middle, last = handle:await()
+    return first, middle, last, handle:isdone(), handle:isDone(), select("#", handle:await())
+end)
+]]
+    local parsed = parser.parse(source, "accepting-worker-names.nupp")
+    testAssert.eq(#parsed.errors, 0)
+    local diagnostics = checker.check(parsed, "accepting-worker-names.nupp", environment)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    local first, middle, last, done, precedingDone, count = program.run(parsed, "accepting-worker-names")
+    testAssert.eq(first, 7)
+    testAssert.eq(middle, nil)
+    testAssert.eq(last, "tail")
+    testAssert.eq(done, true)
+    testAssert.eq(precedingDone, true)
+    testAssert.eq(count, 3, "the complete result pack survives the alias")
+end
+
 return M

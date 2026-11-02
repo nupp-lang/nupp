@@ -902,13 +902,13 @@ function resolve.install(c: state.Checker): nil
                 end
                 node.resolvedType = result
                 return result
-            elseif identity == "types.range" or identity == "types.length" then
+            elseif identity == "types.range" or identity == "types.length" or identity == "types.len" then
                 -- Two bounds over a base, which is the shape almost every constraint
                 -- has. It resolves here rather than through the comptime worker for the
                 -- same reason `nonExhaustive` does: everything it needs is written at
                 -- the call, so a round trip would only move where the error is
                 -- reported.
-                local lengthwise = identity == "types.length"
+                local lengthwise = identity == "types.length" or identity == "types.len"
                 local argumentCount = #(node.arguments or {})
                 if argumentCount ~= 3 then
                     c.diag(
