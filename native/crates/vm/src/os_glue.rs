@@ -207,12 +207,68 @@ unsafe extern "C" {
     fn strtod(text: *const std::ffi::c_char, end: *mut *mut std::ffi::c_char) -> f64;
 }
 
+// A float conversion string.format builds: `%`, flags from "-+ #0", at
+/// most two width digits, an optional `.` and at most two precision digits,
+/// and one of "aAeEfFgG", NUL-terminated within 16 bytes. Nothing else is
+/// handed to snprintf.
+fn float_spec(bytes: &[u8; 16]) -> bool {
+    let Some(end) = bytes.iter().position(|&b| b == 0) else { return false };
+    let spec = &bytes[..end];
+    if spec.len() < 2 || spec[0] != b'%' {
+        return false;
+    }
+    let mut at = 1;
+    while at < spec.len() && b"-+ #0".contains(&spec[at]) {
+        at += 1;
+    }
+    let digits = |at: &mut usize| {
+        let start = *at;
+        while *at < spec.len() && spec[*at].is_ascii_digit() {
+            *at += 1;
+        }
+        *at - start <= 2
+    };
+    if !digits(&mut at) {
+        return false;
+    }
+    if at < spec.len() && spec[at] == b'.' {
+        at += 1;
+        if !digits(&mut at) {
+            return false;
+        }
+    }
+    at + 1 == spec.len() && b"aAeEfFgG".contains(&spec[at])
+}
+
+/// The `room` bit that says `out` holds a float_spec to format with.
+const FORMAT_SPEC: u64 = 1 << 63;
+
 /// Writes the binary64 `bits` as Lua 5.5 writes a float, C's "%.15g" or,
 /// when that reads back as another number, "%.17g", into `out`, at most
 /// `room` bytes: the text's whole length.
 #[unsafe(no_mangle)]
 pub unsafe extern "C" fn nupp_os_format_number(bits: u64, out: *mut u8, room: u64) -> i64 {
     let value = f64::from_bits(bits);
+    // string.format's float conversions: the spec is in `out`.
+    if room & FORMAT_SPEC != 0 {
+        if out.is_null() {
+            return -1;
+        }
+        let mut spec = [0u8; 16];
+        unsafe { std::ptr::copy_nonoverlapping(out as *const u8, spec.as_mut_ptr(), 16) };
+        if !float_spec(&spec) {
+            return -1;
+        }
+        let mut text = [0u8; 512];
+        let written = unsafe { snprintf(text.as_mut_ptr().cast(), text.len(), spec.as_ptr().cast(), value) };
+        if written < 0 {
+            return -1;
+        }
+        let length = (written as usize).min(text.len() - 1);
+        let room = room & !FORMAT_SPEC;
+        unsafe { std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, length.min(room as usize)) };
+        return length as i64;
+    }
     let mut text = [0u8; 64];
     let mut written = unsafe { snprintf(text.as_mut_ptr().cast(), text.len(), c"%.15g".as_ptr(), value) };
     // Lua 5.5 writes 15 digits unless they read back as another number.

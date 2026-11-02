@@ -1,0 +1,48 @@
+module nupp.core.catalogrecordsaffineerrors
+
+-- Affine values on error paths: an error from a call unwinds into each
+-- function that owns affine values and waits on that call, which destroys
+-- its owners (latest first) and lets the error go on, so a protected call
+-- sees the same error after every owner on the way has been destroyed.
+local closed: integer = 0
+local order: integer = 0
+
+local record File
+    id: integer
+
+    constructor(self, id: integer): affine(File, File.destroy)
+        self.id = id
+    end
+
+    function destroy(takes self): nil
+        closed = closed + 1
+        order = order * 10 + self.id
+    end
+end
+
+local function risky(n: integer): integer
+    if n > 2 then
+        error("boom")
+    end
+    return n
+end
+
+local function guarded(n: integer): integer
+    local f = new File(n)
+    local r = risky(n)
+    return r + f.id
+end
+
+local function nested(n: integer): integer
+    local outer = new File(7)
+    return guarded(n)
+end
+
+local ok1 = pcall(guarded, 1)
+local ok2 = pcall(guarded, 5)
+local ok3 = pcall(nested, 9)
+local score: integer = closed * 1000000 + order
+if ok1 and not ok2 and not ok3 then
+    score = score + 100000000
+end
+export = score

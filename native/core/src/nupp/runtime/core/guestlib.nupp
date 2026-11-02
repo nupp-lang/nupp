@@ -63,6 +63,11 @@ export const MATH_MIN: uint64 = 41ULL
 export const MATH_TOINTEGER: uint64 = 42ULL
 export const MATH_TYPE: uint64 = 43ULL
 export const MATH_SQRT: uint64 = 44ULL
+-- After a call in a function that owns affine values: false when an error
+-- landed there.
+export const LANDED: uint64 = 45ULL
+-- The landed error raised again, as it was, once the owners are destroyed.
+export const RERAISE: uint64 = 46ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -173,6 +178,28 @@ local function integerArgument(value: uint64, absent: int64, name: uint64): int6
     return absent
 end
 
+-- A number's float bits, or NIL bits for anything else.
+local function floatOf(value: uint64): uint64
+    if ints.isInteger(value) then
+        return ints.toFloatBits(ints.bitsOf(value))
+    end
+    if value & values.QNAN ~= values.QNAN or value == values.QNAN then
+        return value
+    end
+
+    return values.NIL
+end
+
+-- A float result as a value: NaNs collapse to the one quiet NaN.
+local function floatValue(bits: uint64): uint64
+    local x = native.fromBits(bits)
+    if x ~= x then
+        return values.QNAN
+    end
+
+    return bits
+end
+
 -- Appends `value` in base `radix` (8, 10 or 16), as an unsigned 64-bit
 -- number, upper-case digits when `upper`; at least `digits` digits.
 local function appendRadix(
@@ -216,9 +243,10 @@ local function appendRadix(
     end
 end
 
--- string.format: %d %i %x %X %o %c %s and %%, with Lua's flags (-, +,
--- space, #, 0), width and precision; up to three arguments after the
--- format. Float conversions (%f, %g, %e, %a) and %q are not yet the core's.
+-- string.format: %d %i %x %X %o %c %s, the float conversions (%f %e %g %a,
+-- by the host's C formatting) and %%, with Lua's flags (-, +, space, #, 0),
+-- width and precision; up to three arguments after the format. %q is not
+-- yet the core's.
 local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: uint64, c: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     local pieceState = new strings.Builder(0ULL, 0ULL, 0ULL)
@@ -351,6 +379,62 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                         digits = precision
                     end
                     refused = refused | appendRadix(h, piece, n, radix, directive == 88ULL, digits)
+                elseif directive == 102ULL
+                    or directive == 70ULL
+                    or directive == 101ULL
+                    or directive == 69ULL
+                    or directive == 103ULL
+                    or directive == 71ULL
+                    or directive == 97ULL
+                    or directive == 65ULL
+                then
+                    -- A float conversion is C's: its spec, rebuilt from what was
+                    -- read, goes to the host with the number, which pads it too.
+                    local bits = floatOf(argument)
+                    if bits == values.NIL then
+                        strings.release(builder)
+                        strings.release(piece)
+                        error("bad argument to 'format' (number expected)")
+                    end
+                    refused = refused | strings.appendWord(h, piece, 37ULL, 1ULL)
+                    if left then
+                        refused = refused | strings.appendWord(h, piece, 45ULL, 1ULL)
+                    end
+                    if plus then
+                        refused = refused | strings.appendWord(h, piece, 43ULL, 1ULL)
+                    end
+                    if space then
+                        refused = refused | strings.appendWord(h, piece, 32ULL, 1ULL)
+                    end
+                    if alternate then
+                        refused = refused | strings.appendWord(h, piece, 35ULL, 1ULL)
+                    end
+                    if zero then
+                        refused = refused | strings.appendWord(h, piece, 48ULL, 1ULL)
+                    end
+                    if width > 0ULL then
+                        refused = refused | strings.appendInteger(h, piece, native.index(width))
+                    end
+                    if precise then
+                        refused = refused
+                            | strings.appendWord(h, piece, 46ULL, 1ULL)
+                            | strings.appendInteger(h, piece, native.index(precision))
+                    end
+                    refused = refused
+                        | strings.appendWord(h, piece, directive, 1ULL)
+                        | strings.appendWord(h, piece, 0ULL, 1ULL)
+                        | strings.reserve(h, piece, 520ULL)
+                    if refused == 0ULL then
+                        local length = os.formatNumber(bits, native.pointer(piece.base), 512ULL | 0x8000000000000000ULL)
+                        if length < 0 or length > 511 then
+                            strings.release(builder)
+                            strings.release(piece)
+                            error("invalid conversion to 'format'")
+                        end
+                        piece.length = native.word(length)
+                    end
+                    numeric = false
+                    width = 0ULL
                 elseif directive == 99ULL then
                     numeric = false
                     refused = refused
@@ -510,28 +594,6 @@ local function concat2(ctx: voidptr, a: uint64, b: uint64): uint64
         appendText(h, builder, b)
         return values.TAG_OBJ | strings.finish(h, builder)
     end
-end
-
--- A number's float bits, or NIL bits for anything else.
-local function floatOf(value: uint64): uint64
-    if ints.isInteger(value) then
-        return ints.toFloatBits(ints.bitsOf(value))
-    end
-    if value & values.QNAN ~= values.QNAN or value == values.QNAN then
-        return value
-    end
-
-    return values.NIL
-end
-
--- A float result as a value: NaNs collapse to the one quiet NaN.
-local function floatValue(bits: uint64): uint64
-    local x = native.fromBits(bits)
-    if x ~= x then
-        return values.QNAN
-    end
-
-    return bits
 end
 
 -- Lua's unary minus of a number: integers wrap, floats change sign.
@@ -1609,6 +1671,8 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return mathType(ctx, a)
     elseif id == MATH_SQRT then
         return floatValue(native.bits(native.sqrt(native.fromBits(floatOf(numberArgument(a))))))
+    elseif id == LANDED then
+        return guestscope.takeLanded(ctx)
     elseif id == TYPE then
         return guestscope.typeName(ctx, a)
     elseif id == UNM then

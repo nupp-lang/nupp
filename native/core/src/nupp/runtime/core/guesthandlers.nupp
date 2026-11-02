@@ -1461,6 +1461,11 @@ export function LibCall(
     end
     -- error(value [, level]) fails the entry here, so the failure records
     -- the pc the message's position names.
+    if native.word(id) == guestlib.RERAISE then
+        guestscope.raise(ctx, guestscope.lastError(ctx), 0ULL)
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return native.fail()
+    end
     if native.word(id) == guestlib.ERROR then
         local level: uint64 = 1ULL
         if count >= 2 then

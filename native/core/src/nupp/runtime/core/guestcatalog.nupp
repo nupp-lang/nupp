@@ -63,6 +63,9 @@ export struct Function
     -- its offset) naming the chunk an error position cites.
     lines: uint64
     chunk: uint64
+    -- From v8, 1 when the function owns affine values: an error from a call
+    -- it waits on resumes it (`frames.land`) to destroy them.
+    lands: uint64
 end
 
 export struct Signature
@@ -384,6 +387,10 @@ local function valid(data: voidptr, bytes: uint64): uint64
         cursor = cursor + size * 16ULL
         local lines = native.load64(fn, native.fieldOffset<Function>("lines"))
         if lines ~= 0ULL and (version < 8ULL or lines % 8ULL ~= 0ULL or contains(bytes, lines, size, 8ULL) == 0ULL) then
+            return 0ULL
+        end
+        local lands = native.load64(fn, native.fieldOffset<Function>("lands"))
+        if lands > 1ULL or lands == 1ULL and version < 8ULL then
             return 0ULL
         end
         local chunk = native.load64(fn, native.fieldOffset<Function>("chunk"))

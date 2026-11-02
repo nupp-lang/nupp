@@ -215,6 +215,7 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             firstCall = nextCall,
             callCount = #fn.calls,
             lines = lineOffsets[index] or 0,
+            lands = version >= 8 and fn.lands and 1 or 0,
             chunk = type(fn.chunk) == "string"
             and lineOffsets[index]
             and STRING_CONSTANT | assert(stringOffsets[fn.chunk])
