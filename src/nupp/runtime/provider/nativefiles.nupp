@@ -11,9 +11,10 @@ they return, so `pendingTransfers` is always zero.
 
 const host = require("nupp.vm.files")
 const paths = require("io.path")
-const io = require("nupp.io")
-const span = require("nupp.mem.span")
-const messages = require("nupp.io.files.messages")
+const io = require("io")
+local privateIo = require("nupp.io")
+const span = require("binary.span")
+const messages = require("io.files.messages")
 const appPaths = require("nupp.io.files.path")
 
 export type Info = messages.Info
@@ -142,7 +143,7 @@ export record File is io.Reader, io.Writer
         if taking == 0 then
             return 0, nil
         end
-        local input = span.fromString(chunk as string)
+        local input = span.fromstring(chunk as string)
         local lease = destination:reserveWrite(from, wanted)
         do
             local output = lease:span()
@@ -223,7 +224,7 @@ export record File is io.Reader, io.Writer
         end
         local bytes, failure = host.fileSize(self._handle)
         if bytes == nil then
-            return nil, io.toError(failure)
+            return nil, privateIo.toError(failure)
         end
 
         return bytes, nil
@@ -241,7 +242,7 @@ export record File is io.Reader, io.Writer
         end
         local at, failure = host.fileSeek(self._handle, whole(offset or 0, "seek offset", 2), whence)
         if at == nil then
-            return nil, io.toError(failure)
+            return nil, privateIo.toError(failure)
         end
 
         return at, nil
@@ -290,17 +291,17 @@ export record TemporaryPath is own.Closeable
 
     --- Returns the created path as a path value.
     function path(self): paths.Path
-        return paths.newPath(self._text)
+        return paths.newpath(self._text)
     end
 
     --- Moves the temporary path to a durable destination.
     function persist(self, destination: string | paths.Path): (boolean, io.Error?)
         if self._closed then
-            return false, io.toError("the temporary path is released", "closed")
+            return false, privateIo.toError("the temporary path is released", "closed")
         end
         local moved, reason = host.rename(self._text, named(destination, "destination path", 2))
         if not moved then
-            return false, io.toError(reason)
+            return false, privateIo.toError(reason)
         end
         self._closed = true
 
@@ -380,7 +381,7 @@ export function readLink(path: string | paths.Path): (paths.Path?, string?)
         return nil, reason
     end
 
-    return paths.newPath(target), nil
+    return paths.newpath(target), nil
 end
 
 --- Creates a symbolic link at `link` pointing to `target`.
@@ -453,7 +454,7 @@ export function glob(pattern: string): ({paths.Path}?, string?)
     end
     local out: {paths.Path} = {}
     for index, text in ipairs(found) do
-        out[index] = paths.newPath(text)
+        out[index] = paths.newpath(text)
     end
 
     return out, nil
@@ -560,7 +561,7 @@ export function userFolder(which: UserFolder): (paths.Path?, string?)
         return nil, reason
     end
 
-    return paths.newPath(folder), nil
+    return paths.newpath(folder), nil
 end
 
 --- Reports the complete native filesystem surface.
@@ -611,7 +612,7 @@ export function executableDirectory(): (paths.Path?, string?)
     if executable == nil then
         return nil, reason
     end
-    local parent = paths.newPath(executable):parent()
+    local parent = paths.newpath(executable):parent()
     if parent == nil then
         return nil, "the executable path has no parent directory"
     end

@@ -63,23 +63,23 @@ decoding is selected. An encode-only mapping can omit required fields.
 `serde.iso8601Seconds` maps an integer epoch-seconds field to a timestamp;
 other conversions use an explicit adapter.
 
-`json.encodeInto(binding, value, buffer)` appends to a caller-owned Buffer and
+`json.encodeinto(binding, value, buffer)` appends to a caller-owned Buffer and
 restores its previous contents if serialization fails. `json.codec(policy)`
 makes a codec with a model-owned policy and its own bounded cache.
 
 ## Schema-free JSON
 
 `serde.json.encode` and `serde.json.decode` use a binding. Use
-`serde.json.encodeValue` and `serde.json.decodeValue` for tables and scalar
+`serde.json.encodevalue` and `serde.json.decodevalue` for tables and scalar
 values without a schema:
 
 ```nupp
-local bytes = serde.json.encodeValue({name = "Ada"})
-local value, reason = serde.json.decodeValue(bytes)
+local bytes = serde.json.encodevalue({name = "Ada"})
+local value, reason = serde.json.decodevalue(bytes)
 assert(reason == nil and value.name == "Ada")
 ```
 
-`decodeValue` returns `nil` and a reason for malformed input. Pass
+`decodevalue` returns `nil` and a reason for malformed input. Pass
 `serde.json.NULL` as its second argument to retain JSON nulls.
 
 ## Model-owned bindings
@@ -138,17 +138,17 @@ local document = require("serde.document")
 local json = require("serde.json")
 local adapter = document.adapter()
 local value = document.object({
-    new document.Entry(name = "count", value = document.numberToken("18446744073709551615")),
+    new document.Entry(name = "count", value = document.numbertoken("18446744073709551615")),
     new document.Entry(name = "payload", value = document.null())
 })
-assert(json.encodeDocument(adapter, value) == '{"count":18446744073709551615,"payload":null}')
+assert(json.encodedocument(adapter, value) == '{"count":18446744073709551615,"payload":null}')
 ```
 
 The value vocabulary includes exact integers, numeric tokens, decimals,
 width-preserving floats, bytes, timestamps, lists, tuples, maps, structures,
 unions, and model-defined atoms. A codec rejects values it cannot represent.
 Absent members, explicit null, and present values remain distinct.
-`json.decodeDocument(adapter, bytes)` reads contents and attaches source
+`json.decodedocument(adapter, bytes)` reads contents and attaches source
 context.
 
 Context values are keyed by [](types.Key)s. Child documents retain
@@ -174,9 +174,9 @@ local owner = new Counter(count = 1)
 local view = document.view(binding, owner)
 local snapshot = view:snapshot()
 owner.count = 2
-local adapter = document.viewAdapter(binding)
-assert(json.encodeDocument(adapter, view) == '{"count":2}')
-assert(json.encodeDocument(adapter, snapshot) == '{"count":1}')
+local adapter = document.viewadapter(binding)
+assert(json.encodedocument(adapter, view) == '{"count":2}')
+assert(json.encodedocument(adapter, snapshot) == '{"count":1}')
 ```
 
 Views require Copyable values and retain their binding and optional context.
@@ -186,7 +186,7 @@ context; it requires that binding to support reconstruction. Model libraries
 can provide their own document adapters for other snapshot semantics.
 
 Use `codec:decode(adapter:contents(), bytes)` when reading a typed view through
-its model's wire policy. `decodeDocument` reads logical document contents; a
+its model's wire policy. `decodedocument` reads logical document contents; a
 model-specific document adapter owns any additional interpretation of those
 contents.
 
@@ -235,9 +235,9 @@ assert(native.decode(saves, bytes).inventory[1] == "key")
 
 Native persistence stores finite value trees. It does not preserve shared
 object identity, execute code from the input, or save process handles.
-`document.storeRegistry()` saves a [](types.Store) through an explicit
+`document.storeregistry()` saves a [](types.Store) through an explicit
 registry of entry names, bindings, versions, and migrations, and any codec
-carries the snapshot through `document.storeBinding()`.
+carries the snapshot through `document.storebinding()`.
 
 The frame is not compatible with the previous JSON store snapshot format.
 Read old snapshots with the previous codec and write them through an explicit
@@ -271,7 +271,7 @@ ambiguous rewrites instead of dropping their policies. Handwritten methods named
 | `serde.of(User)` | `serde.binding(User)` |
 | `codec:prepare(binding):encode(value)` | `codec:encode(binding, value)` |
 | `User.fromJSON(bytes)` | `json.decode(binding, bytes)` |
-| `value:writeJSON(writer)` | `json.writeValue(binding, value, writer)` |
+| `value:writeJSON(writer)` | `json.writevalue(binding, value, writer)` |
 | `@json(name = "id")` | `new serde.FieldOptions(name = "id")` |
 | `@json(omit = true)` | Leave the field out of the mapping whitelist |
 

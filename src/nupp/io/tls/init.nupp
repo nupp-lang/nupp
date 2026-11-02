@@ -1,13 +1,15 @@
+@!internal
+
 module nupp.io.tls
 
 --[[
-`nupp.io.tls` takes ownership of a connection [](nupp.io.net) already opened
+`io.tls` takes ownership of a connection [](io.net) already opened
 and turns it into an encrypted connection.
 
 ```nupp
 local function fetch(): string
-    local stream = assert(nupp.io.net.connect({host = "example.com", port = 443}))
-    local session = assert(nupp.io.tls.client(stream, {
+    local stream = assert(io.net.connect({host = "example.com", port = 443}))
+    local session = assert(io.tls.client(stream, {
         hostname = "example.com",
     }))
     assert(session:handshake())
@@ -53,8 +55,8 @@ const {type Buffer} = require("nupp.io")
 
 local net = require("nupp.io.net")
 local takeStreamHandle: function(takes source: net.Stream): any = require("nupp.io.net.internal").takeStreamHandle
-local suspension = require("nupp.suspension")
-local span = require("nupp.mem.span")
+local suspension = require("coroutine.suspension")
+local span = require("binary.span")
 local physical = require("nupp.runtime.storage")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
 
@@ -362,7 +364,7 @@ record tls.Session is Reader, Writer
         if chunk == nil then
             return nil, why
         end
-        const input = span.fromString(chunk)
+        const input = span.fromstring(chunk)
         for index = 1, #chunk do
             destination[index] = input[index]
         end
@@ -385,7 +387,7 @@ record tls.Session is Reader, Writer
         end
         const landed = #chunk as integer
         if landed > 0 then
-            const input = span.fromString(chunk)
+            const input = span.fromstring(chunk)
             const lease = destination:reserveWrite(offset or 0, landed)
             do
                 const output = lease:span()

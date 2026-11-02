@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local gpu = require("gpu")
 local generated = require("compaction")
 
@@ -35,11 +35,11 @@ local paddedCountsBuffer = context:buffer(element, block)
 local countsBuffer = paddedCountsBuffer:subview({0}, {groups})
 local offsetsBuffer = context:buffer(element, block)
 local outputBuffer = context:buffer(element, count)
-context:upload(inputBuffer, span.fromCarray(input, count))
-context:upload(selectedBuffer, span.fromCarray(selected, count))
+context:upload(inputBuffer, span.fromcarray(input, count))
+context:upload(selectedBuffer, span.fromcarray(selected, count))
 
 local zeros = ffi.new("uint32_t[?]", block)
-context:upload(paddedCountsBuffer, span.fromCarray(zeros, block))
+context:upload(paddedCountsBuffer, span.fromcarray(zeros, block))
 context:synchronize()
 
 local pack = generated.blocks:compile(context):bind(blockedBuffer, countsBuffer, inputBuffer, selectedBuffer)
@@ -66,7 +66,7 @@ local elapsed = (now() - started) / passes
 local output = ffi.new("uint32_t[?]", count)
 context:enqueueDownload(outputBuffer)
 context:synchronize()
-context:readDownloaded(outputBuffer, span.writeCarray(output, count))
+context:readDownloaded(outputBuffer, span.writecarray(output, count))
 for index, value in ipairs(expected) do
     assert(
         output[index - 1] == value,

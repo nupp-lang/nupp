@@ -8,8 +8,9 @@ named fields through the registered component codecs.
 Adapted from Tecs at 87bd7da2873f7b7267752e5af3a8dfb8648785bb.
 Copyright (c) 2026 Michael Dowling; see the project LICENSE-MIT.
 ]]
+const assert2 = require("assert")
 
-local native: any = assert(require("nupp.mem.representation").storage)
+local native: any = assert2(require("nupp.mem.representation").storage)
 local persist = require("nupp.vm.persist")
 local buffer = require("nupp.text")
 local archetype = require("tecs.internal.archetype")
@@ -58,7 +59,7 @@ end
 local function serialize(component: components.Component, value: any): any
     const relationship = components.asRelationship(component)
     if relationship ~= nil then
-        component = assert(components.findById(relationship.componentId))
+        component = assert2(components.findById(relationship.componentId))
     end
     if component.storageType == "tag" then
         return nil
@@ -103,7 +104,7 @@ export function write(
         local count = #source.entities
         if layers ~= nil and transform ~= nil and archetype.has(source, transform) then
             rows = {}
-            const poses = assert(source.columns[transform.componentId])
+            const poses = assert2(source.columns[transform.componentId])
             for row = 1, count do
                 if layers[poses[row].layer as integer] then
                     rows[#rows + 1] = row
@@ -150,8 +151,8 @@ export function write(
     const schemas: {any} = {}
     for index = 1, #entries do
         if entries[index].fingerprint ~= nil then
-            const component = assert(components.resolveSnapshotName(entries[index].name))
-            schemas[index] = native.layout(assert(ffistorage.find(component.componentId)).element)
+            const component = assert2(components.resolveSnapshotName(entries[index].name))
+            schemas[index] = native.layout(assert2(ffistorage.find(component.componentId)).element)
         end
     end
     const frames: {any} = {}
@@ -163,7 +164,7 @@ export function write(
         else
             const selected = native.allocateArray(native.scalar("number"), plan.count)
             for row = 1, plan.count do
-                selected[row - 1] = plan.source.entities[assert(plan.rows)[row]]
+                selected[row - 1] = plan.source.entities[assert2(plan.rows)[row]]
             end
             ids = native.string(selected, plan.count * 8) as string
         end
@@ -173,14 +174,14 @@ export function write(
             const storage = ffistorage.find(component.componentId)
             const raw = entries[plan.indices[column]].fingerprint ~= nil
             if raw then
-                const layout = assert(storage)
-                const source = assert(plan.source.columns[component.componentId])
-                const rawOutput = buffer.newBuffer()
+                const layout = assert2(storage)
+                const source = assert2(plan.source.columns[component.componentId])
+                const rawOutput = buffer.newbuffer()
                 if plan.rows == nil then
                     ffistorage.writeRows(layout, source, 1, plan.count, rawOutput)
                 else
                     for row = 1, plan.count do
-                        ffistorage.writeRows(layout, source, assert(plan.rows)[row], 1, rawOutput)
+                        ffistorage.writeRows(layout, source, assert2(plan.rows)[row], 1, rawOutput)
                     end
                 end
                 columns[column] = {entry = plan.indices[column], bytes = rawOutput:tostring()}
@@ -512,7 +513,7 @@ export function value(column: Column, row: integer): any
     if column.values ~= nil then
         return column.values[row]
     end
-    const layout = assert(column.storage)
+    const layout = assert2(column.storage)
     native.boundedCount(column.pointer, row)
 
     return ffistorage.serialize(layout, column.pointer[row - 1])
@@ -520,8 +521,8 @@ end
 
 --- Copies a checked native column into the world's final archetype allocation.
 export function copy(column: Column, target: archetype.Archetype, first: integer, count: integer): nil
-    const storage = assert(ffistorage.find(column.component.componentId))
-    const destination = assert(target.columns[column.component.componentId])
+    const storage = assert2(ffistorage.find(column.component.componentId))
+    const destination = assert2(target.columns[column.component.componentId])
     if first < 1
         or count < 0
         or first % 1 ~= 0

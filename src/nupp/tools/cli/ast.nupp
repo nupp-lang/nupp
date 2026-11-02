@@ -137,7 +137,7 @@ end
 ---     nupp ast src/main.nupp
 ---     nupp ast --json-pretty src/main.nupp
 @cli("ast")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Ast
     --- Indent the JSON instead of printing it on one line.
     jsonPretty: boolean = false

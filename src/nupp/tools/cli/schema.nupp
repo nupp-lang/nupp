@@ -26,7 +26,7 @@ function schema.requests(subject: any, argv: {string}): boolean
             end
         end
     end
-    local stream = cliModule.optParser(argv, {
+    local stream = cliModule.optparser(argv, {
         arity = arity,
         patterns = patterns,
         stopAtFirstArgument = schema.stopAtFirstArgument,

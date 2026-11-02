@@ -38,20 +38,6 @@ not say what exists. A build compiles what the project is written in, the way a
 compiler compiles a source set, rather than walking `require` edges out from an
 entry.
 
-::: deepdive
-The walk answers three questions at once and gets two of them wrong:
-
-- a module nothing requires goes unchecked, so `nupp check` stops meaning "this
-  project is well typed" and starts meaning "the part I could reach is";
-- a module reached only through `require(name)`, where the name is computed, is
-  absent from the build and therefore from any binary, and fails in front of a
-  user with a filesystem search path that means nothing inside one file.
-
-Removing unused code is a linker's job and should be invisible when it happens.
-Measured on this compiler, the walk was removing one module out of seventy-one
-and costing about sixteen kilobytes on a 1.6 MB binary.
-:::
-
 ### Target source sets
 
 A target may narrow the initial source set with `sources`. Files and
@@ -201,14 +187,6 @@ pages, `test`, `tasks`, `selfHost`, `fmt`, and each dependency. A dependency is 
 keys its own kind reads, since what a C build takes and what a rock takes have
 almost nothing in common. Keys beginning with `_` are the build's own, folded
 in from a command's options; a manifest has no reason to write one.
-
-::: deepdive
-A key nothing reads would otherwise take effect silently, which is the one way
-a configuration file can lie to the person who wrote it: `custmCss` rendered a
-site with the default theme and exited cleanly. Refusing the whole manifest
-costs one error message on a typo and removes a class of bug whose only symptom
-is that a setting appears not to work.
-:::
 
 ## Listing targets
 
@@ -387,7 +365,7 @@ The keys the target itself reads:
 | `includePrivate` | Renders what privacy rules hide: unexported declarations, internal modules, and private members |
 | `pages` | Handwritten pages: a `glob` over a tree, a `directory`, or one `source` at one `path` |
 | `diagnostics` | The generated diagnostic index, and the page it is appended to |
-| `stdlib` | The generated LuaJIT standard library page |
+| `stdlib` | The combined API reference and builtin declarations |
 | `dependencies` | Rocks to install before rendering |
 
 The appended `customCss` overrides the documented `--nuppdoc-*` custom

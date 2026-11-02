@@ -112,7 +112,7 @@ function producer.compile(mode: string): string
     result.metrics, result.mode, result.physicalTarget = metrics, mode, options.physicalTarget
     result.refusals = {"wrong-supported-target"}
 
-    return json.encodeValue(result)
+    return json.encodevalue(result)
 end
 
 function producer.data(offsetText: string, codeBytesText: string): string

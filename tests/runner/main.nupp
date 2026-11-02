@@ -15,6 +15,8 @@ module main
 -- a name the checker does not read. Carrying them is what makes a suite's
 -- `require` of a compiler module the carried one rather than a compile from
 -- source.
+const terminal = require("io.terminal")
+
 @allow("unused-binding")
 const _DYNAMIC_REQUIRES = [[
 @requires-dynamically nupp.compiler.syntax.triviaarena
@@ -45,7 +47,7 @@ arg[0] = "tests/run.lua"
 -- worker state and every suite observes the same assertion implementation.
 package.loaded["assert"] = require("assert")
 require("arg")
-local _ = io.style
+local _ = terminal.style
 
 -- File-loaded suites share these host facilities in the parent and worker states.
 require("nupp.random")
@@ -61,10 +63,10 @@ require("serde.json")
 require("io.path")
 require("io.uri")
 require("nupp.text")
-require("nupp.time")
-require("nupp.io.net")
+require("coroutine")
+require("io.net")
 require("nupp.io.process")
-require("nupp.workers")
+require("coroutine.workers")
 -- These three reach providers only the LuaJIT host loads up front. A VM lane is a
 -- process of its own with no worker states to share them with, so there a suite
 -- requires them when it uses them, which keeps them out of the runner's image.

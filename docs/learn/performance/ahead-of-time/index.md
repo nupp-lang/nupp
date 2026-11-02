@@ -62,16 +62,7 @@ neither contracted nor reassociated, so an AOT function's results are a property
 of what was written rather than of the target that compiled it. Explicit
 wrapping integer operations may be reassociated because their modular answer
 does not depend on grouping. Ask for a relaxation per function with
-[`@relax`](../../../reference/annotations.md#relaxing-observable-guarantees).
-
-::: deepdive Required compilation
-The annotation is a contract over ordinary Nupp rather than a restricted
-sublanguage: the body uses the same parser, type system, operators, and
-diagnostics, so removing the annotation never changes the source-level result.
-A body outside the subset is an error rather than a silent per-function
-fallback, because a contract that degrades quietly is a comment.
-
-:::
+[`@relax`](../../../api.md#annotation-relax).
 
 ## Next pages
 
@@ -100,5 +91,5 @@ and a tail. A loop without those operations is scalar. See
 
 ::: seealso
 - [performance.md](../index.md) for reading the bytecode ordinary Nupp lowers to
-- [](nupp.mem.span) for the span types a kernel takes
+- [](binary.span) for the span types a kernel takes
 :::

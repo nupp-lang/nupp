@@ -11,14 +11,14 @@ local env = envMod.new(HERE .. "/..")
 
 local function checked(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors")
+    testAssert.eq(#result.errors, 0, "syntax errors")
     local diagnostics = check.check(result, "test.nupp", env)
     return result, diagnostics
 end
 
 local HEADER = [[
-local span = require("nupp.mem.span")
-local indexed = require("nupp.mem.indexed")
+local span = require("binary.span")
+local indexed = require("binary.span")
 local struct Cell
     value: int32
 end
@@ -38,7 +38,7 @@ end
 function M.aLookalikeIndexedTypeCannotEnterTheTrustedRange()
     local _, diagnostics = checked(
         [[
-local indexed = require("nupp.mem.indexed")
+local indexed = require("binary.span")
 local record Fake
     @readonly count: integer
 end
@@ -113,7 +113,7 @@ end
 return Probe
 ]]
     local result, diagnostics = checked(source)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local probe = program.run(result, "nan-probe")
     for _, bad in ipairs({0 / 0, 1.5}) do
         for _, name in ipairs({"writeTail", "writeSlice", "split", "readTail", "sliceFirst", "sliceLast"}) do
@@ -130,7 +130,7 @@ return Probe
                 ("%s(%s): %s"):format(name, tostring(bad), tostring(got))
             )
             for at = 1, 4 do
-                testAssert.equal(
+                testAssert.eq(
                     probe.element(storage, at),
                     at,
                     ("%s(%s) left element %d"):format(name, tostring(bad), at)
@@ -160,7 +160,8 @@ function M.privateViewBodiesRejectEscapingTablesAndViewReassignment()
         "return values == other"
     }) do
         local result = checked(
-            [[local span = require("nupp.mem.span")
+            [[
+local span = require("binary.span")
 local function work(borrows values: span.Span<uint8>, borrows other: span.Span<uint8>): any
 ]]
             .. operation
@@ -182,7 +183,7 @@ function M.privateArtifactsRejectWideAndMultilineLiterals()
         for _, view in ipairs({false, true}) do
             local parameter = view and "borrows values: span.Span<uint8>" or "value: number"
             local result = checked(
-                'local span = require("nupp.mem.span")\nlocal function work('
+                'local span = require("binary.span")\nlocal function work('
                 .. parameter
                 .. "): "
                 .. case.result

@@ -134,7 +134,7 @@ The type is the value `error` is called with. An ordinary Lua message is a
 links the name to that declaration's own documentation:
 
 ```nupp:fragment
-const tasks = require("nupp.tasks")
+const tasks = require("coroutine")
 
 --- Waits for the batch to settle.
 ---
@@ -563,42 +563,29 @@ linked. The area reference a code carries is linked when the docs target
 publishes that file and named as a path when it does not, so a page the site
 does not build never becomes a dead link.
 
-::: deepdive
-One page rather than one per code, because an index is searched: the browser's
-find reaches every code, rule and program at once.
-:::
+### API reference
 
-### LuaJIT standard library
-
-`stdlib` generates a page holding the LuaJIT standard library:
+`stdlib` adds the compiler's builtin declarations to the generated API reference:
 
 ```lua
-stdlib = {path = "luajit", title = "LuaJIT standard library"},
+stdlib = {path = "api", title = "API reference"},
 ```
 
-The page is the compiler's own declarations: the prelude it loads into every
-check, and the declaration files behind `require("ffi")`,
-`require("string.buffer")` and the `jit` submodules. A signature on the page is
-the signature the checker enforces, because the two read the same file. It is
-not a promise about run time: on the VM, `require("ffi")` and the `jit` modules
-find nothing, while `string.buffer` and `bit` are there.
+Lua and Nupp declarations for the same module share a page. The source-owned
+signature and documentation take precedence when both declare the same
+function, and a Lua badge identifies functions with Lua API names even when
+Nupp implements them.
 
-The compiler-provided globals come first, then one section per library table,
-`string`, `table`, `math` and the rest, then the modules `require` loads, then
-the types those signatures name, and last the `Layout` graph a reified `struct`
-is measured by. A name on the page is the name a program writes: `print` is a
-global and `string.format` is a member, so `#print` and `#string.format` both
-address what they look like they address. Every code block is static, for the
-same reason the diagnostic index's blocks are.
+The declarations do not promise runtime availability: the VM provides neither
+`ffi` nor the `jit` modules, while `string.buffer` and `bit` are available.
 
-What `nupp` itself provides is not on the page. Those are modules with pages of
-their own, and the prelude declares them only so that checked code can see
-them; the semantic descriptor graph a `comptime` block walks is documented with
-the callable [`types.reflect`](../language/reflection.md) namespace instead of
-leaking ambient types here. The page needs no `sources` entry, and a project's
-own manifest cannot point it at other files: the declarations belong to the
-compiler rendering the site, which is what makes the page true of the toolchain
-a reader is holding.
+The index links every documented module and groups standalone functions under
+Globals. Intrinsic types and the `Layout` graph appear after the modules.
+The API navigation starts with each library collapsed.
+
+The builtin declarations come from the compiler's prelude and its library
+declaration files, so the reference uses the signatures the checker enforces.
+The generated examples are static code blocks.
 
 ## Cross-references
 
@@ -607,13 +594,13 @@ to whatever documents it. The name may be a module, a declaration, or a member,
 and it works the same in a handwritten page, a module blurb, and a `---` run:
 
 ```markdown
-[the span module](nupp.mem.span)
-[](nupp.mem.span.WriteSplit)
-[the conversion](nupp.mem.span.fromString)
-[](nupp.mem.span#writable-spans)
+[the span module](binary.span)
+[](binary.span.WriteSplit)
+[the conversion](binary.span.fromstring)
+[](binary.span#writable-spans)
 ```
 
-Empty link text stands for the target, so `[](nupp.mem.span)` renders that
+Empty link text stands for the target, so `[](binary.span)` renders that
 name as code and links it, which is the whole cost of a reference in passing.
 
 An unqualified name works wherever it is unambiguous, and a name declared in
@@ -750,8 +737,8 @@ built.
 
 ::: seealso
 - [cli.md](../../reference/cli.md#doc) for the command's flags and JSON report
-- [annotations.md](../../reference/annotations.md) for `@!internal` and the rest of
-  the file-level annotations
+- [`@!internal`](../../api.md#annotation-file-internal) for generated
+  documentation visibility
 - [diagnostics.md](../../reference/diagnostics.md) for the page the `diagnostics`
   key generates
 :::

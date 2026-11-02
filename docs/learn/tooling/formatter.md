@@ -53,16 +53,16 @@ module name; types used only in annotations use an erased selection:
 
 ::: code-group
 ```nupp [Written]
-local function count(values: nupp.mem.span.Span<uint8>): integer
+local function count(values: binary.span.Span<uint8>): integer
     return #values
 end
 
-return nupp.io.files.read("notes.txt"), count
+return io.files.read("notes.txt"), count
 ```
 
 ```nupp [Formatted]
-const {type Span} = require("nupp.mem.span")
-const files = require("nupp.io.files")
+const {type Span} = require("binary.span")
+const files = require("io.files")
 
 local function count(values: Span<uint8>): integer
     return #values
@@ -306,15 +306,6 @@ return {
 
 `--no-method-parens` wins if both are given; there is no flag to force parens
 back on over a manifest that turned them off.
-
-::: deepdive
-`f{...}` and `f"..."` are how the language writes a record constructor and a
-single string argument, and both forms are used deliberately in checked source.
-Parenthesizing them would rewrite constructor after constructor across a
-project for no gain in what the line means, where a method call's sugar hides
-the receiver's argument list behind a brace. The rewrite is limited to the case
-where the parentheses are what makes the call readable.
-:::
 
 ### Line width
 

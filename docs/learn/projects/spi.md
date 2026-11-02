@@ -162,8 +162,8 @@ fallback under ordinary target and host conditions.
 | `io.path.spi`, `io.uri.spi` | `Provider` |
 | `binary.hash.digest.spi`, `binary.hash.checksum.spi`, `binary.hash.mac.spi` | `Provider` |
 | `binary.compress.spi`, `nupp.system.spi`, `gpu.spi`, `nupp.host.spi` | `Provider` |
-| `nupp.io.files.spi`, `nupp.io.http.spi`, `nupp.io.net.spi`, `nupp.io.tls.spi`, `nupp.io.process.spi` | `Provider` |
-| `nupp.suspension.spi`, `nupp.workers.spi` | `Provider` |
+| `nupp.io.files.spi`, `io.http.spi`, `io.net.spi`, `io.tls.spi`, `nupp.io.process.spi` | `Provider` |
+| `coroutine.suspension.spi`, `coroutine.workers.spi` | `Provider` |
 | `nupp.mem.representation.spi` | `CstorageProvider`, `Int64Provider` |
 | `nupp.util.spi` | `UuidProvider` |
 

@@ -74,7 +74,8 @@ local function runVmPrimitiveProbe()
         assert(
             fs.writeFile(
                 dir .. "/main.nupp",
-                [[module main
+                [[
+module main
 assert(rawget(_G, "__nupp_load_image") ~= nil, "the primitive probe runs on the VM")
 local cli = require("arg")
 assert(package.loaded["arg.internal.optparser"])
@@ -82,7 +83,7 @@ assert(not package.loaded["arg.internal.decode"])
 assert(not package.loaded["arg.internal.application"])
 assert(not package.loaded["arg.internal.terminal"])
 assert(not package.loaded["nupp.derive"])
-local parser = cli.optParser({"--flag"})
+local parser = cli.optparser({"--flag"})
 assert(parser:next() == cli.longOption)
 assert(parser:key() == "flag")
 ]]
@@ -93,7 +94,7 @@ assert(parser:key() == "flag")
         assert(status == 0, output)
         assert(output == "", output)
     end)
-    local removed, removeProblem = require("nupp.io.files").remove(dir, true)
+    local removed, removeProblem = require("io.files").remove(dir, true)
     assert(removed, removeProblem)
     assert(ok, problem)
 end
@@ -115,7 +116,7 @@ assert(not package.loaded["arg.internal.decode"])
 assert(not package.loaded["arg.internal.application"])
 assert(not package.loaded["arg.internal.terminal"])
 assert(not package.loaded["nupp.derive"])
-local parser = cli.optParser({"--flag"})
+local parser = cli.optparser({"--flag"})
 assert(parser:next() == cli.longOption)
 assert(parser:key() == "flag")
 ]]

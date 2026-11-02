@@ -1,8 +1,15 @@
+const {type Task as CanonicalTask, type Status} = require("nupp.workers.spi")
+
+local record Cancellation
+    operation: string
+    reason: string?
+end
+
 -- Task ownership supplied by the native host.
 local record Task<R...>
     await: function(self: Task<R...>): R...
     isDone: function(self: Task<R...>): boolean
-    status: function(self: Task<R...>): string
+    status: function(self: Task<R...>): Status
     cancel: function(self: Task<R...>, reason: string?): boolean
 end
 
@@ -40,6 +47,8 @@ local record Channel<T> is own.Closeable
 end
 
 local record Tasks
+    Cancellation: Type<Cancellation>
+    Scope: Type<Scope>
     channel: function<T>(capacity: integer): affine(Channel<T>)
     open: function(limit: integer?, timeoutMs: number?): affine(Scope)
     run: function<R...>(scoped body: function(borrows scope: Scope): R...): R...
@@ -58,4 +67,7 @@ local record Tasks
     isCancelled: function(value: any): boolean
 end
 type Tasks.Scope = Scope
+type Tasks.Cancellation = Cancellation
+type Tasks.Status = Status
+type Tasks.Task<F> = CanonicalTask<F>
 return Tasks

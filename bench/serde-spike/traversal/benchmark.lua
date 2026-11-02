@@ -248,4 +248,4 @@ for _, case in ipairs(cases) do
     report.cases[#report.cases + 1] = case
 end
 assert(blackhole > 0)
-print(json.encodeValue(report))
+print(json.encodevalue(report))

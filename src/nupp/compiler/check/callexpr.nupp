@@ -104,27 +104,14 @@ local callexpr: {install: function(state.Checker): state.ExprHandlers} = {}
 local COMPILER_SURFACES = require("nupp.compiler.check.surfaces").COMPILER_SURFACES
 local RECEIVER_INTRINSICS = require("nupp.compiler.check.receiverintrinsics")
 
---- Whether a callee names `nupp.tasks.open`, reached by its qualified path or through
---- a local bound to the required module.
+--- Whether a callee names a trusted task-scope constructor.
+--- Qualified paths and function aliases retain the identity of `coroutine.scope`.
 local function opensTaskScope(c: state.Checker, callee: any): boolean
-    if callee.kind ~= "dotIndex" then
-        return false
-    end
-    local member = callee.name
-    if member == nil or member.text ~= "open" then
-        return false
-    end
-    local base = callee.obj
-    if base == nil then
-        return false
-    end
-    if base.qualifiedModule == "nupp.tasks" and #(base.qualifiedMembers or {}) == 0 then
-        return true
-    end
-    local token = base.kind == "name" and base.token or nil
-    local holder = token and c.lookupEntry(token.text) or nil
+    local identity = apiidentity.expression(c, callee)
 
-    return holder ~= nil and holder.requiredModule == "nupp.tasks"
+    return identity == "nupp.tasks.open"
+        or identity == "coroutine.scope"
+        or identity == "nupp.runtime.standardcoroutine.scope"
 end
 
 ----------------------------------------------------------------------------
@@ -140,8 +127,9 @@ end
 local function ownershipIntrinsic(c, callee)
     local identity = apiidentity.expression(c, callee)
     local member = identity and identity:match("^own%.([%w_]+)$")
-    if member and cst.ownershipIntrinsicMember(member) then
-        return member
+    local intrinsic = member and cst.ownershipIntrinsicName(member)
+    if intrinsic then
+        return intrinsic
     end
     local name, qualified = cst.ownershipIntrinsicSpelling(callee)
     if not name then
@@ -1538,19 +1526,19 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             -- rounds nothing and is defined at every element. The two that
             -- answer a lane index answer it at the declared `integer` and take
             -- their result from the declaration rather than from the element.
-            local named = (operation or "") as string
+            local named = ((operation or "") as string):lower()
             local extremum = named:match("^propagating") ~= nil or named:match("^number") ~= nil
-            local indexed = named:match("Arg") ~= nil
+            local indexed = named:match("arg") ~= nil
             -- The wrapping, bitwise and integer extremum contracts take
             -- integer lanes only; the named floating orders exist because
             -- addition rounds, so they take floating lanes only.
-            local integerContract = named == "wrappingSum"
-                or named == "wrappingProduct"
-                or named == "andBits"
-                or named == "orBits"
-                or named == "xorBits"
-                or named == "integerMin"
-                or named == "integerMax"
+            local integerContract = named == "wrappingsum"
+                or named == "wrappingproduct"
+                or named == "andbits"
+                or named == "orbits"
+                or named == "xorbits"
+                or named == "integermin"
+                or named == "integermax"
             local floating = element ~= nil and (element.tag == "float32" or element.tag == "float64")
             if element and indexed then
                 (node as any).simdHorizontal = selectedExport.member
@@ -1951,7 +1939,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         local soaExport = node.kind == "call" and callee and callee.exactCallExport or nil
         if soaExport
             and soaExport.module == "nupp.mem.soa"
-            and (soaExport.member == "allocate" or soaExport.member == "layoutof")
+            and (soaExport.member == "allocate" or soaExport.member == "alloc" or soaExport.member == "layoutof")
         then
             local witness = argExprs[1] and rawType(c.infer(argExprs[1])) or nil
             local subject = witness and witness.tag == "ctype" and witness.of or nil
@@ -1961,12 +1949,15 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 local spec = soaLayoutSpec(c, subject, argExprs[1] or node)
                 if spec then
                     node.soaLayout = spec
-                    node.soaOperation = soaExport.member
+                    node.soaOperation = soaExport.member == "alloc" and "allocate" or soaExport.member
                 end
             end
         end
         local indexedExport = node.kind == "call" and callee and callee.exactCallExport or nil
-        if indexedExport and indexedExport.module == "nupp.mem.indexed" and indexedExport.member == "range" then
+        if indexedExport
+            and (indexedExport.module == "nupp.mem.indexed" or indexedExport.module == "binary.span")
+            and indexedExport.member == "range"
+        then
             local views, valid = {}, #argExprs >= 3
             for position = 3, #argExprs do
                 local argument = argExprs[position]

@@ -1,3 +1,5 @@
+@!internal
+
 module nupp.suspension
 
 --[[
@@ -8,7 +10,7 @@ process, and whoever installed a handler decides what runs meanwhile -- an
 event loop, a poll, the next frame.
 
 ```nupp:fragment
-local suspension = require("nupp.suspension")
+local suspension = require("coroutine.suspension")
 
 local function readLine(reader: Reader): string
     return suspension.suspend("example.readLine", function(
@@ -32,11 +34,11 @@ would be permitted here at all, and `create` makes a coroutine that inherits the
 handler.
 
 Installing a handler, and driving the parks it accepts, is the other side of
-this: [](nupp.suspension.host). A library needs none of it.
+this: [](coroutine.suspension.host). A library needs none of it.
 
 This is the layer underneath. Somewhere to put children discovered over time,
-with one answer for failure and cancellation, is [](nupp.tasks); real
-parallelism is [](nupp.workers). Come here directly to make a library waitable,
+with one answer for failure and cancellation, is [](coroutine); real
+parallelism is [](coroutine.workers). Come here directly to make a library waitable,
 or to write a combinator neither of those has.
 
 An arbitrary blocking Lua or C call still blocks the thread. A library opts in
@@ -82,7 +84,7 @@ suspension.canSuspend = provider.canSuspend
 
 --- Creates a coroutine that inherits the handler installed where it was created.
 ---
---- Here as well as on [](nupp.suspension.host) because the compiler emits it: a
+--- Here as well as on [](coroutine.suspension.host) because the compiler emits it: a
 --- `with` statement's cleanup runs in a coroutine, and generated code names this
 --- module to make it. Scheduler authors want it beside the rest of the host surface;
 --- the emitted call wants it where it has always been.

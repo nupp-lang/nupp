@@ -89,23 +89,23 @@ local function diagnosticsFor(section)
 end
 
 function M.everyExampleChecksClean()
-    local checked = 0
+    local checked, problems = 0, {}
     for _, section in ipairs(reference.sections) do
         if section.example then
             checked = checked + 1
             local diagnostics = diagnosticsFor(section)
             if #diagnostics > 0 then
                 local first = diagnostics[1]
-                error(
-                    (
-                        "the %q example reports %s: %s\n%s"
-                    ):format(section.title, first.code or "?", first.message or "", section.example),
-                    2
-                )
+                problems[
+                    #problems + 1
+                ] = (
+                    "the %q example reports %s: %s\n%s"
+                ):format(section.title, first.code or "?", first.message or "", section.example)
             end
         end
     end
     assert(checked > 10, "expected the reference to carry examples")
+    assert(#problems == 0, table.concat(problems, "\n"))
 end
 
 -- A reference that cites a code nothing can explain sends its reader nowhere.
@@ -130,7 +130,7 @@ end
 
 function M.theSkillCarriesLoadableFrontmatter()
     local skill = reference.skill()
-    testAssert.equal(skill:sub(1, 4), "---\n", "opens with frontmatter")
+    testAssert.eq(skill:sub(1, 4), "---\n", "opens with frontmatter")
     assert(skill:find("\nname: nupp\n", 1, true), "names itself")
     assert(skill:find("description:", 1, true), "says when to load it")
     local closing = skill:find("\n---\n", 4, true)
@@ -145,13 +145,13 @@ end
 function M.aSectionCanBeEjectedAsASkill()
     local text, ok = runCommand(HERE .. "/..", "--section types --format skill")
     assert(ok, "the section renders as a skill: " .. text)
-    testAssert.equal(text:sub(1, 4), "---\n", "opens with frontmatter")
+    testAssert.eq(text:sub(1, 4), "---\n", "opens with frontmatter")
     assert(text:find("\nname: nupp-types\n", 1, true), "names itself after the section")
     local closing = text:find("\n---\n", 4, true)
     assert(closing, "closes its frontmatter")
     assert(text:find("# Types", closing, true), "the section follows the frontmatter")
     local byCode = runCommand(HERE .. "/..", "--for NUPP2004 --skill")
-    testAssert.equal(byCode:sub(1, 4), "---\n", "--for honours the format too")
+    testAssert.eq(byCode:sub(1, 4), "---\n", "--for honours the format too")
 end
 
 function M.chaptersAreDiscoverableAndFocused()
@@ -202,7 +202,7 @@ function M.allJsonListsEverySectionItsMarkdownContains()
     for _, chapter in ipairs(reference.chapters) do
         expected = expected + #chapter.sections
     end
-    testAssert.equal(#payload.sections, expected, "the flat section index agrees with the chapter index")
+    testAssert.eq(#payload.sections, expected, "the flat section index agrees with the chapter index")
     local byTitle = {}
     for _, section in ipairs(payload.sections) do
         byTitle[section.title] = true
@@ -268,6 +268,16 @@ function M.aDocsPointerNamesItsSection()
     local out = pipe:read("*a")
     pipe:close()
     assert(out:find("# Modules", 1, true), "a docs pointer resolves: " .. out:sub(1, 120))
+end
+
+function M.anAnnotationPointerNamesItsGeneratedDeclaration()
+    local pipe = assert(io.popen(('%q reference --section "docs/api.md#annotation-aot"'):format(NUPP)))
+    local out = pipe:read("*a")
+    assert(pipe:close())
+    assert(out:find("# @aot", 1, true), out)
+    assert(out:find("required whole-function ahead-of-time compilation contract", 1, true), out)
+    assert(out:find("target", 1, true) and out:find('"gpu"', 1, true), out)
+    assert(not out:find("### `@aot`", 1, true), "the declaration heading was repeated")
 end
 
 --- The loop a diagnostic half-closes: holding a code is enough to reach the prose.

@@ -73,7 +73,7 @@ local record JsonSerializer is Serializer
 end
 
 local function member(index: integer, name: string, kind: FieldKind): Member
-    return new Member(index = index, name = name, kind = kind, jsonKey = json.encodedString(name))
+    return new Member(index = index, name = name, kind = kind, jsonKey = json.encodedstring(name))
 end
 
 local function schema(members: {Member}): Schema
@@ -86,8 +86,8 @@ local function schema(members: {Member}): Schema
 end
 
 local function serializer(): JsonSerializer
-    local out = text.newBuffer()
-    return new JsonSerializer(out = out, writer = @unsafe own.release(json.newWriter(out)))
+    local out = text.newbuffer()
+    return new JsonSerializer(out = out, writer = @unsafe own.release(json.newwriter(out)))
 end
 
 local function genericEncode(value: any, description: Schema, slots: boolean): string
@@ -194,7 +194,7 @@ end
 local smallMembers = {member(1, "id", "integer"), member(2, "active", "boolean"), member(3, "name", "string"),}
 local smallSchema = schema(smallMembers)
 
-@derive(types.Debug)
+@derive(types.debug)
 local record Small
     id: integer
     active: boolean
@@ -225,7 +225,7 @@ local mediumMembers = {
 }
 local mediumSchema = schema(mediumMembers)
 
-@derive(types.Debug)
+@derive(types.debug)
 local record Medium
     id: integer
     active: boolean
@@ -313,7 +313,7 @@ local preparedMedium = serde.binding(Medium, new serde.Options(unknownMembers = 
 local preparedConstantMedium = serde.binding(ConstantMedium, new serde.Options(unknownMembers = "ignore"))
 local preparedDebugSmall = rendering.binding(Small)
 local preparedDebugMedium = rendering.binding(Medium)
-local preparedOutput = text.newBuffer()
+local preparedOutput = text.newbuffer()
 
 local scalarString = {kind = "string"}
 local scalarInteger = {kind = "integer"}
@@ -355,13 +355,13 @@ local preparedPayload = serde.binding(Payload, new serde.Options(unknownMembers 
 local payload4KiB = new Payload(data = string.rep("x", 4 * 1024))
 local payload64KiB = new Payload(data = string.rep("x", 64 * 1024))
 
-@derive(types.Debug)
+@derive(types.debug)
 local record NestedChild
     label: string
     scores: {integer}
 end
 
-@derive(types.Debug)
+@derive(types.debug)
 local record NestedEnvelope
     id: integer
     child: NestedChild
@@ -453,8 +453,8 @@ end
 
 -- The public embedding path, with a caller-owned syntax writer.
 local function embeddedEncode<T>(binding: serde.Binding<T>, value: T): string
-    local out = text.newBuffer()
-    local writer = json.newWriter(out)
+    local out = text.newbuffer()
+    local writer = json.newwriter(out)
     productionCodec:writeValue(binding, value, writer)
     writer:close()
 
@@ -466,7 +466,7 @@ function m.currentEncodeSmall(): string
 end
 
 function m.documentEncodeSmall(): string
-    return json.encodeValue(smallValue)
+    return json.encodevalue(smallValue)
 end
 
 function m.directEncodeSmall(): string
@@ -515,7 +515,7 @@ end
 
 function m.preparedWriterSmall(): integer
     preparedOutput:reset()
-    local writer = json.newWriter(preparedOutput)
+    local writer = json.newwriter(preparedOutput)
     productionCodec:writeValue(preparedSmall, smallValue, writer)
     writer:close()
 
@@ -537,7 +537,7 @@ function m.currentEncodeMedium(): string
 end
 
 function m.documentEncodeMedium(): string
-    return json.encodeValue(mediumValue)
+    return json.encodevalue(mediumValue)
 end
 
 function m.serdeEncodeMedium(): string
@@ -624,7 +624,7 @@ end
 
 function m.preparedWriterPayload64KiB(): integer
     preparedOutput:reset()
-    local writer = json.newWriter(preparedOutput)
+    local writer = json.newwriter(preparedOutput)
     productionCodec:writeValue(preparedPayload, payload64KiB, writer)
     writer:close()
 
@@ -647,7 +647,7 @@ end
 
 function m.preparedWriterNested(): integer
     preparedOutput:reset()
-    local writer = json.newWriter(preparedOutput)
+    local writer = json.newwriter(preparedOutput)
     productionCodec:writeValue(preparedNested, nestedValue, writer)
     writer:close()
 
@@ -667,13 +667,13 @@ end
 local smallJson = m.nativeEncodeSmall()
 local mediumJson = m.nativeEncodeMedium()
 local payload64KiBJson = productionCodec:encode(preparedPayload, payload64KiB)
-local smallInput = text.newBuffer()
+local smallInput = text.newbuffer()
 smallInput:put(smallJson)
-local mediumInput = text.newBuffer()
+local mediumInput = text.newbuffer()
 mediumInput:put(mediumJson)
-local nestedInput = text.newBuffer()
+local nestedInput = text.newbuffer()
 nestedInput:put(nestedJson)
-local payload64KiBInput = text.newBuffer()
+local payload64KiBInput = text.newbuffer()
 payload64KiBInput:put(payload64KiBJson)
 local mediumReverseJson = [[{"cached":true,"retries":3,"owner":"example-owner","ratio":0.625,"version":7,"enabled":false,"region":"us-east-1","score":98.25,"count":1701,"name":"Ada","active":true,"id":41}]]
 local mediumUnknownJson = [[{"ignored":{"nested":[1,2,3]},"id":41,"active":true,"name":"Ada","count":1701,"score":98.25,"region":"us-east-1","enabled":false,"version":7,"ratio":0.625,"owner":"example-owner","retries":3,"cached":true}]]
@@ -683,7 +683,7 @@ function m.currentDecodeSmall(): Small
 end
 
 function m.documentDecodeSmall(): unknown
-    return (assert2(json.decodeValue(smallJson)))
+    return (assert2(json.decodevalue(smallJson)))
 end
 
 function m.nativeDecodeSmall(): Small
@@ -707,7 +707,7 @@ function m.currentDecodeMedium(): Medium
 end
 
 function m.documentDecodeMedium(): unknown
-    return (assert2(json.decodeValue(mediumJson)))
+    return (assert2(json.decodevalue(mediumJson)))
 end
 
 function m.nativeDecodeMedium(): Medium

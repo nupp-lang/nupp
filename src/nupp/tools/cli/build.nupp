@@ -259,7 +259,7 @@ end
 ---     nupp build --target app
 ---     nupp build --json
 @cli("build")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Build
     --- Build a named manifest target.
     @cli(value = "NAME")

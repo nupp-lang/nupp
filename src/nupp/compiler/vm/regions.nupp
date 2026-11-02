@@ -1,5 +1,7 @@
 module nupp.compiler.vm.regions
 
+const assert2 = require("assert")
+
 -- Region annotations name existing blocks. Walking them never builds another
 -- statement tree. One traversal validates the annotations and records the
 -- structured event sequence as three parallel arrays, so a backend consumes
@@ -22,7 +24,7 @@ function regions.events(g: any): any
     local path
     path = function(id, stop)
         while id ~= stop do
-            local b = assert(g.blocks[id], "invalid region block")
+            local b = assert2(g.blocks[id], "invalid region block")
             if not (not seen[id]) then
                 error("region crosses another region or has an unmarked cycle", 0)
             end
@@ -32,8 +34,8 @@ function regions.events(g: any): any
                 if not (t.kind == "branch" and t.edges[2].target == r.merge) then
                     error("loop exit differs from its merge", 0)
                 end
-                local continuing = assert(g.blocks[r.continuing], "loop has no continue block")
-                assert(
+                local continuing = assert2(g.blocks[r.continuing], "loop has no continue block")
+                assert2(
                     continuing.term.kind == "jump" and continuing.term.edges[1].target == id,
                     "invalid loop back edge"
                 )

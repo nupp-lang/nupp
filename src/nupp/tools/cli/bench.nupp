@@ -299,7 +299,7 @@ end
 ---     nupp bench --case mixed-argv --variant record-token --json
 ---     nupp bench --against ./build/baseline/bin/nupp --margin 2
 @cli("bench")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Bench
     --- List benchmark names and source files without running.
     ---

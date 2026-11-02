@@ -43,7 +43,7 @@ function suite.run(): number
     const source = archetype.new(1, {Position as components.Component})
     archetype.append(source, 1, {[Position.componentId] = new Point(1.5, 2.5)})
     archetype.append(source, 2, {[Position.componentId] = new Point(3.5, 4.5)})
-    const output = text.newBuffer()
+    const output = text.newbuffer()
     const prelude = codec.write(
         {source},
         query.new(),

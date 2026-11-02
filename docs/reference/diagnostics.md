@@ -47,18 +47,6 @@ Failing an explicit flag, `NO_COLOR` refuses escapes, `CLICOLOR_FORCE` demands
 them, and failing both the stream is asked whether it is a terminal that
 understands them, which `TERM=dumb` answers no for.
 
-::: deepdive
-Color never changes the bytes. A styled report is the plain report with escapes
-wrapped around spans of it, so a tool that reads compiler output has nothing to
-strip and no second format to learn, and a person who pipes a failing build into
-a file gets the same thing they saw.
-
-That constraint is why `NO_COLOR` is one-way. The convention gives a user a way
-to refuse escapes and no way to ask for them, so the variable that forces them
-on is a separate one, and a terminal that has announced itself as incapable
-through `TERM=dumb` is still asked last rather than first.
-:::
-
 ## Diagnostic fields
 
 Every diagnostic carries `severity` and `message`, plus `fixes`, `notes`, and
@@ -132,17 +120,17 @@ that page:
 | --- | --- | --- |
 | Affine types | [affine-types.md](../learn/runtime/ownership/affine-types.md) | `NUPP2606` |
 | Ahead-of-time compilation | [ahead-of-time.md](../learn/performance/ahead-of-time/index.md) | `NUPP2902`, `NUPP2903`, `NUPP2909` through `NUPP2911`; `NUPP2905` through `NUPP2908` are retired |
-| Annotations | [annotations.md](annotations.md) | `NUPP2108`, `NUPP2112`, `NUPP2113`, `NUPP2119`, `NUPP2902`, `NUPP2903` |
+| Annotations | [../learn/language/annotations.md](../learn/language/annotations.md) | `NUPP2108`, `NUPP2112`, `NUPP2113`, `NUPP2119`, `NUPP2902`, `NUPP2903` |
 | Associated types | [associated-types.md](../learn/language/types/associated-types.md) | `NUPP2127`, `NUPP2128`, `NUPP2129`, `NUPP2134`, `NUPP2135`, `NUPP2511` |
 | C interop | [c-interop.md](../learn/runtime/c-interop/index.md) | `NUPP2201`, `NUPP2402`, `NUPP2403`, `NUPP2904` |
-| Checked spans | [](nupp.mem.span) | `NUPP2001`, `NUPP2004`, `NUPP2602`, `NUPP2604` |
+| Checked spans | [](binary.span) | `NUPP2001`, `NUPP2004`, `NUPP2602`, `NUPP2604` |
 | Comptime | [comptime.md](../learn/language/comptime.md) | `NUPP2410` through `NUPP2416`, `NUPP2419`, `NUPP2420`, `NUPP2421` |
 | Comptime types | [type-level-computation.md](../learn/language/types/comptime-types.md) | `NUPP2001` |
 | Constrained types | [constrained.md](../learn/language/types/constrained.md) | `NUPP2001`, `NUPP2013`, `NUPP2422` |
 | Derives | [derives.md](derives.md) | `NUPP2810` |
 | Effect contracts | [effects.md](../learn/language/effects.md) | `NUPP2112`, `NUPP2710`, `NUPP2711` |
 | File types | [file-types.md](../learn/language/file-types.md) | `NUPP1006`, `NUPP1008`, `NUPP2105`, `NUPP2106` |
-| Files | [](nupp.io.files) | `NUPP2701` |
+| Files | [](io.files) | `NUPP2701` |
 | Formatter | [fmt.md](../learn/tooling/formatter.md) | `NUPP4001` |
 | Generics | [generics.md](../learn/language/types/generics.md) | `NUPP2003`, `NUPP2116`, `NUPP2122`, `NUPP2146`, `NUPP2148` |
 | Hot reload | [hot-reload.md](../learn/projects/hot-reload.md) | `NUPP5001` |

@@ -6,28 +6,28 @@ Call assert to require a truthy first argument and return the complete input pac
 Its helpers compare values, while assert.suite records test cases and their evidence.
 
 ```nupp
-assert.equal(2 + 2, 4)
-assert.deepEqual({"ready", 200}, {"ready", 200})
+assert.eq(2 + 2, 4)
+assert.deepeq({"ready", 200}, {"ready", 200})
 local value, gap, count = assert("ready", nil, 2)
 assert(value == "ready" and gap == nil and count == 2)
 ```
 ]]
 
 local interface Callable
-    equal: function(any, any, string?): any
-    notEqual: function(any, any, string?): any
-    deepEqual: function(any, any, string?): any
+    eq: function(any, any, string?): any
+    ne: function(any, any, string?): any
+    deepeq: function(any, any, string?): any
     matches: function(any, string, string?): string
     raises: function(function(...: any): any, string?): any
     suite: {
         skip: function(string): never,
-        isSkip: function(any): boolean,
-        skipReason: function(any): string?,
+        isskip: function(any): boolean,
+        skipreason: function(any): string?,
         cases: function({any}, function(any, integer): string, function(any, integer): any): any,
-        notExecuted: function(string): never,
-        isNotExecuted: function(any): boolean,
-        notExecutedReason: function(any): string?,
-        requireCapability: function(string, boolean, any?): nil,
+        notexecuted: function(string): never,
+        isnotexecuted: function(any): boolean,
+        notexecutedreason: function(any): string?,
+        requirecapability: function(string, boolean, any?): nil,
         fact: function(string, any): nil,
         metric: function(string, number, string?): nil,
         work: function(string, integer): nil,
@@ -380,14 +380,14 @@ function suite.skip(reason: string): never
 end
 
 --- Returns whether a caught error is a skip raised by this module.
-function suite.isSkip(value: any): boolean
+function suite.isskip(value: any): boolean
     return type(value) == "table" and value.skip == skipped
 end
 
-local isSkip = suite.isSkip
+local isSkip = suite.isskip
 
 --- Returns the reason carried by a skip error.
-function suite.skipReason(value: any): string?
+function suite.skipreason(value: any): string?
     if isSkip(value) then
         return value.reason as string
     end
@@ -461,7 +461,7 @@ end
 --- @param reason why the case could not execute
 --- @raises table when the case cannot execute
 --- @raises string outside a test case or when the reason is invalid
-function suite.notExecuted(reason: string): never
+function suite.notexecuted(reason: string): never
     if caseContext() == nil then
         fail("notExecuted must be called while a test case is running", 2)
     elseif type(reason) ~= "string" or reason == "" then
@@ -470,7 +470,7 @@ function suite.notExecuted(reason: string): never
     error({notExecuted = notExecutedTag, reason = reason}, 0)
 end
 
-local notExecuted = suite.notExecuted
+local notExecuted = suite.notexecuted
 
 --- Requires a capability and records the evidence used to decide it.
 ---
@@ -480,7 +480,7 @@ local notExecuted = suite.notExecuted
 --- @param name the stable capability name
 --- @param available whether the runtime proved the capability
 --- @param evidence structured evidence supporting the decision
-function suite.requireCapability(name: string, available: boolean, evidence: any?): nil
+function suite.requirecapability(name: string, available: boolean, evidence: any?): nil
     local activeCase = caseContext()
     if activeCase == nil then
         fail("requireCapability must be called while a test case is running", 2)
@@ -573,14 +573,14 @@ function suite.fixture(key: string, produce: function(string): any): (string, an
 end
 
 --- Returns whether a caught error marks a case as not executed.
-function suite.isNotExecuted(value: any): boolean
+function suite.isnotexecuted(value: any): boolean
     return type(value) == "table" and value.notExecuted == notExecutedTag
 end
 
-local isNotExecuted = suite.isNotExecuted
+local isNotExecuted = suite.isnotexecuted
 
 --- Returns the reason carried by a not-executed error.
-function suite.notExecutedReason(value: any): string?
+function suite.notexecutedreason(value: any): string?
     if isNotExecuted(value) then
         return value.reason as string
     end
@@ -588,13 +588,7 @@ function suite.notExecutedReason(value: any): string?
     return nil
 end
 
-local callable = {
-    equal = equal,
-    notEqual = notEqual,
-    deepEqual = deepEqual,
-    matches = matches,
-    raises = raises,
-} as Callable
+local callable = {eq = equal, ne = notEqual, deepeq = deepEqual, matches = matches, raises = raises,} as Callable
 callable.suite = suite
 
 rawset(_G, "assert", callable)

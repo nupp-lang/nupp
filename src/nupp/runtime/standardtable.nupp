@@ -1,0 +1,71 @@
+@!internal
+module nupp.runtime.standardtable
+
+local function index(value: any, position: integer): integer
+    local number: any = value
+    if type(number) ~= "number" then
+        number = tonumber(value)
+    end
+    if number == nil then
+        error("bad argument #" .. tostring(position) .. " to 'move' (number expected, got " .. type(value) .. ")", 3)
+    end
+    if number ~= number or number == math.huge or number == -math.huge then
+        error("bad argument #" .. tostring(position) .. " to 'move' (finite index expected)", 3)
+    end
+    if number % 1 == 0 then
+        return number as integer
+    end
+
+    return (number < 0 and math.ceil(number) or math.floor(number)) as integer
+end
+
+local function move(source: any, first: any, last: any, target: any, destination: any): any
+    if type(source) ~= "table" then
+        error("bad argument #1 to 'move' (table expected, got " .. type(source) .. ")", 2)
+    end
+    local begin = index(first, 2)
+    local finish = index(last, 3)
+    local start = index(target, 4)
+    if destination == nil then
+        destination = source
+    end
+    if type(destination) ~= "table" then
+        error("bad argument #5 to 'move' (table expected, got " .. type(destination) .. ")", 2)
+    end
+    if finish >= begin then
+        local count = finish - begin
+        local ending = start + count
+        if count < 0 or count == math.huge or ending < start or ending == math.huge then
+            error("too many elements to move", 2)
+        end
+        local backwards = start > begin and start <= finish and rawequal(source, destination)
+        local step = backwards and -1 or 1
+        local key = backwards and finish or begin
+        local final = backwards and begin or finish
+        local output = backwards and ending or start
+        while true do
+            rawset(destination, output, rawget(source, key))
+            if key == final then
+                break
+            end
+            local nextKey = key + step
+            local nextOutput = output + step
+            if nextKey - key ~= step or nextOutput - output ~= step then
+                error("index range cannot be represented", 2)
+            end
+            key, output = nextKey, nextOutput
+        end
+    end
+
+    return destination
+end
+
+-- Keep a host implementation and its identity whenever one already exists.
+export function install(host: table): table
+    if rawget(host, "move") == nil then
+        rawset(host, "move", move)
+    end
+    return host
+end
+
+export const value: table = install(rawget(_G, "table") as table)

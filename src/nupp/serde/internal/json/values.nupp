@@ -28,19 +28,19 @@ when it must encode as an array, or use the two sentinels:
 ```nupp
 const json = serde.json
 
-assert(json.encodeValue({}) == "{}")
-assert(json.encodeValue(json.asArray({})) == "[]")
-assert(json.encodeValue(json.EMPTY_ARRAY) == "[]")
-assert(json.encodeValue(json.EMPTY_OBJECT) == "{}")
+assert(json.encodevalue({}) == "{}")
+assert(json.encodevalue(json.asarray({})) == "[]")
+assert(json.encodevalue(json.EMPTY_ARRAY) == "[]")
+assert(json.encodevalue(json.EMPTY_OBJECT) == "{}")
 
-local emptyArray = assert(json.decodeValue("[]"))
-assert(json.isArray(emptyArray))
-local emptyObject = assert(json.decodeValue("{}"))
-assert(not json.isArray(emptyObject))
+local emptyArray = assert(json.decodevalue("[]"))
+assert(json.isarray(emptyArray))
+local emptyObject = assert(json.decodevalue("{}"))
+assert(not json.isarray(emptyObject))
 ```
 
-`asObject` is the corresponding mark for a table that must encode as an object.
-`isArray` reads the shape retained by decoded containers, including when they
+`asobject` is the corresponding mark for a table that must encode as an object.
+`isarray` reads the shape retained by decoded containers, including when they
 are empty.
 
 ## JSON null
@@ -52,32 +52,23 @@ it encodes back as null:
 ```nupp:fragment
 const json = serde.json
 
-local value = assert(json.decodeValue([[{"items":[1,null,2]}]], json.NULL))
+local value = assert(json.decodevalue([[{"items":[1,null,2]}]], json.NULL))
 assert(value.items[2] == json.NULL)
-assert(json.encodeValue(value) == [[{"items":[1,null,2]}]])
+assert(json.encodevalue(value) == [[{"items":[1,null,2]}]])
 ```
-
-::: deepdive Dropping null by default
-A Lua table cannot hold nil as a value, so a decoded null has to become either
-an absence or a sentinel. An absence is what most callers mean, and it keeps a
-decoded document indexable without every read testing against a sentinel first.
-A sentinel is what a caller round-tripping somebody else's document means, and
-that caller says so once, at the `decode` call, rather than everywhere the
-value is read.
-:::
 
 ## Pulling selected values
 
 `pull` validates the complete document while applying its selection. `true`
 selects a complete value, an object shape selects named fields, and
-`arrayOf(shape)` applies a shape to every member of an array. Missing and
+`arrayof(shape)` applies a shape to every member of an array. Missing and
 unselected fields are omitted:
 
 ```nupp
 const json = serde.json
 
 local source = '[{"id": 1, "role": "admin", "profile": {"name": "Ada", "age": 36}}]'
-local users, reason = json.pull(source, json.arrayOf({id = true, profile = {name = true}}))
+local users, reason = json.pull(source, json.arrayof({id = true, profile = {name = true}}))
 ```
 
 This is the lower-level path for pull deserializers: it validates the complete
@@ -91,8 +82,8 @@ building a Lua table or a complete result string. `endArray()` and
 leaving the document open, and consuming `close()` requires one complete root:
 
 ```nupp
-local out = nupp.text.newBuffer()
-local writer = serde.json.newWriter(out)
+local out = nupp.text.newbuffer()
+local writer = serde.json.newwriter(out)
 writer:startObject():key("items"):startArray():write(1):write(2):endArray():endObject()
 writer:close()
 ```
@@ -109,7 +100,7 @@ the same threshold, so a large root does not need to exist as one staged string.
 `encoded(value)` performs ordinary encoding once. `verified(text)` instead
 validates an existing immutable JSON string without decoding or re-encoding it.
 Both return a value that `write` appends without another walk or validation.
-`encodedString(value)` and `verifiedString(text)` provide the corresponding
+`encodedstring(value)` and `verifiedstring(text)` provide the corresponding
 string-only form accepted by both `key` and `write`; these handles are interned,
 so repeated schema keys share their encoded representation.
 
@@ -150,7 +141,7 @@ export type EncodedValue = contracts.EncodedValue
 --- validated.
 ---
 --- `Writer:key` accepts this type without validating UTF-8 or escaping it again.
---- Values produced by `encodedString` and `verifiedString` are interned.
+--- Values produced by `encodedstring` and `verifiedstring` are interned.
 --- @export
 export type EncodedString = contracts.EncodedString
 
@@ -170,11 +161,11 @@ export type EncodedString = contracts.EncodedString
 --- @export
 export type JSONEncodable = contracts.JSONEncodable
 
---- A checked incremental JSON writer, which `newWriter` returns.
+--- A checked incremental JSON writer, which `newwriter` returns.
 ---
 --- ```nupp
---- local out = nupp.text.newBuffer()
---- local writer = serde.json.newWriter(out)
+--- local out = nupp.text.newbuffer()
+--- local writer = serde.json.newwriter(out)
 --- writer:startObject():key("ok"):write(true):endObject()
 --- writer:close()
 --- assert(out:tostring() == [[{"ok":true}]])
@@ -266,9 +257,9 @@ rawset(WriterImpl, "write", writerWrite)
 --- the document `null` decodes to nil when nulls are dropped.
 ---
 --- ```nupp
---- local value, reason = serde.json.decodeValue([[{"id":41}]])
+--- local value, reason = serde.json.decodevalue([[{"id":41}]])
 --- assert(reason == nil and value.id == 41)
---- local broken, why = serde.json.decodeValue([[{"id":]])
+--- local broken, why = serde.json.decodevalue([[{"id":]])
 --- assert(broken == nil and why ~= nil)
 --- ```
 --- @param text the complete JSON document
@@ -320,7 +311,7 @@ end
 --- const json = serde.json
 --- local users = assert(json.pull(
 ---     [[{"users":[{"id":1,"name":"Ada"},{"id":2,"name":"Lin"}]}]],
----     {users = json.arrayOf({id = true})}
+---     {users = json.arrayof({id = true})}
 --- ))
 --- assert(users.users[1].id == 1 and users.users[1].name == nil)
 --- assert(users.users[2].id == 2)
@@ -338,8 +329,8 @@ end
 --- Marks a Lua table as a JSON array, including while it is empty.
 ---
 --- ```nupp
---- local values = serde.json.asArray({})
---- assert(serde.json.encodeValue(values) == "[]")
+--- local values = serde.json.asarray({})
+--- assert(serde.json.encodevalue(values) == "[]")
 --- ```
 --- @param value the table to mark
 --- @return the same table
@@ -352,8 +343,8 @@ end
 ---
 --- ```nupp
 --- const json = serde.json
---- local object = json.asObject(json.asArray({}))
---- assert(json.encodeValue(object) == "{}")
+--- local object = json.asobject(json.asarray({}))
+--- assert(json.encodevalue(object) == "{}")
 --- ```
 --- @param value the table to mark
 --- @return the same table
@@ -369,11 +360,11 @@ end
 ---
 --- ```nupp
 --- const json = serde.json
---- local array = assert(json.decodeValue("[]"))
---- local object = assert(json.decodeValue("{}"))
---- assert(json.isArray(array))
---- assert(not json.isArray(object))
---- assert(json.isArray({1, 2}))
+--- local array = assert(json.decodevalue("[]"))
+--- local object = assert(json.decodevalue("{}"))
+--- assert(json.isarray(array))
+--- assert(not json.isarray(object))
+--- assert(json.isarray({1, 2}))
 --- ```
 --- @param value the value whose JSON container shape to inspect
 --- @return true for a JSON array and false for an object or scalar
@@ -386,7 +377,7 @@ end
 --- Serializes one Lua value as JSON.
 ---
 --- ```nupp
---- local text = serde.json.encodeValue({answer = 42})
+--- local text = serde.json.encodevalue({answer = 42})
 --- assert(text == [[{"answer":42}]])
 --- ```
 --- @param value the value to serialize
@@ -423,7 +414,7 @@ end
 ---
 --- ```nupp
 --- local json = serde.json
---- assert(json.encodeValue(json.numberToken("12345678901234567890")) == "12345678901234567890")
+--- assert(json.encodevalue(json.numbertoken("12345678901234567890")) == "12345678901234567890")
 --- ```
 --- @param text the exact numeric lexeme
 --- @return a validated fragment for a JSON writer or encoder
@@ -436,7 +427,7 @@ end
 --- Encodes and interns a string for trusted use as either a key or value.
 ---
 --- ```nupp
---- local key = serde.json.encodedString("user_id")
+--- local key = serde.json.encodedstring("user_id")
 --- ```
 --- @param value the unencoded string
 --- @return its reusable encoded representation
@@ -460,7 +451,7 @@ end
 --- Validates and interns existing bytes containing a complete JSON string.
 ---
 --- ```nupp
---- local key = serde.json.verifiedString([["user_id"]])
+--- local key = serde.json.verifiedstring([["user_id"]])
 --- ```
 --- @param text an encoded JSON string, including its quotes
 --- @return a handle retaining the original immutable string
@@ -472,8 +463,8 @@ end
 --- Creates an incremental JSON writer over caller-owned storage.
 ---
 --- ```nupp
---- local out = nupp.text.newBuffer()
---- local writer = serde.json.newWriter(out)
+--- local out = nupp.text.newbuffer()
+--- local writer = serde.json.newwriter(out)
 --- writer:startObject():key("id"):write(41):endObject()
 --- writer:close()
 --- assert(out:tostring() == [[{"id":41}]])

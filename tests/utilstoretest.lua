@@ -49,52 +49,52 @@ end
 -- Runtime -------------------------------------------------------------------
 
 function M.idsAreSequentialAcrossNamedAndAnonymousKeys()
-    local first = data.newKey(nil)
-    local named = data.newKey("store.test.sequence")
-    local third = data.newKey(nil)
-    check.equal(named.id, first.id + 1)
-    check.equal(third.id, named.id + 1)
-    check.equal(named.name, "store.test.sequence")
-    check.equal(first.name, nil)
+    local first = data.newkey(nil)
+    local named = data.newkey("store.test.sequence")
+    local third = data.newkey(nil)
+    check.eq(named.id, first.id + 1)
+    check.eq(third.id, named.id + 1)
+    check.eq(named.name, "store.test.sequence")
+    check.eq(first.name, nil)
 end
 
 function M.emptyAndDuplicateNamesRaiseBeforeAnIdIsUsed()
-    local before = data.newKey(nil)
+    local before = data.newkey(nil)
     raises(
         function()
-            data.newKey("")
+            data.newkey("")
         end,
         "must not be empty"
     )
-    local named = data.newKey("store.test.duplicate")
+    local named = data.newkey("store.test.duplicate")
     raises(
         function()
-            data.newKey("store.test.duplicate")
+            data.newkey("store.test.duplicate")
         end,
         "already registered"
     )
-    local after = data.newKey(nil)
-    check.equal(named.id, before.id + 1)
-    check.equal(after.id, named.id + 1)
+    local after = data.newkey(nil)
+    check.eq(named.id, before.id + 1)
+    check.eq(after.id, named.id + 1)
 end
 
 function M.keyFindReturnsTheRegisteredIdentityOrNil()
-    local key = data.newKey("store.test.find")
+    local key = data.newkey("store.test.find")
     check(rawequal(data.Key.find("store.test.find"), key), "lookup returned another table")
-    check.equal(data.Key.find("store.test.absent"), nil)
+    check.eq(data.Key.find("store.test.absent"), nil)
 end
 
 function M.keyRegisteredWalksNamesAscendingByIdWithoutTheRegistry()
-    local first = data.newKey("store.test.list.first")
-    local anonymous = data.newKey(nil)
-    local second = data.newKey("store.test.list.second")
+    local first = data.newkey("store.test.list.first")
+    local anonymous = data.newkey(nil)
+    local second = data.newkey("store.test.list.second")
     local seen = {}
     for id, name in data.Key.registered() do
         seen[name] = id
         check(id ~= anonymous.id, "an anonymous key was walked")
     end
-    check.equal(seen["store.test.list.first"], first.id)
-    check.equal(seen["store.test.list.second"], second.id)
+    check.eq(seen["store.test.list.first"], first.id)
+    check.eq(seen["store.test.list.second"], second.id)
     -- Ascending by id, where the old snapshot came back in pairs order.
     local ids = {}
     for id in data.Key.registered() do
@@ -105,92 +105,92 @@ function M.keyRegisteredWalksNamesAscendingByIdWithoutTheRegistry()
     end
     -- The loop is handed a step and an integer, so there is no registry to reach.
     local _, state = data.Key.registered()
-    check.equal(state, nil)
+    check.eq(state, nil)
 end
 
 function M.storesAreIndependentAndKeysAreShared()
-    local score = data.newKey("store.test.score")
-    local first = data.newStore()
-    local second = data.newStore()
+    local score = data.newkey("store.test.score")
+    local first = data.newstore()
+    local second = data.newstore()
     first:set(score, 10)
     second:set(score, 20)
-    check.equal(first:get(score), 10)
-    check.equal(second:get(score), 20)
-    check.equal(data.newStore():get(score), nil)
+    check.eq(first:get(score), 10)
+    check.eq(second:get(score), 20)
+    check.eq(data.newstore():get(score), nil)
 end
 
 function M.removeDeletesAndSetRejectsNil()
-    local key = data.newKey(nil)
-    local store = data.newStore()
+    local key = data.newkey(nil)
+    local store = data.newstore()
     local held = {}
     store:set(key, held)
     check(rawequal(store:get(key), held), "reference identity was lost")
     store:set(key, false)
     check(rawequal(store:get(key), false), "false was not stored")
     store:set(key, 0)
-    check.equal(store:get(key), 0)
+    check.eq(store:get(key), 0)
     store:set(key, "")
-    check.equal(store:get(key), "")
+    check.eq(store:get(key), "")
     raises(
         function()
             store:set(key, nil)
         end,
         "use Store:remove"
     )
-    check.equal(store:get(key), "")
+    check.eq(store:get(key), "")
     store:remove(key)
-    check.equal(store:get(key), nil)
+    check.eq(store:get(key), nil)
     local remaining = 0
     for _ in store:entries() do
         remaining = remaining + 1
     end
-    check.equal(remaining, 0)
+    check.eq(remaining, 0)
 end
 
 function M.clearDropsValuesAndKeepsRegistrations()
-    local key = data.newKey("store.test.clear")
-    local store = data.newStore()
+    local key = data.newkey("store.test.clear")
+    local store = data.newstore()
     store:set(key, "ready")
     store:clear()
-    check.equal(store:get(key), nil)
+    check.eq(store:get(key), nil)
     check(rawequal(data.Key.find("store.test.clear"), key), "clearing touched the registry")
     store:set(key, "again")
-    check.equal(store:get(key), "again")
+    check.eq(store:get(key), "again")
 end
 
 function M.entriesAscendByIdAndCarryNoValue()
-    local named = data.newKey("store.test.inspect")
-    local anonymous = data.newKey(nil)
-    local store = data.newStore()
+    local named = data.newkey("store.test.inspect")
+    local anonymous = data.newkey(nil)
+    local store = data.newstore()
     store:set(anonymous, 4)
     store:set(named, "text")
     local seen = {}
     for id, name, valueType in store:entries() do
         seen[#seen + 1] = {id = id, name = name, valueType = valueType}
     end
-    check.equal(#seen, 2)
-    check.equal(seen[1].id, named.id)
-    check.equal(seen[1].name, "store.test.inspect")
-    check.equal(seen[1].valueType, "string")
-    check.equal(seen[2].id, anonymous.id)
-    check.equal(seen[2].name, nil)
-    check.equal(seen[2].valueType, "number")
+    check.eq(#seen, 2)
+    check.eq(seen[1].id, named.id)
+    check.eq(seen[1].name, "store.test.inspect")
+    check.eq(seen[1].valueType, "string")
+    check.eq(seen[2].id, anonymous.id)
+    check.eq(seen[2].name, nil)
+    check.eq(seen[2].valueType, "number")
 end
 
 function M.entriesWalkABorrowedStore()
     -- The walk returns the store it was handed as its loop state, so a caller
     -- holding the store as a borrow can drive it without naming the step.
-    local key = data.newKey("store.test.step")
-    local store = data.newStore()
+    local key = data.newkey("store.test.step")
+    local store = data.newstore()
     store:set(key, "text")
     local seen = {}
     for id, name, valueType in store:entries() do
         seen[#seen + 1] = {id = id, name = name, valueType = valueType}
     end
-    check.equal(#seen, 1)
-    check.equal(seen[1].id, key.id)
-    check.equal(seen[1].name, "store.test.step")
-    check.equal(seen[1].valueType, "string")
+    check.eq(#seen, 1)
+    check.eq(seen[1].id, key.id)
+    check.eq(seen[1].name, "store.test.step")
+    check.eq(seen[1].valueType, "string")
 end
 
 -- Checker -------------------------------------------------------------------
@@ -199,13 +199,13 @@ local PRELUDE = [=[
 local record State
     frames: integer
 end
-local frames: types.Key<integer> = types.newKey("fixture.frames")
-local state: types.Key<State> = types.newKey("fixture.state")
-local store = types.newStore()
+local frames: types.Key<integer> = types.newkey("fixture.frames")
+local state: types.Key<State> = types.newkey("fixture.state")
+local store = types.newstore()
 ]=]
 
 function M.annotatedDeclarationsTypeTheKey()
-    check.equal(
+    check.eq(
         #errors(
             PRELUDE
             .. [=[
@@ -221,28 +221,28 @@ print(current and current.frames, store:get(frames))
 end
 
 function M.wrongWritesAndReadsAreRejected()
-    check.equal(codes(PRELUDE .. [=[
+    check.eq(codes(PRELUDE .. [=[
 store:set(frames, "one")
 ]=])[1], "NUPP2006")
-    check.equal(codes(PRELUDE .. [=[
+    check.eq(codes(PRELUDE .. [=[
 local text: string = store:get(frames)
 print(text)
 ]=])[1], "NUPP2001")
-    check.equal(codes(PRELUDE .. [=[
+    check.eq(codes(PRELUDE .. [=[
 store:set(state, {frames = 1})
 ]=])[1], "NUPP2006")
 end
 
 function M.keysNeitherWidenNorNarrow()
-    check.equal(codes(PRELUDE .. [=[
+    check.eq(codes(PRELUDE .. [=[
 local wide: types.Key<number> = frames
 print(wide)
 ]=])[1], "NUPP2001")
-    check.equal(
+    check.eq(
         codes(
             PRELUDE
             .. [=[
-local narrow: types.Key<integer> = types.newKey<number>("fixture.number") as types.Key<number>
+local narrow: types.Key<integer> = types.newkey<number>("fixture.number") as types.Key<number>
 print(narrow)
 ]=]
         )[1],
@@ -255,19 +255,19 @@ function M.identityFieldsAreReadOnly()
 frames.id = 4
 frames.name = "renamed"
 ]=])
-    check.equal(found[1], "NUPP2009")
-    check.equal(found[2], "NUPP2009")
+    check.eq(found[1], "NUPP2009")
+    check.eq(found[2], "NUPP2009")
 end
 
 function M.lookupRequiresACast()
-    check.equal(
+    check.eq(
         codes(PRELUDE .. [=[
 local direct: types.Key<integer>? = types.Key.find("fixture.frames")
 print(direct)
 ]=])[1],
         "NUPP2001"
     )
-    check.equal(
+    check.eq(
         #errors(
             PRELUDE
             .. [=[
@@ -283,11 +283,11 @@ end
 function M.anUnannotatedKeyNeedsATypeArgument()
     -- A key's value type is phantom: no runtime argument can answer it. Leaving off
     -- both the destination and the explicit argument must not produce Key<any>.
-    check.equal(
+    check.eq(
         codes(
             PRELUDE
             .. [=[
-local loose = types.newKey("fixture.loose")
+local loose = types.newkey("fixture.loose")
 store:set(loose, 7)
 local text: string? = store:get(loose)
 print(text)

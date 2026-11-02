@@ -110,17 +110,17 @@ end
 function M.plainPointerParametersAndResultsRetainCheckedTypes()
     local functions = fixture()
     local owner, g = functions.identity, compile(functions, "identity")
-    test.equal(owner.paramKinds[1], "ptr")
-    test.equal(owner.resultKind, "ptr")
-    test.equal(owner.parameterModes[1], "plain")
-    test.equal(g.native.params[1], "voidptr")
-    test.equal(g.native.result, "voidptr")
+    test.eq(owner.paramKinds[1], "ptr")
+    test.eq(owner.resultKind, "ptr")
+    test.eq(owner.parameterModes[1], "plain")
+    test.eq(g.native.params[1], "voidptr")
+    test.eq(g.native.result, "voidptr")
     local signature = g.nativePhysical.signature
     assert(signature.owner == owner and signature.checkedSignature == owner.checkedSignature)
     assert(signature.params[1].checkedType == owner.parameterTypes[1])
     assert(signature.result.checkedType == owner.resultType)
     assert(physical.same(signature.params[1], g.nativePhysical.values[1]))
-    test.equal(g.blocks[1].term.value, 1)
+    test.eq(g.blocks[1].term.value, 1)
     graph.prune(g)
     graph.verify(g)
 end
@@ -129,16 +129,16 @@ function M.nestedInternalPointerCallsRetainEveryArgumentAndResultDescriptor()
     local functions = fixture()
     local g = compile(functions, "twice")
     local found = calls(g)
-    test.equal(#found, 2)
+    test.eq(#found, 2)
     for _, call in ipairs(found) do
         local declaration = call.args[1]
-        test.equal(declaration.params[1], "voidptr")
-        test.equal(declaration.result, "voidptr")
+        test.eq(declaration.params[1], "voidptr")
+        test.eq(declaration.result, "voidptr")
         assert(declaration.physical.owner == functions.identity)
         assert(physical.same(declaration.physical.params[1], g.nativePhysical.values[call.args[2]]))
         assert(physical.same(declaration.physical.result, g.nativePhysical.values[call.dst]))
     end
-    test.equal(found[2].args[2], found[1].dst)
+    test.eq(found[2].args[2], found[1].dst)
     graph.prune(g)
     graph.verify(g)
 end
@@ -247,11 +247,11 @@ end
 function M.scalarAndZeroResultInternalCallsKeepTheirExistingContracts()
     local g = compile(fixture(), "scalar")
     local found = calls(g)
-    test.equal(#found, 2)
-    test.equal(found[1].args[1].result, "nil")
-    test.equal(found[1].dst, 0)
+    test.eq(#found, 2)
+    test.eq(found[1].args[1].result, "nil")
+    test.eq(found[1].dst, 0)
     assert(found[1].args[1].physical == nil)
-    test.equal(found[2].args[1].result, "uint64")
+    test.eq(found[2].args[1].result, "uint64")
     assert(found[2].args[1].physical == nil)
     assert(g.nativePhysical.signature == nil)
 end
@@ -265,8 +265,8 @@ function M.actualHeapPointerResultShapeDoesNotAuthorizeBorrowedServices()
     local context = physical.new(TARGET)
     local header = graph.nativeLeafDeclaration(functions.objectHeader, context)
     assert(header.physical.result.checkedType == functions.objectHeader.resultType)
-    test.equal(header.result, "voidptr")
-    test.equal(header.params[1], "uint64")
+    test.eq(header.result, "voidptr")
+    test.eq(header.params[1], "uint64")
     assert(header.physical.result.pointee.name == "Header")
     refuses(
         function()
@@ -347,9 +347,9 @@ function M.checkedBorrowParametersUseActualDefinitionTypesAndSealedUnit()
             local g = compileBorrow(session, owner)
             local signature = g.nativePhysical.signature
             assert(signature.borrowing and signature.result == nil)
-            test.equal(owner.parameterModes[1], "borrows")
+            test.eq(owner.parameterModes[1], "borrows")
             assert(signature.params[1].checkedType == owner.parameterDefinitions[1].type)
-            test.equal(signature.params[1].checkedType.tag, "borrowed")
+            test.eq(signature.params[1].checkedType.tag, "borrowed")
             assert(signature.params[1].checkedType.inner == owner.parameterAnnotations[1])
             graph.prune(g)
             graph.verify(g)
@@ -374,17 +374,17 @@ function M.pointerFieldKeepsPlainCheckedTypeAndPrivateOrigin()
                         count = count + 1
                         local access = block.args[at][2]
                         local value = block.dst[at]
-                        test.equal(access.valueType.tag, "ptr")
+                        test.eq(access.valueType.tag, "ptr")
                         assert(access.valueType == access.node.resolvedType)
                         assert(g.nativePhysical.values[value] == access.storage)
-                        test.equal(#access.storage.ownership, 0)
+                        test.eq(#access.storage.ownership, 0)
                         assert(access.borrowSignature == g.nativePhysical.signature)
-                        test.equal(block.op[at + 1], "NativeLeafCall")
+                        test.eq(block.op[at + 1], "NativeLeafCall")
                         assert(physical.callArgument(block.args[at + 1][1].physical, 1, access.node))
                     end
                 end
             end
-            test.equal(count, name == "read" and 1 or 2)
+            test.eq(count, name == "read" and 1 or 2)
             graph.prune(g)
             graph.verify(g)
         end
@@ -466,7 +466,7 @@ function M.actualHeapReadWriteReceiversRetainBorrowedContracts()
     for _, name in ipairs({"wordAt", "setWordAt"}) do
         local owner = functions[name]
         local g = compileBorrow(session, owner)
-        test.equal(owner.parameterModes[1], "borrows")
+        test.eq(owner.parameterModes[1], "borrows")
         assert(g.nativePhysical.signature.params[1].checkedType == owner.parameterTypes[1])
         local fields, memory = 0, 0
         for _, block in ipairs(g.blocks) do
@@ -474,15 +474,15 @@ function M.actualHeapReadWriteReceiversRetainBorrowedContracts()
                 if op == "NativeFieldLoad" then
                     fields = fields + 1
                     local access = block.args[at][2]
-                    test.equal(access.name, "base")
+                    test.eq(access.name, "base")
                     assert(access.borrowSignature == g.nativePhysical.signature)
                 elseif op == "NativeLoad" or op == "NativeStore" then
                     memory = memory + 1
                 end
             end
         end
-        test.equal(fields, 1)
-        test.equal(memory, 1)
+        test.eq(fields, 1)
+        test.eq(memory, 1)
     end
     -- This authenticates register's two typed member/call sites only. The
     -- allocating wordsPush body, collector effects, and final binding remain
@@ -490,15 +490,15 @@ function M.actualHeapReadWriteReceiversRetainBorrowedContracts()
     local owner = session.module("nupp.runtime.vm.collector").functions.register
     local g = compileBorrow(session, owner)
     local found = calls(g)
-    test.equal(#found, 2)
+    test.eq(#found, 2)
     for _, call in ipairs(found) do
         assert(call.args[1].physical.owner == functions.wordsPush)
-        test.equal(call.args[1].result, "nil")
-        test.equal(call.dst, 0)
+        test.eq(call.args[1].result, "nil")
+        test.eq(call.dst, 0)
         local at = call.at - 1
-        test.equal(call.block.op[at], "NativeFieldLoad")
+        test.eq(call.block.op[at], "NativeFieldLoad")
         local access = call.block.args[at][2]
-        test.equal(access.name, "ranges")
+        test.eq(access.name, "ranges")
         assert(access.valueType == owner.parameterAnnotations[1].elem.byname.ranges)
         assert(physical.callArgument(call.args[1].physical, 1, access.node))
     end
@@ -724,7 +724,7 @@ function M.dependentCallsPreserveActualRootsThroughAliasesCastsAndJoins()
             }) do
                 local g = compileBorrow(session, functions[name])
                 if name ~= "refined" then
-                    test.equal(g.nativePhysical.signature.dependent, 1)
+                    test.eq(g.nativePhysical.signature.dependent, 1)
                     assert(physical.dependent(g.nativePhysical.signature.result))
                 end
                 for _, call in ipairs(calls(g)) do
@@ -753,7 +753,7 @@ function M.borrowFromOwnerIsAnExplicitSSAUse()
                         local args = block.args[at]
                         assert(g.nativePhysical.values[args[1]] == args[3].source)
                         assert(physical.borrowArgument(args[3], g.nativePhysical.values[args[2]]))
-                        test.equal(physical.viewKind(args[3]), "borrow")
+                        test.eq(physical.viewKind(args[3]), "borrow")
                         found = args[2]
                         mutation(g, args, 2, args[1], "borrow pointer operands differ")
                     end
@@ -850,10 +850,10 @@ function M.typedNilCannotBeReplacedWithNonzeroBits()
                     local args = block.args[at]
                     if op == "NativePointerView" and physical.viewKind(args[2]) == "nil" then
                         local pointer = assert(definitions[args[1]])
-                        test.equal(pointer.op, "NativePointer")
+                        test.eq(pointer.op, "NativePointer")
                         local bits = assert(definitions[pointer.args[1]])
-                        test.equal(bits.op, "NativeConstant")
-                        test.equal(bits.args[1], "0")
+                        test.eq(bits.op, "NativeConstant")
+                        test.eq(bits.args[1], "0")
                         mutation(g, bits.args, 1, "1", "typed nil view requires actual zero input")
                         tested = true
                     end
@@ -870,7 +870,7 @@ function M.anotherSameTypedOwnerCannotReplaceTheDependentArgument()
         function(session, functions)
             local g = compileBorrow(session, functions.roots)
             local call = calls(g)[1]
-            test.equal(call.args[2], 1)
+            test.eq(call.args[2], 1)
             mutation(g, call.args, 2, 2, "dependent call argument root differs")
         end,
         DEPENDENT_MODEL
@@ -937,8 +937,8 @@ function M.actualArenaAndHeapDependentSignaturesRemainAuthentic()
             local options = session.options(owner, "leaf")
             local context = unit.begin(owner, options)
             local signature = physical.signature(owner, context)
-            test.equal(signature.dependent, 1)
-            test.equal(owner.checkedSignature.borrowsResult, 1)
+            test.eq(signature.dependent, 1)
+            test.eq(owner.checkedSignature.borrowsResult, 1)
             assert(signature.result.checkedType == owner.resultType)
             assert(physical.dependent(signature.result))
             physical.validateSignature(signature)
@@ -977,7 +977,7 @@ function M.borrowedAddressIsCheckedScalarProjectionAndCannotMintAPointer()
                         if op == "NativeBorrowAddress" then
                             count = count + 1
                             local args, dst = block.args[at], block.dst[at]
-                            test.equal(g.exactTypes[dst], "uint64")
+                            test.eq(g.exactTypes[dst], "uint64")
                             assert(g.nativePhysical.values[dst] == nil)
                             assert(physical.retainIssued(args[2]) == args[2])
                             mutation(g, args, 2, shallow(args[2]), "unknown checked pointer cast")
@@ -997,7 +997,7 @@ function M.borrowedAddressIsCheckedScalarProjectionAndCannotMintAPointer()
                         end
                     end
                 end
-                test.equal(count, 1)
+                test.eq(count, 1)
                 graph.prune(g);
                 graph.verify(g)
             end
@@ -1015,18 +1015,18 @@ function M.booleanFieldsAndNotUseExistingBooleanOperations()
                 for at, op in ipairs(block.op) do
                     if op == "NativeFieldLoad" then
                         fields = fields + 1
-                        test.equal(g.exactTypes[block.dst[at]], "boolean")
+                        test.eq(g.exactTypes[block.dst[at]], "boolean")
                         local access = block.args[at][2]
                         assert(physical.booleanField(access))
                         mutation(g, access, "width", 8, "field width changed")
                     elseif op == "NativeICmp" then
                         comparisons = comparisons + 1
-                        test.equal(block.args[at][3], "==")
+                        test.eq(block.args[at][3], "==")
                     end
                 end
             end
-            test.equal(fields, 1);
-            test.equal(comparisons, 1)
+            test.eq(fields, 1);
+            test.eq(comparisons, 1)
             graph.prune(g);
             graph.verify(g)
         end,
@@ -1107,22 +1107,19 @@ function M.retainedPointerStoresKeepUnsafePermissionAndExactRoots()
                             local proof = access.retention
                             assert(physical.retainIssued(proof) == proof)
                             assert(physical.storeValue(proof, access.field, g.nativePhysical.values[args[3]], g.source))
-                            test.equal(
-                                proof.node.unsafeOwnershipOperation,
-                                "borrowed pointer stored through a reference"
-                            )
+                            test.eq(proof.node.unsafeOwnershipOperation, "borrowed pointer stored through a reference")
                             mutation(g, access, "retention", shallow(proof), "unknown checked pointer store")
                             mutation(g, proof.node, "unsafeOwnershipOperation", nil, "checked pointer store changed")
                             mutation(g, args, 3, 1, "pointer field store lacks exact checked retention")
                         elseif access.kind == "boolean" then
                             booleans = booleans + 1
-                            test.equal(access.width, 1)
+                            test.eq(access.width, 1)
                         end
                     end
                 end
             end
-            test.equal(found, 1);
-            test.equal(booleans, 1)
+            test.eq(found, 1);
+            test.eq(booleans, 1)
             graph.prune(g);
             graph.verify(g)
         end,
@@ -1142,7 +1139,7 @@ function M.optionalFieldOriginsSurviveAliasesNullChecksAndNestedStores()
                         fields = fields + 1
                         local descriptor = g.nativePhysical.values[block.dst[at]]
                         assert(physical.fieldOrigin(descriptor) == args[2])
-                        test.equal(#descriptor.ownership, 0)
+                        test.eq(#descriptor.ownership, 0)
                     elseif op == "NativePointerView" and physical.viewKind(args[2]) == "nonnull" then
                         refinements = refinements + 1
                         assert(physical.fieldOrigin(args[2].target) == physical.fieldOrigin(args[2].source))
@@ -1170,9 +1167,9 @@ function M.optionalFieldOriginsSurviveAliasesNullChecksAndNestedStores()
                     end
                 end
             end
-            test.equal(fields, 2);
+            test.eq(fields, 2);
             assert(refinements >= 1);
-            test.equal(zeroStores, 1)
+            test.eq(zeroStores, 1)
             graph.prune(g);
             graph.verify(g)
         end,
@@ -1260,7 +1257,7 @@ end
 function M.localPointerCannotReachUnreviewedPlainRetainingFormal()
     borrowedProject(
         function(session, functions)
-            test.equal(functions.retaining.parameterModes[1], "plain")
+            test.eq(functions.retaining.parameterModes[1], "plain")
             refuses(
                 function()
                     compileBorrow(session, functions.localEscape)
@@ -1318,8 +1315,8 @@ end
                 assert(not found)
                 found = block.dst[at]
                 local descriptor = assert(g.nativePhysical.values[found])
-                test.equal(descriptor.checkedType, T.voidptr)
-                test.equal(descriptor.storageType, T.voidptr)
+                test.eq(descriptor.checkedType, T.voidptr)
+                test.eq(descriptor.storageType, T.voidptr)
                 assert(not descriptor.nullable and #descriptor.ownership == 0)
                 assert(not physical.dependent(descriptor) and not physical.localOrigin(descriptor))
                 local saved = descriptor
@@ -1415,7 +1412,7 @@ end
                 if op == "NativeICmp" then
                     comparisons = comparisons + 1
                     for index = 1, 2 do
-                        test.equal(g.exactTypes[block.args[at][index]], name == "signed" and "int64" or "uint64")
+                        test.eq(g.exactTypes[block.args[at][index]], name == "signed" and "int64" or "uint64")
                     end
                 elseif op == "NativeConstant" and block.args[at][1] == "0x8000000000000000" then
                     highBit = true

@@ -86,7 +86,7 @@ local function readShard(path)
     local decoder = json
     -- A hit count is a whole number of executions, so a shard offering `NaN` for one is
     -- damaged rather than unusual, and the guard below already names a damaged shard.
-    local ok, value = pcall(decoder.decodeValue, source, decoder.NULL)
+    local ok, value = pcall(decoder.decodevalue, source, decoder.NULL)
     if not ok or type(value) ~= "table" or type(value.hits) ~= "table" then
         return nil, "invalid coverage shard " .. path
     end
@@ -591,7 +591,7 @@ function coverage.read(path: string): (string?, any, string?)
     if not text then
         return nil, nil, "cannot read coverage report " .. path .. ": " .. tostring(readErr)
     end
-    local value, decodeErr = json.decodeValue(text as string)
+    local value, decodeErr = json.decodevalue(text as string)
     if type(value) ~= "table" then
         return nil, nil, path .. " is not a coverage report: " .. tostring(decodeErr or "not a JSON object")
     end

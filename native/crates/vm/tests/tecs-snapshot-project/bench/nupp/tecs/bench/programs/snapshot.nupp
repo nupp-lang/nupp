@@ -1,3 +1,5 @@
+const assert2 = require("assert")
+
 --- Snapshot save and load throughput for three archetypes.
 ---
 --- The world holds a full, a partial, and a position-only archetype.
@@ -94,7 +96,7 @@ if saveWorld:getStats().entities ~= COUNT then
 end
 
 const save = harness.newStage("save")
-const output = buffer.newBuffer()
+const output = buffer.newbuffer()
 const options: ecs.SnapshotOptions = {format = "binary", buffer = output}
 harness.measure(save, WARMUP, SAMPLES, function(): nil
     if saveWorld:saveSnapshot(options).entityCount ~= COUNT then
@@ -114,32 +116,32 @@ end)
 
 -- Integration acceptance stays outside the original measured windows.
 for id = 1, COUNT do
-    const expected = assert(saveWorld:get(id, Position))
-    const actual = assert(loadWorld:get(id, Position))
-    assert(actual.x == expected.x and actual.y == expected.y, "snapshot position changed")
+    const expected = assert2(saveWorld:get(id, Position))
+    const actual = assert2(loadWorld:get(id, Position))
+    assert2(actual.x == expected.x and actual.y == expected.y, "snapshot position changed")
     const expectedVelocity = saveWorld:get(id, Velocity)
     const actualVelocity = loadWorld:get(id, Velocity)
-    assert((expectedVelocity == nil) == (actualVelocity == nil), "snapshot archetype changed")
+    assert2((expectedVelocity == nil) == (actualVelocity == nil), "snapshot archetype changed")
     if expectedVelocity ~= nil then
-        const velocity = assert(actualVelocity)
-        assert(velocity.x == expectedVelocity.x and velocity.y == expectedVelocity.y, "snapshot velocity changed")
+        const velocity = assert2(actualVelocity)
+        assert2(velocity.x == expectedVelocity.x and velocity.y == expectedVelocity.y, "snapshot velocity changed")
     end
     const expectedHealth = saveWorld:get(id, Vitality)
     const actualHealth = loadWorld:get(id, Vitality)
-    assert((expectedHealth == nil) == (actualHealth == nil), "snapshot health membership changed")
+    assert2((expectedHealth == nil) == (actualHealth == nil), "snapshot health membership changed")
     if expectedHealth ~= nil then
-        const health = assert(actualHealth)
-        assert(
+        const health = assert2(actualHealth)
+        assert2(
             health.current == expectedHealth.current and health.maximum == expectedHealth.maximum,
             "snapshot health changed"
         )
     end
 end
-const originalX = assert(saveWorld:get(1, Position)).x
-assert(loadWorld:getMut(1, Position)).x = -1
-assert(assert(saveWorld:get(1, Position)).x == originalX, "restored world aliases source storage")
+const originalX = assert2(saveWorld:get(1, Position)).x
+assert2(loadWorld:getMut(1, Position)).x = -1
+assert2(assert2(saveWorld:get(1, Position)).x == originalX, "restored world aliases source storage")
 loadWorld:loadSnapshot(prepared)
-assert(assert(loadWorld:get(1, Position)).x == originalX, "prepared snapshot changed after destination mutation")
+assert2(assert2(loadWorld:get(1, Position)).x == originalX, "prepared snapshot changed after destination mutation")
 print("snapshot values, archetype membership, storage independence, and repeat restore passed")
 
 print(("snapshot: %d entities over 3 archetypes, %d samples after %d warmup"):format(COUNT, SAMPLES, WARMUP))

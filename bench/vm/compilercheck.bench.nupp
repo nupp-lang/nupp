@@ -22,7 +22,7 @@
 --- --forks 3 --margin 2 --timeout-ms 600000
 local bench = require("debug.bench")
 
-local files = require("nupp.io.files")
+local files = require("io.files")
 local json = require("serde.json")
 local process = require("nupp.io.process")
 
@@ -85,7 +85,7 @@ local function check(executable: string, project: string, cacheDir: string, stat
     if not result:succeeded() then
         fail(state .. " check exited " .. tostring(result.exit.exitCode) .. ": " .. result.errorOutput:sub(-2000))
     end
-    local document, invalid = json.decodeValue(result.output)
+    local document, invalid = json.decodevalue(result.output)
     if invalid ~= nil or type(document) ~= "table" then
         fail(state .. " check wrote no JSON document")
     end
@@ -123,7 +123,7 @@ if cold:more() or warm:more() then
     if revision == nil or revision == "" then
         revision = "HEAD"
     end
-    local scratch, scratchErr = files.createTemporaryDirectory(
+    local scratch, scratchErr = files.createtemporarydirectory(
         {prefix = "nupp-compilercheck-"} as files.TemporaryOptions
     )
     if scratch == nil then
@@ -133,8 +133,8 @@ if cold:more() or warm:more() then
     local root = owned:toString()
     local project = root .. "/source"
     local cacheDir = root .. "/cache"
-    files.createDirectory(project)
-    files.createDirectory(cacheDir)
+    files.createdirectory(project)
+    files.createdirectory(cacheDir)
     -- A fresh tree, not a fresh cache alone: the build state is keyed by module name
     -- and lives in the project, so only a tree nothing has checked is cold.
     shell("git archive --format=tar " .. quote(revision as string) .. " | tar -xf - -C " .. quote(project))

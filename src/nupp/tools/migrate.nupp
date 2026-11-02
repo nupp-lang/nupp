@@ -277,7 +277,7 @@ local function serdePlan(source: string, path: string, given: table?): (migrate.
                         and argument.deriveProviderMember == "Debug"
                     then
                         changed = true
-                        retained[#retained + 1] = "types.Debug"
+                        retained[#retained + 1] = "types.debug"
                         migratedArgument(argument)
                     else
                         retained[#retained + 1] = typeText(argument)
@@ -526,7 +526,7 @@ local function serdePlan(source: string, path: string, given: table?): (migrate.
                 else
                     replace(
                         node,
-                        jsonName .. ".writeValue(" .. selected(
+                        jsonName .. ".writevalue(" .. selected(
                             mapping,
                             node
                         ) .. ", " .. typeText(node.obj) .. ", " .. typeText(args[1]) .. ")"

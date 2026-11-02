@@ -121,7 +121,7 @@ end
 ---     nupp doc --kind markdown -o docs/api.md
 ---     nupp doc --kind site --target library --output build/site
 @cli("doc")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Doc
     --- What to produce: site, markdown, json, or both.
     @cli(value = "KIND", choices = {"site", "markdown", "json", "both"})

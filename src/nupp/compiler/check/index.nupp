@@ -194,7 +194,7 @@ function index.install(c: state.Checker): state.ExprHandlers
                 node.qualifiedMembers = suffix
                 -- The whole path names a module, so a local bound to it holds that
                 -- module the way one bound to `require` does: `local span =
-                -- nupp.mem.span` makes `span.WriteSpan` its exported type.
+                -- binary.span` makes `span.WriteSpan` its exported type.
                 if #suffix == 0 then
                     (node as any).requiredModule = candidate
                 end
@@ -896,7 +896,7 @@ function index.install(c: state.Checker): state.ExprHandlers
             ft = T.affine(rawType(ft), exact)
         end
         if not writing
-            and compilerOnlyValue(ft)
+            and (compilerOnlyValue(ft) or fieldDef and fieldDef.comptimeOnly)
             and (c.comptimeDepth or 0) == 0
             and (c.comptimeFunctionDepth or 0) == 0
         then

@@ -255,9 +255,9 @@ function producer.compile(mode: string, guard: string): string
     local legacyRoots, legacyCodes = copy(roots), copy(codes)
     local legacy = shim.build(legacyRoots, legacyCodes)
     local baseline = oldshim.build(legacyRoots, legacyCodes)
-    assert(json.encodeValue(selected) == json.encodeValue(legacy), "authenticated link changes transport words/layout")
+    assert(json.encodevalue(selected) == json.encodevalue(legacy), "authenticated link changes transport words/layout")
     assert(
-        json.encodeValue(selected) == json.encodeValue(baseline),
+        json.encodevalue(selected) == json.encodevalue(baseline),
         "shim factor changes accepted transport words/layout"
     )
     reject(
@@ -271,12 +271,12 @@ function producer.compile(mode: string, guard: string): string
     selected.dataflowRefusals, selected.provenanceRefusals = source.refusals, refusals
     selected.scope = "closed real publish/return/parent-resume diagnostic, no guest Ret, root completion or catalog entry"
 
-    return json.encodeValue(selected)
+    return json.encodevalue(selected)
 end
 
 function producer.data(selection: string, kind: string): string
     assert(kind == "boolean" or kind == "nil")
-    local result = json.decodeValue(front.read(selection))
+    local result = json.decodevalue(front.read(selection))
     assert(#result.offsets == 2 and #result.frames == 2)
     local extent, base, codeBytes = result.callBytes, result.spillOffset, #result.words * 4
     assert(extent > 0 and extent < 65536 and extent % 16 == 0)

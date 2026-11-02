@@ -13,7 +13,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function runs(src, label)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.nupp", env)
     for _, diag in ipairs(diags or {}) do
         if diag.severity == "error" then
@@ -34,7 +34,7 @@ end
 
 local function diagnostics(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local out = {}
     for _, diag in ipairs(check.check(result, "test.nupp", env)) do
         if diag.severity == "error" then
@@ -66,7 +66,7 @@ return (new m.Point(x = 3, y = 4)):lengthSquared()
 ]],
         "written-out self"
     )
-    testAssert.equal(value, 25, "the receiver reaches the body")
+    testAssert.eq(value, 25, "the receiver reaches the body")
 end
 
 function M.aReceiverlessFunctionIsStatic()
@@ -84,7 +84,7 @@ return m.Point.origin()
 ]],
         "static function"
     )
-    testAssert.equal(value, 0, "the declaration table carries the function")
+    testAssert.eq(value, 0, "the declaration table carries the function")
 end
 
 function M.staticAndInstanceFunctionsGenerateDistinctForms()
@@ -104,7 +104,7 @@ return (new m.P(n = 4)):twice() + m.P.answer()
 ]],
         "static and instance functions"
     )
-    testAssert.equal(value, 50)
+    testAssert.eq(value, 50)
 end
 
 function M.parametersBesideTheReceiverSurvive()
@@ -124,7 +124,7 @@ return (new m.Adder(base = 1)):plus(2, 3)
 ]],
         "self plus parameters"
     )
-    testAssert.equal(value, 6, "the arguments land on the right parameters")
+    testAssert.eq(value, 6, "the arguments land on the right parameters")
 end
 
 function M.aFirstParameterNotCalledSelfIsAnOrdinaryParameter()
@@ -146,7 +146,7 @@ return m.Adder.plus(5)
 ]],
         "named first parameter"
     )
-    testAssert.equal(value, 15, "the parameter remains the first argument")
+    testAssert.eq(value, 15, "the parameter remains the first argument")
 end
 
 function M.repeatedMethodNamesSelectDistinctBodies()
@@ -166,7 +166,7 @@ return decoder:decode("hello") .. "," .. decoder:decode(7)
 ]],
         "overloaded bodies"
     )
-    testAssert.equal(value, "text:hello,integer:7", "each call reaches its selected body")
+    testAssert.eq(value, "text:hello,integer:7", "each call reaches its selected body")
 end
 
 function M.repeatedStaticNamesSelectDistinctBodies()
@@ -180,8 +180,8 @@ return Decoder.decode("hello") .. "," .. Decoder.decode(7)
 ]],
         "overloaded statics"
     )
-    testAssert.equal(value, "text:hello,integer:7", "each static call reaches its selected body")
-    testAssert.equal(
+    testAssert.eq(value, "text:hello,integer:7", "each static call reaches its selected body")
+    testAssert.eq(
         diagnostics(
             [[
 local record Decoder
@@ -211,7 +211,7 @@ return decoder():decode("once") .. ":" .. tostring(calls)
 ]],
         "overloaded receiver evaluation"
     )
-    testAssert.equal(value, "once:1", "colon dispatch evaluates the receiver once")
+    testAssert.eq(value, "once:1", "colon dispatch evaluates the receiver once")
 end
 
 function M.overloadedMethodsRequireAUniqueCall()
@@ -222,13 +222,13 @@ local record Decoder
 end
 local decoder = new Decoder()
 ]]
-    testAssert.equal(diagnostics(declaration .. "decoder:decode(true)"), "NUPP2125:6")
-    testAssert.equal(diagnostics(declaration .. "local value: any = 1\ndecoder:decode(value)"), "NUPP2126:7")
-    testAssert.equal(diagnostics(declaration .. "local held = decoder.decode"), "NUPP2126:6")
+    testAssert.eq(diagnostics(declaration .. "decoder:decode(true)"), "NUPP2125:6")
+    testAssert.eq(diagnostics(declaration .. "local value: any = 1\ndecoder:decode(value)"), "NUPP2126:7")
+    testAssert.eq(diagnostics(declaration .. "local held = decoder.decode"), "NUPP2126:6")
 end
 
 function M.returnTypesDoNotCreateMethodOverloads()
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             [[
 local record Bad
@@ -259,7 +259,7 @@ return decoder:decode("yes") .. "," .. decoder:decode(3)
 ]],
         "overloaded interface defaults"
     )
-    testAssert.equal(value, "loud:yes,number:3", "one overload is replaced while the other default is inherited")
+    testAssert.eq(value, "loud:yes,number:3", "one overload is replaced while the other default is inherited")
 end
 
 function M.separateInterfacesCanContributeOverloadEntries()
@@ -281,7 +281,7 @@ return decoder:decode("yes") .. "," .. decoder:decode(3)
 ]],
         "distributed interface overloads"
     )
-    testAssert.equal(value, "text:yes,number:3", "distinct inherited parameter packs become one overload group")
+    testAssert.eq(value, "text:yes,number:3", "distinct inherited parameter packs become one overload group")
 end
 
 function M.bodylessInterfaceContractsUseTheSameSlots()
@@ -302,7 +302,7 @@ return decoder:decode("yes") .. "," .. decoder:decode(3)
 ]],
         "bodyless overloaded interface contract"
     )
-    testAssert.equal(value, "text:yes,number:3", "interface calls and record bodies agree on signature slots")
+    testAssert.eq(value, "text:yes,number:3", "interface calls and record bodies agree on signature slots")
 end
 
 function M.explicitInterfaceLabelsStillSelectTheirMatchingImplementation()
@@ -323,7 +323,7 @@ return decoder:decode(text = "yes") .. "," .. decoder:decode(value = "yes")
 ]],
         "labeled bodyless interface contract"
     )
-    testAssert.equal(value, "text:yes,value:yes", "explicit labels retain distinct inherited runtime slots")
+    testAssert.eq(value, "text:yes,value:yes", "explicit labels retain distinct inherited runtime slots")
 end
 
 function M.genericMethodEntriesKeepTheirDeclaredSlots()
@@ -339,7 +339,7 @@ return codec:encode(4) .. "," .. codec:encode({5})
 ]],
         "generic overloaded methods"
     )
-    testAssert.equal(value, "one:4,many:5", "instantiation selects the declaration's stable runtime slot")
+    testAssert.eq(value, "one:4,many:5", "instantiation selects the declaration's stable runtime slot")
 end
 
 function M.overloadsDistinguishGenericNominalsAndCallbackResults()
@@ -362,7 +362,7 @@ return reader:read(new Box<string>(value = "yes"))
 ]],
         "generic nominal and callback result overloads"
     )
-    testAssert.equal(value, "text:yes,number:3,done,4", "parameter type identities select distinct slots")
+    testAssert.eq(value, "text:yes,number:3,done,4", "parameter type identities select distinct slots")
 end
 
 function M.safeNavigationKeepsOverloadSelection()
@@ -377,11 +377,11 @@ return decoder?.:decode("absent")
 ]],
         "safe overloaded method"
     )
-    testAssert.equal(value, nil, "a nil receiver suppresses the selected hidden call")
+    testAssert.eq(value, nil, "a nil receiver suppresses the selected hidden call")
 end
 
 function M.interfaceOverloadEntriesMustBeImplementedCompatibly()
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             [[
 local interface Contract
@@ -396,7 +396,7 @@ end
         "NUPP2118:5"
     )
 
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             [[
 local interface Contract

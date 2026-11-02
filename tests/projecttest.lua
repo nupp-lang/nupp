@@ -164,7 +164,7 @@ function M.moduleSourceChecksReuseOnlyMatchingSourceAndContext()
     local path = dir .. "/sample.nupp"
     local source = "module sample\nexport const value: integer = 1\n"
     local first, diagnostics, firstType, firstExports = compilerEnv.checkModuleSource(env, path, source)
-    testAssert.equal(#diagnostics, 0)
+    testAssert.eq(#diagnostics, 0)
     local again, _, againType, againExports = compilerEnv.checkModuleSource(env, path, source)
     assert(
         first == again and firstType == againType and firstExports == againExports,
@@ -180,16 +180,16 @@ function M.moduleSourceChecksReuseOnlyMatchingSourceAndContext()
         strict = false,
         compat = "lua51"
     })
-    testAssert.equal(#compatDiagnostics, 0, "native checking has no Lua compatibility profile")
+    testAssert.eq(#compatDiagnostics, 0, "native checking has no Lua compatibility profile")
     assert(compatible ~= strict, "changed compatibility must not reuse the earlier check")
     local named, namedDiagnostics = compilerEnv.checkModuleSource(env, dir .. "/context.nupp", "return 1\n", {
         moduleName = "first"
     })
-    testAssert.equal(#namedDiagnostics, 0)
+    testAssert.eq(#namedDiagnostics, 0)
     local renamed, renamedDiagnostics = compilerEnv.checkModuleSource(env, dir .. "/context.nupp", "return 1\n", {
         moduleName = "second"
     })
-    testAssert.equal(#renamedDiagnostics, 0)
+    testAssert.eq(#renamedDiagnostics, 0)
     assert(renamed ~= named, "changed module ownership must not reuse the earlier check")
     local changed, changedDiagnostics = compilerEnv.checkModuleSource(env, path, source .. "export const other = 2\n")
     assert(changed ~= strict and #changedDiagnostics == 0, "changed source gets its own completed check")
@@ -202,14 +202,18 @@ function M.bundledSourcesShareTheirPendingAndCompletedExports()
     local loaded = assert(env.bundled.types, "the types facade checks through its bundled dependency cycle")
     assert(loaded == env.loadedPaths.types, "the bundled cache and lifecycle share one completed record")
     assert(not loaded.inProgress and loaded.exports.types.Key and loaded.exports.types.Debug)
+    assert(loaded.result == nil, "completed bundled interfaces do not retain their parsed implementation")
+    assert(loaded.source and loaded.checkContext, "source inspection and check context remain available")
+    testAssert.eq(env.bundled.types, loaded, "a repeated bundled lookup retains the exact export graph")
     local reflection = assert(env.bundled["nupp.compiler.runtime.reflect"])
     assert(
         reflection == env.loadedPaths["nupp.compiler.runtime.reflect"],
         "recursive reflection retains one export graph"
     )
     assert(not reflection.inProgress and reflection.source and reflection.resource)
-    testAssert.equal(loaded.resource, "/types/init.nupp")
-    testAssert.equal(loaded.declarationOnly, false)
+    assert(reflection.result == nil, "recursive bundled implementations also release their parse result")
+    testAssert.eq(loaded.resource, "/types/init.nupp")
+    testAssert.eq(loaded.declarationOnly, false)
     local declared = assert(env.bundled.bit)
     assert(declared.declarationOnly and not declared.inProgress, "declaration modules retain their checking mode")
     os.execute("rm -rf " .. string.format("%q", dir))
@@ -248,7 +252,7 @@ function M.malformedBundledDeclarationsAreRefusedInBothProfiles()
     end
     local ok, reason = pcall(function()
         for _, env in ipairs(environments) do
-            testAssert.equal(env.bundled.bit, false, "syntax errors cannot become unknown-but-accepted modules")
+            testAssert.eq(env.bundled.bit, false, "syntax errors cannot become unknown-but-accepted modules")
             assert(env.loaded.bit == nil and env.loadedPaths.bit == nil, "a refused bundle leaves no selected record")
         end
     end)
@@ -272,7 +276,7 @@ function M.moduleSourceCheckFailuresReleaseTheirPendingEntry()
     assert(not ok and tostring(problem):find("check failed deliberately", 1, true))
     assert(env.loadedPaths[path] == nil and env.loaded.sample == nil, "a thrown check leaves no pending module")
     local _, diagnostics = compilerEnv.checkModuleSource(env, path, source, {moduleName = "sample"})
-    testAssert.equal(#diagnostics, 0)
+    testAssert.eq(#diagnostics, 0)
     assert(env.loaded.sample ~= nil and not env.loaded.sample.inProgress, "the entry can be checked after a failure")
     local completed = env.loaded.sample
     checker.check = function()
@@ -289,7 +293,7 @@ function M.moduleSourceCheckFailuresReleaseTheirPendingEntry()
     })
     assert(#broken > 0 and not env.loaded.sample.inProgress, "diagnostic failures complete their module record")
     local _, recovered = compilerEnv.checkModuleSource(env, path, source, {moduleName = "sample"})
-    testAssert.equal(#recovered, 0, "corrected source can replace the failed check")
+    testAssert.eq(#recovered, 0, "corrected source can replace the failed check")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 
@@ -331,7 +335,7 @@ export = {commandType = entry.commandType, ready = true}
     local path = dir .. "/src/example/entry.nupp"
     local diagnostics = {}
     local image = require("nupp.tools.cli.compile").image(path, env, "example.entry", diagnostics)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     assert(type(image) == "string" and #image > 0, "the recursive entry compiles to its native image")
     assert(env.loaded["example.entry"] == env.loadedPaths[path], "the entry keeps one module record")
     assert(not env.loaded["example.entry"].inProgress, "the entry check completes")
@@ -339,8 +343,8 @@ export = {commandType = entry.commandType, ready = true}
 end
 
 function M.sha256KnownVectors()
-    testAssert.equal(hash.sha256(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
-    testAssert.equal(hash.sha256("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    testAssert.eq(hash.sha256(""), "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855")
+    testAssert.eq(hash.sha256("abc"), "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
 end
 
 -- The published XXH64 answers. Cache keys never leave this machine, so
@@ -355,13 +359,13 @@ function M.xxh64KnownVectors()
         return hash.hex64(hash.xxh64(input, 0, seed))
     end
 
-    testAssert.equal(xxh("", 0), "ef46db3751d8e999")
-    testAssert.equal(xxh("a", 0), "d24ec4f1a98c6e5b")
-    testAssert.equal(xxh("abc", 0), "44bc2cf5ad770999")
-    testAssert.equal(xxh("abcd", 0), "de0327b0d25d92cc")
-    testAssert.equal(xxh("heiå", 0), "b9d3d990d2001a1a")
-    testAssert.equal(xxh("", 1), "d5afba1336a3be4b")
-    testAssert.equal(xxh("Nobody inspects the spammish repetition", 0), "fbcea83c8a378bf1")
+    testAssert.eq(xxh("", 0), "ef46db3751d8e999")
+    testAssert.eq(xxh("a", 0), "d24ec4f1a98c6e5b")
+    testAssert.eq(xxh("abc", 0), "44bc2cf5ad770999")
+    testAssert.eq(xxh("abcd", 0), "de0327b0d25d92cc")
+    testAssert.eq(xxh("heiå", 0), "b9d3d990d2001a1a")
+    testAssert.eq(xxh("", 1), "d5afba1336a3be4b")
+    testAssert.eq(xxh("Nobody inspects the spammish repetition", 0), "fbcea83c8a378bf1")
 end
 
 -- The formatter reaches the same digest through native host services, so the
@@ -388,7 +392,7 @@ function M.theNativeContentDigestMatchesThePortableOne()
         inputs[#inputs + 1] = table.concat(bytes)
     end
     for index, input in ipairs(inputs) do
-        testAssert.equal(nativeHash.digest(input), hash.digest(input), "portable digest input " .. index)
+        testAssert.eq(nativeHash.digest(input), hash.digest(input), "portable digest input " .. index)
     end
 end
 
@@ -411,17 +415,17 @@ function M.theTrailerDigestIsLittleEndianXxh64()
     end
 
     -- The same published vectors as above, read back the other way round.
-    testAssert.equal(trailer(""), "99e9d85137db46ef")
-    testAssert.equal(trailer("a"), "5b6e8ca9f1c44ed2")
-    testAssert.equal(trailer("abc"), "990977adf52cbc44")
+    testAssert.eq(trailer(""), "99e9d85137db46ef")
+    testAssert.eq(trailer("a"), "5b6e8ca9f1c44ed2")
+    testAssert.eq(trailer("abc"), "990977adf52cbc44")
 
     -- Either side of the thirty-two byte stripe loop, and a tail that reaches
     -- the four-byte branch and then the byte one.
-    testAssert.equal(#hash.trailerDigest(("x"):rep(31)), 8)
-    testAssert.equal(trailer(("x"):rep(31)), "f0993b08010ddd60")
-    testAssert.equal(trailer(("y"):rep(32)), "66ce95341d1fda64")
-    testAssert.equal(trailer(("z"):rep(33)), "68024ec6531224c5")
-    testAssert.equal(trailer(string.char(0, 255, 128, 1, 7)), "950d048cbb3ee7b9")
+    testAssert.eq(#hash.trailerDigest(("x"):rep(31)), 8)
+    testAssert.eq(trailer(("x"):rep(31)), "f0993b08010ddd60")
+    testAssert.eq(trailer(("y"):rep(32)), "66ce95341d1fda64")
+    testAssert.eq(trailer(("z"):rep(33)), "68024ec6531224c5")
+    testAssert.eq(trailer(string.char(0, 255, 128, 1, 7)), "950d048cbb3ee7b9")
 end
 
 -- Every tail branch and the stripe loop, at every length that reaches them.
@@ -432,10 +436,10 @@ function M.digestSeparatesEveryLength()
     for n = 0, 200 do
         local input = ("abcdefgh"):rep(30):sub(1, n)
         local d = hash.digest(input)
-        testAssert.equal(#d, 32)
-        testAssert.equal(seen[d], nil)
+        testAssert.eq(#d, 32)
+        testAssert.eq(seen[d], nil)
         seen[d] = n
-        testAssert.equal(hash.digest(input), d)
+        testAssert.eq(hash.digest(input), d)
     end
     -- A one-byte change anywhere has to move the answer, including in the
     -- final byte, which is the one a tail loop drops.
@@ -447,17 +451,17 @@ function M.digestSeparatesEveryLength()
 end
 
 function M.windowsMkdirUsesNativePathAndIsIdempotent()
-    testAssert.equal(fs.join("C:/one", "D:/two"), "D:/two", "joining an absolute Windows path does not prefix it")
+    testAssert.eq(fs.join("C:/one", "D:/two"), "D:/two", "joining an absolute Windows path does not prefix it")
     local command = process.mkdirCommand("build/nupp", true)
-    testAssert.equal(table.concat(command, " "), "cmd /d /c if not exist build\\nupp mkdir build\\nupp")
+    testAssert.eq(table.concat(command, " "), "cmd /d /c if not exist build\\nupp mkdir build\\nupp")
 
     local posix = process.mkdirCommand("build/nupp", false)
-    testAssert.equal(table.concat(posix, " "), "mkdir -p build/nupp")
+    testAssert.eq(table.concat(posix, " "), "mkdir -p build/nupp")
 end
 
 function M.windowsAbsolutePathsAreNotModulesUnderTheCurrentRoot()
     local path = "C:/Users/runner/AppData/Local/Temp/backend/source/example.nupp"
-    testAssert.equal(
+    testAssert.eq(
         compilerEnv.moduleNameInRoots({"."}, path),
         nil,
         "a drive path outside the project has no canonical module name"
@@ -466,7 +470,7 @@ function M.windowsAbsolutePathsAreNotModulesUnderTheCurrentRoot()
         not compilerEnv.isProjectPath({roots = {"."}, config = {}, rootDir = "."}, path),
         "a drive path outside the project is not project source"
     )
-    testAssert.equal(
+    testAssert.eq(
         compilerEnv.moduleNameInRoots({"."}, "source/example.nupp"),
         "source.example",
         "a relative path remains a module beneath the current root"
@@ -485,14 +489,14 @@ function M.aPathThatClimbsOutOfItsRootIsNotAModuleBeneathIt()
         {"src", "src/a/../../b.nupp"},
         {"/work/p", "/work/p/../q/c.nupp"},
     }) do
-        testAssert.equal(compilerEnv.moduleNameInRoots({case[1]}, case[2]), nil, case[2])
+        testAssert.eq(compilerEnv.moduleNameInRoots({case[1]}, case[2]), nil, case[2])
         assert(
             not compilerEnv.isProjectPath({roots = {case[1]}, config = {}, rootDir = "."}, case[2]),
             case[2] .. " is not project source"
         )
     end
-    testAssert.equal(compilerEnv.moduleNameInRoots({"src"}, "src/a/b.nupp"), "a.b")
-    testAssert.equal(
+    testAssert.eq(compilerEnv.moduleNameInRoots({"src"}, "src/a/b.nupp"), "a.b")
+    testAssert.eq(
         compilerEnv.moduleNameInRoots({"."}, "tests/../src/a.nupp"),
         "tests....src.a",
         "a .. that stays inside keeps its spelling"
@@ -505,13 +509,13 @@ function M.isolatedProcessStopsAtItsWallClockDeadline()
         return
     end
     local code = process.captureIsolated({"sh", "-c", "while :; do :; done"}, {timeoutMs = 50})
-    testAssert.equal(code, 124, "the process is killed at its deadline")
+    testAssert.eq(code, 124, "the process is killed at its deadline")
 end
 
 function M.isolatedProcessCapturesACompletedResponse()
     local code, output = process.captureIsolated({"sh", "-c", "printf worker-ready"}, {timeoutMs = 1000})
-    testAssert.equal(code, 0, "the completed child succeeds")
-    testAssert.equal(output, "worker-ready", "the private output is returned")
+    testAssert.eq(code, 0, "the completed child succeeds")
+    testAssert.eq(output, "worker-ready", "the private output is returned")
 end
 
 function M.isolatedProcessAppliesAMemoryCeilingWhenSupported()
@@ -522,8 +526,8 @@ function M.isolatedProcessAppliesAMemoryCeilingWhenSupported()
         timeoutMs = 1000,
         memoryMb = 256
     })
-    testAssert.equal(code, 0, "the bounded child succeeds")
-    testAssert.equal(output, "memory-bounded", "the bounded child returns its response")
+    testAssert.eq(code, 0, "the bounded child succeeds")
+    testAssert.eq(output, "memory-bounded", "the bounded child returns its response")
 end
 
 function M.persistsVersionedMaterializationProductsAndObservations()
@@ -539,23 +543,23 @@ local record Position
 end
 
 const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
-    return types.reflect.fieldCodec(types.reflect(Position))
+    return types.reflect.fieldcodec(types.reflect(Position))
 end
 
 return PositionCodec:encode(new Position(x = 1))
 ]],
     })
     local cold, coldStats = {}, {}
-    testAssert.equal(project.build(dir, {produced = cold, stats = coldStats}), 0)
-    testAssert.equal(#cold.materializations, 1, "the cold build reports its materialization")
+    testAssert.eq(project.build(dir, {produced = cold, stats = coldStats}), 0)
+    testAssert.eq(#cold.materializations, 1, "the cold build reports its materialization")
     local observation = cold.materializations[1]
-    testAssert.equal(observation.provider, "fieldcodec", "provider observation")
-    testAssert.equal(observation.schema, 2, "provider schema")
-    testAssert.equal(observation.backend, "keyed", "selected backend")
+    testAssert.eq(observation.provider, "fieldcodec", "provider observation")
+    testAssert.eq(observation.schema, 2, "provider schema")
+    testAssert.eq(observation.backend, "keyed", "selected backend")
     assert(observation.blueprintSize > 0 and observation.generatedSize > 0, "bounded sizes are reported")
-    testAssert.equal(observation.abis.runtimeExpression, 2, "runtime-expression ABI")
-    testAssert.equal(observation.blueprint, nil, "the public record omits the canonical payload")
-    testAssert.equal(observation.generated, nil, "the public record omits generated source")
+    testAssert.eq(observation.abis.runtimeExpression, 2, "runtime-expression ABI")
+    testAssert.eq(observation.blueprint, nil, "the public record omits the canonical payload")
+    testAssert.eq(observation.generated, nil, "the public record omits generated source")
 
     local state = json.decode(read(dir .. "/out/.nupp-state.json"))
     local cached = state.modules.main.materializations[1]
@@ -569,14 +573,44 @@ return PositionCodec:encode(new Position(x = 1))
     )
 
     local warm, warmStats = {}, {}
-    testAssert.equal(project.build(dir, {produced = warm, stats = warmStats}), 0)
-    testAssert.equal(warmStats.checkedModules, 0, "the cached build rechecks nothing")
-    testAssert.equal(
+    testAssert.eq(project.build(dir, {produced = warm, stats = warmStats}), 0)
+    testAssert.eq(warmStats.checkedModules, 0, "the cached build rechecks nothing")
+    testAssert.eq(
         warm.materializations[1].fingerprint,
         observation.fingerprint,
         "the cached build reports the same canonical product"
     )
     remove(dir)
+end
+
+function M.carriedRuntimeArtifactsRequireCurrentSourceAndEmittedBytes()
+    local modules = require("nupp.tools.build.modules")
+    local source = "module carried\nexport function value(): integer return 7 end\n"
+    local artifact = "return {value=function() return 7 end}"
+    local record = {sourceHash = hash.digest(source), artifactHash = hash.digest(artifact)}
+    testAssert.eq(modules.currentCarriedArtifact(record, source, artifact, hash.digest), artifact)
+    testAssert.eq(
+        modules.currentCarriedArtifact(nil, source, artifact, hash.digest),
+        nil,
+        "an orphan is not generation-owned"
+    )
+    testAssert.eq(
+        modules.currentCarriedArtifact({}, source, artifact, hash.digest),
+        nil,
+        "an incomplete record is not provenance"
+    )
+    testAssert.eq(
+        modules.currentCarriedArtifact(record, nil, artifact, hash.digest),
+        nil,
+        "no source falls back to carried loading"
+    )
+    testAssert.eq(
+        modules.currentCarriedArtifact(record, source, nil, hash.digest),
+        nil,
+        "a missing artifact is not reusable"
+    )
+    testAssert.eq(modules.currentCarriedArtifact(record, source .. "-- changed\n", artifact, hash.digest), nil)
+    testAssert.eq(modules.currentCarriedArtifact(record, source, artifact .. "-- changed\n", hash.digest), nil)
 end
 
 function M.cachedProducersRetainNestedRuntimeTypeWitnesses()
@@ -604,24 +638,25 @@ end
 return models
 ]],
     })
-    testAssert.equal(project.build(dir, {}), 0)
+    testAssert.eq(project.build(dir, {}), 0)
     write(
         dir .. "/src/main.nupp",
         [[
 local models = require("witnessmodels")
 local info = types.reflect.runtime(models.Parent)
-local child = types.reflect.runtimeType(info, info.fields[1].type as integer)
+local child = types.reflect.runtimetype(info, info.fields[1].type as integer)
 local value = models.make()
 return child == getmetatable(value.child) and value.child.value == 7
 ]]
     )
     local stats = {}
-    testAssert.equal(project.build(dir, {stats = stats}), 0)
-    testAssert.equal(stats.checkedModules, 2, "the consumer and newly reached reflection facade are checked")
-    testAssert.equal(answerFrom(dir), "true")
+    testAssert.eq(project.build(dir, {stats = stats}), 0)
+    -- VM targets lower carried Nupp instead of reusing Lua-generation siblings.
+    testAssert.eq(stats.checkedModules, 2, "the consumer and newly reached reflection facade are checked")
+    testAssert.eq(answerFrom(dir), "true")
     local warm = {}
-    testAssert.equal(project.build(dir, {stats = warm}), 0)
-    testAssert.equal(warm.checkedModules, 0, "the complete reflection closure is then reused")
+    testAssert.eq(project.build(dir, {stats = warm}), 0)
+    testAssert.eq(warm.checkedModules, 0, "the complete reflection closure is then reused")
     remove(dir)
 end
 
@@ -653,11 +688,11 @@ collectgarbage("collect")
 collectgarbage("collect")
 local parents = require("parentmodels")
 local info = types.reflect.runtime(parents.Parent)
-return types.reflect.runtimeType(info, info.fields[1].type as integer) == children.Child
+return types.reflect.runtimetype(info, info.fields[1].type as integer) == children.Child
 ]],
     })
-    testAssert.equal(project.build(dir, {}), 0)
-    testAssert.equal(answerFrom(dir), "true")
+    testAssert.eq(project.build(dir, {}), 0)
+    testAssert.eq(answerFrom(dir), "true")
     remove(dir)
 end
 
@@ -671,7 +706,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
         ] = [[
 local models = require("models")
 const UserCodec: types.reflect.FieldCodec<models.User> = comptime do
-    return types.reflect.fieldCodec(types.reflect(models.User))
+    return types.reflect.fieldcodec(types.reflect(models.User))
 end
 return UserCodec.fingerprint
 ]],
@@ -692,23 +727,19 @@ return models
 ]],
     })
     local cold, coldStats = {}, {}
-    testAssert.equal(project.build(dir, {produced = cold, stats = coldStats}), 0)
+    testAssert.eq(project.build(dir, {produced = cold, stats = coldStats}), 0)
     local firstObservation = assert(cold.materializations[1])
-    testAssert.equal(firstObservation.schema, 2, "field-codec provider schema")
-    testAssert.equal(firstObservation.abis.emitter, 2, "field-codec emitter ABI")
-    testAssert.equal(firstObservation.abis.helper, 2, "field-codec helper ABI")
-    testAssert.equal(firstObservation.abis.runtimeExpression, 2, "field-codec runtime-expression ABI")
+    testAssert.eq(firstObservation.schema, 2, "field-codec provider schema")
+    testAssert.eq(firstObservation.abis.emitter, 2, "field-codec emitter ABI")
+    testAssert.eq(firstObservation.abis.helper, 2, "field-codec helper ABI")
+    testAssert.eq(firstObservation.abis.runtimeExpression, 2, "field-codec runtime-expression ABI")
     local first = firstObservation.fingerprint
 
     local source = read(dir .. "/src/models.nupp")
     write(dir .. "/src/models.nupp", source:gsub('name = "users"', 'name = "accounts"'))
     local changed, changedStats = {}, {}
-    testAssert.equal(project.build(dir, {produced = changed, stats = changedStats}), 0)
-    testAssert.equal(
-        changedStats.checkedModules,
-        2,
-        "changing exported reflected metadata rechecks its dependent module"
-    )
+    testAssert.eq(project.build(dir, {produced = changed, stats = changedStats}), 0)
+    testAssert.eq(changedStats.checkedModules, 2, "changing exported reflected metadata rechecks its dependent module")
     assert(
         first ~= assert(changed.materializations[1]).fingerprint,
         "annotation values participate in the materialization fingerprint"
@@ -740,19 +771,19 @@ return comptime do return nupp.sizeof(PointerSized) end
     })
 
     local lp64 = {}
-    testAssert.equal(project.build(dir, {stats = lp64}), 0)
+    testAssert.eq(project.build(dir, {stats = lp64}), 0)
     local runtime = compiledRuntimeSources(dir, {"main"})
-    testAssert.equal(lp64.checkedModules, 1 + runtime, "the first target checks the project and runtime source")
+    testAssert.eq(lp64.checkedModules, 1 + runtime, "the first target checks the project and runtime source")
 
     local warm = {}
-    testAssert.equal(project.build(dir, {stats = warm}), 0)
-    testAssert.equal(warm.checkedModules, 0, "the same target reuses its result")
+    testAssert.eq(project.build(dir, {stats = warm}), 0)
+    testAssert.eq(warm.checkedModules, 0, "the same target reuses its result")
 
     write(dir .. "/nupp.lua", manifest("i686-unknown-linux-gnu"))
     local ilp32 = {}
-    testAssert.equal(project.build(dir, {stats = ilp32}), 0)
-    testAssert.equal(compiledRuntimeSources(dir, {"main"}), runtime)
-    testAssert.equal(ilp32.checkedModules, 1 + runtime, "changing the target invalidates the old results")
+    testAssert.eq(project.build(dir, {stats = ilp32}), 0)
+    testAssert.eq(compiledRuntimeSources(dir, {"main"}), runtime)
+    testAssert.eq(ilp32.checkedModules, 1 + runtime, "changing the target invalidates the old results")
     remove(dir)
 end
 
@@ -781,20 +812,20 @@ return comptime do return nupp.sizeof(models.Wire) end
     })
 
     local cold = {}
-    testAssert.equal(project.build(dir, {stats = cold}), 0)
+    testAssert.eq(project.build(dir, {stats = cold}), 0)
     local runtime = compiledRuntimeSources(dir, {"main", "models"})
-    testAssert.equal(cold.checkedModules, 2 + runtime, "the layout reader, declaration and runtime source check cold")
+    testAssert.eq(cold.checkedModules, 2 + runtime, "the layout reader, declaration and runtime source check cold")
 
     write(dir .. "/src/models.nupp", model:gsub("return 1", "return 2"))
     local body = {}
-    testAssert.equal(project.build(dir, {stats = body}), 0)
-    testAssert.equal(body.checkedModules, 1, "a body edit checks only its module")
-    testAssert.equal(body.reusedModules, 1 + runtime, "the layout reader and runtime cut off at the interface")
+    testAssert.eq(project.build(dir, {stats = body}), 0)
+    testAssert.eq(body.checkedModules, 1, "a body edit checks only its module")
+    testAssert.eq(body.reusedModules, 1 + runtime, "the layout reader and runtime cut off at the interface")
 
     write(dir .. "/src/models.nupp", model:gsub("value: int32", "value: float64"))
     local changed = {}
-    testAssert.equal(project.build(dir, {stats = changed}), 0)
-    testAssert.equal(changed.checkedModules, 2, "a field layout edit rechecks its reader")
+    testAssert.eq(project.build(dir, {stats = changed}), 0)
+    testAssert.eq(changed.checkedModules, 2, "a field layout edit rechecks its reader")
     remove(dir)
 end
 
@@ -810,7 +841,7 @@ return {
 ]],
     })
     local config, err = project.loadManifest(missing)
-    testAssert.equal(config, nil, "unknown target dependency rejects the manifest")
+    testAssert.eq(config, nil, "unknown target dependency rejects the manifest")
     assert(err:find("references unknown dependency missing", 1, true), err)
     remove(missing)
 
@@ -828,7 +859,7 @@ return {
 ]],
     })
     config, err = project.loadManifest(cyclic)
-    testAssert.equal(config, nil, "dependency cycles reject the manifest")
+    testAssert.eq(config, nil, "dependency cycles reject the manifest")
     assert(err:find("dependency cycle involving", 1, true), err)
     remove(cyclic)
 end
@@ -844,7 +875,7 @@ return {dependencies = {native = {kind = "c",
     })
     local config, err = project.loadManifest(valid)
     assert(config, err)
-    testAssert.equal(table.concat(config.dependencies.native.pkgConfig, ","), "simdjson,luajit")
+    testAssert.eq(table.concat(config.dependencies.native.pkgConfig, ","), "simdjson,luajit")
     remove(valid)
 
     local invalid = tempProject({
@@ -856,7 +887,7 @@ return {dependencies = {native = {kind = "c", pkgConfig = {"simdjson", ""}}},
 ]]
     })
     config, err = project.loadManifest(invalid)
-    testAssert.equal(config, nil, "an empty package name rejects the manifest")
+    testAssert.eq(config, nil, "an empty package name rejects the manifest")
     assert(err:find("pkgConfig%[2%] must be a non%-empty string"), err)
     remove(invalid)
 end
@@ -875,7 +906,7 @@ return {dependencies = {native = {kind = "c", linkage = %q}},
         })
         local config, err = project.loadManifest(valid)
         assert(config, err)
-        testAssert.equal(config.dependencies.native.linkage, linkage)
+        testAssert.eq(config.dependencies.native.linkage, linkage)
         remove(valid)
     end
 
@@ -888,7 +919,7 @@ return {dependencies = {native = {kind = "c", linkage = "dynamic"}},
 ]]
     })
     local config, err = project.loadManifest(invalid)
-    testAssert.equal(config, nil, "an unknown C linkage rejects the manifest")
+    testAssert.eq(config, nil, "an unknown C linkage rejects the manifest")
     assert(err:find('linkage must be "shared", "static", or "both"', 1, true), err)
     remove(invalid)
 
@@ -901,7 +932,7 @@ return {dependencies = {native = {kind = "c", staticOutput = "native.a"}},
 ]]
     })
     config, err = project.loadManifest(strayOutput)
-    testAssert.equal(config, nil, "a static output without static linkage rejects the manifest")
+    testAssert.eq(config, nil, "a static output without static linkage rejects the manifest")
     assert(err:find('staticOutput requires linkage = "static" or "both"', 1, true), err)
     remove(strayOutput)
 end
@@ -978,13 +1009,9 @@ return {build = {entries = {"main"},
     })
     local config, err = project.loadManifest(valid)
     assert(config, "a supported layout target is accepted: " .. tostring(err))
-    testAssert.equal(config.build.layoutTarget, "aarch64-apple-darwin")
+    testAssert.eq(config.build.layoutTarget, "aarch64-apple-darwin")
     local described = assert(project.describeTasks(valid, "default"))
-    testAssert.equal(
-        described.layoutTarget,
-        "aarch64-apple-darwin",
-        "task discovery reports the effective layout target"
-    )
+    testAssert.eq(described.layoutTarget, "aarch64-apple-darwin", "task discovery reports the effective layout target")
     remove(valid)
 
     local invalid = tempProject({
@@ -993,7 +1020,7 @@ return {build = {entries = {"main"}, layoutTarget = "mystery-cpu"}}
 ]]
     })
     config, err = project.loadManifest(invalid)
-    testAssert.equal(config, nil, "an unknown layout target rejects the manifest")
+    testAssert.eq(config, nil, "an unknown layout target rejects the manifest")
     assert(err:find("layoutTarget names unsupported target mystery-cpu", 1, true), err)
     assert(err:find("x86_64%-unknown%-linux%-gnu"), err)
     remove(invalid)
@@ -1009,7 +1036,7 @@ function M.manifestValidatesCrossTargetBinaryPlatforms()
     })
     local config, err = project.loadManifest(validDir)
     assert(config, err)
-    testAssert.equal(#config.build.platforms, 3, "all catalog platforms are retained")
+    testAssert.eq(#config.build.platforms, 3, "all catalog platforms are retained")
     remove(validDir)
 
     local cases = {
@@ -1029,7 +1056,7 @@ function M.manifestValidatesCrossTargetBinaryPlatforms()
             ):format(case.platforms),
         })
         local rejected, why = project.loadManifest(dir)
-        testAssert.equal(rejected, nil, "invalid cross-target manifest is rejected")
+        testAssert.eq(rejected, nil, "invalid cross-target manifest is rejected")
         assert(why:find(case.message, 1, true), why)
         remove(dir)
     end
@@ -1045,12 +1072,12 @@ function M.browserHostsCannotSelectNativeDistributionPlatforms()
         ["src/main.nupp"] = "return 42\n",
     })
     local rejected, why = project.loadManifest(dir)
-    testAssert.equal(rejected, nil, "a browser host cannot use native distribution stubs")
+    testAssert.eq(rejected, nil, "a browser host cannot use native distribution stubs")
     assert(why:find('platforms selects native binary hosts', 1, true), why)
     write(dir .. "/nupp.lua", read(dir .. "/nupp.lua"):gsub('host = "browser"', 'host = "native"'))
     local accepted, problem = project.loadManifest(dir)
     assert(accepted, problem)
-    testAssert.equal(
+    testAssert.eq(
         project.check(dir, {
             host = "browser"
         }),
@@ -1058,11 +1085,11 @@ function M.browserHostsCannotSelectNativeDistributionPlatforms()
         "a check rejects the resolved host before applying a native layout"
     )
 
-    local root = assert(require("io.path").currentDirectory()):toString()
+    local root = assert(require("io.path").currentdirectory()):toString()
     local status, output = process.capture({root .. "/bin/nupp", "build", "--host", "browser"}, {cwd = dir})
-    testAssert.equal(status, 1, "the command-line host override is also rejected\n" .. output)
+    testAssert.eq(status, 1, "the command-line host override is also rejected\n" .. output)
     assert(output:find('platforms selects native binary hosts', 1, true), output)
-    assert(not require("nupp.io.files").isDirectory(dir .. "/out"), "rejection writes no build output")
+    assert(not require("io.files").isdirectory(dir .. "/out"), "rejection writes no build output")
     remove(dir)
 end
 
@@ -1075,7 +1102,7 @@ function M.manifestRestrictsPortablePayloadOutputsToBinaryTargets()
     })
     local config, err = project.loadManifest(validDir)
     assert(config, err)
-    testAssert.equal(config.build.payloadOutput, "app.lua")
+    testAssert.eq(config.build.payloadOutput, "app.lua")
     remove(validDir)
 
     local invalidDir = tempProject({
@@ -1083,7 +1110,7 @@ function M.manifestRestrictsPortablePayloadOutputsToBinaryTargets()
          payloadOutput = "app.lua"}}]],
     })
     local rejected, why = project.loadManifest(invalidDir)
-    testAssert.equal(rejected, nil, "a bundle cannot claim a separately stamped payload")
+    testAssert.eq(rejected, nil, "a bundle cannot claim a separately stamped payload")
     assert(why:find("payloadOutput is only valid for a binary target", 1, true), why)
     remove(invalidDir)
 end
@@ -1108,10 +1135,10 @@ return {
     })
     local task, err = project.describeTasks(dir, "default")
     assert(task, err)
-    testAssert.equal(task.name, "default", "named default task is queried literally")
-    testAssert.equal(task.default, false, "query reports the configured default accurately")
-    testAssert.equal(task.outDir, "out", "task inherits the output directory")
-    testAssert.equal(task.entries[1], "shared.main", "task inherits shared entries")
+    testAssert.eq(task.name, "default", "named default task is queried literally")
+    testAssert.eq(task.default, false, "query reports the configured default accurately")
+    testAssert.eq(task.outDir, "out", "task inherits the output directory")
+    testAssert.eq(task.entries[1], "shared.main", "task inherits shared entries")
     remove(dir)
 end
 
@@ -1123,7 +1150,7 @@ function M.aMisspelledDocsKeyIsRejectedWithTheNameItMeant()
             ["nupp.lua"] = "return {include = {\"src\"}, build = {targets = {site = " .. target .. "}}}\n"
         })
         local config, err = project.loadManifest(dir)
-        testAssert.equal(config, nil, "a key that configures nothing is refused")
+        testAssert.eq(config, nil, "a key that configures nothing is refused")
         assert(err:find(wanted, 1, true), wanted .. " not in: " .. tostring(err))
         remove(dir)
     end
@@ -1150,7 +1177,7 @@ function M.retiredManifestKeysFailAsUnknownKeys()
     local function reject(manifestSource, wanted)
         local dir = tempProject({["nupp.lua"] = manifestSource})
         local config, err = project.loadManifest(dir)
-        testAssert.equal(config, nil, manifestSource)
+        testAssert.eq(config, nil, manifestSource)
         assert(err and err:find(wanted, 1, true), wanted .. " not in: " .. tostring(err))
         remove(dir)
     end
@@ -1204,7 +1231,7 @@ function M.deliverableTargetsStillRequireAnEntry()
     for kind, target in pairs(cases) do
         local dir = tempProject({["nupp.lua"] = 'return {include = {"src"}, build = ' .. target .. '}\n',})
         local config, err = project.loadManifest(dir)
-        testAssert.equal(config, nil, kind .. " without an entry is refused")
+        testAssert.eq(config, nil, kind .. " without an entry is refused")
         assert(err and err:find("build.entries is required", 1, true), tostring(err))
         remove(dir)
     end
@@ -1222,7 +1249,7 @@ function M.fmtManifestKeyIsValidated()
 
     local config = loadFmt('{methodParens = false}')
     assert(config, "a valid fmt table is accepted")
-    testAssert.equal(config.fmt.methodParens, false, "and its value survives")
+    testAssert.eq(config.fmt.methodParens, false, "and its value survives")
 
     local _, err = loadFmt('"off"')
     assert(err and err:find("fmt must be a table", 1, true), err)
@@ -1284,9 +1311,9 @@ return {include = {"src"}, build = {targets = {app = {
 
     local config, err, task = load("{compression = true, path = true, uuid = false}")
     assert(config, "boolean native feature overrides are accepted: " .. tostring(err))
-    testAssert.equal(task.nativeFeatures.compression, true, "task reports forced inclusion")
-    testAssert.equal(task.nativeFeatures.path, true, "new native providers can be forced in")
-    testAssert.equal(task.nativeFeatures.uuid, false, "new native providers can be forced out")
+    testAssert.eq(task.nativeFeatures.compression, true, "task reports forced inclusion")
+    testAssert.eq(task.nativeFeatures.path, true, "new native providers can be forced in")
+    testAssert.eq(task.nativeFeatures.uuid, false, "new native providers can be forced out")
 
     local _, unknown = load("{jsoon = true}")
     assert(unknown and unknown:find("nativeFeatures names no feature jsoon", 1, true), tostring(unknown))
@@ -1301,8 +1328,8 @@ function M.subprocessPreservesEmptyArguments()
     local dir = tempProject({["argv.sh"] = [[printf '%s|%s|%s' "$#" "$1" "$2"]],})
     local status, output = process.capture({"sh", dir .. "/argv.sh", "", "tail"})
     remove(dir)
-    testAssert.equal(status, 0, output)
-    testAssert.equal(output, "2||tail", "an empty argv entry reaches the child process")
+    testAssert.eq(status, 0, output)
+    testAssert.eq(output, "2||tail", "an empty argv entry reaches the child process")
 end
 
 -- A docs target with no outDir does not land in the manifest's default
@@ -1325,11 +1352,11 @@ return {
 ]],
     })
     local site = assert(project.describeTasks(dir, "site"))
-    testAssert.equal(site.outDir, "build/docs", "a site target defaults below build")
+    testAssert.eq(site.outDir, "build/docs", "a site target defaults below build")
     local api = assert(project.describeTasks(dir, "api"))
-    testAssert.equal(api.outDir, "docs/api.md", "a markdown target defaults to a file")
+    testAssert.eq(api.outDir, "docs/api.md", "a markdown target defaults to a file")
     local chosen = assert(project.describeTasks(dir, "chosen"))
-    testAssert.equal(chosen.outDir, "elsewhere", "an explicit outDir still wins")
+    testAssert.eq(chosen.outDir, "elsewhere", "an explicit outDir still wins")
     remove(dir)
 end
 
@@ -1349,8 +1376,8 @@ return {
 ]],
     })
     local task = assert(project.describeTasks(dir, "site"))
-    testAssert.equal(task.includePrivate, true)
-    testAssert.equal(task.all, nil, "there is one privacy setting")
+    testAssert.eq(task.includePrivate, true)
+    testAssert.eq(task.all, nil, "there is one privacy setting")
     remove(dir)
 end
 
@@ -1377,8 +1404,8 @@ return {include = {"src"}, build = {entries = {"main"}}}
     io.stderr:close()
     io.stderr = originalStderr
     os.remove(errorPath)
-    testAssert.equal(plain, 0, ".lua permits unknown globals")
-    testAssert.equal(strict, 1, ".nupp reports an unknown name")
+    testAssert.eq(plain, 0, ".lua permits unknown globals")
+    testAssert.eq(strict, 1, ".nupp reports an unknown name")
     remove(luaDir)
     remove(strictDir)
 end
@@ -1400,7 +1427,7 @@ return {
         ["src/app/data.d.nupp"] = "return { ok: boolean }\n",
         ["src/schema.nupp"] = "return { version = 1 }\n",
     })
-    testAssert.equal(project.build(dir), 0)
+    testAssert.eq(project.build(dir), 0)
     -- A library is its source, so its build writes nothing beside the record.
     assert(not exists(dir .. "/out/app/data.d.nupp"), "a library build copies no resources")
     assert(exists(dir .. "/out/.nupp-state.json"), "persistent state is written")
@@ -1414,14 +1441,14 @@ return {
     -- covered every edit made while the build was running: an edit that landed too late
     -- to be compiled was also too old to ask for another build, and the tree stayed one
     -- edit behind until something unrelated happened to move.
-    testAssert.equal(
+    testAssert.eq(
         os.execute(("test ! '%s/out/.nupp-complete' -nt '%s/out/.nupp-state.json'"):format(dir, dir)),
         0,
         "the completion marker must not be newer than what the build wrote"
     )
-    testAssert.equal(project.build(dir), 0, "warm build succeeds")
+    testAssert.eq(project.build(dir), 0, "warm build succeeds")
     write(dir .. "/out/.nupp-state.json", "not json")
-    testAssert.equal(project.build(dir), 0, "corrupt state degrades to a cold build")
+    testAssert.eq(project.build(dir), 0, "corrupt state degrades to a cold build")
     remove(dir)
 end
 
@@ -1451,7 +1478,7 @@ return {
             "\n"
         ) .. "\n",
     })
-    testAssert.equal(project.build(dir), 0, "a warning does not fail the build")
+    testAssert.eq(project.build(dir), 0, "a warning does not fail the build")
     assert(exists(dir .. "/out/.nupp-complete"), "a warning does not withhold the build")
 
     -- the same lint, turned up by the project, does stop it
@@ -1490,21 +1517,21 @@ return {
     })
 
     local cold = {}
-    testAssert.equal(project.build(dir, {stats = cold}), 0)
+    testAssert.eq(project.build(dir, {stats = cold}), 0)
     local runtime = compiledRuntimeSources(dir, {"main", "lib"})
-    testAssert.equal(cold.checkedModules, 2 + runtime, "cold build checks the project and runtime closure")
+    testAssert.eq(cold.checkedModules, 2 + runtime, "cold build checks the project and runtime closure")
 
     local warm = {}
-    testAssert.equal(project.build(dir, {stats = warm}), 0)
-    testAssert.equal(warm.checkedModules, 0, "warm build checks no modules")
-    testAssert.equal(warm.generatedModules, 0, "warm build generates no modules")
-    testAssert.equal(warm.reusedModules, 2 + runtime, "warm build reuses the project and runtime closure")
+    testAssert.eq(project.build(dir, {stats = warm}), 0)
+    testAssert.eq(warm.checkedModules, 0, "warm build checks no modules")
+    testAssert.eq(warm.generatedModules, 0, "warm build generates no modules")
+    testAssert.eq(warm.reusedModules, 2 + runtime, "warm build reuses the project and runtime closure")
 
     write(dir .. "/src/lib.nupp", depV1:gsub("return 1", "return 2"))
     local bodyEdit = {}
-    testAssert.equal(project.build(dir, {stats = bodyEdit}), 0)
-    testAssert.equal(bodyEdit.checkedModules, 1, "body edit checks only the changed dependency")
-    testAssert.equal(
+    testAssert.eq(project.build(dir, {stats = bodyEdit}), 0)
+    testAssert.eq(bodyEdit.checkedModules, 1, "body edit checks only the changed dependency")
+    testAssert.eq(
         bodyEdit.reusedModules,
         1 + runtime,
         "body edit reuses the dependent and runtime after interface cutoff"
@@ -1522,9 +1549,9 @@ return {
             :gsub("return { answer = answer }", "return { answer = answer, label = 'answer' }")
     )
     local interfaceEdit = {}
-    testAssert.equal(project.build(dir, {stats = interfaceEdit}), 0)
-    testAssert.equal(interfaceEdit.checkedModules, 2, "interface edit rechecks the dependency and dependent")
-    testAssert.equal(
+    testAssert.eq(project.build(dir, {stats = interfaceEdit}), 0)
+    testAssert.eq(interfaceEdit.checkedModules, 2, "interface edit rechecks the dependency and dependent")
+    testAssert.eq(
         interfaceEdit.reusedModules,
         runtime,
         "changed interface invalidates the dependent but preserves the runtime"
@@ -1545,14 +1572,14 @@ return {
         ["src/lib.nupp"] = lib,
     })
 
-    testAssert.equal(project.check(dir, {stats = {}, diagnostics = {}}), 0)
+    testAssert.eq(project.check(dir, {stats = {}, diagnostics = {}}), 0)
     write(
         dir .. "/src/lib.nupp",
         lib:gsub("function M.answer", '@deprecated(replacement = "lib.currentAnswer")\nfunction M.answer')
     )
     local stats, diagnostics = {}, {}
-    testAssert.equal(project.check(dir, {stats = stats, diagnostics = diagnostics}), 0)
-    testAssert.equal(stats.checkedModules, 2, "deprecation metadata invalidates the persistent dependent cache")
+    testAssert.eq(project.check(dir, {stats = stats, diagnostics = diagnostics}), 0)
+    testAssert.eq(stats.checkedModules, 2, "deprecation metadata invalidates the persistent dependent cache")
     local sawDeprecated = false
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.code == "NUPP2513" then
@@ -1591,25 +1618,25 @@ return {
     })
 
     local cold = {}
-    testAssert.equal(project.build(dir, {stats = cold}), 0)
+    testAssert.eq(project.build(dir, {stats = cold}), 0)
     local runtime = compiledRuntimeSources(dir, {"main", "model", "unrelated"})
-    testAssert.equal(cold.checkedModules, 3 + runtime, "cold build checks every project module and runtime source")
+    testAssert.eq(cold.checkedModules, 3 + runtime, "cold build checks every project module and runtime source")
 
     local warm = {}
-    testAssert.equal(project.build(dir, {stats = warm}), 0)
-    testAssert.equal(warm.checkedModules, 0, "unchanged project is warm")
+    testAssert.eq(project.build(dir, {stats = warm}), 0)
+    testAssert.eq(warm.checkedModules, 0, "unchanged project is warm")
 
     write(dir .. "/src/unrelated.nupp", unrelated:gsub("value: number", "value: string"))
     local unrelatedEdit = {}
-    testAssert.equal(project.build(dir, {stats = unrelatedEdit}), 0)
-    testAssert.equal(unrelatedEdit.checkedModules, 1, "unrelated export edit checks only its declaring module")
-    testAssert.equal(unrelatedEdit.reusedModules, 2 + runtime, "the reflecting module and runtime remain reusable")
+    testAssert.eq(project.build(dir, {stats = unrelatedEdit}), 0)
+    testAssert.eq(unrelatedEdit.checkedModules, 1, "unrelated export edit checks only its declaring module")
+    testAssert.eq(unrelatedEdit.reusedModules, 2 + runtime, "the reflecting module and runtime remain reusable")
 
     write(dir .. "/src/model.nupp", model:gsub("name: string", "name: string\n   count: integer"))
     local reflectedEdit = {}
-    testAssert.equal(project.build(dir, {stats = reflectedEdit}), 0)
-    testAssert.equal(reflectedEdit.checkedModules, 2, "reflected field edit checks its declaration and reader")
-    testAssert.equal(reflectedEdit.reusedModules, 1 + runtime, "unrelated module and runtime remain reusable")
+    testAssert.eq(project.build(dir, {stats = reflectedEdit}), 0)
+    testAssert.eq(reflectedEdit.checkedModules, 2, "reflected field edit checks its declaration and reader")
+    testAssert.eq(reflectedEdit.reusedModules, 1 + runtime, "unrelated module and runtime remain reusable")
     remove(dir)
 end
 
@@ -1619,50 +1646,50 @@ function M.storeKeepsWhatItWasGivenAndForgetsNothingLive()
     local path = dir .. "/s.buf"
 
     local first = store.open(path, "stamp-1")
-    testAssert.equal(first.get("a"), nil, "an unopened store has nothing in it")
+    testAssert.eq(first.get("a"), nil, "an unopened store has nothing in it")
     first.put("a", {n = 1, list = {"x", "y"}})
     first.put("b", {n = 2})
     first.save()
 
     local second = store.open(path, "stamp-1")
-    testAssert.equal(second.get("a").n, 1, "a value survives the round trip")
-    testAssert.equal(second.get("a").list[2], "y", "including what is nested in it")
-    testAssert.equal(second.get("b").n, 2)
-    testAssert.equal(second.stats.hits, 3, "three hits, three lookups")
+    testAssert.eq(second.get("a").n, 1, "a value survives the round trip")
+    testAssert.eq(second.get("a").list[2], "y", "including what is nested in it")
+    testAssert.eq(second.get("b").n, 2)
+    testAssert.eq(second.stats.hits, 3, "three hits, three lookups")
 
     -- A different stamp is a different compiler or a different project. There
     -- is no way to tell which of the entries it would have changed, so none of
     -- them are kept.
     local restamped = store.open(path, "stamp-2")
-    testAssert.equal(restamped.get("a"), nil, "a restamped store starts empty")
+    testAssert.eq(restamped.get("a"), nil, "a restamped store starts empty")
 
     -- Every way the file can be wrong is a miss, never an error.
     for _, damage in ipairs({"", "garbage", "\0\1\2\3", ("x"):rep(5000)}) do
         write(path, damage)
         local damaged = store.open(path, "stamp-1")
-        testAssert.equal(damaged.get("a"), nil, "a damaged store has nothing in it")
+        testAssert.eq(damaged.get("a"), nil, "a damaged store has nothing in it")
         damaged.put("a", {n = 9})
         damaged.save()
-        testAssert.equal(store.open(path, "stamp-1").get("a").n, 9, "and is overwritten by the next run")
+        testAssert.eq(store.open(path, "stamp-1").get("a").n, 9, "and is overwritten by the next run")
     end
 
     -- A store with nowhere to live still works; it just never hits.
     local nowhere = store.open(nil, "stamp-1")
     nowhere.put("a", {n = 1})
     nowhere.save()
-    testAssert.equal(nowhere.get("a").n, 1, "within one run it still answers")
-    testAssert.equal(store.open(nil, "stamp-1").get("a"), nil, "and never persists")
+    testAssert.eq(nowhere.get("a").n, 1, "within one run it still answers")
+    testAssert.eq(store.open(nil, "stamp-1").get("a"), nil, "and never persists")
 
     -- The single-value store, under the same rules.
     local vpath = dir .. "/v.buf"
     local value = store.openValue(vpath, "stamp-1")
-    testAssert.equal(value.value, nil)
+    testAssert.eq(value.value, nil)
     value.set({modules = {m = {sourceHash = "abc"}}})
     value.save()
-    testAssert.equal(store.openValue(vpath, "stamp-1").value.modules.m.sourceHash, "abc")
-    testAssert.equal(store.openValue(vpath, "stamp-2").value, nil, "a restamped value store is empty")
+    testAssert.eq(store.openValue(vpath, "stamp-1").value.modules.m.sourceHash, "abc")
+    testAssert.eq(store.openValue(vpath, "stamp-2").value, nil, "a restamped value store is empty")
     write(vpath, "not a buffer")
-    testAssert.equal(store.openValue(vpath, "stamp-1").value, nil, "a damaged value store is empty")
+    testAssert.eq(store.openValue(vpath, "stamp-1").value, nil, "a damaged value store is empty")
 
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -1690,22 +1717,22 @@ return {
     })
 
     local cold = {}
-    testAssert.equal(project.check(dir, {stats = cold, diagnostics = {}}), 0)
-    testAssert.equal(cold.checkedModules, 2, "a cold check checks the closure")
-    testAssert.equal(cold.generatedModules, 0, "a check does not generate module artifacts")
+    testAssert.eq(project.check(dir, {stats = cold, diagnostics = {}}), 0)
+    testAssert.eq(cold.checkedModules, 2, "a cold check checks the closure")
+    testAssert.eq(cold.generatedModules, 0, "a check does not generate module artifacts")
 
     local warm = {}
-    testAssert.equal(project.check(dir, {stats = warm, diagnostics = {}}), 0)
-    testAssert.equal(warm.checkedModules, 0, "a warm check checks nothing")
-    testAssert.equal(warm.generatedModules, 0, "a warm check does not generate module artifacts")
-    testAssert.equal(warm.reusedModules, 2, "a warm check reuses the closure")
+    testAssert.eq(project.check(dir, {stats = warm, diagnostics = {}}), 0)
+    testAssert.eq(warm.checkedModules, 0, "a warm check checks nothing")
+    testAssert.eq(warm.generatedModules, 0, "a warm check does not generate module artifacts")
+    testAssert.eq(warm.reusedModules, 2, "a warm check reuses the closure")
 
     -- A body edit stops at the unchanged interface, exactly as a build does.
     write(dir .. "/src/lib.nupp", libV1:gsub("return 1", "return 2"))
     local bodyEdit = {}
-    testAssert.equal(project.check(dir, {stats = bodyEdit, diagnostics = {}}), 0)
-    testAssert.equal(bodyEdit.checkedModules, 1, "a body edit checks only the changed module")
-    testAssert.equal(bodyEdit.reusedModules, 1, "and reuses the dependent behind the unchanged interface")
+    testAssert.eq(project.check(dir, {stats = bodyEdit, diagnostics = {}}), 0)
+    testAssert.eq(bodyEdit.checkedModules, 1, "a body edit checks only the changed module")
+    testAssert.eq(bodyEdit.reusedModules, 1, "and reuses the dependent behind the unchanged interface")
 
     -- Breaking the interface has to reach the dependent even though the
     -- dependent's own bytes did not move.
@@ -1715,7 +1742,7 @@ return {
     )
     local broken = {}
     assert(project.check(dir, {stats = broken, diagnostics = {}}) ~= 0, "a broken interface fails the check")
-    testAssert.equal(broken.checkedModules, 2, "the dependent is rechecked against the changed interface")
+    testAssert.eq(broken.checkedModules, 2, "the dependent is rechecked against the changed interface")
 
     -- The error is still an error on the next run, when the whole project is
     -- unchanged and every module is a candidate for reuse. This is the
@@ -1736,7 +1763,7 @@ return {
         end
     end
     assert(errors > 0, "and still says what is wrong, from the record")
-    testAssert.equal(again.checkedModules, 0, "without checking anything again")
+    testAssert.eq(again.checkedModules, 0, "without checking anything again")
 
     remove(dir)
 end
@@ -1772,13 +1799,13 @@ return {
     -- come back out of the record rather than out of a recheck.
     local warm = {}
     assert(project.check(dir, {stats = warm, diagnostics = {}}) ~= 0, "and is still refused when nothing has changed")
-    testAssert.equal(warm.checkedModules, 0, "without rechecking anything")
+    testAssert.eq(warm.checkedModules, 0, "without rechecking anything")
 
     -- The provider gains the guarantee. Its interface does not move, and the
     -- reader's own bytes do not move, so the recorded guarantee is the only thing
     -- that can carry the change across.
     write(dir .. "/src/dep.nupp", quiet)
-    testAssert.equal(
+    testAssert.eq(
         project.check(dir, {
             stats = {},
             diagnostics = {}
@@ -1840,7 +1867,7 @@ end
     for _, checkOnly in ipairs({true, false}) do
         local diagnostics = {}
         local verb = checkOnly and "check" or "build"
-        testAssert.equal(project.build(dir, {checkOnly = checkOnly, diagnostics = diagnostics}), 1, verb .. " refuses")
+        testAssert.eq(project.build(dir, {checkOnly = checkOnly, diagnostics = diagnostics}), 1, verb .. " refuses")
         local found = false
         for _, diagnostic in ipairs(diagnostics) do
             found = found or (diagnostic.msg or diagnostic.message or ""):find("more than one file", 1, true) ~= nil
@@ -1853,17 +1880,17 @@ end
 
 function M.aHeaderEditRechecksTheModuleThatReadsIt()
     local dir = cheaderProject()
-    testAssert.equal(project.build(dir, {checkOnly = true, stats = {}}), 0, "the header's signature fits the call")
+    testAssert.eq(project.build(dir, {checkOnly = true, stats = {}}), 0, "the header's signature fits the call")
     local warm = {}
-    testAssert.equal(project.build(dir, {checkOnly = true, stats = warm}), 0, "and a second check agrees")
-    testAssert.equal(warm.checkedModules, 0, "an unchanged header leaves the record reusable")
+    testAssert.eq(project.build(dir, {checkOnly = true, stats = warm}), 0, "and a second check agrees")
+    testAssert.eq(warm.checkedModules, 0, "an unchanged header leaves the record reusable")
 
     -- Renamed rather than re-signed: this process's FFI already holds the first
     -- `probe_add`, and LuaJIT keeps a C declaration once made, so only a cold
     -- process could see its parameters change.
     write(dir .. "/src/probe.h", "int probe_sum(int a, int b);\n")
     local diagnostics, edited = {}, {}
-    testAssert.equal(
+    testAssert.eq(
         project.build(dir, {
             checkOnly = true,
             stats = edited,
@@ -1872,26 +1899,26 @@ function M.aHeaderEditRechecksTheModuleThatReadsIt()
         1,
         "a header that no longer declares the function refuses the call"
     )
-    testAssert.equal(edited.checkedModules, 1, "the header edit rechecked its reader")
+    testAssert.eq(edited.checkedModules, 1, "the header edit rechecked its reader")
     assert(#diagnostics > 0, "and said why")
 
     write(dir .. "/src/probe.h", "int probe_add(int a, int b);\n")
-    testAssert.equal(project.build(dir, {checkOnly = true, stats = {}}), 0, "restoring the header restores the answer")
+    testAssert.eq(project.build(dir, {checkOnly = true, stats = {}}), 0, "restoring the header restores the answer")
 
     remove(dir)
 end
 
 function M.aHeaderEditRegeneratesTheModuleThatReadsIt()
     local dir = cheaderProject()
-    testAssert.equal(project.build(dir, {stats = {}}), 0)
+    testAssert.eq(project.build(dir, {stats = {}}), 0)
     local warm = {}
-    testAssert.equal(project.build(dir, {stats = warm}), 0)
-    testAssert.equal(warm.checkedModules, 0, "an unchanged header leaves the artifact reusable")
+    testAssert.eq(project.build(dir, {stats = warm}), 0)
+    testAssert.eq(warm.checkedModules, 0, "an unchanged header leaves the artifact reusable")
 
     write(dir .. "/src/probe.h", "int probe_add(int a, int b);\nint probe_sub(int a, int b);\n")
     local edited = {}
-    testAssert.equal(project.build(dir, {stats = edited}), 0)
-    testAssert.equal(edited.checkedModules, 1, "the header edit rebuilt its reader")
+    testAssert.eq(project.build(dir, {stats = edited}), 0)
+    testAssert.eq(edited.checkedModules, 1, "the header edit rebuilt its reader")
 
     remove(dir)
 end
@@ -1912,18 +1939,18 @@ return {
             "src/main.nupp"
         ] = [[
 local random = require("nupp.random")
-local time = require("nupp.time")
+local time = require("coroutine")
 return random, time
 ]],
     })
 
     local cold = {}
-    testAssert.equal(project.check(dir, {produced = cold, diagnostics = {}}), 0)
+    testAssert.eq(project.check(dir, {produced = cold, diagnostics = {}}), 0)
     assert(cold.timing.compiledModules > 0, "the first check establishes the module records")
 
     local warm = {}
-    testAssert.equal(project.check(dir, {produced = warm, diagnostics = {}}), 0)
-    testAssert.equal(warm.timing.compiledModules, 0, "the unchanged runtime closure is reused")
+    testAssert.eq(project.check(dir, {produced = warm, diagnostics = {}}), 0)
+    testAssert.eq(warm.timing.compiledModules, 0, "the unchanged runtime closure is reused")
     for _, span in ipairs(warm.timing.slowest) do
         assert(
             span.module ~= "nupp.mem.representation.spi",
@@ -1962,7 +1989,7 @@ return {
     -- depends on it. What nothing asked about is not.
     local cold = {}
     local coldDiags = {}
-    testAssert.equal(
+    testAssert.eq(
         project.check(dir, {
             paths = {dir .. "/src/main.nupp"},
             stats = cold,
@@ -1971,13 +1998,13 @@ return {
         0,
         "a named file that is well typed passes though the project is not"
     )
-    testAssert.equal(cold.checkedModules, 2, "the named file and what it requires")
-    testAssert.equal(#coldDiags, 0, "the loose module's error is not this question")
+    testAssert.eq(cold.checkedModules, 2, "the named file and what it requires")
+    testAssert.eq(#coldDiags, 0, "the loose module's error is not this question")
 
     local warm = {}
-    testAssert.equal(project.check(dir, {paths = {dir .. "/src/main.nupp"}, stats = warm, diagnostics = {}}), 0)
-    testAssert.equal(warm.checkedModules, 0, "a second narrow check checks nothing")
-    testAssert.equal(warm.reusedModules, 2, "and reuses what the first one recorded")
+    testAssert.eq(project.check(dir, {paths = {dir .. "/src/main.nupp"}, stats = warm, diagnostics = {}}), 0)
+    testAssert.eq(warm.checkedModules, 0, "a second narrow check checks nothing")
+    testAssert.eq(warm.reusedModules, 2, "and reuses what the first one recorded")
 
     -- Naming the broken file is how you hear about it.
     local named = {}
@@ -2009,8 +2036,8 @@ return {
         }) ~= 0,
         "the project still has the loose module's error in it"
     )
-    testAssert.equal(whole.checkedModules, 0, "and every module was already recorded by the narrow checks")
-    testAssert.equal(whole.reusedModules, 3, "all three of them")
+    testAssert.eq(whole.checkedModules, 0, "and every module was already recorded by the narrow checks")
+    testAssert.eq(whole.reusedModules, 3, "all three of them")
 
     remove(dir)
 end
@@ -2030,7 +2057,7 @@ return {
     })
 
     local unchecked = {}
-    testAssert.equal(
+    testAssert.eq(
         project.check(dir, {
             paths = {dir .. "/src/main.nupp", dir .. "/src/surface.d.nupp"},
             unchecked = unchecked,
@@ -2038,8 +2065,8 @@ return {
         }),
         0
     )
-    testAssert.equal(#unchecked, 1, "the declaration file is not a module of the walk")
-    testAssert.equal(unchecked[1], dir .. "/src/surface.d.nupp", "and it is named back")
+    testAssert.eq(#unchecked, 1, "the declaration file is not a module of the walk")
+    testAssert.eq(unchecked[1], dir .. "/src/surface.d.nupp", "and it is named back")
 
     remove(dir)
 end
@@ -2078,7 +2105,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
         ["src/main.nupp"] = main,
     })
 
-    testAssert.equal(
+    testAssert.eq(
         project.check(dir, {
             stats = {},
             diagnostics = {}
@@ -2092,17 +2119,10 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"}}}
     -- Rechecking a changed consumer admits a validated persisted result. Damage is a
     -- miss, never a different type answer.
     write(dir .. "/src/main.nupp", main .. "\n-- force a consumer check\n")
-    testAssert.equal(
-        project.check(dir, {
-            stats = {},
-            diagnostics = {}
-        }),
-        0,
-        "a fresh checker accepts persisted blueprints"
-    )
+    testAssert.eq(project.check(dir, {stats = {}, diagnostics = {}}), 0, "a fresh checker accepts persisted blueprints")
     write(cache, "not a type-function store")
     write(dir .. "/src/main.nupp", main .. "\n-- force another consumer check\n")
-    testAssert.equal(
+    testAssert.eq(
         project.check(dir, {
             stats = {},
             diagnostics = {}
@@ -2167,12 +2187,12 @@ return {
 
     local cold = answerOf()
     assert(cold:sub(1, 1) ~= "0", "the fixture is meant to have an error in it")
-    testAssert.equal(answerOf(), cold, "a warm cache gives the cold answer")
+    testAssert.eq(answerOf(), cold, "a warm cache gives the cold answer")
 
     for _, damage in ipairs({"not a buffer at all", "", "\0\0\0\0"}) do
         write(contentCacheDir(dir, "out") .. "/headers.buf", damage)
         write(dir .. "/out/cache/checks.buf", damage)
-        testAssert.equal(answerOf(), cold, "a damaged cache gives the cold answer")
+        testAssert.eq(answerOf(), cold, "a damaged cache gives the cold answer")
     end
 
     -- Damage the store cannot see for itself: a value that decodes, under the
@@ -2203,12 +2223,12 @@ return {
         doctored.save()
         local ok, answer = pcall(answerOf)
         assert(ok, "wrongly shaped check state " .. index .. " crashed the check: " .. tostring(answer))
-        testAssert.equal(answer, cold, "wrongly shaped check state " .. index .. " gives the cold answer")
+        testAssert.eq(answer, cold, "wrongly shaped check state " .. index .. " gives the cold answer")
     end
 
     remove(contentCacheDir(dir, "out"))
     remove(dir .. "/out/cache")
-    testAssert.equal(answerOf(), cold, "no cache at all gives the cold answer")
+    testAssert.eq(answerOf(), cold, "no cache at all gives the cold answer")
     remove(dir)
 end
 
@@ -2231,11 +2251,11 @@ return {
         ["src/lib.nupp"] = library("borrows"),
     })
 
-    testAssert.equal(project.build(dir), 0)
+    testAssert.eq(project.build(dir), 0)
     write(dir .. "/src/lib.nupp", library("takes"))
     local changed = {}
-    testAssert.equal(project.build(dir, {stats = changed}), 0)
-    testAssert.equal(changed.checkedModules, 2, "ownership-mode interface changes recheck dependents")
+    testAssert.eq(project.build(dir, {stats = changed}), 0)
+    testAssert.eq(changed.checkedModules, 2, "ownership-mode interface changes recheck dependents")
     remove(dir)
 end
 
@@ -2266,11 +2286,11 @@ return {
         ["src/lib.nupp"] = library("first_cleanup"),
     })
 
-    testAssert.equal(project.build(dir), 0)
+    testAssert.eq(project.build(dir), 0)
     write(dir .. "/src/lib.nupp", library("second_cleanup"))
     local changed = {}
-    testAssert.equal(project.build(dir, {stats = changed}), 0)
-    testAssert.equal(changed.checkedModules, 2, "a changed cleanup rechecks dependents")
+    testAssert.eq(project.build(dir, {stats = changed}), 0)
+    testAssert.eq(changed.checkedModules, 2, "a changed cleanup rechecks dependents")
     remove(dir)
 end
 
@@ -2292,7 +2312,7 @@ return {
         ["native/tiny.h"] = "int tiny_add(int a, int b);\n",
         ["native/tiny.c"] = "int tiny_add(int a, int b) { return a + b; }\n",
     })
-    testAssert.equal(project.build(dir), 0)
+    testAssert.eq(project.build(dir), 0)
     assert(exists(dir .. "/out/lib/" .. libraryName("tiny")), "C shared library emitted")
     local binding = read(dir .. "/out/generated/tiny.nupp")
     assert(binding:find("module tiny", 1, true), "C binding is a declared module")
@@ -2306,7 +2326,7 @@ return {
             "\n"
         )
     )
-    testAssert.equal(project.build(dir), 0, "changed native input rebuilds")
+    testAssert.eq(project.build(dir), 0, "changed native input rebuilds")
     assert(
         read(dir .. "/out/generated/tiny.nupp"):find("cdef function tiny_sub", 1, true),
         "header change reimports bindings"
@@ -2336,13 +2356,13 @@ return {
             "\n"
         ),
     })
-    testAssert.equal(project.build(dir), 0)
+    testAssert.eq(project.build(dir), 0)
     local archive = dir .. "/out/lib/" .. staticLibraryName("tiny")
     assert(exists(archive), "C static archive emitted")
     assert(not exists(dir .. "/out/lib/" .. libraryName("tiny")), "a static dependency does not emit a shared library")
 
     local executable = dir .. "/native/static-consumer" .. (hostSystem == "windows" and ".exe" or "")
-    testAssert.equal(
+    testAssert.eq(
         process.run({
             "cc",
             dir .. "/native/main.c",
@@ -2353,7 +2373,7 @@ return {
         0,
         "the emitted archive links into a C executable"
     )
-    testAssert.equal(process.run({executable}), 0, "the linked archive supplies its symbols")
+    testAssert.eq(process.run({executable}), 0, "the linked archive supplies its symbols")
     remove(dir)
 end
 
@@ -2375,15 +2395,15 @@ return {
         ["native/tiny.h"] = "int tiny_add(int a, int b);\n",
         ["native/tiny.c"] = "int tiny_add(int a, int b) { return a + b; }\n",
     })
-    testAssert.equal(project.build(dir), 0)
+    testAssert.eq(project.build(dir), 0)
     local shared = dir .. "/out/lib/" .. libraryName("tiny")
     local archive = dir .. "/out/lib/" .. staticLibraryName("tiny")
     assert(exists(shared), "both linkage emits the shared library")
     assert(exists(archive), "both linkage emits the static archive")
-    testAssert.equal(answerFrom(dir), "5", "the generated binding loads the shared artifact")
+    testAssert.eq(answerFrom(dir), "5", "the generated binding loads the shared artifact")
 
     os.remove(archive)
-    testAssert.equal(project.build(dir), 0, "a missing static half is rebuilt")
+    testAssert.eq(project.build(dir), 0, "a missing static half is rebuilt")
     assert(exists(archive), "the rebuilt dependency restores its static archive")
     remove(dir)
 end
@@ -2397,7 +2417,7 @@ function M.cDependencyUsesTargetIndexedPrebuiltStaticArtifact()
         ["main.nupp"] = "return true\n",
         ["tiny.c"] = "int tiny_add(int a, int b) { return a + b; }\n",
     })
-    testAssert.equal(project.build(producer), 0)
+    testAssert.eq(project.build(producer), 0)
     local archive = producer .. "/build/lib/" .. staticLibraryName("tiny")
     local bytes = read(archive)
     local host = assert(require("nupp.compiler.targetlayout").hostKey())
@@ -2419,14 +2439,14 @@ return {
         ["src/main.nupp"] = "local tiny = require('tiny')\nreturn tiny.tiny_add\n",
         ["native/tiny.h"] = "int tiny_add(int a, int b);\n",
     })
-    testAssert.equal(project.build(consumer), 0, "a verified prebuilt artifact is selected for this target")
-    testAssert.equal(
+    testAssert.eq(project.build(consumer), 0, "a verified prebuilt artifact is selected for this target")
+    testAssert.eq(
         read(consumer .. "/out/lib/" .. staticLibraryName("tiny")),
         bytes,
         "the selected target artifact is staged byte-for-byte"
     )
     write(archive, ("x"):rep(#bytes))
-    testAssert.equal(project.build(consumer), 1, "a digest-valid manifest refuses changed prebuilt bytes")
+    testAssert.eq(project.build(consumer), 1, "a digest-valid manifest refuses changed prebuilt bytes")
     remove(consumer)
     remove(producer)
 end
@@ -2448,7 +2468,7 @@ function M.binaryFixpointReadsThePlatformNamedHostOutput()
         return 0
     end
     process.run = function(argv)
-        testAssert.equal(argv[1], output .. ".stage1", "fixpoint executes the platform-named stage")
+        testAssert.eq(argv[1], output .. ".stage1", "fixpoint executes the platform-named stage")
         write(output, "same stamped bytes")
         return 0
     end
@@ -2459,7 +2479,7 @@ function M.binaryFixpointReadsThePlatformNamedHostOutput()
     project.build, process.run, buildPlatform.hostKey = oldBuild, oldRun, oldHostKey
     remove(dir)
     assert(ok, status)
-    testAssert.equal(status, 0, "the Windows executable suffix is shared with the build")
+    testAssert.eq(status, 0, "the Windows executable suffix is shared with the build")
 end
 
 function M.cDependencyLinksAStaticClosureIntoItsSharedLibrary()
@@ -2495,8 +2515,8 @@ return {
             "\n"
         ),
     })
-    testAssert.equal(project.build(dir), 0)
-    testAssert.equal(answerFrom(dir), "5", "the shared parent contains its transitive static implementation")
+    testAssert.eq(project.build(dir), 0)
+    testAssert.eq(answerFrom(dir), "5", "the shared parent contains its transitive static implementation")
     remove(dir)
 end
 
@@ -2528,7 +2548,7 @@ end
 -- It is now marked the way `@aot` code has always marked its library.
 function M.cDependencyNamesItsLibraryRelativeToTheModuleThatLoadsIt()
     local dir = callingProject()
-    testAssert.equal(project.build(dir), 0)
+    testAssert.eq(project.build(dir), 0)
 
     local binding = read(dir .. "/out/generated/tiny.nupp")
     assert(
@@ -2539,7 +2559,7 @@ function M.cDependencyNamesItsLibraryRelativeToTheModuleThatLoadsIt()
 
     -- The ordinary case first: a project built and run where it was built has to
     -- go on loading, since this changes how every existing one names its library.
-    testAssert.equal(answerFrom(dir), "5", "an ordinary C dependency loads where the build left it")
+    testAssert.eq(answerFrom(dir), "5", "an ordinary C dependency loads where the build left it")
     remove(dir)
 end
 
@@ -2563,7 +2583,7 @@ return {
         ["src/main.nupp"] = "return true\n",
         ["native/tiny.h"] = "double tiny_scale(double value);\n",
     })
-    testAssert.equal(project.build(dir), 0)
+    testAssert.eq(project.build(dir), 0)
     local binding = read(dir .. "/out/generated/tiny.nupp")
     assert(binding:find('from "m"', 1, true), "a platform library name is left exactly as it was: " .. binding)
     remove(dir)
@@ -2615,7 +2635,7 @@ static inline int32_t tiny_triple(int32_t value) { return value * TINY_SCALE; }
 #define TINY_IGNORE(value) ((void)(value))
 ]],
     })
-    testAssert.equal(project.build(dir), 0)
+    testAssert.eq(project.build(dir), 0)
     local library = dir .. "/out/lib/" .. libraryName("tiny")
     assert(exists(library), "header-only bridge shared library emitted")
     assert(exists(dir .. "/out/generated/tiny_bridge.c"), "deterministic bridge source emitted")
@@ -2628,7 +2648,7 @@ static inline int32_t tiny_triple(int32_t value) { return value * TINY_SCALE; }
     assert(triple, "physical inline symbol recorded")
     local clamp = binding:match("cdef function (__nupp_bridge_[%da-f]+)%(arg0: int32, arg1: int32, arg2: int32%)")
     assert(clamp, "physical macro symbol recorded")
-    testAssert.equal(answerFrom(dir), "42", "bridge compilation receives the dependency's preprocessor flags")
+    testAssert.eq(answerFrom(dir), "42", "bridge compilation receives the dependency's preprocessor flags")
     remove(dir)
 end
 
@@ -2690,7 +2710,7 @@ crate-type = ["cdylib"]
 pub extern "C" fn tiny_double(value: i32) -> i32 { value * 2 }
 ]],
     })
-    testAssert.equal(project.build(dir), 0)
+    testAssert.eq(project.build(dir), 0)
     assert(exists(dir .. "/out/lib/" .. libraryName("tiny_rust")), "Cargo cdylib copied into output")
     remove(dir)
 end
@@ -2795,9 +2815,9 @@ pub extern "C" fn tiny_drops() -> i32 { DROPS.load(Ordering::SeqCst) }
 ]],
     })
     if hostSystem ~= "windows" then
-        testAssert.equal(os.execute(("chmod +x %q"):format(dir .. "/native/cbindgen")), 0)
+        testAssert.eq(os.execute(("chmod +x %q"):format(dir .. "/native/cbindgen")), 0)
     end
-    testAssert.equal(project.build(dir), 0)
+    testAssert.eq(project.build(dir), 0)
     assert(exists(dir .. "/out/generated/tinyrust.h"), "the configured cbindgen command wrote its header")
     local binding = read(dir .. "/out/generated/tinyrust.nupp")
     assert(
@@ -2812,7 +2832,7 @@ pub extern "C" fn tiny_drops() -> i32 { DROPS.load(Ordering::SeqCst) }
         binding:find('from "@lib/' .. libraryName("tiny_rust") .. '"', 1, true),
         "the cbindgen import names the copied cdylib relatively: " .. binding
     )
-    testAssert.equal(answerFrom(dir), "1", "leaving the returned Box at scope end calls its Rust destructor once")
+    testAssert.eq(answerFrom(dir), "1", "leaving the returned Box at scope end calls its Rust destructor once")
     remove(dir)
 end
 
@@ -2852,7 +2872,7 @@ crate-type = ["cdylib"]
 pub extern "C" fn tiny_double(value: i32) -> i32 { value * 2 }
 ]],
     })
-    testAssert.equal(project.build(dir), 0)
+    testAssert.eq(project.build(dir), 0)
 
     local binding = read(dir .. "/out/generated/tinyrust.nupp")
     assert(
@@ -2861,7 +2881,7 @@ pub extern "C" fn tiny_double(value: i32) -> i32 { value * 2 }
     )
     assert(not binding:find(dir, 1, true), "and the build directory does not appear in it: " .. binding)
 
-    testAssert.equal(answerFrom(dir), "42", "a Cargo dependency loads where the build left it")
+    testAssert.eq(answerFrom(dir), "42", "a Cargo dependency loads where the build left it")
     remove(dir)
 end
 
@@ -2896,7 +2916,7 @@ return {dependencies = {types = {kind = "types", format = "luacats",
         ["main.nupp"] = "return true\n",
     })
     local legacy = assert(project.loadManifest(legacyDir))
-    testAssert.equal(legacy.build.compileDependencies, nil, "omission preserves ambient type dependency compatibility")
+    testAssert.eq(legacy.build.compileDependencies, nil, "omission preserves ambient type dependency compatibility")
     remove(legacyDir)
 
     local explicitDir = tempProject({
@@ -2910,7 +2930,7 @@ return {dependencies = {types = {kind = "types", format = "luacats",
         ["main.nupp"] = "return true\n",
     })
     local explicit = assert(project.loadManifest(explicitDir))
-    testAssert.equal(
+    testAssert.eq(
         #explicit.build.compileDependencies,
         0,
         "an explicit empty list opts out of ambient type dependencies"
@@ -2976,7 +2996,7 @@ end
     io.stderr = originalStderr
     local reported = read(errorPath) or ""
     os.remove(errorPath)
-    testAssert.equal(code, 1, "a generator that dies fails the build")
+    testAssert.eq(code, 1, "a generator that dies fails the build")
     assert(
         reported:find("codegen: model is on fire", 1, true),
         "the worker's captured output is reported: " .. reported
@@ -2997,7 +3017,7 @@ function M.shellEntryPointsRefuseBoundedOptions()
         not ok and tostring(err):find("captureIsolated", 1, true),
         "capture refuses a memory ceiling it cannot honor: " .. tostring(err)
     )
-    testAssert.equal(process.run({"true"}, {cwd = "."}), 0, "cwd is still honored")
+    testAssert.eq(process.run({"true"}, {cwd = "."}), 0, "cwd is still honored")
 end
 
 function M.startedSessionsRefusePoliciesTheyCannotService()
@@ -3079,7 +3099,7 @@ function M.docsDoNotInstallUnrunGeneratorTools()
     }
     local built, err = deps.build(dir, "out", config, {}, {kind = "docs", dependencies = {}})
     assert(built, "a docs dependency pass ignores unrun generators: " .. tostring(err))
-    testAssert.equal(next(built), nil, "no generator tool is installed for docs")
+    testAssert.eq(next(built), nil, "no generator tool is installed for docs")
     remove(dir)
 end
 
@@ -3088,15 +3108,15 @@ function M.canonicalPathsFollowLinksAndKeepMissingOnesObservable()
     local real = fs.canonical(dir .. "/real/file.txt")
     assert(real:sub(1, 1) == "/" or real:match("^%a:/"), "a canonical path is absolute: " .. real)
     assert(read(real) == "x\n", "the canonical path names the same file")
-    testAssert.equal(fs.canonical(dir .. "/real/../real/./file.txt"), real, "dot segments are resolved")
+    testAssert.eq(fs.canonical(dir .. "/real/../real/./file.txt"), real, "dot segments are resolved")
     local missing = fs.canonical(dir .. "/real/absent.txt")
-    testAssert.equal(missing, fs.absolute(dir .. "/real/absent.txt"), "a missing path keeps its absolute spelling")
+    testAssert.eq(missing, fs.absolute(dir .. "/real/absent.txt"), "a missing path keeps its absolute spelling")
     if hostSystem ~= "windows" then
-        testAssert.equal(process.run({"ln", "-s", "real", dir .. "/link"}), 0)
-        testAssert.equal(fs.canonical(dir .. "/link/file.txt"), real, "a symbolic link is followed")
+        testAssert.eq(process.run({"ln", "-s", "real", dir .. "/link"}), 0)
+        testAssert.eq(fs.canonical(dir .. "/link/file.txt"), real, "a symbolic link is followed")
         local _, printed = process.capture({"realpath", dir .. "/link/file.txt"})
-        testAssert.equal(real, (printed:gsub("%s+$", "")), "the answer agrees with realpath")
-        testAssert.equal(
+        testAssert.eq(real, (printed:gsub("%s+$", "")), "the answer agrees with realpath")
+        testAssert.eq(
             fs.canonical(dir .. "/link/absent.txt"),
             fs.absolute(dir .. "/link/absent.txt"),
             "a missing path behind a link keeps its spelling"
@@ -3106,14 +3126,14 @@ function M.canonicalPathsFollowLinksAndKeepMissingOnesObservable()
 end
 
 function M.lexicalRootsRemainAbsolute()
-    testAssert.equal(fs.normalize("/"), "/", "the POSIX root survives normalization")
-    testAssert.equal(fs.join("ignored", "/"), "/", "a joined POSIX root replaces its left side")
-    testAssert.equal(fs.absolute("/"), "/", "the POSIX root does not become the working directory")
-    testAssert.equal(fs.dirname("/file"), "/", "a file directly under the POSIX root has the root as its parent")
-    testAssert.equal(fs.normalize("C:\\"), "C:/", "a drive root survives normalization")
-    testAssert.equal(fs.join("ignored", "C:/"), "C:/", "a joined drive root replaces its left side")
-    testAssert.equal(fs.absolute("C:/"), "C:/", "a drive root remains absolute")
-    testAssert.equal(fs.dirname("C:/file"), "C:/", "a file directly under a drive root has that root as its parent")
+    testAssert.eq(fs.normalize("/"), "/", "the POSIX root survives normalization")
+    testAssert.eq(fs.join("ignored", "/"), "/", "a joined POSIX root replaces its left side")
+    testAssert.eq(fs.absolute("/"), "/", "the POSIX root does not become the working directory")
+    testAssert.eq(fs.dirname("/file"), "/", "a file directly under the POSIX root has the root as its parent")
+    testAssert.eq(fs.normalize("C:\\"), "C:/", "a drive root survives normalization")
+    testAssert.eq(fs.join("ignored", "C:/"), "C:/", "a joined drive root replaces its left side")
+    testAssert.eq(fs.absolute("C:/"), "C:/", "a drive root remains absolute")
+    testAssert.eq(fs.dirname("C:/file"), "C:/", "a file directly under a drive root has that root as its parent")
 end
 
 function M.fileWalksStopAtSymbolicLinkCycles()
@@ -3121,10 +3141,10 @@ function M.fileWalksStopAtSymbolicLinkCycles()
         return
     end
     local dir = tempProject({["root/value.txt"] = "value\n"})
-    testAssert.equal(process.run({"ln", "-s", ".", dir .. "/root/again"}), 0, "the cycle is created")
+    testAssert.eq(process.run({"ln", "-s", ".", dir .. "/root/again"}), 0, "the cycle is created")
     local listed = fs.listFiles(dir .. "/root")
-    testAssert.equal(#listed, 1, "a link to an ancestor is not walked again")
-    testAssert.equal(listed[1], dir .. "/root/value.txt", "the ordinary file remains visible")
+    testAssert.eq(#listed, 1, "a link to an ancestor is not walked again")
+    testAssert.eq(listed[1], dir .. "/root/value.txt", "the ordinary file remains visible")
     remove(dir)
 end
 
@@ -3162,15 +3182,15 @@ function M.stagedWritesKeepTheDestinationAfterStreamFailures()
         package.loaded["nupp.compiler.fs"] = nil
         local isolated = require("nupp.compiler.fs")
         local wrote, reason = isolated.writeFile(dir .. "/output", "new\n")
-        testAssert.equal(wrote, nil, "a failed stream write is reported")
-        testAssert.equal(reason, "simulated write failure", "the write failure is retained")
-        testAssert.equal(read(dir .. "/output"), "old\n", "a failed stream write publishes nothing")
+        testAssert.eq(wrote, nil, "a failed stream write is reported")
+        testAssert.eq(reason, "simulated write failure", "the write failure is retained")
+        testAssert.eq(read(dir .. "/output"), "old\n", "a failed stream write publishes nothing")
 
         failureAt = "close"
         wrote, reason = isolated.writeFile(dir .. "/output", "new\n")
-        testAssert.equal(wrote, nil, "a failed stream close is reported")
-        testAssert.equal(reason, "simulated close failure", "the close failure is retained")
-        testAssert.equal(read(dir .. "/output"), "old\n", "a failed stream close publishes nothing")
+        testAssert.eq(wrote, nil, "a failed stream close is reported")
+        testAssert.eq(reason, "simulated close failure", "the close failure is retained")
+        testAssert.eq(read(dir .. "/output"), "old\n", "a failed stream close publishes nothing")
     end)
     io.open = open
     package.loaded["nupp.compiler.fs"] = loaded
@@ -3194,8 +3214,8 @@ return {
         ["src/main.nupp"] = "return true\n",
         ["test.sh"] = "test \"$NUPP_TEST_BUILD\" = out || exit 1\nprintf yes > test-ran\n",
     })
-    testAssert.equal(project.test(dir), 0)
-    testAssert.equal(read(dir .. "/test-ran"), "yes")
+    testAssert.eq(project.test(dir), 0)
+    testAssert.eq(read(dir .. "/test-ran"), "yes")
     assert(exists(dir .. "/out/.nupp-state.json"), "test builds first")
     remove(dir)
 end
@@ -3225,10 +3245,10 @@ return {
     local ok, result = pcall(project.test, dir)
     process.run = originalRun
     assert(ok, result)
-    testAssert.equal(result, 0)
-    testAssert.equal(ran.argv[2], "test", "the default runner stays under the test command")
-    testAssert.equal(ran.argv[3], "--internal-runner", "the default test command is Nupp's bundled runner")
-    testAssert.equal(ran.options.cwd, dir, "the default runner starts in the project")
+    testAssert.eq(result, 0)
+    testAssert.eq(ran.argv[2], "test", "the default runner stays under the test command")
+    testAssert.eq(ran.argv[3], "--internal-runner", "the default test command is Nupp's bundled runner")
+    testAssert.eq(ran.options.cwd, dir, "the default runner starts in the project")
     assert(exists(dir .. "/out/.nupp-state.json"), "the default test command builds first")
     remove(dir)
 end
@@ -3248,8 +3268,8 @@ return {
 ]],
         ["greet.sh"] = "printf hi > task-ran\n",
     })
-    testAssert.equal(project.runTask(dir, "greet"), 0)
-    testAssert.equal(read(dir .. "/task-ran"), "hi")
+    testAssert.eq(project.runTask(dir, "greet"), 0)
+    testAssert.eq(read(dir .. "/task-ran"), "hi")
     assert(not exists(dir .. "/build"), "a task with no build key builds nothing")
     remove(dir)
 end
@@ -3270,12 +3290,12 @@ return {
         ["src/main.nupp"] = "return true\n",
         ["tools/greet.sh"] = "printf hi > task-ran\n",
     })
-    testAssert.equal(project.runTask(dir, "greet"), 0)
-    testAssert.equal(read(dir .. "/tools/task-ran"), "hi")
+    testAssert.eq(project.runTask(dir, "greet"), 0)
+    testAssert.eq(read(dir .. "/tools/task-ran"), "hi")
     assert(not exists(dir .. "/task-ran"), "the task does not run from the outer project root")
 
     local described = assert(project.describeTasks(dir, "greet"))
-    testAssert.equal(described.cwd, "tools", "task discovery reports the configured working directory")
+    testAssert.eq(described.cwd, "tools", "task discovery reports the configured working directory")
     remove(dir)
 end
 
@@ -3291,7 +3311,7 @@ return {
 ]],
     })
     local config, err = project.loadManifest(dir)
-    testAssert.equal(config, nil, "an empty task working directory rejects the manifest")
+    testAssert.eq(config, nil, "an empty task working directory rejects the manifest")
     assert(err and err:find("tasks.greet.cwd must be a non-empty string", 1, true), tostring(err))
     remove(dir)
 end
@@ -3313,7 +3333,7 @@ return {
         ["src/main.nupp"] = "return true\n",
         ["greet.sh"] = "printf hi > task-ran\n",
     })
-    testAssert.equal(project.runTask(dir, "greet"), 0)
+    testAssert.eq(project.runTask(dir, "greet"), 0)
     assert(exists(dir .. "/out/.nupp-state.json"), "a task naming a build target builds first")
     remove(dir)
 end
@@ -3331,8 +3351,8 @@ IFS=,
 printf '%s' "$*" > task-args
 ]],
     })
-    testAssert.equal(project.runTask(dir, "greet", {"a", "b"}), 0)
-    testAssert.equal(read(dir .. "/task-args"), "a,b")
+    testAssert.eq(project.runTask(dir, "greet", {"a", "b"}), 0)
+    testAssert.eq(read(dir .. "/task-args"), "a,b")
     remove(dir)
 end
 
@@ -3347,43 +3367,43 @@ return {include = {"src"}, tasks = {greet = {argv = {"echo", "hi"}}}}
     io.stderr:close()
     io.stderr = originalStderr
     os.remove(errorPath)
-    testAssert.equal(status, 1, "an unconfigured task name fails rather than running nothing quietly")
+    testAssert.eq(status, 1, "an unconfigured task name fails rather than running nothing quietly")
     remove(dir)
 end
 
 function M.pkgConfigFlagsUseShellWordQuotingWithoutRunningAShell()
     local words = assert(buildSyntax.shellWords([[-I"include dir" '-DNAME=two words' plain\ flag "" ab"cd"'ef']]))
-    testAssert.equal(
+    testAssert.eq(
         table.concat(words, "\0"),
         table.concat({"-Iinclude dir", "-DNAME=two words", "plain flag", "", "abcdef"}, "\0")
     )
-    testAssert.equal(#assert(buildSyntax.shellWords(" \t\n")), 0)
+    testAssert.eq(#assert(buildSyntax.shellWords(" \t\n")), 0)
     local malformed = buildSyntax.shellWords([["unclosed]])
-    testAssert.equal(malformed, nil)
+    testAssert.eq(malformed, nil)
 end
 
 function M.shellWordsRejectIncompleteQuotingAndEscapes()
-    testAssert.equal(buildSyntax.shellWords("plain\\"), nil, "a trailing escape needs a byte")
-    testAssert.equal(buildSyntax.shellWords("'unclosed"), nil, "a single quote needs its closing quote")
-    testAssert.equal(buildSyntax.shellWords('"unclosed'), nil, "a double quote needs its closing quote")
-    testAssert.equal(buildSyntax.shellWords('"unclosed\\'), nil, "an escape cannot close a double quote")
+    testAssert.eq(buildSyntax.shellWords("plain\\"), nil, "a trailing escape needs a byte")
+    testAssert.eq(buildSyntax.shellWords("'unclosed"), nil, "a single quote needs its closing quote")
+    testAssert.eq(buildSyntax.shellWords('"unclosed'), nil, "a double quote needs its closing quote")
+    testAssert.eq(buildSyntax.shellWords('"unclosed\\'), nil, "an escape cannot close a double quote")
     local words = assert(buildSyntax.shellWords([["" '' a""b c''d]]))
-    testAssert.equal(#words, 4, "empty quoted words are retained")
-    testAssert.equal(table.concat(words, "\0"), table.concat({"", "", "ab", "cd"}, "\0"))
+    testAssert.eq(#words, 4, "empty quoted words are retained")
+    testAssert.eq(table.concat(words, "\0"), table.concat({"", "", "ab", "cd"}, "\0"))
 end
 
 function M.makeDepfilesPreserveEscapedPathsAndContinuations()
     local paths = assert(buildSyntax.depfile("nupp_header: one.h two\\ three.h \\\n four\\#five.h one.h # ignored\n"))
-    testAssert.equal(table.concat(paths, "\0"), table.concat({"one.h", "two three.h", "four#five.h", "one.h"}, "\0"))
-    testAssert.equal(buildSyntax.depfile("not a depfile"), nil)
+    testAssert.eq(table.concat(paths, "\0"), table.concat({"one.h", "two three.h", "four#five.h", "one.h"}, "\0"))
+    testAssert.eq(buildSyntax.depfile("not a depfile"), nil)
 end
 
 function M.makeDepfilesHandleEscapedTargetsCommentsAndCrLf()
     local paths = assert(buildSyntax.depfile("generated\\:header: one\\:name.h two\\#name.h # ignored.h\r\n"))
-    testAssert.equal(table.concat(paths, "\0"), "one:name.h\0two#name.h", "only unescaped hash starts a comment")
+    testAssert.eq(table.concat(paths, "\0"), "one:name.h\0two#name.h", "only unescaped hash starts a comment")
     local continued = assert(buildSyntax.depfile("header: one.h\\\r\n two.h\r\n"))
-    testAssert.equal(table.concat(continued, "\0"), "one.h\0two.h", "CRLF continuation is whitespace")
-    testAssert.equal(buildSyntax.depfile("header: path\\"), nil, "a trailing dependency escape needs a byte")
+    testAssert.eq(table.concat(continued, "\0"), "one.h\0two.h", "CRLF continuation is whitespace")
+    testAssert.eq(buildSyntax.depfile("header: path\\"), nil, "a trailing dependency escape needs a byte")
 end
 
 function M.buildGlobsTreatDoubleStarAsZeroOrMoreDirectories()
@@ -3403,9 +3423,9 @@ function M.buildGlobsTreatDoubleStarAsZeroOrMoreDirectories()
     })
     local matches = deps.expandGlob(dir, "src/**/*.nupp")
     table.sort(matches)
-    testAssert.equal(#matches, 2)
-    testAssert.equal(matches[1], dir .. "/src/nested/child.nupp")
-    testAssert.equal(matches[2], dir .. "/src/root.nupp")
+    testAssert.eq(#matches, 2)
+    testAssert.eq(matches[1], dir .. "/src/nested/child.nupp")
+    testAssert.eq(matches[2], dir .. "/src/root.nupp")
     remove(dir)
 end
 
@@ -3419,7 +3439,7 @@ return {build = {kind = "component", entries = {"main"}, exports = {"main.run"},
     })
     local config, err = project.loadManifest(valid)
     assert(config, err)
-    testAssert.equal(config.build.reload, true)
+    testAssert.eq(config.build.reload, true)
     remove(valid)
 
     local wrongKind = tempProject({
@@ -3428,7 +3448,7 @@ return {build = {kind = "bundle", entries = {"main"}, reload = true}}
 ]]
     })
     config, err = project.loadManifest(wrongKind)
-    testAssert.equal(config, nil, "only a component carries the slots a session patches")
+    testAssert.eq(config, nil, "only a component carries the slots a session patches")
     assert(err:find("reload is only valid for a component target", 1, true), err)
     remove(wrongKind)
 
@@ -3440,7 +3460,7 @@ return {build = {kind = "component", entries = {"main"}, reload = true, optimize
 ]]
     })
     config, err = project.loadManifest(optimized)
-    testAssert.equal(config, nil, "optimize is not a target key")
+    testAssert.eq(config, nil, "optimize is not a target key")
     assert(err:find('has no key "optimize"', 1, true), err)
     remove(optimized)
 
@@ -3450,7 +3470,7 @@ return {build = {kind = "component", entries = {"main"}, reload = true, aot = "r
 ]]
     })
     config, err = project.loadManifest(compiled)
-    testAssert.equal(config, nil, "a patched Lua body is not a rebuilt kernel")
+    testAssert.eq(config, nil, "a patched Lua body is not a rebuilt kernel")
     assert(err:find("reload cannot be combined with aot", 1, true), err)
     remove(compiled)
 end

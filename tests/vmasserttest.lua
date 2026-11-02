@@ -12,9 +12,9 @@ local M = {}
 local function compile(name, source, listing)
     local path = fs.absolute(HERE .. "/" .. name .. ".nupp")
     local parsed = parser.parse(source, path)
-    test.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg or "syntax errors")
+    test.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg or "syntax errors")
     local diagnostics = check.check(parsed, path, env, {moduleName = name, strict = false})
-    test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "diagnostics")
+    test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "diagnostics")
     if listing then
         program.image(parsed, name, path, listing)
     end
@@ -40,8 +40,8 @@ end)
 return events, ok, tostring(problem)
 ]]
     )
-    test.equal(events, "C")
-    test.equal(ok, false)
+    test.eq(events, "C")
+    test.eq(ok, false)
     test(message:find("assert failure marker", 1, true) ~= nil)
 end
 
@@ -61,9 +61,9 @@ assert(false, "replacement")
 return calls, seen, text
 ]]
     )
-    test.equal(calls, 1)
-    test.equal(value, false)
-    test.equal(message, "replacement")
+    test.eq(calls, 1)
+    test.eq(value, false)
+    test.eq(message, "replacement")
 end
 
 function M.resultAssertionsAndDynamicMessagesKeepTheirValues()
@@ -80,9 +80,9 @@ assert(true, message())
 return first, second, events
 ]]
     )
-    test.equal(first, 0)
-    test.equal(message, "returned message")
-    test.equal(events, "MM")
+    test.eq(first, 0)
+    test.eq(message, "returned message")
+    test.eq(events, "MM")
 end
 
 function M.successfulStatementAssertionsHaveAColdFailureCall()
@@ -106,7 +106,7 @@ end
     test(branch and call)
     run(true)
     local ok, message = pcall(run, false)
-    test.equal(ok, false)
+    test.eq(ok, false)
     test(tostring(message):find("condition failed", 1, true) ~= nil)
 end
 

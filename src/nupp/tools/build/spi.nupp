@@ -32,8 +32,8 @@ function spi.read(root, config, target, records): ({any}?, string?)
         if not source then
             return why
         end
-        local document = json.decodeValue(source, json.NULL)
-        if type(document) ~= "table" or json.isArray(document) or document == json.NULL then
+        local document = json.decodevalue(source, json.NULL)
+        if type(document) ~= "table" or json.isarray(document) or document == json.NULL then
             return path .. " must contain an interface-to-module object"
         end
         local names: {string} = {}
@@ -50,7 +50,7 @@ function spi.read(root, config, target, records): ({any}?, string?)
             if not qualified(interface) or not interface:find(".", 1, true) then
                 return path .. ": invalid qualified interface " .. tostring(interface)
             end
-            if type(modules) ~= "table" or not json.isArray(modules) then
+            if type(modules) ~= "table" or not json.isarray(modules) then
                 return path .. ": " .. interface .. " must list implementation modules"
             end
             for _, implementation in ipairs(modules) do

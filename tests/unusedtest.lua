@@ -13,7 +13,7 @@ local envMod = require("nupp.compiler.project.env")
 -- turns this lint off for everything that is not about it.
 local function diagnostics(src, config)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     return check.check(result, "test.nupp", envMod.new("."), config or {})
 end
 
@@ -30,8 +30,8 @@ end
 
 local function assertFlagged(src, label)
     local found = lint(src)
-    testAssert.equal(#found, 1, (label or "expected one report") .. "\n" .. src)
-    testAssert.equal(found[1].lint, "unused-binding", "lint name")
+    testAssert.eq(#found, 1, (label or "expected one report") .. "\n" .. src)
+    testAssert.eq(found[1].lint, "unused-binding", "lint name")
     return found[1]
 end
 
@@ -60,10 +60,10 @@ end
 return shout
 ]]
     )
-    testAssert.equal(at.line, 2, "reported at the binding")
-    testAssert.equal(at.col, 10, "and at the name, not the statement")
-    testAssert.equal(at.severity, "warning", "suspicious lints warn by default")
-    testAssert.equal(at.msg, "nothing uses prefix")
+    testAssert.eq(at.line, 2, "reported at the binding")
+    testAssert.eq(at.col, 10, "and at the name, not the statement")
+    testAssert.eq(at.severity, "warning", "suspicious lints warn by default")
+    testAssert.eq(at.msg, "nothing uses prefix")
 end
 
 -- The other half of missing-require: that lint says a module name is used
@@ -74,8 +74,8 @@ local strutil = require("strutil")
 
 return 1
 ]])
-    testAssert.equal(at.msg, 'nothing reads strutil after requiring "strutil"')
-    testAssert.equal(
+    testAssert.eq(at.msg, 'nothing reads strutil after requiring "strutil"')
+    testAssert.eq(
         at.help,
         "delete the require, or call require without binding its result when loading it is intentional",
         "the help preserves intentional load effects"
@@ -90,8 +90,8 @@ end
 
 return 2
 ]])
-    testAssert.equal(at.msg, "nothing uses helper")
-    testAssert.equal(at.help, "delete it, or return it from the module")
+    testAssert.eq(at.msg, "nothing uses helper")
+    testAssert.eq(at.help, "delete it, or return it from the module")
 end
 
 -- A use written below the declaration is still a use, which is why the
@@ -195,7 +195,7 @@ return work
     ) do
         codes[#codes + 1] = diag.code
     end
-    testAssert.equal(table.concat(codes, " "), "", "automatic cleanup is meaningful use and needs no ownership repair")
+    testAssert.eq(table.concat(codes, " "), "", "automatic cleanup is meaningful use and needs no ownership repair")
 end
 
 function M.aDeclarationFileDeclaresWhatLivesElsewhere()
@@ -206,7 +206,7 @@ function M.aDeclarationFileDeclaresWhatLivesElsewhere()
             found[#found + 1] = diag
         end
     end
-    testAssert.equal(#found, 0, "nothing in a declaration file has a reader here")
+    testAssert.eq(#found, 0, "nothing in a declaration file has a reader here")
 end
 
 function M.anAllowSilencesIt()
@@ -225,7 +225,7 @@ return 1
 end
 
 function M.aProjectMovesItsLevel()
-    testAssert.equal(
+    testAssert.eq(
         #lint("local prefix = 1\nreturn 2\n", {
             lints = {["unused-binding"] = "off"}
         }),
@@ -233,8 +233,8 @@ function M.aProjectMovesItsLevel()
         "off is not reported"
     )
     local raised = lint("local prefix = 1\nreturn 2\n", {lints = {["unused-binding"] = "error"}})
-    testAssert.equal(raised[1] and raised[1].severity, "error", "raised by name")
-    testAssert.equal(#lint("local prefix = 1\nreturn 2\n", {lints = {suspicious = "off"}}), 0, "and by category")
+    testAssert.eq(raised[1] and raised[1].severity, "error", "raised by name")
+    testAssert.eq(#lint("local prefix = 1\nreturn 2\n", {lints = {suspicious = "off"}}), 0, "and by category")
 end
 
 function M.anFfiIntrinsicCountsAsUsingTheRequire()

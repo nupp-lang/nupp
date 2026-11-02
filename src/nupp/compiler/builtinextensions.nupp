@@ -11,21 +11,35 @@ local ROOTS = {
     warn = {module = "warn", direct = true},
     assert = {module = "assert", direct = true},
     arg = {module = "arg", direct = true},
+    table = {module = "nupp.runtime.standardtable", members = {move = true}},
     io = {
         module = "nupp.runtime.standardio",
         members = {
-            style = true,
-            table = true,
-            writeTable = true,
-            cell = true,
-            paintedCell = true,
-            annotatedCell = true,
-            severity = true,
-            setColorMode = true,
-            withColorMode = true,
-            colorEnabled = true,
-            isTerminal = true,
-            columns = true,
+            Error = true,
+            newbuffer = true,
+            newlines = true,
+            newqueuereader = true,
+            newscalarreader = true,
+            newscalarwriter = true,
+            newstringreader = true,
+            readall = true,
+        }
+    },
+    coroutine = {
+        module = "nupp.runtime.standardcoroutine",
+        members = {
+            Cancellation = true,
+            Scope = true,
+            scope = true,
+            checkpoint = true,
+            deadline = true,
+            gather = true,
+            race = true,
+            run = true,
+            iscancelled = true,
+            sleep = true,
+            sleepuntil = true,
+            wakeat = true,
         }
     },
     os = {
@@ -57,6 +71,28 @@ local function firstUse(c: any, root: string): boolean
     return true
 end
 
+-- Select a declared implementation without loading it or mutating builtin maps.
+function extensions.implementation(env: any, root: string): string?
+    local specification = ROOTS[root]
+    if not specification or not env or env.bootstrapping then
+        return nil
+    end
+    local index = env.ensureProjectIndex and env.ensureProjectIndex(env)
+    local declared = index and index.declaredModules[specification.module]
+    if not declared then
+        local path = env.findModulePath and env.findModulePath(env, specification.module)
+        if path and not (env.isStagedBundledSource and env.isStagedBundledSource(env, specification.module, path)) then
+            return nil
+        end
+        local bundled = env.bundled and env.bundled[specification.module]
+        if not bundled or bundled.declared ~= true then
+            return nil
+        end
+    end
+
+    return specification.module
+end
+
 -- Compile an extension at most once per environment, outside the prelude and
 -- outside its own dependency cycle. Missing modules are normal in the accepting
 -- seed, before their source adoption.
@@ -84,18 +120,8 @@ function extensions.type(c: any, root: string): any
     end
     pending[root] = false
     -- An implicit Lua helper can share a builtin's name without implementing it.
-    -- Only a declared implementation may supply the global root's type.
-    local index = env.ensureProjectIndex and env.ensureProjectIndex(env)
-    local declared = index and index.declaredModules[specification.module]
-    if not declared then
-        local path = env.findModulePath and env.findModulePath(env, specification.module)
-        if path and not (env.isStagedBundledSource and env.isStagedBundledSource(env, specification.module, path)) then
-            return nil
-        end
-        local bundled = env.bundled and env.bundled[specification.module]
-        if not bundled or bundled.declared ~= true then
-            return nil
-        end
+    if not extensions.implementation(env, root) then
+        return nil
     end
     local extension = env.resolveModule and env.resolveModule(env, specification.module)
     local original = env.globals and env.globals[root]

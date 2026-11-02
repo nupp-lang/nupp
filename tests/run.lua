@@ -82,17 +82,17 @@ package.preload.testjson = package.preload.testjson or function()
         NULL = native.NULL,
         EMPTY_ARRAY = native.EMPTY_ARRAY,
         EMPTY_OBJECT = native.EMPTY_OBJECT,
-        arrayOf = native.arrayOf,
-        asArray = native.asArray,
-        asObject = native.asObject,
-        isArray = native.isArray,
-        encode = native.encodeValue,
-        newWriter = native.newWriter,
+        arrayOf = native.arrayof,
+        asArray = native.asarray,
+        asObject = native.asobject,
+        isArray = native.isarray,
+        encode = native.encodevalue,
+        newWriter = native.newwriter,
     }
 
     -- The facade answers a reason now; the runner's callers want a raise.
     function json.decode(text)
-        local value, reason = native.decodeValue(text, native.NULL)
+        local value, reason = native.decodevalue(text, native.NULL)
         if reason ~= nil then
             error(reason, 2)
         end
@@ -311,7 +311,7 @@ local function cleanupTempNames()
     if #remaining == 0 then
         return
     end
-    local loaded, files = pcall(require, "nupp.io.files")
+    local loaded, files = pcall(require, "io.files")
     if not loaded then
         return
     end
@@ -1684,7 +1684,7 @@ local function readJson(path)
 end
 
 local function fixtureManifest(root)
-    local files = require("nupp.io.files")
+    local files = require("io.files")
     local manifest = {}
 
     local function walk(directory, prefix)
@@ -1814,8 +1814,8 @@ local function resolveFixture(key, produce)
         error("content-addressed fixtures require exclusive file creation on this runtime", 2)
     end
 
-    local files = require("nupp.io.files")
-    local made, makeProblem = files.createDirectory(fixtureRoot)
+    local files = require("io.files")
+    local made, makeProblem = files.createdirectory(fixtureRoot)
     if not made then
         error("cannot create fixture store: " .. tostring(makeProblem), 2)
     end
@@ -1861,7 +1861,7 @@ local function resolveFixture(key, produce)
         end
         local temporary = fixtureRoot .. "/." .. slot .. ".tmp-" .. shardSalt .. "-" .. fixtureSerial
         files.remove(temporary, true)
-        local prepared, prepareProblem = files.createDirectory(temporary)
+        local prepared, prepareProblem = files.createdirectory(temporary)
         if not prepared then
             os.remove(lock)
             error("cannot prepare fixture " .. key .. ": " .. tostring(prepareProblem), 2)
@@ -1984,7 +1984,7 @@ end
 -- producer alone however long it has been working.
 if not queueDir and #shard == 0 then
     pcall(function()
-        local files = require("nupp.io.files")
+        local files = require("io.files")
         for _, entry in ipairs(files.list(fixtureRoot) or {}) do
             if entry.name:match("%.failed%.json$") then
                 files.remove(fixtureRoot .. "/" .. entry.name)
@@ -2073,17 +2073,17 @@ local function recordResult(suite, name, defined, ok, err, stdout, stderr, elaps
         if not queueDir then
             mark(".")
         end
-    elseif test.suite.isSkip(err) then
+    elseif test.suite.isskip(err) then
         skipped = skipped + 1
         record.status = "skipped"
-        record.skip = {reason = tostring(test.suite.skipReason(err) or "skipped")}
+        record.skip = {reason = tostring(test.suite.skipreason(err) or "skipped")}
         if not queueDir then
             mark("S")
         end
-    elseif test.suite.isNotExecuted(err) then
+    elseif test.suite.isnotexecuted(err) then
         notExecutedCount = notExecutedCount + 1
         record.status = "not-executed"
-        record.notExecuted = {reason = tostring(test.suite.notExecutedReason(err) or "not executed")}
+        record.notExecuted = {reason = tostring(test.suite.notexecutedreason(err) or "not executed")}
         if not queueDir then
             mark("N")
         end
@@ -2679,10 +2679,12 @@ local PROCESS_ISOLATED = {
 }
 
 local processCalls = {
-    'require("nupp.io.process")',
-    "require('nupp.io.process')",
     'require("nupp.workers")',
     "require('nupp.workers')",
+    'require("nupp.io.process")',
+    "require('nupp.io.process')",
+    'require("coroutine.workers")',
+    "require(\"coroutine.workers\")",
     -- Reaching into the loader is process-shaped whether or not a process is
     -- started. A suite that clears a module to prove it loads lazily, injects a
     -- loader, or writes a global through `rawset` is mutating what every other
@@ -2881,7 +2883,7 @@ then
         --- one to share with and keeps the warm store this process was started with.
         local function startFanOut(lanes, ownCache, isolated, executionLane)
             if workerHost and ownCache and not isolated then
-                local workers = require("nupp.workers")
+                local workers = require("coroutine.workers")
                 local job = require("job")
                 local running = {}
                 local scope = workers.__scope()

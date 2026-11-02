@@ -313,7 +313,7 @@ function M.importedDeclarationAndModuleAliasUseExactCheckedIdentity()
                 end
             end
         end
-        test.equal(calls, 1)
+        test.eq(calls, 1)
         assert(s.validate())
     end)
 end
@@ -535,7 +535,7 @@ function M.checkedIntrinsicsOutsideTheBodyBatchRetainTheirContracts()
                     end
                 end
             end
-            test.equal(casts, 2)
+            test.eq(casts, 2)
         end,
         nil,
         [[
@@ -592,7 +592,7 @@ function M.literalRaiseUsesCheckedDecodedStringBytes()
             assert(argument.kind == "string" and argument.token.value == nil)
             assert(argument.inferredType.tag == "literal")
             local raising = assert(unit.literalRaise(owner, call))
-            test.equal(raising.literal, value)
+            test.eq(raising.literal, value)
             assert(raising.node == call)
         end
         assert(unit.literalRaise(functions.shadowed, callOf(functions.shadowed)) == nil)
@@ -651,7 +651,7 @@ function M.literalRaiseRejectsChangedTokenAndCheckedType()
             "checked literal string"
         )
         argument.inferredType = checked
-        test.equal(unit.literalRaise(owner, call).literal, "heap: the arena is full")
+        test.eq(unit.literalRaise(owner, call).literal, "heap: the arena is full")
     end)
 end
 

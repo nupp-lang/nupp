@@ -15,7 +15,7 @@ local sharedEnv = envMod.new(".")
 
 local function lint(src, opts)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diags = check.check(result, "test.nupp", sharedEnv, opts or {})
     local found = {}
     for _, diag in ipairs(diags) do
@@ -29,8 +29,8 @@ end
 
 local function assertFlagged(src, label)
     local found = lint(src)
-    testAssert.equal(#found, 1, (label or "expected one report") .. "\n" .. src)
-    testAssert.equal(found[1].lint, "else-if", "lint name")
+    testAssert.eq(#found, 1, (label or "expected one report") .. "\n" .. src)
+    testAssert.eq(found[1].lint, "else-if", "lint name")
     return found[1]
 end
 
@@ -85,16 +85,16 @@ local M = {}
 
 function M.flagsAnElseContainingOnlyAnIf()
     local at = assertFlagged(CHAIN)
-    testAssert.equal(at.line, 3, "reports at else")
-    testAssert.equal(at.severity, "warning", "style lints warn by default")
-    testAssert.equal(at.help, "replace else followed by if with elseif", "carries a fix direction")
+    testAssert.eq(at.line, 3, "reports at else")
+    testAssert.eq(at.severity, "warning", "style lints warn by default")
+    testAssert.eq(at.help, "replace else followed by if with elseif", "carries a fix direction")
 end
 
 function M.offersAMachineApplicableFix()
     local at = assertFlagged(CHAIN)
-    testAssert.equal(#(at.fixes or {}), 1, "one unambiguous rewrite")
+    testAssert.eq(#(at.fixes or {}), 1, "one unambiguous rewrite")
     local fix = at.fixes[1]
-    testAssert.equal(fix.title, "write `elseif`", "names the rewrite")
+    testAssert.eq(fix.title, "write `elseif`", "names the rewrite")
     local rewritten = applyFix(CHAIN, fix)
     assert(rewritten:find("elseif%s+second then"), "joins the condition to elseif")
     assertQuiet(rewritten, "the rewritten source has no else-if lint")
@@ -102,8 +102,8 @@ end
 
 function M.flagsAdjacentMutuallyExclusiveConditions()
     local at = assertFlagged(ADJACENT)
-    testAssert.equal(at.line, 5, "reports at the second if")
-    testAssert.equal(
+    testAssert.eq(at.line, 5, "reports at the second if")
+    testAssert.eq(
         at.help,
         "replace the second if with elseif and remove the preceding end",
         "explains the adjacent rewrite"
@@ -171,7 +171,7 @@ function M.canBeAllowedByNameOrCode()
 end
 
 function M.canBeTurnedOff()
-    testAssert.equal(#lint(CHAIN, {lints = {["else-if"] = "off"}}), 0, "a disabled lint says nothing")
+    testAssert.eq(#lint(CHAIN, {lints = {["else-if"] = "off"}}), 0, "a disabled lint says nothing")
 end
 
 return M

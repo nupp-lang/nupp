@@ -4,8 +4,8 @@ order: 145
 
 # Application task scopes
 
-`nupp.tasks` owns the coroutine and worker work that belongs to one application
-operation. A scope is opened with `open` and held by a `with`: the block is the
+`coroutine` owns the coroutine and worker work that belongs to one application
+operation. A scope is opened with `scope` and held by a `with`: the block is the
 scope's body, and leaving it settles the scope, so every child has run, been
 cancelled, or unwound before the block is left. The first child failure cancels
 unfinished siblings and becomes the scope's failure.
@@ -13,7 +13,7 @@ unfinished siblings and becomes the scope's failure.
 ```nupp:fragment
 export function load(): string
     local loaded = ""
-    with scope = nupp.tasks.open() do
+    with scope = coroutine.scope() do
         const atlas = scope:spawn("load atlas", function(): string
             return readAtlas()
         end)
@@ -53,21 +53,21 @@ provider says which values may cross: the native provider moves an engine-backed
 `await` returns the body's complete result pack, including nil positions, and
 may be called again after settlement. `isDone` checks settlement without
 waiting, and `status` returns `queued`, `running`, `done`, `failed`, or
-`cancelled`: a `nupp.tasks.Status`, a closed union a `switch` covers without an
+`cancelled`: a `coroutine.Status`, a closed union a `switch` covers without an
 `else`. Handles borrow the scope that created them: one cannot be returned from
 the block or stored past it, so a task never becomes detached work.
 
 
 ## Bounded fan-out
 
-`open(limit = n)` parks `spawn` and `fork` while `n` children are live. The loop
-that spawns is the source, and a settlement is what lets it continue, so nothing
-is pulled from the source before there is room to run it. A worker child holds a
-slot until its lane answers.
+`scope(limit = n)` parks `spawn` and `fork` while `n` children are live. The
+loop that spawns is the source, and a settlement is what lets it continue, so
+nothing is pulled from the source before there is room to run it. A worker child
+holds a slot until its lane answers.
 
 ```nupp:fragment
 const sizes: {integer} = {}
-with scope = nupp.tasks.open(limit = 8) do
+with scope = coroutine.scope(limit = 8) do
     for index, url in ipairs(urls) do
         scope:spawn(sizes, index, url, storeSize)
     end
@@ -80,7 +80,7 @@ in completion order by construction. A worker result comes back through the
 child that awaits it, which is the child that occupies the slot:
 
 ```nupp:fragment
-with scope = nupp.tasks.open(limit = os.info().parallelism) do
+with scope = coroutine.scope(limit = os.info().parallelism) do
     for name, path in pairs(paths) do
         scope:spawn(function(): nil
             const size = scope:fork(name, path, jobs.compress):await()
@@ -105,13 +105,13 @@ added meanwhile.
 this call was first. A queued coroutine child never enters its body. A parked
 child is resumed far enough to unwind its cleanup. Running Lua is cooperative:
 it notices cancellation when it suspends, returns, or calls
-`nupp.tasks.checkpoint()`.
+`coroutine.checkpoint()`.
 
 ```nupp:fragment
 const child = scope:spawn(function(): integer
     local total: integer = 0
     for index = 1, 1000000 do
-        nupp.tasks.checkpoint()
+        coroutine.checkpoint()
         total = total + index
     end
     return total
@@ -129,7 +129,7 @@ is how the first result wins:
 
 ```nupp:fragment
 local winner: string? = nil
-with scope = nupp.tasks.open(limit = 4) do
+with scope = coroutine.scope(limit = 4) do
     for _, mirror in ipairs(mirrors) do
         if winner ~= nil then break end
         scope:spawn(function(): nil
@@ -148,7 +148,7 @@ A child's family includes the scopes it has opened. Cancelling the child, by
 scopes too, and the child may still park while it settles them, so its
 grandchildren unwind through their cleanup before the outer scope lets it go.
 
-Cancellation raises one nominal value. `nupp.tasks.isCancelled(problem)`
+Cancellation raises one nominal value. `coroutine.iscancelled(problem)`
 recognizes it after a `pcall`; its text includes the child operation and reason.
 A child name is also the operation an installed suspension handler sees when
 that child parks.
@@ -189,12 +189,12 @@ Call `scope:cancel()` first where that is not wanted, or run the body with
 
 ## Callback scopes
 
-`nupp.tasks.run` opens a scope, hands it to a body, and settles it however the
+`coroutine.run` opens a scope, hands it to a body, and settles it however the
 body ends. Because it calls the body itself, it knows whether the body returned
 or failed, which a `with` block cannot tell its scope:
 
 ```nupp:fragment
-const total = nupp.tasks.run(limit = 8, body = function(borrows scope: nupp.tasks.Scope): integer
+const total = coroutine.run(limit = 8, body = function(borrows scope: coroutine.Scope): integer
     const left = scope:spawn(function(): integer return countLeft() end)
     const right = scope:spawn(function(): integer return countRight() end)
 
@@ -210,7 +210,7 @@ is raised. A child that fails while it unwinds does not replace that failure: it
 is attached beside it, the way a cleanup failure is.
 
 Use `run` where the scope is the whole operation, so a failure is not held up
-behind children it has made pointless. Keep `open` where the block should wait
+behind children it has made pointless. Keep `scope` where the block should wait
 for its children whatever happens, or where children are added across several
 calls that each borrow the scope. `run` takes the same `limit` and `timeoutMs`,
 and the body may also come alone, as `run(body)`.
@@ -218,7 +218,7 @@ and the body may also come alone, as `run(body)`.
 ## Whole-family calls
 
 A family that is complete at the call does not need a block to hold it.
-`nupp.tasks.gather` and `nupp.tasks.race` take the bodies, run each in a
+`coroutine.gather` and `coroutine.race` take the bodies, run each in a
 coroutine of its own, and settle every one before returning, so neither returns
 a scope a caller has to discharge.
 
@@ -226,7 +226,7 @@ a scope a caller has to discharge.
 for a caller who has to see every outcome:
 
 ```nupp:fragment
-const values, errors = nupp.tasks.gather({
+const values, errors = coroutine.gather({
     function(): string return fetch(primary) end,
     function(): string return fetch(mirror) end,
 })
@@ -244,7 +244,7 @@ returns several fails, saying how many, rather than having the rest dropped.
 and unwinds the rest:
 
 ```nupp:fragment
-const answer, which = nupp.tasks.race({
+const answer, which = coroutine.race({
     function(): Head return upload(transfer) end,
     function(): Head return head(transfer) end,
 })
@@ -262,14 +262,14 @@ raises its cancellation rather than its branch outcomes where it passes.
 
 ## Deadlines
 
-`open(timeoutMs = milliseconds)` bounds the scope on the monotonic clock. A
+`scope(timeoutMs = milliseconds)` bounds the scope on the monotonic clock. A
 scope opened inside another takes the earlier of its own deadline and the
 enclosing scope's, so a child may bound itself more tightly than its parent did
-and may not extend what its parent already promised. `nupp.tasks.deadline()`
+and may not extend what its parent already promised. `coroutine.deadline()`
 returns the current absolute deadline, or nil outside a bounded scope.
 
 ```nupp:fragment
-with scope = nupp.tasks.open(timeoutMs = 5000) do
+with scope = coroutine.scope(timeoutMs = 5000) do
     index(scope:spawn(url, fetch):await())
 end
 ```
@@ -282,8 +282,8 @@ every parked child far enough to unwind through its cleanup, exactly as
 scope's promise broken, so unlike `scope:cancel()` it is raised where the block
 is left, once the children have settled.
 
-Both arguments are named: `open()`, `open(limit = 8)`, `open(timeoutMs = 500)`,
-or `open(limit = 8, timeoutMs = 500)`.
+Both arguments are named: `scope()`, `scope(limit = 8)`, `scope(timeoutMs =
+500)`, or `scope(limit = 8, timeoutMs = 500)`.
 
 ## Settlement
 
@@ -312,7 +312,7 @@ share that token; they do not multiply the budget. Exhaustion performs one
 ordinary suspension and resumes from the next host poll.
 
 The block that opened a scope is not a coroutine child, so while it waits on
-anything at all, `open` installs a driver in front of the host that runs the
+anything at all, `scope` installs a driver in front of the host that runs the
 children meanwhile and hands outward what it cannot satisfy. The driver is
 transparent to the turn budget: where no host is beneath it, as at the root of
 an ordinary program, the turn is unbounded exactly as it is where nothing is
@@ -327,4 +327,4 @@ native, UI, or ECS callback.
 
 The budget is cooperative. One activation can compute until it returns or
 parks, so long CPU work still belongs on a worker and should call
-`nupp.tasks.checkpoint()` when cancellation latency matters.
+`coroutine.checkpoint()` when cancellation latency matters.

@@ -12,7 +12,7 @@ local env = envMod.new(HERE .. "/..")
 local function diagnostics(source)
     env.loaded = {}
     local parsed = parser.parse(source, "test.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
+    testAssert.eq(#parsed.errors, 0, "syntax: " .. (parsed.errors[1] and parsed.errors[1].msg or ""))
     return check.check(parsed, "test", env)
 end
 
@@ -26,30 +26,30 @@ local function codes(source)
 end
 
 local function clean(source)
-    testAssert.equal(codes(source), "", "expected clean check for:\n" .. source)
+    testAssert.eq(codes(source), "", "expected clean check for:\n" .. source)
 end
 
 local M = {}
 
 function M.parserGivesIntersectionHigherPrecedenceThanUnion()
     local parsed = parser.parse("local value: A | B & C", "test")
-    testAssert.equal(#parsed.errors, 0)
+    testAssert.eq(#parsed.errors, 0)
     local annotation = parsed.root.blocks[1].stats[1].types[1]
-    testAssert.equal(cst.dump(annotation), "(tunion (tname A) | (tintersection (tname B) & (tname C)))")
+    testAssert.eq(cst.dump(annotation), "(tunion (tname A) | (tintersection (tname B) & (tname C)))")
 end
 
 function M.intersectionsCanonicalizeAndRenderWithPrecedence()
     local a = T.intersection({T.string, T.number, T.string})
     local b = T.intersection({T.number, T.string})
-    testAssert.equal(a, b)
-    testAssert.equal(T.tostring(a), "number & string")
-    testAssert.equal(T.tostring(T.optional(a)), "(number & string)?")
-    testAssert.equal(T.tostring(T.intersection({T.union({T.string, T.nil_}), T.boolean})), "boolean & (string?)")
-    testAssert.equal(T.intersection({T.any, T.string}), T.string)
-    testAssert.equal(T.intersection({T.unknown, T.string}), T.string)
-    testAssert.equal(T.intersection({T.never, T.string}), T.never)
+    testAssert.eq(a, b)
+    testAssert.eq(T.tostring(a), "number & string")
+    testAssert.eq(T.tostring(T.optional(a)), "(number & string)?")
+    testAssert.eq(T.tostring(T.intersection({T.union({T.string, T.nil_}), T.boolean})), "boolean & (string?)")
+    testAssert.eq(T.intersection({T.any, T.string}), T.string)
+    testAssert.eq(T.intersection({T.unknown, T.string}), T.string)
+    testAssert.eq(T.intersection({T.never, T.string}), T.never)
     local tv = T.typevar("T", "intersection-test")
-    testAssert.equal(
+    testAssert.eq(
         T.tostring(
             require("nupp.compiler.types.generics").materialize(
                 T.intersection({
@@ -107,9 +107,9 @@ function M.intersectionSurfacesComposeReadsWritesAndIndexers()
 end
 
 function M.provablyEmptyIntersectionsAreRejected()
-    testAssert.equal(codes("local value: string & number"), "NUPP2124")
-    testAssert.equal(codes("local value: {kind: 'a'} & {kind: 'b'}"), "NUPP2124")
-    testAssert.equal(relations.disjoint(T.string, T.number), "different runtime categories")
+    testAssert.eq(codes("local value: string & number"), "NUPP2124")
+    testAssert.eq(codes("local value: {kind: 'a'} & {kind: 'b'}"), "NUPP2124")
+    testAssert.eq(relations.disjoint(T.string, T.number), "different runtime categories")
 end
 
 function M.callsSelectExactlyOneFunctionMember()
@@ -203,12 +203,12 @@ end
 -- part reads as `any` stays `any` rather than collapsing to `unknown`, which nothing
 -- fits.
 function M.aGradualMemberStaysGradualThroughAnIntersection()
-    testAssert.equal(T.intersection({T.any}), T.any)
-    testAssert.equal(T.intersection({T.any, T.unknown}), T.any)
-    testAssert.equal(T.intersection({T.unknown}), T.unknown)
-    testAssert.equal(T.intersection({}), T.unknown)
-    testAssert.equal(T.intersection({T.any, T.string}), T.string)
-    testAssert.equal(T.intersection({T.never, T.any}), T.never)
+    testAssert.eq(T.intersection({T.any}), T.any)
+    testAssert.eq(T.intersection({T.any, T.unknown}), T.any)
+    testAssert.eq(T.intersection({T.unknown}), T.unknown)
+    testAssert.eq(T.intersection({}), T.unknown)
+    testAssert.eq(T.intersection({T.any, T.string}), T.string)
+    testAssert.eq(T.intersection({T.never, T.any}), T.never)
     clean(
         table.concat(
             {
@@ -233,8 +233,8 @@ function M.overloadFailuresAndAmbiguitiesHaveDedicatedDiagnostics()
         },
         "\n"
     )
-    testAssert.equal(codes(prefix .. "\nlocal value = f('no')"), "NUPP2125")
-    testAssert.equal(codes(prefix .. "\nlocal value = f(1)"), "NUPP2126")
+    testAssert.eq(codes(prefix .. "\nlocal value = f('no')"), "NUPP2125")
+    testAssert.eq(codes(prefix .. "\nlocal value = f(1)"), "NUPP2126")
 end
 
 return M

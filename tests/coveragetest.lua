@@ -38,7 +38,7 @@ local function coverageReportRunsAndWritesBrowsableArtifacts()
     assert(closed or (reason == "exit" and status == 0), output)
     test.matches(output, "coverage: lines")
     local report = json.decode(read(out .. "/coverage.json"))
-    test.equal(report.schemaVersion, 1)
+    test.eq(report.schemaVersion, 1)
     assert(#report.files > 0, "coverage report has source files")
     assert(report.summary.lines.total > 0, "coverage report has executable lines")
     assert(report.summary.lines.covered > 0, "the run reached instrumented code")
@@ -97,7 +97,7 @@ local function coverageReportRunsAndWritesBrowsableArtifacts()
     local queryClosed, queryReason, queryStatus = query:close()
     assert(queryClosed or (queryReason == "exit" and queryStatus == 0), queried)
     local queriedReport = json.decode(queried)
-    test.equal(queriedReport.schemaVersion, 1)
+    test.eq(queriedReport.schemaVersion, 1)
     assert(#queriedReport.files > 0, "report JSON query has every file")
     assert(index:find(".tree a:hover", 1, true), "coverage tree has a hover state")
     assert(index:find("class=sort-indicator", 1, true), "sortable headings show an indicator")
@@ -236,8 +236,8 @@ local function checked(path, name, source)
     local result = require("nupp.tools.cli.compile").check(path, env, {moduleName = name}, collected, source)
     assert(result, "the fixture checks: " .. tostring(collected[1] and (collected[1].msg or collected[1].message)))
     if isolated then
-        test.equal(result.moduleName, name, "isolated checker module identity")
-        test.equal(result.declaredModuleName, name, "the source header matches before facts are produced")
+        test.eq(result.moduleName, name, "isolated checker module identity")
+        test.eq(result.declaredModuleName, name, "the source header matches before facts are produced")
     end
 
     return result
@@ -283,15 +283,12 @@ function M.anUninstrumentedImageIsUnchanged()
         end,
         manifests = {},
     })
-    test.equal(declined, ordinary, "a request instrumenting nothing changes nothing")
+    test.eq(declined, ordinary, "a request instrumenting nothing changes nothing")
     assert(not ordinary:find("__nuppCoverage", 1, true), "an ordinary image has no probes")
     assert(not ordinary:find("nupp.runtime.coveragecounter", 1, true), "an ordinary image carries no counters")
     local instrumented = lowered(path, "sample", true)
     assert(instrumented:find("__nuppCoverage", 1, true), "an instrumented image probes")
-    assert(
-        instrumented:find("nupp.runtime.coveragecounter", 1, true),
-        "an instrumented image carries its counters"
-    )
+    assert(instrumented:find("nupp.runtime.coveragecounter", 1, true), "an instrumented image carries its counters")
 end
 
 -- Counting the same run the same way is what makes one report hold for either
@@ -332,7 +329,7 @@ local function vmImageCountsWhatItRuns()
     assert(reached > 40, "the run reached the sites it was written to reach")
     for _, site in ipairs(manifests.sample.sites) do
         if site.name == "unused" then
-            test.equal(vmHits[tostring(site.id)], nil, "an uncalled function is not counted")
+            test.eq(vmHits[tostring(site.id)], nil, "an uncalled function is not counted")
         end
     end
 end
@@ -357,11 +354,11 @@ local function vmModuleLoadCountsItsTopLevel()
     local vmHits, manifests
 
     local function compilerUnchanged()
-        test.equal(package.loaded[realName], real, "coverage did not replace the real loaded compiler module")
-        test.equal(require(realName), real)
-        test.equal(real.normalize, identifier, "the real function identity survives")
-        test.equal(real.Normalized, sourceType, "the real nominal declaration survives")
-        test.equal(rawget(_G, "__nuppCoverage"), outer, "the outer counters are restored")
+        test.eq(package.loaded[realName], real, "coverage did not replace the real loaded compiler module")
+        test.eq(require(realName), real)
+        test.eq(real.normalize, identifier, "the real function identity survives")
+        test.eq(real.Normalized, sourceType, "the real nominal declaration survives")
+        test.eq(rawget(_G, "__nuppCoverage"), outer, "the outer counters are restored")
     end
 
     local ok, problem = pcall(function()

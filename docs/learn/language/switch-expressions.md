@@ -160,13 +160,6 @@ Every completing path through a block arm must reach one `yield`; a path may
 instead `return` from the enclosing function. Falling through, or placing a
 statement after a yield on the same path, is reported.
 
-::: deepdive
-Giving `return` the switch-result meaning would have been the smaller grammar,
-and it was rejected. An arm is ordinary code, and code that reads as an early
-exit has to be one. `yield` carries the result instead, targeting the nearest
-enclosing do expression and never crossing a function boundary.
-:::
-
 ### Contextual `yield`
 
 `yield` is line-sensitive. These remain ordinary Lua calls:
@@ -224,12 +217,12 @@ unnecessary `else`. See
 [unions.md](types/unions.md#exhaustiveness) for the union shapes that
 are enumerable.
 
-A union declared with `types.nonExhaustive()` among its alternatives
+A union declared with `types.nonexhaustive()` among its alternatives
 requires `else` however many cases are written, because the member that call
 adds is one no case can name:
 
 ```nupp:fragment
-local type Status = "ok" | "error" | types.nonExhaustive()
+local type Status = "ok" | "error" | types.nonexhaustive()
 
 local label = switch status do
     case "ok" -> "fine"
@@ -298,14 +291,6 @@ statement. The selector-closing `do` stays on the selector's final logical line,
 and formatting never separates contextual `yield` from the first token of its
 operand. See [fmt.md](../tooling/formatter.md#formatting-rules) for the rest of the
 formatter's rules.
-
-::: deepdive
-Switch indentation is language surface here, not presentation. A formatter that
-moved cases back to the containing statement's indentation would make the
-construct read as something it is not, so the boundaries above are fixed rather
-than offered as a style option. That constrains the formatter permanently, which
-is the cost of having the shape carry meaning.
-:::
 
 ## FAQ
 

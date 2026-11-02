@@ -1,7 +1,7 @@
 -- Generated structured-workgroup GEMM compared element-exact with the
 -- generated naive GPU kernel and the CPU reference body.
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local generated = require("gemm")
 local gpu = require("gpu")
 
@@ -34,10 +34,10 @@ for i = 0, k * n - 1 do
     b[i] = nextValue()
 end
 
-local aSpan = span.fromCarray(a, m * k)
-local bSpan = span.fromCarray(b, k * n)
+local aSpan = span.fromcarray(a, m * k)
+local bSpan = span.fromcarray(b, k * n)
 local expected = ffi.new("float[?]", m * n)
-generated.cpu(span.writeCarray(expected, m * n), aSpan, bSpan, n, k)
+generated.cpu(span.writecarray(expected, m * n), aSpan, bSpan, n, k)
 
 local context = gpu.open()
 local aBuffer = context:buffer(require("nupp.mem.array").float32, m * k)
@@ -82,8 +82,8 @@ local tiledOutput = ffi.new("float[?]", m * n)
 context:enqueueDownload(naiveBuffer)
 context:enqueueDownload(tiledBuffer)
 context:synchronize()
-context:readDownloaded(naiveBuffer, span.writeCarray(naiveOutput, m * n))
-context:readDownloaded(tiledBuffer, span.writeCarray(tiledOutput, m * n))
+context:readDownloaded(naiveBuffer, span.writecarray(naiveOutput, m * n))
+context:readDownloaded(tiledBuffer, span.writecarray(tiledOutput, m * n))
 for i = 0, m * n - 1 do
     assert(naiveOutput[i] == expected[i], ("naive mismatch at %d"):format(i))
     assert(

@@ -352,14 +352,15 @@ local RESOURCES = {
     {source = "src/nupp/io/path/pathtext.nupp", output = "nupp/compiler/nupp/io/path/pathtext.nupp"},
     {source = "src/io/uri/init.nupp", output = "nupp/compiler/io/uri/init.nupp"},
     {source = "src/nupp/io/files/init.nupp", output = "nupp/compiler/nupp/io/files/init.nupp"},
-    {source = "src/nupp/io/init.nupp", output = "nupp/compiler/nupp/io/init.nupp"},
+    {source = "src/nupp/io.nupp", output = "nupp/compiler/nupp/io.nupp"},
     {source = "src/log.nupp", output = "nupp/compiler/log.nupp"},
     {source = "src/nupp/foreign.nupp", output = "nupp/compiler/nupp/foreign.nupp"},
     {source = "src/nupp/suspension/init.nupp", output = "nupp/compiler/nupp/suspension/init.nupp"},
     {source = "src/nupp/suspension/host.nupp", output = "nupp/compiler/nupp/suspension/host.nupp"},
-    {source = "src/nupp/time/init.nupp", output = "nupp/compiler/nupp/time/init.nupp"},
+    {source = "src/nupp/time.nupp", output = "nupp/compiler/nupp/time.nupp"},
     {source = "src/nupp/runtime/clocks.nupp", output = "nupp/compiler/nupp/runtime/clocks.nupp"},
     {source = "src/nupp/runtime/standardos.nupp", output = "nupp/compiler/nupp/runtime/standardos.nupp"},
+    {source = "src/nupp/runtime/standardtable.nupp", output = "nupp/compiler/nupp/runtime/standardtable.nupp"},
     {source = "src/nupp/io/net/init.nupp", output = "nupp/compiler/nupp/io/net/init.nupp"},
     {source = "src/nupp/io/tls/init.nupp", output = "nupp/compiler/nupp/io/tls/init.nupp"},
     {source = "src/nupp/io/process/init.nupp", output = "nupp/compiler/nupp/io/process/init.nupp"},
@@ -367,6 +368,27 @@ local RESOURCES = {
     {source = "src/nupp/tasks.nupp", output = "nupp/compiler/nupp/tasks.nupp"},
     {source = "src/nupp/io/http/init.nupp", output = "nupp/compiler/nupp/io/http/init.nupp"},
     {source = "src/nupp/workers/native.d.nupp", output = "nupp/compiler/nupp/workers/native.d.nupp"},
+
+    {source = "src/binary/span.nupp", output = "nupp/compiler/binary/span.nupp"},
+    {
+        source = "src/coroutine/suspension/cancellation.nupp",
+        output = "nupp/compiler/coroutine/suspension/cancellation.nupp"
+    },
+    {source = "src/coroutine/suspension/host.nupp", output = "nupp/compiler/coroutine/suspension/host.nupp"},
+    {source = "src/coroutine/suspension/init.nupp", output = "nupp/compiler/coroutine/suspension/init.nupp"},
+    {source = "src/coroutine/suspension/spi.nupp", output = "nupp/compiler/coroutine/suspension/spi.nupp"},
+    {source = "src/coroutine/workers/init.nupp", output = "nupp/compiler/coroutine/workers/init.nupp"},
+    {source = "src/coroutine/workers/spi.nupp", output = "nupp/compiler/coroutine/workers/spi.nupp"},
+    {source = "src/io/files/init.nupp", output = "nupp/compiler/io/files/init.nupp"},
+    {source = "src/io/files/messages.nupp", output = "nupp/compiler/io/files/messages.nupp"},
+    {source = "src/io/http/init.nupp", output = "nupp/compiler/io/http/init.nupp"},
+    {source = "src/io/http/spi.nupp", output = "nupp/compiler/io/http/spi.nupp"},
+    {source = "src/io/net/init.nupp", output = "nupp/compiler/io/net/init.nupp"},
+    {source = "src/io/net/spi.nupp", output = "nupp/compiler/io/net/spi.nupp"},
+    {source = "src/io/terminal.nupp", output = "nupp/compiler/io/terminal.nupp"},
+    {source = "src/io/tls/init.nupp", output = "nupp/compiler/io/tls/init.nupp"},
+    {source = "src/io/tls/spi.nupp", output = "nupp/compiler/io/tls/spi.nupp"},
+    {source = "src/nupp/runtime/standardcoroutine.nupp", output = "nupp/compiler/nupp/runtime/standardcoroutine.nupp"},
 }
 
 for _, resource in ipairs({
@@ -502,6 +524,7 @@ return {
                     "src/types",
                     "src/own",
                     "src/io",
+                    "src/coroutine",
                     "src/debug",
                     "src/utf8.nupp",
                     "src/log.nupp",
@@ -537,7 +560,7 @@ return {
                 -- is the one the site never shows. It sits in the API reference
                 -- beside `nupp`, because a reader looking a name up does not know
                 -- which of the two libraries declared it until they have found it.
-                stdlib = {path = "modules/luajit", title = "LuaJIT standard library",},
+                stdlib = {path = "api", title = "API reference",},
                 -- The site is the docs tree: a page is published by being written
                 -- to `docs/`, at the route its path gives, under the title its
                 -- heading gives. What a path cannot say, a page says in its own

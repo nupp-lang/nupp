@@ -24,7 +24,7 @@ local function tempProject(files)
 end
 
 local function remove(dir)
-    assert(require("nupp.io.files").remove(dir, true))
+    assert(require("io.files").remove(dir, true))
 end
 
 function M.capabilityDescriptorsRejectUnknownAndDuplicateEntries()
@@ -40,7 +40,7 @@ function M.capabilityDescriptorsRejectUnknownAndDuplicateEntries()
     })
     local record = {typeRoot = dir}
     local entry = assert(capabilities.find(record, "provider", "generator", "codegen"))
-    testAssert.equal(entry.entry, "provider.codegen", "the selected entry is returned")
+    testAssert.eq(entry.entry, "provider.codegen", "the selected entry is returned")
 
     write(dir .. "/capabilities.json", '{"schema":2,"capabilities":[],"extra":true}\n')
     local _, unknown = capabilities.find(record, "provider", "generator", "codegen")
@@ -62,9 +62,9 @@ end
 function M.namedManifestTargetsCarryTheSelectedHostAndVm()
     local source = [[
 local text = require("nupp.text")
-local time = require("nupp.time")
+local time = require("coroutine")
 local representation = require("nupp.mem.representation")
-return {newBuffer = text.newBuffer, now = os.monotonic, storage = representation.storage}
+return {newBuffer = text.newbuffer, now = os.monotonic, storage = representation.storage}
 ]]
     local dir = tempProject({
         [
@@ -88,8 +88,8 @@ return {newBuffer = text.newBuffer, now = os.monotonic, storage = representation
         for _, diagnostic in ipairs(diagnostics) do
             assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
         end
-        testAssert.equal(parsed.host, "browser", "the editor honors the named default target")
-        testAssert.equal(project.check(dir), 0, "the default browser target checks")
+        testAssert.eq(parsed.host, "browser", "the editor honors the named default target")
+        testAssert.eq(project.check(dir), 0, "the default browser target checks")
     end)
     remove(dir)
     assert(ok, why)
@@ -122,15 +122,15 @@ io.write(codec.encode == require("example.fastcodec").encode and "provider" or "
             files["nupp/spi.json"] = source .. "\n"
         end
     end
-    testAssert.equal(moduleCount, 4, "the guide's interface, implementations, and consumer")
+    testAssert.eq(moduleCount, 4, "the guide's interface, implementations, and consumer")
     assert(files["nupp/spi.json"], "the guide includes a discovery descriptor")
     local dir = tempProject(files)
     local executable = dir .. "/out/binary" .. (package.config:sub(1, 1) == "\\" and ".exe" or "")
     for _, expected in ipairs({"provider", "fallback"}) do
-        testAssert.equal(project.build(dir), 0, "the documented SPI example builds")
+        testAssert.eq(project.build(dir), 0, "the documented SPI example builds")
         local status, output = process.capture({executable}, {cwd = dir})
-        testAssert.equal(status, 0, output)
-        testAssert.equal(output, expected, "the documented consumer chooses its implementation")
+        testAssert.eq(status, 0, output)
+        testAssert.eq(output, expected, "the documented consumer chooses its implementation")
         write(dir .. "/nupp/spi.json", "{}\n")
     end
     remove(dir)

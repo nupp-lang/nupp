@@ -1,11 +1,11 @@
 module demo.process
 
 local process = require("nupp.io.process")
-local files = require("nupp.io.files")
+local files = require("io.files")
 local api = {}
 
 function api.run(): integer
-    local directory = assert(files.createTemporaryDirectory())
+    local directory = assert(files.createtemporarydirectory())
     local output = directory:toString() .. "/result"
     local child, spawnError = process.spawn({
         args = {"/bin/sh", "-c", "cat; printf problem >&2; exit 7"},

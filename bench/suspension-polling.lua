@@ -13,7 +13,7 @@
 --     BENCH_SUSPENSION_POLLS=5000 BENCH_SUSPENSION_TASKS=2000 \
 --     luajit bench/suspension-polling.lua
 
-local suspension = require("nupp.suspension")
+local suspension = require("coroutine.suspension")
 local clock = os.clock
 local format = string.format
 
@@ -63,11 +63,7 @@ end
 local function register(count)
     local registered = {}
     for index = 1, count do
-        registered[index] = suspension.source(
-            format("bench.source.%06d", index),
-            (index * 97) % 127,
-            dormant
-        )
+        registered[index] = suspension.source(format("bench.source.%06d", index), (index * 97) % 127, dormant)
     end
 
     return registered
@@ -80,11 +76,13 @@ local function releaseAll(registered)
 end
 
 local registered = register(SOURCE_COUNT)
+
 local function pollSteady()
     for _ = 1, POLL_PASSES do
         suspension.poll()
     end
 end
+
 for _ = 1, 100 do
     suspension.poll()
 end
@@ -100,6 +98,7 @@ local function registerAndRelease()
     local current = register(SOURCE_COUNT)
     releaseAll(current)
 end
+
 local registrationSeconds = median(registerAndRelease)
 
 local function parkedFanout()
@@ -115,6 +114,7 @@ local function parkedFanout()
                         resume(slot)
                         return 1
                     end
+
                     return 0
                 end)
 
@@ -126,25 +126,32 @@ local function parkedFanout()
     local values = suspension.all(bodies)
     assert(values[TASK_COUNT] == TASK_COUNT)
 end
+
 local taskSeconds = median(parkedFanout)
 local taskBytes = allocated(parkedFanout)
 
 print(format("suspension polling: median of %d samples", SAMPLES))
-print(format(
-    "steady poll     %5d sources x %5d passes  %8.1f ns/source/pass  %8.1f bytes/pass",
-    SOURCE_COUNT,
-    POLL_PASSES,
-    pollSeconds / (SOURCE_COUNT * POLL_PASSES) * 1e9,
-    pollBytes / ALLOCATION_PASSES
-))
-print(format(
-    "registration    %5d sources                 %8.1f ns/source",
-    SOURCE_COUNT,
-    registrationSeconds / SOURCE_COUNT * 1e9
-))
-print(format(
-    "parked fan-out  %5d tasks and sources       %8.1f us/task  %8.1f bytes/task",
-    TASK_COUNT,
-    taskSeconds / TASK_COUNT * 1e6,
-    taskBytes / TASK_COUNT
-))
+print(
+    format(
+        "steady poll     %5d sources x %5d passes  %8.1f ns/source/pass  %8.1f bytes/pass",
+        SOURCE_COUNT,
+        POLL_PASSES,
+        pollSeconds / (SOURCE_COUNT * POLL_PASSES) * 1e9,
+        pollBytes / ALLOCATION_PASSES
+    )
+)
+print(
+    format(
+        "registration    %5d sources                 %8.1f ns/source",
+        SOURCE_COUNT,
+        registrationSeconds / SOURCE_COUNT * 1e9
+    )
+)
+print(
+    format(
+        "parked fan-out  %5d tasks and sources       %8.1f us/task  %8.1f bytes/task",
+        TASK_COUNT,
+        taskSeconds / TASK_COUNT * 1e6,
+        taskBytes / TASK_COUNT
+    )
+)

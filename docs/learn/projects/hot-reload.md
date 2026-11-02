@@ -8,12 +8,12 @@ order: 560
 functions you edit while it keeps running. Every function in the VM is an id, and
 a commit replaces the body stored at that id, so closures already made, methods
 and direct calls all enter the new body on their next call. Reload is
-cooperative, so the program calls `nupp.hotreload.poll()` at a point where
+cooperative, so the program calls `debug.reload.poll()` at a point where
 changing future calls is safe:
 
 ```nupp:fragment
 while running do
-    nupp.hotreload.poll()
+    debug.reload.poll()
     update()
 end
 ```
@@ -33,7 +33,7 @@ local function message(): string
 end
 
 while true do
-    nupp.hotreload.poll()
+    debug.reload.poll()
     print(message())
     io.read("*l")
 end
@@ -90,19 +90,6 @@ semantic dependency graph, so a changed global declaration, imported module
 interface, or C declaration is observed even when the source form of a function
 signature did not change. Unrelated declarations stop at their dependency
 boundary and do not force a restart.
-
-::: deepdive
-A function's identity is its lexical parent, its name, and its position among
-same-named siblings, so a module lowered again after an edit matches the running
-one function for function even when adding a closure renumbers everything after
-it. The patch is the module's new image with that match beside it; the runtime
-checks the calling convention, captures and record layouts again against the
-code it actually loaded before it replaces anything, because a partly-applied
-patch is the behavior of no version of the source. The program owns the commit
-boundary because there is no generally safe moment to swap an implementation,
-and only the program knows which one it is in.
-
-:::
 
 ### C declarations
 
@@ -163,14 +150,6 @@ same loader is observed the same way.
 A bare loader name remains legal, but watch mode reports once that its binary
 identity is unverified. A dynamically computed `ffi.load` argument is likewise
 reported as untracked rather than silently receiving a stronger guarantee.
-
-::: deepdive
-Replacing, removing, or retargeting a configured artifact requires a process
-restart, and Nupp deliberately does not unload or replace a library in the live
-VM. Old cdata, callbacks, function pointers, and native state can still belong
-to the loaded image, and nothing available at the swap point can prove that
-every one of them is gone.
-:::
 
 ### Provider inputs
 

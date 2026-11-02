@@ -10,7 +10,7 @@ local struct Particle
 end
 
 local function run(): number
-    local particles = soa.allocate(ffi.typeof<Particle>(), 4)
+    local particles = soa.alloc(ffi.typeof<Particle>(), 4)
     with rows = particles:write() do
         for index = 1, #rows do
             rows[index].x = index

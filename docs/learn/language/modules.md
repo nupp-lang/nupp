@@ -81,14 +81,6 @@ learns a public contract by inspecting its body.
 surface and `local` or `const` for private names. Exporting a nominal does not
 change the visibility of members inside that declaration.
 
-::: deepdive
-A module is its own public declaration. No ambient table and no companion
-declaration file repeats that surface, and this one constraint rejected most of
-the design space: any option that produced a second description of a module's
-surface was ruled out however cheap it was to build, because the second copy is
-the one that goes stale.
-:::
-
 ## Internal modules
 
 A leading `@!internal` restricts checked imports to the package namespace that
@@ -201,15 +193,15 @@ directly:
 ```nupp
 module app.read
 
-export function view(borrows text: string): nupp.mem.span.ByteSpan borrows (text)
-    return nupp.mem.span.fromString(text)
+export function view(borrows text: string): binary.span.ByteSpan borrows (text)
+    return binary.span.fromstring(text)
 end
 ```
 
 The compiler resolves the longest registered module prefix. The remaining
 segments must be exported members; a miss is diagnosed rather than falling back
 to `any`. The facility is generic, so dependency roots such as
-`tecs.world.query.each(...)` work the same way as `nupp`. See [](nupp.mem.span)
+`tecs.world.query.each(...)` work the same way as `nupp`. See [](binary.span)
 for the module the example names.
 
 A lexical binding wins:
@@ -228,8 +220,8 @@ selected module becomes one hidden direct import in the containing Lua chunk,
 and repeated source accesses reuse it:
 
 ```lua
-local __nuppModule = require("nupp.mem.span")
-return __nuppModule.fromCarray(pointer, count)
+local __nuppModule = require("binary.span")
+return __nuppModule.fromcarray(pointer, count)
 ```
 
 There is no per-call loader, proxy, metatable guard, or injected helper. A

@@ -85,7 +85,7 @@ local M = {}
 -- directories were listed.
 function M.theProjectWalkNeverListsTheOutputDirectory()
     local envMod = require("nupp.compiler.project.env")
-    local files = require("nupp.io.files")
+    local files = require("io.files")
     local dir = temporary()
     writeFile(dir .. "/src/main.nupp", "module main\nexport = true\n")
     writeFile(dir .. "/top.nupp", "module top\nexport = true\n")
@@ -162,7 +162,7 @@ function M.theBenchmarkProgramsStayWithinTheirBytecodeBudgets()
     if selected then
         selected:close()
     end
-    test.suite.requireCapability("vm-hosted-cli", os.getenv("NUPP_VM_CLI_IMAGE") ~= nil or selected ~= nil)
+    test.suite.requirecapability("vm-hosted-cli", os.getenv("NUPP_VM_CLI_IMAGE") ~= nil or selected ~= nil)
     local names = {}
     for name in pairs(BYTECODE) do
         names[#names + 1] = name
@@ -348,7 +348,7 @@ function M.aVectorProgramRunsFromItsBinary()
         dir .. "/src/main.nupp",
         [[
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 
 local function count(borrows text: span.Span<uint8>, needle: uint32): uint32

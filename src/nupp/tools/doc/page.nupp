@@ -6,6 +6,7 @@ right, the breadcrumbs, the previous and next links, the hero on the home page,
 and the shell that holds them. What goes in the middle is somebody else's answer.
 ]]
 const {type Module} = require("nupp.tools.doc.extract")
+const {type Navigation} = require("nupp.tools.doc.stdlib")
 
 local stringsMod = require("nupp.tools.doc.strings")
 local urlsMod = require("nupp.tools.doc.urls")
@@ -68,6 +69,7 @@ type page.Hero = {
 type page.Nav = {
     module: Module?,
     navigationTitle: string?,
+    navigation: Navigation?,
     path: string,
     title: string
 }
@@ -95,84 +97,108 @@ local function assetHref(prefix, source)
     return prefix .. source
 end
 
-local function moduleTree(modules)
+local function moduleTree(modules, pages)
     local root = {children = {}, order = {}}
-    for _, module in ipairs(modules) do
+
+    local function child(node, key, name)
+        if not node.children[key] then
+            node.children[key] = {name = name or key, children = {}, order = {}}
+            node.order[#node.order + 1] = key
+        end
+
+        return node.children[key]
+    end
+
+    local function qualified(name)
         local node = root
-        for segment in module.name:gmatch("[^.]+") do
-            if not node.children[segment] then
-                node.children[segment] = {name = segment, children = {}, order = {}}
-                node.order[#node.order + 1] = segment
-            end
-            node = node.children[segment]
+        local path = ""
+        for segment in name:gmatch("[^.]+") do
+            path = path == "" and segment or path .. "." .. segment
+            node = child(node, segment)
+            node.qualified = path
         end
+
+        return node
+    end
+
+    for _, module in ipairs(modules) do
+        local node = qualified(module.name)
         node.module = module
+        node.href = moduleFile(module.name)
     end
 
-    local function sort(node)
-        table.sort(node.order)
-        for _, name in ipairs(node.order) do
-            sort(node.children[name])
+    for _, candidate in ipairs(pages or {}) do
+        if candidate.navigation then
+            local catalog = candidate.navigation
+            local target = urlsMod.routeFile(candidate.path)
+            for _, library in ipairs(catalog.libraries) do
+                local node = qualified(library.name)
+                node.href = moduleFile(library.name)
+            end
+
+            local function category(key, name, anchor, items)
+                if #items == 0 then
+                    return
+                end
+                local node = child(root, key, name)
+                node.category = true
+                node.href = target .. "#" .. anchor
+            end
+
+            category("@globals", "Globals", "globals", catalog.globals)
+            category("@intrinsic-types", "Intrinsic types", "types", catalog.types)
+            category("@reflection", "Layout reflection", "reflection", catalog.reflection)
+            category("@annotations", "Annotations", "annotations", catalog.annotations or {})
+
         end
     end
 
-    sort(root)
+    local function finish(node)
+        table.sort(node.order, function(left, right)
+            local a, b = node.children[left], node.children[right]
+            if a.category ~= b.category then
+                return a.category == true
+            end
+
+            return tostring(a.name):lower() < tostring(b.name):lower()
+        end)
+        for _, key in ipairs(node.order) do
+            finish(node.children[key])
+        end
+    end
+
+    finish(root)
 
     return root
 end
 
-local function moduleBranchContains(node, current)
-    if node.module and node.module.name == current then
-        return true
-    end
-    for _, name in ipairs(node.order) do
-        if moduleBranchContains(node.children[name], current) then
-            return true
-        end
-    end
-
-    return false
-end
-
-local function moduleTreeHtml(node, current, prefix, path)
+local function moduleTreeHtml(node, current, prefix)
     local parts = {}
-    for _, name in ipairs(node.order) do
-        local child = node.children[name]
-        local childPath = path == "" and name or path .. "." .. name
+    for _, key in ipairs(node.order) do
+        local child = node.children[key]
+        local active = child.module and child.module.name == current and ' aria-current="page"' or ""
+        local label = htmlEscape(child.name)
+        if not child.category then
+            label = "<code>" .. label .. "</code>"
+        end
+        local link = child.href
+            and '<a' .. active .. ' href="' .. prefix .. child.href .. '"' .. (
+                child.qualified and ' aria-label="' .. htmlEscape(child.qualified) .. '"' or ""
+            ) .. ">" .. label .. "</a>"
+            or label
+        local data = child.qualified and ' data-module="' .. htmlEscape(child.qualified:lower()) .. '"' or ""
         if #child.order == 0 then
-            local module = child.module
-            local active = module.name == current and ' aria-current="page"' or ""
+            parts[#parts + 1] = "<li" .. data .. ">" .. link .. "</li>"
+        else
+            -- API branches start closed, including the current module's ancestors.
             parts[
                 #parts + 1
-            ] = '<li data-module="' .. htmlEscape(
-                module.name:lower()
-            ) .. '"><a' .. active .. ' href="' .. prefix .. moduleFile(
-                module.name
-            ) .. '" aria-label="' .. htmlEscape(module.name) .. '"><code>' .. htmlEscape(name) .. "</code></a></li>"
-        else
-            -- A top-level branch stands open wherever the reader is, so the API
-            -- reference reads as its libraries rather than as a row of shut
-            -- names nothing has said anything about yet. Deeper branches open
-            -- only along the one reaching the module being read.
-            local open = (path == "" or moduleBranchContains(child, current)) and " open" or ""
-            local label = "<code>" .. htmlEscape(name) .. "</code>"
-            local item, summary = '<li class="nuppdoc-module-branch">', "<summary>" .. label .. "</summary>"
-            -- A branch that is itself a module leads to that module's own page, so the
-            -- tree needs no separate overview entry to reach it.
-            if child.module then
-                local module = child.module
-                local active = module.name == current and ' aria-current="page"' or ""
-                item = '<li class="nuppdoc-module-branch" data-module="' .. htmlEscape(module.name:lower()) .. '">'
-                summary = '<summary class="nuppdoc-module-branch-link"><a'
-                    .. active
-                    .. ' href="'
-                    .. prefix
-                    .. moduleFile(
-                        module.name
-                    ) .. '" aria-label="' .. htmlEscape(module.name) .. '">' .. label .. "</a></summary>"
-            end
-            parts[#parts + 1] = item .. "<details" .. open .. ">" .. summary .. '<ul class="nuppdoc-module-tree">'
-            parts[#parts + 1] = moduleTreeHtml(child, current, prefix, childPath)
+            ] = '<li class="nuppdoc-module-branch"'
+                .. data
+                .. '><details><summary class="nuppdoc-module-branch-link">'
+                .. link
+                .. '</summary><ul class="nuppdoc-module-tree">'
+            parts[#parts + 1] = moduleTreeHtml(child, current, prefix)
             parts[#parts + 1] = "</ul></details></li>"
         end
     end
@@ -308,32 +334,26 @@ local function sidebar(modules, current, prefix, pages, currentPath)
             end
         end
     end
+    local apiLabel = "API reference"
+    for _, candidate in ipairs(pages or {}) do
+        if candidate.navigation then
+            local active = candidate.path == currentPath and ' aria-current="page"' or ""
+            apiLabel = '<a' .. active .. ' href="' .. pageLink(prefix, candidate.path) .. '">API reference</a>'
+            break
+        end
+    end
     out[
         #out + 1
     ] = '<li class="nuppdoc-sidebar-section"><details'
         .. apiOpen
-        .. '><summary>API reference</summary>'
-        .. '<ul class="nuppdoc-module-tree">'
+        .. '><summary>'
+        .. apiLabel
+        .. '</summary><ul class="nuppdoc-module-tree">'
         .. moduleTreeHtml(
-            moduleTree(modules),
+            moduleTree(modules, pages),
             current,
-            prefix,
-            ""
+            prefix
         )
-    -- A library Nupp documents without owning sits beside `nupp` rather than in the
-    -- handwritten sections, because a reader looking a name up does not know which of
-    -- the two libraries declared it until they have found it.
-    for _, candidate in ipairs(pages or {}) do
-        if candidate.api then
-            local active = candidate.path == currentPath and ' aria-current="page"' or ""
-            out[
-                #out + 1
-            ] = '<li><a' .. active .. ' href="' .. pageLink(
-                prefix,
-                candidate.path
-            ) .. '">' .. htmlEscape(candidate.navigationTitle or candidate.title) .. "</a></li>"
-        end
-    end
     out[#out + 1] = "</ul></details></li></ul></aside>"
 
     return table.concat(out)
@@ -609,6 +629,13 @@ function page.render(
     layout: string?
 ): string
     local prefix = relativePrefix(file)
+    local apiIndex = prefix .. (modules[1] and moduleFile(modules[1].name) or "index.html")
+    for _, candidate in ipairs(pages or {}) do
+        if candidate.navigation then
+            apiIndex = pageLink(prefix, candidate.path)
+            break
+        end
+    end
     local home = layout == "home"
     local shellClass = home and "nuppdoc-shell nuppdoc-home-shell" or "nuppdoc-shell"
     local contentClass = home and "nuppdoc-content nuppdoc-home-content" or "nuppdoc-content"
@@ -695,7 +722,8 @@ function page.render(
         .. '<div class="nuppdoc-top-nav"><a href="'
         .. prefix
         .. 'getting-started/index.html">Getting started</a><a href="'
-        .. 'https://nupp.org/modules/nupp/index.html">API</a></div><div class="nuppdoc-actions">'
+        .. apiIndex
+        .. '">API</a></div><div class="nuppdoc-actions">'
         .. table.concat(
             actions
         ) .. search .. mobileOutlineAction .. '</div></nav></header>' .. (

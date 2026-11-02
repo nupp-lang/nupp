@@ -24,11 +24,11 @@ function M.collectionsKeepTheirOwnSourceContext()
     local first = observe.collect(root, "first.nupp")
     local second = observe.collect(root, "second.nupp")
 
-    testAssert.equal(first[1].source, "first.nupp", "first collection source")
-    testAssert.equal(second[1].source, "second.nupp", "second collection source")
-    testAssert.equal(first[1].line, 3, "source line")
-    testAssert.equal(first[1].column, 7, "source column")
-    testAssert.equal(observation.source, nil, "checked observation remains unchanged")
+    testAssert.eq(first[1].source, "first.nupp", "first collection source")
+    testAssert.eq(second[1].source, "second.nupp", "second collection source")
+    testAssert.eq(first[1].line, 3, "source line")
+    testAssert.eq(first[1].column, 7, "source column")
+    testAssert.eq(observation.source, nil, "checked observation remains unchanged")
     assert(first[1] ~= second[1], "each collection owns its record")
     assert(first[1].blueprint == payload, "the stored cache payload remains attached")
 end
@@ -53,10 +53,10 @@ function M.publicRecordsOmitCachePayloads()
         }
     })[1]
 
-    testAssert.equal(public.source, "main.nupp", "public source")
+    testAssert.eq(public.source, "main.nupp", "public source")
     assert(public.runtimeFeatures == runtimeFeatures, "bounded feature facts remain public")
-    testAssert.equal(public.blueprint, nil, "blueprint payload")
-    testAssert.equal(public.generated, nil, "generated payload")
+    testAssert.eq(public.blueprint, nil, "blueprint payload")
+    testAssert.eq(public.generated, nil, "generated payload")
 end
 
 return M

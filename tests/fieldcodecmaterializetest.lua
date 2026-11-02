@@ -10,7 +10,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function compile(source, opts)
     local parsed = parser.parse(source, "fieldcodec_materialize_test.nupp")
-    testAssert.equal(#parsed.errors, 0, "syntax errors")
+    testAssert.eq(#parsed.errors, 0, "syntax errors")
     local diagnostics = check.check(parsed, "fieldcodec_materialize_test.nupp", env, opts)
 
     return parsed, diagnostics
@@ -53,7 +53,7 @@ local record Position
 end
 
 const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
-    return types.reflect.fieldCodec(types.reflect(Position))
+    return types.reflect.fieldcodec(types.reflect(Position))
 end
 
 local encoded = PositionCodec:encode(new Position(x = 10, y = 20))
@@ -71,21 +71,21 @@ return {
 }
 ]]
     )
-    testAssert.equal(result.x, 10, "x field")
-    testAssert.equal(result.y, 20, "y field")
-    testAssert.equal(result.fingerprint, "t:x,y", "compatibility fingerprint")
-    testAssert.equal(result.decodedX, 10, "decoded field")
-    testAssert.equal(result.decodeProblem, nil, "decoded keyed table")
-    testAssert.equal(result.decodeType, true, "decoded nominal identity")
-    testAssert.equal(result.invalid, nil, "non-table decode result")
-    testAssert.equal(result.invalidProblem, "$: expected keyed table", "non-table decode problem")
+    testAssert.eq(result.x, 10, "x field")
+    testAssert.eq(result.y, 20, "y field")
+    testAssert.eq(result.fingerprint, "t:x,y", "compatibility fingerprint")
+    testAssert.eq(result.decodedX, 10, "decoded field")
+    testAssert.eq(result.decodeProblem, nil, "decoded keyed table")
+    testAssert.eq(result.decodeType, true, "decoded nominal identity")
+    testAssert.eq(result.invalid, nil, "non-table decode result")
+    testAssert.eq(result.invalidProblem, "$: expected keyed table", "non-table decode problem")
     local image = program.image(parsed, "fieldcodec_materialize_test")
     assert(image:find("keyed", 1, true), image)
     -- The comptime reflection is folded away entirely: the program carries the codec
     -- the materializer built and none of the machinery that described the type. (The
     -- keyed codec's runtime is installed from `nupp.compiler.runtime.reflect`, which
     -- is not the reflection API.)
-    testAssert.equal(image:find("nupp.reflect", 1, true), nil, "reflection erased")
+    testAssert.eq(image:find("nupp.reflect", 1, true), nil, "reflection erased")
 end
 
 function M.passesReflectionThroughATypedComptimeHelper()
@@ -95,7 +95,7 @@ local record Point
     y: number
 end
 @comptime local function keyed(info: types.reflect.Info): types.reflect.FieldCodecBlueprint
-    return types.reflect.fieldCodec(info)
+    return types.reflect.fieldcodec(info)
 end
 const Codec: types.reflect.FieldCodec<Point> = comptime do
     return keyed(types.reflect(Point))
@@ -104,8 +104,8 @@ local encoded = Codec:encode(new Point(x = 3, y = 4))
 return {x = encoded.x as number, y = encoded.y as number}
 ]]
     local encoded = run(src)
-    testAssert.equal(encoded.x, 3, "the reflected helper selects x")
-    testAssert.equal(encoded.y, 4, "the reflected helper selects y")
+    testAssert.eq(encoded.x, 3, "the reflected helper selects x")
+    testAssert.eq(encoded.y, 4, "the reflected helper selects y")
 end
 
 function M.namesTheWholePublicReflectionGraphUnderNuppReflect()
@@ -138,7 +138,7 @@ end
 end
 return comptime do return summarize(types.reflect(User)) end
 ]]
-    testAssert.equal(run(src), "id:id:wire:name", "reflection graph types share one namespace")
+    testAssert.eq(run(src), "id:id:wire:name", "reflection graph types share one namespace")
 end
 
 function M.removesTheOldAmbientAndFieldcodecNames()
@@ -148,7 +148,7 @@ function M.removesTheOldAmbientAndFieldcodecNames()
 return "unused"
 ]]
     )
-    testAssert.equal(ambient[1], "NUPP2101", "TypeInfo is no longer ambient")
+    testAssert.eq(ambient[1], "NUPP2101", "TypeInfo is no longer ambient")
 
     local fieldcodec = errorsOf(
         [[
@@ -159,7 +159,7 @@ end
 return Codec
 ]]
     )
-    testAssert.equal(fieldcodec[1], "NUPP2101", "nupp.fieldcodec is no longer public")
+    testAssert.eq(fieldcodec[1], "NUPP2101", "nupp.fieldcodec is no longer public")
 end
 
 function M.inspectsTheImmutableReflectionSchemaInUserComptimeCode()
@@ -181,7 +181,7 @@ end
 end
 return comptime do return summarize(types.reflect(Pair)) end
 ]]
-    testAssert.equal(
+    testAssert.eq(
         run(src),
         "6:record:2:left:string,right:int64",
         "user comptime code reads the versioned descriptor graph"
@@ -213,11 +213,7 @@ end
 
 return comptime do return summarize(types.reflect(User)) end
 ]]
-    testAssert.equal(
-        run(src),
-        "users:user_id:true",
-        "typed annotation values cross the worker as immutable semantic data"
-    )
+    testAssert.eq(run(src), "users:user_id:true", "typed annotation values cross the worker as immutable semantic data")
 end
 
 function M.exposesAnnotationTypeReferencesAsDescriptorEdges()
@@ -242,7 +238,7 @@ return comptime do
     return info.types[edge].name
 end
 ]]
-    testAssert.equal(
+    testAssert.eq(
         run(src),
         "StringCodec",
         "annotation type references use the reflection graph instead of source names"
@@ -262,7 +258,7 @@ return comptime do
 end
 ]]
     )
-    testAssert.equal(codes[1], "NUPP2411", "reflection views reject mutation")
+    testAssert.eq(codes[1], "NUPP2411", "reflection views reject mutation")
 end
 
 function M.rejectsAReflectedTypeAndRuntimeTargetMismatch()
@@ -271,11 +267,11 @@ function M.rejectsAReflectedTypeAndRuntimeTargetMismatch()
 local record Position x: number end
 local record Velocity x: number end
 const Bad: types.reflect.FieldCodec<Velocity> = comptime do
-    return types.reflect.fieldCodec(types.reflect(Position))
+    return types.reflect.fieldcodec(types.reflect(Position))
 end
 ]]
     )
-    testAssert.equal(codes[1], "NUPP2415", "nominal mismatch")
+    testAssert.eq(codes[1], "NUPP2415", "nominal mismatch")
 end
 
 function M.rejectsDistinctQualifiedRecordsWithTheSameLocalShape()
@@ -286,12 +282,12 @@ record left.Item value: string end
 local right = {}
 record right.Item value: string end
 const Bad: types.reflect.FieldCodec<right.Item> = comptime do
-    return types.reflect.fieldCodec(types.reflect(left.Item))
+    return types.reflect.fieldcodec(types.reflect(left.Item))
 end
 return Bad
 ]]
     )
-    testAssert.equal(codes[1], "NUPP2415", "qualified nominal mismatch")
+    testAssert.eq(codes[1], "NUPP2415", "qualified nominal mismatch")
 end
 
 function M.requiresATypePositionForReflection()
@@ -299,11 +295,11 @@ function M.requiresATypePositionForReflection()
         [[
 local value = 1
 const Bad: types.reflect.FieldCodec<any> = comptime do
-    return types.reflect.fieldCodec(types.reflect(value))
+    return types.reflect.fieldcodec(types.reflect(value))
 end
 ]]
     )
-    testAssert.equal(codes[1], "NUPP2418", "runtime value reflection")
+    testAssert.eq(codes[1], "NUPP2418", "runtime value reflection")
 end
 
 return M

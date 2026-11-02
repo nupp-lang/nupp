@@ -5,7 +5,7 @@ const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.provider.workers @
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
-local contracts = require("nupp.workers.spi")
+local contracts = require("coroutine.workers.spi")
 
 -- Optional consumers use only implementations present in their artifact. The
 -- public facade's literal imports carry its built-in fallbacks when that facility

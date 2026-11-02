@@ -5,7 +5,7 @@ local cli = require("arg")
 local record NotACompleter
 end
 
-@derive(cli.Arguments)
+@derive(cli.arguments)
 local record InvalidCompletion
     @cli(complete = NotACompleter)
     value: string?

@@ -46,7 +46,41 @@ local MATERIALIZE = "materialize"
 
 -- Explicit instantiation refreshes each reachable application once per walk.
 local refreshingInstantiations: {[string]: boolean}?
+local type Substitutions = {
+    types: {[Type]: Type}?,
+    packs: {[T.Pack]: T.Pack}?
+}
+local substitutionMemo: {[string]: {[Bindings]: Substitutions}}?
+local concreteTypes: {[Type]: boolean}?
 local pendingInstantiations: {[T.Nominal]: boolean} = {}
+
+--- An instantiation reached while another one's members were being filled, with the
+--- arguments it was reached with.
+local record FillDependency
+    instance: T.Nominal
+    map: Bindings
+end
+
+local fillDependencies: {FillDependency}? = nil
+
+local function completedSubstitutions(map: Bindings, unmapped: string): Substitutions?
+    local active = substitutionMemo
+    if active == nil then
+        return nil
+    end
+    local contexts = active[unmapped]
+    if contexts == nil then
+        contexts = {}
+        active[unmapped] = contexts
+    end
+    local results = contexts[map]
+    if results == nil then
+        results = {}
+        contexts[map] = results
+    end
+
+    return results
+end
 
 --- Normalization state, carried through the walk when one is running. Absent means
 --- the walk is an ordinary substitution and a projection is rebuilt, not reduced.
@@ -63,6 +97,8 @@ local newBudget: function(control: any): any
 local reduceProjection: function(head: Type, name: string, memo: any, budget: any): (Type, string?)
 
 local substWith: function(t: Type, map: Bindings, unmapped: string): Type
+
+local reuseUnchangedInstantiation: function(instance: T.Nominal, declaration: T.Nominal, map: Bindings): boolean
 
 local function substConst(term: T.ConstTerm, map: Bindings): T.ConstTerm
     if term.tag == "constVar" then
@@ -105,7 +141,7 @@ end
 --- A pack with its binders replaced per `map`, unmapped ones per `unmapped`.
 local substPackWith: function(pack: T.Pack, map: Bindings, unmapped: string): T.Pack
 
-substPackWith = function(pack: T.Pack, map: Bindings, unmapped: string): T.Pack
+local function substitutePack(pack: T.Pack, map: Bindings, unmapped: string): T.Pack
     if pack.alternatives then
         local alternatives = {}
         for j, arm in ipairs(pack.alternatives) do
@@ -143,8 +179,32 @@ substPackWith = function(pack: T.Pack, map: Bindings, unmapped: string): T.Pack
     return T.pack(head, tail, modes, pack.names)
 end
 
-substWith = function(t: Type, map: Bindings, unmapped: string): Type
+substPackWith = function(pack: T.Pack, map: Bindings, unmapped: string): T.Pack
+    local completed = completedSubstitutions(map, unmapped)
+    if completed == nil then
+        return substitutePack(pack, map, unmapped)
+    end
+    local memo = completed.packs
+    if memo == nil then
+        memo = {}
+        completed.packs = memo
+    end
+    local prior = memo[pack]
+    if prior ~= nil then
+        return prior
+    end
+    local result = substitutePack(pack, map, unmapped)
+    memo[pack] = result
+
+    return result
+end
+
+local function substitute(t: Type, map: Bindings, unmapped: string): Type
     if not T.hasTypevar(t) then
+        local concrete = concreteTypes
+        if concrete then
+            concrete[t] = true
+        end
         return t
     end
     local tag = t.tag
@@ -368,7 +428,10 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
         -- An unrelated binder does not change this application. Refreshing its
         -- members here would traverse every recursive nominal graph encountered by
         -- each separately bound method, even though no substitution reached it.
-        if not changed and refreshingInstantiations == nil and not pendingInstantiations[t] then
+        if not changed
+            and not pendingInstantiations[t]
+            and (refreshingInstantiations == nil or reuseUnchangedInstantiation(t, origin, applied))
+        then
             return t
         end
         return generics.instantiate(origin, applied)
@@ -406,6 +469,30 @@ substWith = function(t: Type, map: Bindings, unmapped: string): Type
     return t
 end
 
+substWith = function(t: Type, map: Bindings, unmapped: string): Type
+    local concrete = concreteTypes
+    if concrete and concrete[t] then
+        return t
+    end
+    local completed = completedSubstitutions(map, unmapped)
+    if completed == nil then
+        return substitute(t, map, unmapped)
+    end
+    local memo = completed.types
+    if memo == nil then
+        memo = {}
+        completed.types = memo
+    end
+    local prior = memo[t]
+    if prior ~= nil then
+        return prior
+    end
+    local result = substitute(t, map, unmapped)
+    memo[t] = result
+
+    return result
+end
+
 -- One pure substitution can reach the same nominal through several parameters,
 -- results, or structural fields. Keep those visits together, but never hold this
 -- scope across evaluation callbacks or later checker declarations.
@@ -434,10 +521,21 @@ end
 local function substitutionWalk(operation: any, value: any, map: Bindings, unmapped: string): any
     local previous = refreshingInstantiations
     local refreshed = openRefreshLayer(previous)
+    local previousMemo, previousConcrete = substitutionMemo, concreteTypes
+    local previousDependencies = fillDependencies
+    local dependencyCount = previousDependencies and #previousDependencies or 0
     refreshingInstantiations = refreshed
+    substitutionMemo, concreteTypes = {}, {}
     local ok, result = pcall(operation, value, map, unmapped)
     refreshingInstantiations = previous
+    substitutionMemo, concreteTypes = previousMemo, previousConcrete
+    fillDependencies = previousDependencies
     if not ok then
+        if previousDependencies then
+            for index = #previousDependencies, dependencyCount + 1, -1 do
+                previousDependencies[index] = nil
+            end
+        end
         error(result, 0)
     end
     closeRefreshLayer(previous, refreshed)
@@ -1701,16 +1799,9 @@ local instantiations: {[string]: T.Nominal} = {}
 local record MapFill
     source: {[string]: T.Type}?
     read: {[string]: T.Type}
-    count: number
+    count: integer
     target: {[string]: T.Type}
     written: {[string]: T.Type}
-end
-
---- An instantiation reached while another one's members were being filled, with the
---- arguments it was reached with.
-local record FillDependency
-    instance: T.Nominal
-    map: Bindings
 end
 
 --- What the last fill of an instantiation's members read and wrote.
@@ -1723,7 +1814,7 @@ end
 local record InstantiationFill
     declaration: T.Nominal
     map: Bindings
-    mapCount: number
+    mapCount: integer
     maps: {MapFill}
     supertypeSource: {T.Type}?
     supertypeRead: {T.Type}
@@ -1734,15 +1825,12 @@ end
 
 local fills: {[T.Nominal]: InstantiationFill} = setmetatable({}, {__mode = "k"}) as {[T.Nominal]: InstantiationFill}
 
---- The instantiations a fill under way has reached, when one is.
-local fillDependencies: {FillDependency}? = nil
-
-local function copyBindings(map: Bindings): Bindings, number
+local function copyBindings(map: Bindings): (Bindings, integer)
     local copy: Bindings = {}
-    local count = 0
+    local count: integer = 0
     for binder, stands in pairs(map) do
         copy[binder] = stands
-        count += 1
+        count = count + 1
     end
 
     return copy, count
@@ -1752,7 +1840,7 @@ end
 --- order. Recollect them on every refresh: declarations can still gain members.
 local function fillInstantiationMap(into: {[string]: T.Type}, source: {[string]: T.Type}?, map: Bindings): MapFill
     local fill = new MapFill(source = source, read = {}, count = 0, target = into, written = {})
-    if not source then
+    if not source or next(source) == nil then
         return fill
     end
     local names: {string} = {}
@@ -1764,7 +1852,7 @@ local function fillInstantiationMap(into: {[string]: T.Type}, source: {[string]:
         local member = source[name]
         if member then
             fill.read[name] = member
-            fill.count += 1
+            fill.count = fill.count + 1
             local value = substWith(member, map, PRESERVE)
             into[name] = value
             fill.written[name] = value
@@ -1827,12 +1915,12 @@ local function mapFillCurrent(fill: MapFill, source: {[string]: T.Type}?, target
         return false
     end
     if source then
-        local count = 0
+        local count: integer = 0
         for name, member in pairs(source) do
             if fill.read[name] ~= member then
                 return false
             end
-            count += 1
+            count = count + 1
         end
         if count ~= fill.count then
             return false
@@ -1873,12 +1961,12 @@ local function fillCurrent(
     if not fill or fill.declaration ~= declaration then
         return false
     end
-    local count = 0
+    local count: integer = 0
     for binder, stands in pairs(map) do
         if fill.map[binder] ~= stands then
             return false
         end
-        count += 1
+        count = count + 1
     end
     if count ~= fill.mapCount then
         return false
@@ -1914,12 +2002,12 @@ local function fillCurrent(
             end
             -- Reached with other arguments than it was last filled with, a refresh
             -- would fill it with these.
-            local reachedCount = 0
+            local reachedCount: integer = 0
             for binder, stands in pairs(dependency.map) do
                 if reachedFill.map[binder] ~= stands then
                     return false
                 end
-                reachedCount += 1
+                reachedCount = reachedCount + 1
             end
             if reachedCount ~= reachedFill.mapCount
                 or not fillCurrent(reached, reachedFill.declaration, reachedFill.map, seen)
@@ -1927,6 +2015,20 @@ local function fillCurrent(
                 return false
             end
         end
+    end
+
+    return true
+end
+
+-- Reusing an unchanged application still contributes its mutable member surface to
+-- the enclosing fill's dependency snapshot. A stale surface follows the normal refresh.
+reuseUnchangedInstantiation = function(instance: T.Nominal, declaration: T.Nominal, map: Bindings): boolean
+    if not fillCurrent(instance, declaration, map, nil) then
+        return false
+    end
+    local dependencies = fillDependencies
+    if dependencies then
+        dependencies[#dependencies + 1] = new FillDependency(instance = instance, map = (copyBindings(map)))
     end
 
     return true
@@ -2006,7 +2108,12 @@ local instantiateNominal: function(n: T.Nominal, map: Bindings): T.Nominal
 --- @param n the generic declaration
 --- @param map what each binder stands for
 function generics.instantiate(n: T.Nominal, map: Bindings): T.Nominal
-    local inst = instantiateNominal(n, map)
+    local inst
+    if refreshingInstantiations == nil then
+        inst = substitutionWalk(instantiateNominal, n, map, PRESERVE)
+    else
+        inst = instantiateNominal(n, map)
+    end
     local dependencies = fillDependencies
     if dependencies then
         dependencies[#dependencies + 1] = new FillDependency(instance = inst, map = (copyBindings(map)))
@@ -2018,6 +2125,10 @@ end
 instantiateNominal = function(n: T.Nominal, map: Bindings): T.Nominal
     local key = instantiationKey(n, map)
     local outermost = refreshingInstantiations == nil
+    if outermost then
+        substitutionMemo = {}
+        concreteTypes = {}
+    end
     local refreshed = refreshingInstantiations or {}
     refreshingInstantiations = refreshed
     local cached = instantiations[key]
@@ -2032,6 +2143,8 @@ instantiateNominal = function(n: T.Nominal, map: Bindings): T.Nominal
         end
         if outermost then
             refreshingInstantiations = nil
+            substitutionMemo = nil
+            concreteTypes = nil
         end
         return cached
     end
@@ -2205,6 +2318,8 @@ instantiateNominal = function(n: T.Nominal, map: Bindings): T.Nominal
 
     if outermost then
         refreshingInstantiations = nil
+        substitutionMemo = nil
+        concreteTypes = nil
     end
 
     return inst
@@ -2219,23 +2334,16 @@ function generics.completeInstantiations(applications: {{
     origin: T.Nominal,
     map: Bindings
 }}): nil
-    local previous = refreshingInstantiations
-    local refreshed = openRefreshLayer(previous)
-    refreshingInstantiations = refreshed
-    local ok, problem = pcall(function(): nil
-        for _, application in ipairs(applications) do
-            generics.instantiate(application.origin, application.map)
-        end
-    end)
-    refreshingInstantiations = previous
-    if not ok then
-        error(problem, 0)
-    end
-    if previous then
-        for key, visited in pairs(refreshed) do
-            previous[key] = visited
-        end
-    end
+    substitutionWalk(
+        function(): nil
+            for _, application in ipairs(applications) do
+                generics.instantiate(application.origin, application.map)
+            end
+        end,
+        nil,
+        {},
+        PRESERVE
+    )
 end
 
 ----------------------------------------------------------------------------

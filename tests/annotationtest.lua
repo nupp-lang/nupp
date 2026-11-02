@@ -13,7 +13,7 @@ local env = envMod.new(HERE .. "/..")
 
 local function diagsOf(src, registry)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax")
+    testAssert.eq(#result.errors, 0, "syntax")
     local out = {}
     for j, d in ipairs(check.check(result, "test.nupp", env, {annotations = registry})) do
         out[j] = d.code
@@ -56,19 +56,19 @@ do
     local _ = result
 end
 ]]
-    testAssert.equal(checked(source), "")
-    testAssert.equal(checked("local f: @comptime @nosuspend @sendable function(): nil"), "")
-    testAssert.equal(checked("local f: @nosuspend ((function(): nil) | integer)"), "NUPP2112")
-    testAssert.equal(checked("local f: @nosuspend @nosuspend function(): nil"), "NUPP2112")
+    testAssert.eq(checked(source), "")
+    testAssert.eq(checked("local f: @comptime @nosuspend @sendable function(): nil"), "")
+    testAssert.eq(checked("local f: @nosuspend ((function(): nil) | integer)"), "NUPP2112")
+    testAssert.eq(checked("local f: @nosuspend @nosuspend function(): nil"), "NUPP2112")
 end
 
 function M.typeQualifiersPreserveBorrowedFunctionResults()
-    testAssert.equal(checked("local value: @nosuspend function<V>(borrows owner: V): V borrows (owner)"), "")
-    testAssert.equal(checked("local value: @sendable function<V>(borrows owner: V): V borrows (owner)"), "")
+    testAssert.eq(checked("local value: @nosuspend function<V>(borrows owner: V): V borrows (owner)"), "")
+    testAssert.eq(checked("local value: @sendable function<V>(borrows owner: V): V borrows (owner)"), "")
 end
 
 function M.namedCoroutineFunctionTypeWorksOnBodylessCallableField()
-    testAssert.equal(
+    testAssert.eq(
         checked(
             [[
 local type Feed = thread<(number), (boolean), (number), (string)>
@@ -83,7 +83,7 @@ end
         ),
         ""
     )
-    testAssert.equal(checked("@coroutine(Feed)\nlocal function worker(): nil end"), "NUPP2111")
+    testAssert.eq(checked("@coroutine(Feed)\nlocal function worker(): nil end"), "NUPP2111")
 end
 
 function M.builtinCliCannotBeReplacedByTheFormerBootstrapPath()
@@ -100,15 +100,15 @@ function M.builtinCliCannotBeReplacedByTheFormerBootstrapPath()
             arguments = "typed",
             targets = {"record", "field"}
         })
-        testAssert.equal(defined, nil, "a source file cannot replace builtin cli")
+        testAssert.eq(defined, nil, "a source file cannot replace builtin cli")
         assert(problem and problem:find("already defined", 1, true), problem)
-        testAssert.equal(registry:get("cli"), builtin, "the builtin remains registered")
+        testAssert.eq(registry:get("cli"), builtin, "the builtin remains registered")
     end
 end
 
 checked = function(src)
     local result = parser.parse(src, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax")
+    testAssert.eq(#result.errors, 0, "syntax")
     -- The environment this file already shares, rather than another one built
     -- exactly like it: building one means checking the prelude from source.
     local diags = check.check(result, "test.nupp", env)
@@ -121,7 +121,7 @@ checked = function(src)
 end
 
 function M.sealedInterfacesRequireDeclaredConformance()
-    testAssert.equal(
+    testAssert.eq(
         checked(
             table.concat(
                 {
@@ -140,7 +140,7 @@ function M.sealedInterfacesRequireDeclaredConformance()
         ""
     )
 
-    testAssert.equal(
+    testAssert.eq(
         checked(
             table.concat(
                 {
@@ -159,7 +159,7 @@ function M.sealedInterfacesRequireDeclaredConformance()
         "NUPP2001"
     )
 
-    testAssert.equal(
+    testAssert.eq(
         checked(
             table.concat(
                 {
@@ -181,16 +181,16 @@ function M.sealedInterfacesRequireDeclaredConformance()
 end
 
 function M.sealedAnnotationIsRemoved()
-    testAssert.equal(checked("@sealed\nlocal interface Token end"), "NUPP2111")
+    testAssert.eq(checked("@sealed\nlocal interface Token end"), "NUPP2111")
 end
 
 function M.ownershipAnnotationTwinsAreRemoved()
-    testAssert.equal(checked("@affine\nlocal interface Owner end"), "NUPP2111")
-    testAssert.equal(checked("local record Owner\n@terminal close: function(takes self: Owner): nil\nend"), "NUPP2111")
+    testAssert.eq(checked("@affine\nlocal interface Owner end"), "NUPP2111")
+    testAssert.eq(checked("local record Owner\n@terminal close: function(takes self: Owner): nil\nend"), "NUPP2111")
 end
 
 function M.partitionContractsRequireASealedInterfaceAndRealFields()
-    testAssert.equal(
+    testAssert.eq(
         checked(
             table.concat(
                 {
@@ -206,7 +206,7 @@ function M.partitionContractsRequireASealedInterfaceAndRealFields()
         "NUPP2602"
     )
 
-    testAssert.equal(
+    testAssert.eq(
         checked(
             table.concat(
                 {
@@ -234,20 +234,20 @@ function M.effectContractsAreNormalizedAndVerified()
         "\n"
     )
     local codes, result = checked(source)
-    testAssert.equal(codes, "")
+    testAssert.eq(codes, "")
     local declaration = result.root.blocks[1].stats[1].stat
-    testAssert.equal(declaration.effectContract.reads[1], "value")
-    testAssert.equal(declaration.body.effectSummary.returns["1=value"], true)
+    testAssert.eq(declaration.effectContract.reads[1], "value")
+    testAssert.eq(declaration.body.effectSummary.returns["1=value"], true)
 end
 
 function M.effectContractsCannotHideBodyEffects()
-    testAssert.equal(
+    testAssert.eq(
         checked(
             table.concat({"@effects()", "local function mutate(values: {integer})", "    values[1] = 2", "end",}, "\n")
         ),
         "NUPP2112"
     )
-    testAssert.equal(
+    testAssert.eq(
         checked(
             table.concat(
                 {"@effects()", "local function opaque(value: table, callback: any)", "    callback(value)", "end",},
@@ -269,56 +269,56 @@ function M.returnAliasesPropagateThroughVisibleCalls()
         "\n"
     )
     local codes, result = checked(source)
-    testAssert.equal(codes, "")
+    testAssert.eq(codes, "")
     local wrapped = result.root.blocks[1].stats[2].stat
-    testAssert.equal(wrapped.body.effectSummary.returns["1=value"], true)
+    testAssert.eq(wrapped.body.effectSummary.returns["1=value"], true)
 end
 
 function M.effectMembersHaveClosedShapes()
-    testAssert.equal(checked("@effects(reads = true)\nlocal function f() end"), "NUPP2112")
-    testAssert.equal(checked("@effects(allocates = {})\nlocal function f() end"), "NUPP2112")
-    testAssert.equal(checked("@effects(mystery = true)\nlocal function f() end"), "NUPP2112")
+    testAssert.eq(checked("@effects(reads = true)\nlocal function f() end"), "NUPP2112")
+    testAssert.eq(checked("@effects(allocates = {})\nlocal function f() end"), "NUPP2112")
+    testAssert.eq(checked("@effects(mystery = true)\nlocal function f() end"), "NUPP2112")
     -- `yields` is no member: suspension is spelled `suspends`, and the old name is as
     -- unknown as any other.
     local codes, _, diags = checked("@effects(yields = false)\nlocal function f() end")
-    testAssert.equal(codes, "NUPP2112")
-    testAssert.equal(#(diags[1].fixes or {}), 0, "the retired spelling is not special-cased")
+    testAssert.eq(codes, "NUPP2112")
+    testAssert.eq(#(diags[1].fixes or {}), 0, "the retired spelling is not special-cased")
 end
 
 function M.relaxationsUseAClosedSetOfObservableGuarantees()
     local codes, result = checked(
         table.concat({'@relax("frames", "error-site")', "local function dispatch() end",}, "\n")
     )
-    testAssert.equal(codes, "")
+    testAssert.eq(codes, "")
     local declaration = result.root.blocks[1].stats[1].stat
-    testAssert.equal(declaration.relaxedGuarantees.frames, true)
-    testAssert.equal(declaration.relaxedGuarantees["error-site"], true)
-    testAssert.equal(checked('@relax("magic")\nlocal function dispatch() end'), "NUPP2112")
+    testAssert.eq(declaration.relaxedGuarantees.frames, true)
+    testAssert.eq(declaration.relaxedGuarantees["error-site"], true)
+    testAssert.eq(checked('@relax("magic")\nlocal function dispatch() end'), "NUPP2112")
 end
 
 function M.numericRelaxationsRemainExplicitPerFunctionGrants()
     local codes, result = checked(
         table.concat({'@relax("fp-contract", "fp-transcendentals")', "local function inference() end",}, "\n")
     )
-    testAssert.equal(codes, "")
+    testAssert.eq(codes, "")
     local declaration = result.root.blocks[1].stats[1].stat
-    testAssert.equal(declaration.relaxedGuarantees["fp-contract"], true)
-    testAssert.equal(declaration.relaxedGuarantees["fp-transcendentals"], true)
+    testAssert.eq(declaration.relaxedGuarantees["fp-contract"], true)
+    testAssert.eq(declaration.relaxedGuarantees["fp-transcendentals"], true)
 end
 
 function M.constMarksBodylessDeclarationBindings()
     local source = table.concat({"const service: function(): integer", "return {service = service}",}, "\n")
     local result = parser.parse(source, "service.d.nupp")
-    testAssert.equal(#result.errors, 0, "syntax")
+    testAssert.eq(#result.errors, 0, "syntax")
     local diags = check.check(result, "service.d.nupp", envMod.new(HERE .. "/.."))
-    testAssert.equal(#diags, 0, "diagnostics")
+    testAssert.eq(#diags, 0, "diagnostics")
     local declaration = result.root.blocks[1].stats[1]
-    testAssert.equal(declaration.isConst, true)
-    testAssert.equal(declaration.names[1].definition.constant, true)
+    testAssert.eq(declaration.isConst, true)
+    testAssert.eq(declaration.names[1].definition.constant, true)
 end
 
 function M.stableIsNoLongerABuiltInAnnotation()
-    testAssert.equal(checked("@stable\nlocal service = 1"), "NUPP2111")
+    testAssert.eq(checked("@stable\nlocal service = 1"), "NUPP2111")
 end
 
 function M.effectContractsAttachToDeclarationBindings()
@@ -327,12 +327,12 @@ function M.effectContractsAttachToDeclarationBindings()
         "\n"
     )
     local result = parser.parse(source, "failure.d.nupp")
-    testAssert.equal(#result.errors, 0, "syntax")
+    testAssert.eq(#result.errors, 0, "syntax")
     local diags = check.check(result, "failure.d.nupp", envMod.new(HERE .. "/.."))
-    testAssert.equal(#diags, 0, "diagnostics")
+    testAssert.eq(#diags, 0, "diagnostics")
     local declaration = result.root.blocks[1].stats[1].stat
-    testAssert.equal(declaration.names[1].definition.effectContract.raises, true)
-    testAssert.equal(declaration.names[1].definition.constant, true)
+    testAssert.eq(declaration.names[1].definition.effectContract.raises, true)
+    testAssert.eq(declaration.names[1].definition.constant, true)
 end
 
 function M.constDeclarationBindingsCannotBeReassigned()
@@ -341,29 +341,47 @@ function M.constDeclarationBindingsCannotBeReassigned()
 end
 
 function M.unknownAnnotationsAreErrors()
-    testAssert.equal(diagsOf("@inline local function f() end"), "NUPP2111")
+    testAssert.eq(diagsOf("@inline local function f() end"), "NUPP2111")
 end
 
 function M.newAnnotationsCanBeDefined()
     local registry = annotations.new()
     local definition, err = registry:define({name = "inline", arguments = "none", targets = {"function"},})
     assert(definition, err)
-    testAssert.equal(diagsOf("@inline local function f() end", registry), "")
+    testAssert.eq(diagsOf("@inline local function f() end", registry), "")
+end
+
+function M.fileDirectivesDoNotReserveUserAnnotationNames()
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    '@annotation(targets = {"record"})',
+                    'record internal end',
+                    '@annotation(targets = {"record"})',
+                    'record nofmt end',
+                    '@internal @nofmt local record Item end',
+                },
+                "\n"
+            )
+        ),
+        ""
+    )
 end
 
 function M.projectEnvironmentsOwnAnExtensibleRegistry()
     local projectEnv = envMod.new(HERE .. "/..")
     assert(projectEnv.annotations:define({name = "profile", arguments = "none", targets = {"function"},}))
     local result = parser.parse("@profile local function f() end", "test")
-    testAssert.equal(#result.errors, 0, "syntax")
-    testAssert.equal(#check.check(result, "test.nupp", projectEnv), 0)
+    testAssert.eq(#result.errors, 0, "syntax")
+    testAssert.eq(#check.check(result, "test.nupp", projectEnv), 0)
 end
 
 function M.customAnnotationsCanLimitTheirTargets()
     local registry = annotations.new()
     assert(registry:define({name = "entity", arguments = "none", targets = {"record"},}))
-    testAssert.equal(diagsOf("@entity local record E end", registry), "")
-    testAssert.equal(diagsOf("@entity local function f() end", registry), "NUPP2112")
+    testAssert.eq(diagsOf("@entity local record E end", registry), "")
+    testAssert.eq(diagsOf("@entity local function f() end", registry), "NUPP2112")
 
     local assignment = assert(registry:define({name = "tracked", arguments = "none", targets = {"assignment"},}))
     assert(registry:accepts(assignment, {kind = "compoundAssign"}), "compound assignment is an assignment target")
@@ -372,30 +390,30 @@ end
 function M.definitionTargetsAreValidated()
     local registry = annotations.new()
     local definition, err = registry:define({name = "bad", arguments = "none", targets = {"expression"},})
-    testAssert.equal(definition, nil)
+    testAssert.eq(definition, nil)
     assert(err:find("expression annotations must be compiler-registered", 1, true), err)
 end
 
 function M.reservedAnnotationsAreNotSilentlyErased()
-    testAssert.equal(diagsOf("@comptime const function f() end"), "")
-    testAssert.equal(diagsOf("@comptime const function f() end"), "")
+    testAssert.eq(diagsOf("@comptime const function f() end"), "")
+    testAssert.eq(diagsOf("@comptime const function f() end"), "")
 end
 
 function M.attachmentTargetsAreChecked()
-    testAssert.equal(diagsOf("@aot local x = 1"), "NUPP2112")
+    testAssert.eq(diagsOf("@aot local x = 1"), "NUPP2112")
     -- Named functions are a valid attachment target because exported helpers use
     -- `function M.f()`. A bare global is rejected by the comptime declaration rule.
-    testAssert.equal(diagsOf("@comptime function f() end"), "NUPP2411")
+    testAssert.eq(diagsOf("@comptime function f() end"), "NUPP2411")
 end
 
 function M.argumentContractsAreChecked()
-    testAssert.equal(diagsOf("@noraise(on) do end"), "NUPP2112")
+    testAssert.eq(diagsOf("@noraise(on) do end"), "NUPP2112")
     -- a name that is neither a lint nor a code names no lint to allow
-    testAssert.equal(diagsOf("@allow(not_a_lint) local x = 1"), "NUPP2108")
+    testAssert.eq(diagsOf("@allow(not_a_lint) local x = 1"), "NUPP2108")
 end
 
 function M.deprecatedMetadataIsTypedAndTargeted()
-    testAssert.equal(
+    testAssert.eq(
         checked(
             table.concat(
                 {
@@ -408,16 +426,16 @@ function M.deprecatedMetadataIsTypedAndTargeted()
         ),
         "NUPP2513"
     )
-    testAssert.equal(checked("@deprecated(reason = 42)\nfunction legacy() end"), "NUPP2115")
-    testAssert.equal(checked("@deprecated\ndo end"), "NUPP2112")
+    testAssert.eq(checked("@deprecated(reason = 42)\nfunction legacy() end"), "NUPP2115")
+    testAssert.eq(checked("@deprecated\ndo end"), "NUPP2112")
 end
 
 function M.syntaxAnnotationsAreTypedButDoNotConstrainBindings()
     local codes, result = checked(table.concat({'@syntax("json")', "local document: {integer} = {1}",}, "\n"))
-    testAssert.equal(codes, "")
-    testAssert.equal(result.root.blocks[1].stats[1].stat.embeddedStringFormat, "json")
-    testAssert.equal(checked('@syntax(42)\nlocal value = 1'), "NUPP2115")
-    testAssert.equal(checked('@syntax("json")\ndo end'), "NUPP2112")
+    testAssert.eq(codes, "")
+    testAssert.eq(result.root.blocks[1].stats[1].stat.embeddedStringFormat, "json")
+    testAssert.eq(checked('@syntax(42)\nlocal value = 1'), "NUPP2115")
+    testAssert.eq(checked('@syntax("json")\ndo end'), "NUPP2112")
 end
 
 function M.deprecatedUsesReportAcrossApiKinds()
@@ -440,14 +458,14 @@ function M.deprecatedUsesReportAcrossApiKinds()
             "\n"
         )
     )
-    testAssert.equal(codes, "NUPP2513 NUPP2513 NUPP2513 NUPP2513")
-    testAssert.equal(diagnostics[1].help, "use Box instead")
-    testAssert.equal(diagnostics[3].help, "use current instead")
+    testAssert.eq(codes, "NUPP2513 NUPP2513 NUPP2513 NUPP2513")
+    testAssert.eq(diagnostics[1].help, "use Box instead")
+    testAssert.eq(diagnostics[3].help, "use current instead")
     assert(diagnostics[2].msg:find("old field", 1, true), diagnostics[2].msg)
 end
 
 function M.deprecatedLintCanBeAllowed()
-    testAssert.equal(
+    testAssert.eq(
         checked(
             table.concat(
                 {
@@ -476,14 +494,14 @@ function M.deprecatedAnnotationsEmitNoRuntimeBehavior()
             "\n"
         )
     )
-    testAssert.equal(codes, "NUPP2513")
+    testAssert.eq(codes, "NUPP2513")
     local image = program.image(result, "test")
     assert(not image:find("deprecated", 1, true), image)
     assert(not image:find("compatibility", 1, true), image)
 end
 
 function M.stackedAnnotationsUseTheUnderlyingStatementAsTheirTarget()
-    testAssert.equal(diagsOf("@allow @aot local function f() end"), "")
+    testAssert.eq(diagsOf("@allow @aot local function f() end"), "")
 end
 
 function M.annotationRecordsDefineTypedMetadata()
@@ -502,11 +520,11 @@ function M.annotationRecordsDefineTypedMetadata()
         "\n"
     )
     local codes, result = checked(src)
-    testAssert.equal(codes, "")
+    testAssert.eq(codes, "")
     local definition = result.root.blocks[1].stats[1].stat.annotationDefinition
     assert(definition, "annotation definition is recorded")
-    testAssert.equal(definition.members.format.type.tag, "string")
-    testAssert.equal(definition.members.version.optional, true)
+    testAssert.eq(definition.members.format.type.tag, "string")
+    testAssert.eq(definition.members.version.optional, true)
 end
 
 function M.annotationMembersAreChecked()
@@ -514,9 +532,9 @@ function M.annotationMembersAreChecked()
         {'@annotation(targets = {"record"})', "local record serializable", "    format: string", "end",},
         "\n"
     ) .. "\n"
-    testAssert.equal(checked(prefix .. "@serializable\nlocal record Missing end"), "NUPP2115")
-    testAssert.equal(checked(prefix .. "@serializable(format = 42)\nlocal record Wrong end"), "NUPP2115")
-    testAssert.equal(checked(prefix .. '@serializable(other = "json")\nlocal record Unknown end'), "NUPP2115 NUPP2115")
+    testAssert.eq(checked(prefix .. "@serializable\nlocal record Missing end"), "NUPP2115")
+    testAssert.eq(checked(prefix .. "@serializable(format = 42)\nlocal record Wrong end"), "NUPP2115")
+    testAssert.eq(checked(prefix .. '@serializable(other = "json")\nlocal record Unknown end'), "NUPP2115 NUPP2115")
 end
 
 function M.annotationTargetsIncludeFields()
@@ -534,8 +552,8 @@ function M.annotationTargetsIncludeFields()
         },
         "\n"
     )
-    testAssert.equal(checked(src), "")
-    testAssert.equal(checked(src .. "\n@range(min = 1, max = 2)\nlocal record Bad end"), "NUPP2112")
+    testAssert.eq(checked(src), "")
+    testAssert.eq(checked(src .. "\n@range(min = 1, max = 2)\nlocal record Bad end"), "NUPP2112")
 end
 
 function M.annotationValueDesignatesThePositionalMember()
@@ -552,9 +570,9 @@ function M.annotationValueDesignatesThePositionalMember()
         "\n"
     )
     local codes, result = checked(src)
-    testAssert.equal(codes, "")
+    testAssert.eq(codes, "")
     local definition = result.root.blocks[1].stats[1].stat.annotationDefinition
-    testAssert.equal(definition.singleValue, "text")
+    testAssert.eq(definition.singleValue, "text")
 end
 
 function M.onlyOneAnnotationValueIsAllowed()
@@ -570,8 +588,8 @@ function M.onlyOneAnnotationValueIsAllowed()
         },
         "\n"
     )
-    testAssert.equal(checked(src), "NUPP2114")
-    testAssert.equal(checked("local record Plain\n@annotationValue\nx: string\nend"), "NUPP2114")
+    testAssert.eq(checked(src), "NUPP2114")
+    testAssert.eq(checked("local record Plain\n@annotationValue\nx: string\nend"), "NUPP2114")
 end
 
 function M.annotationValuesAreCompileTimeConstants()
@@ -588,7 +606,7 @@ function M.annotationValuesAreCompileTimeConstants()
         },
         "\n"
     )
-    testAssert.equal(checked(src), "NUPP2115")
+    testAssert.eq(checked(src), "NUPP2115")
 end
 
 function M.annotationReferencesResolveTypes()
@@ -607,7 +625,7 @@ function M.annotationReferencesResolveTypes()
         "\n"
     )
     local codes, result = checked(src)
-    testAssert.equal(codes, "")
+    testAssert.eq(codes, "")
 
     local users = {}
     for _, token in ipairs(result.tokens) do
@@ -615,10 +633,10 @@ function M.annotationReferencesResolveTypes()
             users[#users + 1] = token
         end
     end
-    testAssert.equal(#users, 2, "User tokens")
+    testAssert.eq(#users, 2, "User tokens")
     assert(users[1].definition, "type declaration has a definition")
     assert(users[2].definition == users[1].definition, "@ref value links to the type declaration")
-    testAssert.equal(users[2].semanticKind, "type", "@ref semantic kind")
+    testAssert.eq(users[2].semanticKind, "type", "@ref semantic kind")
 end
 
 function M.annotationReferencesMustNameCompatibleTypes()
@@ -633,13 +651,13 @@ function M.annotationReferencesMustNameCompatibleTypes()
         },
         "\n"
     ) .. "\n"
-    testAssert.equal(checked(prefix .. "@relatesTo(Missing)\nlocal record Bad end"), "NUPP2115")
-    testAssert.equal(checked(prefix .. "@relatesTo(42)\nlocal record Bad end"), "NUPP2115")
-    testAssert.equal(checked(prefix .. "local record User end\n@relatesTo(User)\nlocal record Bad end"), "NUPP2115")
+    testAssert.eq(checked(prefix .. "@relatesTo(Missing)\nlocal record Bad end"), "NUPP2115")
+    testAssert.eq(checked(prefix .. "@relatesTo(42)\nlocal record Bad end"), "NUPP2115")
+    testAssert.eq(checked(prefix .. "local record User end\n@relatesTo(User)\nlocal record Bad end"), "NUPP2115")
 end
 
 function M.refIsRestrictedToAnnotationDefinitionMembers()
-    testAssert.equal(checked("local record Plain\n    @ref\n    target: any\nend"), "NUPP2114")
+    testAssert.eq(checked("local record Plain\n    @ref\n    target: any\nend"), "NUPP2114")
 end
 
 function M.formatterPrefersTheSingleValueSpelling()
@@ -656,10 +674,10 @@ function M.formatterPrefersTheSingleValueSpelling()
         "\n"
     )
     local formatted, errors = fmt.format(src, "test")
-    testAssert.equal(#errors, 0, "format diagnostics")
+    testAssert.eq(#errors, 0, "format diagnostics")
     assert(formatted:find('@documentation("A user")', 1, true), formatted)
     assert(not formatted:find("@documentation(text", 1, true), formatted)
-    testAssert.equal(fmt.format(formatted, "test"), formatted, "format idempotency")
+    testAssert.eq(fmt.format(formatted, "test"), formatted, "format idempotency")
 end
 
 function M.annotationDefinitionsAndApplicationsErase()
@@ -677,7 +695,7 @@ function M.annotationDefinitionsAndApplicationsErase()
         "\n"
     )
     local codes, result = checked(src)
-    testAssert.equal(codes, "")
+    testAssert.eq(codes, "")
     local image = program.image(result, "test")
     assert(not image:find("documentation", 1, true), image)
 end
@@ -696,8 +714,8 @@ function M.annotationStructsDoNotPublishRuntimeConstructors()
             "\n"
         )
     )
-    testAssert.equal(codes, "")
-    testAssert.equal(result.moduleExports.values.tag, nil)
+    testAssert.eq(codes, "")
+    testAssert.eq(result.moduleExports.values.tag, nil)
 end
 
 function M.annotationDefinitionsReplaceTheirPreviousFileRevision()
@@ -717,7 +735,7 @@ function M.annotationDefinitionsReplaceTheirPreviousFileRevision()
         ),
         filename
     )
-    testAssert.equal(#check.check(first, filename, projectEnv), 0, "first revision")
+    testAssert.eq(#check.check(first, filename, projectEnv), 0, "first revision")
 
     local second = parser.parse(
         table.concat(
@@ -733,7 +751,7 @@ function M.annotationDefinitionsReplaceTheirPreviousFileRevision()
         ),
         filename
     )
-    testAssert.equal(#check.check(second, filename, projectEnv), 0, "second revision")
+    testAssert.eq(#check.check(second, filename, projectEnv), 0, "second revision")
 end
 
 local POINTERS = [[
@@ -753,28 +771,28 @@ function M.unsafeExpressionBoundaries()
         '@unsafe switch p[0] do case 1 where q[0] > 0 -> q[0] else -> p[0] end',
         "@unsafe @unsafe p[0]",
     }) do
-        testAssert.equal(checked(POINTERS .. "local value = " .. expression), "", expression)
+        testAssert.eq(checked(POINTERS .. "local value = " .. expression), "", expression)
     end
     for _, expression in ipairs({"@unsafe p[0] + q[0]", "(@unsafe p)[0]", "@unsafe -p[0] ^ q[0]",}) do
-        testAssert.equal(checked(POINTERS .. "local value = " .. expression), "NUPP2604", expression)
+        testAssert.eq(checked(POINTERS .. "local value = " .. expression), "NUPP2604", expression)
     end
     local parsed = parser.parse("local v = @unsafe -p[0] as number + q[0]")
-    testAssert.equal(#parsed.errors, 0)
+    testAssert.eq(#parsed.errors, 0)
     local sum = parsed.root.blocks[1].stats[1].exprs[1]
-    testAssert.equal(sum.kind, "binop")
+    testAssert.eq(sum.kind, "binop")
     assert(sum.lhs.expressionAnnotations)
     assert(not sum.rhs.expressionAnnotations)
-    testAssert.equal(sum.lhs.kind, "castExpr")
-    testAssert.equal(sum.lhs.expr.kind, "unop")
+    testAssert.eq(sum.lhs.kind, "castExpr")
+    testAssert.eq(sum.lhs.expr.kind, "unop")
     local power = parser.parse("local v = @unsafe -p[0] ^ q[0]").root.blocks[1].stats[1].exprs[1]
-    testAssert.equal(power.kind, "unop")
-    testAssert.equal(power.operand.kind, "binop")
-    testAssert.equal(power.expressionPermissionOperand, power.operand.lhs)
+    testAssert.eq(power.kind, "unop")
+    testAssert.eq(power.operand.kind, "binop")
+    testAssert.eq(power.expressionPermissionOperand, power.operand.lhs)
 end
 
 function M.expressionAnnotationsPreserveSemanticTokenKinds()
     local parsed = parser.parse("local unsafe = 1; local value = @unsafe new Box(value = unsafe)")
-    testAssert.equal(#parsed.errors, 0)
+    testAssert.eq(#parsed.errors, 0)
     local kinds = require("nupp.tools.lsp.semantic").syntaxKinds(parsed)
     local decorators, keywords = 0, 0
     for _, token in ipairs(parsed.tokens) do
@@ -783,12 +801,12 @@ function M.expressionAnnotationsPreserveSemanticTokenKinds()
         elseif token.text == "unsafe" then
             assert(kinds[token] ~= "nuppKeyword", "ordinary identifiers stay identifiers")
         elseif token.text == "new" then
-            testAssert.equal(kinds[token], "nuppKeyword")
+            testAssert.eq(kinds[token], "nuppKeyword")
             keywords = keywords + 1
         end
     end
-    testAssert.equal(decorators, 1)
-    testAssert.equal(keywords, 1)
+    testAssert.eq(decorators, 1)
+    testAssert.eq(keywords, 1)
 end
 
 function M.unsafeStatementTargetsAndSiblingBoundaries()
@@ -805,16 +823,16 @@ function M.unsafeStatementTargetsAndSiblingBoundaries()
         "p[0] += q[0]",
         "print(p[0], q[0])",
     }) do
-        testAssert.equal(checked(POINTERS .. "@unsafe " .. statement), "", statement)
-        testAssert.equal(
+        testAssert.eq(checked(POINTERS .. "@unsafe " .. statement), "", statement)
+        testAssert.eq(
             checked(POINTERS .. "@unsafe " .. statement .. "\nlocal outside = q[0]"),
             "NUPP2604",
             "permission ends after " .. statement
         )
     end
-    testAssert.equal(checked(POINTERS .. "@unsafe local a = p[0]\nlocal result: number = a"), "")
+    testAssert.eq(checked(POINTERS .. "@unsafe local a = p[0]\nlocal result: number = a"), "")
     for _, annotations_ in ipairs({'@allow("unused-binding") @unsafe', '@unsafe @allow("unused-binding")'}) do
-        testAssert.equal(checked(POINTERS .. annotations_ .. " local a = p[0]"), "")
+        testAssert.eq(checked(POINTERS .. annotations_ .. " local a = p[0]"), "")
     end
 end
 
@@ -826,8 +844,8 @@ function M.unsafePermissionStopsAtEveryFunctionBody()
         "local value = (function() return p[0] end)()",
         "local value = (|| -> p[0])()",
     }) do
-        testAssert.equal(checked(POINTERS .. "@unsafe do " .. statement .. " end"), "NUPP2604", statement)
-        testAssert.equal(
+        testAssert.eq(checked(POINTERS .. "@unsafe do " .. statement .. " end"), "NUPP2604", statement)
+        testAssert.eq(
             checked(
                 POINTERS
                 .. "@unsafe do "
@@ -838,7 +856,7 @@ function M.unsafePermissionStopsAtEveryFunctionBody()
             statement
         )
     end
-    testAssert.equal(
+    testAssert.eq(
         checked(
             POINTERS
             .. [[
@@ -876,18 +894,18 @@ function M.unsafeRejectsUnsupportedTargetsAndCannotBeRedefined()
     end
     local registry = annotations.new()
     local defined, problem = registry:define({name = "unsafe", arguments = "none", targets = {"statement"}})
-    testAssert.equal(defined, nil)
+    testAssert.eq(defined, nil)
     assert(problem:find("already defined", 1, true))
-    testAssert.equal(checked([[
+    testAssert.eq(checked([[
 @annotation(targets = {"statement"})
 record unsafe end
 ]]), "NUPP2114")
-    testAssert.equal(checked([[
+    testAssert.eq(checked([[
 @annotation(targets = {"statement"})
 record marker end
 local a = @marker 1
 ]]), "NUPP2112")
-    testAssert.equal(checked("local a = @allow(unused-binding) 1"), "NUPP2112")
+    testAssert.eq(checked("local a = @allow(unused-binding) 1"), "NUPP2112")
 end
 
 function M.anonymousChecksKeepUnsafeBuiltinAndImmutable()
@@ -895,13 +913,13 @@ function M.anonymousChecksKeepUnsafeBuiltinAndImmutable()
     local builtin = registry:get("unsafe")
     for _, source in ipairs({"@unsafe do end", "local value = @unsafe 1", "@unsafe local value = 1"}) do
         local parsed = parser.parse(source)
-        testAssert.equal(#parsed.errors, 0, source)
+        testAssert.eq(#parsed.errors, 0, source)
         local diagnostics = check.check(parsed, nil, nil, {annotations = registry, strict = false})
-        testAssert.equal(#diagnostics, 0, source)
-        testAssert.equal(registry:get("unsafe"), builtin, "anonymous checks preserve the built-in definition")
+        testAssert.eq(#diagnostics, 0, source)
+        testAssert.eq(registry:get("unsafe"), builtin, "anonymous checks preserve the built-in definition")
     end
     local replacement = registry:define({name = "unsafe", arguments = "none", targets = {"statement"}})
-    testAssert.equal(replacement, nil, "a user definition still cannot replace unsafe")
+    testAssert.eq(replacement, nil, "a user definition still cannot replace unsafe")
 end
 
 function M.contextualFunctionTypesStillValidateExpressionAnnotations()
@@ -912,22 +930,22 @@ function M.contextualFunctionTypesStillValidateExpressionAnnotations()
         "local function take(f: function(): integer) end; take(@unsafe || -> 1)",
     }) do
         local codes, _, diagnostics = checked(source)
-        testAssert.equal(codes, "NUPP2112", source)
-        testAssert.equal(diagnostics[1].col, assert(source:find("@unsafe", 1, true)) + 1)
+        testAssert.eq(codes, "NUPP2112", source)
+        testAssert.eq(diagnostics[1].col, assert(source:find("@unsafe", 1, true)) + 1)
     end
 end
 
 function M.unsafePreservesOtherRegionRestrictionsAndExits()
-    testAssert.equal(checked('@nosuspend do @unsafe coroutine.yield() end'), 'NUPP2701')
-    testAssert.equal(checked('@noalloc do @unsafe local value = {} end'), 'NUPP2710')
-    testAssert.equal(checked("@noraise do @unsafe error('failed') end"), 'NUPP2711')
+    testAssert.eq(checked('@nosuspend do @unsafe coroutine.yield() end'), 'NUPP2701')
+    testAssert.eq(checked('@noalloc do @unsafe local value = {} end'), 'NUPP2710')
+    testAssert.eq(checked("@noraise do @unsafe error('failed') end"), 'NUPP2711')
     for _, body in ipairs({
         '@unsafe do return 1 end',
         '@unsafe if true then return 1 else return 2 end',
         '@unsafe while true do end',
         '@unsafe repeat until false',
     }) do
-        testAssert.equal(checked('local function f(): integer ' .. body .. ' end'), '', body)
+        testAssert.eq(checked('local function f(): integer ' .. body .. ' end'), '', body)
     end
 end
 
@@ -986,14 +1004,14 @@ local c, d = forward()
 return a, b, values[1], values[2], chosen, c, d, table.concat(log, ',')
 ]]
     local codes_, result = checked(source)
-    testAssert.equal(codes_, "")
+    testAssert.eq(codes_, "")
     local expected = "4|5|4|5|2|4|5|4,5,4,5,1,2,6,7,8,9,4,5,4,5"
     local values = {program.run(result, "test")}
-    testAssert.equal(table.concat(values, "|"), expected)
+    testAssert.eq(table.concat(values, "|"), expected)
     local formatted, diagnostics = fmt.format(source, "test.nupp")
-    testAssert.equal(#(diagnostics or {}), 0)
-    testAssert.equal(checked(formatted), "")
-    testAssert.equal(fmt.format(formatted, "test.nupp"), formatted, "formatting idempotence")
+    testAssert.eq(#(diagnostics or {}), 0)
+    testAssert.eq(checked(formatted), "")
+    testAssert.eq(fmt.format(formatted, "test.nupp"), formatted, "formatting idempotence")
 end
 
 return M

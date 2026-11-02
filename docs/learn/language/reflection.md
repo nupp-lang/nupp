@@ -62,12 +62,12 @@ instance does not request the descriptor.
 ### Extensions
 
 `info:extension(key)` is the cache boundary for work derived from a descriptor.
-`types.reflect.extensionKey` creates a typed key with a provider; the first call builds
-it against that descriptor, and every later call with the same key returns what
-was built. Key identity is assigned a dense process-local slot rather than a
-name, so two extensions that happen to describe the same thing stay separate
-without making object keys the host's cache representation. Slot numbers are not
-persistent identifiers.
+`types.reflect.extensionkey` creates a typed key with a provider; the first call
+builds it against that descriptor, and every later call with the same key
+returns what was built. Key identity is assigned a dense process-local slot
+rather than a name, so two extensions that happen to describe the same thing
+stay separate without making object keys the host's cache representation. Slot
+numbers are not persistent identifiers.
 
 The state of a build in progress is kept as well as the finished one. An
 extension whose `build` reflects its way back to the descriptor it is being
@@ -107,15 +107,6 @@ An API that accepts a declared record or struct takes `Type<T>`. A record name
 is never a `metatable<T>`, which remains for an explicit table passed to Lua's
 metatable functions.
 
-::: deepdive
-A caller supplies the declaration and nothing else. Passing a separate type
-witness beside every value would thread it through every generic that forwards
-the call, so a signature with nothing to do with reflection would acquire a
-parameter because something three layers down wanted one. Taking the
-declaration itself keeps the witness where the API needs it and out of every
-signature between here and there.
-:::
-
 ## Serialization bindings
 
 A type witness supplies neutral field access and construction. A binding
@@ -152,7 +143,7 @@ local record Position
 end
 
 const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
-    return types.reflect.fieldCodec(types.reflect(Position))
+    return types.reflect.fieldcodec(types.reflect(Position))
 end
 
 local function encode(position: Position): {[string]: any}
@@ -188,7 +179,7 @@ descriptor fingerprint and invalidates results derived from it.
 
 ### Field codecs
 
-`types.reflect.fieldCodec` is a materialization boundary. It produces a
+`types.reflect.fieldcodec` is a materialization boundary. It produces a
 `types.reflect.FieldCodec<R>` for the same nominal record `R` and copies exactly
 that record's declared present fields with `rawget`. Encoding and decoding are
 shallow; decoding selects the same fields from a keyed table and restores the

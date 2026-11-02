@@ -14,7 +14,7 @@ local struct Position
     velocity: float
 end
 
-local positions = soa.allocate(ffi.typeof<Position>(), 128)
+local positions = soa.alloc(ffi.typeof<Position>(), 128)
 with rows = positions:write() do
     for index = 1, #rows do
         rows[index].x += rows[index].velocity
@@ -22,7 +22,7 @@ with rows = positions:write() do
 end
 ```
 
-The compiler supplies the private layout argument to `allocate` and `layoutof`,
+The compiler supplies the private layout argument to `alloc` and `layoutof`,
 and lowers indexed row fields directly to the typed columns kept by these views.
 This module owns allocation, checked whole-row operations, slicing, and
 field-span construction; it never exposes the slab or its column pointers in the
@@ -45,7 +45,7 @@ element witness is the row struct's storage descriptor.
 const assert2 = require("assert")
 
 local soa = {}
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local storage: any = assert2(
     require("nupp.mem.representation").storage,
     "nupp.mem.soa: no storage implementation is available for the target"
@@ -246,7 +246,7 @@ end
 ---
 --- @param self the array, spent by this call
 --- @export
-function soa.destroyArray<T is soa.ArrayToken>(takes self: T): nil
+function soa.destroyarray<T is soa.ArrayToken>(takes self: T): nil
     self:close()
 end
 
@@ -257,7 +257,7 @@ end
 ---
 --- @param self the writer, spent by this call
 --- @export
-function soa.destroyWriteSpan<T is soa.WriteToken>(takes self: T): nil
+function soa.destroywritespan<T is soa.WriteToken>(takes self: T): nil
     @nosuspend do
         local _raw = @unsafe own.release(self)
     end
@@ -326,7 +326,7 @@ local record SpanImpl<T> is soa.Span<T>
         local pointer = advance(self.columns[ordinal], self.offset)
         @unsafe do
             local rooted = borrowFrom(pointer as voidptr, self)
-            return span.fromCarray(rooted as any, self.count)
+            return span.fromcarray(rooted as any, self.count)
         end
     end
 end
@@ -371,12 +371,12 @@ sealed interface soa.WriteSpan<T>
         exclusive self: WriteSpan<T>,
         first: integer,
         last: integer?
-    ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan) borrows (self)
+    ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroywritespan) borrows (self)
 end
 
 --- An affine exclusive row view, released at its lexical boundary.
 --- @export
-type soa.Writable<T> = affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan)
+type soa.Writable<T> = affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroywritespan)
 
 local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
     @private @readonly anchor: any
@@ -417,7 +417,7 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
         local pointer = advance(self.columns[ordinal], self.offset)
         @unsafe do
             local rooted = borrowFrom(pointer as voidptr, self)
-            return span.writeCarray(rooted as any, self.count)
+            return span.writecarray(rooted as any, self.count)
         end
     end
 
@@ -468,7 +468,7 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
         exclusive self,
         first: integer,
         last: integer?
-    ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan) borrows (self)
+    ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroywritespan) borrows (self)
         local finish = last or self.count
         if first % 1 ~= 0 or finish % 1 ~= 0 or first < 1 or finish < first - 1 or finish > self.count then
             error("nupp: SoA slice out of bounds", 2)
@@ -519,7 +519,7 @@ record soa.Array<T> is soa.ArrayToken
     --- boundary or an explicit `own.drop` is what ends it.
     write: function(
         exclusive self: Array<T>
-    ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan) borrows (self)
+    ): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroywritespan) borrows (self)
 
     --- Frees the slab. `own.drop` and scope exit both reach this.
     close: @nosuspend function(takes self: Array<T>): nil
@@ -538,7 +538,7 @@ end
 
 function soa.Array.write<T>(
     exclusive self: soa.Array<T>
-): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroyWriteSpan) borrows (self)
+): affine(soa.WriteToken & soa.WriteSpan<T>, soa.destroywritespan) borrows (self)
     return new WriteSpanImpl(
         anchor = self,
         element = self.element,
@@ -564,11 +564,11 @@ function soa.Array.close<T>(takes self: soa.Array<T>): nil
     finishArrayNosuspend(self)
 end
 
---- Compiler lowering target for `soa.allocate`.
+--- Compiler lowering target for `soa.alloc`.
 --- @raises string when count is invalid, layout arithmetic overflows, or allocation
 ---     fails
 --- @internal
-function soa._allocate<T>(element: ctype<T>, count: integer, rawLayout: table): affine(soa.Array<T>, soa.destroyArray)
+function soa._allocate<T>(element: ctype<T>, count: integer, rawLayout: table): affine(soa.Array<T>, soa.destroyarray)
     local layout = soa._layout(rawLayout, element)
     local instance = layout:forCount(count)
     local words = (instance.byteSize + SLAB_WORD - 1) // SLAB_WORD
@@ -602,7 +602,7 @@ end
 --- boundary; the bytes are not zeroed.
 ---
 --- ```nupp:fragment
---- local positions = soa.allocate(ffi.typeof<Position>(), 128)
+--- local positions = soa.alloc(ffi.typeof<Position>(), 128)
 --- with rows = positions:write() do
 ---     rows[1].x = 3.5
 --- end
@@ -614,8 +614,8 @@ end
 --- @export
 --- @raises string when count is invalid, layout arithmetic overflows, or allocation
 ---     fails
-function soa.allocate<T>(element: ctype<T>, count: integer): affine(soa.Array<T>, soa.destroyArray)
-    error("nupp: soa.allocate requires compiler lowering", 2)
+function soa.alloc<T>(element: ctype<T>, count: integer): affine(soa.Array<T>, soa.destroyarray)
+    error("nupp: soa.alloc requires compiler lowering", 2)
 end
 
 --- Returns immutable SoA reflection for a reified struct type without

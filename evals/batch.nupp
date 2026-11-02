@@ -1,4 +1,4 @@
-local files = require("nupp.io.files")
+local files = require("io.files")
 local harness = require("harness")
 local batch = require("batcheval")
 
@@ -113,7 +113,7 @@ local function main(): integer
         end
         codes = limited
     end
-    local made, reason = files.createDirectory(out)
+    local made, reason = files.createdirectory(out)
     if not made then
         error("cannot create " .. out .. ": " .. tostring(reason), 0)
     end
@@ -137,9 +137,9 @@ local function main(): integer
         sortedCodes[position] = code
     end
     table.sort(sortedCodes)
-    summary.timedOut = json.asArray(timedOut)
+    summary.timedOut = json.asarray(timedOut)
     summary.elapsedSeconds = harness.rounded(elapsed, 1)
-    summary.codes = json.asArray(sortedCodes)
+    summary.codes = json.asarray(sortedCodes)
     local board = harness.join(out, label .. "-scoreboard.json")
     harness.writeJson(board, summary)
     batch.report(summary, model, elapsed)

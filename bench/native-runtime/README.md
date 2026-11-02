@@ -1,8 +1,8 @@
 # Native network and HTTP benchmark
 
 This is the public-boundary performance and bounded-resource fixture for the
-Rust-native network and HTTP providers. It measures `nupp.io.net` streams and a
-persistent `nupp.io.http.Client`; it does not compare those wrappers with raw
+Rust-native network and HTTP providers. It measures `io.net` streams and a
+persistent `io.http.Client`; it does not compare those wrappers with raw
 Tokio, Reqwest, or operating-system sockets.
 
 The benchmark uses one loopback Node HTTP peer outside the measured request

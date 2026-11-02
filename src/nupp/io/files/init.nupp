@@ -1,3 +1,5 @@
+@!internal
+
 module nupp.io.files
 
 --[[
@@ -6,20 +8,20 @@ application-owned paths on browser hosts. Set an application identity before
 resolving the portable configuration, data, or cache directory.
 
 ```nupp
-local files = nupp.io.files
-files.setApplicationIdentity("example", "notes")
+local files = io.files
+files.setapplicationidentity("example", "notes")
 
-local data = assert(files.dataPath())
+local data = assert(files.datapath())
 assert(files.write(data:join("notes.txt"), "hello"))
 ```
 
 Native programs may also pass ordinary strings or [](io.path.Path)
 values. Browser programs refuse raw path text and use the opaque
-`ApplicationPath` values returned by `configurationPath`, `dataPath`, or
-`cachePath`.
+`ApplicationPath` values returned by `configurationpath`, `datapath`, or
+`cachepath`.
 
 Browser application data lives in the Origin Private File System. It remains
-evictable unless `requestPersistentStorage` succeeds. Capability flags describe
+evictable unless `requestpersistentstorage` succeeds. Capability flags describe
 the operations whose native semantics have no browser equivalent.
 ]]
 
@@ -350,7 +352,7 @@ end
 --- tells it apart from the end of the file, where the reason is nil.
 ---
 --- ```nupp
---- local log = assert(nupp.io.files.lines("access.log"))
+--- local log = assert(io.files.lines("access.log"))
 --- while true do
 ---     local line, reason = log:read()
 ---     if line == nil then

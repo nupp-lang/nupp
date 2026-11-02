@@ -13,7 +13,7 @@ local function checked(source)
     serial = serial + 1
     local name = "numeric-for-" .. serial .. ".nupp"
     local parsed = parser.parse(source, name)
-    test.equal(#parsed.errors, 0, "loop fixture syntax")
+    test.eq(#parsed.errors, 0, "loop fixture syntax")
     for _, diagnostic in ipairs(checker.check(parsed, name, env)) do
         test(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
     end
@@ -54,7 +54,7 @@ function M.integerCountersStopBeforeSignedOverflowAndKeepTheirSubtype()
         {"1LL, 2.5", "integer:1,integer:2"},
         {"3LL, 1LL, -1LL", "integer:3,integer:2,integer:1"},
     }) do
-        test.equal(
+        test.eq(
             run(COLLECT .. "for i = " .. row[1] .. " do\n" .. SAVE .. "end\nreturn table.concat(values, \",\")"),
             row[2]
         )
@@ -86,7 +86,7 @@ function M.unsignedCountersKeepTheirStaticOrderAcrossTheSignedBoundary()
 end
 return count
 ]]
-        test.equal(run(source), row[3])
+        test.eq(run(source), row[3])
     end
 end
 
@@ -104,9 +104,9 @@ function M.dynamicStepsSelectTheirActualModeAndDirection()
             .. ")"
     end
 
-    test.equal(run(source("3LL", "1LL", "-1LL")), "integer:3,integer:2,integer:1")
-    test.equal(run(source("1LL", "2LL", "0.5")), "float:1.0,float:1.5,float:2.0")
-    test.equal(run(source("1.0", "2LL", "1LL")), "float:1.0,float:2.0")
+    test.eq(run(source("3LL", "1LL", "-1LL")), "integer:3,integer:2,integer:1")
+    test.eq(run(source("1LL", "2LL", "0.5")), "float:1.0,float:1.5,float:2.0")
+    test.eq(run(source("1.0", "2LL", "1LL")), "float:1.0,float:2.0")
 end
 
 function M.boundsAreEvaluatedOnceBeforeTheBodyBindingAndCapturesAreFresh()
@@ -125,13 +125,13 @@ end
 return calls, i, tostring(captures[1]()) .. "," .. tostring(captures[2]()) .. "," .. tostring(captures[3]())
 ]]
     )
-    test.equal(calls, 3)
-    test.equal(tostring(outer), "7")
-    test.equal(result, "7,8,9")
+    test.eq(calls, 3)
+    test.eq(tostring(outer), "7")
+    test.eq(result, "7,8,9")
 end
 
 function M.bodyMutationsCannotChangeTheCapturedControls()
-    test.equal(
+    test.eq(
         run(
             [[
 local first, last, increment = 1LL, 3LL, 1LL
@@ -145,7 +145,7 @@ return total
         ),
         6
     )
-    test.equal(
+    test.eq(
         run([[
 local total = 0LL
 for i = 1LL, 4LL do
@@ -159,7 +159,7 @@ return total
 end
 
 function M.loopBodyAssignmentsAndShadowsKeepTheExistingPolicy()
-    test.equal(
+    test.eq(
         run(
             [[
 local count = 0
@@ -190,7 +190,7 @@ function M.zeroStepRaisesEvenWhenTheInitialRangeIsEmpty()
         local chunk, problem = program.load(parsed, (name:gsub("%.nupp$", "")))
         test(chunk ~= nil, problem)
         local ok, message = pcall(chunk)
-        test.equal(ok, false)
+        test.eq(ok, false)
         test(tostring(message):find("'for' step is zero", 1, true) ~= nil)
     end
 end

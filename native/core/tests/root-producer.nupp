@@ -145,11 +145,11 @@ function producer.compile(mode: string): string
     result.handlers, result.functions, result.mode = {{name = "CoreRootComplete"}}, metrics, mode
     result.boundaries, result.refusals = boundaries, refusals
 
-    return json.encodeValue(result)
+    return json.encodevalue(result)
 end
 
 function producer.data(selection: string, choice: string): string
-    local result = json.decodeValue(front.read(selection))
+    local result = json.decodevalue(front.read(selection))
     local layout = result.layout
     local selected = assert(tonumber(choice))
     assert(selected >= 0 and selected <= 5 and selected % 1 == 0, "root probe choice")

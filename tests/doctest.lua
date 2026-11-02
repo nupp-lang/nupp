@@ -140,7 +140,7 @@ function suite.work(name: string, count: integer): nil end
 function suite.fixture(key: string, produce: function(string): any): (string, any, boolean) end
 
 function private.hidden(): nil end
-local callable = {equal = equal, notEqual = notEqual, deepEqual = deepEqual, matches = matches, raises = raises}
+local callable = {eq = equal, ne = notEqual, deepeq = deepEqual, matches = matches, raises = raises}
 callable.suite = suite
 export = setmetatable(callable, {__call = original})
 ]]
@@ -148,9 +148,9 @@ export = setmetatable(callable, {__call = original})
     assert(module, errors and errors[1] and errors[1].msg)
     assert(#module.items == 17, "a callable module lost helpers or exposed private declarations")
     local expected = {
-        equal = "local function equal(actual: any, expected: any, message: string?): any",
-        notEqual = "local function notEqual(actual: any, unwanted: any, message: string?): any",
-        deepEqual = "local function deepEqual(actual: any, expected: any, message: string?): any",
+        eq = "local function eq(actual: any, expected: any, message: string?): any",
+        ne = "local function ne(actual: any, unwanted: any, message: string?): any",
+        deepeq = "local function deepeq(actual: any, expected: any, message: string?): any",
         matches = "local function matches(value: any, pattern: string, message: string?): string",
         raises = "local function raises(fn: function(...: any): any, pattern: string?): any",
         ["suite.skip"] = "function suite.skip(reason: string): never",
@@ -177,7 +177,7 @@ export = setmetatable(callable, {__call = original})
         assert(item.doc.text ~= "", item.name .. " lost its documentation")
         assert(#item.params > 0, item.name .. " lost its parameter details")
         assert(#item.returns > 0, item.name .. " lost its result details")
-        if item.name == "equal" then
+        if item.name == "eq" then
             assert(item.params[1].text == "the value to compare")
             assert(item.returns[1].text == "the actual value")
             assert(#item.raises == 1 and item.raises[1].type == "string")
@@ -185,6 +185,37 @@ export = setmetatable(callable, {__call = original})
         expected[item.name] = nil
     end
     assert(next(expected) == nil, "a callable helper or nested suite member is missing")
+end
+
+function M.callableTableAliasesUsePublicKeysWithoutChangingTheirContracts()
+    local source = [[
+module operations
+local type Callable = {map: function(any): any}
+--- Returns the input value.
+--- @param value the original value
+--- @return the same value
+--- @raises string when a value is refused
+local function _translate<T>(borrows value: T, label: "_translate"): T
+    return value
+end
+local callable = {map = _translate, again = _translate, ["bracket"] = _translate} as Callable
+export = setmetatable(callable, {__call = original})
+]]
+    local module = assert(doc.extract(source, "src/operations.nupp", "operations"))
+    assert(#module.items == 3, "public aliases replace the private implementation name")
+    local names = {}
+    for _, item in ipairs(module.items) do
+        names[item.name] = true
+        assert(item.path == "operations." .. item.name, item.path)
+        assert(
+            item.signature == 'local function ' .. item.name .. '<T>(borrows value: T, label: "_translate"): T',
+            item.signature
+        )
+        assert(item.typeargs[1].name == "T" and item.params[1].mode == "borrows")
+        assert(item.params[1].text == "the original value" and item.returns[1].text == "the same value")
+        assert(item.raises[1].type == "string" and item.doc.text == "Returns the input value.")
+    end
+    assert(names.map and names.again and names.bracket and not names._translate)
 end
 
 function M.functionDocumentationKeepsCoroutineProtocolsBeforeResults()
@@ -213,7 +244,7 @@ function M.aFencedExampleKeepsAnAnnotationRatherThanReadingItAsATag()
             "--- Renders a value.",
             "---",
             "--- ```nupp",
-            "--- @derive(types.Debug)",
+            "--- @derive(types.debug)",
             "--- local record Point",
             "---     x: integer",
             "--- end",
@@ -230,7 +261,7 @@ function M.aFencedExampleKeepsAnAnnotationRatherThanReadingItAsATag()
     local render = module.items[1]
     assert(render and render.name == "render", "declaration missing")
     assert(
-        render.doc.text:find("@derive(types.Debug)", 1, true),
+        render.doc.text:find("@derive(types.debug)", 1, true),
         "the annotation stays in the example: " .. render.doc.text
     )
     assert(render.doc.tags.derive == nil, "and never became a tag")
@@ -303,6 +334,54 @@ function M.documentsTypedBindingsAsTheFunctionsTheyDeclare()
     assert(max.params[1].name == "..." and max.params[1].type == "V", max.params[1].type)
     assert(max.params[1].text == "The numbers to compare.", max.params[1].text)
     assert(max.returns[1].type == "V" and max.returns[1].text == "The largest of them.")
+end
+
+function M.parenthesizedCallablesKeepOverloadsMembersAndPhases()
+    local module = assert(
+        doc.extract(
+            [[
+--- Returns a value.
+--- @typearg V the element type
+local invoke: ((@nosuspend function<V>(value: V): V))
+--- Selects a result.
+--- @param value the input
+--- @param label the optional label
+--- @return the selected value
+local choose: ((@nosuspend function(value: number): number)
+    & ((@nosuspend function(value: number, label: string): string)))
+local build: ((@comptime function(T: type): type)
+    & ((@comptime function(T: type, flag: boolean): type)))
+local mixed: ((@comptime function(T: type): type) & (function(value: number): number))
+local value: (number & integer)
+record Handlers
+    apply: ((@nosuspend function(self: Handlers, value: number): number))
+    build: ((@comptime function(T: type): type))
+end
+]],
+            "src/overloads.d.nupp",
+            "overloads"
+        )
+    )
+    local items = {}
+    for _, item in ipairs(module.items) do
+        items[item.name] = item
+    end
+    assert(items.invoke.kind == "function" and items.invoke.typeargs[1].name == "V")
+    assert(items.choose.kind == "function" and #items.choose.params == 2)
+    assert(items.choose.params[2].name == "label" and items.choose.params[2].text == "the optional label")
+    assert(items.choose.returns[1].type == "string" and items.choose.returns[1].text == "the selected value")
+    assert(items.choose.signature:find("&", 1, true), "overload signature was flattened")
+    assert(items.build.comptimeKind == "function" and #items.build.params == 2)
+    assert(items.mixed.kind == "function" and items.mixed.comptimeKind == nil)
+    assert(items.value.kind == "variable", "a non-callable intersection became a function")
+    local members = {}
+    for _, member in ipairs(items.Handlers.members) do
+        members[member.name] = member
+    end
+    assert(members.apply.isFunction and #members.apply.params == 2)
+    assert(members.build.isFunction and members.build.comptimeKind == "function")
+    local model = require("testjson").decode(doc.json({module}))
+    assert(model.modules[1].items[1].kind == "function")
 end
 
 function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
@@ -1049,6 +1128,51 @@ function M.standardTypesApiMarksItsCompilerOnlyValues()
     assert(foundFunction, "types.optional lost its @comptime function kind")
 end
 
+function M.constModuleMembersProjectTheirOriginalAliasContracts()
+    local dir = tempProject({
+        [
+            "src/facade.nupp"
+        ] = [[
+module facade
+local implementation = require("private.implementation")
+local api = {}
+const api.make = implementation.make
+const api._secret = implementation.make
+local hidden = {}
+const hidden.leak = implementation.make
+api.mutable = implementation.make
+export = api
+]],
+        [
+            "src/private/implementation.nupp"
+        ] = [[
+@!internal
+module private.implementation
+--- Keeps its generic value and returns a count.
+export function make<T>(value: T): (T, integer)
+    return value, 7
+end
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "json", output = "api.json"}) == 0)
+    local model = require("testjson").decode(readFile(dir .. "/api.json"))
+    local items = {}
+    for _, module in ipairs(model.modules) do
+        assert(module.name == "facade", "the private implementation became public")
+        for _, item in ipairs(module.items) do
+            items[item.path] = item
+        end
+    end
+    local maker = assert(items["facade.make"], "the const member is absent")
+    assert(maker.kind == "function", maker.kind)
+    assert(maker.signature:find("make<T>", 1, true), maker.signature)
+    assert(maker.params[1].name == "value" and #maker.returns == 2, "generic input and result pack were lost")
+    assert(maker.doc.text:find("Keeps its generic value", 1, true), "the original declaration prose was lost")
+    assert(not items["facade.api.make"] and not items["facade._secret"], "private or local table names leaked")
+    assert(not items["facade.hidden.leak"] and not items["facade.mutable"], "an unrelated assignment was projected")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.standardTypesPageCombinesBuildersAndRuntimeExports()
     local dir = tempProject({
         ["src/prelude.d.nupp"] = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp"),
@@ -1061,7 +1185,7 @@ function M.standardTypesPageCombinesBuildersAndRuntimeExports()
     for _, name in ipairs({
         "types.string",
         "types.optional",
-        "types.newStore",
+        "types.newstore",
         "types.derive.implement",
         "types.reflect.runtime"
     }) do
@@ -1125,37 +1249,37 @@ function M.standardJsonApiHasCompleteDocumentation()
         EncodedString = true,
         JSONEncodable = true,
         Writer = true,
-        decodeValue = true,
+        decodevalue = true,
         pull = true,
-        arrayOf = true,
-        asArray = true,
-        asObject = true,
-        isArray = true,
-        encodeValue = true,
+        arrayof = true,
+        asarray = true,
+        asobject = true,
+        isarray = true,
+        encodevalue = true,
         encoded = true,
-        encodedString = true,
-        numberToken = true,
+        encodedstring = true,
+        numbertoken = true,
         verified = true,
-        verifiedString = true,
-        newWriter = true,
+        verifiedstring = true,
+        newwriter = true,
         NULL = true,
         EMPTY_ARRAY = true,
         EMPTY_OBJECT = true,
     }
     local callable = {
-        decodeValue = true,
+        decodevalue = true,
         pull = true,
-        arrayOf = true,
-        asArray = true,
-        asObject = true,
-        isArray = true,
-        encodeValue = true,
+        arrayof = true,
+        asarray = true,
+        asobject = true,
+        isarray = true,
+        encodevalue = true,
         encoded = true,
-        encodedString = true,
-        numberToken = true,
+        encodedstring = true,
+        numbertoken = true,
         verified = true,
-        verifiedString = true,
-        newWriter = true,
+        verifiedstring = true,
+        newwriter = true,
     }
     local writer
     for _, item in ipairs(module.items) do
@@ -1232,7 +1356,7 @@ end
 function M.standardIOApiHasCompleteDocumentation()
     local modules = {
         [
-            "src/nupp/io/init.nupp"
+            "src/nupp/io.nupp"
         ] = {
             types = {
                 Buffer = true,
@@ -1246,10 +1370,10 @@ function M.standardIOApiHasCompleteDocumentation()
         },
         [
             "src/io/path/init.nupp"
-        ] = {types = {Path = true,}, functions = {newPath = true, currentDirectory = true, separator = true,},},
+        ] = {types = {Path = true,}, functions = {newpath = true, currentdirectory = true, sep = true,},},
         [
             "src/io/uri/init.nupp"
-        ] = {types = {URI = true, Components = true,}, functions = {newURI = true, validate = true, isURI = true,},},
+        ] = {types = {URI = true, Components = true,}, functions = {newuri = true, validate = true, isuri = true,},},
         [
             "src/nupp/io/files/init.nupp"
         ] = {
@@ -1288,38 +1412,38 @@ function M.standardIOApiHasCompleteDocumentation()
         end
     end
 
-    -- Paths are interned by `newPath`; direct construction is intentionally
+    -- Paths are interned by `newpath`; direct construction is intentionally
     -- unavailable.
     local path = assert(readFile(HERE .. "/../src/io/path/init.nupp"))
     local module = assert(doc.extract(path, "src/io/path/init.nupp", "io.path"))
     local factory
     for _, item in ipairs(module.items) do
-        if item.name == "newPath" then
+        if item.name == "newpath" then
             factory = item
         end
     end
-    assert(factory, "io.path did not document newPath")
-    assert(factory.doc.text:find("#### Examples", 1, true), "path.newPath has no examples")
+    assert(factory, "io.path did not document newpath")
+    assert(factory.doc.text:find("#### Examples", 1, true), "path.newpath has no examples")
     assert(
-        factory.doc.text:find('path.newPath("src", "main.nupp")', 1, true),
-        "path.newPath has no component-joining example"
+        factory.doc.text:find('path.newpath("src", "main.nupp")', 1, true),
+        "path.newpath has no component-joining example"
     )
 
-    -- URIs are likewise interned by `newURI`; their exported record is a value type,
+    -- URIs are likewise interned by `newuri`; their exported record is a value type,
     -- not a public construction surface.
     local uri = assert(readFile(HERE .. "/../src/io/uri/init.nupp"))
     local uriModule = assert(doc.extract(uri, "src/io/uri/init.nupp", "io.uri"))
     local uriFactory
     for _, item in ipairs(uriModule.items) do
-        if item.name == "newURI" then
+        if item.name == "newuri" then
             uriFactory = item
         end
     end
-    assert(uriFactory, "io.uri did not document newURI")
-    assert(uriFactory.doc.text:find("#### Examples", 1, true), "uri.newURI has no examples")
+    assert(uriFactory, "io.uri did not document newuri")
+    assert(uriFactory.doc.text:find("#### Examples", 1, true), "uri.newuri has no examples")
     assert(
-        uriFactory.doc.text:find('uri.newURI("https://example.com/a?b=1")', 1, true),
-        "uri.newURI has no parsing example"
+        uriFactory.doc.text:find('uri.newuri("https://example.com/a?b=1")', 1, true),
+        "uri.newuri has no parsing example"
     )
 end
 
@@ -1347,7 +1471,7 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
         Info = true,
         FieldCodecBlueprint = true,
         FieldCodec = true,
-        fieldCodec = true,
+        fieldcodec = true,
     }
     local examples = {
         AnnotationArgument = true,
@@ -1356,7 +1480,7 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
         SoAInfo = true,
         Info = true,
         FieldCodec = true,
-        fieldCodec = true,
+        fieldcodec = true,
     }
     local _, moduleExamples = reflect.doc.text:gsub("```nupp", "")
     assert(moduleExamples >= 2, "types.reflect needs root and graph examples")
@@ -1369,8 +1493,8 @@ function M.standardReflectApiKeepsItsGraphAndMaterializerTogether()
             assert(member.text:find("```nupp", 1, true), "types.reflect." .. member.name .. " has no source example")
             examples[member.name] = nil
         end
-        if member.name == "fieldCodec" then
-            assert(member.comptimeKind == "function", "types.reflect.fieldCodec must document its comptime-only phase")
+        if member.name == "fieldcodec" then
+            assert(member.comptimeKind == "function", "types.reflect.fieldcodec must document its comptime-only phase")
         end
     end
     for name in pairs(expected) do
@@ -1406,7 +1530,7 @@ function M.standardLibraryBackingRecordsStayInternal()
     )
     assert(module, errors and errors[1] and errors[1].msg)
 
-    local expected = {["math.vec2"] = "add", ["math.quat"] = "multiply",}
+    local expected = {["math.vec2"] = "add", ["math.quat"] = "mul",}
     for _, child in ipairs(extra or {}) do
         local member = expected[child.name]
         if member then
@@ -1535,6 +1659,7 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
     for _, name in ipairs({
         "nupp/runtime/standardio.nupp",
         "nupp/runtime/standardos.nupp",
+        "io/terminal.nupp",
         "nupp/cli/internal/terminal.nupp",
         "nupp/cli/internal/table.nupp",
     }) do
@@ -1551,35 +1676,43 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
         modules[module.name] = module
     end
     local publicIO, publicOS = assert(modules.io, "io has no public page"), assert(modules.os, "os has no public page")
-    local ioItems, osItems = {}, {}
+    local ioItems, osItems, terminalItems = {}, {}, {}
     for _, item in ipairs(publicIO.items) do
         ioItems[item.name] = item
     end
     for _, item in ipairs(publicOS.items) do
         osItems[item.name] = item
     end
+    for _, item in ipairs(assert(modules["io.terminal"], "terminal has no public page").items) do
+        terminalItems[item.name] = item
+    end
     for _, name in ipairs({"ColorMode", "Style", "Cell", "TableOptions", "Alignment", "Column"}) do
-        assert(ioItems[name], "the terminal type is missing: " .. name)
+        assert(terminalItems[name], "the terminal type is missing: " .. name)
     end
     for _, name in ipairs({
         "style",
         "table",
-        "writeTable",
+        "writetable",
         "cell",
-        "paintedCell",
-        "annotatedCell",
+        "paintedcell",
+        "annotatedcell",
         "severity",
-        "setColorMode",
-        "withColorMode",
-        "colorEnabled",
-        "isTerminal",
+        "setcolormode",
+        "withcolormode",
+        "colorenabled",
+        "isterminal",
         "columns"
     }) do
-        assert(ioItems[name], "the terminal member is missing: " .. name)
-        assert(not ioItems[name].signature:find("terminal.", 1, true), ioItems[name].signature)
+        assert(terminalItems[name], "the terminal member is missing: " .. name)
+        assert(
+            terminalItems[name].signature:find("function io.terminal.", 1, true)
+            and not terminalItems[name].signature:find("terminalTypes.", 1, true)
+            and not terminalItems[name].signature:find("tables.", 1, true),
+            terminalItems[name].signature
+        )
     end
     assert(
-        #ioItems.Style.members > 0 and #ioItems.TableOptions.members > 0,
+        #terminalItems.Style.members > 0 and #terminalItems.TableOptions.members > 0,
         "public type aliases retain their source contract members"
     )
     assert(not ioItems.value and not osItems.value, "private host-table values do not become public API")
@@ -1702,7 +1835,7 @@ end
 function M.standardManagedGroupApiHasCompleteDocumentation()
     local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
     assert(source:find("interface own.ManagedGroup", 1, true), "the root ownership surface lost ManagedGroup")
-    assert(source:find("managedGroup: function", 1, true), "the root ownership surface lost its ManagedGroup factory")
+    assert(source:find("managedgroup: function", 1, true), "the root ownership surface lost its ManagedGroup factory")
 end
 
 function M.documentsACdefOnlyWhereItReachesAReader()
@@ -1731,7 +1864,7 @@ function M.documentsACdefOnlyWhereItReachesAReader()
     for _, item in ipairs(module.items) do
         listed[item.name] = item
     end
-    assert(listed["m.reserve"], "the module's own function must stay listed")
+    assert(listed.reserve and listed.reserve.path == "m.reserve", "the module's own function must stay listed")
     assert(
         not listed["malloc"] and not listed["Header"],
         "a cdef this module only calls is not part of what it publishes"
@@ -2056,11 +2189,21 @@ end
 function M.routedLinksLeaveCodeExamplesUntouched()
     local page = {source = "docs/start.md", path = "start", title = "Start"}
     local pages = {page, {source = "docs/guide.md", path = "guide", title = "Guide"},}
-    local markdown = "[Guide](guide.md)\n`[Guide](guide.md)`\n```md\n[Guide](guide.md)\n```\n"
+    local markdown = "[Guide](guide.md)\n[`Guide`](guide.md)\n`[Guide](guide.md)`\n```md\n[Guide](guide.md)\n```\n"
     local rewritten = urls.rewriteConfiguredPageLinks(markdown, page, pages, "start/index.html")
     assert(rewritten:find("[Guide](../guide/index.html)", 1, true), rewritten)
+    assert(rewritten:find("[`Guide`](../guide/index.html)", 1, true), rewritten)
     assert(rewritten:find("`[Guide](guide.md)`", 1, true), rewritten)
     assert(rewritten:find("```md\n[Guide](guide.md)\n```", 1, true), rewritten)
+end
+
+function M.generatedApiPointersResolveWithoutInventingASourceFile()
+    local page = {source = "docs/learn/language/annotations.md", path = "learn/language/annotations"}
+    local pages = {page, {path = "api", title = "API reference", api = true}}
+    local markdown = "[`@aot`](../../api.md#annotation-aot)"
+    local rewritten = urls.rewriteConfiguredPageLinks(markdown, page, pages, "learn/language/annotations/index.html")
+    assert(rewritten == "[`@aot`](../../../api/index.html#annotation-aot)", rewritten)
+    assert(not pages[2].source, "a generated API pointer pretended to be a handwritten file")
 end
 
 function M.highlightsAssociatedTypeAndDirectiveKeywordsWithTheParser()
@@ -2197,6 +2340,125 @@ end
 
 -- `scope:spawn(arguments..., f)` is what a caller writes, and the compiler rotates it
 -- into the declaration's callable-first order. The reference prints the call.
+function M.literalComptimeShapesDocumentTheirActualMemberTypes()
+    local source = [[
+module contract
+const types = require("types")
+@comptime
+local function Handle(F: type): type
+    if types.kind(F) ~= "function" then
+        return types.error("a handle needs a function")
+    end
+    return types.shape({
+        --- Returns the complete body result pack.
+        {name = "await", read = types.function_(types.pack({types.any}), types.results(F))},
+        {name = "done", read = types.function_(types.pack({types.any}), types.pack({types.boolean}))},
+        {name = "label", read = types.literal("types.Reader")},
+    })
+end
+export type Task<G> = Handle(G)
+]]
+    local module = assert(doc.extract(source, "src/contract.nupp", "contract"))
+    local task = assert(module.items[1])
+    local members = {}
+    for _, member in ipairs(task.members) do
+        members[member.name] = member
+    end
+    assert(members.await and members.await.isFunction, "the actual shape declares await")
+    assert(members.await.type == "function(any): unpackof types.results(G)", members.await.type)
+    assert(members.await.returns[1].type == "unpackof types.results(G)")
+    assert(members.await.text == "Returns the complete body result pack.")
+    assert(members.done.returns[1].type == "boolean", members.done.type)
+    assert(members.label.type == '"types.Reader"', members.label.type)
+
+    for _, unknown in ipairs({
+        source:gsub("types.shape%({", "types.shape(descriptors or {", 1),
+        source:gsub('require%("types"%)', 'require("other")', 1),
+        source:gsub("local function Handle%(F: type%)", "local function Handle(F: type, types: table)", 1),
+        source:gsub("return types.shape", "F = types.integer\n    return types.shape", 1),
+        source:gsub("return types.shape", "local F = types.integer\n    return types.shape", 1),
+        source:gsub("return types.shape", "types.shape = other\n    return types.shape", 1),
+        source:gsub("return types.shape", 'types["function_"] = other\n    return types.shape', 1),
+        source:gsub("@comptime\n", "types.shape = other\n@comptime\n", 1),
+        (source:gsub("@comptime\n", "", 1)),
+    }) do
+        local opaque = assert(doc.extract(unknown, "src/contract.nupp", "contract"))
+        assert(#opaque.items[1].members == 0, "unknown or shadowed builders stay opaque")
+    end
+end
+
+function M.coroutineWorkerDocsRetainScopesAndTaskResultPacks()
+    local dir = tempProject({["nupp.lua"] = "return {}\n"})
+    local root = HERE .. "/.."
+    local ok, problem = doc.build(
+        root,
+        {include = {"src"}},
+        {
+            sources = {
+                "src/nupp/tasks.nupp",
+                "src/nupp/workers/spi.nupp",
+                "src/nupp/runtime/standardcoroutine.nupp",
+                "src/coroutine/workers/init.nupp",
+            },
+        },
+        {format = "json", output = dir .. "/api.json"}
+    )
+    assert(ok == 0, tostring(problem))
+    local json = require("serde.json")
+    local model = assert(json.decodevalue(readFile(dir .. "/api.json")))
+    local modules = {}
+    for _, module in ipairs(model.modules) do
+        modules[module.name] = module
+    end
+    local items = {}
+    for _, item in ipairs(assert(modules.coroutine).items) do
+        items[item.name] = item
+    end
+    local scope = {}
+    for _, member in ipairs(assert(items.Scope).members) do
+        scope[member.name] = member
+    end
+    assert(scope.fork and scope.spawn and scope.cancel and scope.close, "scope owns worker creation and settlement")
+    local task = {}
+    for _, member in ipairs(assert(items.Task).members) do
+        task[member.name] = member
+    end
+    assert(task.await and task.isDone and task.status and task.cancel, "task methods come from the actual type builder")
+    assert(task.await.type:find("unpackof types.results(F)", 1, true), task.await.type)
+    assert(task.status.type:find('"cancelled"', 1, true), task.status.type)
+    assert(modules["coroutine.workers"].text:find("coroutine.Scope.fork", 1, true))
+    assert(modules["coroutine.workers"].text:find("coroutine.Task", 1, true))
+    assert(not modules["nupp.tasks"] and not modules["nupp.workers.spi"], "implementation modules stay private")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.reloadDocsDescribeThePublicWatchBoundary()
+    local page = assert(require("nupp.tools.doc.stdlib").page({path = "api"}))
+    local reload, debugModule
+    for _, module in ipairs(page.modules) do
+        if module.name == "debug" then
+            debugModule = module
+        end
+        if module.name == "debug.reload" then
+            reload = module
+        end
+        assert(module.name ~= "nupp.hotreload", "the retired public route is absent")
+    end
+    assert(reload and #reload.items == 2, "reload publishes generation and poll")
+    local names = {}
+    for _, item in ipairs(reload.items) do
+        names[item.name] = item.kind
+    end
+    assert(names.generation == "function" and names.poll == "function")
+    local pollType
+    for _, item in ipairs(assert(debugModule).items) do
+        if item.path == "debug.ReloadPoll" then
+            pollType = item
+        end
+    end
+    assert(pollType and #pollType.members == 6, "the poll result has one documented public contract")
+end
+
 function M.aRotatedCallSurfaceIsPrintedInCallOrder()
     local path = HERE .. "/../src/nupp/tasks.nupp"
     local module = assert(doc.extract(readFile(path), path, "nupp.tasks"))
@@ -2208,11 +2470,11 @@ function M.aRotatedCallSurfaceIsPrintedInCallOrder()
     end
     local spawn = assert(members["nupp.tasks.Scope.spawn"], "Scope:spawn is documented")
     assert(
-        spawn.type:find("(borrows self: tasks.Scope, ...: unpackof Parameters(F), takes body: F)", 1, true),
+        spawn.type:find("(borrows self: nupp.tasks.Scope, ...: unpackof Parameters(F), takes body: F)", 1, true),
         "the body comes after its arguments: " .. spawn.type
     )
     assert(
-        spawn.type:find("(borrows self: tasks.Scope, name: string, takes body: F)", 1, true),
+        spawn.type:find("(borrows self: nupp.tasks.Scope, name: string, takes body: F)", 1, true),
         "and after the name in the named overload: " .. spawn.type
     )
     assert(spawn.params[#spawn.params].name == "body", "the parameter table follows the same order")
@@ -2220,7 +2482,7 @@ function M.aRotatedCallSurfaceIsPrintedInCallOrder()
     assert(fork.type:find("Submitted(F), F)", 1, true), "fork takes its callable last: " .. fork.type)
     local cancel = assert(members["nupp.tasks.Scope.cancel"], "Scope:cancel is documented")
     assert(
-        cancel.type:find("(borrows self: tasks.Scope, reason: string?)", 1, true),
+        cancel.type:find("(borrows self: nupp.tasks.Scope, reason: string?)", 1, true),
         "an ordinary member keeps its order: " .. cancel.type
     )
 end
@@ -3269,7 +3531,7 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(home:find('href="llms.txt"', 1, true), home)
     assert(home:find('class="nuppdoc-search-button"', 1, true), home)
     assert(home:find('data-nuppdoc-search-index="assets/search-index.js"', 1, true), home)
-    assert(home:find('<a href="https://nupp.org/modules/nupp/index.html">API</a>', 1, true), home)
+    assert(home:find('<a href="modules/engine/index.html">API</a>', 1, true), home)
     assert(not home:find('<h2 id="modules">Modules</h2>', 1, true), home)
     assert(not home:find('class="nuppdoc-module-grid"', 1, true), home)
 
@@ -3293,13 +3555,12 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(guide:find('<li><a aria-current="page" href="../guide/index.html">Guide</a>', 1, true), guide)
     assert(guide:find('<details><summary>Reference</summary>', 1, true), guide)
     assert(guide:find('<details><summary>API reference</summary>', 1, true), guide)
-    -- inside it, a top-level branch is a library and stands open on every page,
-    -- while the nesting below one stays shut until the reader is in it
+    -- API library branches start collapsed, including the current branch.
     assert(
         guide:match(
-            '<details open><summary class="nuppdoc%-module%-branch%-link">' .. '<a href="[^"]*" aria%-label="engine">'
+            '<details><summary class="nuppdoc%-module%-branch%-link">' .. '<a href="[^"]*" aria%-label="engine">'
         ),
-        "a top-level module branch must stand open"
+        "a top-level module branch must start collapsed"
     )
     assert(
         guide:match(
@@ -3357,16 +3618,15 @@ function M.siteMatchesTheNuppdocPageModel()
 
     local module = readFile(dir .. "/site/modules/math/index.html")
     assert(module:find("Module contents", 1, true), module)
-    -- a module page opens the API reference instead, with its top-level branches
-    -- open as everywhere else and the nesting open only along the branch
-    -- reaching the module itself
+    -- A module page opens the API reference, while its library branches stay
+    -- collapsed even along the path to the current module.
     assert(module:find('<details open><summary>API reference</summary>', 1, true), module)
     assert(module:find('<li><a href="../../guide/index.html">Guide</a></li>', 1, true), module)
     assert(
         module:match(
-            '<details open><summary class="nuppdoc%-module%-branch%-link">' .. '<a href="[^"]*" aria%-label="engine">'
+            '<details><summary class="nuppdoc%-module%-branch%-link">' .. '<a href="[^"]*" aria%-label="engine">'
         ),
-        "a top-level module branch must stand open"
+        "a top-level module branch must start collapsed"
     )
     assert(
         module:match(
@@ -3456,7 +3716,7 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(nestedModule:find('<code>render</code>', 1, true), nestedModule)
     assert(
         nestedModule:find(
-            '<details open><summary class="nuppdoc-module-branch-link">'
+            '<details><summary class="nuppdoc-module-branch-link">'
             .. '<a href="../../../modules/engine/index.html" aria-label="engine">'
             .. "<code>engine</code></a></summary>",
             1,
@@ -3966,6 +4226,168 @@ end
 -- The standard library page is generated from the declarations the checker itself
 -- loads, so it holds a section for every library the compiler carries without a
 -- manifest naming one of them.
+function M.annotationsUseTheRegistryAndTheCommonDeclarationModel()
+    local annotationapi = require("nupp.tools.doc.annotationapi")
+    local registry = require("nupp.compiler.annotations").new()
+    local stdlib = require("nupp.tools.doc.stdlib")
+    local json = require("testjson")
+    local items, count = {}, 0
+    local declarations = annotationapi.items()
+    for _, item in ipairs(declarations) do
+        items[item.name] = item
+        assert(item.kind == "annotation", item.name)
+    end
+    for name, definition in pairs(registry.byname) do
+        local item = assert(items["@" .. name], name)
+        assert(item.annotation.arguments == definition.arguments, name)
+        assert(table.concat(item.annotation.targets, ",") == table.concat(definition.targets, ","), name)
+        assert(definition.docsPath == "docs/api.md#" .. item.path, name)
+        count = count + 1
+    end
+    assert(#declarations == count + 2, "only the real registry and two file directives are published")
+    assert(items["@!internal"].annotation.fileDirective and items["@!nofmt"].annotation.fileDirective)
+    assert(not registry:get("internal") and not registry:get("nofmt"), "file directives reserved user annotation names")
+    assert(items["@cli"].annotation.singleValue == "name")
+    local members = {}
+    for _, member in ipairs(items["@cli"].members) do
+        members[member.name] = member
+    end
+    assert(members.complete.type == "type?" and members.complete.annotationMember.reference)
+    assert(members.name.type == "string | nil" and members.name.annotationMember.optional)
+    assert(items["@syntax"].members[1].name == "value" and items["@syntax"].members[1].type == "string")
+    assert(require("nupp.tools.doc.api").displaySignature(items["@aot"]) == "@aot(...)")
+    assert(not items["@syntax"].members[1].annotationMember.optional)
+    local page = assert(stdlib.page({}))
+    assert(#page.navigation.annotations == #declarations)
+    assert(page.markdown:find('<a id="annotation-aot"></a>', 1, true))
+    assert(page.markdown:find("## Annotations", 1, true))
+    assert(page.markdown:find("### `@aot` _annotation_", 1, true))
+    assert(page.markdown:find("#### Values", 1, true))
+    assert(not page.markdown:find("@aot ...", 1, true), "annotation schemas were printed as record members")
+    assert(
+        page.markdown:find("required whole-function ahead-of-time compilation contract", 1, true),
+        "the AOT contract prose was lost"
+    )
+    local model = json.decode(doc.json({}, declarations))
+    assert(#model.annotations == #declarations)
+    assert(model.annotations[1].annotation.fileDirective)
+    assert(doc.markdown({}, nil, nil, nil, declarations):find("## `@aot` _annotation_", 1, true))
+    local rendered = require("nupp.tools.doc.html").markdownHtml(page.markdown, {})
+    assert(rendered:find('nuppdoc-kind-annotation">Annotation</span>', 1, true), rendered)
+    local _, matchingIds = rendered:gsub('id="annotation%-annotation"', "")
+    assert(matchingIds == 1, "the canonical annotation anchor collides with its heading")
+    assert(rendered:find('id="annotation-aot"', 1, true), "a distinct explicit declaration anchor was removed")
+end
+
+function M.userAnnotationDefinitionsHaveTheSameDeclarationKind()
+    local module, errors = doc.extract(
+        table.concat(
+            {
+                "module metadata",
+                "--- Retries a request.",
+                '@annotation(targets = {"function"})',
+                "record retry",
+                "    @annotationValue",
+                "    attempts: integer",
+                "end",
+                "@nosuspend",
+                "function metadata.run(): nil end",
+                "export = metadata",
+            },
+            "\n"
+        ),
+        "metadata.nupp",
+        "metadata"
+    )
+    assert(module and #errors == 0, errors and errors[1] and errors[1].msg)
+    local definition, run
+    for _, item in ipairs(module.items) do
+        if item.name == "retry" then
+            definition = item
+        end
+        if item.name == "run" then
+            run = item
+        end
+    end
+    assert(definition and definition.kind == "annotation")
+    assert(definition.annotation.targets[1] == "function")
+    assert(definition.annotation.singleValue == "attempts")
+    assert(run and run.kind == "function", "an application became a definition")
+    assert(doc.markdown({module}):find("`retry` _annotation_", 1, true))
+end
+
+function M.exportedTablesUseCanonicalPublicNamesInEveryOutput()
+    local examples = {
+        {path = "src/arg/init.nupp", name = "arg", member = "application", hidden = "cliModule."},
+        {
+            path = "src/debug/bench.nupp",
+            name = "debug.bench",
+            member = "decodebaseline",
+            hidden = "bench.decodeBaseline"
+        },
+    }
+    for _, example in ipairs(examples) do
+        local source = readFile(HERE .. "/../" .. example.path)
+        local module, errors = doc.extract(source, example.path, example.name)
+        assert(module and #errors == 0, errors and errors[1] and errors[1].msg)
+        local found
+        for _, item in ipairs(module.items) do
+            if item.name == example.member then
+                found = item
+            end
+            assert(not item.name:find(example.hidden, 1, true), item.name)
+        end
+        assert(found, example.name .. "." .. example.member)
+        assert(found.path == example.name .. "." .. example.member, found.path)
+        local markdown = doc.markdown({module})
+        assert(markdown:find('<a id="' .. found.path .. '"></a>', 1, true))
+        assert(found.signature:find("function " .. found.path, 1, true), found.signature)
+        assert(not markdown:find("cliModule.", 1, true), "a private export alias leaked")
+    end
+end
+
+function M.annotationReferencePointersUseGeneratedItemsAndProse()
+    local reference = require("nupp.tools.reference")
+    local annotationapi = require("nupp.tools.doc.annotationapi")
+    for _, item in ipairs(annotationapi.items()) do
+        local pointer = "docs/api.md#" .. item.path
+        local sections = reference.pointerSections(pointer)
+        assert(#sections == 1 and sections[1].section.title == item.name, pointer)
+        assert(sections[1].section.body:find(item.doc.text, 1, true), pointer)
+    end
+    assert(
+        #reference.pointerSections("docs/reference/annotations.md#aot", HERE .. "/..") == 0,
+        "the removed reference route remains an alias"
+    )
+end
+
+function M.generatedDeriveExampleUsesThePublicProvider()
+    local annotationapi = require("nupp.tools.doc.annotationapi")
+    local parser = require("nupp.compiler.syntax.parser")
+    local check = require("fragment")
+    local env = require("nupp.compiler.project.env").new(HERE .. "/..")
+    local example
+    for _, item in ipairs(annotationapi.items()) do
+        if item.name == "@derive" then
+            example = item.doc.text:match("```nupp\n(.-)\n```")
+        end
+    end
+    assert(example, "the generated derive reference has no runnable example")
+    local filename = "derive_documentation.nupp"
+    local parsed = parser.parse(
+        example .. "\nlocal point: types.Debug = new Point(x = 1, y = 2)\nreturn point:debug()\n",
+        filename
+    )
+    assert(#parsed.errors == 0, parsed.errors[1] and parsed.errors[1].msg)
+    local diagnostics = check.check(parsed, filename, env)
+    for _, diagnostic in ipairs(diagnostics) do
+        assert(
+            diagnostic.severity == "warning" or diagnostic.severity == "note",
+            diagnostic.code .. ": " .. diagnostic.msg
+        )
+    end
+end
+
 function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
     local stdlib = require("nupp.tools.doc.stdlib")
 
@@ -3973,36 +4395,81 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
 
     local page = assert(stdlib.page({path = "luajit"}))
     assert(page.path == "luajit")
-    assert(page.title == "LuaJIT standard library")
-    local sections = {
-        "Globals",
-        "`string`",
-        "`table`",
-        "`math`",
-        "`os`",
-        "`package`",
-        "`io`",
-        "`coroutine`",
-        "`bit`",
-        "`jit`",
-        "`debug`",
-        "`ffi`",
-        "`string.buffer`",
-        "`jit.util`",
-        "`jit.profile`",
-        "`jit.zone`",
-        "Types",
-        "Reflection",
-    }
+    assert(page.title == "API reference")
+    local sections = {"Globals", "Modules", "Types", "Reflection"}
     for _, section in ipairs(sections) do
         assert(page.markdown:find("\n## " .. section .. "\n", 1, true), "no section for " .. section)
     end
-    -- A library's member is headed by the name a program writes, so the heading agrees
-    -- with the anchor beside it and with what a reader searches for.
-    assert(page.markdown:find("### `string.format`", 1, true), "no member of a library table")
+    -- Library declarations live on their module page; this page retains index links.
+    assert(page.markdown:find("[`string`](../modules/string/index.html)", 1, true))
+    assert(not page.markdown:find("### `string.format`", 1, true), "library documentation duplicated in its index")
+    local libraries = {}
+    for _, module in ipairs(page.modules) do
+        libraries[module.name] = module
+    end
+    assert(libraries.string.items[1] and libraries.string.path == nil, "no real virtual library module")
+    local format
+    for _, item in ipairs(libraries.string.items) do
+        if item.name == "format" then
+            format = item
+        end
+    end
+    assert(format and format.kind == "function" and format.params[1].name == "fmt")
+    assert(format.signature:find("@nosuspend function<Format is string>", 1, true))
+    assert(format.doc.text ~= "" and format.returns[1].type == "string")
+    local rendered = doc.markdown({libraries.string})
+    assert(
+        rendered:find(format.signature, 1, true) and rendered:find(format.doc.text, 1, true),
+        "the module page lost the builtin signature or documentation"
+    )
     assert(page.markdown:find("### `print`", 1, true), "no ambient global")
     assert(page.markdown:find("### `LuaFile`", 1, true), "no ambient LuaFile type")
     assert(page.symbols and page.symbols.LuaFile == "LuaFile", "LuaFile has no generated-page symbol")
+end
+
+function M.tableBuiltinsUseFunctionCategoriesAndLuaBadges()
+    local page = assert(require("nupp.tools.doc.stdlib").page({path = "api"}))
+    local library
+    for _, module in ipairs(page.modules) do
+        if module.name == "table" then
+            library = module
+        end
+    end
+    assert(library, "the table module is missing")
+    local items = {}
+    for _, item in ipairs(library.items) do
+        items[item.name] = item
+        assert(item.kind == "function", item.name .. " was grouped as a value")
+    end
+    for _, name in ipairs({"insert", "move"}) do
+        local item = assert(items[name], "missing table." .. name)
+        assert(item.lua and item.kind == "function", "table." .. name .. " lost its Lua function badge")
+        assert(item.signature:find("&", 1, true), "the overloads were lost")
+    end
+    assert(#items.insert.params == 3 and items.insert.params[2].name == "pos")
+    assert(#items.move.params == 5 and items.move.params[5].name == "destination")
+    assert(items.move.returns[1].type == "{V}" and items.move.returns[1].text == "the destination table")
+    local summary = require("nupp.tools.doc.api").moduleSummary(library)
+    assert(summary:find(">Functions</h3>", 1, true), summary)
+    assert(not summary:find(">Values</h3>", 1, true), "table acquired a bogus Values category")
+    local model = require("testjson").decode(doc.json({library}))
+    local found = {}
+    for _, item in ipairs(model.modules[1].items) do
+        found[item.name] = item
+    end
+    assert(found.insert.kind == "function" and found.insert.lua)
+    assert(found.move.kind == "function" and found.move.lua)
+    local dir = tempProject({["src/demo.nupp"] = "module demo\nexport const ready = true\n"})
+    assert(
+        doc.build(dir, {include = {"src"}}, {sources = {"src"}, stdlib = {path = "api"}}, {
+            format = "site",
+            output = "site"
+        }) == 0
+    )
+    local rendered = readFile(dir .. "/site/modules/table/index.html")
+    assert(rendered:find('id="table.insert"', 1, true) and rendered:find('id="table.move"', 1, true))
+    assert(not rendered:find(">Values</h3>", 1, true), "the rendered table page has a bogus Values category")
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 -- Layout is reached by asking about a reified type rather than by calling a library,
@@ -4027,7 +4494,7 @@ function M.stdlibIndexAnchorsEveryNameTheWayItIsWritten()
     local page = assert(stdlib.page({path = "luajit"}))
 
     assert(page.markdown:find('<a id="print"></a>', 1, true), "print anchored as a member")
-    assert(page.markdown:find('<a id="string.format"></a>', 1, true), "string.format lost its anchor")
+    assert(page.markdown:find("[`string`](../modules/string/index.html)", 1, true), "string lost its module link")
     assert(not page.markdown:find('<a id="globals.', 1, true), "anchored a global to its file")
 end
 
@@ -4086,11 +4553,20 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
         }) == 0
     )
     local page = readFile(dir .. "/site/reference/luajit/index.html")
-    assert(page:find("LuaJIT standard library", 1, true), page:sub(1, 400))
-    assert(page:find("string.format", 1, true), "the page rendered without its declarations")
+    assert(page:find("API reference", 1, true), page:sub(1, 400))
+    assert(page:find("modules/string/index.html", 1, true), "the API index lost a builtin module")
+    local stringPage = readFile(dir .. "/site/modules/string/index.html")
+    assert(stringPage:find('id="string.format"', 1, true), "the module page rendered without its declarations")
     local sidebar = assert(page:match('<aside class="nuppdoc%-sidebar".-</aside>'), "the page has a sidebar")
-    assert(sidebar:find('<details open><summary>API reference</summary>', 1, true), sidebar)
-    assert(sidebar:find('aria%-current="page"[^>]*>LuaJIT</a>'), sidebar)
+    assert(
+        sidebar:find(
+            '<details open><summary><a aria-current="page" href="../../reference/luajit/index.html">API reference</a></summary>',
+            1,
+            true
+        ),
+        sidebar
+    )
+    assert(not sidebar:find(">LuaJIT</a>", 1, true), sidebar)
     assert(not sidebar:find(">LuaJIT standard library</a>", 1, true), sidebar)
     local modulePage = readFile(dir .. "/site/modules/math/index.html")
     assert(
@@ -4149,6 +4625,354 @@ function M.shapeTypedGlobalsDocumentAsTheirOwnLibraries()
     local plain, _, namespaces = doc.extract(source, "prelude.d.nupp", "globals")
     assert(plain, "the same file must still document as one module")
     assert(#namespaces == 1 and namespaces[1].name == "demo.data", "@namespace stopped working")
+end
+
+function M.builtinNavigationKeepsEveryDeclaredGlobalAndLibrary()
+    local page = assert(require("nupp.tools.doc.stdlib").page({path = "reference/lua"}))
+    local catalog = assert(page.navigation)
+    local globals, libraries = {}, {}
+    for _, entry in ipairs(catalog.globals) do
+        globals[entry.name] = entry
+    end
+    for _, entry in ipairs(catalog.libraries) do
+        libraries[entry.name] = entry
+    end
+    local source = readFile(HERE .. "/../src/nupp/compiler/decls/lua.d.nupp")
+    local module, errors, shapes = doc.extract(source, "lua.d.nupp", "globals", {shapesAsModules = true})
+    assert(module, errors and errors[1] and errors[1].msg)
+    for _, item in ipairs(module.items) do
+        if not item.module and (item.kind == "function" or item.kind == "variable") then
+            assert(globals[item.name], "missing runtime global " .. item.name)
+        end
+    end
+    for _, library in ipairs(shapes) do
+        assert(libraries[library.name], "missing library " .. library.name)
+    end
+    for _, name in ipairs({"ffi", "string.buffer", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
+        assert(libraries[name], "missing required builtin " .. name)
+    end
+    for _, name in ipairs({
+        "print",
+        "type",
+        "tostring",
+        "tonumber",
+        "pairs",
+        "ipairs",
+        "next",
+        "select",
+        "rawget",
+        "rawset",
+        "rawequal",
+        "rawlen",
+        "setmetatable",
+        "getmetatable",
+        "assert",
+        "error",
+        "pcall",
+        "xpcall",
+        "unpack",
+        "require",
+        "collectgarbage",
+        "load",
+        "loadstring",
+        "loadfile",
+        "setfenv",
+        "getfenv",
+        "dofile",
+        "gcinfo",
+        "newproxy",
+        "_G",
+        "_VERSION",
+        "arg",
+        "warn"
+    }) do
+        assert(globals[name], "lost a callable, array, value or function global: " .. name)
+    end
+    assert(not globals.__nuppCloseFile, "compiler helper became a public global")
+    assert(not libraries.number and not libraries.int32, "primitive types became runtime namespaces")
+    assert(not libraries.lpeg and not libraries.re, "third-party modules became Lua builtins")
+
+    local function anchors(entries)
+        for _, entry in ipairs(entries) do
+            assert(page.markdown:find('<a id="' .. entry.path .. '"></a>', 1, true), "missing anchor " .. entry.path)
+            anchors(entry.items or {})
+        end
+    end
+
+    anchors(catalog.globals)
+    anchors(catalog.types)
+    anchors(catalog.reflection)
+    for _, library in ipairs(catalog.libraries) do
+        assert(page.markdown:find("[`" .. library.name .. "`](", 1, true), "missing module link " .. library.name)
+    end
+end
+
+function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
+    local function library(name, members)
+        local binding = name:match("([^.]+)$")
+        local lines = {"module " .. name, "--[[Public operations.]]", "local " .. binding .. " = {}"}
+        for _, member in ipairs(members) do
+            lines[#lines + 1] = "--- Performs the operation."
+            lines[#lines + 1] = "function " .. binding .. "." .. member .. "(): nil end"
+        end
+        lines[#lines + 1] = "return " .. binding
+
+        return table.concat(lines, "\n")
+    end
+
+    local dir = tempProject({
+        ["src/io/init.nupp"] = library("io", {
+            "write",
+            "style"
+        }),
+        ["src/io/path.nupp"] = library("io.path", {"join"}),
+        ["src/assert/init.nupp"] = library("assert", {"equal"}),
+        ["src/arg/init.nupp"] = library("arg", {"parse"}),
+        ["src/warn.nupp"] = library("warn", {"emit"}),
+        ["src/types/init.nupp"] = library("types", {"newStore"}),
+        ["src/example/tools/widget.nupp"] = library("example.tools.widget", {"work"}),
+        ["docs/guide.md"] = "# Guide\n\nRead the library.\n"
+    })
+    assert(
+        doc.build(
+            dir,
+            {include = {"src"}},
+            {
+                sources = {"src"},
+                stdlib = {path = "reference/lua"},
+                pages = {{path = "guide", source = "docs/guide.md"}}
+            },
+            {format = "site", output = "site"}
+        ) == 0
+    )
+    local nested = readFile(dir .. "/site/modules/io/path/index.html")
+    local sidebar = assert(nested:match('<aside class="nuppdoc%-sidebar".-</aside>'))
+    assert(
+        sidebar:find(
+            '<details open><summary><a href="../../../reference/lua/index.html">API reference</a></summary>',
+            1,
+            true
+        )
+    )
+    local api = assert(sidebar:match('>API reference</a></summary>(.*)'))
+    assert(not api:find('<details open', 1, true), "an API branch starts open, including the active one")
+    for _, name in ipairs({
+        "arg",
+        "assert",
+        "warn",
+        "io",
+        "os",
+        "math",
+        "string",
+        "table",
+        "coroutine",
+        "bit",
+        "jit",
+        "debug",
+        "package",
+        "ffi"
+    }) do
+        local _, count = api:gsub('data%-module="' .. name .. '"', '')
+        assert(count == 1, name .. " has " .. count .. " roots")
+    end
+    for _, name in ipairs({"string.buffer", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
+        assert(api:find('data-module="' .. name .. '"', 1, true), "missing nested builtin " .. name)
+    end
+    assert(api:find('>Globals</a>', 1, true), "standalone functions need their own group")
+    assert(api:find('>Intrinsic types</a>', 1, true), "intrinsic types confused with public types")
+    assert(api:find('>Layout reflection</a>', 1, true))
+    assert(api:find('<code>types</code>', 1, true), "the public types root disappeared")
+    for _, anchor in ipairs({"io.write", "io.style", "io.open", "_G", "print"}) do
+        assert(not api:find("#" .. anchor .. '\"', 1, true), "a declaration became a left navigation leaf: " .. anchor)
+    end
+    assert(api:find('href="../../../modules/assert/index.html"', 1, true), "callable global lost its module page")
+    assert(api:find('href="../../../modules/arg/index.html"', 1, true), "array global lost its module page")
+    assert(api:find('data-module="io.path"', 1, true), "a submodule disappeared")
+    assert(api:find('href="../../../modules/io/path/index.html"', 1, true), "a submodule lost its page link")
+    for _, name in ipairs({"example", "example.tools", "example.tools.widget"}) do
+        assert(api:find('data-module="' .. name .. '"', 1, true), "a qualified namespace disappeared: " .. name)
+    end
+    local sectionAnchors = {globals = true, types = true, reflection = true, annotations = true}
+    for anchor in api:gmatch('href="[^\"]*#([^\"]+)"') do
+        assert(sectionAnchors[anchor], "a declaration became a left navigation leaf: " .. anchor)
+    end
+    assert(api:find('href="../../../reference/lua/index.html#globals"', 1, true), "global content link missing")
+    local tableNode = assert(api:match('<li data%-module="table">(.-)</li>'), "a leaf module is not a plain link")
+    assert(tableNode:find('href="../../../modules/table/index.html"', 1, true), "a leaf module lost its page")
+    assert(not tableNode:find("<details", 1, true), "a leaf module has an empty expander")
+    local outline = assert(nested:match('<aside class="nuppdoc%-outline".-</aside>'))
+    assert(outline:find('#io.path.join', 1, true), "a declaration disappeared from the page outline")
+    assert(nested:find('id="io.path.join"', 1, true), "a declaration disappeared from the body")
+    assert(not api:find(">LuaJIT</a>", 1, true), "obsolete LuaJIT navigation entry")
+    local aggregate = readFile(dir .. "/site/reference/lua/index.html")
+    for anchor in api:gmatch('href="%.%./%.%./%.%./reference/lua/index%.html#([^"]+)"') do
+        assert(aggregate:find('id="' .. anchor .. '"', 1, true), "navigation target does not exist: " .. anchor)
+    end
+    local guide = readFile(dir .. "/site/guide/index.html")
+    local guideSidebar = assert(guide:match('<aside class="nuppdoc%-sidebar".-</aside>'))
+    assert(not guideSidebar:find('<details open', 1, true), "unrelated API or page branch starts open")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.builtinDeclarationsShareEveryModuleOutputWithOwnedMembers()
+    local dir = tempProject({
+        [
+            "src/io/init.nupp"
+        ] = [=[module io
+--[[Owned input and output.]]
+local io = {}
+--- Writes through the owned contract.
+function io.write(): string return "owned" end
+--- Styles terminal output.
+function io.style(): string return "styled" end
+return io
+]=],
+        ["src/debug/bench.nupp"] = [=[module debug.bench
+--[[Measures a workload.]]
+export const ready = true
+]=],
+        [
+            "src/string/extension.nupp"
+        ] = [=[module string.extension
+--[[Extends text handling.]]
+export const ready = true
+]=],
+        [
+            "src/assert/init.nupp"
+        ] = [=[module assert
+--[[Checks program results.]]
+local assert = {}
+--- Compares two values.
+function assert.equal(): nil end
+return assert
+]=],
+        [
+            "src/arg/init.nupp"
+        ] = [=[module arg
+--[[Parses command arguments.]]
+local arg = {}
+--- Parses the arguments.
+function arg.parse(): nil end
+return arg
+]=],
+        [
+            "src/warn.nupp"
+        ] = [=[module warn
+--[[Reports warnings.]]
+local warn = {}
+--- Emits a warning.
+function warn.emit(): nil end
+return warn
+]=],
+        [
+            "src/jit/zone.nupp"
+        ] = [=[module jit.zone
+--[[Describes profiler zones.]]
+record Zone
+    --- A user extension.
+    extra: string
+end
+]=],
+    })
+    local settings = {sources = {"src"}, stdlib = {path = "reference/lua"}}
+    local stdlib = require("nupp.tools.doc.stdlib")
+    local original, extractions = stdlib.page, 0
+    stdlib.page = function(...)
+        extractions = extractions + 1
+        return original(...)
+    end
+    local ok, result = pcall(doc.build, dir, {include = {"src"}}, settings, {format = "both", output = "site"})
+    stdlib.page = original
+    assert(ok and result == 0, tostring(result))
+    assert(extractions == 1, "the index must reuse the module extraction")
+    local ioPage = readFile(dir .. "/site/modules/io/index.html")
+    assert(ioPage:find('id="io.open"', 1, true), "builtin io.open is absent from the owned page")
+    assert(ioPage:find('id="io.style"', 1, true), "owned io.style disappeared")
+    local _, writes = ioPage:gsub('id="io%.write"', '')
+    assert(writes == 1, "a collided declaration has more than one anchor")
+    local ioText = readFile(dir .. "/site/modules/io/llms.txt")
+    assert(ioText:find("function io.write(): string", 1, true), "builtin signature replaced the owned contract")
+    assert(ioText:find("Writes through the owned contract.", 1, true), "builtin prose replaced owned prose")
+    assert(ioText:find("### `open`", 1, true) and ioText:find('<a id="io.style"></a>', 1, true))
+    local debug = readFile(dir .. "/site/modules/debug/index.html")
+    assert(debug:find('id="debug.getinfo"', 1, true) and debug:find('modules/debug/bench/index.html', 1, true))
+    local stringPage = readFile(dir .. "/site/modules/string/index.html")
+    assert(stringPage:find('id="string.format"', 1, true))
+    assert(not stringPage:find('Nothing is required by this name', 1, true), "builtin kept a namespace placeholder")
+    for _, name in ipairs({"assert", "arg", "warn"}) do
+        local text = readFile(dir .. "/site/modules/" .. name .. "/llms.txt")
+        assert(text:find('<a id="' .. name .. '"></a>', 1, true), "missing global declaration on " .. name)
+        local _, anchors = text:gsub('<a id="' .. name .. '"></a>', '')
+        assert(anchors == 1, "global and module headings duplicate their anchor")
+        assert(text:find("local " .. name .. ":", 1, true), "global signature missing from " .. name)
+    end
+    local ffi = readFile(dir .. "/site/modules/ffi/index.html")
+    assert(ffi:find('id="ffi.new"', 1, true), "returned record was not projected into the library")
+    assert(not ffi:find('id="ffi.ffi"', 1, true), "private returned wrapper became public")
+    local util = readFile(dir .. "/site/modules/jit/util/index.html")
+    assert(util:find('id="jit.util.funcinfo"', 1, true), "typed returned binding was not projected")
+    local zone = readFile(dir .. "/site/modules/jit/zone/index.html")
+    for _, anchor in ipairs({"jit.zone.__call", "jit.zone.Zone", "jit.zone.Zone.extra", "jit.zone.Zone.get"}) do
+        assert(zone:find('id="' .. anchor .. '"', 1, true), "lost a returned callable/type member: " .. anchor)
+    end
+    local index = readFile(dir .. "/site/reference/lua/llms.txt")
+    assert(not index:find('<a id="ffi.ffi.new"></a>', 1, true), "obsolete wrapper anchor retained")
+    for _, name in ipairs({"io", "debug.bench", "string.extension", "assert", "arg", "ffi", "jit.util"}) do
+        assert(index:find("[`" .. name .. "`](", 1, true), "index misses module " .. name)
+    end
+    assert(not index:find("```nupp\nlocal open:", 1, true), "index duplicates library signatures")
+    assert(not index:find("### `arg`", 1, true), "index duplicates the owned global declaration")
+    assert(index:find("### `_G`", 1, true) and index:find("### `_VERSION`", 1, true))
+    local api = readFile(dir .. "/site/api.md")
+    assert(api:find('<a id="io.open"></a>', 1, true) and api:find('<a id="io.style"></a>', 1, true))
+    assert(doc.build(dir, {include = {"src"}}, settings, {format = "json", output = "modules.json"}) == 0)
+    local decoded = assert(require("testjson").decode(readFile(dir .. "/modules.json")))
+    local modules = {}
+    for _, module in ipairs(decoded.modules) do
+        modules[module.name] = module
+    end
+    local names = {}
+    for _, item in ipairs(modules.io.items) do
+        names[item.path] = item
+    end
+    assert(names["io.open"] and names["io.style"] and names["io.write"].signature == "function io.write(): string")
+    assert(names["io.write"].lua == true, "owned implementations must retain their Lua identity")
+    assert(names["io.open"].lua == true and not names["io.style"].lua, "Lua identity is based on the exact public path")
+
+    local function luaHeading(text, id)
+        local section = text:match('id="' .. id:gsub("%.", "%%.") .. '"[^>]*><h%d>(.-)</h%d>')
+        return section and section:find('>Lua</span>', 1, true) ~= nil
+    end
+
+    assert(luaHeading(ioPage, "io.write"), "owned Lua function lacks its badge")
+    assert(luaHeading(ioPage, "io.open"), "builtin Lua function lacks its badge")
+    assert(not luaHeading(ioPage, "io.style"), "Nupp-only addition was labeled Lua")
+    assert(not luaHeading(ffi, "ffi.new"), "LuaJIT-only extension was labeled standard Lua")
+    local globalPage = readFile(dir .. "/site/reference/lua/index.html")
+    assert(globalPage:find('nuppdoc-kind-Lua">Lua</span>', 1, true), "global Lua function lacks its badge")
+    assert(index:find("`print` _[^_]+_ _Lua_"), "Markdown lost Lua provenance")
+    local fileRead
+    for _, item in ipairs(assert(stdlib.page({})).typeItems) do
+        if item.name == "LuaFile" then
+            for _, member in ipairs(item.members) do
+                if member.name == "read" then
+                    fileRead = member
+                end
+            end
+        end
+    end
+    assert(fileRead and fileRead.lua == true, "Lua file methods lack provenance")
+    local globalAssert
+    for _, item in ipairs(modules.assert.items) do
+        if item.path == "assert" then
+            globalAssert = item
+        end
+    end
+    assert(globalAssert and globalAssert.lua, "callable globals with named function types need Lua identity")
+
+    assert(modules.ffi and modules["string.buffer"] and modules["jit.vmdef"])
+    assert(not modules.re and not modules.lpeg and not modules.number)
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 -- A route a page used to answer at keeps answering, by way of a stub that names
@@ -4316,6 +5140,188 @@ return declared
     os.execute("rm -rf '" .. dir .. "'")
 end
 
+function M.publicAliasSignaturesUseTheirExportedTypeProvenance()
+    local dir = tempProject({
+        [
+            "src/package/init.nupp"
+        ] = [[
+module package
+const model = require("package.internal.model")
+const {type Reader} = require("package.internal.messages")
+export type Stream<T> = Reader<T>
+export type Envelope = model.Request
+export type Other = model.Envelope
+export const read = model.read
+export const submitted = model.Submitted
+]],
+        [
+            "src/client.nupp"
+        ] = [[
+module client
+const model = require("package.internal.model")
+export const fetch = model.read
+]],
+        [
+            "src/package/internal/model.nupp"
+        ] = [[
+module package.internal.model
+const messages = require("package.internal.messages")
+const {type Reader} = require("package.internal.messages")
+export record Envelope
+    value: string
+end
+export record Request
+    reader: messages.Reader<string>
+    nested: {read: function<Reader>(value: Reader): Reader, source: Reader<string>}
+    label: "package.internal.messages.Reader"
+    generic: function<Reader>(value: Reader): Reader
+    plucked: Reader<string>
+    hidden: Hidden
+end
+record Hidden
+    token: integer
+end
+export function read(request: Request): messages.Reader<string>
+    error("documentation fixture")
+end
+@comptime export function Submitted<F>(value: F): typepack
+    error("documentation fixture")
+end
+]],
+        [
+            "src/package/internal/messages.nupp"
+        ] = [[
+module package.internal.messages
+export record Reader<T>
+    value: T
+    next: Reader<T>?
+end
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "json", output = "api.json"}) == 0)
+    local model = assert(require("testjson").decode(readFile(dir .. "/api.json")))
+    local items = {}
+    for _, module in ipairs(model.modules) do
+        assert(not module.name:find("internal", 1, true), "private source became a public module")
+        for _, item in ipairs(module.items) do
+            items[item.path] = item
+        end
+    end
+    local request, stream = assert(items["package.Envelope"]), assert(items["package.Stream"])
+    local fields = {}
+    for _, field in ipairs(request.members) do
+        fields[field.name] = field
+    end
+    assert(fields.reader.type == "Stream<string>", fields.reader.type)
+    assert(request.signature == "record Envelope", request.signature)
+    assert(fields.generic.type == "function<Reader>(value: Reader): Reader", fields.generic.type)
+    assert(fields.plucked.type == "Stream<string>", fields.plucked.type)
+    assert(fields.hidden.type == "Hidden", "an unexported type was invented")
+    assert(fields.nested.type:find("function<Reader>(value: Reader): Reader", 1, true), fields.nested.type)
+    assert(fields.nested.type:find("source: Stream<string>", 1, true), fields.nested.type)
+    assert(fields.label.type == '"package.internal.messages.Reader"', "a string literal was rewritten")
+    assert(stream.signature == "record Stream<T>", stream.signature)
+    assert(stream.members[1].type == "T", "the generic binder was rewritten")
+    assert(stream.members[2].type == "Stream<T>?", stream.members[2].type)
+    assert(stream.members[2].path == "package.Stream.next", stream.members[2].path)
+    local read = assert(items["package.read"])
+    assert(read.params[1].type == "Envelope", read.params[1].type)
+    assert(read.returns[1].type == "Stream<string>", read.returns[1].type)
+    assert(read.signature == "function read(request: Envelope): Stream<string>", read.signature)
+    local fetch = assert(items["client.fetch"])
+    assert(fetch.params[1].type == "package.Envelope", fetch.params[1].type)
+    assert(fetch.returns[1].type == "package.Stream<string>", fetch.returns[1].type)
+    local submitted = assert(items["package.submitted"])
+    assert(submitted.signature == "@comptime function submitted<F>(value: F): typepack", submitted.signature)
+    assert(submitted.comptimeKind == "function", "projection lost the compile-time phase")
+    assert(submitted.annotations[1] == "@comptime", "projection lost the annotation")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.indexedProviderAliasesKeepTheirDeclaredFunctionContracts()
+    local dir = tempProject({
+        [
+            "src/api/init.nupp"
+        ] = [[
+module api
+const contract = require("api.contract")
+const implementation = require("api.internal.selected")
+export type Resource = contract.Resource
+export function direct(): contract.Resource
+    error("documentation fixture")
+end
+export const retain: contract.Provider.["retain"] = implementation.retain
+export const create: contract.Provider.["create"] = implementation.create
+export const describe: contract.Provider.["describe"] = implementation.describe
+export const available: implementation.Available = implementation.available
+export const unknown: contract.Provider.["missing"] = implementation.unknown
+]],
+        [
+            "src/api/contract.nupp"
+        ] = [[
+module api.contract
+const source = require("api.internal.contract")
+export type Provider = source.Provider
+export type Resource = source.Resource
+]],
+        [
+            "src/api/internal/selected.nupp"
+        ] = [[
+module api.internal.selected
+export type Available = function(): boolean
+]],
+        [
+            "src/api/internal/contract.nupp"
+        ] = [[
+module api.internal.contract
+export record Resource
+    close: @nosuspend function(takes self: Resource): nil
+end
+export type Create = function<A..., R...>(body: function(A...): R...): thread
+export type Describe = @comptime function<T>(value: T): type
+export interface Provider
+    --- Keeps the borrowed resource through the callback.
+    @readonly retain: @nosuspend function<T>(borrows resource: Resource, body: function(Resource): T): T
+    @readonly create: Create
+    @readonly describe: Describe
+end
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "json", output = "api.json"}) == 0)
+    local model = assert(require("testjson").decode(readFile(dir .. "/api.json")))
+    local items = {}
+    for _, module in ipairs(model.modules) do
+        for _, item in ipairs(module.items) do
+            items[item.path] = item
+        end
+    end
+    local direct = assert(items["api.direct"])
+    assert(direct.kind == "function" and direct.signature == "function direct(): contract.Resource", direct.signature)
+    local retain = assert(items["api.retain"])
+    assert(retain.kind == "function", retain.kind)
+    assert(retain.signature:find("@nosuspend function<T>", 1, true), retain.signature)
+    assert(retain.params[1].mode == "borrows", "the provider's borrow mode was lost")
+    assert(retain.params[1].type == "Resource", retain.params[1].type)
+    assert(retain.params[2].type == "function(Resource): T", retain.params[2].type)
+    assert(retain.returns[1].type == "T", retain.returns[1].type)
+    assert(retain.typeargs[1].name == "T", "the provider's generic binder was lost")
+    assert(retain.doc.text:find("borrowed resource", 1, true), retain.doc.text)
+    local create = assert(items["api.create"])
+    assert(create.kind == "function" and #create.typeargs == 2, create.signature)
+    assert(create.params[1].type == "function(A...): R...", create.params[1].type)
+    assert(create.returns[1].type == "thread", create.returns[1].type)
+    local describe = assert(items["api.describe"])
+    assert(describe.kind == "function" and describe.comptimeKind == "function", describe.signature)
+    assert(describe.typeargs[1].name == "T" and describe.returns[1].type == "type", describe.signature)
+    local available = assert(items["api.available"])
+    assert(available.kind == "function" and available.returns[1].type == "boolean", available.signature)
+    assert(available.signature == "const available: function(): boolean", available.signature)
+    local unknown = assert(items["api.unknown"])
+    assert(unknown.kind == "variable", "an unresolved contract field acquired a callable signature")
+    assert(unknown.signature == 'const unknown: contract.Provider.["missing"]', unknown.signature)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.gpuDocumentsApplicationOperationsAndHidesGeneratedBindings()
     local source = readFile(HERE .. "/../src/gpu/init.nupp")
     local module = assert(doc.extract(source, "src/gpu/init.nupp", "gpu"))
@@ -4379,8 +5385,14 @@ end
 
 function M.ioPublicPageKeepsStorageAndScalarContracts()
     local files = {}
-    for _, path in ipairs({"init.nupp", "internal/bytes.nupp", "internal/scalars.nupp", "internal/lines.nupp"}) do
-        files["src/nupp/io/" .. path] = readFile(HERE .. "/../src/nupp/io/" .. path)
+    for _, path in ipairs({
+        "nupp/runtime/standardio.nupp",
+        "nupp/io.nupp",
+        "nupp/io/internal/bytes.nupp",
+        "nupp/io/internal/scalars.nupp",
+        "nupp/io/internal/lines.nupp"
+    }) do
+        files["src/" .. path] = readFile(HERE .. "/../src/" .. path)
     end
     local dir = tempProject(files)
     assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
@@ -4391,8 +5403,8 @@ function M.ioPublicPageKeepsStorageAndScalarContracts()
         "reserveWrite",
         "readInto",
         "readUint32",
-        "newScalarWriter",
-        "newLines"
+        "newscalarwriter",
+        "newlines"
     }) do
         assert(text:find(public, 1, true), "I/O documentation lost " .. public)
     end

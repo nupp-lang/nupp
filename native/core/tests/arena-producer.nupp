@@ -194,7 +194,7 @@ function producer.compile(mode: string, fixture: string): string
     )
     result.refusals = negatives
 
-    return json.encodeValue(result)
+    return json.encodevalue(result)
 end
 
 function producer.data(offsetText: string, codeBytesText: string): string

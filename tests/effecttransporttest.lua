@@ -27,7 +27,7 @@ local sharedEnv = envMod.new(HERE)
 local function moduleTypeOf(src, name)
     local env = sharedEnv
     local result = parser.parse(src, (name or "test") .. ".nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local diags, moduleType, exports = check.check(result, (name or "test") .. ".nupp", env)
     for _, diag in ipairs(diags) do
         if diag.severity ~= "warning" and diag.severity ~= "note" then
@@ -86,11 +86,11 @@ function M.sameSignatureExportsGetDistinctTypes()
     local exported = moduleTypeOf(io.open(HERE .. "/fixtures/effects.nupp"):read("*a"), "fixtures/effects")
     local safe, waits = fieldType(exported, "safe"), fieldType(exported, "waits")
     assert(safe ~= nil and waits ~= nil, "both exports are present")
-    testAssert.equal(safe.tag, "func", "safe is callable")
-    testAssert.equal(waits.tag, "func", "waits is callable")
+    testAssert.eq(safe.tag, "func", "safe is callable")
+    testAssert.eq(waits.tag, "func", "waits is callable")
     assert(safe ~= waits, "identical signatures must not share one type when only one yields")
-    testAssert.equal(safe.noYield, true, "safe cannot suspend")
-    testAssert.equal(waits.noYield, nil, "waits may suspend")
+    testAssert.eq(safe.noYield, true, "safe cannot suspend")
+    testAssert.eq(waits.noYield, nil, "waits may suspend")
     assert(moduleType ~= nil, "the consumer checks")
 end
 
@@ -98,14 +98,14 @@ function M.anAliasOfANonYieldingExportStaysNonYielding()
     local _, result = moduleTypeOf(FIXTURE .. "local f = B.safe\nreturn f", "consumer")
     local t = localType(result, "f")
     assert(t ~= nil and t.tag == "func", "the alias is callable")
-    testAssert.equal(t.noYield, true, "the guarantee rides on the type, not on the name")
+    testAssert.eq(t.noYield, true, "the guarantee rides on the type, not on the name")
 end
 
 function M.anAliasOfAYieldingExportStaysYielding()
     local _, result = moduleTypeOf(FIXTURE .. "local f = B.waits\nreturn f", "consumer")
     local t = localType(result, "f")
     assert(t ~= nil and t.tag == "func", "the alias is callable")
-    testAssert.equal(t.noYield, nil, "a may-yield export does not become safe by being renamed")
+    testAssert.eq(t.noYield, nil, "a may-yield export does not become safe by being renamed")
 end
 
 function M.nestedExportedTablesAnswerPerLeaf()
@@ -116,8 +116,8 @@ function M.nestedExportedTablesAnswerPerLeaf()
     for _, field in ipairs(ops.fields or {}) do
         byName[field.name] = field.read or field.type
     end
-    testAssert.equal(byName.reader and byName.reader.noYield, true, "the non-yielding leaf")
-    testAssert.equal(byName.waiter and byName.waiter.noYield, nil, "the yielding leaf")
+    testAssert.eq(byName.reader and byName.reader.noYield, true, "the non-yielding leaf")
+    testAssert.eq(byName.waiter and byName.waiter.noYield, nil, "the yielding leaf")
 end
 
 function M.aCallbackParameterIsNotStampedWithItsOwnersEffect()
@@ -128,7 +128,7 @@ function M.aCallbackParameterIsNotStampedWithItsOwnersEffect()
     assert(outer ~= nil and outer.tag == "func", "the export is callable")
     local param = (outer.params or {})[1]
     assert(param ~= nil and param.tag == "func", "its parameter is callable")
-    testAssert.equal(param.noYield, nil, "a parameter is a separate callable and stays conservatively may-yield")
+    testAssert.eq(param.noYield, nil, "a parameter is a separate callable and stays conservatively may-yield")
 end
 
 function M.anUncontractedVisibleBodyThatCannotBeReadMayYield()
@@ -138,7 +138,7 @@ function M.anUncontractedVisibleBodyThatCannotBeReadMayYield()
     )
     local t = fieldType(moduleType, "f")
     assert(t ~= nil, "the export is present")
-    testAssert.equal(t.noYield, nil, "an unreadable body may suspend")
+    testAssert.eq(t.noYield, nil, "an unreadable body may suspend")
 end
 
 function M.aGenuinelyBodylessDeclarationMayYield()
@@ -149,7 +149,7 @@ function M.aGenuinelyBodylessDeclarationMayYield()
     )
     local t = fieldType(moduleType, "spin")
     assert(t ~= nil and t.tag == "func", "the export is callable")
-    testAssert.equal(t.noYield, nil, "a foreign implementation may do anything")
+    testAssert.eq(t.noYield, nil, "a foreign implementation may do anything")
 end
 
 function M.anEffectsContractSuppliesTheNegativeFact()
@@ -158,7 +158,7 @@ function M.anEffectsContractSuppliesTheNegativeFact()
     )
     local t = fieldType(moduleType, "f")
     assert(t ~= nil, "the export is present")
-    testAssert.equal(t.noYield, true, "a declared contract establishes the guarantee")
+    testAssert.eq(t.noYield, true, "a declared contract establishes the guarantee")
 end
 
 function M.aNonYieldingFunctionSatisfiesAMayYieldSlot()
@@ -171,7 +171,7 @@ function M.aMayYieldFunctionDoesNotSatisfyANoYieldSlot()
     local safe = T.withYields(T.func({}, {T.nil_}), false)
     local any = T.func({}, {T.nil_})
     local ok, why = relations.isA(any, safe)
-    testAssert.equal(ok, false, "a may-yield function cannot fill a slot that forbids it")
+    testAssert.eq(ok, false, "a may-yield function cannot fill a slot that forbids it")
     assert(tostring(why):find("suspend", 1, true) ~= nil, "the refusal says why: " .. tostring(why))
 end
 
@@ -218,10 +218,10 @@ function M.nominalMethodsCarryTheirOwnGuarantees()
     assert(thing ~= nil and thing.tag == "nominal", "the record is exported")
     local method = thing.byname and thing.byname.quiet
     assert(method ~= nil and method.tag == "func", "and its method is reachable")
-    testAssert.equal(method.noYield, true, "the quiet method carries its guarantee")
+    testAssert.eq(method.noYield, true, "the quiet method carries its guarantee")
     local waits = thing.byname and thing.byname.waits
     assert(waits ~= nil and waits.tag == "func", "the yielding method is reachable")
-    testAssert.equal(waits.noYield, nil, "a yielding method remains may-yield")
+    testAssert.eq(waits.noYield, nil, "a yielding method remains may-yield")
 end
 
 function M.forwardModuleCallsCarryTheirCalleeEffect()
@@ -242,7 +242,7 @@ function M.forwardModuleCallsCarryTheirCalleeEffect()
     )
     local waits = fieldType(moduleType, "waits")
     assert(waits ~= nil, "the forward caller is exported")
-    testAssert.equal(waits.noYield, nil, "the later callee's suspension reaches its caller")
+    testAssert.eq(waits.noYield, nil, "the later callee's suspension reaches its caller")
 end
 
 function M.inlineNominalMethodsCarryTheirOwnGuarantees()
@@ -265,8 +265,8 @@ function M.inlineNominalMethodsCarryTheirOwnGuarantees()
     )
     local inline = exports and exports.types and exports.types.Inline
     assert(inline ~= nil and inline.tag == "nominal", "the inline record is exported")
-    testAssert.equal(inline.byname.quiet.noYield, true, "the inline quiet method is qualified")
-    testAssert.equal(inline.byname.waits.noYield, nil, "the inline yielding method stays may-yield")
+    testAssert.eq(inline.byname.quiet.noYield, true, "the inline quiet method is qualified")
+    testAssert.eq(inline.byname.waits.noYield, nil, "the inline yielding method stays may-yield")
 end
 
 function M.overloadedNominalMethodsKeepTheRightGuarantee()
@@ -297,8 +297,8 @@ function M.overloadedNominalMethodsKeepTheRightGuarantee()
         local callable = generics.dropSelf(member)
         found[callable.params[1]] = member
     end
-    testAssert.equal(found[T.string].noYield, true, "the string overload keeps the quiet body's guarantee")
-    testAssert.equal(found[T.integer].noYield, nil, "the integer overload keeps the yielding body's effect")
+    testAssert.eq(found[T.string].noYield, true, "the string overload keeps the quiet body's guarantee")
+    testAssert.eq(found[T.integer].noYield, nil, "the integer overload keeps the yielding body's effect")
 
     local reversed = source:gsub(
         "        return text\n    end\n    function decode%(self, value",
@@ -336,25 +336,25 @@ function M.withYieldsPreservesEverythingElse()
         nil
     )
     local qualified = T.withYields(original, false)
-    testAssert.equal(qualified.noYield, true, "the qualifier is set")
-    testAssert.equal(#qualified.params, #original.params, "parameters survive")
-    testAssert.equal(qualified.params[1], original.params[1], "and are the same types")
-    testAssert.equal(qualified.rets[1], original.rets[1], "results survive")
-    testAssert.equal(qualified.vararg, original.vararg, "the vararg flag survives")
-    testAssert.equal(qualified.varargType, original.varargType, "the vararg type survives")
-    testAssert.equal(qualified.paramModes[1], original.paramModes[1], "ownership modes survive")
-    testAssert.equal(T.withYields(qualified, false), qualified, "setting what is already set answers the same type")
+    testAssert.eq(qualified.noYield, true, "the qualifier is set")
+    testAssert.eq(#qualified.params, #original.params, "parameters survive")
+    testAssert.eq(qualified.params[1], original.params[1], "and are the same types")
+    testAssert.eq(qualified.rets[1], original.rets[1], "results survive")
+    testAssert.eq(qualified.vararg, original.vararg, "the vararg flag survives")
+    testAssert.eq(qualified.varargType, original.varargType, "the vararg type survives")
+    testAssert.eq(qualified.paramModes[1], original.paramModes[1], "ownership modes survive")
+    testAssert.eq(T.withYields(qualified, false), qualified, "setting what is already set answers the same type")
 end
 
 function M.qualifyingIsIdempotent()
     local exported = moduleTypeOf(io.open(HERE .. "/fixtures/effects.nupp"):read("*a"), "fixtures/effects")
     local again = moduleTypeOf(io.open(HERE .. "/fixtures/effects.nupp"):read("*a"), "fixtures/effects")
-    testAssert.equal(
+    testAssert.eq(
         fieldType(exported, "safe"),
         fieldType(again, "safe"),
         "two checks of one source agree, so the interface hash is stable"
     )
-    testAssert.equal(exported, again, "and so does the whole boundary")
+    testAssert.eq(exported, again, "and so does the whole boundary")
 end
 
 function M.reExportingPreservesAnImportedGuarantee()
@@ -365,10 +365,10 @@ function M.reExportingPreservesAnImportedGuarantee()
     local facade = moduleTypeOf(io.open(HERE .. "/fixtures/effectsfacade.nupp"):read("*a"), "fixtures/effectsfacade")
     local safe = fieldType(facade, "safe")
     assert(safe ~= nil and safe.tag == "func", "the re-export is callable")
-    testAssert.equal(safe.noYield, true, "a guarantee survives being handed on")
+    testAssert.eq(safe.noYield, true, "a guarantee survives being handed on")
     local waits = fieldType(facade, "waits")
     assert(waits ~= nil and waits.tag == "func", "and so is the other")
-    testAssert.equal(waits.noYield, nil, "while a may-yield export stays may-yield")
+    testAssert.eq(waits.noYield, nil, "while a may-yield export stays may-yield")
 end
 
 function M.aReExportChainKeepsTheFactAcrossTwoBoundaries()
@@ -378,7 +378,7 @@ function M.aReExportChainKeepsTheFactAcrossTwoBoundaries()
     )
     local t = localType(result, "f")
     assert(t ~= nil and t.tag == "func", "the alias is callable")
-    testAssert.equal(t.noYield, true, "two hops do not wear the guarantee away")
+    testAssert.eq(t.noYield, true, "two hops do not wear the guarantee away")
 end
 
 function M.aDirectlyReturnedFunctionIsQualified()
@@ -386,7 +386,7 @@ function M.aDirectlyReturnedFunctionIsQualified()
     -- has a boundary too, and it used to be left unqualified.
     local moduleType = moduleTypeOf("return function(): nil\nend")
     assert(moduleType ~= nil and moduleType.tag == "func", "the module is a function")
-    testAssert.equal(moduleType.noYield, true, "and it is qualified")
+    testAssert.eq(moduleType.noYield, true, "and it is qualified")
 end
 
 function M.aDirectlyReturnedTableLiteralIsQualifiedPerLeaf()
@@ -412,8 +412,8 @@ function M.aDirectlyReturnedTableLiteralIsQualifiedPerLeaf()
     for _, field in ipairs(moduleType.fields or {}) do
         byName[field.name] = field.read or field.type
     end
-    testAssert.equal(byName.reader and byName.reader.noYield, true, "the safe leaf")
-    testAssert.equal(byName.waiter and byName.waiter.noYield, nil, "the yielding leaf")
+    testAssert.eq(byName.reader and byName.reader.noYield, true, "the safe leaf")
+    testAssert.eq(byName.waiter and byName.waiter.noYield, nil, "the yielding leaf")
 end
 
 function M.aContractOutranksAnUnreadableBody()
@@ -430,7 +430,7 @@ function M.aContractOutranksAnUnreadableBody()
     )
     local t = fieldType(moduleType, "f")
     assert(t ~= nil, "the export is present")
-    testAssert.equal(t.noYield, true, "a declared negative establishes the guarantee")
+    testAssert.eq(t.noYield, true, "a declared negative establishes the guarantee")
 end
 
 function M.genericSubstitutionKeepsTheQualifier()
@@ -444,8 +444,8 @@ function M.genericSubstitutionKeepsTheQualifier()
     end
     local safe = T.withYields(T.func({tv}, {tv}), false)
     local concrete = generics.subst(safe, {[tv] = T.string})
-    testAssert.equal(concrete.noYield, true, "the qualifier survives substitution")
-    testAssert.equal(concrete.params[1], T.string, "and the substitution happened")
+    testAssert.eq(concrete.noYield, true, "the qualifier survives substitution")
+    testAssert.eq(concrete.params[1], T.string, "and the substitution happened")
 end
 
 -- Two edits to one dependency, one of which changes the boundary and one of which
@@ -498,11 +498,7 @@ function M.aBodyThatStartsYieldingInvalidatesDependents()
         -- Same signature, same everything the eye sees. The boundary changed anyway.
         inc.changeDocument(depPath, (QUIET:gsub("local n = 1", "coroutine.yield()")))
         inc.checkFile(mainPath)
-        testAssert.equal(
-            inc.q.stats.checkModule,
-            cold + 2,
-            "dep AND main recheck: the export stopped being non-yielding"
-        )
+        testAssert.eq(inc.q.stats.checkModule, cold + 2, "dep AND main recheck: the export stopped being non-yielding")
     end)
 end
 
@@ -512,7 +508,7 @@ function M.aBodyEditThatKeepsTheEffectDoesNot()
         local cold = inc.q.stats.checkModule
         inc.changeDocument(depPath, (QUIET:gsub("local n = 1", "local n = 2")))
         inc.checkFile(mainPath)
-        testAssert.equal(
+        testAssert.eq(
             inc.q.stats.checkModule,
             cold + 1,
             "only dep rechecks: the boundary is unchanged, so cutoff holds"
@@ -545,7 +541,7 @@ function M.aNominalMethodThatStartsYieldingInvalidatesDependents()
     local inc = incremental.new(dir)
     local ok, err = pcall(function()
         local before = inc.checkFile(mainPath)
-        testAssert.equal(
+        testAssert.eq(
             #before.diags,
             0,
             "the original nominal method is non-suspending: " .. tostring(
@@ -555,7 +551,7 @@ function M.aNominalMethodThatStartsYieldingInvalidatesDependents()
         local cold = inc.q.stats.checkModule
         inc.changeDocument(depPath, (QUIET_METHOD:gsub("local n = 1", "coroutine.yield()")))
         local after = inc.checkFile(mainPath)
-        testAssert.equal(
+        testAssert.eq(
             inc.q.stats.checkModule,
             cold + 2,
             "the nominal effect digest invalidates the dependency and consumer"

@@ -15,6 +15,8 @@ Command files require heavier compiler code inside `run`, so building the tree
 loads only their small declarations.
 ]]
 
+const terminal = require("io.terminal")
+
 local ansi = require("arg")
 
 local cli = {}
@@ -116,9 +118,9 @@ local function warnStaleDeclarations(): nil
     if #stale == 0 then
         return
     end
-    local style = io.style(io.stderr)
+    local style = terminal.style(io.stderr)
     local lines = {
-        io.severity(style, "warning")("nupp:") .. " the compiler is using declarations older than this checkout:",
+        terminal.severity(style, "warning")("nupp:") .. " the compiler is using declarations older than this checkout:",
     }
     for _, relative in ipairs(stale) do
         lines[#lines + 1] = "  " .. relative

@@ -45,7 +45,7 @@ local withDocument = new model.Packet(
             name = "items",
             value = documents.list({
                 documents.null(),
-                documents.numberToken("123456789012345678901234567890"),
+                documents.numbertoken("123456789012345678901234567890"),
                 documents.string("last")
             })
         )
@@ -61,7 +61,7 @@ assert(first:encode(binding, documentValue) == documentBytes)
 local timestamps = require("serde.codec")
 for _, seconds in ipairs({"900719925474099312345", "-900719925474099312345", "-1", "0"}) do
     local stamp = new core.Timestamp(seconds = seconds, nanos = 123456789)
-    local actual = timestamps.parseEpoch(timestamps.formatEpoch(stamp))
+    local actual = timestamps.parseepoch(timestamps.formatepoch(stamp))
     assert(actual.seconds == seconds and actual.nanos == stamp.nanos)
 end
 

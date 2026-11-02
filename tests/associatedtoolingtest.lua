@@ -211,12 +211,12 @@ function M.associatedNamesAreNotRenameableYet()
     local projection = rename(dir, 12, 37, "Element")
     local alias = rename(dir, 9, 10, "Renamed")
     remove(dir)
-    testAssert.equal(
+    testAssert.eq(
         declaration:find("cannot be renamed", 1, true) ~= nil,
         true,
         "an associated declaration was renameable:\n" .. declaration
     )
-    testAssert.equal(
+    testAssert.eq(
         projection:find("cannot be renamed", 1, true) ~= nil,
         true,
         "an associated projection was renameable:\n" .. projection

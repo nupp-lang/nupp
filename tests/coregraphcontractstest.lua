@@ -19,7 +19,7 @@ local function source(text, name)
         path = "src/nupp/core/catalogboolean.nupp"
     end
     local parsed = parser.parse(text, path)
-    test.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+    test.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
     local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
     local diagnostics = checker.check(parsed, path, env, {
         moduleName = name,
@@ -71,7 +71,7 @@ local function checkedModules(entryLast, third, fourth)
     local modules = {}
     for index, input in ipairs(inputs) do
         local parsed = parser.parse(input.text, input.path)
-        test.equal(#parsed.errors, 0)
+        test.eq(#parsed.errors, 0)
         local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
         local diagnostics = checker.check(parsed, input.path, env, {
             moduleName = input.name,
@@ -90,14 +90,14 @@ end
 
 local function refuses(action, text)
     local ok, message = pcall(action)
-    test.equal(ok, false)
+    test.eq(ok, false)
     assert(tostring(message):find(text, 1, true), tostring(message))
 end
 
 local function equal(a, b)
-    test.equal(type(a), type(b))
+    test.eq(type(a), type(b))
     if type(a) ~= "table" then
-        test.equal(a, b)
+        test.eq(a, b)
         return
     end
     for key, value in pairs(a) do
@@ -135,26 +135,26 @@ end
 
 function M.descriptorsUseCanonicalSignaturesAndIndependentStorage()
     local first = schema.describe()
-    test.equal(first.magic, "NUPPCGRF")
-    test.equal(first.version, 2)
-    test.equal(#first.operations, 5)
+    test.eq(first.magic, "NUPPCGRF")
+    test.eq(first.version, 2)
+    test.eq(#first.operations, 5)
     for index, item in ipairs(first.operations) do
         local canonical = graph.signatures[item.name]
-        test.equal(item.id, index - 1)
-        test.equal(item.signature, graph.signatureText[item.name])
+        test.eq(item.id, index - 1)
+        test.eq(item.signature, graph.signatureText[item.name])
         equal(item.args, canonical.args)
-        test.equal(item.result, canonical.result)
-        test.equal(item.resultAt, canonical.resultAt)
+        test.eq(item.result, canonical.result)
+        test.eq(item.resultAt, canonical.resultAt)
         assert(item.args ~= canonical.args)
     end
-    test.equal(first.operations[5].admittedCaptureCount, 0)
-    test.equal(first.operations[5].effect, 1)
+    test.eq(first.operations[5].admittedCaptureCount, 0)
+    test.eq(first.operations[5].effect, 1)
     assert(first.effects[2].mayCollect and first.effects[2].mayRaise and not first.effects[2].mayPark)
     first.operations[1].args[1] = "changed"
     first.sections[1].fields[1] = "changed"
     local second = schema.describe()
-    test.equal(second.operations[1].args[1], graph.signatures.K.args[1])
-    test.equal(second.sections[1].fields[1], "version")
+    test.eq(second.operations[1].args[1], graph.signatures.K.args[1])
+    test.eq(second.sections[1].fields[1], "version")
     noObjects(second, {})
 end
 
@@ -162,27 +162,27 @@ function M.realInitializerCreatesCalleeAndRetainsWholeGraph()
     local input = fixture()
     local term, gi, bi = invoke(input)
     local output = contracts.normalize(input)
-    test.equal(#output.graphs, #input.catalog.owners)
-    test.equal(#output.catalog, 2)
-    test.equal(output.entry, input.catalog.entry)
+    test.eq(#output.graphs, #input.catalog.owners)
+    test.eq(#output.catalog, 2)
+    test.eq(output.entry, input.catalog.entry)
     local root = output.catalog[output.entry + 1]
     local signature = output.signatures[root.signature + 1]
-    test.equal(signature.kind, "initializer")
-    test.equal(signature.result, "boolean")
-    test.equal(#signature.params, 0)
-    test.equal(input.catalog.owners[root.id + 1].signature, nil)
+    test.eq(signature.kind, "initializer")
+    test.eq(signature.result, "boolean")
+    test.eq(#signature.params, 0)
+    test.eq(input.catalog.owners[root.id + 1].signature, nil)
     local copied = output.graphs[gi].blocks[bi].term
-    test.equal(copied.callee, term.callee)
+    test.eq(copied.callee, term.callee)
     equal(copied.args, term.args)
     equal(copied.edges, term.edges)
-    test.equal(copied.result, term.result)
+    test.eq(copied.result, term.result)
     local contract = output.contracts[copied.contract + 1]
-    test.equal(contract.target, term.contract.owner.id)
-    test.equal(contract.owner, gi - 1)
-    test.equal(contract.callsite, input.catalog.callByNode[term.contract.call].id)
+    test.eq(contract.target, term.contract.owner.id)
+    test.eq(contract.owner, gi - 1)
+    test.eq(contract.callsite, input.catalog.callByNode[term.contract.call].id)
     local target = output.signatures[contract.signature + 1]
-    test.equal(target.kind, "callable")
-    test.equal(target.params[1], "boolean")
+    test.eq(target.kind, "callable")
+    test.eq(target.params[1], "boolean")
     local closures = 0
     for index, g in ipairs(output.graphs) do
         equal(g.positions, input.graphs[index].positions)
@@ -194,36 +194,36 @@ function M.realInitializerCreatesCalleeAndRetainsWholeGraph()
             for at, op in ipairs(block.op) do
                 if op == "Closure" then
                     closures = closures + 1
-                    test.equal(#block.args[at], 1)
-                    test.equal(block.args[at][1], contract.target)
+                    test.eq(#block.args[at], 1)
+                    test.eq(block.args[at][1], contract.target)
                 end
             end
         end
     end
-    test.equal(closures, 1)
+    test.eq(closures, 1)
     noObjects(output, {})
 end
 
 function M.checkedModulesRetainDistinctInitializersAndSourceBindings()
     local input = checkedModules()
     local output = contracts.normalize(input)
-    test.equal(#output.modules, 2)
-    test.equal(#output.catalog, 3)
-    test.equal(output.entry, 0)
+    test.eq(#output.modules, 2)
+    test.eq(#output.catalog, 3)
+    test.eq(output.entry, 0)
     for index, module in ipairs(output.modules) do
-        test.equal(module.chunk, index - 1)
-        test.equal(module.name, input.catalog.modules[index].name)
-        test.equal(module.path, input.catalog.modules[index].path)
-        test.equal(output.catalog[index].kind, "module")
-        test.equal(output.graphs[index].module, module.name)
-        test.equal(output.graphs[index].path, module.path)
+        test.eq(module.chunk, index - 1)
+        test.eq(module.name, input.catalog.modules[index].name)
+        test.eq(module.path, input.catalog.modules[index].path)
+        test.eq(output.catalog[index].kind, "module")
+        test.eq(output.graphs[index].module, module.name)
+        test.eq(output.graphs[index].path, module.path)
     end
-    test.equal(output.catalog[3].parent, output.modules[2].chunk)
-    test.equal(output.graphs[3].module, output.modules[2].name)
+    test.eq(output.catalog[3].parent, output.modules[2].chunk)
+    test.eq(output.graphs[3].module, output.modules[2].name)
     semantic.semantic(output)
     local bytes = codec.encode(output)
     equal(codec.decode(bytes), output)
-    test.equal(codec.encode(codec.decode(bytes)), bytes)
+    test.eq(codec.encode(codec.decode(bytes)), bytes)
     refuses(
         function()
             executable.fromChecked(input)
@@ -269,16 +269,16 @@ function M.checkedModuleInitializersDeriveExecutableInSourceOrder()
     local input = checkedModules(true)
     local output = executable.fromChecked(input)
     executable.validate(output)
-    test.equal(#output.initializers, 2)
-    test.equal(output.initializers[1], 0)
-    test.equal(output.initializers[2], output.entry)
-    test.equal(output.entry, 1)
-    test.equal(output.frameDepth, 2)
-    test.equal(output.instanceCapacity, 1)
-    test.equal(output.instanceCreations, 1)
-    test.equal(output.functions[1].owner, 0)
-    test.equal(output.functions[2].owner, 1)
-    test.equal(#output.functions[1].calls, 1)
+    test.eq(#output.initializers, 2)
+    test.eq(output.initializers[1], 0)
+    test.eq(output.initializers[2], output.entry)
+    test.eq(output.entry, 1)
+    test.eq(output.frameDepth, 2)
+    test.eq(output.instanceCapacity, 1)
+    test.eq(output.instanceCreations, 1)
+    test.eq(output.functions[1].owner, 0)
+    test.eq(output.functions[2].owner, 1)
+    test.eq(#output.functions[1].calls, 1)
     output.initializers[1] = output.entry
     refuses(
         function()
@@ -291,13 +291,13 @@ end
 function M.checkedThirdInitializerDerivesSerialExecutable()
     local output = executable.fromChecked(checkedModules(true, true))
     executable.validate(output)
-    test.equal(#output.initializers, 3)
-    test.equal(output.initializers[1], 0)
-    test.equal(output.initializers[2], 1)
-    test.equal(output.initializers[3], output.entry)
-    test.equal(output.entry, 2)
-    test.equal(output.instanceCreations, 1)
-    test.equal(output.functions[2].instructions[1][1], "Nil")
+    test.eq(#output.initializers, 3)
+    test.eq(output.initializers[1], 0)
+    test.eq(output.initializers[2], 1)
+    test.eq(output.initializers[3], output.entry)
+    test.eq(output.entry, 2)
+    test.eq(output.instanceCreations, 1)
+    test.eq(output.functions[2].instructions[1][1], "Nil")
 end
 
 function M.executableModuleProfileRefusesFourthInitializer()
@@ -396,7 +396,7 @@ return creator(false)
     local identity = program.select(input.catalog, "core_contract_fixture", "identity")
     local creatorCalls, innerCalls, innerCreations = 0, 0, 0
     for gi, g in ipairs(output.graphs) do
-        test.equal(#g.blocks, #input.graphs[gi].blocks)
+        test.eq(#g.blocks, #input.graphs[gi].blocks)
         for bi, block in ipairs(g.blocks) do
             equal(block.op, input.graphs[gi].blocks[bi].op)
             equal(block.dst, input.graphs[gi].blocks[bi].dst)
@@ -404,24 +404,24 @@ return creator(false)
             for at, op in ipairs(block.op) do
                 if op == "Closure" and block.args[at][1] == identity.id then
                     innerCreations = innerCreations + 1
-                    test.equal(g.programOwner, creator.id)
+                    test.eq(g.programOwner, creator.id)
                 end
             end
             if block.term.kind == "invoke" then
                 local contract = output.contracts[block.term.contract + 1]
                 creatorCalls = creatorCalls + (contract.target == creator.id and 1 or 0)
                 innerCalls = innerCalls + (contract.target == identity.id and 1 or 0)
-                test.equal(block.term.callee, input.graphs[gi].blocks[bi].term.callee)
+                test.eq(block.term.callee, input.graphs[gi].blocks[bi].term.callee)
                 equal(block.term.args, input.graphs[gi].blocks[bi].term.args)
                 equal(block.term.edges, input.graphs[gi].blocks[bi].term.edges)
             end
         end
     end
-    test.equal(creatorCalls, 2)
-    test.equal(innerCalls, 1)
-    test.equal(innerCreations, 1)
-    test.equal(output.schema.operations[5].name, "Closure")
-    test.equal(output.schema.effects[output.schema.operations[5].effect + 1].pure, false)
+    test.eq(creatorCalls, 2)
+    test.eq(innerCalls, 1)
+    test.eq(innerCreations, 1)
+    test.eq(output.schema.operations[5].name, "Closure")
+    test.eq(output.schema.effects[output.schema.operations[5].effect + 1].pure, false)
     -- This proves structural preservation only. A later runtime must execute
     -- this inner Closure twice and allocate distinct instance identities;
     -- these catalog target counts do not prove handle identity or equality.
@@ -435,7 +435,7 @@ function M.dedicatedSourceFixtureUsesAuthenticCheckedCall()
     local term = invoke(input)
     assert(input.catalog.callByNode[term.contract.call])
     local output = contracts.normalize(input)
-    test.equal(output.signatures[output.catalog[1].signature + 1].result, "boolean")
+    test.eq(output.signatures[output.catalog[1].signature + 1].result, "boolean")
 end
 
 function M.detachmentAndDeterministicNormalization()
@@ -457,50 +457,50 @@ function M.detachmentAndDeterministicNormalization()
     local originalPath = second.graphs[1].positions[1].source.path
     input.graphs[1].positions[1].line = 123456
     input.graphs[1].positions[1].source.path = "changed-input-position"
-    test.equal(second.graphs[1].positions[1].line, original)
-    test.equal(second.graphs[1].positions[1].source.path, originalPath)
+    test.eq(second.graphs[1].positions[1].line, original)
+    test.eq(second.graphs[1].positions[1].source.path, originalPath)
     noObjects(second, {})
 end
 
 function M.falseNilAndEmptyPayloadStayDistinct()
     local truth = contracts.normalize(fixture("true"))
     local falsity = contracts.normalize(fixture("false"))
-    test.equal(truth.graphs[1].constants[1].kind, "true")
-    test.equal(falsity.graphs[1].constants[1].kind, "false")
-    test.equal(falsity.graphs[1].constants[1].value, "")
+    test.eq(truth.graphs[1].constants[1].kind, "true")
+    test.eq(falsity.graphs[1].constants[1].kind, "false")
+    test.eq(falsity.graphs[1].constants[1].value, "")
     local nothing = contracts.normalize(
         source("local function identity(value: nil): nil return value end\nreturn identity(nil)")
     )
-    test.equal(nothing.signatures[nothing.catalog[1].signature + 1].result, "nil")
+    test.eq(nothing.signatures[nothing.catalog[1].signature + 1].result, "nil")
     assert(#nothing.graphs[1].constants == 0)
     local empty = contracts.normalize(source("return nil"))
-    test.equal(#empty.catalog, 1)
-    test.equal(empty.signatures[empty.catalog[1].signature + 1].kind, "initializer")
-    test.equal(empty.signatures[empty.catalog[1].signature + 1].result, "nil")
+    test.eq(#empty.catalog, 1)
+    test.eq(empty.signatures[empty.catalog[1].signature + 1].kind, "initializer")
+    test.eq(empty.signatures[empty.catalog[1].signature + 1].result, "nil")
 end
 
 function M.emptyReturnAndTaggedNilRetainDifferentProducedCounts()
     local empty = contracts.normalize(source("return"))
     local explicit = contracts.normalize(source("return nil"))
-    test.equal(empty.graphs[1].blocks[1].term.value, nil)
+    test.eq(empty.graphs[1].blocks[1].term.value, nil)
     local value = explicit.graphs[1].blocks[1].term.value
     assert(type(value) == "number" and value > 0)
-    test.equal(explicit.graphs[1].types[value], "v")
-    test.equal(explicit.graphs[1].blocks[1].op[1], "Nil")
-    test.equal(empty.signatures[empty.catalog[1].signature + 1].result, "nil")
-    test.equal(explicit.signatures[explicit.catalog[1].signature + 1].result, "nil")
+    test.eq(explicit.graphs[1].types[value], "v")
+    test.eq(explicit.graphs[1].blocks[1].op[1], "Nil")
+    test.eq(empty.signatures[empty.catalog[1].signature + 1].result, "nil")
+    test.eq(explicit.signatures[explicit.catalog[1].signature + 1].result, "nil")
     for _, body in ipairs({"return", "return nil"}) do
         local output = contracts.normalize(source("local function nothing(): nil " .. body .. " end\nreturn nil"))
         local fn = output.catalog[2]
-        test.equal(output.signatures[fn.signature + 1].kind, "callable")
-        test.equal(output.signatures[fn.signature + 1].result, "nil")
+        test.eq(output.signatures[fn.signature + 1].kind, "callable")
+        test.eq(output.signatures[fn.signature + 1].result, "nil")
         local returned = output.graphs[2].blocks[1].term.value
-        test.equal(returned ~= nil, body == "return nil")
+        test.eq(returned ~= nil, body == "return nil")
     end
-    test.equal(empty.schema.returns.absentValueProduces, 0)
-    test.equal(empty.schema.returns.presentValueProduces, 1)
-    test.equal(empty.schema.returns.signatureNilIsVoid, false)
-    test.equal(empty.schema.returns.paddingBelongsToCaller, true)
+    test.eq(empty.schema.returns.absentValueProduces, 0)
+    test.eq(empty.schema.returns.presentValueProduces, 1)
+    test.eq(empty.schema.returns.signatureNilIsVoid, false)
+    test.eq(empty.schema.returns.paddingBelongsToCaller, true)
 end
 
 function M.unhandledGraphMetadataRefusesWithoutMutation()
@@ -514,7 +514,7 @@ function M.unhandledGraphMetadataRefusesWithoutMutation()
             end,
             "unknown semantic field " .. key
         )
-        test.equal(input.graphs[1][key], marker)
+        test.eq(input.graphs[1][key], marker)
         assert(type(invoke(input).contract) == "table")
     end
     local input = fixture()
@@ -537,7 +537,7 @@ function M.nonemptyShapeCatalogUsesExplicitProfileRefusal()
         end,
         "shape-free graph catalog required"
     )
-    test.equal(input.header.shapes[1], shape)
+    test.eq(input.header.shapes[1], shape)
 end
 
 function M.metatableAndUnknownNestedFieldsRefuseBeforeHooks()
@@ -563,7 +563,7 @@ function M.metatableAndUnknownNestedFieldsRefuseBeforeHooks()
         end,
         "plain semantic table required"
     )
-    test.equal(calls, 0)
+    test.eq(calls, 0)
     input = fixture()
     input.graphs[1].blocks[1].term.unknownAuthority = true
     refuses(
@@ -660,7 +660,7 @@ end
 
 function M.checkedLiteralParameterAndResultRefinementsRefuse()
     local parameter = source("local function onlyTrue(value: true): boolean return value end\nreturn onlyTrue(true)")
-    test.equal(parameter.catalog.owners[2].signature.params[1].tag, "literal")
+    test.eq(parameter.catalog.owners[2].signature.params[1].tag, "literal")
     refuses(
         function()
             contracts.normalize(parameter)
@@ -668,7 +668,7 @@ function M.checkedLiteralParameterAndResultRefinementsRefuse()
         "qualified scalar signatures are unsupported"
     )
     local result = source("local function onlyTrue(value: boolean): true return true end\nreturn onlyTrue(false)")
-    test.equal(result.catalog.owners[2].signature.rets[1].tag, "literal")
+    test.eq(result.catalog.owners[2].signature.rets[1].tag, "literal")
     refuses(
         function()
             contracts.normalize(result)
@@ -677,7 +677,7 @@ function M.checkedLiteralParameterAndResultRefinementsRefuse()
     )
     -- A literal argument against a plain Boolean signature stays admitted.
     local ordinary = contracts.normalize(fixture("true"))
-    test.equal(ordinary.graphs[1].constants[1].kind, "true")
+    test.eq(ordinary.graphs[1].constants[1].kind, "true")
 end
 
 function M.unreachableOrCyclicBlocksAreNotSilentlyDropped()
@@ -692,7 +692,7 @@ function M.unreachableOrCyclicBlocksAreNotSilentlyDropped()
         end,
         "cyclic or unreachable graph is unsupported"
     )
-    test.equal(fn.blocks[#fn.blocks], unreachable)
+    test.eq(fn.blocks[#fn.blocks], unreachable)
 end
 
 function M.unknownCapabilityAndAlteredConstantRefuse()

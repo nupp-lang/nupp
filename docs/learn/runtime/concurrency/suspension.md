@@ -19,7 +19,7 @@ child:close()
 
 ::: note Only suspension-aware calls can park
 An arbitrary blocking function or C call still blocks the operating-system
-thread. A library opts into suspension through `nupp.suspension`; the runtime
+thread. A library opts into suspension through `coroutine.suspension`; the runtime
 does not intercept other calls.
 :::
 
@@ -35,7 +35,7 @@ does not intercept other calls.
 
 The library describes the wait. The handler owns scheduling policy, and the
 caller's result remains `process.Result` on every path. See [Child
-processes](nupp.io) for the operation itself.
+processes](io) for the operation itself.
 
 ## Hosts supply scheduling policy
 
@@ -61,7 +61,7 @@ local function printCompilerVersion(): nil
 end
 
 local function application(): nil
-    with installation = nupp.suspension.host.install(frame.handler) do
+    with installation = coroutine.suspension.host.install(frame.handler) do
         printCompilerVersion()
     end
 end
@@ -75,21 +75,11 @@ scope. Most application code only consumes a handler this way. Framework authors
 and scheduler integrations implement one, as [Writing a frame
 handler](#writing-a-frame-handler) shows.
 
-Installing is `nupp.suspension.host`, and parking is `nupp.suspension`. The two
-jobs belong to different people: a library makes itself waitable and never
-installs a handler, while a host decides what runs meanwhile and never
-subscribes to a readiness source. Keeping them apart means neither reads past
-the other's operations to find its own.
-
-::: deepdive
-Suspension is one effect with handlers rather than general algebraic effects,
-which would be a much larger language than anything here needs. One effect buys
-the property a host wants, which is that a wait deep inside a library reaches
-the handler installed around the task, and it costs one construct in the grammar
-and one fact in the checker rather than an effect system every signature has to
-carry.
-
-:::
+Installing is `coroutine.suspension.host`, and parking is
+`coroutine.suspension`. The two jobs belong to different people: a library makes
+itself waitable and never installs a handler, while a host decides what runs
+meanwhile and never subscribes to a readiness source. Keeping them apart means
+neither reads past the other's operations to find its own.
 
 ### Waits park one coroutine
 
@@ -235,14 +225,14 @@ practice:
 
 ```nupp:fragment
 local frame = require("scheduler")
-local suspension = nupp.suspension
+local suspension = coroutine.suspension
 
 local function childWork(): nil
     assert(suspension.handled())
 end
 
 local function application(): nil
-    with installation = nupp.suspension.host.install(frame.handler) do
+    with installation = coroutine.suspension.host.install(frame.handler) do
         local task = suspension.create(childWork)
         local ok, problem = coroutine.resume(task)
         if not ok then
@@ -272,39 +262,6 @@ different handlers at the same time.
 does not register cancellation or give a handler responsibility for the
 suspended stack.
 
-::: deepdive
-The two forms are judged differently where an [affine
-obligation](../ownership/index.md) is live. A raw yield with an obligation outstanding is
-rejected, because nobody is responsible for the abandoned continuation. A
-handled suspension with one outstanding is allowed, because responsibility
-transfers to a handler that owns the continuation and its cancellation until the
-park returns or unwinds.
-
-The yield is recognized by what it is rather than how it is spelled: through the
-library table, through a local bound to that table, or through a name bound to
-the function itself, as `local pause = coroutine.yield` is. A helper this file
-can see is judged by its body, so a call that reaches a raw yield through one or
-several visible functions is refused at the call while the obligation is live. A
-callee reached through a type is answered by that type, as `@nosuspend` is. A
-yield written inside `@unsafe do` is the author's to answer for -- the shape a
-driver takes when it forwards a nested coroutine's park to whoever resumes it --
-and is not counted.
-
-A `borrows` or `exclusive` parameter counts as an outstanding obligation for
-this purpose even though the owner is the caller's. The check sees one frame,
-and the caller's owner would be stranded through a callee that raw-yields
-while holding the view; the callee cannot know whether its caller may. An
-observer that parks while holding a borrowed event therefore does so through
-a handled suspension, which every waiting library call already is.
-
-That permission rests on a trusted handler contract rather than on a proof. The
-checker cannot prove anything about an arbitrary scheduler's cancellation
-behavior, and the invariant being trusted is not that a wait completes, which it
-may legitimately never do, but that the continuation is never abandoned without
-being woken far enough to run its cleanup.
-
-:::
-
 ## Running several waits together
 
 Waiting on more than one thing at a time is a
@@ -318,7 +275,7 @@ A suspension-aware library calls `suspension.suspend` with a subscription. This
 example completes after its readiness source has been polled twice:
 
 ```nupp
-local suspension = nupp.suspension
+local suspension = coroutine.suspension
 
 local function after(polls: integer, value: string): string
     return suspension.suspend("counter", function(resume: function(string), context: suspension.Context): function()
@@ -361,8 +318,8 @@ This scheduler keeps a queue of runnable coroutines. Its event loop calls `tick`
 once per frame to poll readiness sources and resume the tasks they woke.
 
 ```nupp [scheduler.nupp]
-local suspension = nupp.suspension
-local host = nupp.suspension.host
+local suspension = coroutine.suspension
+local host = coroutine.suspension.host
 
 local runnable: {thread} = {}
 
@@ -468,7 +425,7 @@ them, and `goto` may reach a label outside:
 local frame = require("scheduler")
 
 local function choose(): integer
-    with installation = nupp.suspension.host.install(frame.handler) do
+    with installation = coroutine.suspension.host.install(frame.handler) do
         return 1
     end
 end
@@ -487,7 +444,7 @@ handler installation and the lexical state before the label:
 local frame = require("scheduler")
 
 goto inside
-with installation = nupp.suspension.host.install(frame.handler) do
+with installation = coroutine.suspension.host.install(frame.handler) do
     ::inside::
 end
 ```
@@ -548,6 +505,6 @@ so affine files, locks, and native allocations do not become stranded.
 
 ::: seealso
 - [workers.md](workers.md) for CPU parallelism on native threads
-- [](nupp.io) for the library these examples wait on
+- [](io) for the library these examples wait on
 - [ownership.md](../ownership/index.md) for the cleanup a cancelled park unwinds
 :::

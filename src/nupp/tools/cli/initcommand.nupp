@@ -13,7 +13,11 @@ asked for and did not get, which is a rule worth explaining every time it costs
 somebody something rather than only in the documentation.
 ]]
 
-local files = require("nupp.io.files")
+const terminal2 = require("io.terminal")
+
+const terminal = require("io.terminal")
+
+local files = require("io.files")
 local usageError = require("nupp.tools.cli.error").forCommand("init")
 local cliModule = require("arg")
 local report = require("nupp.tools.cli.report")
@@ -95,7 +99,7 @@ local function fail(message: string, asJson: boolean?, code: string?): integer
     if asJson then
         return report.failure(REPORT_SCHEMA, {report.runDiagnostic(code or report.UNREADABLE, message)})
     end
-    io.stderr:write(io.severity(io.style(io.stderr), "error")("nupp:") .. " " .. message .. "\n")
+    io.stderr:write(terminal.severity(terminal.style(io.stderr), "error")("nupp:") .. " " .. message .. "\n")
 
     return 1
 end
@@ -144,7 +148,7 @@ local function confirm(description: string, count: integer, destination: string)
             count == 1 and "" or "s"
         ) .. " from " .. description .. "\n  into " .. destination .. "\n"
     )
-    if not io.isTerminal(io.stdin) then
+    if not terminal2.isterminal(io.stdin) then
         return false, "refusing to write a repository template without a terminal to ask"
             .. "\nPass --yes to accept it unread."
     end
@@ -169,20 +173,25 @@ local function listBuiltins(asJson: boolean): integer
 
         return 0
     end
-    local style = io.style(io.stdout)
+    local style = terminal.style(io.stdout)
     local names = template.builtins()
-    local rows: {{io.Cell}} = {}
+    local rows: {{terminal.Cell}} = {}
     for index, name in ipairs(names) do
-        rows[index] = {io.paintedCell(name, io.severity(style, "note")), io.cell(template.builtinDescription(name)),}
+        rows[
+            index
+        ] = {
+            terminal2.paintedcell(name, terminal.severity(style, "note")),
+            terminal.cell(template.builtinDescription(name)),
+        }
     end
-    io.writeTable(
+    terminal2.writetable(
         io.stdout,
         {
             columns = {{heading = "built-in template"}, {heading = "what it writes"}},
             rows = rows,
             style = style,
             indent = "  ",
-        } as io.TableOptions
+        } as terminal.TableOptions
     )
 
     return 0
@@ -273,7 +282,7 @@ local function scaffold(source: any, destination: string, values: any, set: {[st
 
         return 0
     end
-    local style = io.style(io.stdout)
+    local style = terminal.style(io.stdout)
     if dryRun then
         io.write("Would write " .. #written .. " files into " .. plan.destination .. ":\n")
         for _, path in ipairs(written) do
@@ -340,7 +349,7 @@ local function run(options: any): integer
     -- refused confirmation, a tree that turns out not to be a template, and a
     -- finished scaffold all leave the same nothing behind. One creation and one
     -- close, with the work between them, because the handle is affine.
-    local owned, scratchErr = files.createTemporaryDirectory({prefix = "nupp-template-"} as files.TemporaryOptions)
+    local owned, scratchErr = files.createtemporarydirectory({prefix = "nupp-template-"} as files.TemporaryOptions)
     if not owned then
         return fail("cannot create a temporary directory: " .. tostring(scratchErr), values.format == "json")
     end
@@ -365,7 +374,7 @@ end
 ---     nupp init app hello
 ---     nupp init lib math
 @cli("init")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Init
     --- Project name; defaults to the directory basename.
     @cli(value = "NAME")

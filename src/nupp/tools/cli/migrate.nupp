@@ -203,7 +203,7 @@ end
 ---     nupp migrate src/legacy.lua
 ---     nupp migrate --dialect luacats src/one.lua src/two.lua
 @cli("migrate")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Migrate
     --- Print the migration plan without changing files.
     dryRun: boolean = false

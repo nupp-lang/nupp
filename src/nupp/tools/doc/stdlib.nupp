@@ -1,29 +1,38 @@
 module nupp.tools.doc.stdlib
 
 --[[
-The LuaJIT standard library: every global and bundled module the checker knows,
-on one page.
+Extracts LuaJIT declarations into module documentation and a library index.
 
-The declarations are the compiler's own. `nupp` reads them to decide what a
-program is allowed to call and what each call returns, and this reads the same
-files, so the page and the checker cannot disagree about a signature. A
-handwritten page beside them would be a second copy that goes stale the first
-time an argument changes.
-
-One page rather than one per library, because that is how the library is used:
-a reader looking for `string.format` is as likely to be looking for
-`table.concat` next, and the browser's own find reaches both at once.
-
-The compiler-provided globals come first, then the libraries a program names without
-requiring anything, then the modules `require` loads. What `nupp` itself
-provides is not here: it has module pages of its own.
+The module pages combine the compiler's builtin declarations with the APIs
+implemented in Nupp. The index keeps globals, intrinsic types, and links to
+those shared pages.
 ]]
 
 local bundledMod = require("nupp.compiler.bundled")
 local extractMod = require("nupp.tools.doc.extract")
 local markdownMod = require("nupp.tools.doc.markdown")
+local stringsMod = require("nupp.tools.doc.strings")
+local urlsMod = require("nupp.tools.doc.urls")
+local annotationapi = require("nupp.tools.doc.annotationapi")
 
 local stdlib = {}
+
+--- A declaration and its nested members, linked to the generated index.
+record stdlib.Entry
+    name: string
+    path: string
+    items: {stdlib.Entry}?
+    module: string?
+end
+
+--- The builtin libraries, globals, and intrinsic types extracted for navigation.
+type stdlib.Navigation = {
+    libraries: {stdlib.Entry},
+    globals: {stdlib.Entry},
+    types: {stdlib.Entry},
+    reflection: {stdlib.Entry},
+    annotations: {stdlib.Entry}?
+}
 
 --- The generated page: the route it is written to, its title, and its markdown.
 type stdlib.Page = {
@@ -32,7 +41,13 @@ type stdlib.Page = {
     redirects: {string}?,
     source: string?,
     symbols: {[string]: string}?,
-    title: string
+    title: string,
+    navigation: stdlib.Navigation?,
+    modules: {extractMod.Module},
+    indexModules: {extractMod.Module}?,
+    globalItems: {extractMod.Item},
+    typeItems: {extractMod.Item},
+    annotationItems: {extractMod.Item}
 }
 
 --- Where a manifest asked the page to live, and what to call it.
@@ -63,12 +78,192 @@ local SOURCES: {
     new Source(file = "/decls/jit/util.d.nupp", required = "jit.util"),
     new Source(file = "/decls/jit/profile.d.nupp", required = "jit.profile"),
     new Source(file = "/decls/jit/zone.d.nupp", required = "jit.zone"),
+    new Source(file = "/decls/jit/vmdef.d.nupp", required = "jit.vmdef"),
 }
 
-local INTRO = "Every name a checked program can use without declaring it, and every "
-    .. "module LuaJIT loads by name, as the compiler itself declares them. `nupp` "
-    .. "reads these files to decide what a call means, so a signature here is the "
-    .. "signature the checker enforces."
+-- Lua standard-library names from the Lua 5.1 through 5.5 manual indexes.
+-- https://www.lua.org/manual/5.5/contents.html (and the 5.1 through 5.4 editions).
+-- https://www.lua.org/manual/5.0/manual.html#5.1 documents gcinfo;
+-- https://www.lua.org/source/5.1/lbaselib.c.html installs newproxy. The public
+-- path identifies the API even when its implementation belongs to Nupp.
+local LUA_NAMES = {
+    ["LuaFile.close"] = true,
+    ["LuaFile.flush"] = true,
+    ["LuaFile.lines"] = true,
+    ["LuaFile.read"] = true,
+    ["LuaFile.seek"] = true,
+    ["LuaFile.setvbuf"] = true,
+    ["LuaFile.write"] = true,
+    ["assert"] = true,
+    ["bit32.arshift"] = true,
+    ["bit32.band"] = true,
+    ["bit32.bnot"] = true,
+    ["bit32.bor"] = true,
+    ["bit32.btest"] = true,
+    ["bit32.bxor"] = true,
+    ["bit32.extract"] = true,
+    ["bit32.lrotate"] = true,
+    ["bit32.lshift"] = true,
+    ["bit32.replace"] = true,
+    ["bit32.rrotate"] = true,
+    ["bit32.rshift"] = true,
+    ["collectgarbage"] = true,
+    ["coroutine.close"] = true,
+    ["coroutine.create"] = true,
+    ["coroutine.isyieldable"] = true,
+    ["coroutine.resume"] = true,
+    ["coroutine.running"] = true,
+    ["coroutine.status"] = true,
+    ["coroutine.wrap"] = true,
+    ["coroutine.yield"] = true,
+    ["debug.debug"] = true,
+    ["debug.getfenv"] = true,
+    ["debug.gethook"] = true,
+    ["debug.getinfo"] = true,
+    ["debug.getlocal"] = true,
+    ["debug.getmetatable"] = true,
+    ["debug.getregistry"] = true,
+    ["debug.getupvalue"] = true,
+    ["debug.getuservalue"] = true,
+    ["debug.setfenv"] = true,
+    ["debug.sethook"] = true,
+    ["debug.setlocal"] = true,
+    ["debug.setmetatable"] = true,
+    ["debug.setupvalue"] = true,
+    ["debug.setuservalue"] = true,
+    ["debug.traceback"] = true,
+    ["debug.upvalueid"] = true,
+    ["debug.upvaluejoin"] = true,
+    ["dofile"] = true,
+    ["error"] = true,
+    ["gcinfo"] = true,
+    ["getfenv"] = true,
+    ["getmetatable"] = true,
+    ["io.close"] = true,
+    ["io.flush"] = true,
+    ["io.input"] = true,
+    ["io.lines"] = true,
+    ["io.open"] = true,
+    ["io.output"] = true,
+    ["io.popen"] = true,
+    ["io.read"] = true,
+    ["io.tmpfile"] = true,
+    ["io.type"] = true,
+    ["io.write"] = true,
+    ["ipairs"] = true,
+    ["load"] = true,
+    ["loadfile"] = true,
+    ["loadstring"] = true,
+    ["math.abs"] = true,
+    ["math.acos"] = true,
+    ["math.asin"] = true,
+    ["math.atan"] = true,
+    ["math.atan2"] = true,
+    ["math.ceil"] = true,
+    ["math.cos"] = true,
+    ["math.cosh"] = true,
+    ["math.deg"] = true,
+    ["math.exp"] = true,
+    ["math.floor"] = true,
+    ["math.fmod"] = true,
+    ["math.frexp"] = true,
+    ["math.ldexp"] = true,
+    ["math.log"] = true,
+    ["math.log10"] = true,
+    ["math.max"] = true,
+    ["math.min"] = true,
+    ["math.modf"] = true,
+    ["math.pow"] = true,
+    ["math.rad"] = true,
+    ["math.random"] = true,
+    ["math.randomseed"] = true,
+    ["math.sin"] = true,
+    ["math.sinh"] = true,
+    ["math.sqrt"] = true,
+    ["math.tan"] = true,
+    ["math.tanh"] = true,
+    ["math.tointeger"] = true,
+    ["math.type"] = true,
+    ["math.ult"] = true,
+    ["module"] = true,
+    ["newproxy"] = true,
+    ["next"] = true,
+    ["os.clock"] = true,
+    ["os.date"] = true,
+    ["os.difftime"] = true,
+    ["os.execute"] = true,
+    ["os.exit"] = true,
+    ["os.getenv"] = true,
+    ["os.remove"] = true,
+    ["os.rename"] = true,
+    ["os.setlocale"] = true,
+    ["os.time"] = true,
+    ["os.tmpname"] = true,
+    ["package.loadlib"] = true,
+    ["package.searchpath"] = true,
+    ["package.seeall"] = true,
+    ["pairs"] = true,
+    ["pcall"] = true,
+    ["print"] = true,
+    ["rawequal"] = true,
+    ["rawget"] = true,
+    ["rawlen"] = true,
+    ["rawset"] = true,
+    ["require"] = true,
+    ["select"] = true,
+    ["setfenv"] = true,
+    ["setmetatable"] = true,
+    ["string.byte"] = true,
+    ["string.char"] = true,
+    ["string.dump"] = true,
+    ["string.find"] = true,
+    ["string.format"] = true,
+    ["string.gmatch"] = true,
+    ["string.gsub"] = true,
+    ["string.len"] = true,
+    ["string.lower"] = true,
+    ["string.match"] = true,
+    ["string.pack"] = true,
+    ["string.packsize"] = true,
+    ["string.rep"] = true,
+    ["string.reverse"] = true,
+    ["string.sub"] = true,
+    ["string.unpack"] = true,
+    ["string.upper"] = true,
+    ["table.concat"] = true,
+    ["table.create"] = true,
+    ["table.insert"] = true,
+    ["table.maxn"] = true,
+    ["table.move"] = true,
+    ["table.pack"] = true,
+    ["table.remove"] = true,
+    ["table.sort"] = true,
+    ["table.unpack"] = true,
+    ["tonumber"] = true,
+    ["tostring"] = true,
+    ["type"] = true,
+    ["unpack"] = true,
+    ["utf8.char"] = true,
+    ["utf8.codepoint"] = true,
+    ["utf8.codes"] = true,
+    ["utf8.len"] = true,
+    ["utf8.offset"] = true,
+    ["warn"] = true,
+    ["xpcall"] = true,
+}
+
+local function markLua(items)
+    for _, item in ipairs(items or {}) do
+        local callable = item.kind == "function" or item.isFunction or item.kind == "variable"
+        if LUA_NAMES[item.path] and callable then
+            item.lua = true
+        end
+        markLua(item.members)
+    end
+end
+
+local INTRO = "The API reference includes Lua functions and the libraries implemented in Nupp. "
+    .. "Each module page documents both in one place; a Lua badge identifies functions with Lua API names."
 
 local GLOBALS = "The functions and values a program can name anywhere. Their "
     .. "declarations are loaded before any source is checked, so nothing requires them "
@@ -131,16 +326,6 @@ local function anchorByName(items: {extractMod.Item})
     end
 end
 
--- A library's member is written qualified, and a page says what a program writes: the
--- heading over `math.abs` reads `math.abs`, so the outline, the site's search and the
--- browser's own find all answer to the spelling a reader is looking for. The anchor
--- already said so; this makes the name beside it agree.
-local function qualifyNames(library: string, items: {extractMod.Item})
-    for _, item in ipairs(items) do
-        item.name = library .. "." .. item.name
-    end
-end
-
 -- A declaration file's library is the record it hands back, and the binding underneath
 -- it -- `local util: JitUtil` -- adds a second entry that repeats the first. The record
 -- carries the documentation, so the binding goes.
@@ -172,78 +357,265 @@ local function section(out: {string}, title: string, text: string?, items: {extr
     end
 end
 
---- The whole standard library as one page, or nil when the manifest asked for no page.
----
---- A declaration this compiler does not carry is left out rather than reported: the
---- page describes the surface the binary rendering it actually checks against, and a
---- build that carries fewer declarations checks against fewer.
----
---- @param settings where the manifest asked the page to live, or nil for no page
---- @return the page, or nil when no page was asked for
-function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
-    if not settings then
-        return nil
+-- Keep declaration paths beside the labels before qualification changes their
+-- displayed names. The same extracted items write the body and the navigation.
+local function navigationItems(items: {any}): {stdlib.Entry}
+    local entries: {stdlib.Entry} = {}
+    for _, item in ipairs(items) do
+        entries[
+            #entries + 1
+        ] = new stdlib.Entry(name = item.name, path = item.path, items = navigationItems(item.members or {}))
     end
-    local title = settings.title or "LuaJIT standard library"
-    local out = {"# " .. title, "", INTRO, ""}
-    local types: {extractMod.Item} = {}
-    for _, source in ipairs(SOURCES) do
-        local text = bundledMod.source(source.file)
-        if text then
-            local path = source.file:gsub("^/", "")
-            local module, _, libraries = extractMod.extract(text, path, source.required or "globals", {
-                shapesAsModules = source.required == nil
-            })
-            if module then
-                if source.required then
-                    local items = withoutRedeclaredBindings(module.items)
-                    qualifyNames(source.required, items)
-                    section(out, "`" .. source.required .. "`", module.text, items)
-                else
-                    local globals = only(module.items, isGlobal)
-                    anchorByName(globals)
-                    section(out, "Globals", GLOBALS, globals)
-                    for _, item in ipairs(only(module.items, isType)) do
-                        types[#types + 1] = item
-                    end
-                end
-            end
-            -- Each shape-typed global is a library of its own, in the order the
-            -- declarations give them.
-            for _, library in ipairs(libraries or {}) do
-                qualifyNames(library.name, library.items)
-                section(out, "`" .. library.name .. "`", library.text, library.items)
-            end
+
+    return entries
+end
+
+local function libraryEntry(module: extractMod.Module): stdlib.Entry
+    return new stdlib.Entry(
+        name = module.name,
+        path = stringsMod.headingId(module.name),
+        items = navigationItems(module.items),
+        module = module.name
+    )
+end
+
+local function indexMarkdown(page: stdlib.Page): string
+    local out = {"# " .. page.title, "", INTRO, ""}
+    local prefix = urlsMod.relativePrefix(urlsMod.routeFile(page.path))
+    local owners = {}
+    for _, entry in ipairs(page.navigation and page.navigation.globals or {}) do
+        if entry.module then
+            owners[entry.name] = entry.module
         end
     end
-    anchorByName(types)
-    local symbols: {[string]: string} = {}
-    for _, item in ipairs(types) do
-        symbols[item.name] = item.path
+    local globals = {}
+    for _, item in ipairs(page.globalItems) do
+        if not owners[item.name] then
+            globals[#globals + 1] = item
+        end
+    end
+    section(out, "Modules", nil, nil)
+    for _, module in ipairs(page.indexModules or page.modules) do
+        out[#out + 1] = "- [`" .. module.name .. "`](" .. prefix .. urlsMod.moduleFile(module.name) .. ")"
+    end
+    out[#out + 1] = ""
+    section(out, "Globals", GLOBALS, globals)
+    for _, item in ipairs(page.globalItems) do
+        local owner = owners[item.name]
+        if owner then
+            out[#out + 1] = '<a id="' .. item.path .. '"></a>'
+            out[
+                #out + 1
+            ] = "- [`" .. item.name .. "`](" .. prefix .. urlsMod.moduleFile(owner) .. "#" .. item.path .. ")"
+        end
     end
     section(
         out,
         "Types",
         TYPES,
+        only(page.typeItems, function(item: extractMod.Item): boolean
+            return not isReflection(item)
+        end)
+    )
+    section(out, "Reflection", REFLECTION, only(page.typeItems, isReflection))
+    section(
+        out,
+        "Annotations",
+        "Annotations carry checked, type-erased metadata. "
+        .. "File directives use `@!name` and occupy a separate namespace.",
+        page.annotationItems
+    )
+
+    return table.concat(out, "\n")
+end
+
+--- Extracts the standard libraries and their index from the compiler's declarations.
+function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
+    if not settings then
+        return nil
+    end
+    local types: {extractMod.Item} = {}
+    local globals: {extractMod.Item} = {}
+    local modules: {extractMod.Module} = {}
+    local qualified: {extractMod.Item} = {}
+    local annotationItems = annotationapi.items()
+    local navigation: stdlib.Navigation = {
+        libraries = {},
+        globals = {},
+        types = {},
+        reflection = {},
+        annotations = navigationItems(annotationItems)
+    }
+    for _, source in ipairs(SOURCES) do
+        local text = bundledMod.source(source.file)
+        if text then
+            local path = source.file:gsub("^/", "")
+            local module, _, libraries = extractMod.extract(text, path, source.required or "globals", {
+                shapesAsModules = source.required == nil,
+                returnedAsModule = source.required ~= nil,
+                publicNames = source.file == "/decls/lua.d.nupp" and {_G = true, _VERSION = true} or nil
+            })
+            if module then
+                for _, item in ipairs(module.items) do
+                    if item.module then
+                        qualified[#qualified + 1] = item
+                    end
+                end
+                if source.required then
+                    module.items = withoutRedeclaredBindings(module.items)
+                    module.path = nil
+                    modules[#modules + 1] = module
+                    navigation.libraries[#navigation.libraries + 1] = libraryEntry(module)
+                else
+                    local declaredGlobals = only(module.items, isGlobal)
+                    anchorByName(declaredGlobals)
+                    for _, item in ipairs(declaredGlobals) do
+                        globals[#globals + 1] = item
+                    end
+                    for _, entry in ipairs(navigationItems(declaredGlobals)) do
+                        navigation.globals[#navigation.globals + 1] = entry
+                    end
+                    for _, item in ipairs(only(module.items, isType)) do
+                        types[#types + 1] = item
+                    end
+                end
+            end
+            for _, library in ipairs(libraries or {}) do
+                library.path = nil
+                modules[#modules + 1] = library
+                navigation.libraries[#navigation.libraries + 1] = libraryEntry(library)
+            end
+        end
+    end
+    -- A qualified declaration belongs to the library that already publishes its
+    -- namespace. Keep that one contract rather than dropping it from both the
+    -- standalone Types list and its actual module page.
+    for _, item in ipairs(qualified) do
+        for _, library in ipairs(modules) do
+            if library.name == item.module then
+                item.path = library.name .. "." .. item.name
+                for _, member in ipairs(item.members or {}) do
+                    member.path = item.path .. "." .. member.name
+                end
+                library.items[#library.items + 1] = item
+                break
+            end
+        end
+    end
+    anchorByName(types)
+    navigation.types = navigationItems(
         only(types, function(item: extractMod.Item): boolean
             return not isReflection(item)
         end)
     )
-    section(out, "Reflection", REFLECTION, only(types, isReflection))
-
-    return {
-        path = settings.path or "luajit",
-        title = title,
-        -- No fence here asks for an editor. The page is an index, and an index is
-        -- searched: the browser's own find has to reach every signature at once, and
-        -- text inside an editor frame is not findable. A signature is a declaration
-        -- rather than a program besides, so there would be nothing to check.
-        markdown = table.concat(out, "\n"),
-        -- Ambient types have no module page to enter them in the ordinary symbol
-        -- index. Publish their anchors with this generated page so API signatures
-        -- such as a field of type `LuaFile` can still reach the canonical declaration.
-        symbols = symbols
+    navigation.reflection = navigationItems(only(types, isReflection))
+    markLua(globals)
+    markLua(types)
+    for _, library in ipairs(modules) do
+        markLua(library.items)
+    end
+    local symbols: {[string]: string} = {}
+    for _, item in ipairs(types) do
+        symbols[item.name] = item.path
+    end
+    for _, item in ipairs(annotationItems) do
+        symbols[item.name] = item.path
+    end
+    local page: stdlib.Page = {
+        path = settings.path or "api",
+        title = settings.title or "API reference",
+        markdown = "",
+        symbols = symbols,
+        navigation = navigation,
+        modules = modules,
+        globalItems = globals,
+        typeItems = types,
+        annotationItems = annotationItems
     }
+    page.markdown = indexMarkdown(page)
+
+    return page
+end
+
+--- Combines builtin declarations with the source-owned module for the same name.
+function stdlib.merge(modules: {extractMod.Module}, page: stdlib.Page?): nil
+    if not page then
+        return
+    end
+    local byName = {}
+    for _, module in ipairs(modules) do
+        byName[module.name] = module
+    end
+
+    local function mergeItems(owned, builtin)
+        local byPath = {}
+        for _, item in ipairs(owned) do
+            byPath[item.path] = item
+        end
+        for _, item in ipairs(builtin) do
+            local held = byPath[item.path]
+            if held then
+                held.lua = held.lua or item.lua
+                if held.doc and item.doc and held.doc.text == "" then
+                    held.doc = item.doc
+                end
+                if held.text == "" and item.text then
+                    held.text = item.text
+                end
+                if item.members and #item.members > 0 then
+                    held.members = held.members or {}
+                    mergeItems(held.members, item.members)
+                end
+            else
+                owned[#owned + 1] = item
+                byPath[item.path] = item
+            end
+        end
+    end
+
+    -- Globals with an owned facade retain their actual callable or array declaration
+    -- on that page. The index and the Globals navigation only link to it.
+    for _, item in ipairs(page.globalItems) do
+        local owner = byName[item.name]
+        if owner and not owner.namespace then
+            mergeItems(owner.items, {item})
+            for _, entry in ipairs(page.navigation and page.navigation.globals or {}) do
+                if entry.name == item.name then
+                    entry.module = owner.name
+                end
+            end
+        end
+    end
+    for _, builtin in ipairs(page.modules) do
+        local owned = byName[builtin.name]
+        if owned then
+            mergeItems(owned.items, builtin.items)
+            if owned.text == "" then
+                owned.text = builtin.text
+            end
+            owned.namespace = nil
+        else
+            modules[#modules + 1] = builtin
+            byName[builtin.name] = builtin
+        end
+    end
+
+    local function itemOrder(left, right)
+        if left.kind ~= right.kind then
+            return left.kind < right.kind
+        end
+        return left.name < right.name
+    end
+
+    for _, module in ipairs(modules) do
+        markLua(module.items)
+        table.sort(module.items, itemOrder)
+    end
+    table.sort(modules, function(left, right)
+        return left.name < right.name
+    end)
+    page.indexModules = modules
+    page.markdown = indexMarkdown(page)
 end
 
 export = stdlib

@@ -119,16 +119,6 @@ on each test and added under the run's `metrics` field.
 The `app` and `lib` templates include a real suite using `assert`.
 `nupp test` builds first and forwards its remaining arguments to the runner.
 
-::: deepdive
-The runner is written in Lua rather than Nupp because it loads the compiler
-that the build produced and calls it to compile the Nupp suites. A runner
-written in Nupp would be a build product of the code under test, so the change
-that broke compilation would take the report of that breakage with it.
-Compiling a suite is therefore work the runner does at run time, and a suite
-that fails to compile is reported as a failing test rather than a missing
-runner.
-:::
-
 ### Writing a test
 
 A test is a function on the table a suite returns:
@@ -139,7 +129,7 @@ local M = {}
 
 function M.narrowsOnIs()
    local got = checkOf("local s: string | number = 'x' if s is string then end")
-   test.equal(got, "")
+   test.eq(got, "")
 end
 
 return M
@@ -148,10 +138,10 @@ return M
 `assert` is a callable table and a shipped module. Calling it returns every
 argument when the first is truthy and keeps Lua's error behavior otherwise.
 
-`test.equal`, `test.notEqual`, `test.matches`, and `test.raises` include the
+`test.eq`, `test.ne`, `test.matches`, and `test.raises` include the
 relevant values in failures. Long and multiline values use a block layout,
 and large values are truncated to keep the failure readable.
-`test.deepEqual(actual, expected)` compares table fields recursively and names
+`test.deepeq(actual, expected)` compares table fields recursively and names
 the first differing path. Its table keys are booleans, numbers, or strings;
 other leaves use native equality. `test.suite.skip("reason")` records a skipped test.
 
@@ -169,7 +159,7 @@ return test.suite.cases(
       { name = "three", input = "nupp", expected = 4 },
    },
    function(row) return row.name end,
-   function(row) test.equal(#row.input, row.expected) end
+   function(row) test.eq(#row.input, row.expected) end
 )
 ```
 
@@ -250,13 +240,13 @@ A case reports unavailable hardware or software as not executed. The result is
 distinct from a pass, an authored skip, and a failure:
 
 ```lua
-test.suite.requireCapability("cpu.avx2", hasAvx2, { probe = probeOutput })
+test.suite.requirecapability("cpu.avx2", hasAvx2, { probe = probeOutput })
 ```
 
-The third argument records the evidence used by the test. `test.suite.notExecuted`
+The third argument records the evidence used by the test. `test.suite.notexecuted`
 is available when the capability check does not fit a Boolean probe. The text
 runner prints `N`, and JSON reports `status: "not-executed"`. A
-`requireCapability` result also carries its evidence. Not executed is a
+`requirecapability` result also carries its evidence. Not executed is a
 successful run outcome, but it does not emit passing facts or satisfy a
 coverage obligation.
 
@@ -324,11 +314,11 @@ local fixture = tests.nuppfixture
 local test = assert
 
 export function addsNumbers(): nil
-    test.equal(20 + 22, 42)
+    test.eq(20 + 22, 42)
 end
 
 export function requiresNuppProjectModules(): nil
-    test.equal(fixture.answer, 42)
+    test.eq(fixture.answer, 42)
 end
 ```
 
@@ -383,17 +373,6 @@ The runner runs on the VM: Nupp suites lower to images with the VM's own
 lowering, and a module the runner does not carry is compiled from source when a
 suite first requires it. A parallel lane is another process rather than a
 worker inside one.
-
-::: deepdive
-The default is one worker per processor. `--jobs=N` is explicit because the
-useful count depends on the machine and on whether the suites spend their time
-computing, compiling, or waiting on subprocesses.
-
-What neither the count nor the queue fixes is a single test case longer than a
-fair share. A case is the smallest thing that can be handed out, so the longest
-one is the floor: on the compiler's own suite that is a `soatest` case at about
-a minute and a half under load, and no arrangement of workers goes under it.
-:::
 
 ## JSON output
 

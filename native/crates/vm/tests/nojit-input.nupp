@@ -6,10 +6,10 @@ const assert2 = require("assert")
 -- the public SIMD suites, the per-kind maps and the task fixture, so one
 -- linked object covers every case the gate runs.
 const array = require("nupp.mem.array")
-const span = require("nupp.mem.span")
+const span = require("binary.span")
 const simd = require("simd")
-const tasks = require("nupp.tasks")
-const time = require("nupp.time")
+const tasks = require("coroutine")
+const time = require("coroutine")
 const kernels = require("kernels")
 const kinds = require("nupp.tests.nojitkinds")
 const publicSuite = require("nupp.tests.vmsimd")
@@ -204,14 +204,14 @@ local function blockSum(seed: integer, pause: integer): string
         total = total + species:load(reader, cursor + 1, active)
     end
 
-    return string.format("%d:%.17g", seed, simd.horizontal.algebraicSum(total))
+    return string.format("%d:%.17g", seed, simd.horizontal.algebraicsum(total))
 end
 
 --- Scheduled tasks that park on timers inside vector loops and resume,
 --- interleaved; the results do not depend on the interleaving.
 export function scheduled(): string
     local out: {string} = {}
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         local first = scope:spawn(function(): string
             return blockSum(37, 5)
         end)

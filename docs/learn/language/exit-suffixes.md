@@ -103,7 +103,7 @@ end
 
 [`try`](nupp.util) passes the raised value
 through as `unknown`, so a function propagating it declares its reason
-`unknown` and narrows at the edge that reports the error. `nupp.util.tryWith`
+`unknown` and narrows at the edge that reports the error. `nupp.util.trywith`
 takes a handler instead, which runs before the stack unwinds — so it can still
 collect a traceback — and whatever it returns is the reason.
 

@@ -17,9 +17,9 @@ local valuebuilder = require("serde.valuebuilder")
 local function decode(source: string, nullValue: any): any
     local builder = valuebuilder.new(nullValue)
 
-    valuebuilder.openObject(builder, u32.wrap(1))
+    valuebuilder.openobject(builder, u32.wrap(1))
     valuebuilder.key(builder, source, u32.wrap(2), u32.wrap(2), false)
-    valuebuilder.numberSlice(builder, source, u32.wrap(7), u32.wrap(2))
+    valuebuilder.numberslice(builder, source, u32.wrap(7), u32.wrap(2))
     valuebuilder.close(builder)
 
     return valuebuilder.finish(builder)
@@ -54,7 +54,7 @@ local implementation = require("nupp.serde.internal.valuebuilder")
 --- Starts a direct stream of values.
 ---
 --- This is the streaming shape. Open a container with
---- [](serde.valuebuilder.openArray) or [](serde.valuebuilder.openObject), add
+--- [](serde.valuebuilder.openarray) or [](serde.valuebuilder.openobject), add
 --- values to it, [](serde.valuebuilder.close) it, and take the single root back
 --- from [](serde.valuebuilder.finish). A stream must publish exactly one root:
 --- adding a second value at the top level raises, and so does finishing with
@@ -63,7 +63,7 @@ local implementation = require("nupp.serde.internal.valuebuilder")
 --- The ordinary implementation keeps growable Lua state and is the `aot = "off"`
 --- oracle. VM-aware AOT keeps the same state in a bounded C stack object and
 --- roots every unfinished container on the Lua stack; it admits at most 1,024
---- open containers. Use [](serde.valuebuilder.newSized) to choose that bound, and
+--- open containers. Use [](serde.valuebuilder.newsized) to choose that bound, and
 --- to reserve scratch for transformed strings, when the parser knows better.
 ---
 --- ```nupp
@@ -76,7 +76,7 @@ local implementation = require("nupp.serde.internal.valuebuilder")
 --- local function pair(nullValue: any): any
 ---     local builder = valuebuilder.new(nullValue)
 ---
----     valuebuilder.openArray(builder, u32.wrap(2))
+---     valuebuilder.openarray(builder, u32.wrap(2))
 ---     valuebuilder.boolean(builder, true)
 ---     valuebuilder.null(builder)
 ---     valuebuilder.close(builder)
@@ -108,7 +108,7 @@ export const new = implementation.new
 --- @param maxDepth the most containers that may be open at once
 --- @param stringCapacity the most bytes one transformed string may need
 --- @return the stream handle, on the same terms as [](serde.valuebuilder.new)
-export const newSized = implementation.newSized
+export const newsized = implementation.newSized
 
 --- Publishes an integer magnitude accumulated in native uint64 arithmetic.
 --- Internal to AOT codecs that must avoid a decimal rescan.
@@ -129,7 +129,7 @@ export const decimal64 = implementation.decimal64
 --- keeps the read admissible inside `@aot`.
 --- @param bytes the rooted string to measure
 --- @return its length in bytes
-export const length = implementation.length
+export const len = implementation.length
 
 --- Views the rooted bytes as a byte span, which is what the vector loads read.
 ---
@@ -146,7 +146,7 @@ export const length = implementation.length
 --- of one is refused, because the C name the load addresses is the
 --- parameter's.
 ---
---- In ordinary Lua the span is the same checked view `nupp.mem.span.fromString`
+--- In ordinary Lua the span is the same checked view `binary.span.fromstring`
 --- returns, and the bytes have to be a string: a view roots nothing itself, so
 --- there is no rooted string for a buffer's unread bytes to be viewed through.
 --- Every vector path is inside a `simd.species` guard, which is nil there, so
@@ -158,7 +158,7 @@ export const bytes = implementation.bytes
 
 --- Reads a byte at a zero-based offset.
 ---
---- The scanning counterpart of [](serde.valuebuilder.length); read whole words
+--- The scanning counterpart of [](serde.valuebuilder.len); read whole words
 --- with [](serde.valuebuilder.word) when the bytes are a packed side table rather
 --- than the document.
 --- @param bytes the rooted string to read
@@ -178,7 +178,7 @@ export const byte = implementation.byte
 --- @param offset the proved in-bounds zero-based byte offset
 --- @return the byte, 0 through 255
 --- @raises string when offset is outside bytes outside AOT
-export const byteAt = implementation.byteAt
+export const byteat = implementation.byteAt
 
 --- Reads a native-endian uint32 at a zero-based word index.
 ---
@@ -193,7 +193,7 @@ export const word = implementation.word
 
 --- Allocates a fixed uint32 work buffer, every word of it readable at once.
 ---
---- The difference from [](serde.valuebuilder.newWordScratch) is what
+--- The difference from [](serde.valuebuilder.newwordscratch) is what
 --- "initialized" means. That buffer grows: a word is readable once something
 --- has written it, so reading ahead of the writes raises, and the bound every
 --- access is checked against is a length that moves. This one is zero from the
@@ -212,53 +212,53 @@ export const word = implementation.word
 --- not known is not one anything can reason about. Ordinary Nupp takes any.
 --- @param capacity how many words this buffer holds
 --- @return the scratch handle, local to the call that allocated it
-export const newFixedWordScratch = implementation.newFixedWordScratch
+export const newfixedwordscratch = implementation.newFixedWordScratch
 
 --- Allocates a bounded uint32 work buffer local to one decode.
 ---
 --- AOT lowers this to Lua-owned userdata, so its address remains stable across
 --- value allocations without crossing the public API as a pointer. Words are
 --- initialized by contiguous writes before they can be read: append or overwrite
---- with [](serde.valuebuilder.setScratchWord), and read it back with
---- [](serde.valuebuilder.scratchWord). For transformed bytes rather than indexes,
---- use [](serde.valuebuilder.newByteScratch).
+--- with [](serde.valuebuilder.setscratchword), and read it back with
+--- [](serde.valuebuilder.scratchword). For transformed bytes rather than indexes,
+--- use [](serde.valuebuilder.newbytescratch).
 --- A zero-capacity scratch allocates no userdata and remains valid until an
 --- attempted read or write reports the ordinary bounds error.
 --- @param capacity the most words this buffer will ever hold
 --- @return the scratch handle, local to the call that allocated it
-export const newWordScratch = implementation.newWordScratch
+export const newwordscratch = implementation.newWordScratch
 
 --- Reads a word from a local work buffer.
 ---
 --- Only initialized words can be read, so an index at or past the buffer's
 --- current length raises rather than answering whatever was there.
---- @param scratch a buffer from [](serde.valuebuilder.newWordScratch)
+--- @param scratch a buffer from [](serde.valuebuilder.newwordscratch)
 --- @param index the zero-based word index
 --- @return the word's value
 --- @raises string when the indexed word has not been initialized
-export const scratchWord = implementation.scratchWord
+export const scratchword = implementation.scratchWord
 
 --- Returns the initialized word count of a local work buffer.
---- @param scratch a buffer from [](serde.valuebuilder.newWordScratch)
+--- @param scratch a buffer from [](serde.valuebuilder.newwordscratch)
 --- @return the number of initialized words
-export const scratchLength = implementation.scratchLength
+export const scratchlength = implementation.scratchLength
 
 --- Writes an existing word or appends the next contiguous word.
 ---
 --- Writing at the buffer's current length appends and grows it by one; writing
 --- below that overwrites. There is no way to write past the end, which is what
 --- makes "initialized" mean the same thing as "below the length" for
---- [](serde.valuebuilder.scratchWord).
---- @param scratch a buffer from [](serde.valuebuilder.newWordScratch)
+--- [](serde.valuebuilder.scratchword).
+--- @param scratch a buffer from [](serde.valuebuilder.newwordscratch)
 --- @param index the zero-based word index, at most the current length
 --- @param value the word to store
 --- @raises string when the index leaves a gap or exceeds the capacity
-export const setScratchWord = implementation.setScratchWord
+export const setscratchword = implementation.setScratchWord
 
 --- Allocates a fixed byte work buffer, every byte of it readable at once.
 ---
---- The byte counterpart of [](serde.valuebuilder.newFixedWordScratch), and
---- the difference from [](serde.valuebuilder.newByteScratch) is the same
+--- The byte counterpart of [](serde.valuebuilder.newfixedwordscratch), and
+--- the difference from [](serde.valuebuilder.newbytescratch) is the same
 --- one. That buffer grows: a byte is readable once something has written it,
 --- so the bound every access is checked against is a length that moves. This
 --- one is zero from the moment it exists, so every byte below the capacity is
@@ -272,47 +272,47 @@ export const setScratchWord = implementation.setScratchWord
 --- instead of allocating it. `bench/sha256` measured those two together at
 --- about a hundred nanoseconds of a two-hundred-and-ninety nanosecond digest.
 ---
---- There is no emptying it: [](serde.valuebuilder.resetByteScratch) refuses
+--- There is no emptying it: [](serde.valuebuilder.resetbytescratch) refuses
 --- a fixed buffer, because a buffer with no fill state has none to discard.
 ---
 --- An `@aot` entry requires the capacity to be a literal, since a bound that is
 --- not known is not one anything can reason about. Ordinary Nupp takes any.
 --- @param capacity how many bytes this buffer holds
 --- @return the scratch handle, local to the call that allocated it
-export const newFixedByteScratch = implementation.newFixedByteScratch
+export const newfixedbytescratch = implementation.newFixedByteScratch
 
 --- Allocates a bounded byte work buffer local to one decode.
 ---
 --- This is where a codec assembles bytes that are not a range of the source, an
 --- unescaped string or a decoded field, before publishing them. Write with
---- [](serde.valuebuilder.setScratchByte), read with
---- [](serde.valuebuilder.scratchByte), empty it between values with
---- [](serde.valuebuilder.resetByteScratch), and publish a finished range with
---- [](serde.valuebuilder.stringScratch) or [](serde.valuebuilder.keyScratch).
+--- [](serde.valuebuilder.setscratchbyte), read with
+--- [](serde.valuebuilder.scratchbyte), empty it between values with
+--- [](serde.valuebuilder.resetbytescratch), and publish a finished range with
+--- [](serde.valuebuilder.stringscratch) or [](serde.valuebuilder.keyscratch).
 ---
 --- When the bytes are already a contiguous range of the source, skip all of this and
 --- use [](serde.valuebuilder.string) or [](serde.valuebuilder.key), which
 --- read the source in place.
 --- @param capacity the most bytes this buffer will ever hold
 --- @return the scratch handle, local to the call that allocated it
-export const newByteScratch = implementation.newByteScratch
+export const newbytescratch = implementation.newByteScratch
 
 --- Reads an initialized byte from a local work buffer.
---- @param scratch a buffer from [](serde.valuebuilder.newByteScratch)
+--- @param scratch a buffer from [](serde.valuebuilder.newbytescratch)
 --- @param index the zero-based byte index
 --- @return the byte, 0 through 255
 --- @raises string when the indexed byte has not been initialized
-export const scratchByte = implementation.scratchByte
+export const scratchbyte = implementation.scratchByte
 
 --- Writes an existing byte or appends the next contiguous byte.
 ---
 --- Appends and grows by one when `index` is the current length, overwrites below
---- it, on the same terms as [](serde.valuebuilder.setScratchWord).
---- @param scratch a buffer from [](serde.valuebuilder.newByteScratch)
+--- it, on the same terms as [](serde.valuebuilder.setscratchword).
+--- @param scratch a buffer from [](serde.valuebuilder.newbytescratch)
 --- @param index the zero-based byte index, at most the current length
 --- @param value the byte to store, 0 through 255
 --- @raises string when the write leaves a gap, exceeds capacity, or is not a byte
-export const setScratchByte = implementation.setScratchByte
+export const setscratchbyte = implementation.setScratchByte
 
 --- Writes four bytes at once, least significant first.
 ---
@@ -329,48 +329,48 @@ export const setScratchByte = implementation.setScratchByte
 ---
 --- Appends and grows by four when `index` is the current length, overwrites
 --- below it, and refuses a write that would straddle the two.
---- @param scratch a buffer from [](serde.valuebuilder.newByteScratch)
+--- @param scratch a buffer from [](serde.valuebuilder.newbytescratch)
 --- @param index the zero-based byte index, at most the current length
 --- @param value the four bytes, least significant at `index`
 --- @raises string when the write leaves a gap, straddles the length, or exceeds
 ---     capacity
-export const setScratchBytes4 = implementation.setScratchBytes4
+export const setscratchbytes4 = implementation.setScratchBytes4
 
 --- Makes a byte scratch buffer empty without reallocating it.
 ---
 --- Call this between values so that one bounded allocation serves a whole
 --- decode. Bytes below the old length remain in memory but are no longer
---- readable, since [](serde.valuebuilder.scratchByte) admits only initialized
+--- readable, since [](serde.valuebuilder.scratchbyte) admits only initialized
 --- indexes.
---- @param scratch a buffer from [](serde.valuebuilder.newByteScratch)
+--- @param scratch a buffer from [](serde.valuebuilder.newbytescratch)
 --- @raises string when the buffer is a fixed one, which has no fill state to discard
-export const resetByteScratch = implementation.resetByteScratch
+export const resetbytescratch = implementation.resetByteScratch
 
 --- Publishes initialized scratch bytes as a normal Lua string value.
 ---
 --- The copy into Lua-owned storage happens here, exactly once. Use
---- [](serde.valuebuilder.keyScratch) for the object-key position instead, and
+--- [](serde.valuebuilder.keyscratch) for the object-key position instead, and
 --- [](serde.valuebuilder.string) when the bytes are already a range of the
 --- source and need no assembling.
 --- @param builder the stream
---- @param scratch a buffer from [](serde.valuebuilder.newByteScratch)
+--- @param scratch a buffer from [](serde.valuebuilder.newbytescratch)
 --- @param start the range's zero-based first byte
 --- @param length the range's length in bytes
 --- @raises string when the range is not initialized
 --- @raises string when the value would be a second root, or an object value with no key
-export const stringScratch = implementation.stringScratch
+export const stringscratch = implementation.stringScratch
 
 --- Publishes initialized scratch bytes as the next object key.
 ---
---- The key-position counterpart of [](serde.valuebuilder.stringScratch). The very
+--- The key-position counterpart of [](serde.valuebuilder.stringscratch). The very
 --- next value added becomes this key's value.
 --- @param builder the stream
---- @param scratch a buffer from [](serde.valuebuilder.newByteScratch)
+--- @param scratch a buffer from [](serde.valuebuilder.newbytescratch)
 --- @param start the range's zero-based first byte
 --- @param length the range's length in bytes
 --- @raises string when outside an object, when a key is already pending, or when the
 ---     range is not initialized
-export const keyScratch = implementation.keyScratch
+export const keyscratch = implementation.keyScratch
 
 --- Opens an array. Every value added after it belongs to it until the matching
 --- [](serde.valuebuilder.close).
@@ -379,17 +379,17 @@ export const keyScratch = implementation.keyScratch
 --- a limit: a wrong guess costs a rehash, never an error.
 --- @param builder the stream
 --- @param capacity how many elements to presize the array part for
-export const openArray = implementation.openArray
+export const openarray = implementation.openArray
 
 --- Opens an object. Each value inside it must be preceded by a key from
---- [](serde.valuebuilder.key) or [](serde.valuebuilder.keyScratch), until the
+--- [](serde.valuebuilder.key) or [](serde.valuebuilder.keyscratch), until the
 --- matching [](serde.valuebuilder.close).
 ---
 --- `capacity` presizes the hash part and is a hint, as in
---- [](serde.valuebuilder.openArray).
+--- [](serde.valuebuilder.openarray).
 --- @param builder the stream
 --- @param capacity how many entries to presize the hash part for
-export const openObject = implementation.openObject
+export const openobject = implementation.openObject
 
 --- Returns how many containers are currently open.
 ---
@@ -435,7 +435,7 @@ export const state = implementation.state
 --- was a dropped null. The range is read in place, so a key that holds no escape costs
 --- one copy and no substring. Pass `escaped` as true only when the range may hold
 --- backslash escapes; false takes the bytes exactly as they lie. Assemble a key that is
---- not a contiguous source range with [](serde.valuebuilder.keyScratch) instead.
+--- not a contiguous source range with [](serde.valuebuilder.keyscratch) instead.
 --- @param builder the stream
 --- @param source the rooted string the range indexes
 --- @param start the range's zero-based first byte
@@ -463,8 +463,8 @@ export const string = implementation.string
 
 --- Adds a number the parser has already converted.
 ---
---- Use [](serde.valuebuilder.numberSlice) or
---- [](serde.valuebuilder.integerSlice) instead when the number is still a range
+--- Use [](serde.valuebuilder.numberslice) or
+--- [](serde.valuebuilder.integerslice) instead when the number is still a range
 --- of the source, so that the conversion happens without a substring.
 --- @param builder the stream
 --- @param value the number to add
@@ -475,7 +475,7 @@ export const number = implementation.number
 --- place.
 ---
 --- This accepts any numeric token. When the token is known to be an integer,
---- [](serde.valuebuilder.integerSlice) says so and is cheaper.
+--- [](serde.valuebuilder.integerslice) says so and is cheaper.
 --- @param builder the stream
 --- @param source the rooted string the range indexes
 --- @param start the range's zero-based first byte
@@ -483,11 +483,11 @@ export const number = implementation.number
 --- @raises string when the source range is out of bounds
 --- @raises string when the source range is not a number token
 --- @raises string when the value would be a second root, or an object value with no key
-export const numberSlice = implementation.numberSlice
+export const numberslice = implementation.numberSlice
 
 --- Adds an integer token from a range of the rooted source.
 ---
---- The integer counterpart of [](serde.valuebuilder.numberSlice). AOT accumulates
+--- The integer counterpart of [](serde.valuebuilder.numberslice). AOT accumulates
 --- short integers directly without entering `strtod`, and falls back to the same
 --- checked binary64 conversion for longer tokens; the ordinary path retains
 --- `tonumber` as the behavioral oracle either way.
@@ -498,7 +498,7 @@ export const numberSlice = implementation.numberSlice
 --- @raises string when the source range is out of bounds
 --- @raises string when the source range is not an integer token
 --- @raises string when the value would be a second root, or an object value with no key
-export const integerSlice = implementation.integerSlice
+export const integerslice = implementation.integerSlice
 
 --- Adds a boolean value.
 --- @param builder the stream
@@ -507,15 +507,15 @@ export const integerSlice = implementation.integerSlice
 export const boolean = implementation.boolean
 
 --- Adds the null replacement the stream was started with by
---- [](serde.valuebuilder.new) or [](serde.valuebuilder.newSized).
+--- [](serde.valuebuilder.new) or [](serde.valuebuilder.newsized).
 --- @param builder the stream
 --- @raises string when the value would be a second root, or an object value with no key
 export const null = implementation.null
 
 --- Closes the innermost open container and adds it to whatever encloses it.
 ---
---- Every [](serde.valuebuilder.openArray) and
---- [](serde.valuebuilder.openObject) needs exactly one of these. Closing the
+--- Every [](serde.valuebuilder.openarray) and
+--- [](serde.valuebuilder.openobject) needs exactly one of these. Closing the
 --- outermost container publishes the root, which [](serde.valuebuilder.finish)
 --- then returns.
 --- @param builder the stream
@@ -526,7 +526,7 @@ export const close = implementation.close
 --- Ends the stream and returns its single root value.
 ---
 --- ```nupp:fragment
---- valuebuilder.openArray(builder, 1)
+--- valuebuilder.openarray(builder, 1)
 --- valuebuilder.number(builder, 41)
 --- valuebuilder.close(builder)
 --- local result = valuebuilder.finish(builder)  -- {41}

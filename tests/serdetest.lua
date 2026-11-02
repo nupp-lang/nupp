@@ -35,15 +35,15 @@ function M.publicNamespacesKeepOneJsonIdentityAndRespectLocalShadowing()
 local direct = require("serde.json")
 assert(serde.json == direct)
 assert(serde.json.NULL == direct.NULL)
-assert(serde.json.encodeValue == direct.encodeValue)
+assert(serde.json.encodevalue == direct.encodevalue)
 local record Entry
     id: uint32
 end
 local binding = serde.binding(Entry)
 local bytes = direct.encode(binding, new Entry(id = 7))
 assert(direct.decode(binding, bytes).id == 7)
-assert(direct.decodeValue(bytes).id == 7)
-assert(direct.encodeValue({id = 7}) == bytes)
+assert(direct.decodevalue(bytes).id == 7)
+assert(direct.encodevalue({id = 7}) == bytes)
 do
     local serde = {json = {encodeValue = function(value: string): string return value end}}
     assert(serde.json.encodeValue("local") == "local")
@@ -58,7 +58,7 @@ function M.schemaDebugPreservesWideIntegerSupport()
     local result = run(
         "serdetest.schemaDebugPreservesWideIntegerSupport",
         [=[
-@derive(types.Debug)
+@derive(types.debug)
 local record Wide
     signed: int64
     unsigned: uint64
@@ -75,11 +75,11 @@ function M.debugNamesRecordsInsideContainers()
     local result = run(
         "serdetest.debugNamesRecordsInsideContainers",
         [=[
-@derive(types.Debug)
+@derive(types.debug)
 local record Child
     label: string
 end
-@derive(types.Debug)
+@derive(types.debug)
 local record Parent
     first: Child
     rest: {Child}
@@ -103,7 +103,7 @@ function M.debugPoliciesDoNotRequireTraversableFieldTypes()
     local result = run(
         "serdetest.debugPoliciesDoNotRequireTraversableFieldTypes",
         [=[
-@derive(types.Debug)
+@derive(types.debug)
 local record Policies
     shown: string
     @debug(skip = true)
@@ -121,7 +121,7 @@ end
 function M.typedExtensionKeysKeepTheirValueType()
     local problems = diagnostics(
         [=[
-local text = types.reflect.extensionKey(function(_host: any): string
+local text = types.reflect.extensionkey(function(_host: any): string
     return "text"
 end)
 local narrowed: types.reflect.ExtensionKey<integer> = text
@@ -286,7 +286,7 @@ function M.debugDoesNotAuthorizeOrRestrictSerialization()
         "serdetest.debugDoesNotAuthorizeOrRestrictSerialization",
         imports
         .. [[
-@derive(types.Debug)
+@derive(types.debug)
 local record Credentials
     user: string
     @debug(redact = true)
@@ -307,14 +307,14 @@ function M.bufferAndEmbeddedWriterKeepTheirBoundaries()
         .. [[
 local record User id: integer end
 local binding = serde.binding(User)
-local buffer = require("nupp.text").newBuffer()
+local buffer = require("nupp.text").newbuffer()
 buffer:put("prefix:")
-json.encodeInto(binding, new User(id = 7), buffer)
+json.encodeinto(binding, new User(id = 7), buffer)
 local first = buffer:get()
-local writer = json.newWriter(buffer)
+local writer = json.newwriter(buffer)
 writer:startArray()
-json.writeValue(binding, new User(id = 8), writer)
-json.writeValue(binding, new User(id = 9), writer)
+json.writevalue(binding, new User(id = 8), writer)
+json.writevalue(binding, new User(id = 9), writer)
 writer:endArray()
 writer:close()
 return {first = first, embedded = buffer:get()}

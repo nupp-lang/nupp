@@ -303,7 +303,7 @@ end
 
 `@unsafe` marks operations whose validity the author must establish. It can
 cover an expression, a statement, or a `do` block. See
-[annotations](../../reference/annotations.md#unsafe-operations) for its boundaries
+[annotations](annotations.md#unsafe-operations) for its boundaries
 and [ownership](../runtime/ownership/index.md#unsafe-representation-boundaries)
 for the obligations that remain checked.
 
@@ -381,7 +381,7 @@ Types are built from a fixed set of forms.
 ::: seealso
 - [type-system/overview.md](types/index.md) for what the checker
   does with these forms
-- [annotations.md](../../reference/annotations.md) for the `@` annotations that
+- [annotations.md](annotations.md) for the `@` annotations that
   decorate a declaration
 - [grammar.md](../../reference/grammar.md) for the normative production of every
   form on this page
@@ -408,20 +408,6 @@ local called = switch(record)
 The expression form is recognized only as `switch selector do ... end`. The
 required `do` is the unambiguous boundary after an arbitrary selector, and it
 keeps `switch(x)`, `switch {x}`, and `switch "x"` as ordinary Lua calls.
-
-::: deepdive
-Reserving these names is the smaller parser, and it makes `local record = 5` a
-syntax error in a language whose first promise is that existing Lua compiles.
-Position replaces reservation instead: an introducer introduces a declaration
-only where one can start, and only when what follows it on the same line
-agrees.
-
-That costs one deliberate overlap, `local type Alias = 5`, and one more that
-came later: `a or continue` is the [exit suffix](exit-suffixes.md) rather than a
-disjunction with a variable named `continue`. Every other name is recovered from
-where it appears. See [Plain Lua is valid
-Nupp](#plain-lua-is-valid-nupp) for the overlaps and how to write around them.
-:::
 
 ## Compatibility with Lua and LuaJIT
 

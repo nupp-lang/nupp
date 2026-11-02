@@ -99,7 +99,7 @@ function producer.compile(gapText: string): string
     result.scratchMoves = scratchMoves
     result.integerRegisters, result.floatRegisters = #target.integerRegisters, #target.floatRegisters
 
-    return json.encodeValue(result)
+    return json.encodevalue(result)
 end
 
 export = producer

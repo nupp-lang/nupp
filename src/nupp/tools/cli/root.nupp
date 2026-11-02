@@ -10,7 +10,7 @@ local cliModule = require("arg")
 ---     nupp build
 ---     nupp run src/main.nupp
 @cli(name = "nupp", group = true)
-@derive(cliModule.Command)
+@derive(cliModule.command)
 export record Root
 end
 
@@ -24,7 +24,7 @@ end
 ---     nupp help build
 ---     nupp help lsp rename
 @cli("help")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 export record Help
     --- Command path to describe.
     @cli(remainder = true, value = "COMMAND")

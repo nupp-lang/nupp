@@ -50,7 +50,7 @@ function runner.main(argv)
             failed = failed + 1
         end
         io.write(
-            json.encodeValue({
+            json.encodevalue({
                 suite = argv[1],
                 name = name,
                 ok = ok,
@@ -101,7 +101,7 @@ function runner.main(argv)
     end
     fixtures.close()
     io.write(
-        json.encodeValue({
+        json.encodevalue({
             suite = argv[1],
             passed = passed,
             failed = failed,

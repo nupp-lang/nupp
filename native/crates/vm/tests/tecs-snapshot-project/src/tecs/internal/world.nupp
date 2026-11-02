@@ -22,7 +22,7 @@ const {type Emittable} = require("events")
 const {type Observer} = require("events")
 const util = require("nupp.util")
 
-local tasks = require("nupp.tasks")
+local tasks = require("coroutine")
 local nativeStorage: any = assert2(require("nupp.mem.representation").storage)
 local random = require("nupp.random")
 local archetype = require("tecs.internal.archetype")
@@ -39,7 +39,7 @@ local randomstreams = require("tecs.internal.randomstreams")
 local snapshotvalue = require("tecs.internal.snapshotvalue")
 local snapshotcodec = require("tecs.internal.snapshotcodec")
 local buffer = require("nupp.text")
-local files = require("nupp.io.files")
+local files = require("io.files")
 
 local record TargetEdge
     target: integer
@@ -1015,7 +1015,7 @@ export function new(
         liveCount = 0,
         archetypeCount = 1,
         systemCount = 0,
-        observers = nuppevents.newObservers(),
+        observers = nuppevents.newobservers(),
         resources = util.newStore()
     )
 end
@@ -2544,7 +2544,7 @@ function World.observeOnce<E is Emittable>(
     callback: Observer<E>,
     id: string?
 ): nil
-    nuppevents.observeOnce(self, address, event, callback, id)
+    nuppevents.observeonce(self, address, event, callback, id)
     if address ~= 0 then
         self.observedEntities[address] = true
     end
@@ -2566,7 +2566,7 @@ function World.stopObserving<E is Emittable>(
     event: Type<E>,
     callbackOrId: Observer<E> | string
 ): boolean
-    return nuppevents.stopObserving(self, address, event, callbackOrId)
+    return nuppevents.stopobserving(self, address, event, callbackOrId)
 end
 
 --- Reports whether an address has an observer for an event.
@@ -2575,7 +2575,7 @@ end
 --- @param event the event declaration
 --- @return whether at least one observer is registered
 function World.hasObservers<E is Emittable>(borrows self: World, address: integer, event: Type<E>): boolean
-    return nuppevents.hasObservers(self, address, event)
+    return nuppevents.hasobservers(self, address, event)
 end
 
 --- Constructs an event into the world's storage and delivers it to one address.
@@ -2615,7 +2615,7 @@ end
 --- @param self the world to modify
 --- @param address the world or entity address to clear
 function World.clearObservers(exclusive self: World, address: integer): nil
-    nuppevents.clearAddress(self, address)
+    nuppevents.clearaddress(self, address)
     if address ~= 0 then
         self.observedEntities[address] = nil
     end
@@ -3420,7 +3420,7 @@ function World.clearEntities(exclusive self: World): nil
     -- own observers at address zero stay, which is what keeps a subsystem's
     -- lifecycle observers and a game's global ones across a clear.
     for address in pairs(self.observedEntities) do
-        nuppevents.clearAddress(self, address)
+        nuppevents.clearaddress(self, address)
     end
     self.observedEntities = {}
     self.liveCount = 0
@@ -4121,7 +4121,7 @@ function World.saveSnapshot(exclusive self: World, options: SnapshotOptions?): S
     if binary then
         addSnapshotData(data, dataSeen, "__tecs.pipeline", pipelineState)
         addSnapshotData(data, dataSeen, "__tecs.stateStack", self:listStates())
-        const output = assert2(options).buffer or buffer.newBuffer()
+        const output = assert2(options).buffer or buffer.newbuffer()
         const prelude = snapshotcodec.write(
             self.archetypes,
             selection,
@@ -5261,7 +5261,7 @@ function World.startup(exclusive self: World): nil
     self:commit()
     self.updating = true
     local succeeded, failure = pcall(function(): nil
-        with scope = tasks.open() do
+        with scope = tasks.scope() do
             if self.pipeline ~= nil then
                 runCustomPipeline(self, phases.StartupGroup, 0, scope)
             else
@@ -5289,7 +5289,7 @@ function World.shutdown(exclusive self: World): nil
     self:commit()
     self.updating = true
     local succeeded, failure = pcall(function(): nil
-        with scope = tasks.open() do
+        with scope = tasks.scope() do
             if self.pipeline ~= nil then
                 runCustomPipeline(self, phases.ShutdownGroup, 0, scope)
             else
@@ -5323,7 +5323,7 @@ function World.runPhase(exclusive self: World, phase: phases.Selection, dt: numb
     self:commit()
     self.updating = true
     local succeeded, failure = pcall(function(): nil
-        with scope = tasks.open() do
+        with scope = tasks.scope() do
             if self.pipeline ~= nil then
                 runCustomPipeline(self, phase, elapsed, scope)
             else
@@ -5361,7 +5361,7 @@ function World.update(exclusive self: World, dt: number): nil
     self:commit()
     self.updating = true
     local succeeded, failure = pcall(function(): nil
-        with scope = tasks.open() do
+        with scope = tasks.scope() do
             if self.pipeline ~= nil then
                 runCustomPipeline(self, nil, dt, scope)
             else

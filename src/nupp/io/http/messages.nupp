@@ -99,7 +99,7 @@ type http.Options = {
 
 --- A request body streamed from a reader rather than held in memory.
 ---
---- Built by [](nupp.io.http.reader). A redirect that preserves the request body
+--- Built by [](io.http.reader). A redirect that preserves the request body
 --- cannot replay one, so the request fails rather than following that redirect.
 record http.ReaderBody is own.Closeable
     --- Where the body's bytes come from.
@@ -119,10 +119,10 @@ end
 
 --- A request body read from a file as it is sent.
 ---
---- Built by [](nupp.io.http.file). The path must name a regular file: a device,
+--- Built by [](io.http.file). The path must name a regular file: a device,
 --- FIFO or directory has no length to send, and the native transport refuses it.
 record http.FileBody
-    --- The file to send, named as anything [](nupp.io.files) accepts: text, a
+    --- The file to send, named as anything [](io.files) accepts: text, a
     --- [](io.path.Path), or an application path.
     path: Path
 

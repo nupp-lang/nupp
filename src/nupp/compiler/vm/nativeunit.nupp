@@ -1,5 +1,7 @@
 module nupp.compiler.vm.nativeunit
 
+const assert2 = require("assert")
+
 local physical = require("nupp.compiler.vm.nativephysical")
 local cst = require("nupp.compiler.syntax.cst")
 local unit = {}
@@ -7,7 +9,7 @@ local owners: any = setmetatable({}, {__mode = "k"})
 local options: any = setmetatable({}, {__mode = "k"})
 
 local function need(ok: any, message: string): any
-    assert(ok, "native unit: " .. message)
+    assert2(ok, "native unit: " .. message)
     return ok
 end
 

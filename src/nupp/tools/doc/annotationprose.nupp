@@ -1,0 +1,524 @@
+module nupp.tools.doc.annotationprose
+
+-- Long contracts stay with documentation, apart from registry hover text.
+local prose = {
+    [
+        "allow"
+    ] = [====[
+`@allow(LINT, ...)` suppresses the named [lints](docs/reference/lints.md) while its statement
+is checked, taking either a lint name or its code:
+
+```nupp
+@allow("unused-binding")
+local pending = 1
+```
+
+Bare `@allow` and `@allow()` suppress every lint in that statement. It reaches a
+lint at any level, including one a build would fail on, because a lint is a
+judgment a project may disagree with. It does not reach a type error, which is
+not a judgment: naming one reports `NUPP2108` and the error stands.
+]====],
+    [
+        "override"
+    ] = [====[
+`@override` marks a method that replaces an inherited interface method. It is
+required on every method override in a child interface, and on a concrete
+implementor that replaces an inherited default. It is equally an error when no
+matching inherited parameter pack exists:
+
+```nupp
+local interface Greeter
+    name: string
+
+    function greet(self): string
+        return "hello, " .. self.name
+    end
+end
+
+local record Shouter is Greeter
+    name: string
+
+    @override
+    function greet(self): string
+        return "HELLO, " .. self.name
+    end
+end
+```
+
+That catches both the misspelling that silently defines a new method instead of
+overriding, and the interface that later adds a default which would otherwise
+silently shadow an implementor's method. See
+[overloads.md](docs/learn/language/types/overloads.md#default-implementations-and-override)
+for per-entry replacement, and
+[interfaces.md](docs/learn/language/types/interfaces.md#default-implementations) for how
+interface defaults behave.
+]====],
+    [
+        "partition"
+    ] = [====[
+`@partition(left, right)` is an audited ownership assertion on a method of a
+sealed interface. It states that the two named fields of the method's first
+result carry sibling-disjoint regions:
+
+```nupp
+local record Split
+    left: integer
+    right: integer
+end
+
+local sealed interface Splitter
+    @partition(left, right)
+    split: function(self: Splitter): Split
+end
+```
+
+That preserves a private implementation's `own.partition` proof through the
+public interface signature. It may not be attached to an unsealed or externally
+implementable contract, and `nupp ownership-audit` lists every use. See
+[ownership.md](docs/learn/runtime/ownership/borrowing.md#public-capability-contracts) for the
+contracts a public signature is allowed to carry.
+]====],
+    [
+        "derive"
+    ] = [====[
+`@derive` accepts `types.debug` or an exported comptime provider and adds
+checked members
+or format-neutral materialization data without exposing source or AST macros:
+
+```nupp
+@derive(types.debug)
+local record Point
+    x: integer
+    y: integer
+end
+```
+
+`types.debug` admits records and structs. A package provider chooses its supported
+targets. `@debug` configures the renderer; serialization mappings belong to an
+explicit [binding](docs/learn/runtime/data/serde.md). See
+[derives.md](docs/reference/derives.md) for provider contracts and generated methods.
+]====],
+    [
+        "deprecated"
+    ] = [====[
+`@deprecated`, `@deprecated("reason")`, or
+`@deprecated(reason = "...", replacement = "new.name")` keeps an API available
+while marking it for migration:
+
+```nupp
+local function current(): integer
+    return 2
+end
+
+@deprecated(reason = "kept for compatibility", replacement = "current")
+local function legacy(): integer
+    return current()
+end
+```
+
+It may decorate functions, methods, bindings, type declarations, C declarations,
+and record/interface fields. A use reports the suppressible
+[`deprecated`](docs/reference/lints.md#deprecated) lint; completion and semantic tokens carry
+the LSP deprecated tag and modifier; hover shows the reason and replacement; and
+generated documentation retains the annotation. It emits no Lua.
+]====],
+    [
+        "syntax"
+    ] = [====[
+`@syntax("name")` is editor metadata for a local or const binding. It accepts
+any literal syntax name and does not change the binding's type:
+
+```nupp
+@syntax("json")
+local defaults = [[
+{"retries": 3}
+]]
+```
+
+The bundled VS Code extension recognizes JSON, GLSL, Lua, and Nupp when the
+initializer is a long string; other names remain available to tools that
+understand them. See [editors.md](docs/learn/tooling/editors.md#visual-studio-code) for
+what the extension provides.
+]====],
+    [
+        "aot"
+    ] = [====[
+`@aot(target = "gpu")` reserves a required whole-function ahead-of-time
+compilation contract for a top-level local GPU kernel. Its ordinary body
+provides the CPU definition:
+
+```nupp
+local span = require("nupp.mem.span")
+
+@aot(target = "gpu")
+local function scale(
+    exclusive output: span.WriteSpan<float32>,
+    borrows input: span.Span<float32>,
+    factor: float32
+): nil
+    assert(#output == #input, "length mismatch")
+    for index = 1, #output do
+        output[index] = input[index] * factor
+    end
+end
+```
+
+`target = "gpu"` | function |
+
+### `@allow`
+
+`@allow(LINT, ...)` suppresses the named [lints](lints.md) while its statement
+is checked, taking either a lint name or its code:
+
+```nupp
+@allow("unused-binding")
+local pending = 1
+```
+
+Bare `@allow` and `@allow()` suppress every lint in that statement. It reaches a
+lint at any level, including one a build would fail on, because a lint is a
+judgement a project may disagree with. It does not reach a type error, which is
+not a judgement: naming one reports `NUPP2108` and the error stands.
+
+### `@override`
+
+`@override` marks a method that replaces an inherited interface method. It is
+required on every method override in a child interface, and on a concrete
+implementor that replaces an inherited default. It is equally an error when no
+matching inherited parameter pack exists:
+
+```nupp
+local interface Greeter
+    name: string
+
+    function greet(self): string
+        return "hello, " .. self.name
+    end
+end
+
+local record Shouter is Greeter
+    name: string
+
+    @override
+    function greet(self): string
+        return "HELLO, " .. self.name
+    end
+end
+```
+
+That catches both the misspelling that silently defines a new method instead of
+overriding, and the interface that later adds a default which would otherwise
+silently shadow an implementor's method. See
+[overloads.md](docs/learn/language/types/overloads.md#default-implementations-and-override)
+for per-entry replacement, and
+[interfaces.md](docs/learn/language/types/interfaces.md#default-implementations) for how
+interface defaults behave.
+
+### `@partition`
+
+`@partition(left, right)` is an audited ownership assertion on a method of a
+sealed interface. It states that the two named fields of the method's first
+result carry sibling-disjoint regions:
+
+```nupp
+local record Split
+    left: integer
+    right: integer
+end
+
+local sealed interface Splitter
+    @partition(left, right)
+    split: function(self: Splitter): Split
+end
+```
+
+That preserves a private implementation's `own.partition` proof through the
+public interface signature. It may not be attached to an unsealed or externally
+implementable contract, and `nupp ownership-audit` lists every use. See
+[ownership.md](docs/learn/runtime/ownership/borrowing.md#public-capability-contracts) for the
+contracts a public signature is allowed to carry.
+
+### `@derive`
+
+`@derive` accepts `types.Debug` or an exported comptime provider and adds
+checked members
+or format-neutral materialization data without exposing source or AST macros:
+
+```nupp
+@derive(types.Debug)
+local record Point
+    x: integer
+    y: integer
+end
+```
+
+`Debug` admits records and structs. A package provider chooses its supported
+targets. `@debug` configures the renderer; serialization mappings belong to an
+explicit [binding](docs/learn/runtime/data/serde.md). See
+[derives.md](derives.md) for provider contracts and generated methods.
+
+### `@deprecated`
+
+`@deprecated`, `@deprecated("reason")`, or
+`@deprecated(reason = "...", replacement = "new.name")` keeps an API available
+while marking it for migration:
+
+```nupp
+local function current(): integer
+    return 2
+end
+
+@deprecated(reason = "kept for compatibility", replacement = "current")
+local function legacy(): integer
+    return current()
+end
+```
+
+It may decorate functions, methods, bindings, type declarations, C declarations,
+and record/interface fields. A use reports the suppressible
+[`deprecated`](lints.md#deprecated) lint; completion and semantic tokens carry
+the LSP deprecated tag and modifier; hover shows the reason and replacement; and
+generated documentation retains the annotation. It emits no Lua.
+
+### `@syntax`
+
+`@syntax("name")` is editor metadata for a local or const binding. It accepts
+any literal syntax name and does not change the binding's type:
+
+```nupp
+@syntax("json")
+local defaults = [[
+{"retries": 3}
+]]
+```
+
+The bundled VS Code extension recognizes JSON, GLSL, Lua, and Nupp when the
+initializer is a long string; other names remain available to tools that
+understand them. See [editors.md](docs/learn/tooling/editors.md#visual-studio-code) for
+what the extension provides.
+
+### `@aot`
+
+`@aot` reserves a required whole-function ahead-of-time compilation contract
+on a top-level local function declaration:
+
+```nupp
+@aot
+local function clamp(value: number, low: number, high: number): number
+    if value < low then return low end
+    if value > high then return high end
+    return value
+end
+```
+
+The VM lowers an `@aot` body itself, and a GPU kernel through the typed graph.
+The structured lowering a target's `aot = "require"` policy once ran, and the
+refusals it published, are retired.
+
+A closure, table, interpolated string, vararg, `goto`, dynamic call, or unsafe
+operation inside the body reports `NUPP2903` at the construct, and annotating a
+constructor or inline requirement reports `NUPP2902`, since neither is a whole
+function to compile.
+
+`NUPP2905` through `NUPP2908` were that lowering's refusals and are retired:
+nothing reports them.
+
+Code that runs in vector lanes uses `simd`. See
+[simd-programming.md](docs/learn/performance/ahead-of-time/simd-programming.md) for the
+vector loop and scalar continuation patterns.
+
+`target = "gpu"` records a GPU execution family in the verified IR and maps one
+whole-span loop iteration to one GPU invocation. With the native `aot =
+"require"` policy, the compiler emits canonical SPIR-V for the Rust WGPU
+provider and replaces the declaration with a typed kernel specification. Its
+`compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
+resident `gpu.Buffer<T>` values in the span parameters' order and types, and
+`dispatch(...)` accepts the scalar parameters and packs their uniform block. The
+kernel returned by `compile` borrows its context, and the binding returned by
+`bind` borrows its kernel; both are closeable.
+
+`aot = "off"` retains the ordinary function value. WGPU performs platform
+shader translation internally. The VM has no GPU provider yet, so a program
+running on it finds no device.
+
+The GPU subset has two entry shapes. A complete-span map assigns one invocation
+to every element. A structured workgroup entry ends in
+`gpu.workgroups(groups, size, controller)`: `controller` allocates statically
+sized scratch with `phases:scratch` and divides execution into immediate
+`phases:run` callbacks. On CPU each callback runs for local indices zero through
+`size - 1` before the next callback begins; on GPU the boundary is a workgroup
+execution-and-memory barrier.
+
+Generated workgroups admit at most 256 lanes and 16 KiB of fixed-width scratch.
+Every scratch write is exactly `shared[localIndex]`, so writes are structurally
+disjoint. A later phase may read an index whose full uint32 range is statically
+proved inside the allocation; a phase may only read the scratch it also writes
+at its own local index. `phases:reduceSum(shared)` is the compiler-owned
+exception: it expands into a fixed, left-before-right power-of-two tree whose
+stage order is identical on CPU and GPU. There is no unordered or atomic
+reduction.
+`phases:inclusiveScan(values, temporary)` similarly expands into a
+deterministic power-of-two inclusive prefix tree. Both arrays contain one
+`uint32` per lane; the second is compiler-checked ping-pong scratch and the
+result is left in `values`. Stable block compaction can use the resulting
+prefix as each selected lane's destination without atomics.
+
+Both shapes accept any number of proved read and write spans and up to 128 bytes
+of fixed-width scalar uniforms in a local function declaration. Uploads and
+downloads remain explicit, so several generated bindings can share resident
+buffers without an intermediate CPU copy.
+
+`Context:tensor(element, shape)` allocates dense row-major storage.
+`buffer:layout()` returns an element-independent layout.
+The `gpu.layout` module (imported as `layout`) owns the
+`layout.subview`,
+`layout.transpose`, `layout.broadcast`, and `layout.asStrided`
+operations, which are allocation-free;
+`buffer:view(layout)` applies it while preserving the buffer's element type.
+Each view retains logical dimensions separately from its bounded physical
+extent. Host transfers and dispatch-indexed span accesses require dense layout;
+cursor-indexed kernels may consume other inputs by passing `dimensions()` and
+`strides()` as scalar uniforms. Writable views additionally need disjoint
+coordinates and one complete span extent, so broadcast and overlapping writes
+are refused.
+
+Binary16 and bfloat16 storage conversions are explicit through
+`math.f32.fromF16Bits`, `toF16Bits`, `fromBF16Bits`, and `toBF16Bits`.
+The narrow integer names remain physical span and buffer element types, so a
+kernel can define its own dequantization while accumulation uses explicit
+binary32. These portable paths require no optional device feature. Native half
+arithmetic and cooperative matrix instructions are separate capability-selected
+optimizations rather than silent changes to these operations.
+
+]====],
+    [
+        "relax"
+    ] = [====[
+A guarantee is a property of a running program that a reader could notice, and
+Nupp keeps every one of them by default. `@relax` says a function may give one
+up, which is what lets a rewrite that would otherwise change observable behavior
+apply there.
+
+```nupp
+@relax("frames", "error-site")
+local function dispatch(handler: function()): nil
+    handler()
+end
+```
+
+That says two things about `dispatch`: a traceback through it need not show the
+frames it would have shown, and an error raised inside it need not report the
+position it would have reported. Nothing else about it changes.
+
+#### Relaxable guarantees
+
+Each name is one property, and giving it up permits a specific class of rewrite.
+
+| Guarantee | What holding it promises | What giving it up permits |
+| --- | --- | --- |
+| `function-identity` | two closures built at one site are distinct values, so `a == b` returns false | caching a closure and handing the same one back |
+| `load-order` | modules initialize in the order the requires run | hoisting an import, or binding a callee statically |
+| `error-site` | an error reports the position that raised it | hoisting a check or a chain out of a loop |
+| `frames` | a traceback shows the frames the source describes | inlining a call away |
+| `gc-timing` | a value becomes collectable when it goes unreachable | keeping one alive longer, or dropping it sooner |
+| `table-order` | `pairs` visits a table's keys in one order per run | rebuilding a table so iteration reaches keys differently |
+
+`@relax` accepts two further numeric names which are not in that table because
+they are not observable in the same sense. `fp-contract` permits a multiply and
+an add to fuse into one rounding, so the function returns something different
+rather than reaching the same answer differently:
+
+```nupp
+@relax("fp-contract")
+local function scale(a: number, b: number, c: number): number
+    return a * b + c
+end
+```
+
+See [numeric semantics](docs/learn/performance/ahead-of-time/numeric-semantics.md)
+for the effect of contraction on observable results.
+
+`fp-transcendentals` lets explicit fixed-width transcendental operations use
+the platform's native implementation instead of Nupp's IR-owned operation
+sequence. It is useful for throughput-oriented inference and simulation where
+the caller validates an error bound rather than an element-exact answer:
+
+```nupp
+local span = nupp.mem.span
+
+@relax("fp-transcendentals")
+@aot(target = "gpu")
+local function activate(
+    exclusive output: span.WriteSpan<float32>,
+    borrows input: span.Span<float32>
+): nil
+    assert(#output == #input, "length mismatch")
+    for i = 1, #output do
+        output[i] = math.f32.exp(math.f32.narrow(input[i]))
+    end
+end
+```
+
+The grant is per function. It does not enable reassociation, unordered
+reductions, flush-to-zero, or contraction; those guarantees remain unchanged
+unless separately relaxed.
+
+#### Grants do not request rewrites
+
+`@relax` widens what a pass is allowed to do; it never asks for anything. A pass
+still has to name the guarantee it would change and check that the site granted
+it, and a pass that changes nothing observable needs no grant at all.
+
+The numeric `ipairs` rewrite is one of those. It preserves the language's
+observable behavior under its own proof, so it applies whether or not anything
+was relaxed.
+]====],
+    [
+        "annotation"
+    ] = [====[
+See [defining an annotation](docs/learn/language/annotations.md#defining-an-annotation) for the language rules and examples.
+]====],
+    [
+        "annotationValue"
+    ] = [====[
+See [single-value applications](docs/learn/language/annotations.md#single-value-applications) for the language rules and examples.
+]====],
+    [
+        "ref"
+    ] = [====[
+See [type-reference members](docs/learn/language/annotations.md#type-reference-members) for the language rules and examples.
+]====],
+    [
+        "unsafe"
+    ] = [====[
+See [unsafe operations](docs/learn/language/annotations.md#unsafe-operations) for the language rules and examples.
+]====],
+    [
+        "!internal"
+    ] = [====[
+Hides this file from public generated documentation. On `init.nupp`, it hides
+the entire module namespace beneath it. Checked imports are restricted to the
+same package namespace.
+
+```nupp
+@!internal
+module app.internals
+```
+
+See [internal modules](docs/learn/language/modules.md#internal-modules) and
+[public documentation](docs/learn/tooling/documentation.md#public-surface).
+]====],
+    [
+        "!nofmt"
+    ] = [====[
+Disables formatting for this file. Place the directive before the module
+declaration or first statement.
+
+```nupp
+@!nofmt
+module app.generated
+```
+]====],
+}
+
+export = prose

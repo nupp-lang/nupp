@@ -26,7 +26,8 @@ type urls.Links = {[string]: string}
 type urls.Page = {
     source: string?,
     path: string,
-    title: string?
+    title: string?,
+    api: boolean?
 }
 
 local function moduleFile(name: string): string
@@ -60,9 +61,20 @@ local function rewriteOutsideBackticks(markdown: string, rewrite: function(strin
             out[#out + 1] = rewrite(markdown:sub(position))
             break
         end
-        out[#out + 1] = rewrite(markdown:sub(position, opening - 1))
-        out[#out + 1] = markdown:sub(opening, closing)
-        position = closing + 1
+        local linkOpening, linkClosing = markdown:find("%b[]%b()", position)
+        while linkClosing and linkClosing < opening do
+            linkOpening, linkClosing = markdown:find("%b[]%b()", linkClosing + 1)
+        end
+        if linkOpening and linkClosing and linkOpening < opening and closing < linkClosing then
+            -- Code in a link label remains part of that prose link. A link
+            -- inside a code span or fence starts after its opening delimiter.
+            out[#out + 1] = rewrite(markdown:sub(position, linkClosing))
+            position = linkClosing + 1
+        else
+            out[#out + 1] = rewrite(markdown:sub(position, opening - 1))
+            out[#out + 1] = markdown:sub(opening, closing)
+            position = closing + 1
+        end
     end
 
     return table.concat(out)
@@ -119,7 +131,7 @@ end
 --- reads as a URL or as a path is left alone, and so is a name nothing answers
 --- to, so an ordinary link is never captured by accident.
 ---
---- A fragment rides along: `[](nupp.mem.span#writable-spans)` resolves the name and
+--- A fragment rides along: `[](binary.span#writable-spans)` resolves the name and
 --- keeps the anchor, which is how a page names a section of a module page written in
 --- that module's own blurb.
 ---
@@ -245,6 +257,10 @@ local function routesBySource(pages: {urls.Page}): {[string]: urls.Page}
     for _, page in ipairs(pages) do
         if page.source then
             routes[resolveDots(normalize(page.source))] = page
+        elseif page.api then
+            -- The generated API index has a canonical documentation pointer,
+            -- even though no handwritten file supplies its declarations.
+            routes["docs/" .. page.path .. ".md"] = page
         end
     end
 

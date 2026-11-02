@@ -20,7 +20,7 @@ local function runs(src, label)
     programs = programs + 1
     local name = "layout_test_" .. programs
     local result = parser.parse(src, name .. ".nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source\n" .. src)
+    testAssert.eq(#result.errors, 0, "syntax errors in test source\n" .. src)
     local diags = check.check(result, name .. ".nupp", env, {moduleName = name})
     for _, diag in ipairs(diags or {}) do
         if diag.severity == "error" then
@@ -41,7 +41,7 @@ end
 
 local function diagnostics(src)
     local result = parser.parse(src, "test")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     return check.check(result, "test", env)
 end
 
@@ -56,11 +56,11 @@ local struct Vec3
 end
 return layoutof(Vec3)
 ]], "Vec3")
-    testAssert.equal(l.name, "Vec3", "the declaration's name")
-    testAssert.equal(#l.fields, 3, "three fields")
-    testAssert.equal(l.fields[1].name, "x", "in order")
-    testAssert.equal(l.fields[2].name, "y", "in order")
-    testAssert.equal(l.fields[3].name, "z", "in order")
+    testAssert.eq(l.name, "Vec3", "the declaration's name")
+    testAssert.eq(#l.fields, 3, "three fields")
+    testAssert.eq(l.fields[1].name, "x", "in order")
+    testAssert.eq(l.fields[2].name, "y", "in order")
+    testAssert.eq(l.fields[3].name, "z", "in order")
 end
 
 function M.everyNumberIsTheTargets()
@@ -72,10 +72,10 @@ local struct Vec3
 end
 return layoutof(Vec3)
 ]], "Vec3")
-    testAssert.equal(l.size, 12, "the struct's size")
+    testAssert.eq(l.size, 12, "the struct's size")
     for index, f in ipairs(l.fields) do
-        testAssert.equal(f.offset, (index - 1) * 4, "offset of " .. f.name)
-        testAssert.equal(f.size, 4, "size of " .. f.name)
+        testAssert.eq(f.offset, (index - 1) * 4, "offset of " .. f.name)
+        testAssert.eq(f.size, 4, "size of " .. f.name)
     end
 end
 
@@ -90,10 +90,10 @@ local struct Mixed
 end
 return layoutof(Mixed)
 ]], "Mixed")
-    testAssert.equal(l.fields[1].size, 1, "an int8 is one byte")
-    testAssert.equal(l.fields[1].padding, 7, "and the rest of the gap is padding")
-    testAssert.equal(l.fields[2].size, 8, "float64 is a double")
-    testAssert.equal(l.fields[2].padding, 0, "which needs no padding before an int32")
+    testAssert.eq(l.fields[1].size, 1, "an int8 is one byte")
+    testAssert.eq(l.fields[1].padding, 7, "and the rest of the gap is padding")
+    testAssert.eq(l.fields[2].size, 8, "float64 is a double")
+    testAssert.eq(l.fields[2].padding, 0, "which needs no padding before an int32")
 end
 
 function M.aNestedStructIsSizedFromItsCtype()
@@ -112,10 +112,10 @@ return layoutof(Outer)
 ]],
         "Outer"
     )
-    testAssert.equal(l.fields[1].name, "inner", "the nested field")
-    testAssert.equal(l.fields[1].size, 8, "sized as the struct it holds")
-    testAssert.equal(l.fields[1].ctype, "Inner", "and reported by its declared name")
-    testAssert.equal(l.size, 12, "the whole struct")
+    testAssert.eq(l.fields[1].name, "inner", "the nested field")
+    testAssert.eq(l.fields[1].size, 8, "sized as the struct it holds")
+    testAssert.eq(l.fields[1].ctype, "Inner", "and reported by its declared name")
+    testAssert.eq(l.size, 12, "the whole struct")
 end
 
 function M.aPointerKeepsItsPointeeInTheSpelling()
@@ -135,8 +135,8 @@ return layoutof(Pointy)
 ]],
         "Pointy"
     )
-    testAssert.equal(l.fields[1].ctype, "Inner *", "the pointee survives")
-    testAssert.equal(l.fields[1].size, 8, "sized as a pointer")
+    testAssert.eq(l.fields[1].ctype, "Inner *", "the pointee survives")
+    testAssert.eq(l.fields[1].size, 8, "sized as a pointer")
 end
 
 function M.aNullablePointerIsStillAPointer()
@@ -154,7 +154,7 @@ return layoutof(Maybe)
 ]],
         "Maybe"
     )
-    testAssert.equal(l.fields[1].size, 8, "NULL is one of its values")
+    testAssert.eq(l.fields[1].size, 8, "NULL is one of its values")
 end
 
 function M.theFingerprintDistinguishesLayouts()
@@ -168,7 +168,7 @@ return layoutof(S)
     end
 
     local base = fingerprintOf("    x: float32\n    y: float32")
-    testAssert.equal(base, fingerprintOf("    x: float32\n    y: float32"), "the same layout answers the same")
+    testAssert.eq(base, fingerprintOf("    x: float32\n    y: float32"), "the same layout answers the same")
     assert(base ~= fingerprintOf("    x: float32\n    y: int32"), "a changed field type changes it")
     assert(
         base ~= fingerprintOf("    y: float32\n    x: float32"),
@@ -188,7 +188,7 @@ return layoutof(Vec2) == layoutof(Vec2)
 ]],
         "cached"
     )
-    testAssert.equal(same, true, "building it twice is one walk, not two")
+    testAssert.eq(same, true, "building it twice is one walk, not two")
 end
 
 function M.aRecordHasNoLayout()
@@ -215,7 +215,7 @@ function M.aNonStructArgumentIsRefused()
             found = true
         end
     end
-    testAssert.equal(found, true, "a number is not a struct type")
+    testAssert.eq(found, true, "a number is not a struct type")
 end
 
 function M.aNestedStructIsExpandedInTheFingerprint()
@@ -271,8 +271,8 @@ return layoutof(Holder)
     end
 
     local l = holderOf("    a: float32\n    b: float32")
-    testAssert.equal(l.fields[1].ctype, "Inner *", "named, not expanded")
-    testAssert.equal(
+    testAssert.eq(l.fields[1].ctype, "Inner *", "named, not expanded")
+    testAssert.eq(
         l.fingerprint,
         holderOf("    a: int32\n    b: int32").fingerprint,
         "a change inside the pointee leaves the fingerprint alone"
@@ -295,7 +295,7 @@ return layoutof(Node).size
 ]],
         "Node"
     )
-    testAssert.equal(l, 16, "the struct is laid out like the pointer-and-int it is")
+    testAssert.eq(l, 16, "the struct is laid out like the pointer-and-int it is")
 end
 
 function M.aSelfReferencingChainCanBeWalked()
@@ -317,7 +317,7 @@ return value
 ]],
         "chain"
     )
-    testAssert.equal(value, 2, "the link is a real pointer to a real struct")
+    testAssert.eq(value, 2, "the link is a real pointer to a real struct")
 end
 
 function M.aStructCannotContainItselfByValue()
@@ -386,7 +386,7 @@ return total
 ]],
         "mutual"
     )
-    testAssert.equal(value, 87, "each side reaches the other")
+    testAssert.eq(value, 87, "each side reaches the other")
 end
 
 function M.aFixedArrayFieldIsLaidOutInline()
@@ -404,11 +404,11 @@ return layoutof(Vertex)
 ]],
         "Vertex"
     )
-    testAssert.equal(l.size, 24, "the whole struct")
-    testAssert.equal(l.fields[1].ctype, "float[3]", "spelled as the array it is")
-    testAssert.equal(l.fields[1].size, 12, "three floats wide")
-    testAssert.equal(l.fields[2].offset, 12, "and the next one follows it")
-    testAssert.equal(l.fields[3].offset, 20, "as does the one after")
+    testAssert.eq(l.size, 24, "the whole struct")
+    testAssert.eq(l.fields[1].ctype, "float[3]", "spelled as the array it is")
+    testAssert.eq(l.fields[1].size, 12, "three floats wide")
+    testAssert.eq(l.fields[2].offset, 12, "and the next one follows it")
+    testAssert.eq(l.fields[3].offset, 20, "as does the one after")
 end
 
 function M.aFixedArrayOfStructsIsSizedFromItsElementCtype()
@@ -427,9 +427,9 @@ return layoutof(Grid)
 ]],
         "Grid"
     )
-    testAssert.equal(l.fields[1].size, 32, "four cells wide")
-    testAssert.equal(l.fields[1].ctype, "Cell[4]", "and named as the array it is")
-    testAssert.equal(l.size, 36, "the whole struct")
+    testAssert.eq(l.fields[1].size, 32, "four cells wide")
+    testAssert.eq(l.fields[1].ctype, "Cell[4]", "and named as the array it is")
+    testAssert.eq(l.size, 36, "the whole struct")
 end
 
 function M.aFixedArrayIsUsableAtRuntime()
@@ -448,7 +448,7 @@ return v.pos[0] + v.pos[2] + v.id
 ]],
         "runtime"
     )
-    testAssert.equal(value, 12, "elements read and write where they were put")
+    testAssert.eq(value, 12, "elements read and write where they were put")
 end
 
 function M.aVariableLengthArrayIsStillRefused()
@@ -483,10 +483,10 @@ end
 return layoutof(Vec)
 ]]
     )
-    testAssert.equal(#l.fields, 2, "field count")
-    testAssert.equal(l.fields[1].name, "x", "first field")
-    testAssert.equal(l.fields[2].name, "y", "second field")
-    testAssert.equal(l.size, 8, "size")
+    testAssert.eq(#l.fields, 2, "field count")
+    testAssert.eq(l.fields[1].name, "x", "first field")
+    testAssert.eq(l.fields[2].name, "y", "second field")
+    testAssert.eq(l.size, 8, "size")
 end
 
 return M

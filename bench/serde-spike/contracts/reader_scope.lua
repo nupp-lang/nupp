@@ -175,8 +175,8 @@ for _, mode in ipairs({"under", "over"}) do
         end,
     }
     local selected = setmetatable({adapter = model}, core.Bound)
-    local destination = buffers.newBuffer()
-    local sink = jsonSyntax.newWriter(destination)
+    local destination = buffers.newbuffer()
+    local sink = jsonSyntax.newwriter(destination)
     sink:startArray()
     local ok, problem = pcall(function()
         return codec.codec(profile):writeValue(selected, "value", sink)

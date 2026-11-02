@@ -7,7 +7,7 @@ Nothing is re-exported here: every member is a module of its own, reached by the
 name it has.
 
 ```nupp
-const span = require("nupp.mem.span")
+const span = require("binary.span")
 
 local struct Point
     x: float64
@@ -15,16 +15,16 @@ local struct Point
 end
 
 const storage = carray(Point, 4)
-const points = span.fromCarray(storage, 4)
+const points = span.fromcarray(storage, 4)
 
 print(points[1].x)
 ```
 
-- [](nupp.mem.span) -- borrowed views over storage rooted by another value.
+- [](binary.span) -- borrowed views over storage rooted by another value.
 - [](nupp.mem.array) -- owned contiguous arrays, native and Wasm.
 - [](nupp.mem.heap) -- owned malloc-backed arrays.
 - [](nupp.mem.soa) -- structure-of-arrays storage.
-- [](nupp.mem.indexed) -- the one inclusive range they all validate against.
+- [](binary.span) -- the one inclusive range they all validate against.
 - [](nupp.mem.arena) -- leases zero-filled struct rows from pages that never
   move, so it hands storage out and takes it back rather than viewing it.
 

@@ -1,6 +1,6 @@
 module tests.fixtures.crossmodulefacts
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 
 export function scale(value: number): number
     return value * 2

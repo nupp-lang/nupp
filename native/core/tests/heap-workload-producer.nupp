@@ -26,7 +26,7 @@ end
 
 local function progress(directory: string?, phase: string, item: string?): nil
     if directory then
-        write(directory .. "/matrix-progress.json", json.encodeValue({phase = phase, item = item}))
+        write(directory .. "/matrix-progress.json", json.encodevalue({phase = phase, item = item}))
     end
 end
 
@@ -133,7 +133,7 @@ local function artifact(
     end
     contract.validateHeapServices(source)
 
-    return json.encodeValue(output)
+    return json.encodevalue(output)
 end
 
 local function build(mode: string, stressText: string, scenario: string): string
@@ -180,7 +180,7 @@ function producer.matrix(directory: string): string
 
     progress(directory, "matrix-artifacts-produced", nil)
 
-    return json.encodeValue({
+    return json.encodevalue({
         version = 1,
         sourceBuilds = 1,
         loweredOwners = #names,

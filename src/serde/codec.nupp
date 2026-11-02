@@ -15,7 +15,7 @@ whichever one carries it.
 local codec = require("serde.codec")
 assert(codec.integer("255", 8, false).decimal == "255")
 assert(not pcall(codec.integer, "256", 8, false))
-assert(codec.formatDateTime(codec.parseEpoch("86400")) == "1970-01-02T00:00:00Z")
+assert(codec.formatdatetime(codec.parseepoch("86400")) == "1970-01-02T00:00:00Z")
 ```
 ]]
 
@@ -48,26 +48,26 @@ export const float = numbers.floating
 --- @param text the date-time, such as `2026-10-10T12:00:00.5Z`
 --- @return the timestamp
 --- @raises string when the text is not a valid date-time
-export const parseDateTime = timestamps.parseDateTime
+export const parsedatetime = timestamps.parseDateTime
 
 --- Formats a timestamp as an RFC 3339 date-time in UTC.
 ---
 --- @param value the timestamp
 --- @return the date-time, with fractional seconds only when there are any
-export const formatDateTime = timestamps.dateTime
+export const formatdatetime = timestamps.dateTime
 
 --- Parses epoch seconds, with an optional fraction.
 ---
 --- @param text the seconds, such as `1700000000.25`
 --- @return the timestamp
 --- @raises string when the text is not a number of seconds
-export const parseEpoch = timestamps.parseEpoch
+export const parseepoch = timestamps.parseEpoch
 
 --- Formats a timestamp as epoch seconds.
 ---
 --- @param value the timestamp
 --- @return the seconds, with a fraction only when there is one
-export const formatEpoch = timestamps.epoch
+export const formatepoch = timestamps.epoch
 
 --- Wraps any failure as a [](serde.Error) at a path.
 ---
@@ -78,14 +78,14 @@ export const formatEpoch = timestamps.epoch
 --- @param path the logical path, such as `$["items"][3]`
 --- @param byte the input offset, or nil
 --- @return the error
-export const wrapError = errors.wrap
+export const wraperror = errors.wrap
 
 --- Prefixes a failure's path with its parent's.
 ---
 --- @param problem the failure, raised at a path relative to the parent
 --- @param parent the parent's logical path
 --- @return the error at the combined path
-export const prefixError = errors.prefix
+export const prefixerror = errors.prefix
 
 --- Discards a value a codec decoded and then has to reject, returning the
 --- failure to raise.
@@ -97,7 +97,7 @@ export const prefixError = errors.prefix
 --- @param value the value to discard
 --- @param cause why it is being rejected
 --- @return the failure to raise
-export const discardFailed = publication.failure
+export const discardfailed = publication.failure
 
 --- Collects the values of a [](serde.Context) before it is frozen.
 export type ContextBuilder = contexts.Builder
@@ -112,8 +112,8 @@ export const ContextBuilder = contexts.Builder
 ---
 --- ```nupp
 --- local codec = require("serde.codec")
---- local source: types.Key<string> = types.newKey()
---- local builder = codec.contextBuilder({}, {}, nil)
+--- local source: types.Key<string> = types.newkey()
+--- local builder = codec.contextbuilder({}, {}, nil)
 --- builder:set(source, "upload.json")
 --- assert(builder:freeze():get(source) == "upload.json")
 --- ```
@@ -122,4 +122,4 @@ export const ContextBuilder = contexts.Builder
 --- @param profile a table that identifies the codec's settings
 --- @param parent the context to inherit values from, or nil
 --- @return the builder
-export const contextBuilder = contexts.builder
+export const contextbuilder = contexts.builder

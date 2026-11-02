@@ -18,15 +18,15 @@ local M = {}
 
 local PRELUDE = [[
 local array = require("nupp.mem.array")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local simd = require("simd")
 ]]
 
 local function compile(src)
     local result = parser.parse(src, "fixed.nupp")
-    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "syntax errors")
+    testAssert.eq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "syntax errors")
     local diagnostics = check.check(result, "fixed.nupp", env)
-    testAssert.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "diagnostics")
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "diagnostics")
 
     return program.run(result, "fixed", "fixed.nupp")
 end
@@ -69,17 +69,17 @@ end
 ]]
     )
     local lanes, chunks, lastActive, total, last = run(10)
-    testAssert.equal(lanes, 4, "a fixed species is its lanes as Lua")
-    testAssert.equal(chunks, 3, "ten elements are three chunks of four")
-    testAssert.equal(lastActive, 2, "the last chunk's mask is the tail")
-    testAssert.equal(total, 27.5, "every element is scaled once")
-    testAssert.equal(last, 5, "the last element is scaled under the tail mask")
+    testAssert.eq(lanes, 4, "a fixed species is its lanes as Lua")
+    testAssert.eq(chunks, 3, "ten elements are three chunks of four")
+    testAssert.eq(lastActive, 2, "the last chunk's mask is the tail")
+    testAssert.eq(total, 27.5, "every element is scaled once")
+    testAssert.eq(last, 5, "the last element is scaled under the tail mask")
     lanes, chunks, lastActive, total, last = run(8)
-    testAssert.equal(chunks, 2, "a span of whole chunks has no partial tail")
-    testAssert.equal(lastActive, 4)
-    testAssert.equal(total, 18)
+    testAssert.eq(chunks, 2, "a span of whole chunks has no partial tail")
+    testAssert.eq(lastActive, 4)
+    testAssert.eq(total, 18)
     lanes, chunks = run(0)
-    testAssert.equal(chunks, 0, "an empty span is visited by no chunk")
+    testAssert.eq(chunks, 0, "an empty span is visited by no chunk")
 end
 
 function M.laneOperatorsRunLaneByLaneAndScalarsStandForEveryLane()
@@ -123,7 +123,7 @@ return function(): {number}
 end
 ]]
     )
-    testAssert.deepEqual(run(), {
+    testAssert.deepeq(run(), {
         244, -- 250 + 250 wraps in a byte lane
         2, -- lanes one and two hit
         1,
@@ -196,7 +196,7 @@ end
 return probe
 ]]
     )
-    testAssert.deepEqual(run(), {
+    testAssert.deepeq(run(), {
         4, -- reverse
         9,
         1, -- insert leaves the other lanes
@@ -241,12 +241,12 @@ function M.reducersTakeFixedVectorContributionsLaneByLane()
 @aot
 local function fold(borrows values: span.Span<float64>, borrows counts: span.Span<int32>): {number}
     local s = simd.species(array.float64, 4)
-    local sum = simd.reducer.orderedSum(0.0)
-    local pairwise = simd.reducer.pairwiseSum(0.0)
+    local sum = simd.reducer.orderedsum(0.0)
+    local pairwise = simd.reducer.pairwisesum(0.0)
     local big = simd.reducer.count()
-    local least = simd.reducer.propagatingArgMin()
-    local most = simd.reducer.numberArgMax()
-    local dot = simd.reducer.orderedDot(0.0)
+    local least = simd.reducer.propagatingargmin()
+    local most = simd.reducer.numberargmax()
+    local dot = simd.reducer.ordereddot(0.0)
     for at, active in s:over(#values) do
         local v = s:load(values, at, active)
         sum:add(v, active)
@@ -257,8 +257,8 @@ local function fold(borrows values: span.Span<float64>, borrows counts: span.Spa
         dot:add(v, v, active)
     end
     local i = simd.species(array.int32, 4)
-    local wrapping = simd.reducer.wrappingSum(array.int32, 0)
-    local smallest = simd.reducer.integerMin(array.int32, 100)
+    local wrapping = simd.reducer.wrappingsum(array.int32, 0)
+    local smallest = simd.reducer.integermin(array.int32, 100)
     for at, active in i:over(#counts) do
         local c = i:load(counts, at, active)
         wrapping:add(c, active)
@@ -294,7 +294,7 @@ end
 ]]
     )
     local squares = 25 + 9 + 81 + 1 + 49 + 4 + 64 + 36 + 16 + 100
-    testAssert.deepEqual(run(), {
+    testAssert.deepeq(run(), {
         55,
         55,
         5, -- 9, 7, 8, 6 and 10 exceed five; the inactive tail lanes do not count
@@ -317,30 +317,30 @@ local function fold(): {number}
     local i = simd.species(array.int32, 4)
     local w = i:splat(-3):insert(1, 7):insert(3, 5)
     local out: {number} = {}
-    out[#out + 1] = simd.horizontal.orderedSum(v)
-    out[#out + 1] = simd.horizontal.pairwiseSum(v)
-    out[#out + 1] = simd.horizontal.algebraicSum(v)
-    out[#out + 1] = simd.horizontal.orderedProduct(v)
-    out[#out + 1] = simd.horizontal.orderedDot(v, v)
-    out[#out + 1] = simd.horizontal.pairwiseDot(v, v)
-    out[#out + 1] = simd.horizontal.algebraicDot(v, v)
-    out[#out + 1] = simd.horizontal.propagatingMin(v)
-    out[#out + 1] = simd.horizontal.numberMax(v)
-    out[#out + 1] = simd.horizontal.propagatingArgMax(v)
-    out[#out + 1] = simd.horizontal.numberArgMin(v)
-    out[#out + 1] = simd.horizontal.integerMin(w)
-    out[#out + 1] = simd.horizontal.integerMax(w)
-    out[#out + 1] = simd.horizontal.andBits(w)
-    out[#out + 1] = simd.horizontal.orBits(w)
-    out[#out + 1] = simd.horizontal.xorBits(w)
-    out[#out + 1] = simd.horizontal.wrappingSum(w)
-    out[#out + 1] = simd.horizontal.wrappingProduct(w)
+    out[#out + 1] = simd.horizontal.orderedsum(v)
+    out[#out + 1] = simd.horizontal.pairwisesum(v)
+    out[#out + 1] = simd.horizontal.algebraicsum(v)
+    out[#out + 1] = simd.horizontal.orderedproduct(v)
+    out[#out + 1] = simd.horizontal.ordereddot(v, v)
+    out[#out + 1] = simd.horizontal.pairwisedot(v, v)
+    out[#out + 1] = simd.horizontal.algebraicdot(v, v)
+    out[#out + 1] = simd.horizontal.propagatingmin(v)
+    out[#out + 1] = simd.horizontal.numbermax(v)
+    out[#out + 1] = simd.horizontal.propagatingargmax(v)
+    out[#out + 1] = simd.horizontal.numberargmin(v)
+    out[#out + 1] = simd.horizontal.integermin(w)
+    out[#out + 1] = simd.horizontal.integermax(w)
+    out[#out + 1] = simd.horizontal.andbits(w)
+    out[#out + 1] = simd.horizontal.orbits(w)
+    out[#out + 1] = simd.horizontal.xorbits(w)
+    out[#out + 1] = simd.horizontal.wrappingsum(w)
+    out[#out + 1] = simd.horizontal.wrappingproduct(w)
     return out
 end
 return fold
 ]]
     )
-    testAssert.deepEqual(run(), {
+    testAssert.deepeq(run(), {
         12,
         12,
         12,
@@ -380,13 +380,13 @@ local function tile(): {number}
     out[#out + 1] = c2:extract(3)
     out[#out + 1] = c4:extract(1)
     out[#out + 1] = c4:extract(4)
-    out[#out + 1] = simd.horizontal.wrappingSum(c3)
+    out[#out + 1] = simd.horizontal.wrappingsum(c3)
     return out
 end
 return tile
 ]]
     )
-    testAssert.deepEqual(run(), {11, 41, 32, 14, 44, 13 + 23 + 33 + 43})
+    testAssert.deepeq(run(), {11, 41, 32, 14, 44, 13 + 23 + 33 + 43})
 end
 
 function M.transposeExpandsOneTypedRowPackOnce()
@@ -407,8 +407,8 @@ end
 ]]
     )
     local columns, calls = run()
-    testAssert.equal(calls, 1, "the helper producing both rows runs once")
-    testAssert.deepEqual(columns, {11, 21, 12, 22})
+    testAssert.eq(calls, 1, "the helper producing both rows runs once")
+    testAssert.deepeq(columns, {11, 21, 12, 22})
 end
 
 function M.transposeEvaluatesTheFirstRowBeforeTheTrailingTypedPack()
@@ -442,10 +442,10 @@ end
 ]]
     )
     local columns, events, firstCalls, restCalls = run()
-    testAssert.deepEqual(events, {1, 2})
-    testAssert.equal(firstCalls, 1)
-    testAssert.equal(restCalls, 1)
-    testAssert.deepEqual(columns, {11, 21, 31, 12, 22, 32, 13, 23, 33})
+    testAssert.deepeq(events, {1, 2})
+    testAssert.eq(firstCalls, 1)
+    testAssert.eq(restCalls, 1)
+    testAssert.deepeq(columns, {11, 21, 31, 12, 22, 32, 13, 23, 33})
 end
 
 function M.memoryMethodsMoveWholeChunks()
@@ -518,7 +518,7 @@ end
 ]]
     )
     local answers, written = run()
-    testAssert.deepEqual(answers, {
+    testAssert.deepeq(answers, {
         7, -- loadPairs deals 1 3 5 7 | 2 4 6 8
         2,
         12, -- loadTriples deals 1 4 7 10 | 2 5 8 11 | 3 6 9 12
@@ -537,7 +537,7 @@ end
         4, -- load under tail(2) from offset three reads 3 4 and zeroes
         0,
     })
-    testAssert.deepEqual(written, {
+    testAssert.deepeq(written, {
         2,
         1,
         4,
@@ -565,7 +565,7 @@ end
 return function(): ({number}, {number})
     local s = simd.species(array.float32, 4)
     local t = simd.species(array.float32, 3)
-    const particles = array.newArray(new Particle(), 2)
+    const particles = array.newarray(new Particle(), 2)
     with w = particles:write() do
         w[1] = new Particle(1.5, s:splat(2.0), t:iota(7.0, 1.0))
         w[2].pos = s:iota(1.0, 1.0)
@@ -578,7 +578,7 @@ return function(): ({number}, {number})
     answers[#answers + 1] = r[1].tail:extract(3)
     answers[#answers + 1] = r[2].pos:extract(4)
     answers[#answers + 1] = r[2].mass
-    answers[#answers + 1] = simd.horizontal.orderedSum(r[2].pos)
+    answers[#answers + 1] = simd.horizontal.orderedsum(r[2].pos)
     answers[#answers + 1] = (r[1].pos + r[2].pos):extract(1)
     local layout = layoutof(Particle)
     local measured: {number} = {layout.size, layout.alignment}
@@ -592,7 +592,7 @@ end
 ]]
     )
     local answers, measured = run()
-    testAssert.deepEqual(answers, {
+    testAssert.deepeq(answers, {
         2, -- a field built from a splat
         9, -- 7 8 9 in the three-lane field
         40, -- written twice: an iota, then that field times ten
@@ -600,7 +600,7 @@ end
         100,
         12, -- two stored fields read into vectors and added
     })
-    testAssert.deepEqual(measured, {
+    testAssert.deepeq(measured, {
         48,
         16, -- the struct
         0,

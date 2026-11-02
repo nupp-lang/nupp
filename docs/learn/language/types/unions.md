@@ -105,16 +105,6 @@ local s: Shape = Circle{kind = "circle", radius = 2}
 The tag is an ordinary field, so it survives to run time and a `print` of the
 value shows it.
 
-::: deepdive
-The discriminant costs a field, which a nominal sum type would not spend. What
-it buys is that the value stays a plain Lua table with no hidden header: it
-serializes through [](serde.json), compares field by field, prints readably,
-and crosses a boundary to untyped Lua without a wrapper. A nominal encoding
-would have to hide the tag somewhere the runtime can still find it, which means
-either a metatable, and then a decoded table is not one of these, or a reserved
-key, and then the cost is the same field under a name nobody chose.
-:::
-
 A tag copied into a local is still a tag:
 
 ```nupp:fragment
@@ -188,11 +178,11 @@ for the reachability rules that go with them.
 
 ### Unions that may grow
 
-A union that lists `types.nonExhaustive()` among its alternatives carries
+A union that lists `types.nonexhaustive()` among its alternatives carries
 one member no value inhabits, no name resolves to, and no case can cover:
 
 ```nupp
-local type Status = "ok" | "error" | types.nonExhaustive()
+local type Status = "ok" | "error" | types.nonexhaustive()
 
 local function describe(status: Status): string
     return switch status do
@@ -249,17 +239,6 @@ in `nupp.lua`, and a single deliberate exception writes
 Exhaustiveness counts single literal types and unions of them. It does not run
 over a union of records: a dispatch there tests a field rather than the value,
 and the checker does not count the arms.
-
-::: deepdive
-The two constructs get different severities because they promise different
-things. A switch expression has to produce a value on every path, so an
-unhandled member is a hole in the expression's type and nothing weaker than an
-error describes it. An `if` chain promises nothing: falling off the end is
-legal Lua, and a chain that deliberately handles two of five cases is an
-ordinary program. Reporting that as an error would make the closed union
-unusable outside a switch, so it is a lint a project raises when it wants the
-stronger rule everywhere.
-:::
 
 ## Narrowing
 

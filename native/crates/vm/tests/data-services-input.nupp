@@ -4,8 +4,8 @@ local uuid = require("nupp.tests.providers.uuid")
 local nativeUuid = require("nupp.runtime.provider.nativeuuid")
 local checksum = require("binary.hash.checksum")
 local digest = require("binary.hash.digest")
-local span = require("nupp.mem.span")
-local tasks = require("nupp.tasks")
+local span = require("binary.span")
+local tasks = require("coroutine")
 local tests = {}
 
 local record Overloads
@@ -37,11 +37,11 @@ function tests.run(): integer
         uint64
     } = {0x091e01deULL, 0xcbf43926ULL, 0xe3069283ULL, 0x6c40df5f0b497347ULL, 0xae8b14860a799888ULL}
     local input = "prefix123456789suffix"
-    local bytes = span.fromString(input)
+    local bytes = span.fromstring(input)
     local part = bytes:slice(7, 15)
     for index, name in ipairs(names) do
         assert(checksum.value(name, "123456789") == expected[index])
-        with first = checksum.newChecksum(name), second = checksum.newChecksum(name) do
+        with first = checksum.newchecksum(name), second = checksum.newchecksum(name) do
             first:write("1234")
             second:writeSpan(part)
             first:write("56789")
@@ -50,11 +50,11 @@ function tests.run(): integer
             assert(first:value() == expected[index])
         end
     end
-    assert(digest.hexDigest("md5", "abc") == "900150983cd24fb0d6963f7d28e17f72")
-    assert(digest.hexDigest("sha1", "abc") == "a9993e364706816aba3e25717850c26c9cd0d89d")
-    assert(digest.hexDigest("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    assert(digest.hexdigest("md5", "abc") == "900150983cd24fb0d6963f7d28e17f72")
+    assert(digest.hexdigest("sha1", "abc") == "a9993e364706816aba3e25717850c26c9cd0d89d")
+    assert(digest.hexdigest("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
     assert(
-        digest.hexDigest(
+        digest.hexdigest(
             "sha512",
             "abc"
         ) == "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f"
@@ -64,7 +64,7 @@ function tests.run(): integer
 end
 
 function tests.worker(): integer
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         local child = scope:fork(function(): uint64
             local sums = require("binary.hash.checksum")
             local ids = require("nupp.runtime.provider.nativeuuid")

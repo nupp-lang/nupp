@@ -8,7 +8,7 @@ local env = require("nupp.compiler.project.env")
 
 local function parsed(source)
     local result = parser.parse(source, "test.nupp")
-    testAssert.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "unexpected syntax error")
+    testAssert.eq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "unexpected syntax error")
     return result
 end
 
@@ -25,7 +25,7 @@ end
 local function run(source)
     local result = parsed(source)
     local checked = check.check(result, "test.nupp", env.new("."))
-    testAssert.equal(#checked, 0, checked[1] and checked[1].msg or "unexpected check diagnostic")
+    testAssert.eq(#checked, 0, checked[1] and checked[1].msg or "unexpected check diagnostic")
     return program.run(result, "binding_pattern_test")
 end
 
@@ -36,15 +36,15 @@ local M = {}
 function M.syntaxRoundTripsAndRecordsAliasesAndAnnotations()
     local source = pair .. "\nconst {x: number, y as vertical: number} = point"
     local result = parsed(source)
-    testAssert.equal(cst.textOf(result.root), source)
+    testAssert.eq(cst.textOf(result.root), source)
     local declaration = result.root.blocks[1].stats[2]
-    testAssert.equal(declaration.kind, "localStmt")
-    testAssert.equal(declaration.isConst, true)
-    testAssert.equal(#declaration.pattern, 2)
-    testAssert.equal(declaration.pattern[1].sourceName.text, "x")
-    testAssert.equal(declaration.pattern[2].sourceName.text, "y")
-    testAssert.equal(declaration.pattern[2].alias.text, "vertical")
-    testAssert.equal(declaration.names[2].text, "vertical")
+    testAssert.eq(declaration.kind, "localStmt")
+    testAssert.eq(declaration.isConst, true)
+    testAssert.eq(#declaration.pattern, 2)
+    testAssert.eq(declaration.pattern[1].sourceName.text, "x")
+    testAssert.eq(declaration.pattern[2].sourceName.text, "y")
+    testAssert.eq(declaration.pattern[2].alias.text, "vertical")
+    testAssert.eq(declaration.names[2].text, "vertical")
     assert(declaration.types[1] and declaration.types[2])
 end
 
@@ -65,11 +65,11 @@ function M.sourceAndFieldsEvaluateOnceFromLeftToRight()
             "\n"
         )
     )
-    testAssert.equal(answer, "1xy34")
+    testAssert.eq(answer, "1xy34")
 end
 
 function M.constBindingsStayImmutableAndKeepTheirFieldTypes()
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             pair .. "\n" .. table.concat(
                 {"local point = new Pair(x = 1, y = 2)", "const {x, y as vertical} = point", "x = 3", "vertical = 4",},
@@ -81,7 +81,7 @@ function M.constBindingsStayImmutableAndKeepTheirFieldTypes()
 end
 
 function M.annotationsCheckTheSelectedField()
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             pair .. "\n" .. table.concat({"local point = new Pair(x = 1, y = 2)", "const {x: string} = point",}, "\n")
         ),
@@ -90,11 +90,11 @@ function M.annotationsCheckTheSelectedField()
 end
 
 function M.missingAndRepeatedSelectionsAreDiagnosed()
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(pair .. "\n" .. table.concat({"local point = new Pair(x = 1, y = 2)", "local {z} = point",}, "\n")),
         "NUPP2004"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             pair .. "\n" .. table.concat(
                 {"local point = new Pair(x = 1, y = 2)", "local {x, x as other} = point",},
@@ -103,7 +103,7 @@ function M.missingAndRepeatedSelectionsAreDiagnosed()
         ),
         "NUPP2006"
     )
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             pair .. "\n" .. table.concat(
                 {"local point = new Pair(x = 1, y = 2)", "local {x as value, y as value} = point",},
@@ -115,7 +115,7 @@ function M.missingAndRepeatedSelectionsAreDiagnosed()
 end
 
 function M.patternsDoNotPartiallyMoveOwnedContainers()
-    testAssert.equal(
+    testAssert.eq(
         diagnostics(
             pair .. "\n" .. table.concat(
                 {
@@ -136,23 +136,23 @@ function M.patternsDoNotPartiallyMoveOwnedContainers()
 end
 
 function M.formattingUsesReadableBraces()
-    testAssert.equal(fmt.format("const{x,y as vertical}=point"), "const {x, y as vertical} = point\n")
-    testAssert.equal(fmt.format("draw({x,y}=point,color='blue')"), "draw({x, y} = point, color = 'blue')\n")
+    testAssert.eq(fmt.format("const{x,y as vertical}=point"), "const {x, y as vertical} = point\n")
+    testAssert.eq(fmt.format("draw({x,y}=point,color='blue')"), "draw({x, y} = point, color = 'blue')\n")
 end
 
 function M.oldAndAliasedPlucksCarryWholeFixes()
     local old = parser.parse("draw((x, y) = point)", "test.nupp")
-    testAssert.equal(#old.errors, 1)
-    testAssert.equal(old.errors[1].code, "NUPP1002")
-    testAssert.equal(old.errors[1].fixes[1].title, "use a braced pluck")
-    testAssert.equal(old.errors[1].fixes[1].edits[1].newText, "{")
-    testAssert.equal(old.errors[1].fixes[1].edits[2].newText, "}")
+    testAssert.eq(#old.errors, 1)
+    testAssert.eq(old.errors[1].code, "NUPP1002")
+    testAssert.eq(old.errors[1].fixes[1].title, "use a braced pluck")
+    testAssert.eq(old.errors[1].fixes[1].edits[1].newText, "{")
+    testAssert.eq(old.errors[1].fixes[1].edits[2].newText, "}")
 
     local aliased = parser.parse("draw({y as color} = point)", "test.nupp")
-    testAssert.equal(#aliased.errors, 1)
-    testAssert.equal(aliased.errors[1].code, "NUPP1002")
-    testAssert.equal(aliased.errors[1].fixes[1].title, "use a named argument")
-    testAssert.equal(aliased.errors[1].fixes[1].edits[1].newText, "color = point.y")
+    testAssert.eq(#aliased.errors, 1)
+    testAssert.eq(aliased.errors[1].code, "NUPP1002")
+    testAssert.eq(aliased.errors[1].fixes[1].title, "use a named argument")
+    testAssert.eq(aliased.errors[1].fixes[1].edits[1].newText, "color = point.y")
 end
 
 return M

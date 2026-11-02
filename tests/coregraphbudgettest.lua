@@ -15,7 +15,7 @@ local M = {}
 local function source(text)
     local path, name = "=core_budget_fixture.nupp", "core_budget_fixture"
     local parsed = parser.parse(text, path)
-    test.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+    test.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
     local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
     local diagnostics = checker.check(parsed, path, env, {
         moduleName = name,
@@ -35,9 +35,9 @@ local function fixture()
 end
 
 local function equal(a, b)
-    test.equal(type(a), type(b))
+    test.eq(type(a), type(b))
     if type(a) ~= "table" then
-        test.equal(a, b)
+        test.eq(a, b)
         return
     end
     for key, value in pairs(a) do
@@ -50,7 +50,7 @@ end
 
 local function refuses(action, expected)
     local ok, message = pcall(action)
-    test.equal(ok, false)
+    test.eq(ok, false)
     assert(tostring(message):find(expected, 1, true), tostring(message))
 end
 
@@ -65,8 +65,8 @@ local function rows(bytes)
     local wire, tables = schema.wire(), {}
     for index, section in ipairs(wire.sections) do
         local directory = wire.headerBytes + (index - 1) * wire.directoryBytes
-        test.equal(read(bytes, directory + 12), 0)
-        test.equal(read(bytes, directory + 20), 0)
+        test.eq(read(bytes, directory + 12), 0)
+        test.eq(read(bytes, directory + 20), 0)
         local count, offset = read(bytes, directory + 8), read(bytes, directory + 16)
         if section.name == "bytes" then
             tables.bytes = bytes:sub(offset + 1, offset + count)
@@ -92,12 +92,12 @@ local function compare(p)
     local tables, entry = rows(bytes)
     local predicted = budget.rows(tables, entry)
     local measured = budget.measure(decoded)
-    test.equal(predicted.items, measured.items)
-    test.equal(predicted.bytes, measured.bytes)
+    test.eq(predicted.items, measured.items)
+    test.eq(predicted.bytes, measured.bytes)
     assert(measured.maxDepth <= predicted.maxDepthBound)
     assert(predicted.maxDepthBound <= 32)
-    test.equal(predicted.maxDepth, nil)
-    test.equal(codec.encode(decoded), bytes)
+    test.eq(predicted.maxDepth, nil)
+    test.eq(codec.encode(decoded), bytes)
     equal(budget.rows(tables, entry), predicted)
 
     return predicted, decoded, tables
@@ -184,7 +184,7 @@ function M.internedTextStillCostsEveryDecodedReference()
     end
     local predicted, _, tables = compare(p)
     assert(predicted.bytes > 8 * #tables.bytes)
-    test.equal(#tables.bytes, #text)
+    test.eq(#tables.bytes, #text)
 end
 
 -- This synthetic constant-form mutation is validated by the real codec;
@@ -192,7 +192,7 @@ end
 function M.nilConstantPayloadHasCanonicalTextCost()
     local p = source("return nil")
     local g = p.graphs[1]
-    test.equal(g.blocks[1].op[1], "Nil")
+    test.eq(g.blocks[1].op[1], "Nil")
     g.constants = {{kind = "nil", value = ""}}
     g.blocks[1].op[1], g.blocks[1].args[1] = "K", {0}
     compare(p)
@@ -201,15 +201,15 @@ end
 function M.noResultPersistenceAndParallelColumnsHaveDifferentCosts()
     local empty, emptyTree = compare(source("return"))
     local taggedNil, nilTree = compare(source("return nil"))
-    test.equal(emptyTree.graphs[1].blocks[1].term.value, nil)
+    test.eq(emptyTree.graphs[1].blocks[1].term.value, nil)
     assert(nilTree.graphs[1].blocks[1].term.value > 0)
     assert(taggedNil.items > empty.items)
     local policy, byName = budget.policy(), {}
     for _, recipe in ipairs(policy.recipes) do
         byName[recipe.name] = recipe
     end
-    test.equal(byName.valueType.items + byName.valueSlot.items, 4)
-    test.equal(byName.valueType.bytes + byName.valueSlot.bytes, 1)
+    test.eq(byName.valueType.items + byName.valueSlot.items, 4)
+    test.eq(byName.valueType.bytes + byName.valueSlot.bytes, 1)
     local columns = 0
     for _, name in ipairs({
         "operationName",
@@ -220,8 +220,8 @@ function M.noResultPersistenceAndParallelColumnsHaveDifferentCosts()
     }) do
         columns = columns + byName[name].items
     end
-    test.equal(columns, 10)
-    test.equal(byName.words.items, 2)
+    test.eq(columns, 10)
+    test.eq(byName.words.items, 2)
     -- The complete fresh schema contributes its own containers, keys, enum
     -- strings and scalar values, not just one wire schema record.
     local static = budget.measure(schema.describe())
@@ -245,9 +245,9 @@ function M.policyIsDetachedDeterministicAndCanonicallyNamed()
         end
     end
     for index, operation in ipairs(schema.describe().operations) do
-        test.equal(operations[index].id, operation.id)
-        test.equal(operations[index].name, operation.name)
-        test.equal(operations[index].bytes, #operation.name)
+        test.eq(operations[index].id, operation.id)
+        test.eq(operations[index].name, operation.name)
+        test.eq(operations[index].bytes, #operation.name)
     end
     first.recipes[1].items = 0
     first.enums[1].values[1].name = "changed"
@@ -256,14 +256,14 @@ end
 
 function M.validationPolicyPreservesSerializedSchemaAndDetachedOperands()
     local before, policy = schema.describe(), schema.validationPolicy()
-    test.equal(#policy, #before.operations)
+    test.eq(#policy, #before.operations)
     for index, operation in ipairs(policy) do
         local serialized = before.operations[index]
-        test.equal(operation.id, serialized.id)
-        test.equal(operation.name, serialized.name)
-        test.equal(operation.result, serialized.result)
+        test.eq(operation.id, serialized.id)
+        test.eq(operation.name, serialized.name)
+        test.eq(operation.result, serialized.result)
         equal(operation.args, serialized.args)
-        test.equal(serialized.provenance, nil)
+        test.eq(serialized.provenance, nil)
         assert(type(operation.provenance) == "string")
     end
     policy[1].args[1], policy[1].provenance = "changed", "changed"
@@ -280,9 +280,9 @@ function M.treeMeasurementRetainsPlainUniqueBoundedContract()
             "invalid bounded integer"
         )
     end
-    test.equal(budget.measure(4294967295).items, 1)
-    test.equal(budget.measure(false).items, 1)
-    test.equal(budget.measure("").bytes, 0)
+    test.eq(budget.measure(4294967295).items, 1)
+    test.eq(budget.measure(false).items, 1)
+    test.eq(budget.measure("").bytes, 0)
     refuses(
         function()
             budget.measure(nil)
@@ -333,12 +333,12 @@ function M.treeMeasurementRetainsPlainUniqueBoundedContract()
         end,
         "plain semantic table required"
     )
-    test.equal(hooks, 0)
+    test.eq(hooks, 0)
     local deep = 0
     for _ = 1, 32 do
         deep = {deep}
     end
-    test.equal(budget.measure(deep).maxDepth, 32)
+    test.eq(budget.measure(deep).maxDepth, 32)
     refuses(
         function()
             budget.measure({deep})
@@ -354,7 +354,7 @@ function M.treeLimitsCountEveryOccurrenceAndEveryKey()
     for index = 1, 524287 do
         values[index] = 0
     end
-    test.equal(budget.measure(values).items, 1048575)
+    test.eq(budget.measure(values).items, 1048575)
     values[524288] = 0
     refuses(
         function()
@@ -367,7 +367,7 @@ function M.treeLimitsCountEveryOccurrenceAndEveryKey()
     for index = 1, 16 do
         strings[index] = text
     end
-    test.equal(budget.measure(strings).bytes, 16777216)
+    test.eq(budget.measure(strings).bytes, 16777216)
     strings[17] = "x"
     refuses(
         function()
@@ -382,7 +382,7 @@ function M.treeLimitsCountEveryOccurrenceAndEveryKey()
         "bounded source text required"
     )
     -- String-valued field keys are charged too, unlike raw string-table bytes.
-    test.equal(budget.measure({abc = "de"}).bytes, 5)
+    test.eq(budget.measure({abc = "de"}).bytes, 5)
 end
 
 function M.physicalTableHooksAndUnknownFieldsRefuseBeforeAdmission()
@@ -401,7 +401,7 @@ function M.physicalTableHooksAndUnknownFieldsRefuseBeforeAdmission()
         end,
         "plain physical table required"
     )
-    test.equal(hooks, 0)
+    test.eq(hooks, 0)
     tables, entry = rows(bytes)
     tables.graphs[1]["owner nparams"] = 0
     refuses(

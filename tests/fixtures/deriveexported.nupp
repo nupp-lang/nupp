@@ -1,7 +1,7 @@
 module tests.fixtures.deriveexported
 
 --- An annotation attaches to the declaration an `export` wraps.
-@derive(types.Debug)
+@derive(types.debug)
 export record Point
     x: integer
 end

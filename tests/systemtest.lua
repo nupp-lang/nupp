@@ -19,10 +19,10 @@ end
 
 function M.secureRandomBytesSizesAndValidation()
     for _, count in ipairs({0, 1, 32, 4096}) do
-        assert(#random.randomBytes(count) == count)
+        assert(#random.randombytes(count) == count)
     end
     for _, count in ipairs({-1, 0.5, 1048577, math.huge, 0 / 0}) do
-        assert(not pcall(random.randomBytes, count))
+        assert(not pcall(random.randombytes, count))
     end
     assert(random.sha256 == nil and random.uuid4 == nil and random.hmacSha256 == nil)
 end

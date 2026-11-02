@@ -10,8 +10,8 @@ function M.rendersADirectValueWithoutSourceFragments()
         tag = "table",
         fields = {{name = "answer", value = {tag = "literal", value = 42}},},
     })
-    testAssert.equal(failure, nil, "valid IR renders")
-    testAssert.equal(rendered, "{answer=42}", "direct value")
+    testAssert.eq(failure, nil, "valid IR renders")
+    testAssert.eq(rendered, "{answer=42}", "direct value")
 end
 
 function M.rendersAHygienicFactoryOnOneLine()
@@ -26,13 +26,13 @@ function M.rendersAHygienicFactoryOnOneLine()
             },
         },
     })
-    testAssert.equal(failure, nil, "factory IR renders")
-    testAssert.equal(
+    testAssert.eq(failure, nil, "factory IR renders")
+    testAssert.eq(
         rendered,
         "function(_nupp_m1) local _nupp_m2=(_nupp_m1).build;return (_nupp_m2)(3) end",
         "locals are renderer-owned"
     )
-    testAssert.equal(rendered:find("\n", 1, true), nil, "the factory occupies one logical line")
+    testAssert.eq(rendered:find("\n", 1, true), nil, "the factory occupies one logical line")
 end
 
 function M.rejectsAnUndeclaredLocal()
@@ -52,22 +52,22 @@ function M.canonicalDataOrdersEncodedEntriesRatherThanAmbiguousKeys()
     local second = {}
     second["2"] = "string"
     second[2] = "number"
-    testAssert.equal(codec.canonical(first), codec.canonical(second), "mixed keys have canonical bytes")
+    testAssert.eq(codec.canonical(first), codec.canonical(second), "mixed keys have canonical bytes")
 end
 
 function M.renderedDataIsClosedAndStaysOnOneLine()
     local rendered, failure = codec.render({line = "first\nsecond"})
-    testAssert.equal(failure, nil, "a newline string renders")
-    testAssert.equal(rendered:find("\n", 1, true), nil, "rendered data occupies one logical line")
+    testAssert.eq(failure, nil, "a newline string renders")
+    testAssert.eq(rendered:find("\n", 1, true), nil, "rendered data occupies one logical line")
     local value = assert(loadstring("return " .. rendered))()
-    testAssert.equal(value.line, "first\nsecond", "one-line quoting preserves the value")
+    testAssert.eq(value.line, "first\nsecond", "one-line quoting preserves the value")
 
     local unsupported, unsupportedFailure = codec.render({[false] = 1})
-    testAssert.equal(unsupported, nil, "unsupported keys are not discarded")
-    testAssert.equal(unsupportedFailure, "invalid", "unsupported key failure")
+    testAssert.eq(unsupported, nil, "unsupported keys are not discarded")
+    testAssert.eq(unsupportedFailure, "invalid", "unsupported key failure")
     local nonfinite, nonfiniteFailure = codec.render(math.huge)
-    testAssert.equal(nonfinite, nil, "nonfinite numbers are not ambient globals")
-    testAssert.equal(nonfiniteFailure, "invalid", "nonfinite failure")
+    testAssert.eq(nonfinite, nil, "nonfinite numbers are not ambient globals")
+    testAssert.eq(nonfiniteFailure, "invalid", "nonfinite failure")
 end
 
 function M.rejectsMalformedCollectionsAndInvalidLuaForms()
@@ -77,16 +77,16 @@ function M.rejectsMalformedCollectionsAndInvalidLuaForms()
         args = "not a list",
     })
     assert(ok, "malformed worker IR must return a failure")
-    testAssert.equal(rendered, nil, "malformed call does not render")
+    testAssert.eq(rendered, nil, "malformed call does not render")
     assert(failure and failure.message:find("not a list", 1, true), failure and failure.message)
 
     local _, keyword = ir.render({tag = "table", fields = {{name = "end", value = {tag = "literal", value = 1}}},})
     assert(keyword and keyword.message:find("invalid", 1, true), keyword and keyword.message)
 
     local newline, newlineFailure = ir.render({tag = "literal", value = "first\nsecond"})
-    testAssert.equal(newlineFailure, nil, "newline literal renders")
-    testAssert.equal(newline:find("\n", 1, true), nil, "IR output occupies one logical line")
-    testAssert.equal(assert(loadstring("return " .. newline))(), "first\nsecond", "IR quoting preserves the value")
+    testAssert.eq(newlineFailure, nil, "newline literal renders")
+    testAssert.eq(newline:find("\n", 1, true), nil, "IR output occupies one logical line")
+    testAssert.eq(assert(loadstring("return " .. newline))(), "first\nsecond", "IR quoting preserves the value")
 
     local _, afterReturn = ir.render({
         tag = "function",
@@ -112,7 +112,7 @@ function M.rejectsAMalformedWorkerEnvelope()
         expected,
         {globalTypes = {["nupp.__MaterializedTest"] = expected}}
     )
-    testAssert.equal(failure.code, "NUPP2415", "worker data is validated before lowering")
+    testAssert.eq(failure.code, "NUPP2415", "worker data is validated before lowering")
 end
 
 function M.canonicalNumbersPreserveSubtypeAndExactBits()
@@ -132,10 +132,10 @@ function M.canonicalNumbersPreserveSubtypeAndExactBits()
     }) do
         local value = assert(tonumber(text))
         local encoded, failure = codec.canonical(value)
-        testAssert.equal(failure, nil, "numeric canonical data is valid")
+        testAssert.eq(failure, nil, "numeric canonical data is valid")
         assert(not seen[encoded], text .. " collides with " .. tostring(seen[encoded]))
         seen[encoded] = text
-        testAssert.equal(codec.canonical(value), encoded, "canonical identity is stable")
+        testAssert.eq(codec.canonical(value), encoded, "canonical identity is stable")
     end
 end
 
@@ -155,18 +155,18 @@ function M.numericRenderersPreserveExactLiterals()
         local value = assert(tonumber(text))
         local data, dataFailure = codec.render(value)
         local expression, expressionFailure = ir.render({tag = "literal", value = value})
-        testAssert.equal(dataFailure, nil, "numeric data renders")
-        testAssert.equal(expressionFailure, nil, "numeric IR renders")
+        testAssert.eq(dataFailure, nil, "numeric data renders")
+        testAssert.eq(expressionFailure, nil, "numeric IR renders")
         local source = text == "-9223372036854775808" and "0x8000000000000000" or text
-        testAssert.equal(data, source, "data preserves numeric literal")
-        testAssert.equal(expression, source, "IR preserves numeric literal")
-        testAssert.equal(metadata.literal(value).token.text, source, "metadata preserves numeric token")
+        testAssert.eq(data, source, "data preserves numeric literal")
+        testAssert.eq(expression, source, "IR preserves numeric literal")
+        testAssert.eq(metadata.literal(value).token.text, source, "metadata preserves numeric token")
         for _, rendered in ipairs({data, expression}) do
             local decoded = assert(loadstring("return " .. rendered))()
-            testAssert.equal(math.type(decoded), math.type(value), "rendering preserves numeric subtype")
-            testAssert.equal(decoded, value, "rendering preserves numeric value")
+            testAssert.eq(math.type(decoded), math.type(value), "rendering preserves numeric subtype")
+            testAssert.eq(decoded, value, "rendering preserves numeric value")
             if value == 0 then
-                testAssert.equal(1 / decoded, 1 / value, "rendering preserves zero sign")
+                testAssert.eq(1 / decoded, 1 / value, "rendering preserves zero sign")
             end
         end
     end

@@ -14,7 +14,7 @@ The compiler does the describing. A type that is reflected on carries a blueprin
 checker built from its declaration, and generated code hands that blueprint over with
 `_G.nupp.__reflect.register`. What is left for run time is holding the blueprints,
 answering `reflect()` from one, and running the extensions a program layers on top.
-Separately, it holds the keyed codec a materialized `types.reflect.fieldCodec`
+Separately, it holds the keyed codec a materialized `types.reflect.fieldcodec`
 calls.
 
 A descriptor is separate from the declaration table. A record's declaration owns

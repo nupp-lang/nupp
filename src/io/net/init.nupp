@@ -1,0 +1,43 @@
+module io.net
+
+--[[
+`io.net` is the network as bytes: a listener, the connections it accepts,
+and connections this process opens itself.
+
+```nupp
+local net = require("io.net")
+local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
+local stream = assert(listener:accept())
+print(assert(stream:read(5)))
+stream:close()
+listener:close()
+```
+
+A connection reads and writes through the `Reader` and `Writer` contracts on
+[](io), so a parser written against byte I/O reads a socket without knowing
+it has one. A read returns bytes, suspends while none have arrived, or returns
+empty because the peer closed its sending half; empty is only ever the end.
+
+A listener and a connection are owners. See
+[ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract they are handed
+out under.
+]]
+local source1 = require("nupp.io.net")
+export type Address = source1.Address
+export type ConnectOptions = source1.ConnectOptions
+export type Datagram = source1.Datagram
+export type DatagramOptions = source1.DatagramOptions
+export type DirectionView = source1.DirectionView
+export type ListenOptions = source1.ListenOptions
+export type Listener = source1.Listener
+export type Message = source1.Message
+export type Stream = source1.Stream
+export const Datagram = source1.Datagram
+export const DirectionView = source1.DirectionView
+export const Listener = source1.Listener
+export const Message = source1.Message
+export const Stream = source1.Stream
+export const bind = source1.bind
+export const connect = source1.connect
+export const listen = source1.listen
+export const pump = source1.pump

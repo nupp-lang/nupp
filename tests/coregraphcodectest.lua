@@ -15,7 +15,7 @@ local NONE = 4294967295
 local function source(text)
     local path, name = "=core_codec_fixture.nupp", "core_codec_fixture"
     local parsed = parser.parse(text, path)
-    test.equal(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
+    test.eq(#parsed.errors, 0, parsed.errors[1] and parsed.errors[1].msg)
     local env = environment.new(".", {memoryOnly = true, cache = false, nativeCompilerServices = false})
     local diagnostics = checker.check(parsed, path, env, {
         moduleName = name,
@@ -36,9 +36,9 @@ local function fixture()
 end
 
 local function equal(a, b)
-    test.equal(type(a), type(b))
+    test.eq(type(a), type(b))
     if type(a) ~= "table" then
-        test.equal(a, b)
+        test.eq(a, b)
         return
     end
     for key, value in pairs(a) do
@@ -63,7 +63,7 @@ end
 
 local function refuses(action, text)
     local ok, message = pcall(action)
-    test.equal(ok, false)
+    test.eq(ok, false)
     if text then
         assert(tostring(message):find(text, 1, true), tostring(message))
     end
@@ -121,28 +121,28 @@ end
 
 function M.descriptorDrivenLayoutHasExactStridesAndHeader()
     local wire = schema.wire()
-    test.equal(#wire.sections, 18)
-    test.equal(wire.headerBytes, 48)
-    test.equal(wire.directoryBytes, 32)
+    test.eq(#wire.sections, 18)
+    test.eq(wire.headerBytes, 48)
+    test.eq(wire.directoryBytes, 32)
     for index, descriptor in ipairs(wire.sections) do
-        test.equal(descriptor.id, index - 1)
+        test.eq(descriptor.id, index - 1)
         local bytes = 0
         for _, f in ipairs(descriptor.fields) do
-            test.equal(f.offset, bytes)
+            test.eq(f.offset, bytes)
             bytes = bytes + (f.kind == "u64" and 8 or 4)
         end
-        test.equal(bytes, descriptor.name == "bytes" and 0 or descriptor.stride)
+        test.eq(bytes, descriptor.name == "bytes" and 0 or descriptor.stride)
     end
     local bytes = codec.encode(fixture())
-    test.equal(bytes:sub(1, 8), "NUPPCGRF")
-    test.equal(read(bytes, 8), 2)
-    test.equal(read(bytes, 12), 2)
-    test.equal(read(bytes, 16), 18)
-    test.equal(read(bytes, 24), #bytes)
-    test.equal(read(bytes, 28), 0)
-    test.equal(read(bytes, 40), 48)
+    test.eq(bytes:sub(1, 8), "NUPPCGRF")
+    test.eq(read(bytes, 8), 2)
+    test.eq(read(bytes, 12), 2)
+    test.eq(read(bytes, 16), 18)
+    test.eq(read(bytes, 24), #bytes)
+    test.eq(read(bytes, 28), 0)
+    test.eq(read(bytes, 40), 48)
     wire.sections[1].fields[1].name = "changed"
-    test.equal(schema.wire().sections[1].fields[1].name, "version")
+    test.eq(schema.wire().sections[1].fields[1].name, "version")
 end
 
 function M.realCheckedProgramsRoundTripWholeNormalizedView()
@@ -162,8 +162,8 @@ function M.realCheckedProgramsRoundTripWholeNormalizedView()
         local decoded = codec.decode(bytes)
         equal(decoded, original)
         equal(p, original)
-        test.equal(codec.encode(decoded), bytes)
-        test.equal(codec.encode(source(text)), bytes)
+        test.eq(codec.encode(decoded), bytes)
+        test.eq(codec.encode(source(text)), bytes)
     end
 end
 
@@ -175,20 +175,20 @@ function M.nestedSourcesAndOptionalPositionsAreDetached()
     equal(decoded, p)
     local first, second = codec.decode(codec.encode(p)), codec.decode(codec.encode(p))
     first.graphs[1].positions[1].source.path = "changed"
-    test.equal(second.graphs[1].positions[1].source.path, p.graphs[1].positions[1].source.path)
+    test.eq(second.graphs[1].positions[1].source.path, p.graphs[1].positions[1].source.path)
     term.pos = 0
     local present = codec.decode(codec.encode(p))
-    test.equal(invoke(present).pos, 0)
-    test.equal(invoke(decoded).pos, nil)
+    test.eq(invoke(present).pos, 0)
+    test.eq(invoke(decoded).pos, nil)
 end
 
 function M.emptyReturnAndNilSSAStayDistinct()
     local empty, taggedNil = codec.decode(
         codec.encode(source("return"))
     ), codec.decode(codec.encode(source("return nil")))
-    test.equal(empty.graphs[1].blocks[1].term.value, nil)
+    test.eq(empty.graphs[1].blocks[1].term.value, nil)
     assert(taggedNil.graphs[1].blocks[1].term.value > 0)
-    test.equal(taggedNil.graphs[1].blocks[1].op[1], "Nil")
+    test.eq(taggedNil.graphs[1].blocks[1].op[1], "Nil")
 end
 
 function M.sourceAndFrozenSinksDoNotAcceptNumericContracts()
@@ -369,8 +369,8 @@ function M.descriptorsAndCapabilitiesAreNotSerializedAuthority()
     )
     local bytes = codec.encode(fixture())
     local decoded = codec.decode(bytes)
-    test.equal(decoded.schema.operations[5].id, 4)
-    test.equal(decoded.schema.operations[5].name, "Closure")
+    test.eq(decoded.schema.operations[5].id, 4)
+    test.eq(decoded.schema.operations[5].name, "Closure")
     for _, change in ipairs({
         {"schema", "capabilities", 1},
         {"schema", "returns", 0},
@@ -383,7 +383,7 @@ function M.descriptorsAndCapabilitiesAreNotSerializedAuthority()
         local ok = pcall(function()
             codec.decode(patch(bytes, field(bytes, change[1], 1, change[2]), change[3]))
         end)
-        test.equal(ok, false, change[1] .. "." .. change[2])
+        test.eq(ok, false, change[1] .. "." .. change[2])
     end
 end
 
@@ -470,7 +470,7 @@ function M.rawUnknownTablesAndExpansionRefuseWithoutHooks()
         end,
         "plain semantic table"
     )
-    test.equal(calls, 0)
+    test.eq(calls, 0)
     p = fixture()
     p.graphs[2].positions = p.graphs[1].positions
     refuses(
@@ -501,14 +501,14 @@ function M.equivalentEmptySpanEncodingsPreserveGraphAuthority()
     local p = fixture()
     local bytes = codec.encode(p)
     local offset = field(bytes, "blocks", 1, "paramsFirst")
-    test.equal(read(bytes, field(bytes, "blocks", 1, "paramsCount")), 0)
+    test.eq(read(bytes, field(bytes, "blocks", 1, "paramsCount")), 0)
     local changed = patch(bytes, offset, read(bytes, offset) == 0 and 1 or 0)
     assert(changed ~= bytes)
     local decoded = codec.decode(changed)
     equal(decoded, p)
     -- The writer is deterministic; equivalent accepted wire arrangements do
     -- not become graph authority or promise universal raw-byte canonicality.
-    test.equal(codec.encode(decoded), bytes)
+    test.eq(codec.encode(decoded), bytes)
 end
 
 function M.wireExpansionBoundaryIsSharedByWriterAndReader()
@@ -530,8 +530,8 @@ function M.wireExpansionBoundaryIsSharedByWriterAndReader()
     end
     local accepted = codec.encode(p)
     local decoded = codec.decode(accepted)
-    test.equal(#decoded.graphs[1].blocks[1].op, #block.op)
-    test.equal(codec.encode(decoded), accepted)
+    test.eq(#decoded.graphs[1].blocks[1].op, #block.op)
+    test.eq(codec.encode(decoded), accepted)
     graph.emit(g, block, "Nil", {}, 0)
     local count, values, slots = #block.op, #g.types, g.counts.v
     refuses(
@@ -540,9 +540,9 @@ function M.wireExpansionBoundaryIsSharedByWriterAndReader()
         end,
         "record expansion limit"
     )
-    test.equal(#block.op, count)
-    test.equal(#g.types, values)
-    test.equal(g.counts.v, slots)
+    test.eq(#block.op, count)
+    test.eq(#g.types, values)
+    test.eq(g.counts.v, slots)
 end
 
 function M.contractIdsCannotBeForgedReusedOrOrphaned()

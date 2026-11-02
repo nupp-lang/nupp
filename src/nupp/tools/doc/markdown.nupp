@@ -133,11 +133,11 @@ end
 -- The members of a declaration as one table above the sections documenting them. The
 -- signature fence elides the entries, so this is where a reader sees what the type
 -- holds without scrolling the whole of it, and the name links to the rest.
-local function markdownMemberSummary(out, members, heading)
+local function markdownMemberSummary(out, members, heading, title)
     if not members or #members == 0 then
         return
     end
-    out[#out + 1] = heading .. " Members"
+    out[#out + 1] = heading .. " " .. (title or "Members")
     out[#out + 1] = ""
     out[#out + 1] = "| Name | Kind | Description |"
     out[#out + 1] = "| --- | --- | --- |"
@@ -161,7 +161,9 @@ local function renderMarkdownMembers(out, members, level)
     local hName, hSub = heading(level), heading(level + 1)
     for _, member in ipairs(members or {}) do
         out[#out + 1] = '<a id="' .. member.path .. '"></a>'
-        out[#out + 1] = hName .. " `" .. member.name .. "` _" .. memberKind(member) .. "_"
+        out[
+            #out + 1
+        ] = hName .. " `" .. member.name .. "` _" .. memberKind(member) .. "_" .. (member.lua and " _Lua_" or "")
         out[#out + 1] = ""
         -- A nested type's kind already spells its declaration, and what it holds is its
         -- own members below; only a field or a method has a type to show here.
@@ -186,12 +188,14 @@ local function renderMarkdownMembers(out, members, level)
     end
 end
 
-local function renderMarkdownItem(out, item, level)
+local function renderMarkdownItem(out, item, level, bodyOnly)
     level = level or 3
     local h, hSub = heading(level), heading(level + 1)
-    out[#out + 1] = '<a id="' .. item.path .. '"></a>'
-    out[#out + 1] = h .. " `" .. item.name .. "` _" .. displayKind(item) .. "_"
-    out[#out + 1] = ""
+    if not bodyOnly then
+        out[#out + 1] = '<a id="' .. item.path .. '"></a>'
+        out[#out + 1] = h .. " `" .. item.name .. "` _" .. displayKind(item) .. "_" .. (item.lua and " _Lua_" or "")
+        out[#out + 1] = ""
+    end
     out[#out + 1] = "```nupp"
     out[#out + 1] = displaySignature(item)
     out[#out + 1] = "```"
@@ -214,7 +218,7 @@ local function renderMarkdownItem(out, item, level)
     markdownArguments(out, item.params, hSub)
     markdownReturns(out, item.returns, hSub)
     markdownRaises(out, item.raises, hSub)
-    markdownMemberSummary(out, item.members, hSub)
+    markdownMemberSummary(out, item.members, hSub, item.kind == "annotation" and "Values" or nil)
     renderMarkdownMembers(out, item.members, level + 1)
 end
 
@@ -235,6 +239,13 @@ function markdown.items(items: {Item}, level: integer?): string
         renderMarkdownItem(out, item, level or 3)
     end
 
+    return table.concat(out, "\n")
+end
+
+--- Renders a declaration for a reader which supplies its own section heading.
+function markdown.itemBody(item: Item): string
+    local out = {}
+    renderMarkdownItem(out, item, 3, true)
     return table.concat(out, "\n")
 end
 
@@ -261,7 +272,13 @@ function markdown.render(modules: {Module}, title: string?, all: {Module}?, over
         out[#out + 1] = ""
     end
     for moduleIndex, module in ipairs(modules) do
-        out[#out + 1] = '<a id="' .. module.name .. '"></a>'
+        local rootDeclaration = false
+        for _, item in ipairs(module.items) do
+            rootDeclaration = rootDeclaration or item.path == module.name
+        end
+        if not rootDeclaration then
+            out[#out + 1] = '<a id="' .. module.name .. '"></a>'
+        end
         out[#out + 1] = "# `" .. module.name .. "`"
         out[#out + 1] = ""
         -- An overview is what the author wanted said here, so it replaces the line that

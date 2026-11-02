@@ -171,7 +171,7 @@ function runner.select(
         )
         local cached = cacheDirectory and readFile(cacheDirectory .. "/" .. keys[name] .. ".json")
         if cached then
-            codes[name] = json.decodeValue(cached)
+            codes[name] = json.decodevalue(cached)
         end
     end
     phase("cache")
@@ -220,7 +220,7 @@ function runner.select(
         local result = sink.compilerGraph(item.graph, item.owner.name, item.owner, resolved, bound)
         codes[name] = selectCode(result, mode)
         if cacheDirectory then
-            writeFile(cacheDirectory .. "/" .. keys[name] .. ".json", json.encodeValue(codes[name]))
+            writeFile(cacheDirectory .. "/" .. keys[name] .. ".json", json.encodevalue(codes[name]))
         end
     end
     phase("selection")

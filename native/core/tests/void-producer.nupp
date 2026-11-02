@@ -153,7 +153,7 @@ function producer.compile(mode: string): string
     local result = shim.build({handler}, codes)
     result.metrics, result.refusals, result.mode = metrics, failures, mode
 
-    return json.encodeValue(result)
+    return json.encodevalue(result)
 end
 
 function producer.data(offsetText: string, codeBytesText: string): string

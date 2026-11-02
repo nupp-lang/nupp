@@ -2,16 +2,16 @@ module main
 
 const assert2 = require("assert")
 
-local tasks = require("nupp.tasks")
+local tasks = require("coroutine")
 local main = {}
 local savedThread: any = nil
 
 function main.checkpointStart(): number
     savedThread = @unsafe own.release(
         coroutine.create(function(): number
-            local suspension = require("nupp.suspension")
-            local host = require("nupp.suspension.host")
-            local time = require("nupp.time")
+            local suspension = require("coroutine.suspension")
+            local host = require("coroutine.suspension.host")
+            local time = require("coroutine")
             local clock = require("nupp.vm.clock")
             local handler = new host.Handler(
                 canPark = function(_: host.Handler): boolean
@@ -28,7 +28,7 @@ function main.checkpointStart(): number
                 end
             )
             const handling = host.install(handler)
-            with scope = tasks.open(timeoutMs = 1000) do
+            with scope = tasks.scope(timeoutMs = 1000) do
                 local child = scope:spawn(function(): number
                     time.sleep(50)
                     return 42
@@ -111,7 +111,7 @@ end
 function main.run(): number
     local state: any = {closed = 0}
     local answer = 0
-    with scope = tasks.open(limit = 1) do
+    with scope = tasks.scope(limit = 1) do
         local first = scope:spawn(function(): number
             with owned = resource(state) do
                 tasks.checkpoint()
@@ -131,7 +131,7 @@ function main.run(): number
 end
 
 function main.cancellation(): number
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         local child = scope:spawn(function(): number
             error("a cancelled queued task must not start")
         end)
@@ -139,7 +139,7 @@ function main.cancellation(): number
         local ok, reason = pcall(function(): number
             return child:await()
         end)
-        assert2(not ok and tasks.isCancelled(reason))
+        assert2(not ok and tasks.iscancelled(reason))
         assert2(child:isDone() and child:status() == "cancelled")
     end
 
@@ -148,7 +148,7 @@ end
 
 function main.churn(): number
     local total = 0
-    with scope = tasks.open(limit = 1) do
+    with scope = tasks.scope(limit = 1) do
         for i = 1, 1000 do
             local child = scope:spawn(function(): number
                 return 1
@@ -180,7 +180,7 @@ function main.ownership(): number
     end)
     assert2(not ok and reason == marker and state.closed == 2)
     local childOk, childReason = pcall(function()
-        with scope = tasks.open() do
+        with scope = tasks.scope() do
             local child = scope:spawn(function()
                 error(nil)
             end)
@@ -241,7 +241,7 @@ function main.captures(): number
         end
     end
     assert2(state.closed == 2, "expected two cleanups: " .. tostring(state.closed))
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         local owned = resource(state)
         local child = scope:spawn(function(): number takes (owned)
             error("cancelled closure")
@@ -256,7 +256,7 @@ end
 function main.workers(): number
     local source: any = {answer = 1}
     source.self = source
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         local child = scope:fork(source, function(value: any): any
             value.answer = 42
             assert2(value.self == value)
@@ -272,7 +272,7 @@ end
 
 function main.workerSettlement(): number
     local failed, problem = pcall(function(): nil
-        with scope = tasks.open() do
+        with scope = tasks.scope() do
             scope:fork(function(): number
                 error("worker settlement failure")
             end)
@@ -280,7 +280,7 @@ function main.workerSettlement(): number
     end)
     assert2(not failed and tostring(problem):find("worker settlement failure", 1, true) ~= nil)
     local completed, cancelled = pcall(function(): nil
-        with scope = tasks.open(timeoutMs = 10) do
+        with scope = tasks.scope(timeoutMs = 10) do
             local child = scope:fork(function(): number
                 local total = 0
                 while true do
@@ -292,13 +292,13 @@ function main.workerSettlement(): number
             child:await()
         end
     end)
-    assert2(not completed and tasks.isCancelled(cancelled))
+    assert2(not completed and tasks.iscancelled(cancelled))
 
     return 42
 end
 
 function main.named(): number
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         local child = scope:spawn("named job", function(): number
             return 42
         end)
@@ -306,7 +306,7 @@ function main.named(): number
         local ok, reason = pcall(function(): number
             return child:await()
         end)
-        assert2(not ok and tasks.isCancelled(reason))
+        assert2(not ok and tasks.iscancelled(reason))
         local cancellation = reason as any
         assert2(cancellation.operation == "named job" and cancellation.reason == "requested")
     end
@@ -359,7 +359,7 @@ end
 function main.channels(): number
     do
         local channel = tasks.channel<number>(1)
-        with scope = tasks.open() do
+        with scope = tasks.scope() do
             local sender = scope:fork(channel:share(), function(channel: any): number
                 channel:send(20)
                 channel:send(22)

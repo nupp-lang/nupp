@@ -1,0 +1,16 @@
+module nupp.compiler.syntax.filedirectives
+
+-- File directives occupy @!name, independently of user annotation names.
+local directives: {[string]: {
+    doc: string,
+    documentationInternal: boolean?,
+    formatDisabled: boolean?
+}} = {
+    internal = {
+        doc = "Hides a file from public documentation and restricts imports to its package.",
+        documentationInternal = true
+    },
+    nofmt = {doc = "Disables formatting for a file.", formatDisabled = true},
+}
+
+export = directives

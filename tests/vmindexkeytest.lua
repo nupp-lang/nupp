@@ -12,9 +12,9 @@ local env = envMod.new(fs.absolute(HERE .. "/.."))
 local function compile(moduleName, source, listing)
     local path = fs.absolute(HERE .. "/" .. moduleName .. ".nupp")
     local result = parser.parse(source, path)
-    test.equal(#result.errors, 0, result.errors[1] and result.errors[1].msg or "syntax errors")
+    test.eq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "syntax errors")
     local diagnostics = check.check(result, path, env, {moduleName = moduleName, strict = false})
-    test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "diagnostics")
+    test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "diagnostics")
     if listing then
         program.image(result, moduleName, path, listing)
     end
@@ -38,12 +38,12 @@ local wide, nextWide = 9007199254740992, 9007199254740993
 return math.type(first), math.type(second), 1 / positive, 1 / negative, tostring(wide), tostring(nextWide)
 ]]
         )
-        test.equal(integerKind, "integer")
-        test.equal(floatKind, "float")
-        test.equal(positive, math.huge)
-        test.equal(negative, -math.huge)
-        test.equal(firstWide, "9007199254740992")
-        test.equal(secondWide, "9007199254740993")
+        test.eq(integerKind, "integer")
+        test.eq(floatKind, "float")
+        test.eq(positive, math.huge)
+        test.eq(negative, -math.huge)
+        test.eq(firstWide, "9007199254740992")
+        test.eq(secondWide, "9007199254740993")
     end
 end
 
@@ -59,11 +59,11 @@ local maximum: integer = 9223372036854775807
 return tostring(first), tostring(second), tostring(minimum), tostring(nextMinimum), tostring(maximum)
 ]]
     )
-    test.equal(first, "9007199254740993")
-    test.equal(second, "9007199254740995")
-    test.equal(minimum, "-9223372036854775808")
-    test.equal(nextMinimum, "-9223372036854775807")
-    test.equal(maximum, "9223372036854775807")
+    test.eq(first, "9007199254740993")
+    test.eq(second, "9007199254740995")
+    test.eq(minimum, "-9223372036854775808")
+    test.eq(nextMinimum, "-9223372036854775807")
+    test.eq(maximum, "9223372036854775807")
 end
 
 function M.signedDecimalLiteralsUseRawConstantsOnlyInIntegerContexts()
@@ -102,18 +102,18 @@ return Probe
         functions[fn.name] = counts
     end
     local integer = assert(functions["Probe.integer"])
-    test.equal(integer.IK, 3)
-    test.equal(integer.IUnbox or 0, 0)
-    test.equal(assert(functions["Probe.boxed"]).IK or 0, 0)
-    test.equal(assert(functions["Probe.hex"]).IK or 0, 0)
-    test.equal(assert(functions["Probe.unsigned"]).IK or 0, 0)
+    test.eq(integer.IK, 3)
+    test.eq(integer.IUnbox or 0, 0)
+    test.eq(assert(functions["Probe.boxed"]).IK or 0, 0)
+    test.eq(assert(functions["Probe.hex"]).IK or 0, 0)
+    test.eq(assert(functions["Probe.unsigned"]).IK or 0, 0)
     local zero, exact, maximum = api.integer()
-    test.equal(zero, "0")
-    test.equal(exact, "9007199254740993")
-    test.equal(maximum, "9223372036854775807")
-    test.equal(tostring(api.boxed()), "9007199254740993")
-    test.equal(api.hex(), "-9223372036854775808")
-    test.equal(tostring(api.unsigned()), "18446744073709551615")
+    test.eq(zero, "0")
+    test.eq(exact, "9007199254740993")
+    test.eq(maximum, "9223372036854775807")
+    test.eq(tostring(api.boxed()), "9007199254740993")
+    test.eq(api.hex(), "-9223372036854775808")
+    test.eq(tostring(api.unsigned()), "18446744073709551615")
 end
 
 function M.aZeroHeadIntegerCallReachesIndexWithNil()
@@ -134,8 +134,8 @@ end
 ]]
     )
     local value, calls = run()
-    test.equal(value, "missing-byte")
-    test.equal(calls, 1)
+    test.eq(value, "missing-byte")
+    test.eq(calls, 1)
 end
 
 function M.boxedAliasesParensCastsAndCapturesKeepMissingKeys()
@@ -160,8 +160,8 @@ end
 ]]
     )
     local value, kind = run()
-    test.equal(value, "captured-nil")
-    test.equal(kind, "nil")
+    test.eq(value, "captured-nil")
+    test.eq(kind, "nil")
 end
 
 function M.zeroHeadNumberCallsAndAliasesReachNewIndexWithNil()
@@ -190,8 +190,8 @@ end
 ]]
     )
     local writes, total = run()
-    test.equal(writes, 2)
-    test.equal(total, 36)
+    test.eq(writes, 2)
+    test.eq(total, 36)
 end
 
 function M.assignmentHoldsOneObjectAndMissingKeyBeforeItsValues()
@@ -228,9 +228,9 @@ end
 ]]
     )
     local order, total, marker = run()
-    test.equal(order, "okvsokvs")
-    test.equal(total, 46)
-    test.equal(marker, 4)
+    test.eq(order, "okvsokvs")
+    test.eq(total, 46)
+    test.eq(marker, 4)
 end
 
 function M.realNumericProducersKeepTypedIndexesWhileOpenCallsDoNot()
@@ -285,12 +285,12 @@ return Probe
     assert(count("loop", "GetIdx") > 0, "value-register numeric-for counter")
     assert(count("boxedInteger", "GetIdx") > 0, "canonical int64 value key")
     assert(count("missing", "GetIdx") > 0, "open result remains a value key")
-    test.equal(count("missing", "GetIdxI"), 0)
-    test.equal(count("missing", "GetIdxF"), 0)
-    test.equal(api.literal({10, 20, 30}), 20)
-    test.equal(api.integer({10, 20, 30}), 30)
-    test.equal(api.boxedInteger({10, 20, 30}, 2), 20)
-    test.equal(api.loop({10, 20, 30}), 60)
+    test.eq(count("missing", "GetIdxI"), 0)
+    test.eq(count("missing", "GetIdxF"), 0)
+    test.eq(api.literal({10, 20, 30}), 20)
+    test.eq(api.integer({10, 20, 30}), 30)
+    test.eq(api.boxedInteger({10, 20, 30}, 2), 20)
+    test.eq(api.loop({10, 20, 30}), 60)
 end
 
 -- Wide constants and a genuinely unsigned register must preserve their exact
@@ -348,13 +348,13 @@ return Probe
         assert(instruction.op ~= "GetIdxI" and instruction.op ~= "SetIdxI", "wide keys are not signed indexes")
     end
     assert(unsignedBoxes > 0, "unsigned bitwise register crosses the value boundary through UBox")
-    test.equal(genericReads, 3)
-    test.equal(genericWrites, 2)
+    test.eq(genericReads, 3)
+    test.eq(genericWrites, 2)
     local unsigned, signed, produced, writes = api.wideKeys()
-    test.equal(unsigned, "unsigned-max")
-    test.equal(signed, "signed-max")
-    test.equal(produced, "unsigned-max")
-    test.equal(writes, 2)
+    test.eq(unsigned, "unsigned-max")
+    test.eq(signed, "signed-max")
+    test.eq(produced, "unsigned-max")
+    test.eq(writes, 2)
 end
 
 function M.signedWideArithmeticUsesExactIntegerRegisters()
@@ -384,15 +384,15 @@ end
         assert((counts[opcode] or 0) > 0, "missing native integer operation " .. opcode)
     end
     local sum, difference, both, either, exclusive, greater, atLeast, less, atMost = run()
-    test.equal(sum, "-9223372036854775808")
-    test.equal(difference, "9223372036854775806")
-    test.equal(both, "3")
-    test.equal(either, "7")
-    test.equal(exclusive, "4")
-    test.equal(greater, true)
-    test.equal(atLeast, true)
-    test.equal(less, false)
-    test.equal(atMost, false)
+    test.eq(sum, "-9223372036854775808")
+    test.eq(difference, "9223372036854775806")
+    test.eq(both, "3")
+    test.eq(either, "7")
+    test.eq(exclusive, "4")
+    test.eq(greater, true)
+    test.eq(atLeast, true)
+    test.eq(less, false)
+    test.eq(atMost, false)
 end
 
 function M.signedWideConversionsPreserveEvaluationOrderAndFractionalComparisons()
@@ -419,10 +419,10 @@ end
 ]]
     )
     local events, ok, less, atLeast = run()
-    test.equal(events, "LR")
-    test.equal(ok, false)
-    test.equal(less, false)
-    test.equal(atLeast, true)
+    test.eq(events, "LR")
+    test.eq(ok, false)
+    test.eq(less, false)
+    test.eq(atLeast, true)
 end
 
 function M.signedWideOperandsSnapshotBeforeTheRightSideWrites()
@@ -441,8 +441,8 @@ end
 return sum, greater
 ]]
     )
-    test.equal(sum, 10)
-    test.equal(greater, false)
+    test.eq(sum, 10)
+    test.eq(greater, false)
 end
 
 function M.signedWideNativeBoundariesKeepExactBitsAndNaNComparisons()
@@ -459,11 +459,11 @@ return tostring(large + small), tostring(inline + one),
     (nan as integer) < 0LL, (nan as integer) >= 0LL
 ]]
     )
-    test.equal(first, "9007199254740995")
-    test.equal(second, "140737488355328")
-    test.equal(unsigned, "-1")
-    test.equal(less, false)
-    test.equal(atLeast, false)
+    test.eq(first, "9007199254740995")
+    test.eq(second, "140737488355328")
+    test.eq(unsigned, "-1")
+    test.eq(less, false)
+    test.eq(atLeast, false)
 end
 
 function M.signedWideValueOperandsRetainNumericStringErrors()
@@ -481,8 +481,8 @@ end)
 return sum, both
 ]]
     )
-    test.equal(sum, false)
-    test.equal(both, false)
+    test.eq(sum, false)
+    test.eq(both, false)
 end
 
 function M.signedWideValueOrderingKeepsExactIntegersFractionsAndNaN()
@@ -509,10 +509,10 @@ return (large as integer) > (rounded as integer),
         end
     end
     test(checked and ordered)
-    test.equal(greater, true)
-    test.equal(fractional, false)
-    test.equal(nanLess, false)
-    test.equal(nanAtMost, false)
+    test.eq(greater, true)
+    test.eq(fractional, false)
+    test.eq(nanLess, false)
+    test.eq(nanAtMost, false)
 end
 
 function M.signedWideOrderingRejectsStringsAndMetamethods()
@@ -537,9 +537,9 @@ end)
 return strings, objects, calls
 ]]
     )
-    test.equal(strings, false)
-    test.equal(objects, false)
-    test.equal(calls, 0)
+    test.eq(strings, false)
+    test.eq(objects, false)
+    test.eq(calls, 0)
 end
 
 function M.signedLiteralOperandsRequestRawBitsWithoutUnboxing()
@@ -582,24 +582,24 @@ return Probe
                     unbox = unbox + 1
                 end
             end
-            test.equal(raw, 1, fn.name .. " literal is exact raw bits")
-            test.equal(unbox, 1, fn.name .. " keeps its value-parameter conversion")
+            test.eq(raw, 1, fn.name .. " literal is exact raw bits")
+            test.eq(unbox, 1, fn.name .. " keeps its value-parameter conversion")
             expected[fn.name] = nil
         end
     end
-    test.equal(next(expected), nil, "all named functions inspected")
-    test.equal(api.add(7), 8)
-    test.equal(pcall(api.add, 1.5), false)
-    test.equal(pcall(api.add, "7"), false)
-    test.equal(api.left(7), 8)
-    test.equal(api.subtract(7), 6)
-    test.equal(api.band(7), 3)
-    test.equal(api.bor(7), 15)
-    test.equal(api.bxor(7), 4)
+    test.eq(next(expected), nil, "all named functions inspected")
+    test.eq(api.add(7), 8)
+    test.eq(pcall(api.add, 1.5), false)
+    test.eq(pcall(api.add, "7"), false)
+    test.eq(api.left(7), 8)
+    test.eq(api.subtract(7), 6)
+    test.eq(api.band(7), 3)
+    test.eq(api.bor(7), 15)
+    test.eq(api.bxor(7), 4)
     local exact, overflow, minimum = api.boundaries()
-    test.equal(exact, "9007199254740993")
-    test.equal(overflow, "-9223372036854775808")
-    test.equal(minimum, "-9223372036854775808")
+    test.eq(exact, "9007199254740993")
+    test.eq(overflow, "-9223372036854775808")
+    test.eq(minimum, "-9223372036854775808")
 end
 
 function M.signedLiteralHintsKeepHexUnsignedAndValueFallbacks()
@@ -634,14 +634,14 @@ return Probe
                     raw = raw + 1
                 end
             end
-            test.equal(raw, 0, fn.name .. " stays outside the literal hint")
+            test.eq(raw, 0, fn.name .. " stays outside the literal hint")
         end
     end
-    test.equal(api.hex(7), 8)
-    test.equal(api.oversizedHex(7), 8)
-    test.equal(tostring(api.boxed()), "9007199254740993")
-    test.equal(api.unsigned(), "0")
-    test.equal(pcall(api.cast, 7), false)
+    test.eq(api.hex(7), 8)
+    test.eq(api.oversizedHex(7), 8)
+    test.eq(tostring(api.boxed()), "9007199254740993")
+    test.eq(api.unsigned(), "0")
+    test.eq(pcall(api.cast, 7), false)
 end
 
 function M.signedLiteralHintsPreserveOperandEffectsAndSnapshots()
@@ -669,10 +669,10 @@ end
 return events, sum, reverse, shifted
 ]]
     )
-    test.equal(events, "LRRD")
-    test.equal(sum, 10)
-    test.equal(reverse, 4)
-    test.equal(shifted, 22)
+    test.eq(events, "LRRD")
+    test.eq(sum, 10)
+    test.eq(reverse, 4)
+    test.eq(shifted, 22)
 end
 
 function M.signedLiteralHintsPreserveCheckedFailureOrder()
@@ -696,10 +696,10 @@ local text = pcall(function(): integer return 1LL + (word as integer) end)
 return events, fractional, missing, text
 ]]
     )
-    test.equal(events, "LR")
-    test.equal(fractional, false)
-    test.equal(missing, false)
-    test.equal(text, false)
+    test.eq(events, "LR")
+    test.eq(fractional, false)
+    test.eq(missing, false)
+    test.eq(text, false)
 end
 
 return M

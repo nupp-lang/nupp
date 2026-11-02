@@ -16,7 +16,7 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local function diagnose(body)
     local env = envMod.new(HERE)
     local result = parser.parse(body .. "\nreturn m\n", "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in test source")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
     local errors = {}
     for _, diag in ipairs(check.check(result, "test.nupp", env)) do
         if diag.severity ~= "warning" then
@@ -30,7 +30,7 @@ end
 local function diagnoseDeclared(body)
     local env = envMod.new(HERE)
     local result = parser.parse("module test\n\n" .. body, "test.nupp")
-    testAssert.equal(#result.errors, 0, "syntax errors in declared module")
+    testAssert.eq(#result.errors, 0, "syntax errors in declared module")
     local errors = {}
     for _, diag in ipairs(check.check(result, "test.nupp", env)) do
         if diag.severity ~= "warning" then
@@ -50,12 +50,12 @@ local WANT = "local slot: @sendable function(string): string = "
 local M = {}
 
 function M.acceptsAMemberOfAModule()
-    testAssert.equal(#diagnose(MODULE .. WANT .. "m.hash"), 0, "a module member is sendable")
+    testAssert.eq(#diagnose(MODULE .. WANT .. "m.hash"), 0, "a module member is sendable")
 end
 
 function M.refusesAPrivateFunction()
     local errors = diagnose(MODULE .. PRIVATE .. WANT .. "priv")
-    testAssert.equal(#errors, 1, "one refusal")
+    testAssert.eq(#errors, 1, "one refusal")
     assert(
         errors[1].msg:find("another Lua state cannot reproduce it", 1, true) ~= nil,
         "it says why: " .. errors[1].msg
@@ -71,7 +71,7 @@ export function apply(prefix: string, value: string): string
 end
 ]]
     )
-    testAssert.equal(#errors, 0, "a literal with an immutable capture is sendable")
+    testAssert.eq(#errors, 0, "a literal with an immutable capture is sendable")
 end
 
 function M.acceptsAnEffectivelyFinalCapture()
@@ -85,7 +85,7 @@ export function apply(value: string): string
 end
 ]]
     )
-    testAssert.equal(#errors, 0, "one initialization assignment is effectively final")
+    testAssert.eq(#errors, 0, "one initialization assignment is effectively final")
 end
 
 function M.refusesAReassignedCapture()
@@ -98,7 +98,7 @@ export function apply(prefix: string, value: string): string
 end
 ]]
     )
-    testAssert.equal(#errors, 1, "a reassigned capture is refused once")
+    testAssert.eq(#errors, 1, "a reassigned capture is refused once")
     assert(
         errors[1].msg:find("capture \"prefix\" is reassigned", 1, true) ~= nil,
         "the capture is named: " .. errors[1].msg
@@ -113,7 +113,7 @@ export function hold(value: thread): @sendable function(): thread
 end
 ]]
     )
-    testAssert.equal(#errors, 1, "an uncopyable capture is refused once")
+    testAssert.eq(#errors, 1, "an uncopyable capture is refused once")
     assert(
         errors[1].msg:find("capture \"value\" is a thread", 1, true) ~= nil,
         "the capture type is named: " .. errors[1].msg
@@ -124,13 +124,13 @@ function M.ridesOnABinding()
     -- The fact is minted at the read and carried by the type, so a value that reached
     -- the slot through a local is as sendable as one written there directly.
     local src = MODULE .. "const held = m.hash\n" .. WANT .. "held"
-    testAssert.equal(#diagnose(src), 0, "a binding keeps the guarantee")
+    testAssert.eq(#diagnose(src), 0, "a binding keeps the guarantee")
 end
 
 function M.satisfiesAPlainSlot()
     -- One-directional: a guarantee is spare where none was asked for.
     local src = MODULE .. "local plain: function(string): string = m.hash\n"
-    testAssert.equal(#diagnose(src), 0, "a @sendable function is still a function")
+    testAssert.eq(#diagnose(src), 0, "a @sendable function is still a function")
 end
 
 function M.staysCallableAcrossABranch()
@@ -140,7 +140,7 @@ function M.staysCallableAcrossABranch()
         .. PRIVATE
         .. "local selected: boolean = nil as any\n"
         .. "local chosen = selected and m.hash or priv\nlocal out = chosen(\"a\")\n"
-    testAssert.equal(#diagnose(src), 0, "the join is callable")
+    testAssert.eq(#diagnose(src), 0, "the join is callable")
 end
 
 function M.dropsTheGuaranteeAcrossABranch()
@@ -151,7 +151,7 @@ function M.dropsTheGuaranteeAcrossABranch()
         .. "local chosen = selected and m.hash or priv\n"
         .. WANT
         .. "chosen"
-    testAssert.equal(#diagnose(src), 1, "an unnamed alternative loses the guarantee")
+    testAssert.eq(#diagnose(src), 1, "an unnamed alternative loses the guarantee")
 end
 
 function M.composesWithNosuspend()
@@ -160,7 +160,7 @@ function M.composesWithNosuspend()
     local errors = diagnose(MODULE .. both)
     -- `m.hash` is not proved quiet here, so both slots refuse it for that reason and
     -- neither refuses it for its address: the modifiers parsed in either order.
-    testAssert.equal(#errors, 2, "two suspension refusals")
+    testAssert.eq(#errors, 2, "two suspension refusals")
     for _, diag in ipairs(errors) do
         assert(diag.msg:find("may suspend", 1, true) ~= nil, "refused for suspension only: " .. diag.msg)
     end
@@ -170,7 +170,7 @@ end
 -- a module member carries survives into the specialized signature.
 function M.survivesGenericInstantiation()
     local generic = "local m = {}\n" .. "function m.first<T>(xs: {T}): T?\n    return xs[1]\nend\n"
-    testAssert.equal(
+    testAssert.eq(
         #diagnose(generic .. "local slot: @sendable function(xs: {integer}): integer? = m.first"),
         0,
         "a generic module member is sendable once instantiated"
@@ -185,12 +185,12 @@ function M.anInterfaceMemberHoldsImplementorsToIt()
     local good = contract
         .. "record m.Good\n    run: @sendable function(self: m.Good): nil\nend\n"
         .. "local job: m.Job = new m.Good(run = nil as any)\nprint(job)"
-    testAssert.equal(#diagnose(good), 0, "a sendable member conforms")
+    testAssert.eq(#diagnose(good), 0, "a sendable member conforms")
     local bad = contract
         .. "record m.Bad\n    run: function(self: m.Bad): nil\nend\n"
         .. "local job: m.Job = new m.Bad(run = nil as any)\nprint(job)"
     local errors = diagnose(bad)
-    testAssert.equal(#errors, 1, "one refusal")
+    testAssert.eq(#errors, 1, "one refusal")
     assert(
         errors[1].msg:find('read member "run" does not match', 1, true) ~= nil,
         "refused on the member: " .. errors[1].msg

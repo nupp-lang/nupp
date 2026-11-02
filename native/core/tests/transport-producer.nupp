@@ -155,7 +155,7 @@ function producer.compile(mode: string): string
         and #operations[6].tail == 5
     )
 
-    return json.encodeValue(result)
+    return json.encodevalue(result)
 end
 
 function producer.data(offsets: string, codeBytesText: string): string

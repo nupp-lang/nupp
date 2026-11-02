@@ -7,43 +7,43 @@ local test = require("assert")
 local M = {}
 
 function M.emptyContainersAreExplicit()
-    assert(json.encodeValue({}) == "{}", "a plain empty table is an object")
-    assert(json.encodeValue(json.asArray({})) == "[]", "asArray marks an empty array")
-    assert(json.encodeValue(json.asObject({})) == "{}", "asObject marks an empty object")
-    assert(json.encodeValue(json.EMPTY_ARRAY) == "[]", "EMPTY_ARRAY is serializable")
-    assert(json.encodeValue(json.EMPTY_OBJECT) == "{}", "EMPTY_OBJECT is serializable")
+    assert(json.encodevalue({}) == "{}", "a plain empty table is an object")
+    assert(json.encodevalue(json.asarray({})) == "[]", "asArray marks an empty array")
+    assert(json.encodevalue(json.asobject({})) == "{}", "asObject marks an empty object")
+    assert(json.encodevalue(json.EMPTY_ARRAY) == "[]", "EMPTY_ARRAY is serializable")
+    assert(json.encodevalue(json.EMPTY_OBJECT) == "{}", "EMPTY_OBJECT is serializable")
 end
 
 function M.decodedContainerShapeIsPublic()
-    assert(json.isArray(json.decodeValue("[]")), "a decoded empty array retains its shape")
-    assert(not json.isArray(json.decodeValue("{}")), "a decoded empty object retains its shape")
-    assert(json.isArray(json.decodeValue("[1]")), "a decoded non-empty array has array shape")
-    assert(not json.isArray(json.decodeValue([[{"value":1}]])), "a decoded non-empty object has object shape")
+    assert(json.isarray(json.decodevalue("[]")), "a decoded empty array retains its shape")
+    assert(not json.isarray(json.decodevalue("{}")), "a decoded empty object retains its shape")
+    assert(json.isarray(json.decodevalue("[1]")), "a decoded non-empty array has array shape")
+    assert(not json.isarray(json.decodevalue([[{"value":1}]])), "a decoded non-empty object has object shape")
 end
 
 function M.nullDropsOrUsesTheSuppliedValue()
-    local dropped = json.decodeValue([[{"items":[1,null,2],"missing":null}]])
+    local dropped = json.decodevalue([[{"items":[1,null,2],"missing":null}]])
     assert(dropped.missing == nil and #dropped.items == 2 and dropped.items[2] == 2)
-    local kept = json.decodeValue([[{"items":[1,null,2],"missing":null}]], json.NULL)
+    local kept = json.decodevalue([[{"items":[1,null,2],"missing":null}]], json.NULL)
     assert(kept.missing == json.NULL and kept.items[2] == json.NULL)
     assert(
-        json.encodeValue(kept) == [[{"items":[1,null,2],"missing":null}]]
-        or json.encodeValue(kept) == [[{"missing":null,"items":[1,null,2]}]]
+        json.encodevalue(kept) == [[{"items":[1,null,2],"missing":null}]]
+        or json.encodevalue(kept) == [[{"missing":null,"items":[1,null,2]}]]
     )
 end
 
 function M.abortingWritersDiscardsOnlyUnpublishedBytes()
     for _, provider in ipairs({json, require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
-        local output = require("nupp.text").newBuffer()
+        local output = require("nupp.text").newbuffer()
         output:put("prefix")
-        local writer = provider.newWriter(output)
+        local writer = (provider == json and provider.newwriter or provider.newWriter)(output)
         writer:startArray():write(1)
         writer:abort()
         writer:abort()
         writer:close()
         assert(output:tostring() == "prefix")
         assert(not pcall(writer.write, writer, 2))
-        writer = provider.newWriter(output)
+        writer = (provider == json and provider.newwriter or provider.newWriter)(output)
         writer:startArray():write(1)
         writer:flush()
         writer:write(2)
@@ -61,14 +61,14 @@ end
 -- uri.newURI give. The reason is what tells failure apart, because the
 -- document `null` is nil too when nulls are dropped.
 function M.decodeAndPullAnswerAReason()
-    assert(refused(json.decodeValue("[1,")), "a truncated array")
-    assert(refused(json.decodeValue("")), "an empty document")
-    assert(refused(json.decodeValue("{} {}")), "two documents")
-    local value, reason = json.decodeValue("null")
+    assert(refused(json.decodevalue("[1,")), "a truncated array")
+    assert(refused(json.decodevalue("")), "an empty document")
+    assert(refused(json.decodevalue("{} {}")), "two documents")
+    local value, reason = json.decodevalue("null")
     assert(value == nil and reason == nil, "a dropped null document is not a failure")
-    value, reason = json.decodeValue("null", json.NULL)
+    value, reason = json.decodevalue("null", json.NULL)
     assert(value == json.NULL and reason == nil, "a kept null document")
-    value, reason = json.decodeValue("[1,")
+    value, reason = json.decodevalue("[1,")
     assert(tostring(reason):find("^invalid JSON at byte %d+: "), tostring(reason))
     assert(refused(json.pull("[1,", true)), "a truncated pull")
     value, reason = json.pull([[{"a":1,"b":2}]], {a = true})
@@ -76,19 +76,19 @@ function M.decodeAndPullAnswerAReason()
 end
 
 function M.invalidNumbersAreAlwaysRejected()
-    assert(refused(json.decodeValue("[NaN]")), "the decoder accepted NaN")
-    assert(refused(json.decodeValue("[Infinity]")), "the decoder accepted Infinity")
-    assert(not pcall(json.encodeValue, 0 / 0), "the encoder accepted NaN")
+    assert(refused(json.decodevalue("[NaN]")), "the decoder accepted NaN")
+    assert(refused(json.decodevalue("[Infinity]")), "the decoder accepted Infinity")
+    assert(not pcall(json.encodevalue, 0 / 0), "the encoder accepted NaN")
 end
 
 function M.exactNumberFragmentsPreserveTokensAcrossProviders()
     for _, provider in ipairs({json, require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
         for _, token in ipairs({"0", "-0", "1.00", "123456789012345678901234567890", "1e4000", "-2.1E-9000"}) do
-            local fragment = provider.numberToken(token)
-            local encode = provider == json and provider.encodeValue or provider.encode
+            local fragment = (provider == json and provider.numbertoken or provider.numberToken)(token)
+            local encode = provider == json and provider.encodevalue or provider.encode
             assert(encode(fragment) == token)
-            local output = require("nupp.text").newBuffer()
-            local writer = provider.newWriter(output)
+            local output = require("nupp.text").newbuffer()
+            local writer = (provider == json and provider.newwriter or provider.newWriter)(output)
             writer:startArray():write(fragment):endArray()
             writer:close()
             assert(output:tostring() == "[" .. token .. "]")
@@ -110,7 +110,10 @@ function M.exactNumberFragmentsPreserveTokensAcrossProviders()
             "1+2",
             "true"
         }) do
-            assert(not pcall(provider.numberToken, token), "accepted invalid token: " .. token)
+            assert(
+                not pcall(provider == json and provider.numbertoken or provider.numberToken, token),
+                "accepted invalid token: " .. token
+            )
         end
     end
 end
@@ -167,7 +170,7 @@ end
 
 function M.failedWritesLeaveTheWriterAtItsPriorPosition()
     for _, provider in ipairs({require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot"),}) do
-        local output = require("nupp.text").newBuffer()
+        local output = require("nupp.text").newbuffer()
         local writer = provider.newWriter(output)
         writer:startArray():write(1)
         assert(
@@ -183,12 +186,12 @@ end
 
 function M.portableEncodingRejectsInvalidUtf8Everywhere()
     for _, value in ipairs({"\255", "\192\128", "\237\160\128"}) do
-        assert(not pcall(json.encodeValue, value), "the encoder accepted an invalid UTF-8 value")
-        assert(not pcall(json.encodeValue, {[value] = 1}), "the encoder accepted an invalid UTF-8 key")
-        assert(not pcall(json.encodedString, value), "encodedString accepted invalid UTF-8")
+        assert(not pcall(json.encodevalue, value), "the encoder accepted an invalid UTF-8 value")
+        assert(not pcall(json.encodevalue, {[value] = 1}), "the encoder accepted an invalid UTF-8 key")
+        assert(not pcall(json.encodedstring, value), "encodedString accepted invalid UTF-8")
     end
-    local output = require("nupp.text").newBuffer()
-    local writer = json.newWriter(output)
+    local output = require("nupp.text").newbuffer()
+    local writer = json.newwriter(output)
     writer:startObject()
     assert(not pcall(writer.key, writer, "\255"), "the writer accepted an invalid UTF-8 key")
     writer:key("valid"):write(1):endObject()
@@ -199,7 +202,7 @@ end
 function M.arrayMarkersRequireEveryConsecutiveIndex()
     local sparse = {}
     sparse[2] = "second"
-    assert(not pcall(json.asArray, sparse), "asArray accepted an array starting at index two")
+    assert(not pcall(json.asarray, sparse), "asArray accepted an array starting at index two")
 
     local aotSparse = {}
     aotSparse[2] = "second"
@@ -210,9 +213,9 @@ function M.arrayMarkersRequireEveryConsecutiveIndex()
 end
 
 function M.pullShapesRequireTheMatchingContainerKind()
-    assert(refused(json.pull([[{"answer":42}]], json.arrayOf(true))), "an array shape accepted an object")
+    assert(refused(json.pull([[{"answer":42}]], json.arrayof(true))), "an array shape accepted an object")
     assert(refused(json.pull([[1,2]], {answer = true})), "an object shape accepted an array")
-    assert(refused(json.pull("null", json.arrayOf(true), json.NULL)), "an array shape accepted null")
+    assert(refused(json.pull("null", json.arrayof(true), json.NULL)), "an array shape accepted null")
     assert(refused(json.pull("null", {answer = true}, json.NULL)), "an object shape accepted null")
 end
 
@@ -221,7 +224,7 @@ function M.portableEncodingBoundsNesting()
     for _ = 1, 1025 do
         value = {value}
     end
-    local ok, problem = pcall(json.encodeValue, value)
+    local ok, problem = pcall(json.encodevalue, value)
     assert(not ok and tostring(problem):find("nesting exceeds 1024", 1, true), tostring(problem))
 end
 
@@ -295,17 +298,17 @@ function M.nonFiniteNumbersAreRefusedByEveryProvider()
             for _, decode in ipairs(decoders) do
                 local ok, problem = pcall(decode, row[1])
                 assert(not ok, ("%s accepted %q"):format(name, row[1]))
-                test.equal(
+                test.eq(
                     tostring(problem),
                     ("invalid JSON at byte %d: number is out of range"):format(row[2]),
                     name .. " " .. row[1]
                 )
             end
         end
-        test.equal(provider.decode("1e-400"), 0, name .. " underflow")
-        test.equal(1 / provider.decode("-1e-400"), -math.huge, name .. " negative underflow")
-        test.equal(provider.decode("[1.7976931348623157e308]")[1], 1.7976931348623157e308, name .. " largest double")
-        test.equal(provider.decode("1e308"), 1e308, name .. " 1e308")
+        test.eq(provider.decode("1e-400"), 0, name .. " underflow")
+        test.eq(1 / provider.decode("-1e-400"), -math.huge, name .. " negative underflow")
+        test.eq(provider.decode("[1.7976931348623157e308]")[1], 1.7976931348623157e308, name .. " largest double")
+        test.eq(provider.decode("1e308"), 1e308, name .. " 1e308")
     end
 end
 
@@ -348,7 +351,7 @@ function M.duplicateMemberNamesAreRefusedByEveryProvider()
             for _, decode in ipairs(decoders) do
                 local ok, problem = pcall(decode, row[1])
                 assert(not ok, ("%s accepted %q"):format(name, row[1]))
-                test.equal(
+                test.eq(
                     tostring(problem),
                     ("invalid JSON at byte %d: duplicate member name"):format(row[2]),
                     name .. " " .. row[1]
@@ -357,9 +360,9 @@ function M.duplicateMemberNamesAreRefusedByEveryProvider()
         end
         -- The same name in two objects is two members.
         local value = provider.decode('[{"a":1},{"a":2},{"a":null},{"a":3}]')
-        test.equal(value[1].a, 1, name)
-        test.equal(value[4].a, 3, name)
-        test.equal(provider.decode('{"a":{"a":{"a":1}}}').a.a.a, 1, name)
+        test.eq(value[1].a, 1, name)
+        test.eq(value[4].a, 3, name)
+        test.eq(provider.decode('{"a":{"a":{"a":1}}}').a.a.a, 1, name)
     end
 end
 

@@ -26,12 +26,42 @@ const MATH_EXTENSION_MEMBERS = {
     lerp = true,
     wrapAngle = true,
     deltaAngle = true,
+    wrapangle = true,
+    deltaangle = true,
+    dtangle = true,
     i32 = true,
     u32 = true,
     u64 = true,
     f32 = true,
     vec2 = true,
     quat = true
+}
+-- Public namespace casing changes do not change the frozen instruction keys.
+const SIMD_NAMESPACE_OPERATIONS = {
+    orderedsum = "orderedSum",
+    pairwisesum = "pairwiseSum",
+    algebraicsum = "algebraicSum",
+    wrappingsum = "wrappingSum",
+    andbits = "andBits",
+    orbits = "orBits",
+    xorbits = "xorBits",
+    orderedproduct = "orderedProduct",
+    pairwiseproduct = "pairwiseProduct",
+    algebraicproduct = "algebraicProduct",
+    wrappingproduct = "wrappingProduct",
+    integermin = "integerMin",
+    integermax = "integerMax",
+    propagatingmin = "propagatingMin",
+    propagatingmax = "propagatingMax",
+    numbermin = "numberMin",
+    numbermax = "numberMax",
+    ordereddot = "orderedDot",
+    pairwisedot = "pairwiseDot",
+    algebraicdot = "algebraicDot",
+    propagatingargmin = "propagatingArgMin",
+    propagatingargmax = "propagatingArgMax",
+    numberargmin = "numberArgMin",
+    numberargmax = "numberArgMax"
 }
 const nodeLine = lowerstate.nodeLine
 const SPILL_AT = lowerstate.SPILL_AT
@@ -1606,6 +1636,7 @@ function lower.emit(
             elseif node.simdHorizontal then
                 ty = args[1] and simdType(args[1].inferredType)
                 operation = node.simdHorizontal:match("^horizontal%.(.+)$")
+                operation = SIMD_NAMESPACE_OPERATIONS[operation] or operation
                 if operation:match("^propagating") or operation:match("^number") then
                     operation = "horizontal." .. operation
                 end
@@ -1900,7 +1931,9 @@ function lower.emit(
             if shared[node.scalarIntrinsic] then
                 queueModule("nupp.vm.math")
                 f:op("Require", fr, f:const("str", "nupp.vm.math"))
-                for member in node.scalarIntrinsic:gmatch("[^.]+") do
+                -- The shared math namespace uses public lowercase names; the
+                -- frozen scalar identity above remains unchanged.
+                for member in node.scalarIntrinsic:lower():gmatch("[^.]+") do
                     local value = f:reg()
                     f:op("GetField", value, fr, f:const("str", member))
                     f:op("Move", fr, value)
@@ -4206,7 +4239,9 @@ function lower.emit(
     stmt = function(f: Fn, node)
         local k = node.kind
         -- A comptime helper ran while compiling; the program never sees it.
-        if (k == "localFuncStmt" or k == "funcStmt") and (node.comptimeFunction or node.comptimeTok) then
+        if (k == "localStmt" or k == "localFuncStmt" or k == "funcStmt")
+            and (node.comptimeFunction or node.comptimeTok)
+        then
             return
         end
         if k == "localStmt" and node.pattern then
@@ -5928,7 +5963,7 @@ function lower.emit(
     local function requiresOf(tree)
         local names = {}
         walkSyntax(tree, {}, function(n)
-            if n.typeOnlyRequire then
+            if n.typeOnlyRequire or n.comptimeFunction or n.comptimeTok then
                 return false
             end
             -- `require("m")`, and softly `_G.require("m")`, which a facade spells

@@ -11,7 +11,7 @@ local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
 local json = require("testjson")
-local files = require("nupp.io.files")
+local files = require("io.files")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -45,7 +45,7 @@ end)
 bench.report()
 ]]
     local parsed = parser.parse(source, "standalone-bench.nupp")
-    testAssert.equal(#parsed.errors, 0)
+    testAssert.eq(#parsed.errors, 0)
     local diagnostics = check.check(parsed, "standalone-bench.nupp", standalone)
     for _, diagnostic in ipairs(diagnostics) do
         assert(diagnostic.severity ~= "error", diagnostic.msg)
@@ -59,7 +59,7 @@ function M.everyTopLevelNuppBenchmarkUsesTheHarness()
         paths[index] = path:toString()
     end
     table.sort(paths)
-    testAssert.equal(#paths, 6, "all six top-level Nupp benchmarks are present")
+    testAssert.eq(#paths, 6, "all six top-level Nupp benchmarks are present")
     for _, path in ipairs(paths) do
         assert(path:match("%.bench%.nupp$") ~= nil, path .. " does not use the benchmark discovery convention")
         assert(read(path):find("debug.bench", 1, true) ~= nil, path .. " does not use the shared harness")
@@ -79,9 +79,9 @@ function M.aBaselineOfTheSameSchemaCompares()
         cases = {{name = "parse", kind = "case", n = 4}, {name = "emit", kind = "case", n = 2}},
     }
     local failures, notes = bench.compare(record, baseline)
-    testAssert.equal(#failures, 0, "nothing is gated")
-    testAssert.equal(#notes, 1, table.concat(notes, "\n"))
-    testAssert.equal(notes[1], "emit: no baseline", "a case the baseline lacks is said to have none")
+    testAssert.eq(#failures, 0, "nothing is gated")
+    testAssert.eq(#notes, 1, table.concat(notes, "\n"))
+    testAssert.eq(notes[1], "emit: no baseline", "a case the baseline lacks is said to have none")
 
     -- A compiler change is reported and never stops the comparison.
     local moved = {
@@ -90,14 +90,14 @@ function M.aBaselineOfTheSameSchemaCompares()
         cases = record.cases
     }
     local _, movedNotes = bench.compare(moved, baseline)
-    testAssert.equal(#movedNotes, 2, table.concat(movedNotes, "\n"))
-    testAssert.equal(
+    testAssert.eq(#movedNotes, 2, table.concat(movedNotes, "\n"))
+    testAssert.eq(
         movedNotes[1],
         "compiler changed: 0.0.1 (bbbbbbbbbbbb) from 0.0.0 (aaaaaaaaaaaa)",
         "the change names both compilers"
     )
-    testAssert.equal(movedNotes[2], "emit: no baseline", "and the cases are still compared")
-    testAssert.equal(bench.compilerChange(compiler, nil), nil, "a side that does not say is no change")
+    testAssert.eq(movedNotes[2], "emit: no baseline", "and the cases are still compared")
+    testAssert.eq(bench.compilerchange(compiler, nil), nil, "a side that does not say is no change")
 end
 
 -- An older record still reads as a baseline, and an inconclusive one. A schema four
@@ -112,8 +112,8 @@ function M.anOlderSchemaBaselineIsInconclusive()
     }
     local record = {schema = bench.SCHEMA, cases = {{name = "parse", kind = "case", n = 4}}}
     local failures, notes = bench.compare(record, older)
-    testAssert.equal(#failures, 0, "an older baseline fails nothing")
-    testAssert.equal(#notes, 1, table.concat(notes, "\n"))
+    testAssert.eq(#failures, 0, "an older baseline fails nothing")
+    testAssert.eq(#notes, 1, table.concat(notes, "\n"))
     assert(notes[1]:find("inconclusive", 1, true) ~= nil, notes[1])
     assert(notes[1]:find("schema " .. (bench.SCHEMA - 1), 1, true) ~= nil, "and names the schema: " .. notes[1])
 end
@@ -138,7 +138,7 @@ function M.formatsHumanResultsAsPerOperationScores()
             {name = "frame", kind = "frames", frames = 60, p50Ms = 1.25, p99Ms = 2.5, p999Ms = 3.75, overBudget = 2,},
         },
     })
-    testAssert.equal(
+    testAssert.eq(
         rendered,
         "\n"
         .. [[Benchmark           Mode    Cnt       Score  Units       Alloc B/op             p25-p99
@@ -387,12 +387,12 @@ function M.selectedOrderStatisticIsTheNarrowestThatStillCovers()
     local statistics = require("nupp.bench.internal.statistics")
     -- Below six, no interval over the observations reaches 95% at all, so there is
     -- nothing to select and the harness must not invent one.
-    testAssert.equal(statistics.selectK(3, 0.95), 0, "three observations support no 95% interval")
-    testAssert.equal(statistics.selectK(5, 0.95), 0, "five observations support no 95% interval")
-    testAssert.equal(statistics.selectK(6, 0.95), 1, "six reaches it only by spanning every observation")
-    testAssert.equal(statistics.selectK(10, 0.95), 2, "ten excludes the extremes and still covers")
-    testAssert.equal(statistics.selectK(15, 0.95), 4, "fifteen at k=4")
-    testAssert.equal(statistics.selectK(20, 0.95), 6, "twenty at k=6")
+    testAssert.eq(statistics.selectK(3, 0.95), 0, "three observations support no 95% interval")
+    testAssert.eq(statistics.selectK(5, 0.95), 0, "five observations support no 95% interval")
+    testAssert.eq(statistics.selectK(6, 0.95), 1, "six reaches it only by spanning every observation")
+    testAssert.eq(statistics.selectK(10, 0.95), 2, "ten excludes the extremes and still covers")
+    testAssert.eq(statistics.selectK(15, 0.95), 4, "fifteen at k=4")
+    testAssert.eq(statistics.selectK(20, 0.95), 6, "twenty at k=6")
 end
 
 function M.noIntervalBelowTheMinimumForkCount()
@@ -401,7 +401,7 @@ function M.noIntervalBelowTheMinimumForkCount()
     for index = 1, 9 do
         nine[index] = index + 0.0
     end
-    testAssert.equal(statistics.medianInterval(nine), nil, "nine forks yield no interval")
+    testAssert.eq(statistics.medianInterval(nine), nil, "nine forks yield no interval")
     local ten = {}
     for index = 1, 10 do
         ten[index] = index + 0.0
@@ -410,7 +410,7 @@ function M.noIntervalBelowTheMinimumForkCount()
     assert(interval ~= nil, "ten forks yield an interval")
     closeTo(interval.low, 2.0, 1e-12, "the lower endpoint is the second order statistic")
     closeTo(interval.upper, 9.0, 1e-12, "the upper endpoint is the ninth")
-    testAssert.equal(interval.k, 2, "k is reported so the endpoints can be located")
+    testAssert.eq(interval.k, 2, "k is reported so the endpoints can be located")
     closeTo(interval.attainedCoverage, 0.978515625, 1e-12, "the coverage reported is the one attained")
 end
 
@@ -425,7 +425,7 @@ function M.outliersAreClassifiedWithoutMovingTheEstimate()
     planted[#planted + 1] = 95.0
 
     local found = statistics.outliers(planted)
-    testAssert.equal(found.severe, 2, "both planted samples are classified severe")
+    testAssert.eq(found.severe, 2, "both planted samples are classified severe")
     assert(found.maxRatio > 8.0, "the worst one is reported as a multiple of the median")
     -- The whole point of classifying rather than excluding: a robust estimator does not
     -- need the samples removed, and removing them would delete a real warmup phase.
@@ -452,7 +452,7 @@ function M.aTrendNeedsMagnitudeAndNotOnlySignificance()
     const slight = statistics.trend(negligible)
     assert(slight.pValue < statistics.ALPHA, "the trend is statistically unmistakable")
     assert(math.abs(slight.drift) < statistics.TREND_MIN_DRIFT, "and the level barely moved")
-    testAssert.equal(slight.verdict, "no-trend-detected", "so it is not reported as trending")
+    testAssert.eq(slight.verdict, "no-trend-detected", "so it is not reported as trending")
 
     -- The same shape with a movement worth acting on.
     local material = {}
@@ -462,7 +462,7 @@ function M.aTrendNeedsMagnitudeAndNotOnlySignificance()
     const real = statistics.trend(material)
     assert(real.pValue < statistics.ALPHA, "the trend is significant")
     assert(math.abs(real.drift) >= statistics.TREND_MIN_DRIFT, "and the level moved materially")
-    testAssert.equal(real.verdict, "trend", "so it is reported")
+    testAssert.eq(real.verdict, "trend", "so it is reported")
     assert(real.drift < 0.0, "and the direction is carried, so a report can say which way")
 
     -- Magnitude without significance is noise that happened to end where it started
@@ -472,7 +472,7 @@ function M.aTrendNeedsMagnitudeAndNotOnlySignificance()
         noisy[index] = 100.0 + ((index * 37) % 41) * 1.0
     end
     const jitter = statistics.trend(noisy)
-    testAssert.equal(jitter.verdict, "no-trend-detected", "an unstructured series is not a trend")
+    testAssert.eq(jitter.verdict, "no-trend-detected", "an unstructured series is not a trend")
 end
 
 function M.trendIsDetectedAndSteadyIsNeverClaimed()
@@ -485,13 +485,13 @@ function M.trendIsDetectedAndSteadyIsNeverClaimed()
         drifting[index] = 50.0 + index * 0.1
         flat[index] = 100.0 + (index % 5) * 0.1
     end
-    testAssert.equal(statistics.trend(warming).verdict, "trend", "a falling series is a trend")
-    testAssert.equal(statistics.trend(drifting).verdict, "trend", "a rising series is a trend")
+    testAssert.eq(statistics.trend(warming).verdict, "trend", "a falling series is a trend")
+    testAssert.eq(statistics.trend(drifting).verdict, "trend", "a rising series is a trend")
     -- The negative result is deliberately weak. There is no verdict asserting a steady
     -- state, because failing to detect a monotone trend does not establish one.
-    testAssert.equal(statistics.trend(flat).verdict, "no-trend-detected", "a flat series is not declared steady")
+    testAssert.eq(statistics.trend(flat).verdict, "no-trend-detected", "a flat series is not declared steady")
     assert(statistics.trend(warming).tau < -0.5, "tau carries the direction")
-    testAssert.equal(statistics.trend({1.0, 2.0, 3.0}).verdict, "unknown", "too few samples to test is its own answer")
+    testAssert.eq(statistics.trend({1.0, 2.0, 3.0}).verdict, "unknown", "too few samples to test is its own answer")
 end
 
 function M.benjaminiHochbergAdjustsAcrossTheFamily()
@@ -517,33 +517,29 @@ function M.verdictsSeparateEquivalenceFromIgnorance()
 
     -- Equivalence is demonstrated by a narrow interval inside the margin, not inferred
     -- from a test that failed to reach significance.
-    testAssert.equal(
-        statistics.verdict(interval(-0.013, 0.006), 0.02, 0.4),
-        "unchanged",
-        "inside the margin is unchanged"
-    )
+    testAssert.eq(statistics.verdict(interval(-0.013, 0.006), 0.02, 0.4), "unchanged", "inside the margin is unchanged")
     -- The case the whole rule exists for. A point estimate of zero with an interval
     -- twenty points wide says the run could not tell, and calling that "unchanged"
     -- would be asserting equivalence from an absence of evidence.
-    testAssert.equal(
+    testAssert.eq(
         statistics.verdict(interval(-0.20, 0.20), 0.02, 0.4),
         "inconclusive",
         "a wide interval around zero is inconclusive, not unchanged"
     )
-    testAssert.equal(statistics.verdict(interval(0.162, 0.207), 0.02, 0.001), "regressed", "wholly above the margin")
-    testAssert.equal(statistics.verdict(interval(-0.111, -0.082), 0.02, 0.001), "improved", "wholly below the margin")
-    testAssert.equal(
+    testAssert.eq(statistics.verdict(interval(0.162, 0.207), 0.02, 0.001), "regressed", "wholly above the margin")
+    testAssert.eq(statistics.verdict(interval(-0.111, -0.082), 0.02, 0.001), "improved", "wholly below the margin")
+    testAssert.eq(
         statistics.verdict(interval(-0.013, 0.140), 0.02, 0.02),
         "inconclusive",
         "straddling a margin boundary is inconclusive"
     )
     -- Surviving the family matters even when the interval looks decisive.
-    testAssert.equal(
+    testAssert.eq(
         statistics.verdict(interval(0.162, 0.207), 0.02, 0.30),
         "inconclusive",
         "an adjusted p-value that did not survive the family withholds the claim"
     )
-    testAssert.equal(statistics.verdict(nil, 0.02, 0.001), "inconclusive", "no interval is always inconclusive")
+    testAssert.eq(statistics.verdict(nil, 0.02, 0.001), "inconclusive", "no interval is always inconclusive")
 end
 
 function M.pairedSignificanceIgnoresZerosAndHandlesTiedRanks()
@@ -552,8 +548,8 @@ function M.pairedSignificanceIgnoresZerosAndHandlesTiedRanks()
     for index = 1, 12 do
         zeros[index] = 0
     end
-    testAssert.equal(statistics.pairedPValue(zeros), 1, "identical pairs provide no evidence of a change")
-    testAssert.equal(statistics.pairedPValue({0, 0, 1, 2, 3, 4}), 0.125, "zero pairs do not increase the evidence")
+    testAssert.eq(statistics.pairedPValue(zeros), 1, "identical pairs provide no evidence of a change")
+    testAssert.eq(statistics.pairedPValue({0, 0, 1, 2, 3, 4}), 0.125, "zero pairs do not increase the evidence")
 
     -- Independently enumerate every sign assignment. Rank by counting smaller
     -- and equal magnitudes, rather than sorting or using the implementation's DP.
@@ -594,12 +590,12 @@ function M.pairedSignificanceIgnoresZerosAndHandlesTiedRanks()
 
     for _, values in ipairs({{1, -1, 2, 2, -2, 3}, {1, 1, 1, -1, 2, 2}, {-1, 1, -1, 1}}) do
         local expected = exact(values)
-        testAssert.equal(statistics.pairedPValue(values), expected, "ties use their sign-permutation distribution")
+        testAssert.eq(statistics.pairedPValue(values), expected, "ties use their sign-permutation distribution")
         local reversed = {}
         for index = #values, 1, -1 do
             reversed[#reversed + 1] = -values[index]
         end
-        testAssert.equal(
+        testAssert.eq(
             statistics.pairedPValue(reversed),
             expected,
             "sign reversal and tie order do not change significance"
@@ -626,14 +622,14 @@ function M.pairedShiftIsDistributionFreeAndBracketsItsEstimate()
     assert(shift.low > 0.0, "a consistently positive shift excludes zero")
     assert(shift.attainedCoverage >= 0.95, "the reported coverage clears the target")
     local short = {0.1, 0.2, 0.3}
-    testAssert.equal(statistics.pairedShift(short), nil, "three pairs support no interval")
+    testAssert.eq(statistics.pairedShift(short), nil, "three pairs support no interval")
 end
 
 function M.forkCountRecommendationFollowsObservedVariance()
     local statistics = require("nupp.bench.internal.statistics")
     -- A quiet benchmark needs the floor; a noisy one needs far more, which is the whole
     -- reason the count is derived rather than fixed.
-    testAssert.equal(
+    testAssert.eq(
         statistics.forksForPrecision(0.001, 0.02),
         statistics.MIN_INTERVAL_SAMPLES,
         "a quiet benchmark still runs the minimum"
@@ -662,9 +658,9 @@ function M.mergedAllocationIsTheMedianFork()
     end
 
     local merged, notes = runner.mergeForks("x", "a.nupp", {fork(1.0), fork(3.0), fork(2.0),})
-    testAssert.equal(merged.summary.allocatedKb, 2.0, "the merged allocation figure is the median fork")
-    testAssert.equal(#notes, 0, "and needs no note")
-    testAssert.equal(merged.compiler.digest, "aaaa", "the merge carries the compiler that ran the forks")
+    testAssert.eq(merged.summary.allocatedKb, 2.0, "the merged allocation figure is the median fork")
+    testAssert.eq(#notes, 0, "and needs no note")
+    testAssert.eq(merged.compiler.digest, "aaaa", "the merge carries the compiler that ran the forks")
 end
 
 -- An interval needs enough processes to support it, and a process that never settled
@@ -681,15 +677,15 @@ function M.mergeWithholdsIntervalsItCannotSupport()
         few[index] = fork(0.000001 * index, "no-trend-detected")
     end
     local scarce = runner.mergeForks("x", "a.nupp", few)
-    testAssert.equal(scarce.summary.intervalWithheld, "below-minimum-forks", "five forks cannot support an interval")
-    testAssert.equal(scarce.summary.intervalLowMs, nil, "and none is invented")
+    testAssert.eq(scarce.summary.intervalWithheld, "below-minimum-forks", "five forks cannot support an interval")
+    testAssert.eq(scarce.summary.intervalLowMs, nil, "and none is invented")
 
     local many = {}
     for index = 1, 12 do
         many[index] = fork(0.000001 * index, "no-trend-detected")
     end
     local settled = runner.mergeForks("x", "a.nupp", many)
-    testAssert.equal(settled.summary.intervalWithheld, nil, "twelve settled forks support one")
+    testAssert.eq(settled.summary.intervalWithheld, nil, "twelve settled forks support one")
     assert(settled.summary.intervalLowMs ~= nil, "and it is present")
     assert(settled.summary.intervalCoverage >= 0.95, "reporting the coverage it attained")
 
@@ -698,8 +694,8 @@ function M.mergeWithholdsIntervalsItCannotSupport()
         trending[index] = fork(0.000001 * index, "trend")
     end
     local unsettled, trendNotes = runner.mergeForks("x", "a.nupp", trending)
-    testAssert.equal(unsettled.summary.intervalWithheld, "trend-warning", "a trending benchmark gets no interval")
-    testAssert.equal(unsettled.summary.intervalLowMs, nil, "however many forks it ran")
+    testAssert.eq(unsettled.summary.intervalWithheld, "trend-warning", "a trending benchmark gets no interval")
+    testAssert.eq(unsettled.summary.intervalLowMs, nil, "however many forks it ran")
     assert(table.concat(trendNotes, "\n"):find("trend%-warning") ~= nil, "and the reason is reported")
 end
 
@@ -715,12 +711,12 @@ function M.aWithheldIntervalCannotProduceAConfidentVerdict()
 
     -- The interval on its own would be equivalence, and that is the point: the guard
     -- has to be what stops it, not the width.
-    testAssert.equal(
+    testAssert.eq(
         statistics.verdict(narrow, 0.02, 0.9),
         "unchanged",
         "a narrow interval inside the margin is equivalence"
     )
-    testAssert.equal(statistics.verdict(nil, 0.02, 0.9), "inconclusive", "and withholding it must reach inconclusive")
+    testAssert.eq(statistics.verdict(nil, 0.02, 0.9), "inconclusive", "and withholding it must reach inconclusive")
 
     -- The shape of the guard itself, so a rewrite that reintroduces the idiom fails
     -- here rather than in a report somebody believes.
@@ -732,9 +728,9 @@ function M.aWithheldIntervalCannotProduceAConfidentVerdict()
         return interval
     end
 
-    testAssert.equal(guard("trend-warning", narrow), nil, "a withheld interval is cleared")
-    testAssert.equal(guard(nil, narrow), narrow, "and an unwithheld one is passed through")
-    testAssert.equal(
+    testAssert.eq(guard("trend-warning", narrow), nil, "a withheld interval is cleared")
+    testAssert.eq(guard(nil, narrow), narrow, "and an unwithheld one is passed through")
+    testAssert.eq(
         statistics.verdict(guard("trend-warning", narrow), 0.02, 0.9),
         "inconclusive",
         "a trending benchmark is inconclusive however narrow its interval looked"
@@ -788,7 +784,7 @@ function M.concentrationCatchesAMedianThatDescribesNoSample()
         "the healthy case is on the other side of the same threshold"
     )
 
-    testAssert.equal(statistics.concentration({}, 0.10), 1.0, "an empty series claims nothing")
+    testAssert.eq(statistics.concentration({}, 0.10), 1.0, "an empty series claims nothing")
 end
 
 -- A scattered benchmark is reported by name with the number behind the judgement, so
@@ -821,12 +817,12 @@ end
 -- version reads.
 function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
     local bench = require("debug.bench")
-    testAssert.equal(bench.SCHEMA, 5, "records are written at schema 5")
+    testAssert.eq(bench.SCHEMA, 5, "records are written at schema 5")
     for _, schema in ipairs({2, 3, 4, 5}) do
-        local document, refused = bench.decodeBaseline(('{"schema":%d,"cases":[]}'):format(schema), "b.json")
+        local document, refused = bench.decodebaseline(('{"schema":%d,"cases":[]}'):format(schema), "b.json")
         assert(document ~= nil and refused == nil, "schema " .. schema .. " reads as a baseline")
     end
-    local _, older = bench.decodeBaseline('{"schema":2,"cases":[]}', "b.json", 3)
+    local _, older = bench.decodebaseline('{"schema":2,"cases":[]}', "b.json", 3)
     assert(older ~= nil and older:find("has schema 2", 1, true) ~= nil, "a reader's oldest schema holds")
     for text, expected in pairs({
         ['{"schema":6,"cases":[]}'] = "nupp: baseline b.json has schema 6; this bench reads schema 5, and 2 through 4",
@@ -835,8 +831,8 @@ function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
         ['[1, 2]'] = "nupp: baseline b.json is not a bench record",
         ["not json"] = "is not a bench record",
     }) do
-        local document, refused = bench.decodeBaseline(text, "b.json")
-        testAssert.equal(document, nil, text .. " was read as a baseline")
+        local document, refused = bench.decodebaseline(text, "b.json")
+        testAssert.eq(document, nil, text .. " was read as a baseline")
         assert(refused ~= nil and refused:find(expected, 1, true) ~= nil, tostring(refused))
     end
 end
@@ -844,11 +840,11 @@ end
 -- A checksum is text so two runtimes rendering one number differently still agree.
 function M.checksumTextRendersWholeNumbersAsIntegers()
     local bench = require("debug.bench")
-    testAssert.equal(bench.checksumText(832040), "832040", "a whole number is an integer")
-    testAssert.equal(bench.checksumText(3.0), "3", "an integral float is the same integer")
-    testAssert.equal(bench.checksumText(-7), "-7", "and so is a negative one")
-    testAssert.equal(bench.checksumText(0.5), tostring(0.5), "a fraction is left to tostring")
-    testAssert.equal(bench.checksumText("abc"), "abc", "text is itself")
+    testAssert.eq(bench.checksumText(832040), "832040", "a whole number is an integer")
+    testAssert.eq(bench.checksumText(3.0), "3", "an integral float is the same integer")
+    testAssert.eq(bench.checksumText(-7), "-7", "and so is a negative one")
+    testAssert.eq(bench.checksumText(0.5), tostring(0.5), "a fraction is left to tostring")
+    testAssert.eq(bench.checksumText("abc"), "abc", "text is itself")
 end
 
 -- The one deterministic counter a baseline gates: a case that computed a different
@@ -861,12 +857,12 @@ function M.aChecksumIsGatedAgainstTheBaseline()
     end
 
     local failures = bench.compare(record("832040"), record("832040"))
-    testAssert.equal(#failures, 0, "an agreeing checksum passes")
+    testAssert.eq(#failures, 0, "an agreeing checksum passes")
     failures = bench.compare(record("832040"), record("832041"))
-    testAssert.equal(#failures, 1, "a different checksum is a failure")
-    testAssert.equal(failures[1], "fib: checksum 832040, baseline 832041", "naming both")
-    testAssert.equal(#bench.compare(record("832040"), record(nil)), 0, "a baseline without one is not compared")
-    testAssert.equal(#bench.compare(record(nil), record("832040")), 0, "nor is a record without one")
+    testAssert.eq(#failures, 1, "a different checksum is a failure")
+    testAssert.eq(failures[1], "fib: checksum 832040, baseline 832041", "naming both")
+    testAssert.eq(#bench.compare(record("832040"), record(nil)), 0, "a baseline without one is not compared")
+    testAssert.eq(#bench.compare(record(nil), record("832040")), 0, "nor is a record without one")
 end
 
 -- Forks of one benchmark either agree on the checksum or the run fails; the summary
@@ -887,20 +883,20 @@ function M.mergeCarriesAgreedChecksumsAndFailsDisagreement()
         fork("7", 100, true),
         fork("7", 200, false)
     })
-    testAssert.equal(#problems, 0, "agreeing forks raise no problem")
-    testAssert.equal(#notes, 0, "and need no note")
-    testAssert.equal(merged.summary.checksum, "7", "the summary carries the agreed checksum")
-    testAssert.equal(merged.summary.maxRssBytes, 200, "and the median peak resident set")
-    testAssert.equal(merged.forks[1].maxRssBytes, 300, "each fork keeps its own peak")
-    testAssert.equal(merged.forks[2].againstFirst, true, "and which side ran first in its round")
+    testAssert.eq(#problems, 0, "agreeing forks raise no problem")
+    testAssert.eq(#notes, 0, "and need no note")
+    testAssert.eq(merged.summary.checksum, "7", "the summary carries the agreed checksum")
+    testAssert.eq(merged.summary.maxRssBytes, 200, "and the median peak resident set")
+    testAssert.eq(merged.forks[1].maxRssBytes, 300, "each fork keeps its own peak")
+    testAssert.eq(merged.forks[2].againstFirst, true, "and which side ran first in its round")
 
     local _, _, disagree = runner.mergeForks("x", "a.nupp", {fork("7"), fork("8"), fork("7")})
-    testAssert.equal(#disagree, 1, "forks that disagree are one problem")
-    testAssert.equal(disagree[1], "x: forks disagree on the checksum: 7, 8", "naming every value seen")
+    testAssert.eq(#disagree, 1, "forks that disagree are one problem")
+    testAssert.eq(disagree[1], "x: forks disagree on the checksum: 7, 8", "naming every value seen")
 
     local plain = runner.mergeForks("x", "a.nupp", {fork(nil), fork(nil)})
-    testAssert.equal(plain.summary.checksum, nil, "a benchmark without a checksum records none")
-    testAssert.equal(plain.summary.maxRssBytes, nil, "and no peak where none was read")
+    testAssert.eq(plain.summary.checksum, nil, "a benchmark without a checksum records none")
+    testAssert.eq(plain.summary.maxRssBytes, nil, "and no peak where none was read")
 end
 
 -- Noninferiority is the one-sided question a replacement answers: not slower than the
@@ -912,16 +908,12 @@ function M.noninferiorityIsOneSided()
         return {low = low, upper = upper, k = 2, attainedCoverage = 0.978515625}
     end
 
-    testAssert.equal(statistics.noninferior(interval(-0.013, 0.006), 0.02), true, "inside the margin passes")
-    testAssert.equal(
-        statistics.noninferior(interval(-0.30, 0.02), 0.02),
-        true,
-        "a wide gain reaching the margin passes"
-    )
-    testAssert.equal(statistics.noninferior(interval(-0.111, -0.082), 0.02), true, "an improvement passes")
-    testAssert.equal(statistics.noninferior(interval(-0.013, 0.021), 0.02), false, "an upper end past the margin fails")
-    testAssert.equal(statistics.noninferior(interval(0.162, 0.207), 0.02), false, "a regression fails")
-    testAssert.equal(statistics.noninferior(nil, 0.02), nil, "a withheld interval answers nothing")
+    testAssert.eq(statistics.noninferior(interval(-0.013, 0.006), 0.02), true, "inside the margin passes")
+    testAssert.eq(statistics.noninferior(interval(-0.30, 0.02), 0.02), true, "a wide gain reaching the margin passes")
+    testAssert.eq(statistics.noninferior(interval(-0.111, -0.082), 0.02), true, "an improvement passes")
+    testAssert.eq(statistics.noninferior(interval(-0.013, 0.021), 0.02), false, "an upper end past the margin fails")
+    testAssert.eq(statistics.noninferior(interval(0.162, 0.207), 0.02), false, "a regression fails")
+    testAssert.eq(statistics.noninferior(nil, 0.02), nil, "a withheld interval answers nothing")
 end
 
 -- A child's peak resident set comes from `time`, read off its standard error and cut
@@ -943,19 +935,19 @@ function M.splitRssReadsTimeReports()
         "warning: own line\n        0.07 real         0.06 user         0.00 sys\n            44236800  maximum resident set size\n                   0  average shared memory size\n",
         macos
     )
-    testAssert.equal(bytes, 44236800, "macOS reports bytes")
-    testAssert.equal(own, "warning: own line\n", "and the report is cut from the child's output")
+    testAssert.eq(bytes, 44236800, "macOS reports bytes")
+    testAssert.eq(own, "warning: own line\n", "and the report is cut from the child's output")
 
     own, bytes = runner.splitRss(
         '\tCommand being timed: "nupp run x"\n\tUser time (seconds): 0.05\n\tMaximum resident set size (kbytes): 43200\n\tExit status: 0\n',
         linux
     )
-    testAssert.equal(bytes, 43200 * 1024, "GNU time reports kilobytes")
-    testAssert.equal(own, "", "a child that wrote nothing passes nothing on")
+    testAssert.eq(bytes, 43200 * 1024, "GNU time reports kilobytes")
+    testAssert.eq(own, "", "a child that wrote nothing passes nothing on")
 
     own, bytes = runner.splitRss("only the child spoke\n", macos)
-    testAssert.equal(bytes, nil, "no report, no peak")
-    testAssert.equal(own, "only the child spoke\n", "and the output is untouched")
+    testAssert.eq(bytes, nil, "no report, no peak")
+    testAssert.eq(own, "only the child spoke\n", "and the output is untouched")
 end
 
 return M

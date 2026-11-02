@@ -472,15 +472,15 @@ end
 --- ```nupp
 --- local document = require("serde.document")
 --- local native = require("serde.native")
---- local value = document.list({document.numberToken("1e400"), document.bytes("\0\1")})
---- local restored = native.decodeDocument(document.adapter(), native.encodeDocument(document.adapter(), value))
+--- local value = document.list({document.numbertoken("1e400"), document.bytes("\0\1")})
+--- local restored = native.decodedocument(document.adapter(), native.encodedocument(document.adapter(), value))
 --- assert(restored:at(1):numberToken() == "1e400" and restored:at(2):bytes() == "\0\1")
 --- ```
 ---
 --- @param adapter the document adapter, such as [](serde.document.adapter)
 --- @param value the document
 --- @return the frame
-export function encodeDocument<D>(adapter: core.DocumentAdapter<D>, borrows value: D): string
+export function encodedocument<D>(adapter: core.DocumentAdapter<D>, borrows value: D): string
     return defaultCodec:encodeDocument(adapter, value)
 end
 
@@ -490,6 +490,6 @@ end
 --- @param bytes the frame
 --- @return the document
 --- @raises serde.Error when the frame is malformed or of an unknown version
-export function decodeDocument<D>(adapter: core.DocumentAdapter<D>, bytes: string): D
+export function decodedocument<D>(adapter: core.DocumentAdapter<D>, bytes: string): D
     return defaultCodec:decodeDocument(adapter, bytes)
 end

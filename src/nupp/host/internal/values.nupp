@@ -11,7 +11,8 @@ embedding host refuse exactly the same things with exactly the same message.
 ]]
 
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
+local spanImplementation = require("nupp.mem.span")
 local utf8 = require("utf8")
 
 local values = {}
@@ -28,8 +29,8 @@ values.MAX_INBOUND_BYTES = 8 * 1024 * 1024
 --- The largest byte value that crosses in one piece; larger ones are chunked.
 values.CHUNK_BYTES = 1024 * 1024
 
-local sharedRef: any = rawget(span as any, "__sharedRef")
-local foreignByteSpan: any = rawget(span as any, "__foreignByteSpan")
+local sharedRef: any = rawget(spanImplementation as any, "__sharedRef")
+local foreignByteSpan: any = rawget(spanImplementation as any, "__foreignByteSpan")
 local byteTypes: {[number]: boolean} = {}
 
 local function isByteType(pointer: any): boolean
@@ -71,7 +72,7 @@ function values.classify(kind: string, position: integer, value: any): (string, 
         if #value > values.MAX_STRING_BYTES then
             refuse(kind, position, "is a string longer than 64 KiB; send it as bytes")
         end
-        if not utf8.isValid(value) then
+        if not utf8.isvalid(value) then
             refuse(kind, position, "is a string that is not UTF-8; send binary data as bytes")
         end
         return "string", value, nil

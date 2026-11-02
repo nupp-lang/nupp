@@ -10,7 +10,7 @@ const checksum = binary.hash.checksum
 
 print(checksum.value("crc32c", "hello"))
 
-with running = checksum.newChecksum("crc32") do
+with running = checksum.newchecksum("crc32") do
     running:write("hel")
     running:write("lo")
     print(running:value())
@@ -18,7 +18,7 @@ end
 ```
 
 `value` is a snapshot rather than a finish, so a context keeps going after one
-is taken. A context is an [`io.Writer`](nupp.io.Writer), so
+is taken. A context is an [`io.Writer`](io.Writer), so
 `reader:transferTo(running)` checksums a whole stream without holding it. These say nothing about whether bytes were changed on purpose: for
 that reach for [](binary.hash.mac).
 
@@ -49,9 +49,9 @@ so no lookup or update resolves a service.
 
 local spi = require("nupp.runtime.packages")
 
-const span = require("nupp.mem.span")
+const span = require("binary.span")
 const provider = require("binary.hash.checksum.spi")
-const {type Writer} = require("nupp.io")
+const {type Writer} = require("io")
 
 --- Owned incremental checksum state with non-consuming numeric reads.
 export interface Checksum is Writer
@@ -96,7 +96,7 @@ local record Context is Checksum
         if type(bytes) ~= "string" then
             error("nupp: Checksum:write bytes must be a string", 2)
         end
-        local view = span.fromString(bytes)
+        local view = span.fromstring(bytes)
         self.state:update(view)
 
         return true, nil
@@ -200,7 +200,7 @@ end
 --- Creates independent owned checksum state.
 --- @param name the canonical checksum algorithm name
 --- @return an unfinished checksum context
-export function newChecksum(name: string): Checksum
+export function newchecksum(name: string): Checksum
     return algorithm(name):newChecksum()
 end
 
@@ -220,7 +220,7 @@ end
 --- @param bytes the message bytes
 --- @return the unsigned checksum value
 export function value(name: string, bytes: string): uint64
-    local context = newChecksum(name)
+    local context = newchecksum(name)
     context:write(bytes)
     return context:value()
 end

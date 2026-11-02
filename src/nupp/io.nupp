@@ -1,13 +1,15 @@
+@!internal
+
 module nupp.io
 
 --[[
-`nupp.io` is bytes: storage for them, and the readers and writers that move
+`io` is bytes: storage for them, and the readers and writers that move
 them. Reach for it when a program needs a growable buffer, an immutable
 snapshot of one, or a parser that works the same over a buffer, a file and an
 HTTP response body.
 
 ```nupp
-local bytes = nupp.io.newBuffer("hello")
+local bytes = io.newbuffer("hello")
 local reader = bytes:newReader()
 assert(reader:read(5) == "hello")
 ```
@@ -20,9 +22,9 @@ one it has.
 
 The rest of what `io` means is a module of its own, because each has a luacase
 name and so can have one. See [](io.path) for filesystem names,
-[](io.uri) for resource identifiers, [](nupp.io.files) for the filesystem
-itself, [](nupp.io.process) for running a child process, [](nupp.io.net) for
-network connections, [](nupp.io.tls) for encrypting one, and [](nupp.io.http)
+[](io.uri) for resource identifiers, [](io.files) for the filesystem
+itself, [](nupp.io.process) for running a child process, [](io.net) for
+network connections, [](io.tls) for encrypting one, and [](io.http)
 for the asynchronous HTTP client.
 Keeping them apart is what lets a program that wants a byte buffer carry a byte
 buffer rather than every provider behind the name.
@@ -39,12 +41,12 @@ without changing it.
 
 ## Buffers
 
-`newBuffer()` creates an empty growable buffer. A string supplies initial
+`newbuffer()` creates an empty growable buffer. A string supplies initial
 bytes; an integer reserves capacity without changing the length.
 
 ```nupp
-local bytes = nupp.io.newBuffer("hello")
-bytes:setString("!", bytes:length())
+local bytes = io.newbuffer("hello")
+bytes:setString("!", bytes:len())
 assert(bytes:getString() == "hello!")
 ```
 
@@ -59,7 +61,7 @@ sets the length to zero without discarding capacity, and `resize` truncates or
 zero-fills:
 
 ```nupp
-local bytes = nupp.io.newBuffer("hello")
+local bytes = io.newbuffer("hello")
 bytes:ensureCapacity(4096)
 assert(bytes:capacity() >= 4096)
 bytes:resize(3)
@@ -86,7 +88,7 @@ Dropping the lease aborts it and leaves the length unchanged.
 the buffer. It remains valid if the source buffer changes or closes:
 
 ```nupp
-local buffer = nupp.io.newBuffer("header-body")
+local buffer = io.newbuffer("header-body")
 local header = buffer:view(0, 6)
 buffer:clear()
 assert(header:getString() == "header")
@@ -101,16 +103,16 @@ buffer.
 
 ## Readers
 
-A `nupp.io.Reader` is a forward-only byte source. `newStringReader(text)` reads
+A `io.Reader` is a forward-only byte source. `newstringreader(text)` reads
 a string; `buffer:newReader()` reads a snapshot of the buffer's current
 contents. A reader owns its close obligation and closes automatically at the
 end of its scope unless `close()` consumes it earlier.
 
 ```nupp
-local reader = nupp.io.newStringReader("abcdef")
+local reader = io.newstringreader("abcdef")
 assert(reader:read(2) == "ab")
 
-local destination = nupp.io.newBuffer()
+local destination = io.newbuffer()
 assert(reader:readInto(destination, 0, 3) == 3)
 assert(destination:getString() == "cde")
 assert(reader:read(8) == "f")
@@ -130,13 +132,13 @@ the reader exclusively. Two readers over one cursor, such as a stream and a
 borrowed view of it, cannot both be reading at once; the checker refuses the
 second while the first is live.
 
-`readAll(reader, maxBytes)` takes a reader and returns everything left in it as
+`readall(reader, maxBytes)` takes a reader and returns everything left in it as
 one string, closing the reader on the way out. A limit is checked as the bytes
 arrive, so a source larger than it returns a reason rather than a string:
 
 ```nupp
-assert(nupp.io.readAll(nupp.io.newStringReader("whole")) == "whole")
-local text, reason = nupp.io.readAll(nupp.io.newStringReader("too long"), 3)
+assert(io.readall(io.newstringreader("whole")) == "whole")
+local text, reason = io.readall(io.newstringreader("too long"), 3)
 assert(text == nil and reason ~= nil)
 ```
 
@@ -149,12 +151,12 @@ exclusively for as long as it is live, so the buffer is read once the writer is
 gone:
 
 ```nupp
-local destination = nupp.io.newBuffer()
+local destination = io.newbuffer()
 do
     local writer = destination:newWriter()
     assert(writer:write("prefix:"))
 
-    local payload = nupp.io.newBuffer("body")
+    local payload = io.newbuffer("body")
     assert(writer:writeSpan(payload:readSpan()) == 4)
     assert(writer:flush())
 end
@@ -171,12 +173,12 @@ returns nothing, so a caller that has to know flushes first.
 
 ## Lines
 
-`newLines(reader, limit)` takes a reader and separates it at `\n` and `\r\n`.
+`newlines(reader, limit)` takes a reader and separates it at `\n` and `\r\n`.
 The terminator is not returned, and a final fragment before EOF is still a
 line:
 
 ```nupp
-local lines = nupp.io.newLines(nupp.io.newStringReader("one\r\ntwo\nlast"))
+local lines = io.newlines(io.newstringreader("one\r\ntwo\nlast"))
 assert(lines:read() == "one")
 assert(lines:read() == "two")
 assert(lines:read() == "last")
@@ -193,12 +195,12 @@ the missing piece, a sized integer or float landing on those bytes without
 decoding it by hand at every call site.
 
 ```nupp
-local writer = nupp.io.newScalarWriter()
+local writer = io.newscalarwriter()
 writer:writeUint32(1447383632):writeFloat64(1.5)
 
 local stored = writer:buffer()
 assert(stored ~= nil)
-local reader = nupp.io.newScalarReader(stored)
+local reader = io.newscalarreader(stored)
 assert(reader:readUint32() == 1447383632)
 assert(reader:readFloat64() == 1.5)
 assert(reader:atEnd())
@@ -209,14 +211,6 @@ answering a reason, which is the one place this pair departs from the reader and
 writer contracts above: a scalar either landed whole or the source was not what
 the format said, and there is no partial value to hand back.
 
-::: deepdive Host byte order
-Both directions read and write in the host's byte order, so that is the
-default. A format fixed to one byte order casts and swaps
-explicitly, and there are no LE and BE variants here until something needs
-them. Adding a second set without a caller would double the surface and leave
-half of it untested.
-:::
-
 ### Scalar sources
 
 `newScalarReader` takes whatever holds the bytes. A string, a `ByteView` or a
@@ -224,7 +218,7 @@ half of it untested.
 count:
 
 ```nupp
-local reader = nupp.io.newScalarReader("\1\2\3\4")
+local reader = io.newscalarreader("\1\2\3\4")
 assert(reader:remaining() == 4)
 ```
 
@@ -241,9 +235,9 @@ holds, or writes through a `Writer`. Given nothing it starts a buffer of its
 own, which `buffer()` hands back:
 
 ```nupp
-local destination = nupp.io.newBuffer("header:")
+local destination = io.newbuffer("header:")
 do
-    local scalars = nupp.io.newScalarWriter(destination)
+    local scalars = io.newscalarwriter(destination)
     scalars:writeUint8(33)
 end
 assert(destination:getString() == "header:!")
@@ -258,14 +252,14 @@ borrows it for as long as the scalar writer remains live.
 ## Failures
 
 The files, process, network, TLS and HTTP modules return a failure from the
-environment as `nil, err`, where `err` is a [](nupp.io.Error): a `kind` a
+environment as `nil, err`, where `err` is a [](io.Error): a `kind` a
 program can branch on and a `message` a person can read. The kind is the same on
 every platform and provider, so a missing file is `"notFound"` whether the
 operating system or the browser said so; the message is whatever the platform
 said and is not.
 
 ```nupp
-local text, err = nupp.io.files.read("settings.json")
+local text, err = io.files.read("settings.json")
 if text == nil and err ~= nil and err.kind == "notFound" then
     text = "{}"
 end
@@ -285,11 +279,11 @@ bytes assembled there are read without copying everything in it first, and the
 queue's own `get` stays usable over the same bytes.
 
 ```nupp
-local queue = nupp.text.newBuffer()
+local queue = nupp.text.newbuffer()
 queue:put("header:")
 queue:put("!")
 
-local reader = nupp.io.newScalarReader(queue)
+local reader = io.newscalarreader(queue)
 assert(reader:readBytes(7) == "header:")
 assert(queue:tostring() == "!")
 assert(reader:readUint8() == 33)
@@ -301,11 +295,11 @@ Reading drains the queue, and `remaining()` reports what it still holds.
 contract already covers.
 
 ```nupp
-local destination = nupp.io.newBuffer()
-local queue = nupp.text.newBuffer()
+local destination = io.newbuffer()
+local queue = nupp.text.newbuffer()
 queue:put("payload")
 do
-    local reader = nupp.io.newQueueReader(queue)
+    local reader = io.newqueuereader(queue)
     assert(reader:transferTo(destination:newWriter()) == 7)
 end
 assert(destination:getString() == "payload")
@@ -315,7 +309,7 @@ Neither takes the queue over. Nothing here frees or closes it, and one read to
 empty leaves an empty queue rather than a released one.
 
 ::: seealso
-- [](nupp.io.files) for the same contracts over a file on disk
+- [](io.files) for the same contracts over a file on disk
 - [](io.path) for filesystem names rather than file contents
 - [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete
   contract every owned value here follows
@@ -527,14 +521,14 @@ export type Lines = lines.Lines
 --- content, and the buffer is still empty afterwards.
 ---
 --- ```nupp
---- const io = nupp.io
+--- const io = require("io")
 ---
 --- do
----     local buffer = io.newBuffer("hello")
----     assert(buffer:length() == 5)
+---     local buffer = io.newbuffer("hello")
+---     assert(buffer:len() == 5)
 ---
----     local sized = io.newBuffer(4096)
----     assert(sized:length() == 0 and sized:capacity() == 4096)
+---     local sized = io.newbuffer(4096)
+---     assert(sized:len() == 0 and sized:capacity() == 4096)
 --- end
 --- ```
 ---
@@ -551,9 +545,9 @@ export const newBuffer = bytes.newBuffer
 --- changing:
 ---
 --- ```nupp
---- local io = require("nupp.io")
+--- local io = require("io")
 ---
---- local reader = io.newStringReader("hello")
+--- local reader = io.newstringreader("hello")
 --- assert(reader:read(5) == "hello")
 --- assert(reader:read(1) == "")
 --- ```
@@ -588,7 +582,7 @@ export const newQueueReader = bytes.newQueueReader
 ---
 --- ```nupp:fragment
 --- do
----     local cursor = io.newScalarReader(header)
+---     local cursor = io.newscalarreader(header)
 ---     local magic = cursor:readUint32()
 ---     local count = cursor:readUint16()
 --- end
@@ -607,10 +601,10 @@ export const newScalarReader = scalars.newScalarReader
 --- buffer, which `ScalarWriter:buffer` hands back.
 ---
 --- ```nupp
---- local io = require("nupp.io")
+--- local io = require("io")
 ---
 --- do
----     local cursor = io.newScalarWriter()
+---     local cursor = io.newscalarwriter()
 ---     cursor:writeUint32(0x4d495355):writeUint16(2)
 ---     local bytes = cursor:buffer()
 ---     assert(bytes ~= nil and bytes:getString() ~= "")

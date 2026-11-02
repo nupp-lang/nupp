@@ -730,7 +730,7 @@ function expr.install(c: state.Checker): nil
                 c.diag("NUPP2002", at, ("forwarded result %d: %s"):format(index, why), nil, {
                     help = got == T.unknown
                     and "`unknown` fits nowhere until it is narrowed; declare this result `unknown` too, "
-                    .. "or supply a handler through `nupp.util.tryWith`"
+                    .. "or supply a handler through `nupp.util.trywith`"
                     or explicitForm("return"),
                 })
             end
@@ -1129,7 +1129,7 @@ function expr.install(c: state.Checker): nil
             )
         elseif openMember(residue) then
             c.diag("NUPP2140", node, "switch is not exhaustive: the selector type is open", nil, {
-                help = "add an `else` arm, which is what `types.nonExhaustive()` asks every switch for"
+                help = "add an `else` arm, which is what `types.nonexhaustive()` asks every switch for"
             })
         elseif residue ~= T.never then
             local missing = finiteMembers(residue)

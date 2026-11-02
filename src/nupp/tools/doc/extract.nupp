@@ -59,6 +59,7 @@ record extract.Member
     params: {extract.Param}
     returns: {extract.Result}
     raises: {docblock.Raise}
+    lua: boolean?
     isFunction: boolean?
     isMetamethod: boolean?
     isType: boolean?
@@ -68,13 +69,20 @@ record extract.Member
     isAlias: boolean?
 
     generics: string?
+    typeargs: {extract.TypeArg}?
     members: {Member}?
 
     --- The compiler-only value kind, when this member exists only during comptime.
     comptimeKind: string?
 
-    --- What it was annotated with, as written, such as `@derive(types.Debug)`.
+    --- What it was annotated with, as written, such as `@derive(types.debug)`.
     annotations: {string}?
+
+    --- Whether an annotation's value member may be omitted or names a type.
+    annotationMember: {
+        optional: boolean,
+        reference: boolean
+    }?
 end
 
 --- A documented declaration: what it is called, how it is spelled, and everything its
@@ -98,7 +106,16 @@ type extract.Item = {
     --- The compiler-only value kind, when this declaration exists only during
     --- comptime. Kept apart from `kind`, so functions retain their ordinary API
     --- grouping while renderers can distinguish when they are callable.
-    comptimeKind: string?
+    comptimeKind: string?,
+    lua: boolean?,
+
+    --- The real application contract of an annotation declaration.
+    annotation: {
+        arguments: string,
+        targets: {string},
+        singleValue: string?,
+        fileDirective: boolean?
+    }?
 }
 
 --- A source file, read as its documented declarations.
@@ -142,7 +159,13 @@ type extract.Module = {
 --- own, which an ordinary run documents already.
 type extract.Options = {
     includePrivate: boolean?,
-    shapesAsModules: boolean?
+
+    --- Declaration names a catalog explicitly publishes despite a leading underscore.
+    publicNames: {[string]: boolean}?,
+    shapesAsModules: boolean?,
+
+    --- Publishes the fields of a returned record as the required library itself.
+    returnedAsModule: boolean?
 }
 
 ----------------------------------------------------------------------------
@@ -225,7 +248,7 @@ end
 -- A cleanup whose own declaration documentation leaves out has no business appearing in
 -- a signature documentation publishes. The prelude's `__nuppDestroyReader` is the
 -- clearest case: it is the library's terminal, a reader neither calls it nor writes it
--- down, and printing it in every `nupp.io` signature says otherwise.
+-- down, and printing it in every `io` signature says otherwise.
 --
 -- Dropping the argument would be worse than printing it, because `affine(T)` is not
 -- `affine(T, cleanup)` with the cleanup left off. It is a different type:
@@ -532,7 +555,7 @@ local function functionSignature(stat, name)
     return result
 end
 
-local function cdefSignature(stat)
+local function cdefSignature(stat, publishedAs)
     local params = {}
     for _, param in ipairs(stat.params or {}) do
         if param[1] and param[1].kind == "..." then
@@ -544,7 +567,7 @@ local function cdefSignature(stat)
             params[#params + 1] = value
         end
     end
-    local result = "cdef function " .. stat.name.text .. "(" .. table.concat(params, ", ") .. ")"
+    local result = "cdef function " .. (publishedAs or stat.name.text) .. "(" .. table.concat(params, ", ") .. ")"
     if stat.ret then
         result = result .. ": " .. syntax(stat.ret)
     end
@@ -590,23 +613,30 @@ local function typeFunction(node)
     if not node then
         return nil
     end
+    if node.kind == "tparen" then
+        return typeFunction(node.inner)
+    end
     if node.kind == "tfunc" then
-        return node
+        return node, {node}
     end
     if node.kind ~= "tintersection" then
         return nil
     end
-    local widest = nil
+    local widest, overloads = nil, {}
     for _, member in ipairs(node.types or {}) do
-        if member.kind ~= "tfunc" then
+        local fn, nested = typeFunction(member)
+        if not fn then
             return nil
         end
-        if not widest or #(member.params or {}) > #(widest.params or {}) then
-            widest = member
+        if not widest or #(fn.params or {}) > #(widest.params or {}) then
+            widest = fn
+        end
+        for _, overload in ipairs(nested) do
+            overloads[#overloads + 1] = overload
         end
     end
 
-    return widest
+    return widest, overloads
 end
 
 -- `spawn` and `fork` are declared with the callable first and written with it last,
@@ -632,7 +662,7 @@ local function rotatedFunctionText(fn): string
 end
 
 local function rotatedTypeText(node): string
-    local overloads = node.kind == "tintersection" and node.types or {node}
+    local _, overloads = typeFunction(node)
     local rendered: {string} = {}
     for index, fn in ipairs(overloads) do
         rendered[index] = rotatedFunctionText(fn)
@@ -671,9 +701,9 @@ local function isComptime(node): boolean
 end
 
 local function comptimeKind(node): string?
-    local fn = typeFunction(node)
+    local fn, overloads = typeFunction(node)
     if fn then
-        for _, overload in ipairs(node.kind == "tintersection" and node.types or {node}) do
+        for _, overload in ipairs(overloads) do
             if not isComptime(overload) then
                 return nil
             end
@@ -769,7 +799,7 @@ end
 --
 -- Tried first as a full path from a top-level declaration, which is how a field outside
 -- the record it names has to spell it. Failing that, as a bare reference to a type
--- nested somewhere in this file, as `files: Files.Library` inside `record nupp.io`,
+-- nested somewhere in this file, as `files: Files.Library` inside `record io`,
 -- which answers to its own simple name the same as any other nested reference does
 -- inside the body it sits in, so resolving it has to search every record's own nested
 -- types too, not just the top-level ones a full path starts from.
@@ -899,7 +929,7 @@ local function shapeModule(name, entries, text, path, blocks, includePrivate, ex
     expanding[entries] = true
     local items = {}
     for _, entry in ipairs(entries) do
-        if entry.kind == "fieldDecl" or entry.kind == "tshapeField" then
+        if entry.kind == "fieldDecl" or entry.kind == "tshapeField" or entry.kind == "metamethodDecl" then
             local info = entryDoc(entry)
             local nested = shapeEntries(entry, blocks)
             if info.tags.namespace and nested then
@@ -1036,6 +1066,12 @@ local function buildMembers(
                 local details = typeFunctionDetails(fieldFunction, fieldInfo)
                 member.params, member.returns = details.params, details.returns
                 member.isFunction = true
+                member.typeargs = {}
+                for _, generic in ipairs(fieldFunction.generics and fieldFunction.generics.names or {}) do
+                    member.typeargs[
+                        #member.typeargs + 1
+                    ] = {name = generic.text, text = fieldInfo.typeargs[generic.text] or ""}
+                end
                 local ownerModule, nominal = basePath:match("^(.*)%.([^.]+)$")
                 if ownerModule and surfaces.rotates(ownerModule, nominal, entry.name.text) then
                     member.type = rotatedTypeText(entry.type)
@@ -1170,12 +1206,34 @@ local function publishedTables(root, moduleLocal: string?): {[string]: boolean}
     return tables
 end
 
-local function returnedNames(root): {[string]: boolean}
-    local names: {[string]: boolean} = {}
+local function returnedNames(root, moduleLocal: string?): any, any
+    local names, aliases = {}, {}
 
-    local function record(value)
-        if value and value.kind == "name" and value.token then
-            names[value.token.text] = true
+    local function recordTable(value: any): nil
+        while value and (value.kind == "castExpr" or value.kind == "paren") do
+            value = value.expr
+        end
+        if not value or value.kind ~= "tableExpr" then
+            return
+        end
+        for _, field in ipairs(value.fields or {}) do
+            local member = field.kind == "fieldNamed"
+                and field.name.text
+                or field.kind == "fieldBracket"
+                and field.key
+                and field.key.kind == "string"
+                and syntax(field.key):match("^[\"']([%a_][%w_]*)[\"']$")
+                or nil
+            local binding = field.value
+            if binding and binding.kind == "name" and binding.token then
+                local name = binding.token.text
+                names[name] = true
+                if member then
+                    local held = aliases[name] or {}
+                    held[#held + 1] = member
+                    aliases[name] = held
+                end
+            end
         end
     end
 
@@ -1183,31 +1241,45 @@ local function returnedNames(root): {[string]: boolean}
         for _, stat in ipairs(block.stats or {}) do
             if stat.kind == "returnStmt" then
                 for _, expr in ipairs(stat.exprs or {}) do
-                    if expr.kind == "tableExpr" then
-                        for _, field in ipairs(expr.fields or {}) do
-                            record(field.value)
-                        end
-                    end
+                    recordTable(expr)
                 end
-            elseif stat.kind == "exportStmt" and stat.value and stat.value.kind == "tableExpr" then
-                for _, field in ipairs(stat.value.fields or {}) do
-                    record(field.value)
+            elseif stat.kind == "exportStmt" and stat.value then
+                recordTable(stat.value)
+            elseif stat.kind == "localStmt" and moduleLocal then
+                for index, binding in ipairs(stat.names or {}) do
+                    if binding.text == moduleLocal then
+                        recordTable(stat.exprs and stat.exprs[index])
+                    end
                 end
             end
         end
     end
 
-    return names
+    return names, aliases
 end
 
 -- Statement annotations wrap the declaration they modify in `pragmaStmt` nodes. The
 -- wrapper owns the leading trivia, so documentation comes from the outside while the
 -- name, signature and visibility come from the declaration at the centre. Following
 -- every wrapper also handles stacked annotations.
-declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, includePrivate, published, moduleLocal)
+declarationItem = function(
+    stat,
+    moduleName,
+    everyDeclaration,
+    declarationFile,
+    includePrivate,
+    published,
+    moduleLocal,
+    publicNames,
+    publishedAs
+)
     local documented = stat
     local applied = {}
+    local annotationDefinition = nil
     while stat.kind == "pragmaStmt" and stat.stat do
+        if stat.name and stat.name.text == "annotation" then
+            annotationDefinition = stat
+        end
         local text = annotationText(stat)
         if text then
             applied[#applied + 1] = text
@@ -1223,8 +1295,9 @@ declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, 
     local public = everyDeclaration or declarationFile or explicitlyExported or info.tags.export or info.tags.public
     local kind, name, signature, itemComptimeKind
     if stat.kind == "funcStmt" or stat.kind == "localFuncStmt" then
-        name = stat.kind == "funcStmt" and syntax(stat.name) or stat.name.text
-        public = public or stat.kind == "funcStmt"
+        local declared = stat.kind == "funcStmt" and syntax(stat.name) or stat.name.text
+        name = publishedAs or declared
+        public = public or stat.kind == "funcStmt" or (published or {})[declared] == true
         kind = stat.name and stat.name.method and "method" or "function"
         signature = functionSignature(stat, name)
         itemComptimeKind = stat.comptimeTok and "function" or nil
@@ -1233,9 +1306,9 @@ declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, 
         -- public when a declaration file says the whole file is, when the author
         -- exports it, or when the module hands it back by name; a module that merely
         -- calls C for its own reasons publishes the functions it wrote, not `malloc`.
-        name, kind = stat.name.text, "function"
-        public = public or (published or {})[name] == true
-        signature = cdefSignature(stat)
+        name, kind = publishedAs or stat.name.text, "function"
+        public = public or (published or {})[stat.name.text] == true
+        signature = cdefSignature(stat, publishedAs)
     elseif stat.kind == "typeAlias" then
         name, kind = stat.name.text, "type"
         public = public or stat.visibility == "module" or stat.visibility == "global"
@@ -1254,15 +1327,24 @@ declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, 
         if #(stat.names or {}) ~= 1 then
             return nil
         end
-        name, kind = stat.names[1].text, "variable"
+        name, kind = publishedAs or stat.names[1].text, "variable"
         signature = (stat.isConst and "const " or "local ") .. name
         if stat.types[1] then
             signature = signature .. ": " .. syntax(stat.types[1])
         end
         if typeFunction(stat.types[1]) then
             kind = "function"
+            public = public or (published or {})[stat.names[1].text] == true
         end
         itemComptimeKind = comptimeKind(stat.types[1])
+    elseif stat.kind == "assignStmt" and stat.isConst and #stat.targets == 1 and #stat.exprs == 1 and moduleLocal then
+        local owner, member = syntax(stat.targets[1]):match("^([%w_]+)%.([%w_]+)$")
+        if owner ~= moduleLocal then
+            return nil
+        end
+        name, kind = moduleLocal .. "." .. member, "variable"
+        signature = "const " .. name
+        public = true
     else
         return nil
     end
@@ -1276,7 +1358,7 @@ declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, 
     -- method: a module function, type, or variable named `_thing` is as much an
     -- implementation detail as `Record._thing`, and the generated runtime helpers
     -- the compiler calls by name are exactly that.
-    if privateName(name) and not includePrivate then
+    if privateName(name) and not includePrivate and not (publicNames and publicNames[name]) then
         public = false
     end
     if not public then
@@ -1301,7 +1383,12 @@ declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, 
         name = name,
         kind = kind,
         signature = signature,
-        aliasSource = stat.kind == "localStmt" and stat.exprs and stat.exprs[1] and syntax(stat.exprs[1]) or nil,
+        aliasSource = stat.kind == "typeAlias" and syntax(stat.value)
+        or (stat.kind == "localStmt" or stat.kind == "assignStmt")
+        and stat.exprs
+        and stat.exprs[1]
+        and syntax(stat.exprs[1])
+        or nil,
         doc = info,
         path = itemPath,
         module = itemModule,
@@ -1314,7 +1401,31 @@ declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, 
         annotations = #applied > 0 and applied or nil,
         comptimeKind = itemComptimeKind,
     }
-    local declaredFunction = stat.kind == "localStmt" and typeFunction(stat.types and stat.types[1]) or nil
+    if annotationDefinition and stat.kind == "recordDecl" then
+        item.kind = "annotation"
+        local targets = {}
+        for _, argument in ipairs(annotationDefinition.annotationArgs or {}) do
+            if argument.name
+                and argument.name.text == "targets"
+                and argument.expr
+                and argument.expr.kind == "tableExpr"
+            then
+                for _, field in ipairs(argument.expr.fields or {}) do
+                    local value = field.value
+                    if value and value.kind == "string" then
+                        targets[#targets + 1] = value.token.text:sub(2, -2)
+                    end
+                end
+            end
+        end
+        item.annotation = {arguments = "typed", targets = targets}
+    end
+    local declaredFunction = stat.kind == "localStmt" and typeFunction(stat.types and stat.types[1])
+        or stat.kind == "typeAlias" and typeFunction(stat.value)
+        or nil
+    if stat.kind == "typeAlias" then
+        item.comptimeKind = item.comptimeKind or comptimeKind(stat.value)
+    end
     local generics = stat.generics
         or (stat.body and stat.body.generics)
         or (declaredFunction and declaredFunction.generics)
@@ -1329,6 +1440,15 @@ declarationItem = function(stat, moduleName, everyDeclaration, declarationFile, 
         item.params, item.returns = details.params, details.returns
     elseif stat.kind == "recordDecl" or stat.kind == "cdefStruct" then
         item.members = buildMembers(stat.entries, item.path, includePrivate, info.fields)
+    end
+    if item.annotation then
+        for _, member in ipairs(item.members) do
+            for _, applied in ipairs(member.annotations or {}) do
+                if applied == "@annotationValue" then
+                    item.annotation.singleValue = member.name
+                end
+            end
+        end
     end
 
     return item
@@ -1528,6 +1648,260 @@ local function headerDoc(root, tokens)
     return nil
 end
 
+-- A literal type builder already states its members, even when its alias is reached
+-- through another module. Read only constructors whose type meaning is explicit;
+-- computed descriptors remain opaque rather than executing a compile-time helper.
+local function literalBuilderMembers(root: any, item: any, imports: any, includePrivate: boolean): any
+    local alias
+    local helpers, bindings = {}, {}
+    for _, block in ipairs(root.blocks or {}) do
+        for _, wrapped in ipairs(block.stats or {}) do
+            local stat = wrapped
+            while (stat.kind == "pragmaStmt" or stat.kind == "exportStmt") and stat.stat do
+                stat = stat.stat
+            end
+            if stat.kind == "typeAlias"
+                and syntax(stat.value) == item.aliasSource
+                and stat.name
+                and stat.name.text == item.name:match("([%w_]+)$")
+            then
+                alias = stat
+            end
+            if stat.kind == "localFuncStmt" then
+                helpers[stat.name.text] = stat
+                bindings[stat.name.text] = (bindings[stat.name.text] or 0) + 1
+            elseif stat.kind == "localStmt" then
+                for _, name in ipairs(stat.names or {}) do
+                    bindings[name.text] = (bindings[name.text] or 0) + 1
+                end
+            end
+        end
+    end
+    local call = alias and alias.value
+    local helperName = call and call.kind == "ttypecall" and syntax(call.callee)
+    local helper = helperName and bindings[helperName] == 1 and helpers[helperName]
+    if not helper or not helper.comptimeTok then
+        return nil
+    end
+    local arguments = {}
+    for index, param in ipairs(helper.body.params or {}) do
+        if not param.name or not call.arguments[index] then
+            return nil
+        end
+        arguments[param.name.text] = syntax(call.arguments[index])
+    end
+    if #call.arguments ~= #helper.body.params then
+        return nil
+    end
+    local returned
+    for _, stat in ipairs(helper.body.body.stats or {}) do
+        if stat.kind == "returnStmt" then
+            if returned or #stat.exprs ~= 1 then
+                return nil
+            end
+            returned = stat.exprs[1]
+        end
+    end
+    local namespace, operation
+    if returned and returned.kind == "call" then
+        namespace, operation = syntax(returned.obj):match("^([%w_]+)%.([%w_]+)$")
+    end
+    if operation ~= "shape" or imports[namespace] ~= "types" or bindings[namespace] ~= 1 or arguments[namespace] then
+        return nil
+    end
+
+    local function changesBinding(target: any): boolean
+        while target and (target.kind == "dotIndex" or target.kind == "bracketIndex" or target.kind == "paren") do
+            target = target.obj or target.expr
+        end
+        local name = target and target.kind == "name" and target.token.text
+
+        return name ~= nil and (name == namespace or name == helperName or arguments[name] ~= nil)
+    end
+
+    local function shadowed(node: any): boolean
+        if node.kind == "localStmt" then
+            for _, name in ipairs(node.names or {}) do
+                if name.text == namespace or arguments[name.text] ~= nil then
+                    return true
+                end
+            end
+        elseif node.kind == "localFuncStmt" and (node.name.text == namespace or arguments[node.name.text] ~= nil) then
+            return true
+        elseif node.kind == "assignStmt" then
+            for _, target in ipairs(node.targets or {}) do
+                if changesBinding(target) then
+                    return true
+                end
+            end
+        elseif node.kind == "compoundAssign" and changesBinding(node.target) then
+            return true
+        elseif node.kind == "returnStmt" and node.exprs[1] ~= returned then
+            local value = node.exprs[1]
+            if #node.exprs ~= 1 or value.kind ~= "call" or syntax(value.obj) ~= namespace .. ".error" then
+                return true
+            end
+        end
+        for _, child in ipairs(node) do
+            if child.kind and shadowed(child) then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    if shadowed(helper.body) then
+        return nil
+    end
+    for _, block in ipairs(root.blocks or {}) do
+        for _, stat in ipairs(block.stats or {}) do
+            if (stat.kind == "assignStmt" or stat.kind == "compoundAssign") and shadowed(stat) then
+                return nil
+            end
+        end
+    end
+
+    local function constructor(node: any, name: string): any
+        if node and node.kind == "call" and syntax(node.obj) == namespace .. "." .. name then
+            return node.args.exprs
+        end
+    end
+
+    local function array(node: any): any
+        if not node or node.kind ~= "tableExpr" then
+            return nil
+        end
+        local values = {}
+        for _, field in ipairs(node.fields or {}) do
+            if field.kind ~= "fieldItem" then
+                return nil
+            end
+            values[#values + 1] = field.value
+        end
+
+        return values
+    end
+
+    local primitives: {
+        [string]: boolean
+    } = {any = true, boolean = true, integer = true, number = true, string = true, never = true}
+    local typeText: (function(node: any): string?)
+
+    local function packText(node: any): string?
+        local args = constructor(node, "pack")
+        if args and #args == 1 then
+            local values = array(args[1])
+            if not values then
+                return nil
+            end
+            local pieces = {}
+            for _, value in ipairs(values) do
+                local text = typeText(value)
+                if not text then
+                    return nil
+                end
+                pieces[#pieces + 1] = text
+            end
+
+            return "(" .. table.concat(pieces, ", ") .. ")"
+        end
+        args = constructor(node, "results") or constructor(node, "parameters")
+        if args and #args == 1 and arguments[syntax(args[1])] then
+            local name = syntax(node.obj):match("%.([%w_]+)$")
+            return "unpackof " .. namespace .. "." .. name .. "(" .. arguments[syntax(args[1])] .. ")"
+        end
+
+        return nil
+    end
+
+    typeText = function(node)
+        local primitive = node.kind == "dotIndex" and syntax(node):match("^" .. namespace .. "%.([%w_]+)$")
+        if primitive and primitives[primitive] then
+            return primitive
+        end
+        local args = constructor(node, "literal")
+        if args
+            and #args == 1
+            and (args[1].kind == "string" or args[1].kind == "number" or args[1].kind == "literal")
+        then
+            return syntax(args[1])
+        end
+        args = constructor(node, "optional")
+        if args and #args == 1 then
+            local text = typeText(args[1])
+            return text and "(" .. text .. ")?" or nil
+        end
+        args = constructor(node, "union")
+        if args and #args == 1 then
+            local values = array(args[1])
+            if not values or #values == 0 then
+                return nil
+            end
+            local pieces = {}
+            for _, value in ipairs(values) do
+                local text = typeText(value)
+                if not text then
+                    return nil
+                end
+                pieces[#pieces + 1] = text
+            end
+
+            return "(" .. table.concat(pieces, " | ") .. ")"
+        end
+        args = constructor(node, "function_")
+        if args and #args == 2 then
+            local params, results = packText(args[1]), packText(args[2])
+            if params and results then
+                return "function" .. params .. ": " .. results
+            end
+        end
+
+        return nil
+    end
+    local shape = constructor(returned, "shape")
+    local descriptors = shape and #shape == 1 and array(shape[1])
+    if not descriptors then
+        return nil
+    end
+    local source, docs, names = {"record DocumentedShape"}, {}, {}
+    for _, descriptor in ipairs(descriptors) do
+        if descriptor.kind ~= "tableExpr" then
+            return nil
+        end
+        local name, read
+        for _, field in ipairs(descriptor.fields or {}) do
+            if field.kind ~= "fieldNamed" then
+                return nil
+            elseif field.name.text == "name" then
+                name = syntax(field.value):match("^[\"']([%a_][%w_]*)[\"']$")
+            elseif field.name.text == "read" then
+                read = typeText(field.value)
+            else
+                return nil
+            end
+        end
+        if not name or not read or names[name] then
+            return nil
+        end
+        names[name] = true
+        docs[name] = entryDoc(descriptor).text
+        source[#source + 1] = name .. ": " .. read
+    end
+    source[#source + 1] = "end"
+    local parsed = parser.parse(table.concat(source, "\n"), "documented-shape.nupp")
+    if #parsed.errors > 0 then
+        return nil
+    end
+
+    local declaration = parsed.root.blocks[1].stats[1]
+    if declaration.kind ~= "recordDecl" then
+        return nil
+    end
+
+    return buildMembers(declaration.entries, item.path, includePrivate, docs)
+end
+
 function extract.extract(
     source: string,
     path: string?,
@@ -1603,7 +1977,7 @@ function extract.extract(
     local extraModules = {}
     local declaredTypes: {[string]: boolean} = {}
     local hiddenMembers: {[string]: boolean} = {}
-    local published = returnedNames(parsed.root)
+    local published, publicAliases = returnedNames(parsed.root, result.moduleLocal)
     for _, block in ipairs(parsed.root.blocks or {}) do
         for _, stat in ipairs(block.stats or {}) do
             local typePath = declaredTypePath(stat, name)
@@ -1677,19 +2051,51 @@ function extract.extract(
                     extraModules[#extraModules + 1] = module
                 end
             elseif not recordNamespace or opts.includePrivate then
-                local item = declarationItem(
-                    stat,
-                    name,
-                    opts.includePrivate,
-                    declarationFile,
-                    opts.includePrivate,
-                    published,
-                    result.moduleLocal
-                )
-                if item then
-                    result.items[#result.items + 1] = item
+                local declaration = stat
+                while (declaration.kind == "pragmaStmt" or declaration.kind == "exportStmt") and declaration.stat do
+                    declaration = declaration.stat
+                end
+                local localName = (declaration.kind == "localFuncStmt" or declaration.kind == "cdefFunc")
+                    and declaration.name
+                    and declaration.name.text
+                    or declaration.kind == "localStmt"
+                    and #declaration.names == 1
+                    and typeFunction(declaration.types[1])
+                    and declaration.names[1].text
+                    or nil
+                local aliases = localName and publicAliases[localName] or nil
+
+                local function append(publishedAs: string?): nil
+                    local item = declarationItem(
+                        stat,
+                        name,
+                        opts.includePrivate,
+                        declarationFile,
+                        opts.includePrivate,
+                        published,
+                        result.moduleLocal,
+                        opts.publicNames,
+                        publishedAs
+                    )
+                    if item then
+                        result.items[#result.items + 1] = item
+                    end
+                end
+
+                if aliases then
+                    for _, alias in ipairs(aliases) do
+                        append(alias)
+                    end
+                else
+                    append(nil)
                 end
             end
+        end
+    end
+    for _, item in ipairs(result.items) do
+        if item.kind == "type" and item.aliasSource then
+            item.members = literalBuilderMembers(parsed.root, item, result.imports, opts.includePrivate == true)
+                or item.members
         end
     end
     result.items = foldMethods(
@@ -1700,7 +2106,85 @@ function extract.extract(
         result.moduleLocal,
         publishedTables(parsed.root, result.moduleLocal)
     )
+    if opts.returnedAsModule then
+        local returned = cst.returnedLocal(parsed.root)
+        local record = returned and recordNamed(parsed.root.blocks, returned) or nil
+        if returned and not record then
+            for _, block in ipairs(parsed.root.blocks) do
+                for _, stat in ipairs(block.stats or {}) do
+                    if stat.kind == "localStmt" then
+                        for index, binding in ipairs(stat.names or {}) do
+                            if binding.text == returned and stat.types[index] then
+                                record = recordNamed(parsed.root.blocks, syntax(stat.types[index]))
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        if record then
+            local projected = {}
+            shapeModule(name, record.entries, result.text, path, parsed.root.blocks, opts.includePrivate, {}, projected)
+            if projected[1] then
+                local wrapper = declaredName(record)
+                local kept = projected[1].items
+                for _, item in ipairs(result.items) do
+                    local hiddenWrapper = item.name == wrapper and record.visibility == "local"
+                    if not hiddenWrapper
+                        and (item.name ~= returned or record.visibility ~= "local" and item.name == wrapper)
+                    then
+                        kept[#kept + 1] = item
+                    end
+                end
+                result.items = kept
+            end
+        end
+    end
     table.sort(result.items, byKindThenName)
+
+    -- The export table is a local implementation name. Public labels and type
+    -- references use the module which hands that table to its callers.
+    if result.moduleLocal then
+        local localName = result.moduleLocal
+
+        local function publicName(text: string): string
+            return (text:gsub("()%f[%w_]" .. localName .. "%.", function(at: integer): string
+                if at > 1 and text:sub(at - 1, at - 1):match("[%.:]") then
+                    return localName .. "."
+                end
+                return name .. "."
+            end))
+        end
+
+        local function members(values: {extract.Member}): nil
+            for _, value in ipairs(values) do
+                value.path = publicName(value.path)
+                value.type = publicName(value.type)
+                for _, param in ipairs(value.params) do
+                    param.type = publicName(param.type)
+                end
+                for _, returned in ipairs(value.returns) do
+                    returned.type = publicName(returned.type)
+                end
+                members(value.members or {})
+            end
+        end
+
+        for _, item in ipairs(result.items) do
+            if item.name:sub(1, #localName + 1) == localName .. "." then
+                item.name = item.name:sub(#localName + 2)
+                item.path = name .. "." .. item.name
+            end
+            item.signature = publicName(item.signature)
+            for _, param in ipairs(item.params) do
+                param.type = publicName(param.type)
+            end
+            for _, returned in ipairs(item.returns) do
+                returned.type = publicName(returned.type)
+            end
+            members(item.members)
+        end
+    end
 
     -- A private implementation can publish its existing declarations under a host
     -- table's public namespace without making its own module a public API.

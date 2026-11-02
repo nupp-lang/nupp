@@ -41,11 +41,11 @@ function fixture.validate(path: string): string
     file:close()
     local ok = pcall(codec.decode, bytes)
 
-    return json.encodeValue({accepted = ok})
+    return json.encodevalue({accepted = ok})
 end
 
 function fixture.wire(): string
-    return json.encodeValue(schema.wire())
+    return json.encodevalue(schema.wire())
 end
 
 export = fixture

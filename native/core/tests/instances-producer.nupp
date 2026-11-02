@@ -84,7 +84,7 @@ function producer.compile(mode: string): string
     result.fixture = "fresh-instance-registry"
     result.failureGroups = 28
 
-    return json.encodeValue(result)
+    return json.encodevalue(result)
 end
 
 function producer.data(offsetText: string, codeBytesText: string): string

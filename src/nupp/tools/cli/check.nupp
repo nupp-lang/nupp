@@ -304,7 +304,7 @@ end
 ---     nupp check --json
 ---     nupp check --target app
 @cli("check")
-@derive(cliModule.Command)
+@derive(cliModule.command)
 local record Check
 
     --- Check a named manifest target.

@@ -43,9 +43,9 @@ function M.anOrdinaryJsonRequireLoadsLunajsonAndNoAotDecoder()
         string.format(
             [[
         local json = require("serde.json")
-        local value = json.decodeValue('{"a":[1,2,3],"b":"x"}')
+        local value = json.decodevalue('{"a":[1,2,3],"b":"x"}')
         assert(value.b == "x" and #value.a == 3, "the default provider decodes")
-        assert(json.encodeValue(json.asArray({1, 2})) == "[1,2]", "the default provider encodes")
+        assert(json.encodevalue(json.asarray({1, 2})) == "[1,2]", "the default provider encodes")
         if package.loaded["nupp.runtime.provider.lunajson"] == nil then
             print("MISSING lunajson")
         end
@@ -71,8 +71,8 @@ function M.schemaFreeJsonDoesNotLoadTheNativeBufferProvider()
             error("schema-free JSON loaded the native buffer provider")
         end
         local json = require("serde.json")
-        local bytes = json.encodeValue({answer = 42})
-        local value, reason = json.decodeValue(bytes)
+        local bytes = json.encodevalue({answer = 42})
+        local value, reason = json.decodevalue(bytes)
         assert(reason == nil and value.answer == 42)
         assert(package.loaded["nupp.runtime.provider.nativebuffer"] == nil)
         print("done")
@@ -88,7 +88,7 @@ function M.valueBuildingWithoutByteViewsDoesNotLoadStorage()
             error("valuebuilder loaded spans before a byte view was requested")
         end
         local builder = require("serde.valuebuilder")
-        assert(builder.length("hello") == 5)
+        assert(builder.len("hello") == 5)
         print("done")
     ]]
     )

@@ -6,9 +6,9 @@ components from the parse rather than from a substring. Reach for it when a
 program routes, rewrites or inspects a resource identifier.
 
 ```nupp
-const uri = io.uri
+const uri = require("io.uri")
 
-local endpoint, reason = uri.newURI("https://user@example.com:8443/api?q=1#top")
+local endpoint, reason = uri.newuri("https://user@example.com:8443/api?q=1#top")
 assert(endpoint, reason)
 assert(endpoint:scheme() == "https")
 assert(endpoint:host() == "example.com")
@@ -28,11 +28,11 @@ resolved, a special scheme's host is lowercased and an IPv4 address written as
 non-ASCII text are percent-encoded as UTF-8:
 
 ```nupp
-const uri = io.uri
+const uri = require("io.uri")
 
-local route = assert(uri.newURI("https://example.com/public/%2e%2e/secret"))
+local route = assert(uri.newuri("https://example.com/public/%2e%2e/secret"))
 assert(route:path() == "/secret")
-assert(assert(uri.newURI("http://0x7f.1/")):host() == "127.0.0.1")
+assert(assert(uri.newuri("http://0x7f.1/")):host() == "127.0.0.1")
 ```
 
 A special-scheme host that is not plain ASCII needs the standard's IDNA mapping.
@@ -41,7 +41,7 @@ neither, such as a hostless portable one, parses without it and returns nil and
 "internationalized host needs a host URL parser" for such a host, including one
 already written with an `xn--` label, rather than guessing.
 
-`URI` has no public constructor. Creation goes through `uri.newURI`, which interns
+`URI` has no public constructor. Creation goes through `uri.newuri`, which interns
 the 1024 most recently used normalized URIs. Repeated parsing and URI-producing
 operations therefore reuse the same immutable value while retention stays
 bounded.
@@ -53,9 +53,9 @@ the URI names none. `username` is empty when there is no user information. Every
 other component is optional and returns nil when the URI does not write it:
 
 ```nupp
-const uri = io.uri
+const uri = require("io.uri")
 
-local plain = assert(uri.newURI("mailto:someone@example.com"))
+local plain = assert(uri.newuri("mailto:someone@example.com"))
 assert(plain:host() == nil)
 assert(plain:port() == nil)
 assert(plain:path() == "someone@example.com")
@@ -67,26 +67,17 @@ is the same call.
 
 ## Validating untrusted text
 
-`uri.newURI` returns nil and a reason for malformed input, because bad text is
+`uri.newuri` returns nil and a reason for malformed input, because bad text is
 an ordinary answer. `uri.validate` asks the same question without retaining an
-object, and `uri.isURI` separates a URI from a string or a record:
+object, and `uri.isuri` separates a URI from a string or a record:
 
 ```nupp
-const uri = io.uri
+const uri = require("io.uri")
 
 local ok, why = uri.validate("http://[")
 assert(not ok and why)
-assert(not uri.isURI("https://example.com"))
+assert(not uri.isuri("https://example.com"))
 ```
-
-::: deepdive Parsing returns a reason, modification raises
-A parse takes text from somewhere else, so failure is data and the caller is
-handed it. A `with` operation starts from a URI that already parsed, so a
-failure means the caller asked for something the grammar cannot express, which
-is a mistake at the call site rather than a bad input. Text that came from
-outside the program therefore goes through `uri.newURI`, `uri.validate` or
-`resolve`, all of which return a reason.
-:::
 
 ## Deriving a new URI
 
@@ -95,9 +86,9 @@ Supplying a component equal to its current normalized value returns the receiver
 itself rather than reparsing:
 
 ```nupp
-const uri = io.uri
+const uri = require("io.uri")
 
-local endpoint = assert(uri.newURI("https://user:pass@example.com:8443/api?q=1"))
+local endpoint = assert(uri.newuri("https://user:pass@example.com:8443/api?q=1"))
 local production = endpoint:withUserInfo(nil):withHost("api.example.com")
 assert(production:userInfo() == nil)
 assert(production:host() == "api.example.com")
@@ -114,9 +105,9 @@ that would make the rest of the URI parse with a different host.
 `concatPath` appends path text without interpreting it as a reference:
 
 ```nupp
-const uri = io.uri
+const uri = require("io.uri")
 
-local api = assert(uri.newURI("https://api.example.com/v1"))
+local api = assert(uri.newuri("https://api.example.com/v1"))
 assert(api:concatPath("users"):path() == "/v1/users")
 ```
 
@@ -133,9 +124,9 @@ and `\` separates segments where `/` does in a special scheme. It returns nil
 and a reason when the reference cannot be resolved:
 
 ```nupp
-const uri = io.uri
+const uri = require("io.uri")
 
-local page = assert(uri.newURI("https://example.com/docs/guide/index.html"))
+local page = assert(uri.newuri("https://example.com/docs/guide/index.html"))
 local image, reason = page:resolve("../images/avatar.png")
 assert(image, reason)
 assert(image:path() == "/docs/images/avatar.png")
@@ -143,14 +134,14 @@ assert(image:path() == "/docs/images/avatar.png")
 
 ## Building from components
 
-`uri.newURI` also accepts a `io.uri.Components` record, built with `new`
+`uri.newuri` also accepts a `io.uri.Components` record, built with `new`
 like any record. The components are assembled into text and then parsed, so one
 grammar decides what is valid:
 
 ```nupp
-const uri = io.uri
+const uri = require("io.uri")
 
-local status = assert(uri.newURI(new uri.Components(
+local status = assert(uri.newuri(new uri.Components(
     scheme = "https",
     userInfo = "reader:secret",
     host = "example.com",
@@ -307,7 +298,7 @@ export record URI
         if not value:match("^[A-Za-z][A-Za-z0-9+.-]*$") then
             error("nupp: a URI scheme is a letter and then letters, digits, +, - or ., not " .. ("%q"):format(value), 2)
         end
-        local result, reason = newURI(value .. self._text:sub(#self._scheme + 1))
+        local result, reason = newuri(value .. self._text:sub(#self._scheme + 1))
         if result == nil then
             error("nupp: the scheme " .. value .. " cannot be used here: " .. tostring(reason), 2)
         end
@@ -329,7 +320,7 @@ export record URI
     function withUserInfo(self, value: string?): URI
         return (
             assert(
-                newURI(
+                newuri(
                     new Components(
                         scheme = self._scheme,
                         userInfo = value,
@@ -352,7 +343,7 @@ export record URI
     function withHost(self, value: string?): URI
         return (
             assert(
-                newURI(
+                newuri(
                     new Components(
                         scheme = self._scheme,
                         userInfo = value ~= nil and self:userInfo() or nil,
@@ -375,7 +366,7 @@ export record URI
     function withPort(self, value: integer?): URI
         return (
             assert(
-                newURI(
+                newuri(
                     new Components(
                         scheme = self._scheme,
                         userInfo = self:userInfo(),
@@ -401,7 +392,7 @@ export record URI
         end
         return (
             assert(
-                newURI(
+                newuri(
                     new Components(
                         scheme = self._scheme,
                         userInfo = self:userInfo(),
@@ -424,7 +415,7 @@ export record URI
     function withQuery(self, value: string?): URI
         return (
             assert(
-                newURI(
+                newuri(
                     new Components(
                         scheme = self._scheme,
                         userInfo = self:userInfo(),
@@ -447,7 +438,7 @@ export record URI
     function withFragment(self, value: string?): URI
         return (
             assert(
-                newURI(
+                newuri(
                     new Components(
                         scheme = self._scheme,
                         userInfo = self:userInfo(),
@@ -486,7 +477,7 @@ export record URI
     --- Resolve a relative reference:
     ---
     --- ```nupp:fragment
-    --- local page = assert(newURI("https://example.com/docs/a.html"))
+    --- local page = assert(newuri("https://example.com/docs/a.html"))
     --- assert(assert(page:resolve("b.html")):toString()
     ---     == "https://example.com/docs/b.html")
     --- ```
@@ -515,7 +506,7 @@ export record URI
             return nil, reason
         end
 
-        return newURI(parts.text)
+        return newuri(parts.text)
     end
 
     --- The URI with another's scheme and authority.
@@ -541,7 +532,7 @@ end
 
 local function fromComponents(components: any): (string?, string?)
     if type(components) ~= "table" then
-        return nil, "nupp: io.URI.newURI needs absolute text or URI components"
+        return nil, "nupp: io.uri.newuri needs absolute text or URI components"
     end
     local scheme = components.scheme
     if type(scheme) ~= "string" or not (scheme as string):match("^[A-Za-z][A-Za-z0-9+.-]*$") then
@@ -665,14 +656,14 @@ end
 --- ```nupp
 --- const uri = io.uri
 ---
---- local address = assert(uri.newURI("https://example.com/a?b=1"))
+--- local address = assert(uri.newuri("https://example.com/a?b=1"))
 --- assert(address:host() == "example.com" and address:query() == "b=1")
 --- ```
 ---
 --- Assemble one from components rather than writing the text out:
 ---
 --- ```nupp:fragment
---- local endpoint = assert(uri.newURI(new uri.Components(
+--- local endpoint = assert(uri.newuri(new uri.Components(
 ---     scheme = "https",
 ---     host = "example.com",
 ---     path = "/a",
@@ -683,7 +674,7 @@ end
 --- @return the URI, or nil when it could not be parsed
 --- @return a failure reason, when unsuccessful
 --- @export
-export function newURI(value: string | Components): (URI?, string?)
+export function newuri(value: string | Components): (URI?, string?)
     local text: string
     if type(value) == "string" then
         text = value as string
@@ -737,6 +728,6 @@ end
 --- @param value the value to test
 --- @return whether it is a URI
 --- @export
-export function isURI(value: any): boolean
+export function isuri(value: any): boolean
     return type(value) == "table" and getmetatable(value) == URI
 end

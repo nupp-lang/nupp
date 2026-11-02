@@ -97,7 +97,7 @@ local function withCarriedModule(dir, compileModule, callback)
     package.loaded.runtimecarried = previousLoaded
     package.preload.runtimecarried = previousPreload
     package.path = previousPath
-    testAssert.equal(#package.loaders, count, "both installed loaders are removed")
+    testAssert.eq(#package.loaders, count, "both installed loaders are removed")
     if not ok then
         error(failure, 0)
     end
@@ -110,18 +110,18 @@ function M.loadsUncompiledCarriedImplementationsOnce()
             dir,
             function(path, env, name, source)
                 calls = calls + 1
-                testAssert.equal(path, "runtimecarried", "carried checker identity")
-                testAssert.equal(name, "runtimecarried", "carried module identity")
-                testAssert.equal(source, "return {value = 42}\n", "compiler receives carried source")
+                testAssert.eq(path, "runtimecarried", "carried checker identity")
+                testAssert.eq(name, "runtimecarried", "carried module identity")
+                testAssert.eq(source, "return {value = 42}\n", "compiler receives carried source")
 
                 return require("nupp.tools.cli.compile").image(path, env, name, nil, source, false)
             end,
             function()
                 local first = require("runtimecarried")
                 local second = require("runtimecarried")
-                testAssert.equal(first.value, 42)
+                testAssert.eq(first.value, 42)
                 assert(first == second, "the carried module keeps require identity")
-                testAssert.equal(calls, 1, "the carried module compiles once")
+                testAssert.eq(calls, 1, "the carried module compiles once")
             end
         )
     end)
@@ -138,21 +138,21 @@ function M.carriedImplementationsFollowProjectPreloadAndCompiledModules()
                 dir,
                 function(path, env, name, source)
                     assert(source == nil, "a resolved module must not use carried source")
-                    testAssert.equal(name, "runtimecarried", "the project callback keeps its requested module name")
+                    testAssert.eq(name, "runtimecarried", "the project callback keeps its requested module name")
                     return compile(path, env, name)
                 end,
                 function()
                     package.preload.runtimecarried = function()
                         return {value = 7}
                     end
-                    testAssert.equal(require("runtimecarried").value, 7, "preload remains first")
+                    testAssert.eq(require("runtimecarried").value, 7, "preload remains first")
                     package.loaded.runtimecarried = nil
                     package.preload.runtimecarried = nil
-                    testAssert.equal(require("runtimecarried").value, 21, "project source precedes carried source")
+                    testAssert.eq(require("runtimecarried").value, 21, "project source precedes carried source")
                     package.loaded.runtimecarried = nil
                     assert(os.remove(dir .. "/src/runtimecarried.nupp"))
                     package.path = dir .. "/compiled/?.lua;" .. package.path
-                    testAssert.equal(require("runtimecarried").value, 84, "compiled Lua precedes carried source")
+                    testAssert.eq(require("runtimecarried").value, 84, "compiled Lua precedes carried source")
                 end
             )
         end
@@ -163,8 +163,8 @@ function M.cliRunLoadsACarriedRootWithoutACompiledLibrary()
     withProject({["main.nupp"] = 'local serde = require("serde")\nprint(type(serde))\n'}, function(dir)
         local process = require("nupp.compiler.process")
         local code, output = process.capture({ROOT .. "/bin/nupp", "run", "main.nupp"}, {cwd = dir})
-        testAssert.equal(code, 0, output)
-        testAssert.equal(output, "table\n", "the carried root executes")
+        testAssert.eq(code, 0, output)
+        testAssert.eq(output, "table\n", "the carried root executes")
     end)
 end
 
@@ -185,7 +185,7 @@ return M
             local answer = require("runtimeanswer")
             removeLoader()
             package.loaded.runtimeanswer = nil
-            testAssert.equal(answer.double(21), 42, "required nupp module")
+            testAssert.eq(answer.double(21), 42, "required nupp module")
         end
     )
 end
@@ -210,7 +210,7 @@ return { loads = _G.runtimeFolderLoads }
             package.loaded.runtimefolder = nil
             _G.runtimeFolderLoads = nil
             assert(first == second, "require must return the cached module")
-            testAssert.equal(first.loads, 1, "init module execution count")
+            testAssert.eq(first.loads, 1, "init module execution count")
         end
     )
 end
@@ -231,8 +231,8 @@ function M.preservesPreloadAndPlainLuaLoaders()
             package.preload.runtimepreferred = nil
             package.loaded.runtimepreferred = nil
             package.loaded.runtimeplain = nil
-            testAssert.equal(preferred, "preload", "package.preload priority")
-            testAssert.equal(plain, "lua", "plain Lua project module")
+            testAssert.eq(preferred, "preload", "package.preload priority")
+            testAssert.eq(plain, "lua", "plain Lua project module")
         end
     )
 end
@@ -286,8 +286,8 @@ function M.declinesRequiresIssuedWhileCompiling()
             removeLoader()
             package.loaded.runtimemain = nil
             package.loaded.runtimelazy = nil
-            testAssert.equal(main.ok, true, "compiled module loads")
-            testAssert.equal(midCompile, "declined", "a require issued while compiling must not re-enter the loader")
+            testAssert.eq(main.ok, true, "compiled module loads")
+            testAssert.eq(midCompile, "declined", "a require issued while compiling must not re-enter the loader")
         end
     )
 end
@@ -305,8 +305,8 @@ print(type(os.monotonic()))
                 "cd '%s' && '%s/bin/nupp' run main.lua " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
-            testAssert.equal(status, 0, "nupp run stdlib exit status: " .. readFile(errors))
-            testAssert.equal(readFile(output), "number\n", "nupp run stdlib output")
+            testAssert.eq(status, 0, "nupp run stdlib exit status: " .. readFile(errors))
+            testAssert.eq(readFile(output), "number\n", "nupp run stdlib output")
         end
     )
 end
@@ -328,8 +328,8 @@ print(answer.value)
                 "cd '%s' && '%s/bin/nupp' run main.nupp " .. "> '%s' 2> '%s'"
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
-            testAssert.equal(status, 0, "nupp run exit status: " .. readFile(errors))
-            testAssert.equal(readFile(output), "42\n", "nupp run module output")
+            testAssert.eq(status, 0, "nupp run exit status: " .. readFile(errors))
+            testAssert.eq(readFile(output), "42\n", "nupp run module output")
         end
     )
 end
@@ -374,7 +374,7 @@ return M
                 said:find("error checking lua module 'runtimelyingcats'", 1, true),
                 "the run was not refused for the dependency: " .. said
             )
-            testAssert.equal(readFile(output), "", "the program ran anyway")
+            testAssert.eq(readFile(output), "", "the program ran anyway")
         end
     )
 end
@@ -421,7 +421,7 @@ end
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             assert(status == 0, "the run was refused: " .. readFile(errors))
-            testAssert.equal(readFile(output), "claimed\n", "the claiming module did not run")
+            testAssert.eq(readFile(output), "claimed\n", "the claiming module did not run")
         end
     )
 end
@@ -434,13 +434,13 @@ function M.cliRunLoadsCrossModuleDeriveDependencies()
                 "main.nupp"
             ] = [[
 local models = require("runtime_derive_models")
-@derive(types.Debug)
+@derive(types.debug)
 local record Outer inner: models.Inner end
 local value = new Outer(inner = new models.Inner())
 print(value:debug())
-local out = require("nupp.text").newBuffer()
-local writer = serde.json.newWriter(out)
-require("serde.json").writeValue(serde.binding(Outer), value, writer)
+local out = require("nupp.text").newbuffer()
+local writer = serde.json.newwriter(out)
+require("serde.json").writevalue(serde.binding(Outer), value, writer)
 writer:close()
 print(out:tostring())
 ]],
@@ -448,7 +448,7 @@ print(out:tostring())
                 "src/runtime_derive_models.nupp"
             ] = [[
 local models = {}
-@derive(types.Debug)
+@derive(types.debug)
 record models.Inner value: integer = 0 end
 return models
 ]],
@@ -462,8 +462,8 @@ return models
             ):format(dir, ROOT, output, errors)
             local status = os.execute(command)
             package.loaded.runtime_derive_models = nil
-            testAssert.equal(status, 0, "nupp run derive exit status: " .. readFile(errors))
-            testAssert.equal(
+            testAssert.eq(status, 0, "nupp run derive exit status: " .. readFile(errors))
+            testAssert.eq(
                 readFile(output),
                 "Outer { inner = Inner { value = 0LL } }\n{\"inner\":{\"value\":0}}\n",
                 "nupp run derive output"

@@ -191,28 +191,28 @@ local M = {}
 
 function M.importedPredicatePreservesFieldsAndObservableProviderFrame()
     withProject(function(api, state)
-        test.equal(api.present({}), false)
+        test.eq(api.present({}), false)
         for _, value in ipairs({false, 0, "", true}) do
-            test.equal(api.present({tag = value}), true)
+            test.eq(api.present({tag = value}), true)
         end
-        test.equal(api.recordPresent(), true)
-        test.equal(api.recordMissing(), false)
-        test.equal(api.recordMetatable(), true)
+        test.eq(api.recordPresent(), true)
+        test.eq(api.recordMissing(), false)
+        test.eq(api.recordMetatable(), true)
         local calls, observed = 0, nil
         local receiver = setmetatable({}, {
             __index = function(_, key)
-                test.equal(key, "tag")
+                test.eq(key, "tag")
                 calls = calls + 1
                 observed = debug.getinfo(2, "S").source
                 return false
             end
         })
-        test.equal(api.present(receiver), true)
-        test.equal(calls, 1)
+        test.eq(api.present(receiver), true)
+        test.eq(calls, 1)
         assert(observed:find(state.names.PROVIDER, 1, true), "the provider frame remains visible: " .. observed)
         receiver.tag = 0
-        test.equal(api.present(receiver), true)
-        test.equal(calls, 1, "a stored field suppresses __index")
+        test.eq(api.present(receiver), true)
+        test.eq(calls, 1, "a stored field suppresses __index")
     end)
 end
 
@@ -235,10 +235,10 @@ function M.qualifiedModuleInitializesExactlyOnce()
             end
         end
         assert(requires > 0 and calls > 0, "the caller retains its implicit require and function call")
-        test.equal(api.qualified({tag = false}), true)
-        test.equal(rawget(_G, COUNTER), 1)
-        test.equal(api.qualified({}), false)
-        test.equal(rawget(_G, COUNTER), 1, "a cached require does not repeat initialization")
+        test.eq(api.qualified({tag = false}), true)
+        test.eq(rawget(_G, COUNTER), 1)
+        test.eq(api.qualified({}), false)
+        test.eq(rawget(_G, COUNTER), 1, "a cached require does not repeat initialization")
     end)
 end
 
@@ -253,21 +253,17 @@ function M.providerBodyPatchReachesAnAlreadyLoadedCaller()
             local retainedCaller = api.present
             local retainedProvider = assert(package.loaded[state.names.PROVIDER]).present
             local receiver = {tag = false}
-            test.equal(retainedCaller(receiver), true)
+            test.eq(retainedCaller(receiver), true)
             local nextImage, nextLayout = state.rebuildProvider(
                 (state.providerSource:gsub("value%.tag", "value.other"))
             )
-            test.equal(
+            test.eq(
                 nextLayout.shapes,
                 state.initialProviderLayout.shapes,
                 "a field-only body edit preserves every provider layout"
             )
             local count = nextLayout.functions
-            test.equal(
-                count,
-                state.initialProviderLayout.functions,
-                "a field-only body edit preserves function positions"
-            )
+            test.eq(count, state.initialProviderLayout.functions, "a field-only body edit preserves function positions")
             local map = {}
             for index = 0, count - 1 do
                 map[#map + 1] = tostring(index)
@@ -275,19 +271,19 @@ function M.providerBodyPatchReachesAnAlreadyLoadedCaller()
             local patch = "patch " .. state.names.PROVIDER .. "\nmap " .. table.concat(map, " ") .. "\n" .. nextImage
             local validation, reason = hotPatch(patch, true)
             assert(validation, reason)
-            test.equal(retainedCaller(receiver), true, "validation leaves the current body running")
+            test.eq(retainedCaller(receiver), true, "validation leaves the current body running")
             local report, failure = hotPatch(patch)
             assert(report, failure)
-            test.equal(report.changed, 1)
-            test.equal(api.present, retainedCaller, "the consumer is not rebuilt")
-            test.equal(
+            test.eq(report.changed, 1)
+            test.eq(api.present, retainedCaller, "the consumer is not rebuilt")
+            test.eq(
                 package.loaded[state.names.PROVIDER].present,
                 retainedProvider,
                 "the provider retains its callable identity"
             )
-            test.equal(retainedCaller(receiver), false, "the loaded caller enters the replacement body")
+            test.eq(retainedCaller(receiver), false, "the loaded caller enters the replacement body")
             receiver.other = 0
-            test.equal(retainedCaller(receiver), true)
+            test.eq(retainedCaller(receiver), true)
         end,
         true
     )

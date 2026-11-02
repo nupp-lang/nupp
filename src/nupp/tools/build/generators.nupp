@@ -1,6 +1,6 @@
 module nupp.tools.build.generators
 
-const files2 = require("nupp.io.files")
+const files2 = require("io.files")
 
 local capabilities = require("nupp.tools.build.capabilities")
 local fingerprint = require("nupp.compiler.project.fingerprint")
@@ -94,7 +94,7 @@ function generators.run(root, outDir, config, records, previous): ({[string]: an
             local resultPath = staged .. ".result.json"
             local wrote, writeErr = fs.writeFile(
                 requestPath,
-                json.encodeValue({
+                json.encodevalue({
                     name = name,
                     inputRoot = fs.absolute(root),
                     outputRoot = fs.absolute(staged),
@@ -122,7 +122,7 @@ function generators.run(root, outDir, config, records, previous): ({[string]: an
             local responseText = fs.readFile(resultPath)
             local response: any = nil
             if responseText then
-                response = json.decodeValue(responseText, json.NULL)
+                response = json.decodevalue(responseText, json.NULL)
             end
             if type(response) ~= "table" then
                 response = nil

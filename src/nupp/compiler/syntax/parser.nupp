@@ -17,6 +17,7 @@ The grammar is `docs/grammar.abnf`, whose level 0 is the untyped LuaJIT 3.0 base
 
 local lexer = require("nupp.compiler.syntax.lexer")
 local cst = require("nupp.compiler.syntax.cst")
+local fileDirectives = require("nupp.compiler.syntax.filedirectives")
 
 local parser = {}
 
@@ -3367,7 +3368,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     handleTok,
                     "handle suspension uses an owned with installation",
                     "NUPP1005",
-                    "write with installation = nupp.suspension.host.install(handler) do ... end",
+                    "write with installation = coroutine.suspension.host.install(handler) do ... end",
                     {
                         {
                             title = "install the handler with an owned scope",
@@ -3375,7 +3376,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                                 {
                                     offset = handleTok.offset,
                                     length = handlerLast.offset + #handlerLast.text - handleTok.offset,
-                                    newText = "with installation = nupp.suspension.host.install(" .. sourceText(
+                                    newText = "with installation = coroutine.suspension.host.install(" .. sourceText(
                                         handler
                                     ) .. ")",
                                 }
@@ -3388,7 +3389,7 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     handleTok,
                     "handle suspension uses an owned with installation",
                     "NUPP1005",
-                    "write with installation = nupp.suspension.host.install(handler) do ... end"
+                    "write with installation = coroutine.suspension.host.install(handler) do ... end"
                 )
             end
             add(n, expect("do", "to open 'handle suspension'"))
@@ -3768,7 +3769,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             and tokens[i + 2]
             and tokens[i + 2].kind == "name" do
             local name = tokens[i + 2].text
-            if name ~= "nofmt" and name ~= "internal" then
+            local directive = fileDirectives[name]
+            if directive == nil then
                 break
             end
             -- An inner annotation belongs to the file rather than a statement. It is
@@ -3778,8 +3780,8 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             for offset = 0, 2 do
                 root.innerAnnotations[#root.innerAnnotations + 1] = tokens[i + offset]
             end
-            root.formatDisabled = root.formatDisabled or name == "nofmt"
-            root.documentationInternal = root.documentationInternal or name == "internal"
+            root.formatDisabled = root.formatDisabled or directive.formatDisabled == true
+            root.documentationInternal = root.documentationInternal or directive.documentationInternal == true
             tokens[i].startsStat = true
             tokens[i].blockDepth = 0
             tokens[i + 1].unaryTok = true

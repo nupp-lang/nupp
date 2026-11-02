@@ -380,7 +380,7 @@ function service.main(): integer
     if failure == "exit" then
         return 86
     elseif failure == "hang" then
-        require("nupp.time").sleep(1000)
+        require("coroutine").sleep(1000)
     end
 
     local function handle(text: string): string
@@ -404,7 +404,7 @@ function service.main(): integer
         local pause = tonumber(os.getenv("NUPP_TEST_PARALLEL_CHECK_PAUSE_MS") or "")
         if pause ~= nil and pause > 0 then
             note(os.getenv("NUPP_TEST_PARALLEL_CHECK_ACTIVE_FILE"))
-            require("nupp.time").sleep(pause)
+            require("coroutine").sleep(pause)
         end
         local ok, result = pcall(serve, request)
         local answer = ok and result or {ok = false, problem = tostring(result)}

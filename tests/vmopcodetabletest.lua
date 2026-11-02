@@ -23,31 +23,31 @@ function M.theBuiltInCopyIsWhatTheCompilerEmits()
     local file = assert(io.open(TABLE, "rb"), "the built-in opcode table is missing: " .. TABLE)
     local actual = file:read("*a")
     file:close()
-    test.equal(actual, expected, "native/crates/vm/src/opcodes.table is stale; NUPP_WRITE_OPCODE_TABLE=1 rewrites it")
+    test.eq(actual, expected, "native/crates/vm/src/opcodes.table is stale; NUPP_WRITE_OPCODE_TABLE=1 rewrites it")
 end
 
 function M.everyRowSpellsItsOperands()
-    test.equal(#opcodes.order, 168)
+    test.eq(#opcodes.order, 168)
     local names = {}
     for _, name in ipairs(opcodes.order) do
         test(not names[name], name .. " listed twice")
         names[name] = true
         local opcode = opcodes.byName[name]
-        test.equal(opcode.name, name)
+        test.eq(opcode.name, name)
         test(opcode.min <= opcode.max)
-        test.equal(opcode.max, #opcode.operands)
+        test.eq(opcode.max, #opcode.operands)
     end
-    test.equal(opcodes.byName.Simd.min, 4)
-    test.equal(opcodes.byName.Simd.max, 5)
-    test.equal(opcodes.byName.CallK.flow, "next")
-    test.equal(opcodes.byName.Jmp.flow, "jump")
-    test.equal(opcodes.byName.Switch.flow, "table")
-    test.equal(opcodes.byName.Ret.flow, "stop")
-    test.equal(opcodes.functionOperand.NewClosure, 2)
-    test.equal(opcodes.functionOperand.Call, 1)
-    test.equal(opcodes.shapeOperand.GetSlot, 4)
-    test.equal(opcodes.shapeOperand.SetMethod, 1)
-    test.equal(opcodes.shapeOperand.K, nil)
+    test.eq(opcodes.byName.Simd.min, 4)
+    test.eq(opcodes.byName.Simd.max, 5)
+    test.eq(opcodes.byName.CallK.flow, "next")
+    test.eq(opcodes.byName.Jmp.flow, "jump")
+    test.eq(opcodes.byName.Switch.flow, "table")
+    test.eq(opcodes.byName.Ret.flow, "stop")
+    test.eq(opcodes.functionOperand.NewClosure, 2)
+    test.eq(opcodes.functionOperand.Call, 1)
+    test.eq(opcodes.shapeOperand.GetSlot, 4)
+    test.eq(opcodes.shapeOperand.SetMethod, 1)
+    test.eq(opcodes.shapeOperand.K, nil)
 end
 
 local function fails(instruction)
@@ -82,14 +82,14 @@ function M.anEmittedInstructionGoesThroughTheTable()
     local done = f:label()
     f:jump(done)
     f:place(done)
-    test.equal(#f.blocks[1].code, 1)
-    test.equal(f.blocks[1].ends, "jump")
+    test.eq(#f.blocks[1].code, 1)
+    test.eq(f.blocks[1].ends, "jump")
     test(f.blocks[1].target == done, "the jump names its label")
     test(not pcall(f.op, f, "Nill", 1))
     test(not pcall(f.op, f, "Nil", 1, 2))
     -- A jump is a block's ending, which only jump and branch write.
     test(not pcall(f.op, f, "Jmp", 0))
-    test.equal(#f.blocks[1].code, 1)
+    test.eq(#f.blocks[1].code, 1)
 end
 
 return M

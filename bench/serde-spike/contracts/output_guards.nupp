@@ -11,7 +11,7 @@ local binding = model.binding(model.newModel())
 local codec = json.codec(model.policy(true))
 local value = codec:decode(binding, '{"identifier":"cycle","created":0}')
 value.next = value
-local buffer = text.newBuffer()
+local buffer = text.newbuffer()
 buffer:put("prefix")
 
 local function cyclic(): nil

@@ -38,8 +38,8 @@ method, module member, name, or runtime identity.
 ## Inspection and construction
 
 Type handles are opaque and immutable. `types.describe(T)`, `kind`,
-`elements`, `sameNominal`, `fields`, `readKeys`, `writeKeys`, `readAt`, and
-`writeAt` expose checked semantic information without exposing mutable checker
+`elements`, `samenominal`, `fields`, `readkeys`, `writekeys`, `readat`, and
+`writeat` expose checked semantic information without exposing mutable checker
 state. Builders
 such as `literal`, `optional`, `array`, `tuple`, `map`, `shape`, `union`,
 `intersection`, `pointer`, `carray`, `constof`, `function_`, and `pack` produce
@@ -82,7 +82,7 @@ The builder reads its descriptor array without changing it. Descriptor members i
 the API are therefore read-only, and an annotated descriptor shape may omit an
 optional member such as `write` instead of writing `write: type?` at every use.
 
-`types.nonExhaustive()` takes no arguments and returns the one type no name
+`types.nonexhaustive()` takes no arguments and returns the one type no name
 resolves to: the member that keeps a union open. It is written in a type
 directly as well as inside a generator, since a union is where it means
 anything. See [Unions that may grow](unions.md#unions-that-may-grow) for what it
@@ -107,7 +107,7 @@ print(leaf + 1)
 distinct from an evaluator crash or timeout, and it reports the authored
 message at the application with a bounded comptime call trace.
 
-`types.sameNominal(A, B)` asks whether two types are applications of the
+`types.samenominal(A, B)` asks whether two types are applications of the
 same nominal declaration without exposing that declaration's identity. Generic
 arguments do not have to match, aliases and ownership wrappers are transparent,
 and two structural types or different declarations return false:
@@ -123,7 +123,7 @@ end
 
 @comptime
 local function SameFamily(A: type, B: type): type
-    return types.literal(types.sameNominal(A, B))
+    return types.literal(types.samenominal(A, B))
 end
 
 local same: SameFamily(Cell<string>, Cell<number>) = true
@@ -207,21 +207,6 @@ Reach for these operators when they state the transformation more clearly than
 a function and a run of builder calls would. User-authored branching,
 iteration, parsing, and recursion belong in comptime functions.
 
-::: deepdive
-Two ways to write a type transformation is a cost, and the operators are kept
-because a general language is the wrong tool for the small cases. A mapped
-shape says the whole transformation in one line a reader checks by eye, where
-the same thing as a comptime function is a loop over `fields`, a template
-concatenation, and a `shape` call, none of which is wrong and all of which have
-to be read to find out.
-
-The split is by what the operation needs. Everything an operator does is finite
-and structural, so the checker computes it directly without entering the
-comptime worker or paying its limits. Anything needing a loop, a branch on a
-value, string processing, or recursion crosses into the worker, and that is
-where the general language earns its budget.
-:::
-
 ## Const parameters
 
 Const parameters admit only `string`, `boolean`, and exactly representable
@@ -265,7 +250,7 @@ not a format-specific checker branch.
 `%s`:
 
 ```nupp
-@derive(types.Debug)
+@derive(types.debug)
 local record User
     name: string
 end
@@ -274,7 +259,7 @@ local inspected = string.format("user=%?", new User(name = "Ada"))
 ```
 
 See [derives.md](../../../reference/derives.md#debug) for what
-`@derive(types.Debug)` generates.
+`@derive(types.debug)` generates.
 
 ### Formats the checker cannot read
 
@@ -312,14 +297,14 @@ local invalid = string.format("%q %y", 1, 2)
 
 ### Typed wrappers
 
-`types.formatArguments(Format)` exposes the same directive
+`types.formatarguments(Format)` exposes the same directive
 computation, so a wrapper around `string.format` checks its callers the way
 `string.format` checks its own:
 
 ```nupp
 local function format<Format is string>(
     fmt: Format,
-    ...: unpackof types.formatArguments(Format)
+    ...: unpackof types.formatarguments(Format)
 ): string
     return string.format(fmt, ...)
 end
@@ -392,22 +377,6 @@ blueprints, so they cannot forge nominal identity or escape into the compiled
 program.
 Recursive algorithms use ordinary comptime calls or loops and are governed by
 the same limits.
-
-::: deepdive
-Running user code during checking makes the compiler's answer depend on that
-code terminating and on it seeing the same world twice. The worker is what
-makes both true: it is a separate process with its own budgets, so a type
-function that loops forever is a diagnostic on one file rather than a compiler
-that never returns, and it has no ambient access, so nothing it reads can
-differ between two builds of the same source.
-
-The blueprint boundary is the second half. A result is serialized and
-revalidated on the way back rather than handed over as a live handle, which is
-what keeps a type function from constructing checker state the checker would
-then trust.
-Nominal identity cannot cross that boundary at all, which is why a type
-function returns an existing nominal type rather than making one.
-:::
 
 ## FAQ
 

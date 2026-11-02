@@ -467,10 +467,10 @@ end
 ---     default
 --- @return the decoded baseline, or nil where it is refused
 --- @return why it was refused, naming its schema and the ones this version reads
-function bench.decodeBaseline(text: string, path: string, oldest: integer?): (any, string?)
+function bench.decodebaseline(text: string, path: string, oldest: integer?): (any, string?)
     local low = oldest or bench.OLDEST_BASELINE_SCHEMA
-    local decoded, document = pcall(json.decodeValue, text)
-    if not decoded or type(document) ~= "table" or json.isArray(document) then
+    local decoded, document = pcall(json.decodevalue, text)
+    if not decoded or type(document) ~= "table" or json.isarray(document) then
         return nil, ("nupp: baseline %s is not a bench record"):format(path)
     end
     local schema = document.schema
@@ -500,7 +500,7 @@ local function baseline(): any
     if not text then
         return nil
     end
-    local document, refused = bench.decodeBaseline(text, options.baseline)
+    local document, refused = bench.decodebaseline(text, options.baseline)
     -- Accepting replaces the file, so one this version cannot read is only replaced.
     if refused and not options.accept then
         error(refused, 0)
@@ -611,7 +611,7 @@ local function announce(listing: any): nil
         if not handle then
             error("nupp: cannot write " .. options.casesOut, 0)
         end
-        handle:write(json.encodeValue(listing), "\n")
+        handle:write(json.encodevalue(listing), "\n")
         handle:close()
 
         return
@@ -1252,7 +1252,7 @@ end
 ---
 --- @param now the record's `compiler`
 --- @param was the baseline's `compiler`
-function bench.compilerChange(now: any, was: any): string?
+function bench.compilerchange(now: any, was: any): string?
     if type(now) ~= "table" or type(was) ~= "table" or now.digest == was.digest then
         return nil
     end
@@ -1299,7 +1299,7 @@ function bench.compare(record: any, baseline: any): ({string}, {string})
 
         return failures, uncompared
     end
-    local changed = bench.compilerChange(record.compiler, baseline.compiler)
+    local changed = bench.compilerchange(record.compiler, baseline.compiler)
     if changed then
         uncompared[#uncompared + 1] = changed
     end
@@ -1798,7 +1798,7 @@ function bench.report(): nil
         job.run()
     end
     local record = buildRecord()
-    local encoded = json.encodeValue(record)
+    local encoded = json.encodevalue(record)
     writeFile(options.out, encoded)
     if options.json then
         io.stdout:write(encoded, "\n")
@@ -1819,7 +1819,7 @@ function bench.report(): nil
 
         return
     end
-    local previous, refused = bench.decodeBaseline(baselineText, options.baseline)
+    local previous, refused = bench.decodebaseline(baselineText, options.baseline)
     if refused then
         if options.accept then
             io.stderr:write(refused, "; replacing it\n")

@@ -4,106 +4,351 @@
 module nupp.runtime.standardio
 
 --[[
-`io` provides stream operations and terminal formatting.
-Terminal styles and tables share the stream's color policy.
+`io` is bytes: storage for them, and the readers and writers that move
+them. Reach for it when a program needs a growable buffer, an immutable
+snapshot of one, or a parser that works the same over a buffer, a file and an
+HTTP response body.
 
-```nupp
-local styles = io.style(io.stderr)
-io.stderr:write(styles.strong("error:") .. " bad input\n")
+```nupp:playground
+local bytes = io.newbuffer("hello")
+local reader = bytes:newReader()
+assert(reader:read(5) == "hello")
 ```
 
-See [command-line applications](docs/learn/projects/command-line-applications.md#use-terminal-colors)
-for styles and aligned tables.
+A buffer holds its bytes in the target's physical storage: a native array on
+LuaJIT, or a rooted allocation in a Wasm application. `Reader` and `Writer` are
+interfaces rather than the concrete things that satisfy them. Code written
+against either contract works over every implementation without knowing which
+one it has.
+
+The remaining I/O operations have their own modules. See [](io.path) for filesystem names,
+[](io.uri) for resource identifiers, [](io.files) for the filesystem
+itself, [](nupp.io.process) for running a child process, [](io.net) for
+network connections, [](io.tls) for encrypting one, and [](io.http)
+for the asynchronous HTTP client.
+Keeping them apart is what lets a program that wants a byte buffer carry a byte
+buffer rather than every provider behind the name.
+
+Files, processes, network connections, TLS sessions, and HTTP bodies move bytes
+through the `Reader` and `Writer` contracts on this page. A parser written
+against byte I/O therefore accepts all of them.
+
+Buffers, views, readers, writers, and their adapters are owners. A factory that
+takes a reader or writer transfers its close obligation to the adapter; a
+factory that borrows a buffer or byte queue leaves that value with its caller.
+`close` consumes an owner. Types that expose `isReleased` report their state
+without changing it.
+
+## Buffers
+
+`newbuffer()` creates an empty growable buffer. A string supplies initial
+bytes; an integer reserves capacity without changing the length.
+
+```nupp
+local bytes = io.newbuffer("hello")
+bytes:setString("!", bytes:len())
+assert(bytes:getString() == "hello!")
+```
+
+Buffer offsets are zero-based, as they are wherever a count is an offset into
+storage rather than a position in a Lua string. See [Byte
+positions](docs/learn/runtime/data/standard-library.md#byte-positions) for the
+rule and where the other convention applies.
+
+`getString(offset, count)` copies a range. `setString` overwrites from an
+offset and grows the buffer as needed, filling any gap with zero bytes. `clear`
+sets the length to zero without discarding capacity, and `resize` truncates or
+zero-fills:
+
+```nupp
+local bytes = io.newbuffer("hello")
+bytes:ensureCapacity(4096)
+assert(bytes:capacity() >= 4096)
+bytes:resize(3)
+assert(bytes:getString() == "hel")
+```
+
+Capacity is the allocation, not a recorded number. Growing at least doubles it,
+so appending through a writer costs amortized constant time per byte and
+`capacity()` reports bytes that are actually held. `ensureCapacity` reserves at
+least the minimum asked for.
+
+`close()` releases the buffer's storage and returns nothing, and an operation on
+a released buffer raises rather than answering a reason.
+
+`readSpan()` borrows the buffer's initialized bytes without separating its
+pointer from its length. Native producers write through `reserveWrite(offset,
+count)`: the returned lease supplies a checked writable span, and
+`commit(written)` changes the logical length only after the producer succeeds.
+Dropping the lease aborts it and leaves the length unchanged.
+
+## Byte views
+
+`view(offset, count)` returns an immutable snapshot, not a mutable alias into
+the buffer. It remains valid if the source buffer changes or closes:
+
+```nupp
+local buffer = io.newbuffer("header-body")
+local header = buffer:view(0, 6)
+buffer:clear()
+assert(header:getString() == "header")
+header:close()
+```
+
+A view can make a smaller view, open its own snapshot reader, report its byte
+length, copy to a string, borrow a checked span with `readSpan()`, and be
+closed. Its offsets are zero-based like a buffer's. The data and UTF-8 modules
+accept views, which is what keeps those APIs from being coupled to a mutable
+buffer.
+
+## Readers
+
+A `io.Reader` is a forward-only byte source. `newstringreader(text)` reads
+a string; `buffer:newReader()` reads a snapshot of the buffer's current
+contents. A reader owns its close obligation and closes automatically at the
+end of its scope unless `close()` consumes it earlier.
+
+```nupp
+local reader = io.newstringreader("abcdef")
+assert(reader:read(2) == "ab")
+
+local destination = io.newbuffer()
+assert(reader:readInto(destination, 0, 3) == 3)
+assert(destination:getString() == "cde")
+assert(reader:read(8) == "f")
+assert(reader:read(8) == "") -- EOF
+```
+
+`read(count)` requires a positive count and returns at most that many bytes. It
+returns an empty string at EOF and nil with a reason after close.
+`readSpan(writable)` fills a positive-sized checked writable span.
+`readInto(buffer, offset, count)` returns zero at EOF and reads 64 KiB when
+given no count; an explicit count must be positive. A failed or EOF read does
+not extend the destination. `transferTo(writer)` copies the entire remaining
+source and returns the byte count.
+
+A read moves the reader's cursor as a write moves a writer's, so all four take
+the reader exclusively. Two readers over one cursor, such as a stream and a
+borrowed view of it, cannot both be reading at once; the checker refuses the
+second while the first is live.
+
+`readall(reader, maxBytes)` takes a reader and returns everything left in it as
+one string, closing the reader on the way out. A limit is checked as the bytes
+arrive, so a source larger than it returns a reason rather than a string:
+
+```nupp
+assert(io.readall(io.newstringreader("whole")) == "whole")
+local text, reason = io.readall(io.newstringreader("too long"), 3)
+assert(text == nil and reason ~= nil)
+```
+
+## Writers
+
+`buffer:newWriter()` clears the buffer and returns a forward-only writer
+targeting it. A writer likewise closes automatically; `flush()` publishes
+pending work without consuming that ownership. The writer holds its buffer
+exclusively for as long as it is live, so the buffer is read once the writer is
+gone:
+
+```nupp
+local destination = io.newbuffer()
+do
+    local writer = destination:newWriter()
+    assert(writer:write("prefix:"))
+
+    local payload = io.newbuffer("body")
+    assert(writer:writeSpan(payload:readSpan()) == 4)
+    assert(writer:flush())
+end
+assert(destination:getString() == "prefix:body")
+```
+
+`write` returns a boolean and `writeSpan` returns the byte count. Both return a
+reason when the writer is closed or the destination was released. The span is
+the common zero-copy input contract for buffers, views, files, processes, and
+HTTP transfers; there is no unchecked raw-pointer writer alongside it. `flush`
+does nothing for memory. It is part of the contract because a file or socket
+buffers, and `flush` is where one reports a write that failed to land: `close`
+returns nothing, so a caller that has to know flushes first.
+
+## Lines
+
+`newlines(reader, limit)` takes a reader and separates it at `\n` and `\r\n`.
+The terminator is not returned, and a final fragment before EOF is still a
+line:
+
+```nupp
+local lines = io.newlines(io.newstringreader("one\r\ntwo\nlast"))
+assert(lines:read() == "one")
+assert(lines:read() == "two")
+assert(lines:read() == "last")
+assert(lines:read() == nil) -- EOF
+```
+
+The default limit is 64 KiB. An overlong line or source failure returns nil
+with a reason. Closing or dropping the line reader closes the source it took.
+
+## Typed scalars
+
+A reader and a writer move bytes. `newscalarreader` and `newscalarwriter` add
+the missing piece, a sized integer or float landing on those bytes without an
+`ffi.cast` at every call site.
+
+```nupp
+local writer = io.newscalarwriter()
+writer:writeUint32(1447383632):writeFloat64(1.5)
+
+local stored = writer:buffer()
+assert(stored ~= nil)
+local reader = io.newscalarreader(stored)
+assert(reader:readUint32() == 1447383632)
+assert(reader:readFloat64() == 1.5)
+assert(reader:atEnd())
+```
+
+Every write returns the writer, so calls chain. A short read raises rather than
+answering a reason, which is the one place this pair departs from the reader and
+writer contracts above: a scalar either landed whole or the source was not what
+the format said, and there is no partial value to hand back.
+
+### Scalar sources
+
+`newscalarreader` takes whatever holds the bytes. A string, a `ByteView` or a
+`Buffer` is read from a copy taken there and then, so `remaining()` knows the
+count:
+
+```nupp
+local reader = io.newscalarreader("\1\2\3\4")
+assert(reader:remaining() == 4)
+```
+
+A `Reader` is consumed as it goes, which is what lets a file or an HTTP body be
+read a field at a time. It cannot say how much is left, so `remaining()` returns
+nil and `atEnd()` is the question to ask instead. The scalar adapter takes that
+reader: closing the adapter, by hand or at the end of its scope, closes the
+reader exactly once.
+
+### Scalar destinations
+
+`newscalarwriter` appends to a `Buffer`, keeping what that buffer already
+holds, or writes through a `Writer`. Given nothing it starts a buffer of its
+own, which `buffer()` hands back:
+
+```nupp
+local destination = io.newbuffer("header:")
+do
+    local scalars = io.newscalarwriter(destination)
+    scalars:writeUint8(33)
+end
+assert(destination:getString() == "header:!")
+```
+
+A writer pointed at somebody else's `Writer` returns nil from `buffer()`, since
+the bytes are already gone. That writer is taken, so closing the scalar adapter
+closes it exactly once. A buffer supplied by the caller is only borrowed. The
+buffer created by the no-argument form belongs to the scalar writer; `buffer()`
+borrows it for as long as the scalar writer remains live.
+
+## Failures
+
+The files, process, network, TLS and HTTP modules return a failure from the
+environment as `nil, err`, where `err` is a [](io.Error): a `kind` a
+program can branch on and a `message` a person can read. The kind is the same on
+every platform and provider, so a missing file is `"notFound"` whether the
+operating system or the browser said so; the message is whatever the platform
+said and is not.
+
+```nupp
+local text, err = io.files.read("settings.json")
+if text == nil and err ~= nil and err.kind == "notFound" then
+    text = "{}"
+end
+```
+
+An error prints as its message, and joins text the same way, so
+`assert(files.read(path))` and `print("cannot read: " .. err)` read as they
+would with a string. The reads and writes of the `Reader` and `Writer` contracts
+are the exception: their reason stays a string, the same message, because a
+buffer or a string reader returns through the same contract.
+
+## Byte queues
+
+A [`nupp.text`](nupp.text) buffer is a byte queue: `put` appends to the back
+and `get` consumes from the front. `newscalarreader` accepts one directly, so
+bytes assembled there are read without copying everything in it first, and the
+queue's own `get` stays usable over the same bytes.
+
+```nupp
+local queue = nupp.text.newbuffer()
+queue:put("header:")
+queue:put("!")
+
+local reader = io.newscalarreader(queue)
+assert(reader:readBytes(7) == "header:")
+assert(queue:tostring() == "!")
+assert(reader:readUint8() == 33)
+```
+
+Reading drains the queue, and `remaining()` reports what it still holds.
+`newqueuereader` is the same bridge one layer down: it returns an ordinary
+`Reader` over the queue, for `transferTo`, `readInto`, and everything else that
+contract already covers.
+
+```nupp
+local destination = io.newbuffer()
+local queue = nupp.text.newbuffer()
+queue:put("payload")
+do
+    local reader = io.newqueuereader(queue)
+    assert(reader:transferTo(destination:newWriter()) == 7)
+end
+assert(destination:getString() == "payload")
+```
+
+Neither takes the queue over. Nothing here frees or closes it, and one read to
+empty leaves an empty queue rather than a released one.
+
+::: seealso
+- [](io.files) for the same contracts over a file on disk
+- [](io.path) for filesystem names rather than file contents
+- [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete
+  contract every owned value here follows
+- [standard-library.md](docs/learn/runtime/data/standard-library.md) for the
+  errors, ownership, and byte-position conventions every facility shares
+:::
 ]]
 
-local terminal = {}
-const {type ColorMode, type Style} = require("nupp.cli.internal.terminal")
-const {type Alignment, type Cell, type Column, type Options as TableOptions} = require("nupp.cli.internal.table")
+local source1 = require("nupp.io")
+export type Buffer = source1.Buffer
+export type BufferWriteLease = source1.BufferWriteLease
+export type ByteQueue = source1.ByteQueue
+export type ByteView = source1.ByteView
+export type Error = source1.Error
+export type ErrorKind = source1.ErrorKind
+export type Lines = source1.Lines
+export type Reader = source1.Reader
+export type ScalarReader = source1.ScalarReader
+export type ScalarWriter = source1.ScalarWriter
+export type Writer = source1.Writer
+export const Error = source1.Error
+export const newbuffer = source1.newBuffer
+export const newlines = source1.newLines
+export const newqueuereader = source1.newQueueReader
+export const newscalarreader = source1.newScalarReader
+export const newscalarwriter = source1.newScalarWriter
+export const newstringreader = source1.newStringReader
+export const readall = source1.readAll
 
-type terminal.ColorMode = ColorMode
-type terminal.Style = Style
-type terminal.Alignment = Alignment
-type terminal.Cell = Cell
-type terminal.Column = Column
-type terminal.TableOptions = TableOptions
-
---- Sets the process-wide default color policy.
-function terminal.setColorMode(wanted: terminal.ColorMode): nil
-    return require("nupp.cli.internal.terminal").setColorMode(wanted)
-end
-
---- Runs a body under one color policy and restores the previous policy.
-function terminal.withColorMode(wanted: terminal.ColorMode, body: function(): nil): nil
-    return require("nupp.cli.internal.terminal").withColorMode(wanted, body)
-end
-
---- Reports whether escapes should be written to a stream.
-function terminal.colorEnabled(stream: LuaFile): boolean
-    return require("nupp.cli.internal.terminal").colorEnabled(stream)
-end
-
---- Reports whether a stream is connected to a terminal.
-function terminal.isTerminal(stream: LuaFile): boolean
-    return require("nupp.cli.internal.terminal").isTerminal(stream)
-end
-
---- Reports how many columns a stream's terminal has, when it has one.
-function terminal.columns(stream: LuaFile): integer?
-    return require("nupp.cli.internal.terminal").columns(stream)
-end
-
---- Returns the generic styles selected for a stream.
-function terminal.style(stream: LuaFile): terminal.Style
-    return require("nupp.cli.internal.terminal").style(stream)
-end
-
---- Renders aligned columns, painting each cell after it is padded.
-function terminal.table(options: terminal.TableOptions): string
-    return require("nupp.cli.internal.table").render(options)
-end
-
---- Renders aligned columns straight to a stream.
-function terminal.writeTable(stream: LuaFile, options: terminal.TableOptions): nil
-    return require("nupp.cli.internal.table").write(stream, options)
-end
-
---- A plain table cell.
-function terminal.cell(value: string): terminal.Cell
-    return require("nupp.cli.internal.table").text(value)
-end
-
---- A table cell that paints itself, whatever its column says.
-function terminal.paintedCell(value: string, paint: function(string): string): terminal.Cell
-    return require("nupp.cli.internal.table").painted(value, paint)
-end
-
---- A table cell carrying an aside, measured with the cell and painted apart
---- from it.
-function terminal.annotatedCell(value: string, note: string, paint: (function(string): string)?): terminal.Cell
-    return require("nupp.cli.internal.table").annotated(value, note, paint)
-end
-
---- Selects the color associated with a diagnostic severity.
-function terminal.severity(styles: terminal.Style, name: string?): function(string): string
-    return require("nupp.cli.internal.terminal").forSeverity(styles, name)
-end
-
-local host: table = rawget(_G, "io") as table
-host.setColorMode = terminal.setColorMode
-host.withColorMode = terminal.withColorMode
-host.colorEnabled = terminal.colorEnabled
-host.isTerminal = terminal.isTerminal
-host.columns = terminal.columns
-host.style = terminal.style
-host.table = terminal.table
-host.writeTable = terminal.writeTable
-host.cell = terminal.cell
-host.paintedCell = terminal.paintedCell
-host.annotatedCell = terminal.annotatedCell
-host.severity = terminal.severity
-
---- The original host table after terminal methods have been installed.
 --- @internal
-terminal.value = host
-
-export = terminal
+export const value: table = do
+    local original = rawget(_G, "io") as any
+    original.Error = Error
+    original.newbuffer = newbuffer
+    original.newlines = newlines
+    original.newqueuereader = newqueuereader
+    original.newscalarreader = newscalarreader
+    original.newscalarwriter = newscalarwriter
+    original.newstringreader = newstringreader
+    original.readall = readall
+    yield original
+end

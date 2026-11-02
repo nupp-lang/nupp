@@ -182,7 +182,7 @@ function producer.compile(mode: string): string
     local result = shim.build(codes, symbol)
     result.metrics, result.mode, result.boundary, result.layout = metrics, mode, symbol, sizes
 
-    return json.encodeValue(result)
+    return json.encodevalue(result)
 end
 
 export = producer

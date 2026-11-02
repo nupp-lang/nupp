@@ -17,10 +17,10 @@ local M = {}
 
 function M.serializesRecursiveTypesAsAcyclicIndexedGraphs()
     local descriptor = reflection.describe(recursiveNode(T.string), "Node")
-    testAssert.equal(descriptor.schema, 6, "reflection schema")
-    testAssert.equal(descriptor.root, 1, "root index")
-    testAssert.equal(descriptor.fields[1].name, "value", "declaration order begins with value")
-    testAssert.equal(descriptor.fields[2].name, "next", "declaration order retains next")
+    testAssert.eq(descriptor.schema, 6, "reflection schema")
+    testAssert.eq(descriptor.root, 1, "root index")
+    testAssert.eq(descriptor.fields[1].name, "value", "declaration order begins with value")
+    testAssert.eq(descriptor.fields[2].name, "next", "declaration order retains next")
     local encoded = json.encode(descriptor)
     assert(#encoded > 0, "the recursive descriptor is plain JSON data")
     local reachesRoot = false
@@ -40,18 +40,18 @@ function M.reflectsAssociatedRequirementsAndTheirAnswers()
     lines.associatedAnswers = {Item = {type = T.string, kind = "default"}}
     local descriptor = reflection.describe(lines, "Lines")
     local associated = descriptor.types[descriptor.root].associatedTypes
-    testAssert.equal(#associated, 1, "the associated requirement is reflected")
-    testAssert.equal(associated[1].name, "Item", "associated name")
-    testAssert.equal(descriptor.types[associated[1].bound].kind, "string", "associated bound")
-    testAssert.equal(descriptor.types[associated[1].answer].kind, "string", "associated answer")
-    testAssert.equal(associated[1].default, true, "a default answer is marked as one")
+    testAssert.eq(#associated, 1, "the associated requirement is reflected")
+    testAssert.eq(associated[1].name, "Item", "associated name")
+    testAssert.eq(descriptor.types[associated[1].bound].kind, "string", "associated bound")
+    testAssert.eq(descriptor.types[associated[1].answer].kind, "string", "associated answer")
+    testAssert.eq(associated[1].default, true, "a default answer is marked as one")
 end
 
 function M.reflectsExplicitTransferOnlyAffinity()
     local descriptor = reflection.describe(T.affine(T.string, nil, true), "OpaqueString")
     local root = descriptor.types[descriptor.root]
-    testAssert.equal(root.kind, "affine")
-    testAssert.equal(root.transferOnly, true, "reflection erased explicit transfer-only affinity")
+    testAssert.eq(root.kind, "affine")
+    testAssert.eq(root.transferOnly, true, "reflection erased explicit transfer-only affinity")
 end
 
 function M.reflectsFieldDefaultsAndFingerprintsTheirValues()
@@ -63,10 +63,10 @@ function M.reflectsFieldDefaultsAndFingerprintsTheirValues()
     changed.fieldDefaults = {value = {value = "second"}}
     local absent = recursiveNode(T.string)
     local firstDescriptor = reflection.describe(first, "Node")
-    testAssert.equal(firstDescriptor.fields[1].hasDefault, true, "default presence")
-    testAssert.equal(firstDescriptor.fields[1].defaultValue, "first", "default value")
-    testAssert.equal(reflection.describe(absent, "Node").fields[1].hasDefault, false, "missing default")
-    testAssert.equal(
+    testAssert.eq(firstDescriptor.fields[1].hasDefault, true, "default presence")
+    testAssert.eq(firstDescriptor.fields[1].defaultValue, "first", "default value")
+    testAssert.eq(reflection.describe(absent, "Node").fields[1].hasDefault, false, "missing default")
+    testAssert.eq(
         firstDescriptor.fingerprint,
         reflection.describe(same, "Node").fingerprint,
         "equal defaults fingerprint equally"
@@ -82,8 +82,8 @@ function M.omitsPrivateFieldsFromSemanticReflection()
     node.privateFields = {next = true}
     node.moduleName = "models"
     local descriptor = reflection.describe(node, "Node")
-    testAssert.equal(#descriptor.fields, 1, "only the public field is reflected")
-    testAssert.equal(descriptor.fields[1].name, "value", "the reflected field is public")
+    testAssert.eq(#descriptor.fields, 1, "only the public field is reflected")
+    testAssert.eq(descriptor.fields[1].name, "value", "the reflected field is public")
 end
 
 function M.hiddenConstructionRequiresAnExplicitFactory()
@@ -91,8 +91,8 @@ function M.hiddenConstructionRequiresAnExplicitFactory()
     node.privateFields = {next = true}
     local description = reflection.describe(node, "Node")
     local construction = description.types[description.root].construction
-    testAssert.equal(construction.requiresFactory, true)
-    testAssert.equal(#construction.params, 1)
+    testAssert.eq(construction.requiresFactory, true)
+    testAssert.eq(#construction.params, 1)
     assert(not description.fields[2], "private fields must stay hidden")
 end
 
@@ -107,9 +107,9 @@ function M.storageFactsComeFromDeclarationsRatherThanFunctionTypes()
     for _, field in ipairs(description.fields) do
         stored[field.name] = field.stored
     end
-    testAssert.equal(stored.callback, true)
-    testAssert.equal(stored.method, false)
-    testAssert.equal(description.types[description.root].construction.requiresFactory, false)
+    testAssert.eq(stored.callback, true)
+    testAssert.eq(stored.method, false)
+    testAssert.eq(description.types[description.root].construction.requiresFactory, false)
 end
 
 function M.declaredConstructionRetainsItsEntryAndResult()
@@ -120,18 +120,18 @@ function M.declaredConstructionRetainsItsEntryAndResult()
     node.constructorEntries = {{index = 2, signature = signature, result = node}}
     local description = reflection.describe(node, "Node")
     local construction = description.types[description.root].construction
-    testAssert.equal(construction.declared, true)
-    testAssert.equal(construction.requiresFactory, false)
-    testAssert.equal(construction.index, 2)
-    testAssert.equal(construction.result, description.root)
-    testAssert.equal(construction.params[1].name, "text")
+    testAssert.eq(construction.declared, true)
+    testAssert.eq(construction.requiresFactory, false)
+    testAssert.eq(construction.index, 2)
+    testAssert.eq(construction.result, description.root)
+    testAssert.eq(construction.params[1].name, "text")
 end
 
 function M.fingerprintsSemanticsRatherThanNominalAllocationIdentity()
     local first = reflection.describe(recursiveNode(T.string), "Node")
     local second = reflection.describe(recursiveNode(T.string), "Node")
     local changed = reflection.describe(recursiveNode(T.number), "Node")
-    testAssert.equal(first.fingerprint, second.fingerprint, "equivalent declarations ignore process-local nominal ids")
+    testAssert.eq(first.fingerprint, second.fingerprint, "equivalent declarations ignore process-local nominal ids")
     assert(first.fingerprint ~= changed.fingerprint, "changing a reflected field changes the semantic fingerprint")
 end
 
@@ -150,11 +150,11 @@ function M.fingerprintsResolvedDeclarationAndFieldAnnotations()
     local same = annotated("nodes", "payload")
     local changedRecord = annotated("items", "payload")
     local changedField = annotated("nodes", "value")
-    testAssert.equal(first.fingerprint, same.fingerprint, "equivalent semantic annotations fingerprint identically")
+    testAssert.eq(first.fingerprint, same.fingerprint, "equivalent semantic annotations fingerprint identically")
     assert(first.fingerprint ~= changedRecord.fingerprint, "record annotation values enter the fingerprint")
     assert(first.fingerprint ~= changedField.fingerprint, "field annotation values enter the fingerprint")
-    testAssert.equal(first.annotations[1].arguments[1].value, "nodes", "record annotations are reflected")
-    testAssert.equal(first.fields[1].annotations[1].arguments[1].value, "payload", "field annotations are reflected")
+    testAssert.eq(first.annotations[1].arguments[1].value, "nodes", "record annotations are reflected")
+    testAssert.eq(first.fields[1].annotations[1].arguments[1].value, "payload", "field annotations are reflected")
 end
 
 function M.coversStructuralFunctionsCollectionsAndCapabilities()
@@ -201,15 +201,15 @@ function M.coversStructuralFunctionsCollectionsAndCapabilities()
         assert(kinds[kind], "descriptor includes " .. kind)
     end
     local fn = descriptor.types[descriptor.root]
-    testAssert.equal(fn.parameters[1].name, "values", "parameter name")
-    testAssert.equal(fn.parameters[1].mode, "borrows", "parameter mode")
-    testAssert.equal(fn.noYield, true, "suspension guarantee")
+    testAssert.eq(fn.parameters[1].name, "values", "parameter name")
+    testAssert.eq(fn.parameters[1].mode, "borrows", "parameter mode")
+    testAssert.eq(fn.noYield, true, "suspension guarantee")
     local result = descriptor.types[fn.returns[1]]
-    testAssert.equal(result.fields[1].name, "readable", "shape fields are canonical")
-    testAssert.equal(result.fields[1].readable, true, "read capability")
-    testAssert.equal(result.fields[1].writable, false, "read-only capability")
-    testAssert.equal(result.fields[2].readable, false, "write-only capability")
-    testAssert.equal(result.fields[2].writable, true, "write capability")
+    testAssert.eq(result.fields[1].name, "readable", "shape fields are canonical")
+    testAssert.eq(result.fields[1].readable, true, "read capability")
+    testAssert.eq(result.fields[1].writable, false, "read-only capability")
+    testAssert.eq(result.fields[2].readable, false, "write-only capability")
+    testAssert.eq(result.fields[2].writable, true, "write capability")
 end
 
 function M.carriesConstBindersAndArrayTermsInTheSharedDescriptorVocabulary()
@@ -218,14 +218,14 @@ function M.carriesConstBindersAndArrayTermsInTheSharedDescriptorVocabulary()
     local alias = T.genericAlias("Buffer", T.carray(T.uint8, nil, count), nil, nil, nil, {size}, {"const"})
     local descriptor = reflection.describe(alias, "Buffer")
     local root = descriptor.types[descriptor.root]
-    testAssert.equal(root.parameterKinds[1], "const", "generic parameter kind")
+    testAssert.eq(root.parameterKinds[1], "const", "generic parameter kind")
     local parameter = descriptor.types[root.constParameters[1]]
-    testAssert.equal(parameter.kind, "constVar", "const binder descriptor")
-    testAssert.equal(parameter.domain, "integer", "const binder domain")
+    testAssert.eq(parameter.kind, "constVar", "const binder descriptor")
+    testAssert.eq(parameter.domain, "integer", "const binder domain")
     local body = descriptor.types[root.body]
     local term = descriptor.types[body.countTerm]
-    testAssert.equal(term.kind, "constOp", "C array count term")
-    testAssert.equal(term.operation, "*", "C array count operation")
+    testAssert.eq(term.kind, "constOp", "C array count term")
+    testAssert.eq(term.operation, "*", "C array count operation")
 end
 
 function M.carriesNominalPackParametersAndArguments()
@@ -237,15 +237,15 @@ function M.carriesNominalPackParametersAndArguments()
 
     local declaration = reflection.describe(matcher, "Matcher")
     local declarationRoot = declaration.types[declaration.root]
-    testAssert.equal(declarationRoot.parameterKinds[1], "pack", "nominal parameter kind")
+    testAssert.eq(declarationRoot.parameterKinds[1], "pack", "nominal parameter kind")
     local parameter = declaration.types[declarationRoot.packParameters[1]]
-    testAssert.equal(parameter.kind, "packvar", "nominal pack binder")
+    testAssert.eq(parameter.kind, "packvar", "nominal pack binder")
 
     local application = reflection.describe(concrete, "Matcher<(string, integer)>")
     local applicationRoot = application.types[application.root]
     local argument = application.types[applicationRoot.packArguments[1]]
-    testAssert.equal(argument.kind, "pack", "nominal pack argument")
-    testAssert.equal(#argument.head, 2, "nominal pack arity")
+    testAssert.eq(argument.kind, "pack", "nominal pack argument")
+    testAssert.eq(#argument.head, 2, "nominal pack arity")
 end
 
 function M.carriesNominalTypeAndConstParametersAndArguments()
@@ -259,17 +259,17 @@ function M.carriesNominalTypeAndConstParametersAndArguments()
 
     local declaration = reflection.describe(buffer, "Buffer")
     local declarationRoot = declaration.types[declaration.root]
-    testAssert.equal(declaration.types[declarationRoot.typeParameters[1]].kind, "typevar", "nominal type binder")
-    testAssert.equal(declaration.types[declarationRoot.typeBounds[1]].kind, "any", "nominal type bound")
-    testAssert.equal(declaration.types[declarationRoot.constParameters[1]].kind, "constVar", "nominal const binder")
+    testAssert.eq(declaration.types[declarationRoot.typeParameters[1]].kind, "typevar", "nominal type binder")
+    testAssert.eq(declaration.types[declarationRoot.typeBounds[1]].kind, "any", "nominal type bound")
+    testAssert.eq(declaration.types[declarationRoot.constParameters[1]].kind, "constVar", "nominal const binder")
 
     local concrete = generics.instantiate(buffer, {[element] = T.string, [size] = T.constLiteral("integer", 16),})
     local application = reflection.describe(concrete, "Buffer<string, 16>")
     local applicationRoot = application.types[application.root]
-    testAssert.equal(application.types[applicationRoot.typeArguments[1]].kind, "string", "nominal type argument")
+    testAssert.eq(application.types[applicationRoot.typeArguments[1]].kind, "string", "nominal type argument")
     local constArgument = application.types[applicationRoot.constArguments[1]]
-    testAssert.equal(constArgument.kind, "constLiteral", "nominal const argument")
-    testAssert.equal(constArgument.value, 16, "nominal const argument value")
+    testAssert.eq(constArgument.kind, "constLiteral", "nominal const argument")
+    testAssert.eq(constArgument.value, 16, "nominal const argument value")
 end
 
 function M.ordersNamedMetadataAndExcludesSourceIdentityFromFingerprints()
@@ -290,17 +290,13 @@ function M.ordersNamedMetadataAndExcludesSourceIdentityFromFingerprints()
 
     local first = described(false)
     local second = described(true)
-    testAssert.equal(
-        first.fingerprint,
-        second.fingerprint,
-        "map insertion order does not change the semantic fingerprint"
-    )
-    testAssert.equal(first.fields[1].name, "z", "ordinary fields retain declaration order")
+    testAssert.eq(first.fingerprint, second.fingerprint, "map insertion order does not change the semantic fingerprint")
+    testAssert.eq(first.fields[1].name, "z", "ordinary fields retain declaration order")
     local root = first.types[first.root]
-    testAssert.equal(root.staticFields[1].name, "a", "static fields sort by name")
-    testAssert.equal(root.metamethods[1].name, "__len", "metamethods sort by name")
-    testAssert.equal(root.nestedTypes[1].name, "Alpha", "nested types sort by name")
-    testAssert.equal(
+    testAssert.eq(root.staticFields[1].name, "a", "static fields sort by name")
+    testAssert.eq(root.metamethods[1].name, "__len", "metamethods sort by name")
+    testAssert.eq(root.nestedTypes[1].name, "Alpha", "nested types sort by name")
+    testAssert.eq(
         root.referenceFingerprint,
         reflection.describe(first.sources[first.root]).fingerprint,
         "source references carry their semantic fingerprint"

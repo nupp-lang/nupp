@@ -52,7 +52,7 @@ local function project()
                 [=[
 local test = require("assert")
 local M = {}
-function M.passes() test.equal(%q, %q) end
+function M.passes() test.eq(%q, %q) end
 return M
 ]=]
             ):format(name, name)
@@ -89,14 +89,14 @@ end
 function M.aNarrowRunKeepsTheTimingsItDidNotMeasure()
     local dir = project()
     local everything, status = runner(dir, "--timings=0")
-    test.equal(status, 0, "the whole project should run: " .. everything)
+    test.eq(status, 0, "the whole project should run: " .. everything)
     local before = suitesIn(dir)
     for _, name in ipairs({"alphatest", "betatest", "gammatest"}) do
         test(before[name], name .. " should have been timed by the whole run")
     end
 
     local narrow, narrowStatus = runner(dir, "alphatest --timings=0")
-    test.equal(narrowStatus, 0, "the narrow run should succeed: " .. narrow)
+    test.eq(narrowStatus, 0, "the narrow run should succeed: " .. narrow)
     local after, recorded = suitesIn(dir)
     test(after.alphatest, "the suite that ran should be timed")
     test(after.betatest, "a suite the narrow run did not touch should keep its timing: " .. recorded)
@@ -119,7 +119,7 @@ function M.aRecordThatIsNotADurationIsIgnored()
             "cd %q && NUPP_TEST_BUILD=%q %q test --internal-runner --jobs=2 --timings=0"
         ):format(dir, dir .. "/build", NUPP)
     )
-    test.equal(status, 0, "a damaged record should not stop the run: " .. output)
+    test.eq(status, 0, "a damaged record should not stop the run: " .. output)
     local _, recorded = suitesIn(dir)
     test(not recorded:find("slow", 1, true), "the damaged record should be replaced: " .. recorded)
     discard(dir)
@@ -143,24 +143,24 @@ end
 function M.aGroupSelectsExactlyItsMembers()
     local dir = project()
     local listing, status = runner(dir, "--list-suites --group=pair")
-    test.equal(status, 0, "listing a group should succeed: " .. listing)
-    test.equal(listing, "alphatest\nbetatest\n")
+    test.eq(status, 0, "listing a group should succeed: " .. listing)
+    test.eq(listing, "alphatest\nbetatest\n")
     discard(dir)
 end
 
 function M.aGlobGroupTracksEverySuiteItMatches()
     local dir = project()
     local listing = runner(dir, "--list-suites --group=greek")
-    test.equal(listing, "alphatest\nbetatest\ngammatest\n")
+    test.eq(listing, "alphatest\nbetatest\ngammatest\n")
     discard(dir)
 end
 
 function M.excludingAGroupLeavesTheRest()
     local dir = project()
     local listing = runner(dir, "--list-suites --exclude-group=pair")
-    test.equal(listing, "gammatest\n")
+    test.eq(listing, "gammatest\n")
     local single = runner(dir, "--list-suites --exclude=betatest")
-    test.equal(single, "alphatest\ngammatest\n")
+    test.eq(single, "alphatest\ngammatest\n")
     discard(dir)
 end
 
@@ -170,7 +170,7 @@ end
 function M.anUnknownGroupIsRefused()
     local dir = project()
     local output, status = runner(dir, "--list-suites --group=nope")
-    test.equal(status, 2, "an unknown group should be refused: " .. output)
+    test.eq(status, 2, "an unknown group should be refused: " .. output)
     test.matches(output, "no test group named nope")
     test.matches(output, "greek", "the refusal should name the groups there are")
     discard(dir)
@@ -180,7 +180,7 @@ function M.aGroupMemberThatMatchesNothingIsRefused()
     local dir = project()
     write(dir .. "/tests/groups.lua", 'return {stale = {"deltatest"}}\n')
     local output, status = runner(dir, "--list-suites --group=stale")
-    test.equal(status, 2, "a group naming a missing suite should be refused: " .. output)
+    test.eq(status, 2, "a group naming a missing suite should be refused: " .. output)
     test.matches(output, "which matches no suite")
     discard(dir)
 end
@@ -188,7 +188,7 @@ end
 function M.anUnknownExclusionIsRefused()
     local dir = project()
     local output, status = runner(dir, "--list-suites --exclude=deltatest")
-    test.equal(status, 2, "excluding a suite that does not exist should be refused: " .. output)
+    test.eq(status, 2, "excluding a suite that does not exist should be refused: " .. output)
     test.matches(output, "no test suite named deltatest to exclude")
     discard(dir)
 end

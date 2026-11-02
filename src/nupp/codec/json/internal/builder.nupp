@@ -19,7 +19,7 @@ local stream = {}
 --- This is an internal AOT boundary. The native builder still observes every
 --- parsed token so skipped subtrees are validated, but it allocates values only
 --- where `shape` selects them. `arrayShapeMarker` is the private key used by the
---- JSON provider's [](serde.json.arrayOf) shapes.
+--- JSON provider's [](serde.json.arrayof) shapes.
 --- @raises string outside an AOT-compiled function
 function stream.newPull(
     nullValue: any,

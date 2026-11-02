@@ -1,11 +1,12 @@
+require("nupp.runtime.standardcoroutine")
 local testAssert = require("assert")
 -- S2: the suspend operation and its handlers.
 --
 -- The ready path is what the baselines said to protect, so it is what most of this
 -- checks: a subscription that completes during the call must not build a park, must not
 -- consult a handler, and must answer straight through.
-local suspension = require("nupp.suspension")
-local suspensionHost = require("nupp.suspension.host")
+local suspension = require("coroutine.suspension")
+local suspensionHost = require("coroutine.suspension.host")
 
 -- The lexical owner scope, written out here because the tests are Lua.
 local function handled(handler, body, ...)
@@ -26,7 +27,7 @@ function M.answersASynchronousSubscriptionDirectly()
         resume(42)
         return nil
     end)
-    testAssert.equal(answer, 42, "the value the subscription supplied")
+    testAssert.eq(answer, 42, "the value the subscription supplied")
 end
 
 function M.aSynchronousSubscriptionNeedsNoCancellation()
@@ -36,7 +37,7 @@ function M.aSynchronousSubscriptionNeedsNoCancellation()
         resume("done")
         return nil
     end)
-    testAssert.equal(answer, "done", "nil cancellation is accepted")
+    testAssert.eq(answer, "done", "nil cancellation is accepted")
 end
 
 function M.doesNotConsultAHandlerWhenTheSubscriptionIsReady()
@@ -52,8 +53,8 @@ function M.doesNotConsultAHandlerWhenTheSubscriptionIsReady()
             return nil
         end)
     end)
-    testAssert.equal(answer, 1, "the value")
-    testAssert.equal(asked, false, "a ready subscription never reaches the handler")
+    testAssert.eq(answer, 1, "the value")
+    testAssert.eq(asked, false, "a ready subscription never reaches the handler")
 end
 
 function M.parksThroughAnInstalledHandler()
@@ -75,8 +76,8 @@ function M.parksThroughAnInstalledHandler()
             end
         end)
     end)
-    testAssert.equal(parked, "waiting", "the handler was told what it was waiting for")
-    testAssert.equal(answer, "from the library", "and the value came through resume")
+    testAssert.eq(parked, "waiting", "the handler was told what it was waiting for")
+    testAssert.eq(answer, "from the library", "and the value came through resume")
 end
 
 function M.blocksThroughASourceWhenNoHandlerIsInstalled()
@@ -97,7 +98,7 @@ function M.blocksThroughASourceWhenNoHandlerIsInstalled()
         end
     end)
     source:release()
-    testAssert.equal(answer, "settled", "the built-in handler drove the source")
+    testAssert.eq(answer, "settled", "the built-in handler drove the source")
 end
 
 function M.keepsPollingWhileSourcesAnswerZero()
@@ -122,7 +123,7 @@ function M.keepsPollingWhileSourcesAnswerZero()
         end
     end)
     source:release()
-    testAssert.equal(answer, "eventually", "three quiet passes did not stop it")
+    testAssert.eq(answer, "eventually", "three quiet passes did not stop it")
     assert(passes >= 4, "it kept polling: " .. passes)
 end
 
@@ -163,9 +164,9 @@ function M.blockingDriverWaitsOnTheSourceUsedByThePark()
     end)
     preferred:release()
     unrelated:release()
-    testAssert.equal(answer, "ready", "the associated source settled the park")
-    testAssert.equal(waited, 1, "the blocking slice is bounded to one millisecond")
-    testAssert.equal(unrelatedWaits, 0, "an unrelated later-ordered source did not delay it")
+    testAssert.eq(answer, "ready", "the associated source settled the park")
+    testAssert.eq(waited, 1, "the blocking slice is bounded to one millisecond")
+    testAssert.eq(unrelatedWaits, 0, "an unrelated later-ordered source did not delay it")
 end
 
 function M.hostPollNeverCallsTheBlockingHalfOfASource()
@@ -184,8 +185,8 @@ function M.hostPollNeverCallsTheBlockingHalfOfASource()
     )
     suspension.poll()
     source:release()
-    testAssert.equal(polls, 1, "the nonblocking operation ran")
-    testAssert.equal(waits, 0, "host polling did not sleep")
+    testAssert.eq(polls, 1, "the nonblocking operation ran")
+    testAssert.eq(waits, 0, "host polling did not sleep")
 end
 
 function M.contextSourcesSupportSeparatePollAndWaitOperations()
@@ -199,7 +200,7 @@ function M.contextSourcesSupportSeparatePollAndWaitOperations()
                 return 0
             end,
             function(milliseconds)
-                testAssert.equal(milliseconds, 1, "the context source received the slice")
+                testAssert.eq(milliseconds, 1, "the context source received the slice")
                 waited = true
                 pending(7)
                 return 1
@@ -210,7 +211,7 @@ function M.contextSourcesSupportSeparatePollAndWaitOperations()
             pending = nil
         end
     end)
-    testAssert.equal(answer, 7, "the context-owned wait resumed")
+    testAssert.eq(answer, 7, "the context-owned wait resumed")
     assert(waited, "the blocking half ran")
 end
 
@@ -219,7 +220,7 @@ function M.requiresACancellationForARealPark()
     local ok, err = pcall(suspension.suspend, "waiting", function()
         return nil
     end)
-    testAssert.equal(ok, false, "an uncancellable park is refused")
+    testAssert.eq(ok, false, "an uncancellable park is refused")
     assert(tostring(err):find("no cancellation", 1, true) ~= nil, "and says why: " .. tostring(err))
 end
 
@@ -239,8 +240,8 @@ function M.refusesToParkWhereTheHandlerForbidsIt()
             end
         end)
     end)
-    testAssert.equal(ok, false, "a barrier refuses the park")
-    testAssert.equal(cancelled, true, "and the subscription is cancelled rather than left live")
+    testAssert.eq(ok, false, "a barrier refuses the park")
+    testAssert.eq(cancelled, true, "and the subscription is cancelled rather than left live")
     assert(tostring(err):find("cannot suspend here", 1, true) ~= nil, "and says so: " .. tostring(err))
 end
 
@@ -256,7 +257,7 @@ function M.tellsAHandlerItsExtentEnded()
     handled(handler, function()
         return nil
     end)
-    testAssert.equal(shutdowns, 1, "the handler was told, so it can abandon what it owns")
+    testAssert.eq(shutdowns, 1, "the handler was told, so it can abandon what it owns")
 end
 
 function M.givesTheSubscriptionTheContextBeforeItSubscribes()
@@ -288,9 +289,9 @@ function M.keepsEveryResultOfAHandledBody()
     local a, b, c = handled(handler, function()
         return 1, 2, 3
     end)
-    testAssert.equal(a, 1, "first")
-    testAssert.equal(b, 2, "second")
-    testAssert.equal(c, 3, "third, which a single-value wrapper would have dropped")
+    testAssert.eq(a, 1, "first")
+    testAssert.eq(b, 2, "second")
+    testAssert.eq(c, 3, "third, which a single-value wrapper would have dropped")
 end
 
 function M.refusesASecondResume()
@@ -299,7 +300,7 @@ function M.refusesASecondResume()
         resume(2)
         return nil
     end)
-    testAssert.equal(ok, false, "a one-shot resumption is one-shot")
+    testAssert.eq(ok, false, "a one-shot resumption is one-shot")
     assert(tostring(err):find("resumed twice", 1, true) ~= nil, "and says so: " .. tostring(err))
 end
 
@@ -314,7 +315,7 @@ function M.reportsAHandlerThatReturnsWithoutResuming()
             end
         end)
     end)
-    testAssert.equal(ok, false, "a handler that does not resume broke its contract")
+    testAssert.eq(ok, false, "a handler that does not resume broke its contract")
     assert(
         tostring(err):find("without resuming", 1, true) ~= nil,
         "and is told so rather than handing back nil: " .. tostring(err)
@@ -322,7 +323,7 @@ function M.reportsAHandlerThatReturnsWithoutResuming()
 end
 
 function M.restoresTheHandlerOnTheWayOut()
-    testAssert.equal(suspension.handled(), false, "nothing installed to begin with")
+    testAssert.eq(suspension.handled(), false, "nothing installed to begin with")
     local handler = {
         park = function()
         end
@@ -331,7 +332,7 @@ function M.restoresTheHandlerOnTheWayOut()
         assert(suspension.handled(), "installed inside")
         return nil
     end)
-    testAssert.equal(suspension.handled(), false, "and gone again after")
+    testAssert.eq(suspension.handled(), false, "and gone again after")
 end
 
 function M.restoresTheHandlerAfterAnError()
@@ -342,7 +343,7 @@ function M.restoresTheHandlerAfterAnError()
     pcall(handled, handler, function()
         error("boom", 0)
     end)
-    testAssert.equal(suspension.handled(), false, "a handler left installed would answer for code that never asked")
+    testAssert.eq(suspension.handled(), false, "a handler left installed would answer for code that never asked")
 end
 
 function M.nestsHandlers()
@@ -375,10 +376,10 @@ function M.nestsHandlers()
 
     local answer = handled(outer, function()
         local nested = handled(inner, wait)
-        testAssert.equal(nested, "inner", "the innermost handler answers")
+        testAssert.eq(nested, "inner", "the innermost handler answers")
         return wait()
     end)
-    testAssert.equal(answer, "outer", "and the outer one is restored")
+    testAssert.eq(answer, "outer", "and the outer one is restored")
 end
 
 function M.doesNotLeakBetweenCoroutines()
@@ -396,7 +397,7 @@ function M.doesNotLeakBetweenCoroutines()
         coroutine.resume(other)
         return nil
     end)
-    testAssert.equal(seen, false, "a coroutine does not inherit by accident")
+    testAssert.eq(seen, false, "a coroutine does not inherit by accident")
 end
 
 function M.ordersSourcesByPriority()
@@ -428,8 +429,8 @@ function M.ordersSourcesByPriority()
     late:release()
     early:release()
     settle:release()
-    testAssert.equal(order[1], "early", "lowest order runs first")
-    testAssert.equal(order[2], "late", "then the rest")
+    testAssert.eq(order[1], "early", "lowest order runs first")
+    testAssert.eq(order[2], "late", "then the rest")
 end
 
 function M.keepsSourceRegistrationOrderForExactTies()
@@ -445,7 +446,7 @@ function M.keepsSourceRegistrationOrderForExactTies()
     suspension.poll()
     first:release()
     second:release()
-    testAssert.equal(table.concat(order, ","), "first,second", "equal names and priorities keep registration order")
+    testAssert.eq(table.concat(order, ","), "first,second", "equal names and priorities keep registration order")
 end
 
 function M.mutatesSourcesWithoutChangingTheCurrentPollPass()
@@ -485,14 +486,14 @@ function M.mutatesSourcesWithoutChangingTheCurrentPollPass()
     end)
 
     suspension.poll()
-    testAssert.equal(
+    testAssert.eq(
         table.concat(order, ","),
         "first,middle,last",
         "new sources wait for the next pass and a released source is skipped"
     )
     order = {}
     suspension.poll()
-    testAssert.equal(
+    testAssert.eq(
         table.concat(order, ","),
         "new-early,middle,new-middle,last,new-late",
         "the next pass keeps poll order after mutations"
@@ -511,7 +512,7 @@ function M.releasingASourceIsIdempotent()
     end)
     source:release()
     source:release()
-    testAssert.equal(suspension.poll(), 0, "a released source is not polled")
+    testAssert.eq(suspension.poll(), 0, "a released source is not polled")
 end
 
 function M.sourcesDoNotCollideByName()
@@ -529,8 +530,8 @@ function M.sourcesDoNotCollideByName()
     a:release()
     suspension.poll()
     b:release()
-    testAssert.equal(first, 1, "the released one stopped")
-    testAssert.equal(second, 2, "the other kept going")
+    testAssert.eq(first, 1, "the released one stopped")
+    testAssert.eq(second, 2, "the other kept going")
 end
 
 function M.reportsAWaitNothingCanComplete()
@@ -541,7 +542,7 @@ function M.reportsAWaitNothingCanComplete()
         return function()
         end
     end)
-    testAssert.equal(ok, false, "nothing can make this progress")
+    testAssert.eq(ok, false, "nothing can make this progress")
     assert(
         tostring(err):find("no readiness source", 1, true) ~= nil,
         "and it says so rather than hanging: " .. tostring(err)
@@ -562,13 +563,13 @@ end
 -- thirty-five minutes instead of two and a half, and only when the shards
 -- happened to pack those two suites into one process.
 function M.reportsAWaitNothingCanCompleteEvenAfterATimerHasRun()
-    require("nupp.time").sleep(1)
+    require("coroutine").sleep(1)
 
     local ok, err = pcall(suspension.suspend, "waiting", function()
         return function()
         end
     end)
-    testAssert.equal(ok, false, "an idle timer pump is not something that can make progress")
+    testAssert.eq(ok, false, "an idle timer pump is not something that can make progress")
     assert(
         tostring(err):find("no readiness source", 1, true) ~= nil,
         "and it says so rather than hanging: " .. tostring(err)
@@ -603,7 +604,7 @@ function M.aContextSourceTakesAnActivityPredicate()
         return function()
         end
     end)
-    testAssert.equal(ok, false, "an idle context pump is not something that can make progress: " .. tostring(err))
+    testAssert.eq(ok, false, "an idle context pump is not something that can make progress: " .. tostring(err))
     assert(
         tostring(err):find("no readiness source", 1, true) ~= nil,
         "and it says so rather than hanging: " .. tostring(err)
@@ -625,7 +626,7 @@ function M.aCreatedCoroutineInheritsTheHandler()
 
         return nil
     end)
-    testAssert.equal(inside, true, "work started inside a handled extent is handled, not only the frames below it")
+    testAssert.eq(inside, true, "work started inside a handled extent is handled, not only the frames below it")
 end
 
 function M.aStockCoroutineStillInheritsNothing()
@@ -642,7 +643,7 @@ function M.aStockCoroutineStillInheritsNothing()
 
         return nil
     end)
-    testAssert.equal(inside, false, "stock create is unchanged")
+    testAssert.eq(inside, false, "stock create is unchanged")
 end
 
 function M.inheritanceIsFixedAtCreationNotResumption()
@@ -668,7 +669,7 @@ function M.inheritanceIsFixedAtCreationNotResumption()
         return nil
     end)
     outerInstallation:close()
-    testAssert.equal(seen, true, "it kept what it was created with")
+    testAssert.eq(seen, true, "it kept what it was created with")
 end
 
 function M.aCoroutineDoesNotUseAnExtentThatHasEnded()
@@ -686,7 +687,7 @@ function M.aCoroutineDoesNotUseAnExtentThatHasEnded()
     end)
     installation:close()
     coroutine.resume(co)
-    testAssert.equal(seen, false, "a closed extent no longer answers for it")
+    testAssert.eq(seen, false, "a closed extent no longer answers for it")
 end
 
 function M.creatingOutsideAnyHandlerInheritsNothing()
@@ -695,7 +696,7 @@ function M.creatingOutsideAnyHandlerInheritsNothing()
         inside = suspension.handled()
     end)
     coroutine.resume(co)
-    testAssert.equal(inside, false, "nothing to inherit, nothing inherited")
+    testAssert.eq(inside, false, "nothing to inherit, nothing inherited")
 end
 
 function M.aCoroutineMayInstallItsOwn()
@@ -720,8 +721,8 @@ function M.aCoroutineMayInstallItsOwn()
 
         return nil
     end)
-    testAssert.equal(innerSeen, true, "its own handler answers inside")
-    testAssert.equal(afterSeen, true, "and the inherited one comes back after")
+    testAssert.eq(innerSeen, true, "its own handler answers inside")
+    testAssert.eq(afterSeen, true, "and the inherited one comes back after")
 end
 
 function M.releasingUnwindsAGenuinelyParkedCoroutine()
@@ -755,12 +756,12 @@ function M.releasingUnwindsAGenuinelyParkedCoroutine()
         raised = not ok and tostring(err) or nil
     end)
     coroutine.resume(parked)
-    testAssert.equal(cleanedUp, false, "it is genuinely parked, not finished")
+    testAssert.eq(cleanedUp, false, "it is genuinely parked, not finished")
 
     installation:close()
 
-    testAssert.equal(unsubscribed, true, "release unsubscribed the library")
-    testAssert.equal(cleanedUp, true, "and woke the park, so the stack unwound and the cleanup ran")
+    testAssert.eq(unsubscribed, true, "release unsubscribed the library")
+    testAssert.eq(cleanedUp, true, "and woke the park, so the stack unwound and the cleanup ran")
     assert(
         raised ~= nil and raised:find("cancelled", 1, true) ~= nil,
         "the suspension raised a cancellation: " .. tostring(raised)
@@ -793,9 +794,9 @@ function M.aNestedExtentDoesNotCancelTheEnclosingOnesParks()
     -- The same handler again, and then gone.
     local inner = suspensionHost.install(handler)
     inner:close()
-    testAssert.equal(cancels, 0, "the inner extent left the outer's park alone")
+    testAssert.eq(cancels, 0, "the inner extent left the outer's park alone")
     outer:close()
-    testAssert.equal(cancels, 1, "and the extent that accepted it cancelled it")
+    testAssert.eq(cancels, 1, "and the extent that accepted it cancelled it")
 end
 
 function M.aFinishedParkIsNotCancelledLater()
@@ -812,7 +813,7 @@ function M.aFinishedParkIsNotCancelledLater()
         end
     end)
     installation:close()
-    testAssert.equal(cancels, 0, "a subscription that completed has nothing to cancel")
+    testAssert.eq(cancels, 0, "a subscription that completed has nothing to cancel")
 end
 
 function M.releaseRefusesToSucceedWithAParkStillUnfinished()
@@ -837,7 +838,7 @@ function M.releaseRefusesToSucceedWithAParkStillUnfinished()
     end)
     coroutine.resume(parked)
     local ok, err = pcall(installation.close, installation)
-    testAssert.equal(ok, false, "closing the scope on an unfinished park would be a lie")
+    testAssert.eq(ok, false, "closing the scope on an unfinished park would be a lie")
     assert(tostring(err):find("unfinished", 1, true) ~= nil, "and it names them: " .. tostring(err))
     assert(tostring(err):find("stuck", 1, true) ~= nil, "by operation: " .. tostring(err))
 end
@@ -870,9 +871,9 @@ function M.releaseAttemptsEveryCleanupBeforeReporting()
     -- Both parks already finished -- the handler returned without resuming, so each
     -- `suspend` cancelled its own subscription and raised. What is left for release is
     -- the shutdown, which fails, and that failure has to surface rather than vanish.
-    testAssert.equal(cancelled, 2, "each suspend took its own subscription down")
+    testAssert.eq(cancelled, 2, "each suspend took its own subscription down")
     local ok, err = pcall(installation.close, installation)
-    testAssert.equal(ok, false, "the shutdown failure is reported rather than swallowed")
+    testAssert.eq(ok, false, "the shutdown failure is reported rather than swallowed")
     assert(tostring(err):find("shutdown blew up", 1, true) ~= nil, "and it is the one that failed: " .. tostring(err))
 end
 
@@ -890,8 +891,8 @@ function M.aFailingParkStillUnsubscribes()
         end
     end)
     installation:close()
-    testAssert.equal(ok, false, "the park failed")
-    testAssert.equal(unsubscribed, true, "and the subscription was taken down rather than left live")
+    testAssert.eq(ok, false, "the park failed")
+    testAssert.eq(unsubscribed, true, "and the subscription was taken down rather than left live")
 end
 
 function M.aSubscriptionThatRaisesReleasesItsPumps()
@@ -905,9 +906,9 @@ function M.aSubscriptionThatRaisesReleasesItsPumps()
         end)
         error("subscribe blew up", 0)
     end)
-    testAssert.equal(ok, false, "the subscription failed")
+    testAssert.eq(ok, false, "the subscription failed")
     suspension.poll()
-    testAssert.equal(polls, 0, "and its pump went with it")
+    testAssert.eq(polls, 0, "and its pump went with it")
 end
 
 function M.aFailedReleaseCanBeRetriedAndCancelsOnlyOnce()
@@ -945,14 +946,14 @@ function M.aFailedReleaseCanBeRetriedAndCancelsOnlyOnce()
 
     firstRelease = select(2, pcall(installation.close, installation))
     assert(firstRelease ~= nil, "the first release failed on the wake")
-    testAssert.equal(cancels, 1, "unsubscribed once")
-    testAssert.equal(wakes, 1, "and attempted the wake once")
+    testAssert.eq(cancels, 1, "unsubscribed once")
+    testAssert.eq(wakes, 1, "and attempted the wake once")
 
     failWake = false
     secondRelease = select(2, pcall(installation.close, installation))
-    testAssert.equal(cancels, 1, "the retry did not unsubscribe a second time")
-    testAssert.equal(wakes, 2, "but did deliver the wake it had kept")
-    testAssert.equal(secondRelease, nil, "and closed the scope: " .. tostring(secondRelease))
+    testAssert.eq(cancels, 1, "the retry did not unsubscribe a second time")
+    testAssert.eq(wakes, 2, "but did deliver the wake it had kept")
+    testAssert.eq(secondRelease, nil, "and closed the scope: " .. tostring(secondRelease))
 end
 
 function M.inactiveAssociatedSourceFallsBackAndCanBecomeActive()
@@ -1012,13 +1013,13 @@ function M.inactiveAssociatedSourceFallsBackAndCanBecomeActive()
     fallback:release()
     inactive:release()
     assert(ok, tostring(answer))
-    testAssert.equal(answer, "ready", "the associated source settled the wait")
-    testAssert.equal(fallbackWaits, 1, "a source without a predicate supplied the first wait")
-    testAssert.equal(fallbackSlice, 1, "the fallback kept the bounded blocking slice")
-    testAssert.equal(preferredWaits, 1, "the associated source became preferred once active")
-    testAssert.equal(preferredWasActive, true, "the associated source was not called while inactive")
-    testAssert.equal(preferredSlice, 1, "the preferred source kept the bounded blocking slice")
-    testAssert.equal(inactiveWaits, 0, "an unrelated inactive source never supplied a wait")
+    testAssert.eq(answer, "ready", "the associated source settled the wait")
+    testAssert.eq(fallbackWaits, 1, "a source without a predicate supplied the first wait")
+    testAssert.eq(fallbackSlice, 1, "the fallback kept the bounded blocking slice")
+    testAssert.eq(preferredWaits, 1, "the associated source became preferred once active")
+    testAssert.eq(preferredWasActive, true, "the associated source was not called while inactive")
+    testAssert.eq(preferredSlice, 1, "the preferred source kept the bounded blocking slice")
+    testAssert.eq(inactiveWaits, 0, "an unrelated inactive source never supplied a wait")
 end
 
 return M

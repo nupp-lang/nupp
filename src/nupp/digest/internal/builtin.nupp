@@ -15,7 +15,7 @@ operations.
 
 const provider = require("binary.hash.digest.spi")
 const streaming = require("nupp.digest.internal.streaming")
-const span = require("nupp.mem.span")
+const span = require("binary.span")
 const storage = require("nupp.runtime.storage")
 const words = require("nupp.digest.internal.words")
 

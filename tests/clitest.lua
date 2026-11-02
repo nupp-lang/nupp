@@ -1,4 +1,6 @@
 -- The derived command registry and shared terminal policy.
+const terminal = require("io.terminal")
+
 local ansi = require("arg")
 local cli = require("nupp.tools.cli")
 local json = require("testjson")
@@ -97,49 +99,49 @@ function M.bashCompletesAProgramPathFromTheFilesystem()
 end
 
 function M.colourIsDecidedOncePerStreamAndOverriddenByMode()
-    io.setColorMode("never")
-    local plain = io.style(io.stdout)
+    terminal.setcolormode("never")
+    local plain = terminal.style(io.stdout)
     assert(plain.strong("x") == "x", "never means the text is returned unchanged")
     -- The no-colour path returns the very string it was given, so a plain report
     -- allocates nothing to say it is plain.
     assert(plain.strong == plain.faint, "and every style is the same identity function")
 
-    io.setColorMode("always")
-    local painted = io.style(io.stdout)
+    terminal.setcolormode("always")
+    local painted = terminal.style(io.stdout)
     assert(painted.strong("x") == "\27[1mx\27[0m", "always wraps in an escape")
-    assert(io.severity(painted, "error")("e") == "\27[1;31me\27[0m", "an error is red")
-    assert(io.severity(painted, "warning")("w") == "\27[1;33mw\27[0m", "a warning is yellow")
+    assert(terminal.severity(painted, "error")("e") == "\27[1;31me\27[0m", "an error is red")
+    assert(terminal.severity(painted, "warning")("w") == "\27[1;33mw\27[0m", "a warning is yellow")
     -- A severity that is not one of the known names is treated the way the
     -- renderer already treats it: as an error.
     assert(
-        io.severity(painted, "wat")("x") == io.severity(painted, "error")("x"),
+        terminal.severity(painted, "wat")("x") == terminal.severity(painted, "error")("x"),
         "an unknown severity paints as an error"
     )
 
-    io.withColorMode("never", function()
-        assert(not io.colorEnabled(io.stdout), "a scoped mode applies in its body")
+    terminal.withcolormode("never", function()
+        assert(not terminal.colorenabled(io.stdout), "a scoped mode applies in its body")
     end)
-    assert(io.colorEnabled(io.stdout), "a scoped mode restores the caller's mode")
+    assert(terminal.colorenabled(io.stdout), "a scoped mode restores the caller's mode")
 
     local ok = pcall(function()
-        io.withColorMode("never", function()
+        terminal.withcolormode("never", function()
             error("expected test error")
         end)
     end)
     assert(not ok, "a scoped mode preserves errors")
-    assert(io.colorEnabled(io.stdout), "an error also restores the caller's mode")
+    assert(terminal.colorenabled(io.stdout), "an error also restores the caller's mode")
 
-    io.setColorMode("auto")
+    terminal.setcolormode("auto")
 end
 
 function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
-    io.setColorMode("never")
-    local plain = io.style(io.stdout)
-    local rendered = io.table({
+    terminal.setcolormode("never")
+    local plain = terminal.style(io.stdout)
+    local rendered = terminal.table({
         columns = {{heading = "lint"}, {heading = "level"}, {heading = "summary"}},
         rows = {
-            {io.cell("a"), io.cell("error"), io.cell("first")},
-            {io.cell("longer-name"), io.cell("off"), io.cell("second")},
+            {terminal.cell("a"), terminal.cell("error"), terminal.cell("first")},
+            {terminal.cell("longer-name"), terminal.cell("off"), terminal.cell("second")},
         },
         style = plain,
     })
@@ -156,11 +158,11 @@ function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
     -- The point of the shared renderer: an escape is bytes with no width, so
     -- padding has to happen before painting or the escapes line up and the text
     -- does not. Both rows below carry a painted cell of a different length.
-    io.setColorMode("always")
-    local painted = io.style(io.stdout)
-    local coloured = io.table({
+    terminal.setcolormode("always")
+    local painted = terminal.style(io.stdout)
+    local coloured = terminal.table({
         columns = {{heading = "name", paint = painted.strong}, {heading = "note"}},
-        rows = {{io.cell("a"), io.cell("x")}, {io.cell("longer"), io.cell("y")}},
+        rows = {{terminal.cell("a"), terminal.cell("x")}, {terminal.cell("longer"), terminal.cell("y")}},
         style = painted,
     })
     local lines = {}
@@ -176,11 +178,11 @@ function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
     -- A cell may paint itself whatever its column says, and may carry an aside that
     -- is painted apart from its text and measured along with it -- so a column
     -- carrying one still lines up with the column beside it.
-    local mixed = io.table({
+    local mixed = terminal.table({
         columns = {{heading = "name", paint = painted.strong}, {heading = "note"}},
         rows = {
-            {io.annotatedCell("a", " (extra)", painted.faint), io.cell("x")},
-            {io.cell("longer-still"), io.cell("y")},
+            {terminal.annotatedcell("a", " (extra)", painted.faint), terminal.cell("x")},
+            {terminal.cell("longer-still"), terminal.cell("y")},
         },
         style = painted,
     })
@@ -203,22 +205,22 @@ function M.aTableAlignsOnMeasuredTextAndPaintsAfterPadding()
         "an annotated cell is measured with its note, so the next column does not move"
     )
 
-    io.setColorMode("never")
+    terminal.setcolormode("never")
     assert(
-        io.table({
+        terminal.table({
             columns = {{heading = "only"}},
             rows = {}
         }) == "",
         "no rows prints nothing at all rather than a heading over nothing"
     )
     assert(
-        io.table({
+        terminal.table({
             columns = {{heading = "n", align = "right"}, {heading = "what"}},
-            rows = {{io.cell("7"), io.cell("a")}, {io.cell("1234"), io.cell("b")}},
+            rows = {{terminal.cell("7"), terminal.cell("a")}, {terminal.cell("1234"), terminal.cell("b")}},
         }) == "   n  what\n   7  a\n1234  b\n",
         "a right aligned column pads on the left"
     )
-    io.setColorMode("auto")
+    terminal.setcolormode("auto")
 end
 
 function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
@@ -230,19 +232,19 @@ function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
     local function build(width)
         return {
             columns = {{heading = "name"}, {heading = "summary"}},
-            rows = {{io.cell("alpha"), io.cell(long)}, {io.cell("beta"), io.cell("short")}},
-            style = io.style(io.stdout),
+            rows = {{terminal.cell("alpha"), terminal.cell(long)}, {terminal.cell("beta"), terminal.cell("short")}},
+            style = terminal.style(io.stdout),
             width = width,
         }
     end
 
-    io.setColorMode("never")
+    terminal.setcolormode("never")
     -- No width is no edge, so nothing is cut. This is the pipe, and a pipe gets every
     -- byte: something reads it later that wanted all of them.
-    local whole = io.table(build(nil))
+    local whole = terminal.table(build(nil))
     assert(whole:find(long, 1, true), "with no width the cell is printed whole")
 
-    local fitted = io.table(build(40))
+    local fitted = terminal.table(build(40))
     for line in fitted:gmatch("[^\n]+") do
         assert(#line <= 40, "every line fits the width: " .. #line .. " " .. line)
     end
@@ -258,8 +260,8 @@ function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
     -- the description continues.
     assert(fitted:find("...", 1, true), "an unpainted cut says it was cut")
 
-    io.setColorMode("always")
-    local painted = io.table(build(40))
+    terminal.setcolormode("always")
+    local painted = terminal.table(build(40))
     local cut
     for line in painted:gmatch("[^\n]+") do
         if line:find("alpha", 1, true) then
@@ -274,11 +276,11 @@ function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
 
     -- A cell's aside survives the cut. It is the shorter and more particular half, so
     -- losing it silently would lose the whole of what it said.
-    io.setColorMode("never")
-    local noted = io.table({
+    terminal.setcolormode("never")
+    local noted = terminal.table({
         columns = {{heading = "name"}, {heading = "summary"}},
-        rows = {{io.cell("alpha"), io.annotatedCell(long, " (note)")}},
-        style = io.style(io.stdout),
+        rows = {{terminal.cell("alpha"), terminal.annotatedcell(long, " (note)")}},
+        style = terminal.style(io.stdout),
         width = 40,
     })
     assert(noted:find(" (note)", 1, true), "the aside is kept and the text cut around it")
@@ -288,10 +290,10 @@ function M.aTableCutsTheLastColumnToFitRatherThanLettingItWrap()
 
     -- Too narrow to cut usefully: what would survive is a few letters and a fade,
     -- which says less than the wrapped line it replaced.
-    local cramped = io.table(build(22))
+    local cramped = terminal.table(build(22))
     assert(cramped:find(long, 1, true), "below the floor the cell is left alone to wrap")
 
-    io.setColorMode("auto")
+    terminal.setcolormode("auto")
 end
 
 local function capture(argv)
@@ -1178,7 +1180,7 @@ end
 function M.theCliHeaderExampleChecksOutsideTheRepository()
     local header = assert(io.open(HERE .. "/../src/arg/init.nupp", "rb")):read("*a")
     local example = assert(header:match("```nupp\n(.-)```"), "the module header carries an example")
-    assert(example:find("@derive(cli.Arguments)", 1, true), "the example derives through its local require")
+    assert(example:find("@derive(cli.arguments)", 1, true), "the example derives through its local require")
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
@@ -1235,7 +1237,7 @@ function M.aChildForkingOnItsOwnScopeChecksInAProject()
                 "",
                 "export function total(paths: {[string]: string}): integer",
                 "    local sum: integer = 0",
-                "    with scope = nupp.tasks.open(limit = 4) do",
+                "    with scope = coroutine.scope(limit = 4) do",
                 "        for name, path in pairs(paths) do",
                 "            scope:spawn(function(): nil",
                 "                const size = scope:fork(name, path, jobs.compress):await()",
@@ -1248,7 +1250,7 @@ function M.aChildForkingOnItsOwnScopeChecksInAProject()
                 "",
                 "export function first(mirrors: {string}): string?",
                 "    local winner: string? = nil",
-                "    with scope = nupp.tasks.open(limit = 4) do",
+                "    with scope = coroutine.scope(limit = 4) do",
                 "        for _, mirror in ipairs(mirrors) do",
                 "            if winner ~= nil then break end",
                 "            scope:spawn(function(): nil",
@@ -1273,7 +1275,7 @@ function M.aChildForkingOnItsOwnScopeChecksInAProject()
             {
                 "local scopes = require(\"scopes\")",
                 "print(scopes.total({a = \"b\"}), scopes.first({\"m\"}))",
-                "with scope = nupp.tasks.open() do",
+                "with scope = coroutine.scope() do",
                 "    scope:spawn(function(): nil scope:cancel(\"done\") end)",
                 "end",
                 "",

@@ -2,7 +2,7 @@
 -- across every batch. The generated kernel receives the views' explicit
 -- strides, so no transpose or broadcast materialization is needed.
 local ffi = require("ffi")
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local generated = require("gemm")
 local gpu = require("gpu")
 ffi.cdef("float fmaf(float, float, float);")
@@ -67,8 +67,8 @@ local bShape, bStrides = logicalB:dimensions(), logicalB:strides()
 assert(bShape[1] == batches and bShape[2] == inner and bShape[3] == columns)
 assert(bStrides[1] == 0 and bStrides[2] == 1 and bStrides[3] == inner)
 
-context:upload(aBuffer, span.fromCarray(a, aCount))
-context:upload(storedB, span.fromCarray(bTransposed, bCount))
+context:upload(aBuffer, span.fromcarray(a, aCount))
+context:upload(storedB, span.fromcarray(bTransposed, bCount))
 context:synchronize()
 
 local aStrides = aBuffer:strides()
@@ -77,7 +77,7 @@ kernel:dispatch(rows, columns, inner, aStrides[1], aStrides[2], aStrides[3], bSt
 context:enqueueDownload(output)
 context:synchronize()
 local actual = ffi.new("float[?]", cCount)
-context:readDownloaded(output, span.writeCarray(actual, cCount))
+context:readDownloaded(output, span.writecarray(actual, cCount))
 for index = 0, cCount - 1 do
     assert(actual[index] == expected[index], ("batched GEMM mismatch at %d"):format(index))
 end

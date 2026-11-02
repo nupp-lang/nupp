@@ -205,10 +205,10 @@ set:set(64)
 assert(set:get(64) and set:count() == 1)
 local array: any = {}
 array[1.0], array[2.0] = 1, 2
-assert(json.encodeValue(json.asArray(array)) == "[1,2]")
+assert(json.encodevalue(json.asarray(array)) == "[1,2]")
 for _, text in ipairs({"1800-01-01T00:00:00Z", "1969-12-31T23:59:59Z", "2000-02-29T12:34:56.125Z", "9999-12-31T23:59:59Z"}) do
-    local timestamp = codec.parseDateTime(text)
-    assert(codec.formatDateTime(timestamp) == text)
+    local timestamp = codec.parsedatetime(text)
+    assert(codec.formatdatetime(timestamp) == text)
 end
 return true
 ]]
@@ -225,12 +225,12 @@ local wide: array.Scalar<float64> = array.float64
 local exposed: any = array
 assert(exposed.float == nil and exposed.number == nil)
 local simd = require("simd")
-local sum = simd.reducer.orderedSum(1)
+local sum = simd.reducer.orderedsum(1)
 local total: float64 = sum:value()
 assert(total == 1.0 and math.type(total) == "float")
 local dynamicSum: any = sum
 assert(math.type(dynamicSum:value()) == "float")
-local negative = simd.reducer.orderedSum(-0.0)
+local negative = simd.reducer.orderedsum(-0.0)
 assert(1.0 / negative:value() == -math.huge)
 local species = simd.species(wide, 4)
 local vector = species:splat(1.0)
@@ -284,7 +284,7 @@ return Physical, floating
         'local simd = require("simd"); local struct Bad value: simd.Vector<number, simd.Fixed<4>> end; return Bad',
         'cdef function bad(value: number): float64 from "not-loaded"; return bad',
         'cdef function bad(value: float64): number from "not-loaded"; return bad',
-        'local simd = require("simd"); local function bad(value: simd.Vector<number, simd.Fixed<4>>): number return simd.horizontal.orderedSum(value) end; return bad',
+        'local simd = require("simd"); local function bad(value: simd.Vector<number, simd.Fixed<4>>): number return simd.horizontal.orderedsum(value) end; return bad',
     }) do
         local result = parser.parse(source, "generic-number-storage.nupp")
         assert(#result.errors == 0, "storage refusal fixture syntax")

@@ -28,7 +28,7 @@ Public callers use [](binary.hash.digest) or [](binary.hash.mac); these snapshot
 engines are private implementation details of their consuming provider contexts.
 ]]
 
-local span = require("nupp.mem.span")
+local span = require("binary.span")
 local hash = {}
 
 --- A mutable incremental digest. Final reads snapshot the current state.
@@ -131,7 +131,7 @@ local function logicalRight(value: int32, count: int32): int32
 end
 
 local function rotateRight(value: int32, count: integer): int32
-    return math.i32.rotateRight(value, count)
+    return math.i32.rotateright(value, count)
 end
 
 local function smallSigmaZero(word: int32): int32
@@ -320,7 +320,7 @@ local function rawDigest(source: Sha256): string
 
     local bytes: {string} = {}
     for index = 1, 8 do
-        local value = math.u32.fromI32(wordAt(state.state, index)) as number
+        local value = math.u32.fromi32(wordAt(state.state, index)) as number
         for shift = 24, 0, -8 do
             bytes[#bytes + 1] = string.char(math.floor(value / 2 ^ shift) % 256)
         end
@@ -349,7 +349,7 @@ end
 function Sha256.writeDigest(self: Sha256, exclusive destination: span.ByteWriteSpan): nil
     local state = finalState(self)
     for index = 1, 8 do
-        local value = math.u32.fromI32(wordAt(state.state, index)) as number
+        local value = math.u32.fromi32(wordAt(state.state, index)) as number
         for byte = 0, 3 do
             destination[(index - 1) * 4 + byte + 1] = math.floor(value / 2 ^ (24 - byte * 8)) % 256
         end

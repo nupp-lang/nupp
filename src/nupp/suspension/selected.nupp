@@ -5,7 +5,7 @@ module nupp.suspension.selected
 --[[
 The chosen suspension implementation, selected once.
 
-[](nupp.suspension) and [](nupp.suspension.host) are two views of one
+[](coroutine.suspension) and [](coroutine.suspension.host) are two views of one
 implementation, and selecting it belongs in neither of them: a library requiring
 the one must not drag the other in behind it, and the host view has to answer
 for the provider a library is already parking through.
@@ -64,14 +64,18 @@ else
     )
 end
 
+export type TurnAvailable = function(): boolean
+export type ConsumeTurn = function(): nil
+export type DeferTurn = function(): nil
+
 --- The implementation both views retain their operations from.
 export const provider = chosenProvider
 
 --- Its turn budget, or the unbounded reading where it publishes none.
-export const turnAvailable = available as function(): boolean
+export const turnAvailable = available as TurnAvailable
 
 --- Records one coroutine activation against the current turn.
-export const consumeTurn = consume as function(): nil
+export const consumeTurn = consume as ConsumeTurn
 
 --- Parks until the host has had its turn.
-export const deferTurn = defer as function(): nil
+export const deferTurn = defer as DeferTurn

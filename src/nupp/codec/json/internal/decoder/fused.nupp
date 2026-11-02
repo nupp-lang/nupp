@@ -116,7 +116,7 @@ end
 -- observed, values allocated only where the pull shape selects them.
 -- Variant 1 selects [](nupp.codec.json.internal.builder.newSerde), the
 -- schema-specialized stream, whose entry also reads buffers. Variant 2
--- selects [](serde.valuebuilder.newSized), the eager builder that
+-- selects [](serde.valuebuilder.newsized), the eager builder that
 -- materializes the whole document. Written as literals because switch case
 -- patterns and the AOT prune both want the number itself.
 
@@ -135,12 +135,12 @@ local function decodeFused<const Variant: integer>(
     arrayShapeMarker: any?,
     serdeMarkers: any?
 ): (any, uint32, uint32)
-    local sourceCount = _valueBuilder.length(source)
+    local sourceCount = _valueBuilder.len(source)
     if sourceCount > 0x7FFFFFFF then
         return nullValue, 5, 1
     end
 
-    local tape = _valueBuilder.newWordScratch(sourceCount)
+    local tape = _valueBuilder.newwordscratch(sourceCount)
     local scanCursor: uint32 = 0
     local tapeCount: uint32 = 0
     local inString = false
@@ -340,7 +340,7 @@ local function decodeFused<const Variant: integer>(
             -- a target without vectors. Here a non-ASCII byte is an event,
             -- because here the drain is what validates it.
             if scanCursor < sourceCount then
-                local byte: uint32 = _valueBuilder.byteAt(source, scanCursor)
+                local byte: uint32 = _valueBuilder.byteat(source, scanCursor)
                 if byte == 34
                     or byte == 92
                     or byte < 32
@@ -359,11 +359,11 @@ local function decodeFused<const Variant: integer>(
         end
 
         while events ~= 0 do
-            local lane: uint32 = math.u64.trailingZeros(events)
+            local lane: uint32 = math.u64.trailingzeros(events)
             events = events & (events - 1)
             local position: uint32 = scanCursor + lane
             if position < sourceCount then
-                local byte: uint32 = _valueBuilder.byteAt(source, position)
+                local byte: uint32 = _valueBuilder.byteat(source, position)
                 -- A scalar left unfinished by the last non-ASCII byte must be
                 -- continued by the very next byte; an event anywhere later
                 -- means that byte was not a continuation.
@@ -434,10 +434,10 @@ local function decodeFused<const Variant: integer>(
                             if stringEscaped then
                                 word = position | 0x80000000
                             end
-                            _valueBuilder.setScratchWord(tape, tapeCount, word)
+                            _valueBuilder.setscratchword(tape, tapeCount, word)
                             inString = false
                         else
-                            _valueBuilder.setScratchWord(tape, tapeCount, position)
+                            _valueBuilder.setscratchword(tape, tapeCount, position)
                             inString = true
                             stringEscaped = false
                         end
@@ -450,7 +450,7 @@ local function decodeFused<const Variant: integer>(
                     elseif not inString then
                         -- Every remaining event byte outside a string is one
                         -- of the six structural characters.
-                        _valueBuilder.setScratchWord(tape, tapeCount, position)
+                        _valueBuilder.setscratchword(tape, tapeCount, position)
                         tapeCount = tapeCount + 1
                     end
                     haveSlash = false
@@ -493,10 +493,10 @@ local function decodeFused<const Variant: integer>(
             arrayShapeMarker,
             serdeMarkers
         )
-        else -> _valueBuilder.newSized(nullValue, builderDepth, sourceCount, arrayMarker, objectMarker)
+        else -> _valueBuilder.newsized(nullValue, builderDepth, sourceCount, arrayMarker, objectMarker)
     end
     local cursor: uint32 = 0
-    tapeCount = _valueBuilder.scratchLength(tape)
+    tapeCount = _valueBuilder.scratchlength(tape)
     local tapeCursor: uint32 = 0
     local needValue = true
     local done = false
@@ -510,7 +510,7 @@ local function decodeFused<const Variant: integer>(
         local skipping = true
         pending = 0
         while skipping and cursor < sourceCount do
-            pending = _valueBuilder.byteAt(source, cursor)
+            pending = _valueBuilder.byteat(source, cursor)
             if pending == 32 or pending == 9 or pending == 10 or pending == 13 then
                 cursor = cursor + 1
             else
@@ -533,7 +533,7 @@ local function decodeFused<const Variant: integer>(
             if byte == 34 then
                 tag = 4
                 if tapeCursor < tapeCount then
-                    local opening = _valueBuilder.scratchWord(tape, tapeCursor)
+                    local opening = _valueBuilder.scratchword(tape, tapeCursor)
                     if opening ~= cursor then
                         return nullValue, 5, cursor + 1
                     end
@@ -542,7 +542,7 @@ local function decodeFused<const Variant: integer>(
                     return nullValue, 5, cursor + 1
                 end
                 if tapeCursor < tapeCount then
-                    local closingWord = _valueBuilder.scratchWord(tape, tapeCursor)
+                    local closingWord = _valueBuilder.scratchword(tape, tapeCursor)
                     local closing = closingWord & 0x7FFFFFFF
                     if closingWord & 0x80000000 ~= 0 then
                         flags = 1
@@ -594,7 +594,7 @@ local function decodeFused<const Variant: integer>(
                 while matched < 4 do
                     local at: uint32 = cursor + matched
                     if at < sourceCount then
-                        local actual = _valueBuilder.byteAt(source, at)
+                        local actual = _valueBuilder.byteat(source, at)
                         local expected: uint32 = switch matched do
                             case 0 -> 116
                             case 1 -> 114
@@ -617,7 +617,7 @@ local function decodeFused<const Variant: integer>(
                 while matched < 5 do
                     local at: uint32 = cursor + matched
                     if at < sourceCount then
-                        local actual = _valueBuilder.byteAt(source, at)
+                        local actual = _valueBuilder.byteat(source, at)
                         local expected: uint32 = switch matched do
                             case 0 -> 102
                             case 1 -> 97
@@ -641,7 +641,7 @@ local function decodeFused<const Variant: integer>(
                 while matched < 4 do
                     local at: uint32 = cursor + matched
                     if at < sourceCount then
-                        local actual = _valueBuilder.byteAt(source, at)
+                        local actual = _valueBuilder.byteat(source, at)
                         local expected: uint32 = switch matched do
                             case 0 -> 110
                             case 1 -> 117
@@ -678,9 +678,9 @@ local function decodeFused<const Variant: integer>(
             elseif tag == 4 then
                 _valueBuilder.string(values, source, start, length, flags == 1)
             elseif tag == 5 then
-                _valueBuilder.openArray(values, containerCapacity)
+                _valueBuilder.openarray(values, containerCapacity)
             elseif tag == 6 then
-                _valueBuilder.openObject(values, containerCapacity)
+                _valueBuilder.openobject(values, containerCapacity)
             end
             needValue = false
         elseif _valueBuilder.depth(values) == 0 then
@@ -698,7 +698,7 @@ local function decodeFused<const Variant: integer>(
             local hasValue = builderState & 0x100 ~= 0
             local closing = kind == 5 and byte == 93 or kind == 6 and byte == 125
             if closing then
-                if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= cursor then
+                if tapeCursor >= tapeCount or _valueBuilder.scratchword(tape, tapeCursor) ~= cursor then
                     return nullValue, 5, cursor + 1
                 end
                 tapeCursor = tapeCursor + 1
@@ -729,7 +729,7 @@ local function decodeFused<const Variant: integer>(
                     tapeCursor = tapeCursor + 1
                     local keySkipping = true
                     while keySkipping and cursor < sourceCount do
-                        local keyByte = _valueBuilder.byteAt(source, cursor)
+                        local keyByte = _valueBuilder.byteat(source, cursor)
                         if keyByte == 32 or keyByte == 9 or keyByte == 10 or keyByte == 13 then
                             cursor = cursor + 1
                         else
@@ -741,14 +741,14 @@ local function decodeFused<const Variant: integer>(
                     return nullValue, 1, cursor + 1
                 end
                 local opening = cursor
-                if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= opening then
+                if tapeCursor >= tapeCount or _valueBuilder.scratchword(tape, tapeCursor) ~= opening then
                     return nullValue, 5, cursor + 1
                 end
                 tapeCursor = tapeCursor + 1
                 if tapeCursor >= tapeCount then
                     return nullValue, 1, cursor + 1
                 end
-                local closingWord = _valueBuilder.scratchWord(tape, tapeCursor)
+                local closingWord = _valueBuilder.scratchword(tape, tapeCursor)
                 local closingQuote = closingWord & 0x7FFFFFFF
                 local escaped = closingWord & 0x80000000 ~= 0
                 tapeCursor = tapeCursor + 1
@@ -758,7 +758,7 @@ local function decodeFused<const Variant: integer>(
                 cursor = closingQuote + 1
                 local colonSkipping = true
                 while colonSkipping and cursor < sourceCount do
-                    local colonByte = _valueBuilder.byteAt(source, cursor)
+                    local colonByte = _valueBuilder.byteat(source, cursor)
                     if colonByte == 32 or colonByte == 9 or colonByte == 10 or colonByte == 13 then
                         cursor = cursor + 1
                     else
@@ -768,7 +768,7 @@ local function decodeFused<const Variant: integer>(
                 if cursor >= sourceCount or _valueBuilder.byte(source, cursor) ~= 58 then
                     return nullValue, 1, cursor + 1
                 end
-                if tapeCursor >= tapeCount or _valueBuilder.scratchWord(tape, tapeCursor) ~= cursor then
+                if tapeCursor >= tapeCount or _valueBuilder.scratchword(tape, tapeCursor) ~= cursor then
                     return nullValue, 5, cursor + 1
                 end
                 cursor = cursor + 1

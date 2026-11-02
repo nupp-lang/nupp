@@ -54,7 +54,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.http"
     ] = {
         name = "http_runtime",
-        module = "nupp.io.http",
+        module = "io.http",
+        modules = {"nupp.io.http"},
         runtimeModule = "nupp.io.http",
         portableRuntime = true,
         requires = {"runtime.suspension"}
@@ -63,7 +64,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.files"
     ] = {
         name = "files_runtime",
-        module = "nupp.io.files",
+        module = "io.files",
+        modules = {"nupp.io.files"},
         runtimeModule = "nupp.io.files",
         portableRuntime = true,
         requires = {
@@ -123,7 +125,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.tls"
     ] = {
         name = "tls_runtime",
-        module = "nupp.io.tls",
+        module = "io.tls",
+        modules = {"nupp.io.tls"},
         runtimeModule = "nupp.io.tls",
         portableRuntime = true,
         requires = {"runtime.suspension"}
@@ -132,7 +135,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.net"
     ] = {
         name = "net_runtime",
-        module = "nupp.io.net",
+        module = "io.net",
+        modules = {"nupp.io.net"},
         runtimeModule = "nupp.io.net",
         portableRuntime = true,
         requires = {"runtime.suspension"}
@@ -141,6 +145,7 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.time"
     ] = {
         name = "time_runtime",
+        globals = {"coroutine.sleep", "coroutine.sleepuntil", "coroutine.wakeat"},
         module = "nupp.time",
         runtimeModule = "nupp.time",
         portableRuntime = true,
@@ -150,7 +155,8 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.workers"
     ] = {
         name = "workers_runtime",
-        module = "nupp.workers",
+        module = "coroutine.workers",
+        modules = {"nupp.workers"},
         runtimeModule = "nupp.workers",
         portableRuntime = true,
         requires = {"runtime.suspension"}
@@ -320,7 +326,7 @@ local FEATURES: {[string]: native.Feature} = {
         "stdlib.fieldcodec"
     ] = {
         name = "fieldcodec",
-        globals = {"types.reflect.fieldCodec"},
+        globals = {"types.reflect.fieldcodec"},
         runtimeModule = "nupp.compiler.runtime.reflect",
         portableRuntime = true,
     },
@@ -328,7 +334,13 @@ local FEATURES: {[string]: native.Feature} = {
         "stdlib.reflection"
     ] = {
         name = "reflection",
-        globals = {"types.reflect.extensionKey", "types.reflect.runtime", "types.reflect.runtimeType"},
+        globals = {
+            "types.reflect.extensionKey",
+            "types.reflect.extensionkey",
+            "types.reflect.runtime",
+            "types.reflect.runtimeType",
+            "types.reflect.runtimetype"
+        },
         runtimeModule = "nupp.compiler.runtime.reflect",
         portableRuntime = true,
     },
@@ -345,6 +357,15 @@ local FEATURES: {[string]: native.Feature} = {
         "stdlib.io"
     ] = {
         name = "io",
+        globals = {
+            "io.newbuffer",
+            "io.newlines",
+            "io.newqueuereader",
+            "io.newscalarreader",
+            "io.newscalarwriter",
+            "io.newstringreader",
+            "io.readall",
+        },
         modules = {"nupp.io"},
         runtimeModule = "nupp.io",
         portableRuntime = true,
@@ -371,8 +392,8 @@ local FEATURES: {[string]: native.Feature} = {
         globals = {
             "math",
             "math.lerp",
-            "math.wrapAngle",
-            "math.deltaAngle",
+            "math.wrapangle",
+            "math.dtangle",
             "math.i32",
             "math.u32",
             "math.u64",
@@ -469,11 +490,11 @@ local FEATURES: {[string]: native.Feature} = {
         -- own copy of. Deliberately not `binary`, so no manifest can force it on or
         -- off -- nothing selects this, it is implied by what waits.
         name = "suspension",
-        module = "nupp.suspension",
+        module = "coroutine.suspension",
         -- The host view and the selection beneath both views carry the same effect:
         -- a program that installs a handler needs the runtime a program that parks
-        -- needs, and it may never name `nupp.suspension` itself.
-        modules = {"nupp.suspension.host", "nupp.suspension.selected"},
+        -- needs, and it may never name `coroutine.suspension` itself.
+        modules = {"coroutine.suspension.host", "nupp.suspension", "nupp.suspension.host", "nupp.suspension.selected"},
         runtimeModule = "nupp.suspension",
         portableRuntime = true,
     },
@@ -607,7 +628,7 @@ local FEATURES: {[string]: native.Feature} = {
         library = "nupp_native",
         binary = true,
         -- A request that races its upload against the response head performs one
-        -- through `nupp.tasks`, so the task runtime travels with the client.
+        -- through `coroutine`, so the task runtime travels with the client.
         requires = {
             "runtime.http_messages",
             "runtime.io_http_internal_transport",

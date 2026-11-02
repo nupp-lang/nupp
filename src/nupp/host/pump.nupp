@@ -16,7 +16,7 @@ that pass.
 ```nupp:fragment
 local pump = nupp.host.pump
 
-local session = pump.newPump()
+local session = pump.newpump()
 
 export function frame(dt: number): pump.State
     if session:parked() then
@@ -147,7 +147,7 @@ end
 
 --- Creates an idle pump.
 --- @export
-export function newPump(): Pump
+export function newpump(): Pump
     local pump = new Pump(handler = nil as any, active = nil, result = nil, failure = nil)
     pump.handler = new suspensionContract.Handler(
         park = function(_: suspensionContract.Handler, waiting: suspensionContract.Waiting, _: function(): nil): nil

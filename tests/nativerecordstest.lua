@@ -13,9 +13,9 @@ local function run(source)
     serial = serial + 1
     local name = "native_records_" .. serial
     local tree = parser.parse(source, name .. ".nupp")
-    test.equal(#tree.errors, 0, "syntax errors")
+    test.eq(#tree.errors, 0, "syntax errors")
     local diagnostics = check.check(tree, name .. ".nupp", env, {moduleName = name})
-    test.equal(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "check diagnostics")
+    test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg or "check diagnostics")
 
     return program.run(tree, name)
 end
@@ -43,10 +43,10 @@ local erased: any = item
 return before, alias.value, erased is Item, erased is Other
 ]]
     )
-    test.equal(before, -math.huge)
-    test.equal(after, 17.5)
-    test.equal(yes, true)
-    test.equal(no, false)
+    test.eq(before, -math.huge)
+    test.eq(after, 17.5)
+    test.eq(yes, true)
+    test.eq(no, false)
 end
 
 function M.physicalScalarAndWideFieldsKeepTheirExactValues()
@@ -68,11 +68,11 @@ return value.small as integer, value.unsigned as integer,
     value.wide == 9223372036854775809ULL, value.flag, 1 / value.fractional
 ]]
     )
-    test.equal(small, -23)
-    test.equal(unsigned, 50000)
-    test.equal(wide, true)
-    test.equal(flag, true)
-    test.equal(fractional, -math.huge)
+    test.eq(small, -23)
+    test.eq(unsigned, 50000)
+    test.eq(wide, true)
+    test.eq(flag, true)
+    test.eq(fractional, -math.huge)
 end
 
 function M.physicalFloatWritesReadBackThroughTypedFields()
@@ -87,8 +87,8 @@ collectgarbage()
 return alias.x as number, alias.y
 ]]
     )
-    test.equal(first, 4.5)
-    test.equal(second, 9.25)
+    test.eq(first, 4.5)
+    test.eq(second, 9.25)
 end
 
 return M
