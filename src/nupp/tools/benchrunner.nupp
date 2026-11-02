@@ -1,7 +1,5 @@
 module nupp.tools.benchrunner
 
-const terminal = require("io.terminal")
-
 const assert2 = require("assert")
 
 --- Runs the benchmark set and merges what each case reported.
