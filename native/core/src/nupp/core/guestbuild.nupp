@@ -90,7 +90,8 @@ local CASES: {[string]: {
     callsPacks = {fixture = "catalog-calls-packs", version = 8},
     callsOpen = {fixture = "catalog-calls-open", version = 8},
     callsExpand = {fixture = "catalog-calls-expand", version = 8},
-    errorsMethods = {fixture = "catalog-errors-methods", version = 8}
+    errorsMethods = {fixture = "catalog-errors-methods", version = 8},
+    recordsAffineReturns = {fixture = "catalog-records-affine-returns", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.

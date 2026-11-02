@@ -1,0 +1,38 @@
+module nupp.core.catalogrecordsaffinereturns
+
+-- A function that owns affine values returns all of its values, a call's
+-- results last and `...` included, its owners destroyed after they are
+-- staged.
+local closed: integer = 0
+
+local record File
+    id: integer
+
+    constructor(self, id: integer): affine(File, File.destroy)
+        self.id = id
+    end
+
+    function destroy(takes self): nil
+        closed = closed * 10 + self.id
+    end
+end
+
+local function pair(): (integer, integer)
+    local f = new File(1)
+    return f.id * 10, 20
+end
+
+local function three(): (integer, integer, integer)
+    local f = new File(2)
+    return 5, pair()
+end
+
+local function echo(...: integer): (integer, integer)
+    local f = new File(3)
+    return ...
+end
+
+local a, b = pair()
+local x, y, z = three()
+local p, q = echo(7, 8)
+export = closed * 100000000 + (a + b) * 1000000 + (x + y + z) * 1000 + p * 10 + q

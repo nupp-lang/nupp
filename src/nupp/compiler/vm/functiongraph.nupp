@@ -785,7 +785,11 @@ function frontend.compile(fn: any, options: any, profile: any): any
         if not block then
             return
         end
-        need(stage and stage.values and #stage.values <= 1, "closed staged return required")
+        -- A guest function stages up to sixteen results and a spread pack.
+        need(
+            stage and stage.values and (#stage.values <= 1 or g.native == nil and #stage.values <= 17),
+            "closed staged return required"
+        )
         local held = {}
         for index, value in ipairs(stage.values) do
             held[index] = ctx.hold(value)

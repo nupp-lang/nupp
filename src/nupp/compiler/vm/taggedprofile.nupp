@@ -1069,18 +1069,65 @@ local function cleanupProfile(base: any): any
         ctx.block.term = {kind = "return", value = none, edges = {}, pos = ctx.position(node)}
         ctx.block = nil
     end
+    -- Every value a return gives, staged before the owners are destroyed: a
+    -- `...`, an open call or a call last giving more than one spread, the
+    -- pack staged last.
     profile.stageReturn = function(ctx: any, node: any, falling: boolean): any
         local exprs = not falling and node.exprs or {}
         if #exprs == 0 then
             return {values = {}}
         end
-        need(#exprs == 1 and exprs[1].kind ~= "vararg", "a function that cleans up returns one value")
-        local value = ctx.expression(exprs[1], "tagged")
-        if value == nil then
-            return nil
+        local last = exprs[#exprs]
+        local declared: integer = ctx.fn.signature and #ctx.fn.signature.rets or 1
+        local open = ctx.fn.signature and ctx.fn.signature.retPack and ctx.fn.signature.retPack.tail ~= nil
+        local spreads = last.kind == "vararg" or open and graph.expandsResults(last)
+        local expands = not spreads and declared > #exprs and graph.expandsResults(last)
+        local fixed, kinds = {}, {}
+        for index, expr in ipairs(exprs) do
+            if index < #exprs or not spreads and not expands then
+                fixed[#fixed + 1], kinds[#kinds + 1] = expr, "tagged"
+            end
+        end
+        need(#fixed <= 16, "a return gives at most sixteen results")
+        local values = {}
+        if #fixed > 0 then
+            values = ctx.operands(fixed, kinds)
+            if values == nil then
+                return nil
+            end
+        end
+        if spreads or expands then
+            local held = {}
+            for index, value in ipairs(values) do
+                held[index] = ctx.hold(value)
+            end
+            local tail: any = nil
+            if last.kind == "vararg" then
+                tail = ctx.varargPack()
+            elseif spreads then
+                tail = invoke(ctx, last, true, true, nil, true)
+            else
+                tail = base.callResults(ctx, last, declared - #exprs + 1)
+            end
+            for index, handle in ipairs(held) do
+                values[index] = ctx.readHeld(handle)
+                ctx.release(handle)
+            end
+            if tail == nil or ctx.block == nil then
+                return nil
+            end
+            if spreads then
+                values[#values + 1] = tail
+                need(#values <= 17, "a return gives at most sixteen results")
+                return {values = values, spread = true}
+            end
+            for _, value in ipairs(tail) do
+                values[#values + 1] = value
+            end
+            need(#values <= 16, "a return gives at most sixteen results")
         end
 
-        return {values = {value}}
+        return {values = values}
     end
     profile.rootReturn = function(ctx: any, node: any, stage: any, held: any): any
         return {}
@@ -1094,8 +1141,27 @@ local function cleanupProfile(base: any): any
     profile.retainRootBacking = function(ctx: any, node: any, plan: any): nil
     end
     profile.finishReturn = function(ctx: any, node: any, stage: any, values: any, roots: any): nil
-        local value = values[1] or ctx.emit(node, "Nil", {}, "tagged")
-        ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(node)}
+        if stage.spread then
+            -- The pack staged last spreads after the fixed values.
+            local pack = values[#values]
+            local fixed = {}
+            for index = 1, #values - 1 do
+                fixed[index] = values[index]
+            end
+            ctx.block.term = {
+                kind = "return",
+                value = fixed[1] or pack,
+                values = #fixed > 0 and fixed or nil,
+                spread = pack,
+                edges = {},
+                pos = ctx.position(node)
+            }
+        elseif #values > 1 then
+            ctx.block.term = {kind = "return", value = values[1], values = values, edges = {}, pos = ctx.position(node)}
+        else
+            local value = values[1] or ctx.emit(node, "Nil", {}, "tagged")
+            ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(node)}
+        end
         ctx.block = nil
     end
 
