@@ -429,6 +429,18 @@ local function derive(g: any, catalog: any): any
     for index, start in ipairs(starts) do
         blockPCs[index] = start - 1
     end
+    -- The source line of each instruction (0 where none is known) and the
+    -- chunk an error position names, as Lua's chunkid shortens a file name.
+    local lines: {integer} = {}
+    local chunk: string? = nil
+    for index = 1, #instructions do
+        local at = g.positions and g.positions[positions[index] or 0]
+        lines[index] = at and at.line or 0
+        if chunk == nil and at and at.source and type(at.source.path) == "string" then
+            local name = at.source.path as string
+            chunk = #name <= 59 and name or "..." .. name:sub(#name - 55)
+        end
+    end
 
     return {
         owner = g.programOwner,
@@ -441,6 +453,8 @@ local function derive(g: any, catalog: any): any
         code = table.concat(encoded),
         instructions = instructions,
         positions = positions,
+        lines = lines,
+        chunk = chunk,
         blockPCs = blockPCs,
         constants = copy(g.constants),
         calls = calls,

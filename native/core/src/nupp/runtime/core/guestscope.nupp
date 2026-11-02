@@ -26,8 +26,11 @@ export struct Services
     scope: servicescope.ServiceScope
     heap: uint64
     arena: uint64
-    -- The value error() raised that no protected call has taken yet, or 0.
+    -- The value error() raised that no protected call has taken yet, or 0,
+    -- and the level it was raised at: 1 cites where error was called, 2 that
+    -- function's caller, 0 nothing.
     raised: uint64
+    raisedLevel: uint64
 end
 
 const LEDGER: uint64 = 256ULL
@@ -98,6 +101,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("heap"), native.address(h))
         native.store64(services, native.fieldOffset<Services>("arena"), native.address(a))
         native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("raisedLevel"), 0ULL)
     end
 
     return 1ULL
@@ -259,14 +263,91 @@ export function integer(ctx: voidptr, bits: uint64): uint64
     end
 end
 
--- error(value): the value is kept for the protected call it unwinds to, and
--- the entry fails as any guest error does.
-export function raise(ctx: voidptr, value: uint64): nil
+-- error(value [, level]): the value and level are kept for the protected
+-- call the entry's failure unwinds to (`recoverEntry`); the caller fails the
+-- entry as any guest error does.
+export function raise(ctx: voidptr, value: uint64, level: uint64): nil
     @unsafe do
         local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
         native.store64(services, native.fieldOffset<Services>("raised"), value)
+        native.store64(services, native.fieldOffset<Services>("raisedLevel"), level)
     end
-    error("error raised by the guest")
+end
+
+-- A string message with Lua's position before it, "chunk:line: ", naming
+-- the frame `level` calls out from the one that failed: 1 is that frame at
+-- the pc its failure recorded, 2 its caller at the call. Anything else, or a
+-- frame with no known line, answers the message as it is. pcall has no line,
+-- so a level past a protected call's own frame names nothing.
+local function positioned(ctx: voidptr, message: uint64, level: uint64): uint64
+    local state0 = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local s = strings.header(message)
+        if s == 0ULL or level == 0ULL then
+            return message
+        end
+        local state = native.loadPointer(ctx, context.STATE)
+        local frame = native.load64(state, native.fieldOffset<frames.State>("active"))
+        local owner = native.load64(ctx, context.ERROR_OWNER)
+        local pc = native.load64(ctx, context.ERROR_PC)
+        local k: uint64 = 1ULL
+        while k < level do
+            if frame == 0ULL
+                or native.load64(
+                    native.pointer(frame),
+                    native.fieldOffset<frames.Frame>("resultKind")
+                ) == frames.PROTECTED_DESTINATION
+            then
+                return message
+            end
+            frame = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("previous"))
+            if frame == 0ULL then
+                return message
+            end
+            owner = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("functionId"))
+            local resume = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("resumePC"))
+            if resume == 0ULL then
+                return message
+            end
+            pc = resume - 1ULL
+            k = k + 1ULL
+        end
+        local c = native.loadPointer(ctx, context.CATALOG)
+        if owner >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
+            return message
+        end
+        local data = native.load64(c, native.fieldOffset<catalog.Catalog>("data"))
+        local fn = native.pointer(
+            native.load64(c, native.fieldOffset<catalog.Catalog>("records")) + owner * native.sizeOf<catalog.Function>()
+        )
+        local lines = native.load64(fn, native.fieldOffset<catalog.Function>("lines"))
+        local chunk = native.load64(fn, native.fieldOffset<catalog.Function>("chunk"))
+        if lines == 0ULL
+            or chunk == 0ULL
+            or pc >= native.load64(fn, native.fieldOffset<catalog.Function>("instructionCount"))
+        then
+            return message
+        end
+        local line = native.load64(native.pointer(data + lines + pc * 8ULL), 0)
+        if line == 0ULL then
+            return message
+        end
+        local at = data + (chunk & values.PAYLOAD)
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local builder = state0 as strings.Builder*
+        if strings.append(h, builder, at + 8ULL, native.load64(native.pointer(at), 0)) ~= 0ULL
+            or strings.appendWord(h, builder, 58ULL, 1ULL) ~= 0ULL
+            or strings.appendInteger(h, builder, native.index(line)) ~= 0ULL
+            or strings.appendWord(h, builder, 0x203aULL, 2ULL) ~= 0ULL
+            or strings.appendString(h, builder, s) ~= 0ULL
+        then
+            strings.release(builder)
+            return message
+        end
+        local result = strings.finish(h, builder)
+        tables.drain(h)
+        return values.TAG_OBJ | result
+    end
 end
 
 -- The message an error carries when nothing named one: "runtime error".
@@ -302,8 +383,15 @@ export function recoverEntry(ctx: voidptr): uint64
             return 0ULL
         end
         local value = native.load64(services, native.fieldOffset<Services>("raised"))
+        local level = native.load64(services, native.fieldOffset<Services>("raisedLevel"))
         if value == 0ULL then
             value = runtimeError(ctx)
+            level = 1ULL
+        end
+        -- A failure the handlers recorded names its owner and pc; one a
+        -- library leaf raised does not.
+        if status == context.GUEST_ERROR_STATUS then
+            value = positioned(ctx, value, level)
         end
         local state = native.loadPointer(ctx, context.STATE)
         local parent = frames.recover(state, value)
@@ -315,6 +403,7 @@ export function recoverEntry(ctx: voidptr): uint64
         native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorOwner"), 0ULL)
         native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("raisedLevel"), 0ULL)
         access.refresh(state, native.pointer(parent), ctx)
         return access.pc(state, native.pointer(parent))
     end

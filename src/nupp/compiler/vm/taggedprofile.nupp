@@ -1146,11 +1146,11 @@ function tagged.forVersion(version: integer): any
             elseif library == "pcall" then
                 return invokeProtected(ctx, node, true) as integer
             elseif library == "error" then
-                -- error(value [, level]): the level only shapes the message Lua
-                -- builds, which the core does not yet add.
+                -- error(value [, level]): a string value gets the position the
+                -- level names.
                 local count = #(node.args.exprs or {})
                 need(count >= 1 and count <= 2, "error takes a value and an optional level")
-                return libraryCall(ctx, node, 22, {node.args.exprs[1]})
+                return libraryCall(ctx, node, 22, node.args.exprs)
             elseif library == "select" then
                 -- select over the pack: "#" reads its count at key 0.
                 local args = node.args.exprs or {}
