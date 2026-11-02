@@ -1370,7 +1370,7 @@ source requires SIMD. An assertion of `simd.vectors` is rejected at compile
 time on a tier without vector registers. Windows x86-64 limits physical
 vector width to 16 bytes for frame safety, even on wider tiers. Wasm SIMD128
 uses the same source-level vector and mask operations; see
-[io.gpu.md](io.gpu.md) for GPU invocations, which use a separate execution model.
+[gpu.md](gpu.md) for GPU invocations, which use a separate execution model.
 
 ## Measurement
 

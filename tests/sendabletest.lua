@@ -74,6 +74,38 @@ end
     testAssert.eq(#errors, 0, "a literal with an immutable capture is sendable")
 end
 
+function M.outlinesEmptyAndCapturedCallbacksThroughTheNormalCompiler()
+    local compiler = require("nupp.tools.cli.compile")
+    local source = [[
+module sendablefixture
+export function empty(): @sendable function(): (integer, nil, string)
+    return function(): (integer, nil, string) return 42, nil, "tail" end
+end
+export function captured(prefix: string): @sendable function(value: string): string
+    return function(value: string): string return prefix .. value end
+end
+]]
+    for _, level in ipairs({0, 2}) do
+        local diagnostics = {}
+        local code, reason = compiler.module(
+            "sendablefixture.nupp",
+            envMod.new(HERE, {
+                cache = false
+            }),
+            {optLevel = level, diagnostics = diagnostics},
+            "sendablefixture",
+            source
+        )
+        local messages = {}
+        for _, diagnostic in ipairs(diagnostics) do
+            messages[#messages + 1] = diagnostic.msg
+        end
+        testAssert(code, tostring(reason) .. ": " .. table.concat(messages, "\n"))
+        local chunk, problem = loadstring(code, "@sendablefixture.nupp")
+        testAssert(chunk, problem)
+    end
+end
+
 function M.acceptsAnEffectivelyFinalCapture()
     local errors = diagnoseDeclared(
         [[

@@ -96,7 +96,7 @@ See these pages for each part of the AOT pipeline.
 - [Builds and artifacts](build-and-artifacts.md) for policies, cross builds,
   caches, and shipping.
 - [Wasm applications](wasm.md) for the browser guest and Wasm side modules.
-- [GPU compute](io.gpu.md) for native resident buffers, workgroup kernels, and
+- [GPU compute](gpu.md) for native resident buffers, workgroup kernels, and
   browser WebGPU.
 
 ## FAQ

@@ -149,5 +149,5 @@ outside the two tables is refused.
 ::: seealso
 - [Ahead-of-time compilation](index.md) for the admitted kernel subset
 - [Workers](../../runtime/concurrency/workers.md) for browser worker tasks
-- [WebGPU](io.gpu.md#browser-gpu-kernels) for admitted GPU maps
+- [WebGPU](gpu.md#browser-gpu-kernels) for admitted GPU maps
 :::

@@ -9927,11 +9927,12 @@ function gen.generate(
             for _, capture in ipairs(literal.sendableCaptures or {}) do
                 captures[#captures + 1] = capture.name
             end
+            captures[#captures + 1] = "..."
             local workersName = compilerModuleName("nupp.workers")
             sendableDefinitions[
                 #sendableDefinitions + 1
             ] = (
-                "%s.__defineSendable(%q,%q,function(%s,...) return (%s)(...) end);"
+                "%s.__defineSendable(%q,%q,function(%s) return (%s)(...) end);"
             ):format(workersName, declaredModuleName, literal.sendableMember, table.concat(captures, ","), body)
         end
         local recordDefinitions = {}

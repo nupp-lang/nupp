@@ -94,7 +94,7 @@ intrinsic namespaces and the declared modules:
 - [](os) provides monotonic and wall clocks. [](coroutine) owns sleeps and
   deadlines.
 
-See [io.gpu.md](../../performance/ahead-of-time/io.gpu.md) for generated GPU kernels and the
+See [gpu.md](../../performance/ahead-of-time/gpu.md) for generated GPU kernels and the
 browser provider, and [workers.md](../concurrency/workers.md) for the worker
 scheduler and sendable values.
 
