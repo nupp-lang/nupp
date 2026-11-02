@@ -1042,7 +1042,29 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
-    slots.writeValue(frame, regs, dst, guestscope.tableGet(ctx, header, slots.readValue(frame, regs, key)))
+    local keyValue = slots.readValue(frame, regs, key)
+    local value = guestscope.tableGet(ctx, header, keyValue)
+    local callee = guestscope.takeMeta(ctx)
+    if callee ~= 0ULL then
+        -- An __index function: called with the table and the key from the
+        -- top of the call window, its result landing in dst.
+        local top = native.index(count - 4ULL)
+        slots.writeValue(frame, regs, top, callee)
+        slots.writeValue(frame, regs, top + 1, guestscope.metaSelf(ctx))
+        slots.writeValue(frame, regs, top + 2, keyValue)
+        if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst)) ~= 1ULL then
+            return native.fail()
+        end
+        local s = native.pointer(ops.state(ctx))
+        local current = native.pointer(access.active(s))
+        local currentValues = native.pointer(access.values(s, current))
+        local currentIntegers = native.pointer(access.integers(s, current))
+        local currentFloats = native.pointer(access.floats(s, current))
+        local currentPC = native.pointer(access.pc(s, current))
+        access.refresh(s, current, ctx)
+        return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+    end
+    slots.writeValue(frame, regs, dst, value)
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)
@@ -1080,6 +1102,28 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         slots.readValue(frame, regs, key),
         slots.readValue(frame, regs, src)
     )
+    if status == guestscope.META_PENDING then
+        -- A __newindex function: called with the table, key and value from
+        -- the top of the call window; its result is dropped.
+        local top = native.index(count - 4ULL)
+        local keyValue = slots.readValue(frame, regs, key)
+        local item = slots.readValue(frame, regs, src)
+        slots.writeValue(frame, regs, top, guestscope.takeMeta(ctx))
+        slots.writeValue(frame, regs, top + 1, guestscope.metaSelf(ctx))
+        slots.writeValue(frame, regs, top + 2, keyValue)
+        slots.writeValue(frame, regs, top + 3, item)
+        if ops.metaCall(ctx, frame, pc, 3ULL, count - 1ULL) ~= 1ULL then
+            return native.fail()
+        end
+        local s = native.pointer(ops.state(ctx))
+        local current = native.pointer(access.active(s))
+        local currentValues = native.pointer(access.values(s, current))
+        local currentIntegers = native.pointer(access.integers(s, current))
+        local currentFloats = native.pointer(access.floats(s, current))
+        local currentPC = native.pointer(access.pc(s, current))
+        access.refresh(s, current, ctx)
+        return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+    end
     if status == tables.BAD_KEY then
         guestscope.fault(ctx, guestscope.FAULT_KEY, slots.readValue(frame, regs, key), values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)

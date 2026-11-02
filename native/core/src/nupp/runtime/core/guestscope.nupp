@@ -36,7 +36,14 @@ export struct Services
     fault: uint64
     culprit: uint64
     other: uint64
+    -- The __index or __newindex function a table access found, and the
+    -- table whose metatable named it, for its handler to call; 0 for none.
+    metaCallee: uint64
+    metaSelf: uint64
 end
+
+-- tableSet's answer when a __newindex function is to be called instead.
+export const META_PENDING: uint64 = 100ULL
 
 export const FAULT_ARITH: uint64 = 1ULL
 export const FAULT_MODZERO: uint64 = 2ULL
@@ -116,6 +123,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("raisedLevel"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("fault"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("metaCallee"), 0ULL)
     end
 
     return 1ULL
@@ -266,8 +274,35 @@ export function metaField(ctx: voidptr, table: uint64, which: uint64): uint64
     return tables.get(mt, metaKey(ctx, which))
 end
 
+-- Notes the metamethod function a table access is to call.
+local function pend(ctx: voidptr, callee: uint64, table: uint64): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        native.store64(services, native.fieldOffset<Services>("metaCallee"), callee)
+        native.store64(services, native.fieldOffset<Services>("metaSelf"), values.TAG_OBJ | table)
+    end
+end
+
+-- The metamethod function the last table access noted, or 0; taking it
+-- clears it. `metaSelf` is the table it is called for.
+export function takeMeta(ctx: voidptr): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local callee = native.load64(services, native.fieldOffset<Services>("metaCallee"))
+        native.store64(services, native.fieldOffset<Services>("metaCallee"), 0ULL)
+        return callee
+    end
+end
+
+export function metaSelf(ctx: voidptr): uint64
+    @unsafe do
+        return native.load64(native.loadPointer(ctx, context.SERVICE_SCOPE), native.fieldOffset<Services>("metaSelf"))
+    end
+end
+
 -- Lua's t[k]: the raw value, else through the metatable's __index while it
--- names a table. An __index function is not yet called.
+-- names a table. An __index function is noted (`takeMeta`) for the handler
+-- to call, and nil answered meanwhile.
 export function tableGet(ctx: voidptr, table: uint64, key: uint64): uint64
     @unsafe do
         local h = native.pointer(guestHeap(ctx)) as heap.Heap*
@@ -282,10 +317,12 @@ export function tableGet(ctx: voidptr, table: uint64, key: uint64): uint64
             if index == values.NIL then
                 return values.NIL
             end
-            t = tableOf(index)
-            if t == 0ULL then
-                error("an __index that is not a table is not yet supported by the core")
+            local next = tableOf(index)
+            if next == 0ULL then
+                pend(ctx, index, t)
+                return values.NIL
             end
+            t = next
             depth = depth + 1ULL
             if depth >= 2000ULL then
                 error("'__index' chain too long; possible loop")
@@ -298,7 +335,8 @@ end
 
 -- Lua's t[k] = v: a key the table holds, or one its metatable has no
 -- __newindex for, is stored in place; otherwise in the table __newindex
--- names. Answers coretables.set's status.
+-- names. Answers coretables.set's status, or META_PENDING when a __newindex
+-- function is noted (`takeMeta`) for the handler to call.
 export function tableSet(ctx: voidptr, table: uint64, key: uint64, value: uint64): uint64
     @unsafe do
         local h = native.pointer(guestHeap(ctx)) as heap.Heap*
@@ -309,10 +347,12 @@ export function tableSet(ctx: voidptr, table: uint64, key: uint64, value: uint64
             if newindex == values.NIL then
                 break
             end
-            t = tableOf(newindex)
-            if t == 0ULL then
-                error("a __newindex that is not a table is not yet supported by the core")
+            local next = tableOf(newindex)
+            if next == 0ULL then
+                pend(ctx, newindex, t)
+                return META_PENDING
             end
+            t = next
             depth = depth + 1ULL
             if depth >= 2000ULL then
                 error("'__newindex' chain too long; possible loop")

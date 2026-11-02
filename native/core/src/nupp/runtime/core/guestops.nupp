@@ -546,3 +546,85 @@ end
 export function resume(ctx: voidptr, frame: voidptr, pc: voidptr): uint64
     return (native.address(pc) - native.load64(frame, native.fieldOffset<frames.Frame>("code"))) // 16ULL + 1ULL
 end
+
+-- A metamethod call from the handler at `pc`: the callee is staged at the
+-- top of the frame's call window (slot valueCount - 4) and `nargs`
+-- arguments after it; its result lands in `resultSlot`, and the frame
+-- resumes after `pc`, as if the handler had finished. Answers 1 once the
+-- callee's frame is published, 0 after recording the failure. The callee
+-- must take exactly those arguments.
+export function metaCall(ctx: voidptr, frame: voidptr, pc: voidptr, nargs: uint64, resultSlot: uint64): uint64
+    local found = current(ctx, frame, pc)
+    local nv = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if found == 0ULL or nv < 5ULL or nargs > 3ULL or resultSlot >= nv then
+        fail(ctx, frame, pc, INVALID)
+        return 0ULL
+    end
+    local base = nv - 4ULL
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    local callee = native.load64(window, native.index(base * 8ULL))
+    local resolved = heapTarget(callee)
+    local c = native.loadPointer(ctx, context.CATALOG)
+    if heapClosures(ctx) ~= 1ULL
+        or resolved == 0ULL
+        or resolved > native.load64(c, native.fieldOffset<catalog.Catalog>("count"))
+    then
+        guestscope.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
+        fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return 0ULL
+    end
+    local actual = resolved - 1ULL
+    local target = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
+        native.index(actual * native.sizeOf<catalog.Function>())
+    )
+    local signature = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
+        native.index(
+            native.load64(
+                target,
+                native.fieldOffset<catalog.Function>("signature")
+            ) * native.sizeOf<catalog.Signature>()
+        )
+    )
+    if native.load64(target, native.fieldOffset<catalog.Function>("kind")) ~= catalog.FUNCTION
+        or native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 1ULL
+        or native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount")) ~= nargs
+    then
+        fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return 0ULL
+    end
+    local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
+    local kinds = native.load64(signature, native.fieldOffset<catalog.Signature>("parameters"))
+    local at: uint64 = 0ULL
+    while at < nargs do
+        local kind = native.load64(data, native.index(kinds + at * 8ULL))
+        if catalog.scalar(kind, native.load64(window, native.index((base + 1ULL + at) * 8ULL))) == 0ULL then
+            fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return 0ULL
+        end
+        at = at + 1ULL
+    end
+    local info = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("infos")),
+        native.index(actual * native.sizeOf<frames.FunctionInfo>())
+    )
+    local plan = native.offset(
+        native.loadPointer(c, native.fieldOffset<catalog.Catalog>("plans")),
+        native.index(actual * native.sizeOf<frames.WindowPlan>())
+    )
+    local s = native.loadPointer(ctx, context.STATE)
+    local resumePC = resume(ctx, frame, pc)
+    checkpoint(ctx, frame, pc)
+    local child = frames.prepareFixed(s, frame, info, callee, base, nargs, resultSlot, plan)
+    if child == 0ULL then
+        failure(ctx, RESOURCE)
+        return 0ULL
+    end
+    if frames.publish(s, frame, native.pointer(child), resumePC) ~= 1ULL then
+        failure(ctx, INVALID)
+        return 0ULL
+    end
+
+    return 1ULL
+end

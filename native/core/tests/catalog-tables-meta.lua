@@ -29,4 +29,23 @@ local locked = setmetatable({}, {__metatable = "locked"})
 if getmetatable(locked) == "locked" then
     score = score + 2
 end
+local calls = 0
+local computed = setmetatable({}, {
+    __index = function(t, k)
+        calls = calls + 1
+        return #k * 10
+    end
+})
+local behind = setmetatable({}, {__index = computed})
+score = score * 1000 + (computed.abc or 0) + (behind.abcd or 0) * 2 + calls
+local sink = {}
+local proxy = setmetatable({}, {
+    __newindex = function(t, k, v)
+        sink[k] = v * 2
+    end
+})
+proxy.q = 21
+if rawget(proxy, "q") == nil then
+    score = score * 100 + (sink.q or 0)
+end
 return score
