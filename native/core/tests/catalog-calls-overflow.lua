@@ -1,0 +1,18 @@
+-- Lua twin of catalog-calls-overflow.nupp.
+
+-- A call with no room for another frame raises Lua's "stack overflow",
+-- positioned at the call, and a protected call takes it.
+local function down(n)
+    return down(n + 1) + 1
+end
+
+local ok, err = pcall(down, 1)
+local suffix = ":6: stack overflow"
+local score = 0
+if not ok and string.sub(tostring(err), -#suffix) == suffix then
+    score = score + 1
+end
+if down ~= nil then
+    score = score + 2
+end
+return score

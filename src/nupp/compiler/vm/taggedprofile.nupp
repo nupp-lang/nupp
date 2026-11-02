@@ -1288,6 +1288,34 @@ function tagged.forVersion(version: integer): any
     profile.checkStatement = function(ctx: any, stat: any): nil
         checkStatement(ctx, stat, version)
     end
+    -- `local {a, b as c} = source`: the source once, then each value
+    -- entry's field in order; a `type` entry's place is nil. A source that
+    -- selects only types is erased.
+    profile.patternvalues = function(ctx: any, stat: any): {any}?
+        local runtime = false
+        for _, entry in ipairs(stat.pattern) do
+            if not entry.typeOnly then
+                runtime = true
+            end
+        end
+        if not runtime then
+            tagged.erasedPattern(ctx, stat)
+            return {}
+        end
+        local source = ctx.expression(need(stat.patternSource, "pattern lacks checked source"), "tagged")
+        if source == nil then
+            return nil
+        end
+        local values: {any} = {}
+        for index, entry in ipairs(stat.pattern) do
+            if not entry.typeOnly then
+                local field = ctx.emit(stat, "K", {pool(ctx, "str", entry.sourceName.text)}, "tagged")
+                values[index] = ctx.emit(stat, "GetIdx", {source, field}, "tagged")
+            end
+        end
+
+        return values
+    end
     -- A module with named exports: its export table, published as the
     -- module's value before its body runs.
     profile.moduleExports = function(ctx: any, node: any): integer

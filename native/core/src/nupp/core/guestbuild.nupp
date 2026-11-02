@@ -105,7 +105,9 @@ local CASES: {[string]: {
         version = 8,
         modules = {"catalog-modules-shapes", "catalog-modules-counter"}
     },
-    modulesnamed = {fixture = "catalog-modules-named", version = 8, modules = {"catalog-modules-geometry"}}
+    modulesnamed = {fixture = "catalog-modules-named", version = 8, modules = {"catalog-modules-geometry"}},
+    modulespattern = {fixture = "catalog-modules-pattern", version = 8, modules = {"catalog-modules-geometry"}},
+    callsoverflow = {fixture = "catalog-calls-overflow", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.

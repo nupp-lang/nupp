@@ -18,6 +18,7 @@ const wide = require("nupp.runtime.core.coreintegers")
 const threads = require("nupp.runtime.core.threads")
 const guestio = require("nupp.runtime.core.guestio")
 const modules = require("nupp.runtime.core.modules")
+const texts = require("nupp.runtime.core.guesttexts")
 
 -- The closed checked producer binds these program/slot reads to corebytecode's
 -- canonical opcode recipes and its retained complete graph-derived byte stream.
@@ -94,7 +95,12 @@ export function Require(
         if loaded == 0ULL then
             ops.checkpoint(ctx, frame, pc)
             if modules.begin(ctx, frame, pc, native.word(target), native.word(dst)) ~= 1ULL then
-                ops.failure(ctx, ops.INVALID)
+                -- A require cycle runs out of frames as Lua's does.
+                if texts.overflow(ctx) == 1ULL then
+                    ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+                else
+                    ops.failure(ctx, ops.INVALID)
+                end
                 return native.fail()
             end
             local s = native.pointer(ops.state(ctx))
@@ -1747,7 +1753,13 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         hint
     )
     if child == 0ULL then
-        ops.failure(ctx, ops.RESOURCE)
+        -- No room for another frame is Lua's "stack overflow", which a
+        -- protected call can take.
+        if texts.overflow(ctx) == 1ULL then
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        else
+            ops.failure(ctx, ops.RESOURCE)
+        end
         return native.fail()
     end
     if wanted > 1 and frames.wantResults(s, native.pointer(child), native.word(wanted)) ~= 1ULL then
@@ -2057,7 +2069,13 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         hint
     )
     if child == 0ULL then
-        ops.failure(ctx, ops.RESOURCE)
+        -- No room for another frame is Lua's "stack overflow", which a
+        -- protected call can take.
+        if texts.overflow(ctx) == 1ULL then
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        else
+            ops.failure(ctx, ops.RESOURCE)
+        end
         return native.fail()
     end
     if wanted > 1 and frames.wantResults(s, native.pointer(child), native.word(wanted)) ~= 1ULL then
@@ -2268,7 +2286,13 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     ops.checkpoint(ctx, frame, pc)
     local child = ops.prepare(ctx, frame, pc, callee, native.word(base), native.word(nargs), native.word(wanted), hint)
     if child == 0ULL then
-        ops.failure(ctx, ops.RESOURCE)
+        -- No room for another frame is Lua's "stack overflow", which a
+        -- protected call can take.
+        if texts.overflow(ctx) == 1ULL then
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        else
+            ops.failure(ctx, ops.RESOURCE)
+        end
         return native.fail()
     end
     if wanted > 1 and frames.wantResults(s, native.pointer(child), native.word(wanted)) ~= 1ULL then

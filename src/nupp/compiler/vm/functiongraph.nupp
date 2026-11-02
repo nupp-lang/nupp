@@ -1036,7 +1036,20 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 profile.checkStatement(ctx, stat)
             end
             if stat.kind == "localStmt" then
-                if stat.pattern then
+                if stat.pattern and profile.patternvalues then
+                    -- `local {a, b as c} = source`: each name is the source's
+                    -- field, read once in order; a `type` entry binds nothing.
+                    local values = invoke("patternvalues", stat, nil)
+                    if values and block then
+                        for index, name in ipairs(stat.names) do
+                            local value = values[index]
+                            if value then
+                                local key = name.definition or name
+                                ctx.bind(key, initializeBinding(stat, key, value))
+                            end
+                        end
+                    end
+                elseif stat.pattern then
                     invoke("erasedPattern", stat, nil)
                 else
                     need(#stat.exprs <= #stat.names, "too many local initializer values")

@@ -7,6 +7,7 @@ const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
 const context = require("nupp.runtime.core.context")
 const guestscope = require("nupp.runtime.core.guestscope")
+const frames = require("nupp.runtime.core.frames")
 const strings = require("nupp.runtime.core.corestrings")
 
 -- Each text is its bytes as little-endian words, eight to a word.
@@ -113,6 +114,7 @@ export const TEXT_CLOSE_MAIN: uint64 = 100ULL
 export const TEXT_CLOSE_NORMAL: uint64 = 101ULL
 export const NAME_CLOSE: uint64 = 102ULL
 export const NAME_WRITE: uint64 = 103ULL
+export const TEXT_STACK_OVERFLOW: uint64 = 104ULL
 
 export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
     if id == TEXT_BAD then
@@ -499,6 +501,10 @@ export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64
     elseif id == NAME_WRITE then
         -- "write"
         return strings.appendWord(h, b, 0x6574697277ULL, 5ULL)
+    elseif id == TEXT_STACK_OVERFLOW then
+        -- "stack overflow"
+        return strings.appendWord(h, b, 0x766f206b63617473ULL, 8ULL)
+            | strings.appendWord(h, b, 0x776f6c667265ULL, 6ULL)
     end
 
     return 0ULL
@@ -536,6 +542,22 @@ export function textvalue(ctx: voidptr, id: uint64): uint64
         end
         return values.TAG_OBJ | strings.finish(h, builder)
     end
+end
+
+-- When a call found no room for another frame: 1 having noted Lua's
+-- "stack overflow", raised where the call is, for the caller to fail the
+-- entry with as a guest error; 0 when the frames have room, and the call
+-- failed for another reason.
+export function overflow(ctx: voidptr): uint64
+    local state = native.loadPointer(ctx, context.STATE)
+    if native.load64(state, native.fieldOffset<frames.State>("depth"))
+        < native.load64(state, native.fieldOffset<frames.State>("limit"))
+    then
+        return 0ULL
+    end
+    guestscope.raise(ctx, textvalue(ctx, TEXT_STACK_OVERFLOW), 1ULL)
+
+    return 1ULL
 end
 
 -- Raises one of the library's whole

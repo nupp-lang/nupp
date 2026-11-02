@@ -1,0 +1,7 @@
+module nupp.core.catalogmodulespattern
+
+-- A binding pattern selects a module's exports by name, `as` renaming one;
+-- each is read once, when the pattern runs.
+const {scale, unit as base, bump} = require("nupp.core.catalogmodulesgeometry")
+bump()
+export = scale(2) + base + bump() * 100
