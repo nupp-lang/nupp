@@ -224,7 +224,7 @@ export record File is io.Reader, io.Writer
         end
         local bytes, failure = host.fileSize(self._handle)
         if bytes == nil then
-            return nil, io.toError(failure)
+            return nil, privateIo.toError(failure)
         end
 
         return bytes, nil
@@ -242,7 +242,7 @@ export record File is io.Reader, io.Writer
         end
         local at, failure = host.fileSeek(self._handle, whole(offset or 0, "seek offset", 2), whence)
         if at == nil then
-            return nil, io.toError(failure)
+            return nil, privateIo.toError(failure)
         end
 
         return at, nil
