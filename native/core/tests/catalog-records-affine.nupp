@@ -1,0 +1,33 @@
+module nupp.core.catalogrecordsaffine
+
+-- Affine records: a value whose type is affine(T, T.destroy) is destroyed
+-- once when its scope ends, on a normal exit and when an error unwinds
+-- through it; a value moved out is destroyed by its new owner instead.
+local closed: integer = 0
+local order: integer = 0
+
+local record File
+    id: integer
+
+    constructor(self, id: integer): affine(File, File.destroy)
+        self.id = id
+    end
+
+    function destroy(takes self): nil
+        closed = closed + 1
+        order = order * 10 + self.id
+    end
+end
+
+do
+    local a = new File(1)
+    local b = new File(2)
+end
+
+local function scoped(n: integer): integer
+    local f = new File(n)
+    return f.id * 2
+end
+
+local doubled = scoped(3)
+export = closed * 10000 + order * 10 + doubled

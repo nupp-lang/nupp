@@ -5,6 +5,10 @@ local graphimage = require("nupp.compiler.vm.graphimage")
 local cst = require("nupp.compiler.syntax.cst")
 local tagged = {booleanKind = "tagged"}
 
+-- The graphs built with the cleanup protocol (a graph carries no extra
+-- fields), whose calls report ownership moves to it.
+local cleanupGraphs: {[any]: boolean} = setmetatable({}, {__mode = "k"})
+
 local function need(ok: any, message: string): any
     assert(ok, "tagged graph: " .. message)
     return ok
@@ -66,7 +70,11 @@ function tagged.initialize(fn: any, options: any): any
         -- An anonymous `...` last is the hidden pack parameter.
         local pack = parameter.vararg and not parameter.name and index == #params
         need(
-            (parameter.name and not parameter.vararg or pack) and not parameter.modeTok and not parameter.constTok,
+            -- `takes` moves ownership, a fact the checker settled: the core passes
+            -- the value.
+            (parameter.name and not parameter.vararg or pack)
+            and (not parameter.modeTok or parameter.modeTok.text == "takes")
+            and not parameter.constTok,
             "parameter ownership or variadic lowering is unsupported"
         )
     end
@@ -161,8 +169,10 @@ end
 
 -- The nominal record type behind a checked type, or nil.
 local function recordOrigin(t: any): any
-    while t and (t.tag == "const" or t.tag == "literal") do
-        t = t.tag == "const" and t.inner or t.base
+    -- Ownership qualifiers (affine, borrowed, pinned) wrap the record type.
+    while t
+        and (t.tag == "const" or t.tag == "literal" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
+        t = t.tag == "literal" and t.base or t.inner
     end
     local origin = t and (t.origin or t)
     if origin and origin.tag == "nominal" and origin.declKind == "record" and origin.fieldOrder then
@@ -435,6 +445,9 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
     local value = ctx.readHeld(callee)
     ctx.release(callee)
     local pack = spreads and ctx.varargPack() or nil
+    if cleanupGraphs[ctx.g] and node.kind == "call" then
+        ctx.beforeCall(node)
+    end
     if count then
         return ctx.invokeMany(node, value, args, contract, count, pack)
     end
@@ -759,6 +772,104 @@ local function numericFor(ctx: any, stat: any): any
             return advanced, wrapped
         end
     }
+end
+
+-- A true constant, for the cleanup protocol's conditions: a guest error
+-- unwinds in the runtime, so no call or terminal reports failure here.
+local function always(ctx: any, node: any): integer
+    return ctx.emit(node, "K", {pool(ctx, "true", "")}, "tagged") as integer
+end
+
+-- The profile a function that owns affine values is built with: the
+-- common cleanup protocol (functiongraph), its terminals called through
+-- Destroy, which reaches each destructor through the table its record's name
+-- holds. Returns stage at most one value.
+local function cleanupProfile(base: any): any
+    local profile = {}
+    for name, member in pairs(base) do
+        profile[name] = member
+    end
+    profile.forOwner = nil
+    profile.initialize = function(owner: any, options: any): any
+        local g = base.initialize(owner, options)
+        cleanupGraphs[g] = true
+        return g
+    end
+    profile.initializeModule = function(owner: any, options: any): any
+        local g = base.initializeModule(owner, options)
+        cleanupGraphs[g] = true
+        return g
+    end
+    profile.cleanupFlag = function(ctx: any, node: any, value: boolean): integer
+        return ctx.emit(node, "K", {pool(ctx, value and "true" or "false", "")}, "tagged") as integer
+    end
+    profile.cleanupPlan = function(ctx: any, site: any, t: any, chain: any): any
+        local inner = t and t.tag == "affine" and t.inner
+        local origin = inner and (inner.origin or inner)
+        local declaration = origin and origin.deriveDeclaration
+        local tokens = catalog(ctx).cleanupTokens[site]
+        local token = need(tokens and declaration and tokens[declaration], "cleanup site lacks its record reference")
+        local methods = {}
+        for _, item in ipairs(chain) do
+            local record, method = tostring(item.name):match("^(.-)%.([%w_]+)$")
+            need(method and record == declaration.name.text, "only a record's own method cleans it up")
+            methods[#methods + 1] = method
+        end
+
+        return {token = token, methods = methods}
+    end
+    profile.cleanupAllowed = always
+    profile.cleanupStatus = always
+    profile.cleanupRun = function(ctx: any, node: any, plan: any, value: integer, reason: string): nil
+        local held = ctx.hold(value)
+        for index = #plan.methods, 1, -1 do
+            local class = ctx.expression({kind = "name", token = plan.token, plan.token}, "tagged")
+            local key = ctx.emit(node, "K", {pool(ctx, "str", plan.methods[index])}, "tagged")
+            local callee = ctx.emit(node, "GetIdx", {class, key}, "tagged")
+            ctx.emit(node, "Destroy", {callee, ctx.readHeld(held)}, nil)
+        end
+        ctx.release(held)
+    end
+    -- Unreachable while every status is true; a failure still has to end its
+    -- block, so it raises.
+    profile.failure = function(ctx: any, node: any): nil
+        local message = ctx.emit(node, "K", {pool(ctx, "str", "cleanup failed")}, "tagged")
+        ctx.emit(node, "LibCall", {22, message}, "tagged")
+        local none = ctx.emit(node, "Nil", {}, "tagged")
+        ctx.block.term = {kind = "return", value = none, edges = {}, pos = ctx.position(node)}
+        ctx.block = nil
+    end
+    profile.stageReturn = function(ctx: any, node: any, falling: boolean): any
+        local exprs = not falling and node.exprs or {}
+        if #exprs == 0 then
+            return {values = {}}
+        end
+        need(#exprs == 1 and exprs[1].kind ~= "vararg", "a function that cleans up returns one value")
+        local value = ctx.expression(exprs[1], "tagged")
+        if value == nil then
+            return nil
+        end
+
+        return {values = {value}}
+    end
+    profile.rootReturn = function(ctx: any, node: any, stage: any, held: any): any
+        return {}
+    end
+    profile.rootBacking = function(ctx: any, node: any, roots: any): {any}
+        return {}
+    end
+    profile.closeReturnRoots = function(ctx: any, node: any, plan: any, reason: string): integer
+        return always(ctx, node)
+    end
+    profile.retainRootBacking = function(ctx: any, node: any, plan: any): nil
+    end
+    profile.finishReturn = function(ctx: any, node: any, stage: any, values: any, roots: any): nil
+        local value = values[1] or ctx.emit(node, "Nil", {}, "tagged")
+        ctx.block.term = {kind = "return", value = value, edges = {}, pos = ctx.position(node)}
+        ctx.block = nil
+    end
+
+    return profile
 end
 
 -- A profile for one checked-source graph version (see coregraphschema).
@@ -1404,6 +1515,18 @@ function tagged.forVersion(version: integer): any
             end
 
             return tagged.unary(ctx, node, expected)
+        end
+    end
+
+    if version >= 8 then
+        local withCleanup: any = nil
+        profile.forOwner = function(p: any, owner: any): any
+            if not (p.cleanupOwners and p.cleanupOwners[owner.id]) then
+                return profile
+            end
+            withCleanup = withCleanup or cleanupProfile(profile)
+
+            return withCleanup
         end
     end
 

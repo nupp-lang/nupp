@@ -55,6 +55,10 @@ local function empty(value: any, description: string): nil
 end
 
 local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
+    -- An owned value passes as the value it owns.
+    while dynamic and value and (value.tag == "affine" or value.tag == "borrowed" or value.tag == "pinned") do
+        value = value.inner
+    end
     need(value and value.tag ~= "literal" and value.tag ~= "const", "qualified scalar signatures are unsupported")
     -- v8 passes strings, tables and functions as dynamic values, checked where
     -- used.

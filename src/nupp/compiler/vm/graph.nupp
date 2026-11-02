@@ -105,6 +105,8 @@ signatures.Closure = "Vn"
 -- outside the frozen VM's table (corebytecode.coreOnly).
 signatures.MathFloor = "Vv"
 signatures.LibCall = "V#"
+-- An affine value's destructor called on it at the end of its scope.
+signatures.Destroy = "vv"
 signatures.U32Load = "Ivi"
 signatures.U32Store = "vii"
 signatures.U32Add = "Iii"
@@ -252,6 +254,7 @@ local macros = {
     Closure = true,
     MathFloor = true,
     LibCall = true,
+    Destroy = true,
     U32Load = true,
     U32Store = true,
     U32Add = true,
@@ -298,6 +301,7 @@ parsed.Closure.variadicClass = "v"
 parsed.Closure.coreOnly = true
 parsed.MathFloor.coreOnly = true
 parsed.LibCall.coreOnly = true
+parsed.Destroy.coreOnly = true
 parsed.LibCall.variadic = true
 parsed.LibCall.variadicClass = "v"
 
@@ -1281,7 +1285,10 @@ end
 
 local invokeScalar: function(any): nil
 invokeScalar = function(t: any): nil
-    while t and (t.tag == "literal" or t.tag == "const") do
+    -- An owned value passes as the value it owns; its cleanup is the
+    -- graph's, not the call's.
+    while t
+        and (t.tag == "literal" or t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
         t = t.tag == "literal" and t.base or t.inner
     end
     -- A union of admitted types (integer | number, say) passes as a value.
