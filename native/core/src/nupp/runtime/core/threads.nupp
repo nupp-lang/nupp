@@ -66,6 +66,9 @@ export const MODE_CALL: uint64 = 2ULL
 -- pcall of a wrapped thread: a call's results with true first, or false and
 -- the error, which is not raised.
 export const MODE_PROTECTED: uint64 = 3ULL
+-- coroutine.close unwinding a suspended thread: the closer takes one pack,
+-- {true} or {false, e}.
+export const MODE_CLOSE: uint64 = 4ULL
 
 -- What resume answers: the thread runs; it cannot, and the resumer has its
 -- reason; it cannot, and its reason is raised; the frames are not as
@@ -79,11 +82,14 @@ export const LIB_STATUS: uint64 = 78ULL
 export const LIB_WRAP: uint64 = 79ULL
 export const LIB_RUNNING: uint64 = 80ULL
 export const LIB_ISYIELDABLE: uint64 = 81ULL
+export const LIB_CLOSE: uint64 = 82ULL
 
 export const SWITCHED: uint64 = 1ULL
 export const REFUSED: uint64 = 2ULL
 export const RAISED: uint64 = 3ULL
 export const BROKEN: uint64 = 4ULL
+-- What close answers when the thread unwinds from an error raised in it.
+export const UNWIND: uint64 = 5ULL
 
 local function services(ctx: voidptr): voidptr
     return native.loadPointer(ctx, context.SERVICE_SCOPE)
@@ -361,7 +367,7 @@ end
 -- or its first `wanted` values from `slot` on, nil past its end.
 local function place(frame: voidptr, mode: uint64, slot: uint64, wanted: uint64, result: uint64): nil
     local window = native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("values")))
-    if mode == MODE_PACK or wanted == 0ULL then
+    if mode == MODE_PACK or mode == MODE_CLOSE or wanted == 0ULL then
         native.store64(window, native.index(slot * 8ULL), result)
         return
     end
@@ -659,9 +665,27 @@ end
 export function fail(ctx: voidptr, value: uint64): uint64
     local thread = running(ctx)
     local t = native.pointer(bodyOf(thread))
+    local mode = native.load64(t, native.fieldOffset<Thread>("mode"))
     local result: uint64 = 0ULL
-    if native.load64(t, native.fieldOffset<Thread>("mode")) ~= MODE_CALL then
+    native.store64(services(ctx), native.fieldOffset<guestscope.Services>("closing"), 0ULL)
+    if value == thread then
+        -- Closed: the thread itself was the error that unwound it. Its
+        -- closer, or its resumer when it closed itself, gets true and no
+        -- values; a wrapped thread's caller gets no values.
+        if mode == MODE_CALL then
+            result = packed(ctx, 0ULL, 0ULL, 0ULL, 0ULL)
+        else
+            result = packed(ctx, 1ULL, values.TRUE, 0ULL, 0ULL)
+        end
+    elseif mode == MODE_CLOSE then
+        -- A cleanup raised another error.
         result = failure(ctx, value)
+    else
+        -- A later close answers the error that ended it.
+        native.store64(t, native.fieldOffset<Thread>("transfer"), value)
+        if mode ~= MODE_CALL then
+            result = failure(ctx, value)
+        end
     end
     if retire(ctx, thread, t) ~= 1ULL then
         return 0ULL
@@ -732,6 +756,8 @@ export function libraryName(id: uint64): uint64
         return texts.NAME_WRAP
     elseif id == LIB_RUNNING then
         return texts.TEXT_RUNNING
+    elseif id == LIB_CLOSE then
+        return texts.NAME_CLOSE
     end
 
     return texts.NAME_ISYIELDABLE
@@ -751,4 +777,89 @@ export function call(ctx: voidptr, id: uint64, a: uint64): uint64
     end
 
     return yieldable(ctx)
+end
+
+-- coroutine.close(co) from `frame` at `pc`, its pack to land in `slot`.
+-- Answers REFUSED when the pack is there already; SWITCHED when the thread
+-- runs again to unwind, from its yield; UNWIND when the context runs the
+-- thread and the caller is to raise the unwinding error in it. A thread
+-- closing itself unwinds from where it is, as Lua 5.5 has it, and its
+-- resumer gets true and no values.
+export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, slot: uint64): uint64
+    local t = bodyOf(value)
+    if t == 0ULL then
+        texts.argumentError(ctx, 1ULL, texts.TEXT_COROUTINE, 0ULL, value)
+    end
+    local body = native.pointer(t)
+    local state = native.load64(body, native.fieldOffset<Thread>("status"))
+    if state == MAIN and running(ctx) == 0ULL then
+        texts.libraryError(ctx, texts.TEXT_CLOSE_MAIN)
+    elseif state == NORMAL or state == MAIN then
+        texts.libraryError(ctx, texts.TEXT_CLOSE_NORMAL)
+    elseif state == RUNNING then
+        local scope = services(ctx)
+        native.store64(scope, native.fieldOffset<guestscope.Services>("closing"), 1ULL)
+        native.store64(scope, native.fieldOffset<guestscope.Services>("lastError"), value)
+        guestscope.raise(ctx, value, 0ULL)
+        return UNWIND
+    end
+    local window = native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("values")))
+    local threadState = native.offset(body, native.fieldOffset<Thread>("state"))
+    local active = native.load64(threadState, native.fieldOffset<frames.State>("active"))
+    -- Nothing to unwind unless a frame owns affine values.
+    local owners: uint64 = 0ULL
+    local at = active
+    while state == SUSPENDED and at ~= 0ULL do
+        owners = owners | guestscope.ownsAffine(ctx, at)
+        at = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
+    end
+    if state ~= SUSPENDED or owners == 0ULL then
+        local result: uint64 = 0ULL
+        local ended = native.load64(body, native.fieldOffset<Thread>("transfer"))
+        if state == DEAD and ended ~= values.NIL then
+            native.store64(body, native.fieldOffset<Thread>("transfer"), values.NIL)
+            result = failure(ctx, ended)
+        else
+            result = packed(ctx, 1ULL, values.TRUE, 0ULL, 0ULL)
+        end
+        if state == SUSPENDED then
+            if frames.endThread(threadState, native.offset(body, native.fieldOffset<Thread>("mark"))) ~= 1ULL then
+                return BROKEN
+            end
+            native.store64(body, native.fieldOffset<Thread>("segment"), 0ULL)
+            local pages = native.load64(body, native.fieldOffset<Thread>("pages"))
+            if pages ~= 0ULL then
+                os.unmapPages(native.pointer(pages), native.load64(body, native.fieldOffset<Thread>("pageBytes")))
+                native.store64(body, native.fieldOffset<Thread>("pages"), 0ULL)
+            end
+        end
+        native.store64(body, native.fieldOffset<Thread>("status"), DEAD)
+        native.store64(window, native.index(slot * 8ULL), result)
+        return REFUSED
+    end
+    -- The thread runs again with itself as the error: it lands at each frame
+    -- that owns affine values, whose cleanups run, and protected calls let
+    -- it pass (`closing`), until it ends the thread.
+    native.store64(body, native.fieldOffset<Thread>("mode"), MODE_CLOSE)
+    native.store64(body, native.fieldOffset<Thread>("resumerSlot"), slot)
+    native.store64(body, native.fieldOffset<Thread>("resumerWanted"), 1ULL)
+    local yielding = native.pointer(active)
+    native.store64(
+        native.pointer(native.load64(yielding, native.fieldOffset<frames.Frame>("values"))),
+        native.index(native.load64(body, native.fieldOffset<Thread>("yieldSlot")) * 8ULL),
+        values.NIL
+    )
+    switchIn(ctx, frame, pc, value, body)
+    local scope = services(ctx)
+    native.store64(scope, native.fieldOffset<guestscope.Services>("closing"), 1ULL)
+    native.store64(scope, native.fieldOffset<guestscope.Services>("lastError"), value)
+    -- A yield in a function that owns affine values checks for a landed
+    -- error after it: there the unwinding starts.
+    if guestscope.ownsAffine(ctx, active) == 1ULL then
+        native.store64(scope, native.fieldOffset<guestscope.Services>("landed"), 1ULL)
+        return SWITCHED
+    end
+    guestscope.raise(ctx, value, 0ULL)
+
+    return UNWIND
 end

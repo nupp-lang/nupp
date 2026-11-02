@@ -109,6 +109,9 @@ export const NAME_STATUS: uint64 = 96ULL
 export const NAME_WRAP: uint64 = 97ULL
 export const NAME_ISYIELDABLE: uint64 = 98ULL
 export const TEXT_FUNCTION: uint64 = 99ULL
+export const TEXT_CLOSE_MAIN: uint64 = 100ULL
+export const TEXT_CLOSE_NORMAL: uint64 = 101ULL
+export const NAME_CLOSE: uint64 = 102ULL
 
 export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
     if id == TEXT_BAD then
@@ -478,6 +481,20 @@ export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64
     elseif id == TEXT_FUNCTION then
         -- "function"
         return strings.appendWord(h, b, 0x6e6f6974636e7566ULL, 8ULL)
+    elseif id == TEXT_CLOSE_MAIN then
+        -- "cannot close main thread"
+        return strings.appendWord(h, b, 0x6320746f6e6e6163ULL, 8ULL)
+            | strings.appendWord(h, b, 0x69616d2065736f6cULL, 8ULL)
+            | strings.appendWord(h, b, 0x646165726874206eULL, 8ULL)
+    elseif id == TEXT_CLOSE_NORMAL then
+        -- "cannot close a normal coroutine"
+        return strings.appendWord(h, b, 0x6320746f6e6e6163ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6e20612065736f6cULL, 8ULL)
+            | strings.appendWord(h, b, 0x6f63206c616d726fULL, 8ULL)
+            | strings.appendWord(h, b, 0x656e6974756f72ULL, 7ULL)
+    elseif id == NAME_CLOSE then
+        -- "close"
+        return strings.appendWord(h, b, 0x65736f6c63ULL, 5ULL)
     end
 
     return 0ULL

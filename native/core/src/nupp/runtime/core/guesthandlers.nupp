@@ -1500,10 +1500,21 @@ export function LibCall(
     guestscope.librarySite(ctx, frame, pc, native.word(count), encoded >> 7ULL)
     -- The coroutine library. Resume and yield switch threads: the context
     -- then runs the other thread, from its active frame.
-    if libraryId >= threads.LIB_CREATE and libraryId <= threads.LIB_ISYIELDABLE then
+    if libraryId >= threads.LIB_CREATE and libraryId <= threads.LIB_CLOSE then
         guestscope.nameLibrary(ctx, threads.libraryName(libraryId))
         local switched = true
-        if libraryId ~= threads.LIB_RESUME and libraryId ~= threads.LIB_YIELD then
+        if libraryId == threads.LIB_CLOSE then
+            -- Closing a suspended thread with cleanups runs it to unwind.
+            local answer = threads.close(ctx, frame, pc, a, native.word(dst))
+            if answer == threads.UNWIND then
+                ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+                return native.fail()
+            elseif answer == threads.BROKEN then
+                ops.fail(ctx, frame, pc, ops.INVALID)
+                return native.fail()
+            end
+            switched = answer == threads.SWITCHED
+        elseif libraryId ~= threads.LIB_RESUME and libraryId ~= threads.LIB_YIELD then
             slots.writeValue(frame, regs, dst, threads.call(ctx, libraryId, a))
             switched = false
         elseif libraryId == threads.LIB_RESUME then

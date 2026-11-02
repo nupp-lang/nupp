@@ -67,6 +67,9 @@ export struct Services
     -- coroutine.running has made one.
     running: uint64
     main: uint64
+    -- 1 while coroutine.close unwinds a suspended thread: its error lands at
+    -- every frame that owns affine values, and no protected call takes it.
+    closing: uint64
 end
 
 -- tableSet's answer when a __newindex function is to be called instead.
@@ -145,6 +148,7 @@ export function open(
         collector.register(h, world, worldWords)
         native.store64(services, native.fieldOffset<Services>("running"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("main"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("closing"), 0ULL)
         collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 2ULL)
         -- Collect-at-every-allocation: a whole cycle at every safepoint.
         h.stress = stress ~= 0ULL
@@ -1034,17 +1038,28 @@ local function lands(ctx: voidptr, frame: uint64): boolean
     end
 end
 
+-- 1 when `frame`'s function owns affine values: an error lands at it.
+export function ownsAffine(ctx: voidptr, frame: uint64): uint64
+    if lands(ctx, frame) then
+        return 1ULL
+    end
+
+    return 0ULL
+end
+
 -- The frame an error lands at: one that owns affine values and waits on the
 -- call the error came from, if there is one before the nearest protected
 -- call; 0 otherwise.
 local function landingFrame(ctx: voidptr, state: voidptr): uint64
     @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local closing = native.load64(services, native.fieldOffset<Services>("closing")) == 1ULL
         local at = native.load64(state, native.fieldOffset<frames.State>("active"))
         while at ~= 0ULL do
             if native.load64(
                 native.pointer(at),
                 native.fieldOffset<frames.Frame>("resultKind")
-            ) == frames.PROTECTED_DESTINATION then
+            ) == frames.PROTECTED_DESTINATION and not closing then
                 return 0ULL
             end
             local parent = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
@@ -1130,7 +1145,7 @@ export function recoverEntry(ctx: voidptr): uint64
             if parent ~= 0ULL then
                 native.store64(services, native.fieldOffset<Services>("landed"), 1ULL)
             end
-        else
+        elseif native.load64(services, native.fieldOffset<Services>("closing")) == 0ULL then
             parent = frames.recover(state, value)
         end
         if parent == 0ULL then

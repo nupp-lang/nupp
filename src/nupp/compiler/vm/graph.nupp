@@ -1651,7 +1651,8 @@ local coreLibrary: {
     ["coroutine.status"] = true,
     ["coroutine.wrap"] = true,
     ["coroutine.running"] = true,
-    ["coroutine.isyieldable"] = true
+    ["coroutine.isyieldable"] = true,
+    ["coroutine.close"] = true
 }
 
 local function preludeName(node: any): boolean

@@ -182,7 +182,18 @@ local packLibrary: {
     ["table.unpack"] = 37,
     ["coroutine.resume"] = 76,
     ["coroutine.yield"] = 77,
-    ["coroutine.running"] = 80
+    ["coroutine.running"] = 80,
+    ["coroutine.close"] = 82
+}
+
+-- The coroutine calls answering a pack, which coroutinePack makes.
+local coroutinePacked: {
+    [string]: boolean
+} = {
+    ["coroutine.resume"] = true,
+    ["coroutine.yield"] = true,
+    ["coroutine.running"] = true,
+    ["coroutine.close"] = true
 }
 
 local function packSpec(library: string?): integer?
@@ -630,11 +641,13 @@ local function invokeProtected(ctx: any, node: any, keepResult: boolean, count: 
         end
         args[#args + 1] = operands[1]
     end
+    -- A protected call takes errors, but not a closing coroutine's
+    -- unwinding, which lands here when this function owns affine values.
     if count then
-        return ctx.invokeMany(node, value, args, contract, count)
+        return landed(ctx, node, ctx.invokeMany(node, value, args, contract, count))
     end
 
-    return ctx.invoke(node, value, args, contract, keepResult)
+    return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult))
 end
 
 -- table.sort(t, f): a merge sort the sort step advances until it needs f's
@@ -775,7 +788,22 @@ local function coroutinePack(ctx: any, node: any): integer
         if pack == nil then
             return nil as any
         end
-        return ctx.emit(node, "LibCall", {77, pack}, "tagged") as integer
+        -- In a function that owns affine values a closing coroutine's
+        -- unwinding lands at its yield, as an error lands at a call.
+        if cleanupGraphs[ctx.g] then
+            local held = ctx.hold(pack)
+            ctx.beforeCall(node)
+            pack = ctx.readHeld(held)
+            ctx.release(held)
+        end
+        return landed(ctx, node, ctx.emit(node, "LibCall", {77, pack}, "tagged")) as integer
+    elseif library == "coroutine.close" then
+        need(#exprs == 1, "coroutine.close takes a coroutine")
+        local thread = ctx.expression(exprs[1], "tagged")
+        if thread == nil then
+            return nil as any
+        end
+        return ctx.emit(node, "LibCall", {82, thread}, "tagged") as integer
     end
     need(#exprs >= 1, "coroutine.resume takes a coroutine")
     local thread = ctx.expression(exprs[1], "tagged")
@@ -1236,6 +1264,14 @@ function tagged.forVersion(version: integer): any
     profile.checkStatement = function(ctx: any, stat: any): nil
         checkStatement(ctx, stat, version)
     end
+    -- `@unsafe` before a statement: the checker trusted what it says, a yield
+    -- with affine values live; the statement runs as it would without it.
+    profile.checkedPragma = function(ctx: any, node: any): nil
+        need(
+            node.name and node.name.text == "unsafe" and node.annotationDefinition and node.annotationDefinition.name == "unsafe",
+            "only a checked @unsafe scope is admitted"
+        )
+    end
     profile.binary = function(ctx: any, node: any, expected: string?): integer
         return binary(ctx, node, expected, version)
     end
@@ -1695,7 +1731,7 @@ function tagged.forVersion(version: integer): any
             -- A string library call with several results answers a pack,
             -- read in order; past its end is nil. So does a coroutine call.
             local library = graph.coreLibraryCall(node)
-            if library == "coroutine.resume" or library == "coroutine.yield" or library == "coroutine.running" then
+            if coroutinePacked[library or ""] then
                 local pack = coroutinePack(ctx, node)
                 if pack == nil then
                     return nil
@@ -1965,7 +2001,7 @@ function tagged.forVersion(version: integer): any
             elseif library == "os.getenv" then
                 need(#(node.args.exprs or {}) == 1, "os.getenv takes one name")
                 return libraryCall(ctx, node, 10, node.args.exprs)
-            elseif library == "coroutine.resume" or library == "coroutine.yield" or library == "coroutine.running" then
+            elseif coroutinePacked[library or ""] then
                 -- Kept as one value: its pack's first.
                 local pack = coroutinePack(ctx, node)
                 if pack == nil then

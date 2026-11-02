@@ -1481,7 +1481,15 @@ local coroutine: {
     --- coroutine.
     ---
     --- @return whether a `yield` would succeed here
-    isyieldable: function(): boolean
+    isyieldable: function(): boolean,
+
+    --- Closes `co`, a suspended or dead coroutine: a suspended one's pending
+    --- cleanups run, as an error unwinding it would run them, and it is dead.
+    ---
+    --- @param co the coroutine to close
+    --- @return true, or false when a cleanup or the coroutine's last run raised
+    --- @return that error
+    close: function(co: thread): (boolean, any)
 }
 
 -- The base functions below say `@nosuspend`: calling one cannot suspend the caller.
