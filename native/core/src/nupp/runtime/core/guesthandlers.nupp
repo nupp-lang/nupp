@@ -2169,6 +2169,43 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         return native.fail()
     end
     local callee = slots.readValue(frame, regs, calleeSlot)
+    -- pcall of a wrapped coroutine's closure resumes its thread: true and its
+    -- values, or false and its error, land where the call's results would.
+    local wrapped = threads.wrapped(callee)
+    if wrapped ~= 0ULL then
+        local first = native.index(native.word(base) + 1ULL)
+        local args = guestscope.packValues(ctx, native.offset(regs, first * 8), native.word(nargs), 0ULL)
+        -- The frame roots the pack until the thread has it.
+        slots.writeValue(frame, regs, first, args)
+        local answer = threads.resume(
+            ctx,
+            frame,
+            pc,
+            wrapped,
+            args,
+            threads.MODE_PROTECTED,
+            (native.word(base) + 1ULL) | (native.word(wanted) << 32ULL)
+        )
+        if answer == threads.REFUSED then
+            local after = ops.branch(ctx, frame, pc, 0)
+            if after == 0ULL then
+                ops.fail(ctx, frame, pc, ops.INVALID)
+                return native.fail()
+            end
+            return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
+        elseif answer ~= threads.SWITCHED then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        local resumed = native.pointer(ops.state(ctx))
+        local active = native.pointer(access.active(resumed))
+        local activeValues = native.pointer(access.values(resumed, active))
+        local activeIntegers = native.pointer(access.integers(resumed, active))
+        local activeFloats = native.pointer(access.floats(resumed, active))
+        local activePC = native.pointer(access.pc(resumed, active))
+        access.refresh(resumed, active, ctx)
+        return native.dispatch(activePC, activeValues, activeIntegers, activeFloats, ctx, active)
+    end
     local s = native.pointer(ops.state(ctx))
     local resumePC = ops.resume(ctx, frame, pc)
     ops.checkpoint(ctx, frame, pc)

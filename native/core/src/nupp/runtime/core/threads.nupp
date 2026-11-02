@@ -63,6 +63,9 @@ export const MODE_PACK: uint64 = 1ULL
 -- results (`wanted` of them, or all as a pack when it wants 0), and an
 -- error is raised again in the resumer.
 export const MODE_CALL: uint64 = 2ULL
+-- pcall of a wrapped thread: a call's results with true first, or false and
+-- the error, which is not raised.
+export const MODE_PROTECTED: uint64 = 3ULL
 
 -- What resume answers: the thread runs; it cannot, and the resumer has its
 -- reason; it cannot, and its reason is raised; the frames are not as
@@ -354,14 +357,11 @@ local function switchOut(ctx: voidptr, thread: uint64, t: voidptr, after: uint64
     end
 end
 
--- Gives the resumer of `t` what the thread yielded or returned: `result`,
--- a pack, as its mode takes it.
-local function deliver(t: voidptr, result: uint64): nil
-    local frame = native.pointer(native.load64(t, native.fieldOffset<Thread>("resumerFrame")))
+-- Stores `result`, a pack, in `frame` as `mode` takes it: whole in `slot`,
+-- or its first `wanted` values from `slot` on, nil past its end.
+local function place(frame: voidptr, mode: uint64, slot: uint64, wanted: uint64, result: uint64): nil
     local window = native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("values")))
-    local slot = native.load64(t, native.fieldOffset<Thread>("resumerSlot"))
-    local wanted = native.load64(t, native.fieldOffset<Thread>("resumerWanted"))
-    if native.load64(t, native.fieldOffset<Thread>("mode")) == MODE_PACK or wanted == 0ULL then
+    if mode == MODE_PACK or wanted == 0ULL then
         native.store64(window, native.index(slot * 8ULL), result)
         return
     end
@@ -376,6 +376,18 @@ local function deliver(t: voidptr, result: uint64): nil
         native.store64(window, native.index((slot + i) * 8ULL), value)
         i = i + 1ULL
     end
+end
+
+-- Gives the resumer of `t` what the thread yielded or returned: `result`,
+-- a pack, as its mode takes it.
+local function deliver(t: voidptr, result: uint64): nil
+    place(
+        native.pointer(native.load64(t, native.fieldOffset<Thread>("resumerFrame"))),
+        native.load64(t, native.fieldOffset<Thread>("mode")),
+        native.load64(t, native.fieldOffset<Thread>("resumerSlot")),
+        native.load64(t, native.fieldOffset<Thread>("resumerWanted")),
+        result
+    )
 end
 
 -- Maps a fresh thread's frame pages and makes its bottom frame, calling its
@@ -514,10 +526,11 @@ end
 
 -- Resumes the thread `value` with the arguments in the pack `args`: the
 -- resumer, `frame` at `pc`, takes the results as `mode` says, from the slot
--- in the low half of `place` and as many as its high half wants. Answers SWITCHED once the context runs the thread;
--- REFUSED when it cannot run and the resumer has the reason, in MODE_PACK;
--- RAISED when it cannot and the reason is raised, in MODE_CALL; BROKEN when
--- the frames are not as expected.
+-- in the low half of `where` and as many as its high half wants. Answers
+-- SWITCHED once the context runs the thread; REFUSED when it cannot run
+-- and the resumer has the reason (MODE_PACK, MODE_PROTECTED); RAISED when
+-- it cannot and the reason is raised (MODE_CALL); BROKEN when the frames
+-- are not as expected.
 export function resume(
     ctx: voidptr,
     frame: voidptr,
@@ -525,10 +538,10 @@ export function resume(
     value: uint64,
     args: uint64,
     mode: uint64,
-    place: uint64
+    where: uint64
 ): uint64
-    local slot = place & 0xffffffffULL
-    local wanted = place >> 32ULL
+    local slot = where & 0xffffffffULL
+    local wanted = where >> 32ULL
     local t = bodyOf(value)
     if t == 0ULL then
         texts.argumentError(ctx, 1ULL, texts.TEXT_COROUTINE, 0ULL, value)
@@ -541,9 +554,8 @@ export function resume(
             text = texts.TEXT_RESUME_DEAD
         end
         local reason = texts.textValue(ctx, text)
-        if mode == MODE_PACK then
-            local window = native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("values")))
-            native.store64(window, native.index(slot * 8ULL), failure(ctx, reason))
+        if mode ~= MODE_CALL then
+            place(frame, mode, slot, wanted, failure(ctx, reason))
             return REFUSED
         end
         -- Positioned at the call, as a wrapped thread's errors are.
@@ -585,7 +597,7 @@ export function yield(ctx: voidptr, frame: voidptr, pc: voidptr, slot: uint64, a
     local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
     native.store64(frame, native.fieldOffset<frames.Frame>("resumePC"), (native.address(pc) - code) // 16ULL + 1ULL)
     local result = args
-    if native.load64(t, native.fieldOffset<Thread>("mode")) == MODE_PACK then
+    if native.load64(t, native.fieldOffset<Thread>("mode")) ~= MODE_CALL then
         result = packed(ctx, 1ULL, values.TRUE, 0ULL, args & values.PAYLOAD)
     end
     switchOut(ctx, thread, t, SUSPENDED)
@@ -623,7 +635,7 @@ export function finish(ctx: voidptr, frame: voidptr, results: uint64): uint64
     end
     local t = native.pointer(bodyOf(thread))
     local result = results
-    if native.load64(t, native.fieldOffset<Thread>("mode")) == MODE_PACK then
+    if native.load64(t, native.fieldOffset<Thread>("mode")) ~= MODE_CALL then
         @unsafe do
             local h = native.pointer(heapOf(ctx)) as heap.Heap*
             local mark = collector.scopeOpen(h)
@@ -648,7 +660,7 @@ export function fail(ctx: voidptr, value: uint64): uint64
     local thread = running(ctx)
     local t = native.pointer(bodyOf(thread))
     local result: uint64 = 0ULL
-    if native.load64(t, native.fieldOffset<Thread>("mode")) == MODE_PACK then
+    if native.load64(t, native.fieldOffset<Thread>("mode")) ~= MODE_CALL then
         result = failure(ctx, value)
     end
     if retire(ctx, thread, t) ~= 1ULL then
