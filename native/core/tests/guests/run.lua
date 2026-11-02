@@ -125,6 +125,7 @@ local CASES = {
     {"outputwrite", 0x7FFF000000000001},
     {"libraryspread", 0x7FFF000000000C8D},
     {"tableslibrarymeta", 0x7FFF000000000007},
+    {"tableslibrarycalls", 0x7FFF0000000001FF},
     {"moduleslazy", 0x7FFF000000000520},
     {"modulesnamed", 0x7FFF0000000004D8},
     {"modulespattern", 0x7FFF0000000000E6},
@@ -153,6 +154,7 @@ local STRESS = {
     threadsbasic = true,
     threadscalls = true,
     threadsclose = true,
+    tableslibrarycalls = true,
     threadsiterate = true
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
@@ -219,6 +221,7 @@ local NUMERIC = {
     outputwrite = "catalog-output-write",
     libraryspread = "catalog-library-spread",
     tableslibrarymeta = "catalog-tables-library-meta",
+    tableslibrarycalls = "catalog-tables-library-calls",
     moduleslazy = "catalog-modules-main",
     modulesnamed = "catalog-modules-named",
     modulespattern = "catalog-modules-pattern",

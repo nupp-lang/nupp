@@ -309,7 +309,7 @@ end
 
 -- coroutine.isyieldable().
 export function yieldable(ctx: voidptr): uint64
-    if running(ctx) ~= 0ULL then
+    if running(ctx) ~= 0ULL and not guestscope.crossing(ctx) then
         return values.TRUE
     end
 
@@ -598,6 +598,12 @@ export function yield(ctx: voidptr, frame: voidptr, pc: voidptr, slot: uint64, a
         guestscope.raise(ctx, texts.textvalue(ctx, texts.TEXT_YIELD_OUTSIDE), 0ULL)
         return 0ULL
     end
+    -- A metamethod a library call waits on cannot yield, as one a C
+    -- function calls cannot in Lua.
+    if guestscope.crossing(ctx) then
+        guestscope.raise(ctx, texts.textvalue(ctx, texts.TEXT_YIELD_ACROSS), 0ULL)
+        return 0ULL
+    end
     local t = native.pointer(bodyof(thread))
     native.store64(t, native.fieldOffset<Thread>("yieldslot"), slot)
     local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
@@ -621,6 +627,7 @@ local function retire(ctx: voidptr, thread: uint64, t: voidptr): uint64
         return 0ULL
     end
     switchout(ctx, thread, t, DEAD)
+    guestscope.replaydrop(ctx, thread)
     native.store64(t, native.fieldOffset<Thread>("segment"), 0ULL)
     local pages = native.load64(t, native.fieldOffset<Thread>("pages"))
     if pages ~= 0ULL then

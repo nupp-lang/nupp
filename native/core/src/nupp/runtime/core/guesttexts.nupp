@@ -115,6 +115,8 @@ export const TEXT_CLOSE_NORMAL: uint64 = 101ULL
 export const NAME_CLOSE: uint64 = 102ULL
 export const NAME_WRITE: uint64 = 103ULL
 export const TEXT_STACK_OVERFLOW: uint64 = 104ULL
+export const TEXT_LENGTH_INTEGER: uint64 = 105ULL
+export const TEXT_YIELD_ACROSS: uint64 = 106ULL
 
 export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
     if id == TEXT_BAD then
@@ -503,8 +505,21 @@ export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64
         return strings.appendWord(h, b, 0x6574697277ULL, 5ULL)
     elseif id == TEXT_STACK_OVERFLOW then
         -- "stack overflow"
-        return strings.appendWord(h, b, 0x766f206b63617473ULL, 8ULL)
-            | strings.appendWord(h, b, 0x776f6c667265ULL, 6ULL)
+        return strings.appendWord(h, b, 0x766f206b63617473ULL, 8ULL) | strings.appendWord(h, b, 0x776f6c667265ULL, 6ULL)
+    elseif id == TEXT_LENGTH_INTEGER then
+        -- "object length is not an integer"
+        return strings.appendWord(h, b, 0x6c207463656a626fULL, 8ULL)
+            | strings.appendWord(h, b, 0x7369206874676e65ULL, 8ULL)
+            | strings.appendWord(h, b, 0x206e6120746f6e20ULL, 8ULL)
+            | strings.appendWord(h, b, 0x72656765746e69ULL, 7ULL)
+    elseif id == TEXT_YIELD_ACROSS then
+        -- "attempt to yield across a C-call boundary"
+        return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
+            | strings.appendWord(h, b, 0x646c656979206f74ULL, 8ULL)
+            | strings.appendWord(h, b, 0x2073736f72636120ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6c6c61632d432061ULL, 8ULL)
+            | strings.appendWord(h, b, 0x7261646e756f6220ULL, 8ULL)
+            | strings.appendWord(h, b, 0x79ULL, 1ULL)
     end
 
     return 0ULL
@@ -550,9 +565,10 @@ end
 -- failed for another reason.
 export function overflow(ctx: voidptr): uint64
     local state = native.loadPointer(ctx, context.STATE)
-    if native.load64(state, native.fieldOffset<frames.State>("depth"))
-        < native.load64(state, native.fieldOffset<frames.State>("limit"))
-    then
+    if native.load64(
+        state,
+        native.fieldOffset<frames.State>("depth")
+    ) < native.load64(state, native.fieldOffset<frames.State>("limit")) then
         return 0ULL
     end
     guestscope.raise(ctx, textvalue(ctx, TEXT_STACK_OVERFLOW), 1ULL)

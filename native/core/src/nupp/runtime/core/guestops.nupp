@@ -638,6 +638,30 @@ end
 -- callee's frame is published, 0 after recording the failure. A callee
 -- that takes fewer arguments gets the first of them, as Lua drops extras.
 -- With `truth` the caller takes its result as a boolean.
+-- The metamethod a library call at `pc` waits on (`guestscope.replaybegin`),
+-- staged as metaCall stages one: its caller runs `pc` again once it
+-- answers. Answers the child's address, or 0 after recording the failure.
+export function libraryCall(ctx: voidptr, frame: voidptr, pc: voidptr, nargs: uint64, resultSlot: uint64): uint64
+    local nv = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if nv < 5ULL or nargs > 3ULL then
+        fail(ctx, frame, pc, INVALID)
+        return 0ULL
+    end
+    local child = metaPrepare(ctx, frame, pc, nv - 4ULL, nargs, resultSlot)
+    if child == 0ULL then
+        return 0ULL
+    end
+    local s = native.loadPointer(ctx, context.STATE)
+    if frames.libraryresult(s, native.pointer(child)) ~= 1ULL
+        or frames.publish(s, frame, native.pointer(child), resume(ctx, frame, pc) - 1ULL) ~= 1ULL
+    then
+        failure(ctx, INVALID)
+        return 0ULL
+    end
+
+    return child
+end
+
 export function metaCall(
     ctx: voidptr,
     frame: voidptr,

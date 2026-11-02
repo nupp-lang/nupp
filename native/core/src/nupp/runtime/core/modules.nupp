@@ -51,7 +51,9 @@ end
 -- Keeps the value module chunk `target` answered; nil is kept as true.
 export function store(ctx: voidptr, target: uint64, value: uint64): nil
     @unsafe do
-        local h = native.pointer(native.load64(services(ctx), native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+        local h = native.pointer(
+            native.load64(services(ctx), native.fieldOffset<guestscope.Services>("heap"))
+        ) as heap.Heap*
         local scope = services(ctx)
         local loaded = native.load64(scope, native.fieldOffset<guestscope.Services>("loaded"))
         if loaded == 0ULL then

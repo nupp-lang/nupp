@@ -100,6 +100,7 @@ local CASES: {[string]: {
     outputwrite = {fixture = "catalog-output-write", version = 8},
     libraryspread = {fixture = "catalog-library-spread", version = 8},
     tableslibrarymeta = {fixture = "catalog-tables-library-meta", version = 8},
+    tableslibrarycalls = {fixture = "catalog-tables-library-calls", version = 8},
     moduleslazy = {
         fixture = "catalog-modules-main",
         version = 8,

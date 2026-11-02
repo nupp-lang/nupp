@@ -1587,7 +1587,58 @@ export function LibCall(
         modules.store(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")), a)
         slots.writeValue(frame, regs, dst, a)
     else
-        slots.writeValue(frame, regs, dst, guestlib.call(ctx, libraryId, native.word(count), a, b, c, d))
+        -- The table library over a table with a metatable runs in replay
+        -- (guestscope.replaybegin): a function __index, __newindex or __len
+        -- it reaches is called here, and the call runs again once it answers.
+        local replay: uint64 = 0ULL
+        if guestlib.replays(libraryId) then
+            replay = guestscope.replaybegin(
+                ctx,
+                frame,
+                slots.readValue(frame, regs, dst),
+                guestlib.reachesmeta(libraryId, a, b)
+            )
+        end
+        -- Run again, its arguments are its entry's: the metamethod's staging
+        -- overwrote the frame's.
+        if replay == 2ULL then
+            guestscope.replaykeep(ctx, a, b, c, d)
+        elseif replay == 1ULL then
+            a = guestscope.replayarg(ctx, 0ULL)
+            b = guestscope.replayarg(ctx, 1ULL)
+            c = guestscope.replayarg(ctx, 2ULL)
+            d = guestscope.replayarg(ctx, 3ULL)
+        end
+        local result = guestlib.call(ctx, libraryId, native.word(count), a, b, c, d)
+        local kind: uint64 = 0ULL
+        if replay ~= 0ULL then
+            kind = guestscope.replayend(ctx)
+        end
+        if kind ~= 0ULL then
+            local top = native.index(valueCount - 4ULL)
+            slots.writeValue(frame, regs, top, guestscope.takeMeta(ctx))
+            slots.writeValue(frame, regs, top + 1, guestscope.metaSelf(ctx))
+            slots.writeValue(frame, regs, top + 2, guestscope.replaykey(ctx))
+            local nargs: uint64 = 2ULL
+            if kind == guestscope.ACCESS_SET then
+                slots.writeValue(frame, regs, top + 3, guestscope.replayvalue(ctx))
+                nargs = 3ULL
+            end
+            local child = ops.libraryCall(ctx, frame, pc, nargs, native.word(dst))
+            if child == 0ULL then
+                return native.fail()
+            end
+            guestscope.replaywait(ctx, child)
+            local s = native.pointer(ops.state(ctx))
+            local current = native.pointer(access.active(s))
+            local currentValues = native.pointer(access.values(s, current))
+            local currentIntegers = native.pointer(access.integers(s, current))
+            local currentFloats = native.pointer(access.floats(s, current))
+            local currentPC = native.pointer(access.pc(s, current))
+            access.refresh(s, current, ctx)
+            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        end
+        slots.writeValue(frame, regs, dst, result)
     end
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
@@ -1856,6 +1907,10 @@ export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.MODULE_DESTINATION then
         modules.store(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")), value)
     end
+    -- A metamethod a library call waits on: that call runs again next.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.LIBRARY_DESTINATION then
+        guestscope.answered(ctx, native.address(frame))
+    end
     local returned = frames.returnScalar(s, frame, value)
     if returned ~= 1ULL then
         ops.failure(ctx, ops.INVALID)
@@ -1929,6 +1984,10 @@ export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     local returned: uint64 = 0ULL
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.MODULE_DESTINATION then
         modules.store(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")), value)
+    end
+    -- A metamethod a library call waits on: that call runs again next.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.LIBRARY_DESTINATION then
+        guestscope.answered(ctx, native.address(frame))
     end
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.PACK_DESTINATION then
         -- A caller taking every result as one pack gets them in a pack.
@@ -2196,6 +2255,10 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     end
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.MODULE_DESTINATION then
         modules.store(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")), value)
+    end
+    -- A metamethod a library call waits on: that call runs again next.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.LIBRARY_DESTINATION then
+        guestscope.answered(ctx, native.address(frame))
     end
     local returned = frames.returnValues(s, frame, native.offset(regs, native.index(native.word(src) * 8ULL)), count)
     if returned ~= 1ULL then

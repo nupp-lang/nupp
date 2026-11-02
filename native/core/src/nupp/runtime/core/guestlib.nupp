@@ -724,6 +724,52 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
     end
 end
 
+-- The table library calls that run in replay (guestscope.replaybegin).
+export function replays(id: uint64): boolean
+    return id == CONCAT
+        or id == TABLE_INSERT
+        or id == TABLE_REMOVE
+        or id == TABLE_UNPACK
+        or id == TABLE_UNPACK_ALL
+        or id == TABLE_MOVE
+        or id == TABLE_MOVE_PACK
+        or id == TABLE_SORT
+        or id == SORT_BEGIN
+end
+
+-- Whether a table library call `id` with arguments a and b reaches a table
+-- with a metatable: its list, or table.move's destination.
+export function reachesmeta(id: uint64, a: uint64, b: uint64): boolean
+    if guestscope.metatabled(a) then
+        return true
+    end
+    local pack = guestscope.tableof(b)
+    if id == TABLE_MOVE_PACK and pack ~= 0ULL then
+        return guestscope.metatabled(tables.get(pack, values.TAG_INTEGER | 4ULL))
+    end
+
+    return false
+end
+
+-- #t as the table library takes it (guestscope.leni): what __len answers
+-- must be an integer, or a float with an integral value. 0 when the call
+-- stopped for __len, which its caller checks first.
+local function lengthof(ctx: voidptr, t: uint64): int64
+    local value = guestscope.leni(ctx, t)
+    if guestscope.suspended(ctx) then
+        return 0
+    end
+    if ints.isInteger(value) then
+        return native.index(ints.bitsOf(value))
+    end
+    if value & values.QNAN ~= values.QNAN and ints.integralFloat(value) then
+        return native.index(ints.floatToBits(value))
+    end
+    texts.libraryError(ctx, texts.TEXT_LENGTH_INTEGER)
+
+    return 0
+end
+
 -- table.concat(t, sep) over t[1..#t], whose elements are strings or numbers.
 local function concat(ctx: voidptr, count: uint64, list: uint64, separator: uint64, first: uint64, last: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
@@ -733,6 +779,11 @@ local function concat(ctx: voidptr, count: uint64, list: uint64, separator: uint
             texts.argumentError(ctx, 1ULL, texts.TEXT_TABLE, 0ULL, list)
         end
         local t = list & values.PAYLOAD
+        -- Lua takes the length first, whether or not j is given.
+        local size = lengthof(ctx, t)
+        if guestscope.suspended(ctx) then
+            return values.NIL
+        end
         local sep: uint64 = 0ULL
         if count >= 2ULL and separator ~= values.NIL then
             sep = strings.header(separator)
@@ -743,9 +794,13 @@ local function concat(ctx: voidptr, count: uint64, list: uint64, separator: uint
         local builder = state as strings.Builder*
         -- t[i] to t[j], 1 and #t by default; strings and numbers only.
         local i = integerArgument(ctx, first, 1, 3ULL)
-        local j = integerArgument(ctx, last, native.index(tables.length(t)), 4ULL)
+        local j = integerArgument(ctx, last, size, 4ULL)
         while i <= j do
             local item = guestscope.geti(ctx, t, i)
+            if guestscope.suspended(ctx) then
+                strings.release(builder)
+                return values.NIL
+            end
             if strings.header(item) == 0ULL and floatOf(item) == values.NIL then
                 strings.release(builder)
                 texts.concatError(ctx, item, i)
@@ -1749,7 +1804,10 @@ local function tableInsert(ctx: voidptr, count: uint64, list: uint64, a: uint64,
     @unsafe do
         local h = guestHeap(ctx)
         local t = tableArgument(ctx, list, 1ULL)
-        local size = native.index(tables.length(t))
+        local size = lengthof(ctx, t)
+        if guestscope.suspended(ctx) then
+            return values.NIL
+        end
         if count == 2ULL then
             guestscope.seti(ctx, t, size + 1, a)
             tables.drain(h)
@@ -1760,7 +1818,7 @@ local function tableInsert(ctx: voidptr, count: uint64, list: uint64, a: uint64,
             texts.argumentError(ctx, 2ULL, 0ULL, texts.TEXT_OUT_OF_BOUNDS, a)
         end
         local at = size + 1
-        while at > pos do
+        while at > pos and not guestscope.suspended(ctx) do
             guestscope.seti(ctx, t, at, guestscope.geti(ctx, t, at - 1))
             at = at - 1
         end
@@ -1776,7 +1834,10 @@ local function tableRemove(ctx: voidptr, count: uint64, list: uint64, a: uint64)
     @unsafe do
         local h = guestHeap(ctx)
         local t = tableArgument(ctx, list, 1ULL)
-        local size = native.index(tables.length(t))
+        local size = lengthof(ctx, t)
+        if guestscope.suspended(ctx) then
+            return values.NIL
+        end
         local pos = size
         if count >= 2ULL then
             pos = integerArgument(ctx, a, size, 2ULL)
@@ -1786,7 +1847,7 @@ local function tableRemove(ctx: voidptr, count: uint64, list: uint64, a: uint64)
         end
         local removed = guestscope.geti(ctx, t, pos)
         local at = pos
-        while at < size do
+        while at < size and not guestscope.suspended(ctx) do
             guestscope.seti(ctx, t, at, guestscope.geti(ctx, t, at + 1))
             at = at + 1
         end
@@ -1823,13 +1884,13 @@ local function tableMove(ctx: voidptr, source: uint64, fv: uint64, ev: uint64, t
             end
             if t > e or t <= f or a1 ~= a2 then
                 local i: int64 = 0
-                while i < n do
+                while i < n and not guestscope.suspended(ctx) do
                     guestscope.seti(ctx, a2, t + i, guestscope.geti(ctx, a1, f + i))
                     i = i + 1
                 end
             else
                 local i = n - 1
-                while i >= 0 do
+                while i >= 0 and not guestscope.suspended(ctx) do
                     guestscope.seti(ctx, a2, t + i, guestscope.geti(ctx, a1, f + i))
                     i = i - 1
                 end
@@ -1851,23 +1912,29 @@ local function tableUnpack(ctx: voidptr, list: uint64, a: uint64, b: uint64, all
         local h = guestHeap(ctx)
         local t = tableArgument(ctx, list, 1ULL)
         local i = integerArgument(ctx, a, 1, 2ULL)
-        local j = integerArgument(ctx, b, native.index(tables.length(t)), 3ULL)
+        local size: int64 = 0
+        if b == values.NIL then
+            size = lengthof(ctx, t)
+            if guestscope.suspended(ctx) then
+                return values.NIL
+            end
+        end
+        local j = integerArgument(ctx, b, size, 3ULL)
         if i > j then
             return packed(h, pack, 0ULL, values.NIL)
         end
         if j - i >= 1000000 then
             texts.libraryError(ctx, texts.TEXT_UNPACK_MANY)
         end
-        local first = guestscope.geti(ctx, t, i)
         if pack == 0ULL then
-            return first
+            return guestscope.geti(ctx, t, i)
         end
         local k = i
-        while k <= j do
+        while k <= j and not guestscope.suspended(ctx) do
             packPut(h, pack, native.word(k - i + 1), guestscope.geti(ctx, t, k))
             k = k + 1
         end
-        return packed(h, pack, native.word(j - i + 1), first)
+        return packed(h, pack, native.word(j - i + 1), loadAt(pack, 1))
     end
 end
 
@@ -1970,10 +2037,10 @@ local function sortBegin(ctx: voidptr, list: uint64, less: uint64): uint64
         storeAt(h, state, SORT_LIST, list)
         storeAt(h, state, SORT_LESS, less)
         storeAt(h, state, SORT_BUFFER, values.TAG_OBJ | buffer)
-        local n = native.index(tables.length(t))
+        local n = lengthof(ctx, t)
         sortPut(h, state, SORT_N, n)
         sortPut(h, state, SORT_PENDING, 0)
-        if n < 2 then
+        if n < 2 or guestscope.suspended(ctx) then
             sortPut(h, state, SORT_PENDING, 2)
         else
             sortAt(h, state, 1, 1)
@@ -2016,9 +2083,15 @@ local function sortStep(ctx: voidptr, value: uint64): uint64
             k = k + 1
         end
         while true do
+            if guestscope.suspended(ctx) then
+                return values.FALSE
+            end
             if i <= mid and j <= hi then
                 local right = guestscope.geti(ctx, t, j)
                 local left = guestscope.geti(ctx, t, i)
+                if guestscope.suspended(ctx) then
+                    return values.FALSE
+                end
                 if less ~= values.NIL then
                     storeAt(h, st, SORT_A, right)
                     storeAt(h, st, SORT_B, left)

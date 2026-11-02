@@ -1,0 +1,132 @@
+module nupp.core.catalogtableslibrarycalls
+
+-- The table library calls a function __index, __newindex and __len, as Lua
+-- 5.5's does, in the order Lua's makes its accesses: a proxy's values live
+-- in its store, and a trace names each access.
+local store: {string} = {}
+local trace: {string} = {}
+local proxy: {string} = setmetatable({}, {
+    __index = function(t: {string}, k: integer): string?
+        trace[#trace + 1] = "g" .. k
+        return store[k]
+    end,
+    __newindex = function(t: {string}, k: integer, v: string?): nil
+        trace[#trace + 1] = "s" .. k
+        rawset(store, k, v)
+    end,
+    __len = function(t: {string}): integer
+        trace[#trace + 1] = "n"
+        return #store
+    end
+})
+
+local function taken(): string
+    local text = table.concat(trace, " ")
+    trace = {}
+    return text
+end
+
+local score = 0
+table.insert(proxy, "a")
+table.insert(proxy, "b")
+table.insert(proxy, 1, "z")
+if table.concat(store, ",") == "z,a,b" and taken() == "n s1 n s2 n g2 s3 g1 s2 s1" then
+    score = score + 1
+end
+if table.concat(proxy, ",") == "z,a,b" and taken() == "n g1 g2 g3" then
+    score = score + 2
+end
+if table.remove(proxy, 1) == "z" and taken() == "n g1 g2 s1 g3 s2 s3" then
+    score = score + 4
+end
+local x, y = table.unpack(proxy)
+if x == "a" and y == "b" and taken() == "n g1 g2" then
+    score = score + 8
+end
+table.move(proxy, 1, 2, 3)
+if table.concat(store, ",") == "a,b,a,b" and taken() == "g1 s3 g2 s4" then
+    score = score + 16
+end
+table.sort(proxy)
+trace = {}
+if table.concat(store, ",") == "a,a,b,b" and table.remove(proxy) == "b" and taken() == "n g4 s4" then
+    score = score + 32
+end
+
+-- A metamethod that runs the library over another proxy, and one whose
+-- error a protected call takes, leave the calls around them whole.
+local inner: {string} = setmetatable({}, {
+    __index = function(t: {string}, k: integer): string?
+        return ({"p", "q"})[k]
+    end,
+    __len = function(t: {string}): integer
+        return 2
+    end
+})
+local outer: {string} = setmetatable({}, {
+    __index = function(t: {string}, k: integer): string?
+        return table.concat(inner, "") .. k
+    end,
+    __len = function(t: {string}): integer
+        return 2
+    end
+})
+local broken: {string} = setmetatable({}, {
+    __newindex = function(t: {string}, k: integer, v: string?): nil
+        error("refused " .. k)
+    end
+})
+local ok, err = pcall(function(): nil
+    table.insert(broken, "x")
+end)
+if table.concat(outer, "-") == "pq1-pq2" and not ok and string.find(tostring(err), "refused 1") ~= nil then
+    score = score + 64
+end
+
+-- __len must answer an integer; a metamethod a library call waits on is
+-- not yieldable, and its yield is refused as Lua refuses one across a C
+-- call.
+local odd: {string} = setmetatable({}, {
+    __len = function(t: {string}): any
+        return "x"
+    end
+})
+local lenok, lenerr = pcall(function(): nil
+    table.insert(odd, "y")
+end)
+if not lenok and string.find(tostring(lenerr), "object length is not an integer") ~= nil then
+    score = score + 128
+end
+local yields = coroutine.wrap(function(): string
+    local lazy: {string} = setmetatable({}, {
+        __index = function(t: {string}, k: integer): string?
+            if coroutine.isyieldable() then
+                coroutine.yield("x")
+            end
+            return "v"
+        end,
+        __len = function(t: {string}): integer
+            return 2
+        end
+    })
+    local joined = table.concat(lazy, "")
+    local _, refusal = pcall(function(): nil
+        local blocked: {string} = setmetatable({}, {
+            __index = function(t: {string}, k: integer): string?
+                coroutine.yield("y")
+                return "w"
+            end,
+            __len = function(t: {string}): integer
+                return 1
+            end
+        })
+        table.concat(blocked)
+    end)
+
+    return joined .. " " .. tostring(refusal)
+end)
+local answer = yields()
+if string.find(answer, "^vv ") ~= nil and string.find(answer, "attempt to yield across a C%-call boundary") ~= nil then
+    score = score + 256
+end
+export = score

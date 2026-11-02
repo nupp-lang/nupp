@@ -125,6 +125,10 @@ export const THREAD_DESTINATION: uint64 = 6ULL
 -- A required module's chunk (`modules`): its caller takes its value as a
 -- call's, and the loaded cache keeps it.
 export const MODULE_DESTINATION: uint64 = 7ULL
+-- A metamethod a library call waits on (`guestscope.replaybegin`): its
+-- caller takes its first result as a call's, and runs the library call
+-- again with it.
+export const LIBRARY_DESTINATION: uint64 = 8ULL
 -- The most results a caller frame may want from one call.
 export const MAX_RESULTS: uint64 = 16ULL
 
@@ -720,6 +724,7 @@ local function linked(state: voidptr, parent: voidptr, child: voidptr): uint64
         and native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= TRUTH_DESTINATION
         and native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= PACK_DESTINATION
         and native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= MODULE_DESTINATION
+        and native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= LIBRARY_DESTINATION
         or native.load64(child, native.fieldOffset<Frame>("resultOwner")) ~= native.address(parent)
         or native.load64(child, native.fieldOffset<Frame>("resultCount")) == 0ULL
         or native.load64(child, native.fieldOffset<Frame>("resultCount")) > MAX_RESULTS
@@ -1472,6 +1477,7 @@ export function rootRangeCount(
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= TRUTH_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= PACK_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= MODULE_DESTINATION
+                and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= LIBRARY_DESTINATION
                 or native.load64(frame, native.fieldOffset<Frame>("resultOwner")) ~= previous
                 or native.load64(
                     frame,
@@ -1587,6 +1593,19 @@ export function moduleresult(state: voidptr, child: voidptr): uint64
         return 0ULL
     end
     native.store64(child, native.fieldOffset<Frame>("resultKind"), MODULE_DESTINATION)
+
+    return 1ULL
+end
+
+-- Marks a prepared child as a metamethod a library call waits on.
+export function libraryresult(state: voidptr, child: voidptr): uint64
+    if validState(state) == 0ULL
+        or validFrame(state, child) == 0ULL
+        or native.load64(child, native.fieldOffset<Frame>("phase")) ~= PREPARED
+    then
+        return 0ULL
+    end
+    native.store64(child, native.fieldOffset<Frame>("resultKind"), LIBRARY_DESTINATION)
 
     return 1ULL
 end
