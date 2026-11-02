@@ -205,7 +205,7 @@ local lined = ("abcdefg\n"):rep(131072)
 local corpus = sharedbytes.copy(lined)
 local expectedLines = 131072
 
-if corpus:slice(8, 8):toString() ~= "abcdefg\n" then
+if corpus:slice(8, 8):tostring() ~= "abcdefg\n" then
     error("a region slice read the wrong bytes")
 end
 if corpus:slice(0, corpus:len()) ~= corpus then
