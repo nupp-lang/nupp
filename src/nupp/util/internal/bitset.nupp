@@ -12,7 +12,6 @@ const rshift: function(number, number): integer = bit.rshift
 const tobit: function(number): integer = bit.tobit or function(value: number): integer
     return band(value, -1) as integer
 end
-const data.WORD_BITS = 32
 const BITS_PER_WORD = 32
 const WORD_SHIFT = 5
 const BIT_MASK = 31
@@ -413,8 +412,8 @@ record data.Bitset
         return self.used
     end
 
-    --- A stored word. Word `w` holds positions `w * WORD_BITS` through
-    --- `w * WORD_BITS + WORD_BITS - 1`, lowest position first.
+    --- A stored 32-bit word. Word `w` holds positions `w * 32` through
+    --- `w * 32 + 31`, lowest position first.
     --- @param index a word index counting from 0, bounded by `wordCount`
     --- @return the word as a signed value, so one with its top bit set reads
     ---     negative, and 0 for any index outside the bound

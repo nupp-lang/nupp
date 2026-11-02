@@ -705,7 +705,7 @@ function expr.install(c: state.Checker): nil
                 c.diag("NUPP2002", at, ("forwarded result %d: %s"):format(index, why), nil, {
                     help = got == T.unknown
                     and "`unknown` fits nowhere until it is narrowed; declare this result `unknown` too, "
-                    .. "or supply a handler through `nupp.util.trywith`"
+                    .. "or narrow it in an explicit conditional before returning"
                     or explicitForm("return"),
                 })
             end
@@ -786,9 +786,9 @@ function expr.install(c: state.Checker): nil
                 {
                     help = builtin
                     and (
-                        "`%s` leads with a discriminator rather than a result; use `nupp.util.%sse`, "
-                        .. "which answers the conventional (value, reason) layout"
-                    ):format(builtin, builtin)
+                        "`%s` leads with a discriminator rather than a result; bind its results "
+                        .. "and test `ok` in an explicit conditional"
+                    ):format(builtin)
                     or explicitForm(exitKind),
                 }
             )

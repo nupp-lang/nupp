@@ -18,7 +18,6 @@ local _ = terminal.style
 
 -- File-loaded suites share these host facilities in the parent and worker states.
 require("nupp.random")
-require("nupp.util")
 require("binary")
 const carriedpool = table.newpool
 const carriedentropy = os.randombytes

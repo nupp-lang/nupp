@@ -543,4 +543,23 @@ function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()
     assert(ok, problem)
 end
 
+function M.retiredUtilRootIsNotCarriedButItsPrivateOwnersRemain()
+    local env = envMod.new("/private/tmp/nupp-retired-util-consumer", {
+        memoryOnly = true,
+        nativeCompilerServices = false,
+        typeRoots = {},
+    })
+    testAssert(not env.bundled["nupp.util"], "retired module is not bundled: nupp.util")
+    testAssert(
+        not env.bundled["nupp.util.internal.protected"],
+        "retired module is not bundled: nupp.util.internal.protected"
+    )
+    testAssert.eq(env.resolveModuleExports(env, "nupp.util"), nil)
+    local binary = assert(env.resolveModuleExports(env, "binary"))
+    local bitset = assert(env.resolveModuleExports(env, "nupp.util.internal.bitset"))
+    testAssert.eq(binary.types.Bitset, bitset.types.Bitset)
+    testAssert.eq(binary.values.WORD_BITS, nil)
+    testAssert.eq(bitset.values.WORD_BITS, nil)
+end
+
 return M

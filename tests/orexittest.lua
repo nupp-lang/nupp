@@ -495,8 +495,8 @@ function M.unreadableOperandsReport()
     )
 end
 
---- A direct `pcall` is refused by the pack-union rule, and the message names
---- the standard-library pair rather than leaving the reader to find it.
+--- Direct protected calls are refused by the pack-union rule, with an explicit
+--- conditional as the alternative.
 function M.protectedBuiltinsAreRefusedByName()
     for _, builtin in ipairs({"pcall", "xpcall"}) do
         local call = builtin == "pcall" and "pcall(work)" or "xpcall(work, tostring)"
@@ -510,7 +510,7 @@ function M.protectedBuiltinsAreRefusedByName()
             "NUPP2149",
             builtin
         )
-        assert(diagnostic.help and diagnostic.help:find("nupp.util." .. builtin .. "se", 1, true), diagnostic.help)
+        assert(diagnostic.help and diagnostic.help:find("explicit conditional", 1, true), diagnostic.help)
     end
 end
 
@@ -1078,14 +1078,10 @@ return wrapped(1)
 end
 
 ---------------------------------------------------------------------------
--- The standard-library pair
+-- Explicit protected calls
 ---------------------------------------------------------------------------
 
---- `try` answers the conventional layout, passing the raised value through
---- exactly as raised, and `tryWith` answers whatever its handler made of it.
-function M.protectedWrappersAnswerTheConventionalLayout()
-    local protected = require("nupp.util.internal.protected")
-
+function M.protectedBuiltinsPreserveRaisedValuesAndNilResults()
     local function work(n)
         if n < 0 then
             error("negative")
@@ -1094,33 +1090,26 @@ function M.protectedWrappersAnswerTheConventionalLayout()
         return n * 2
     end
 
-    local value, reason = protected.try(work, 4)
-    assert(value == 8 and reason == nil, tostring(value))
-    value, reason = protected.try(work, -1)
-    assert(value == nil and tostring(reason):find("negative", 1, true), tostring(reason))
+    local ok, value = pcall(work, 4)
+    assert(ok and value == 8, tostring(value))
+    ok, value = pcall(work, -1)
+    assert(not ok and tostring(value):find("negative", 1, true), tostring(value))
 
-    -- A non-string payload arrives unchanged.
-    local function raiseTable()
-        error({code = 7})
-    end
+    local raised = {code = 7}
+    ok, value = pcall(error, raised, 0)
+    assert(not ok and rawequal(value, raised), "a raised object keeps its identity")
 
-    value, reason = protected.try(raiseTable)
-    assert(value == nil and type(reason) == "table" and reason.code == 7, tostring(reason))
-
-    -- A nil payload is still a failure, and a successful nil is still nil: the
-    -- documented limit of the conventional layout.
-    value, reason = protected.try(error, nil)
-    assert(value == nil and reason == nil)
-    value, reason = protected.try(function()
+    ok, value = pcall(error, nil)
+    assert(not ok and value == nil, "raising nil remains a failure")
+    ok, value = pcall(function()
         return nil
     end)
-    assert(value == nil and reason == nil)
+    assert(ok and value == nil, "a successful nil remains distinguishable")
 
-    -- The handler decides the reason's type, and runs before the stack unwinds.
     local workIsOnStack = false
-    value, reason = protected.tryWith(
+    ok, value = xpcall(
         work,
-        function(raised)
+        function(problem)
             local level = 2
             while true do
                 local info = debug.getinfo(level, "f")
@@ -1134,28 +1123,35 @@ function M.protectedWrappersAnswerTheConventionalLayout()
                 level = level + 1
             end
 
-            return {message = tostring(raised)}
+            return {message = tostring(problem)}
         end,
         -1
     )
-    assert(value == nil and type(reason) == "table", tostring(reason))
-    assert(reason.message:find("negative", 1, true), reason.message)
+    assert(not ok and type(value) == "table", tostring(value))
+    assert(value.message:find("negative", 1, true), value.message)
     assert(workIsOnStack, "the handler ran before the stack unwound")
 end
 
---- A caller propagating `try`'s reason declares it `unknown`; narrowing it
+--- A local explicit protected call exposes an `unknown` reason; narrowing it
 --- at the hop is what is refused.
 function M.propagatingAnUnknownReasonChecks()
     local _, diagnostics = checked(
         [[
-local util = require("nupp.util")
-
 local function work(n: integer): integer
     return n * 2
 end
 
+local function called(n: integer): (integer?, unknown)
+    local ok, value = pcall(work, n)
+    if ok then
+        return value, nil
+    end
+
+    return nil, value
+end
+
 local function propagated(n: integer): (integer?, unknown)
-    local value = util.try(work, n) or return
+    local value = called(n) or return
 
     return value + 1, nil
 end
@@ -1166,14 +1162,21 @@ return propagated(1)
     assertClean(diagnostics)
     assertReports(
         [[
-local util = require("nupp.util")
-
 local function work(n: integer): integer
     return n * 2
 end
 
+local function called(n: integer): (integer?, unknown)
+    local ok, value = pcall(work, n)
+    if ok then
+        return value, nil
+    end
+
+    return nil, value
+end
+
 local function narrowed(n: integer): (integer?, string?)
-    local value = util.try(work, n) or return
+    local value = called(n) or return
 
     return value + 1, nil
 end
@@ -1190,22 +1193,30 @@ function M.aHandlerResultTypeReachesTheCaller()
     for _, shape in ipairs({"string", "integer", "Problem"}) do
         local source = (
             [[
-local util = require("nupp.util")
-
 local record Problem
     message: string
 end
+local type Reason = %s
 
 local function work(n: integer): integer
     return n * 2
 end
 
-local function handler(raised: any): %s
+local function handler(raised: any): Reason
     return %s
 end
 
-local function described(n: integer): (integer?, %s?)
-    local value = util.trywith(work, handler, n) or return
+local function called(n: integer): (integer?, Reason?)
+    local ok, value = xpcall(work, handler, n)
+    if ok then
+        return value, nil
+    end
+
+    return nil, value
+end
+
+local function described(n: integer): (integer?, Reason?)
+    local value = called(n) or return
 
     return value + 1, nil
 end
@@ -1216,8 +1227,7 @@ return described(1)
             shape,
             shape == "string" and "tostring(raised)"
             or shape == "integer" and "1"
-            or "new Problem(message = tostring(raised))",
-            shape
+            or "new Problem(message = tostring(raised))"
         )
         local _, diagnostics = checked(source)
         assertClean(diagnostics, shape)

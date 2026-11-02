@@ -64,10 +64,6 @@ function M.publicPoolPreservesTheHostTableAndRecordIdentity(): nil
     test.eq(reused, event)
     test(hasNoFields(reused))
     events:release(reused)
-
-    local old: any = require("nupp.util")
-    test.eq(old.Pool, nil)
-    test.eq(old.newpool, nil)
 end
 
 function M.newReservesTheCapacityUpFront(): nil

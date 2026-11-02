@@ -85,9 +85,6 @@ local platformLibraries = {
         return require("nupp.io.storage")
     end,
     function()
-        return require("nupp.util")
-    end,
-    function()
         return require("io.http")
     end,
     function()

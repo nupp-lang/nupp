@@ -1,4 +1,4 @@
--- Behavioural tests for nupp.util keys and stores, and the checker fixtures
+-- Behavioral tests for types keys and stores, and the checker fixtures
 -- that hold a key to its value type.
 --
 -- A key is a phantom-typed identity over an integer id; a store is one table

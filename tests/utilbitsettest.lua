@@ -9,7 +9,7 @@
 local check = require("assert")
 local bit = require("bit")
 local bitset = require("binary")
-local WORD_BITS = require("nupp.util").WORD_BITS
+local WORD_BITS = 32
 
 local FAR = bit.lshift(1, 20)
 
@@ -147,7 +147,7 @@ end
 function M.publicBitsetPreservesItsTypeAndThirtyTwoBitWords()
     local implementation = require("nupp.util.internal.bitset")
     check.eq(bitset.Bitset, implementation.Bitset)
-    check.eq(require("nupp.util").Bitset, nil)
+    check.eq(implementation.WORD_BITS, nil, "word width is not an exported API key")
     check.eq(WORD_BITS, 32)
     local set = bitset.Bitset.__nuppCtor1(65)
     for _, position in ipairs({31, 32, 63, 64}) do
