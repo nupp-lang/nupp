@@ -228,6 +228,16 @@ end
         env
     )
     test.eq(codes, "", messages)
+    _, codes = checkedCoroutine(
+        [[
+local type Work = function(): integer
+with scope = coroutine.scope() do
+    local task: coroutine.Task<Work> = scope:spawn(function(): integer return 7 end)
+end
+]],
+        env
+    )
+    test.eq(codes, "NUPP2603", "a plain annotation cannot erase a task scope loan")
     _, codes = checkedCoroutine("local type Invalid = coroutine.Task<integer>", env)
     test.eq(codes, "NUPP2130", "Task takes a function type, not the native result pack")
     _, codes = checkedCoroutine('local bad: coroutine.Status = "other"', env)
