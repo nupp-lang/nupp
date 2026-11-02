@@ -125,11 +125,10 @@ shared row view returns `span.Span<Field>`, and an exclusive row view returns
 ```nupp:fragment
 local span = binary.span
 
-with
-    rows = particles:write(),
-    xs: span.Writable<float32> = rows.x,
-    ys: span.Writable<float32> = rows.y
 do
+    const rows = particles:write()
+    const xs: span.Writable<float32> = rows.x
+    const ys: span.Writable<float32> = rows.y
     xs[1] = 3.5
     ys[1] = 4.5
 end

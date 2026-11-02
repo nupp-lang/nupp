@@ -46,7 +46,8 @@ local function parallel(
         end
     end
 
-    with scope = tasks.scope() do
+    do
+        const scope = tasks.scope()
         for _ = 1, math.min(jobs, #values) do
             scope:spawn(worker)
         end
