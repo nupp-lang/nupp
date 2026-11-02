@@ -692,8 +692,8 @@ export const token: facade.Token = new facade.Token(value = process.answer)
             testAssert.eq(facade.types.Token, origin.types.Token)
             testAssert.eq(origin.types.Token.moduleName, "nupp.io")
             for _, source in ipairs({
-                'module app\nlocal old = require("io")\n',
-                'module app\nlocal old = io.Token\n',
+                'module app\nlocal old = require("nupp.io")\n',
+                'module app\nlocal old = nupp.io.Token\n',
             }) do
                 local parsed = parser.parse(source, dir .. "/src/app.nupp")
                 local diags = check.check(parsed, dir .. "/src/app.nupp", env)

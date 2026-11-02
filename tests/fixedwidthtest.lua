@@ -608,7 +608,7 @@ end
 function M.lowercaseMathNamespaceFunctionsRetainRuntimeHandles()
     local m = library()
     testAssert.eq(m.u32.rotateLeft, nil)
-    testAssert.eq(m.f32.frombits, nil)
+    testAssert.eq(m.f32.fromBits, nil)
     testAssert.eq(m.wrapAngle, nil)
     testAssert.eq(m.deltaangle, nil)
     testAssert.eq(m.u32.rotateleft(0x80000000, 1), 1)

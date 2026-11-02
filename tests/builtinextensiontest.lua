@@ -305,9 +305,7 @@ function M.extensionTypesResolveBeforeAnyValueRead()
     withExtension(function(env)
         local code, parsed = compile(
             [[
-const terminal = require("io.terminal")
-
-local style: terminal.Style = {label = "ready"}
+local style: io.Style = {label = "ready"}
 local facts: os.Info = {platform = "fixture"}
 return style.label, facts.platform
 ]],
