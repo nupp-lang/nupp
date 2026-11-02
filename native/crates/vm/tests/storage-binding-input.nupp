@@ -19,7 +19,7 @@ function probe.run(): integer
         assert(binding.sizeof(bytes) == 8 and bytes[0] == 17 and bytes[7] == 17)
     end
     assert(not pcall(binding.allocbytes, -1))
-    assert(not pcall(binding.allocbytes, 0.5))
+    assert(not pcall(raw.allocbytes, 0.5))
 
     return 42
 end
