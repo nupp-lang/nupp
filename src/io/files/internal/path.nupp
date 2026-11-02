@@ -4,7 +4,7 @@ module io.files.internal.path
 const assert2 = require("assert")
 
 const utf8 = require("utf8")
-const paths = require("io.path")
+const paths = require("io.internal.path")
 
 --- An opaque portable path beneath an app-owned storage root.
 export sealed interface AppPath

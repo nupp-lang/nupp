@@ -472,8 +472,10 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.path"
     ] = {
         name = "path_runtime",
-        module = "io.path",
-        runtimeModule = "io.path",
+        module = "io.internal.path",
+        globals = {"io.newpath", "io.cwd", "io.sep"},
+        exports = {"nupp.runtime.standardio.newpath", "nupp.runtime.standardio.cwd", "nupp.runtime.standardio.sep"},
+        runtimeModule = "io.internal.path",
         portableRuntime = true,
         requires = {"runtime.pathtext", "runtime.path_provider"},
     },

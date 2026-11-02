@@ -139,7 +139,7 @@ local RESOURCES = {
     {source = "src/nupp/spi/init.nupp", output = "nupp/compiler/nupp/spi/init.nupp"},
     {source = "src/serde/json/spi.nupp", output = "nupp/compiler/serde/json/spi.nupp"},
     {source = "src/nupp/codec/json/number.nupp", output = "nupp/compiler/nupp/codec/json/number.nupp"},
-    {source = "src/io/path/spi.nupp", output = "nupp/compiler/io/path/spi.nupp"},
+    {source = "src/io/spi.nupp", output = "nupp/compiler/io/spi.nupp"},
     {source = "src/io/uri/spi.nupp", output = "nupp/compiler/io/uri/spi.nupp"},
     {source = "src/nupp/runtime/target.nupp", output = "nupp/compiler/nupp/runtime/target.nupp"},
     {source = "src/re.nupp", output = "nupp/compiler/re.nupp"},
@@ -441,7 +441,7 @@ local RESOURCES = {
     {source = "src/nupp/util/internal/bitset.nupp", output = "nupp/compiler/nupp/util/internal/bitset.nupp"},
     {source = "src/nupp/util/internal/store.nupp", output = "nupp/compiler/nupp/util/internal/store.nupp"},
     {source = "src/nupp/mem/init.nupp", output = "nupp/compiler/nupp/mem/init.nupp"},
-    {source = "src/io/path/init.nupp", output = "nupp/compiler/io/path/init.nupp"},
+    {source = "src/io/internal/path.nupp", output = "nupp/compiler/io/internal/path.nupp"},
     {source = "src/nupp/io/path/provider.nupp", output = "nupp/compiler/nupp/io/path/provider.nupp"},
     {source = "src/nupp/io/path/pathtext.nupp", output = "nupp/compiler/nupp/io/path/pathtext.nupp"},
     {source = "src/io/uri/init.nupp", output = "nupp/compiler/io/uri/init.nupp"},
@@ -738,7 +738,6 @@ return {
                     -- above `types.derive`'s generated field list. Every other
                     -- standard module says what it has to say in its own blurb.
                     {path = "modules/types/derive", title = "types.derive", source = "docs/reference/derives.md",},
-                    {path = "modules/io/path", title = "io.path",},
                 },
             },
         },

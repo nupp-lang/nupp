@@ -593,7 +593,7 @@ end
 
 function M.pathsAndFoldersAnswerTheEnvironment()
     local files = ready()
-    test.eq(files.cwd, nil, "the working directory is io.path's question")
+    test.eq(files.cwd, nil, "the working directory is queried through io.cwd")
     local home = assert(files.userfolder("home"))
     assert(type(home) == "table", "a user folder is a path value")
     assert(files.isdirectory(home), "the home folder is a directory")

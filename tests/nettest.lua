@@ -634,7 +634,7 @@ function M.listenerBacklogsAndPumpDelaysAreChecked()
 end
 
 function M.aSocketPathMayBeAPathValue()
-    -- The filesystem names every other io facade accepts: text, a io.path.Path,
+    -- The filesystem names every other io facade accepts: text, a io.Path,
     -- or an application path. The platform receives the text either way.
     local backend, state = fakeBackend({})
     function backend:listenpath(path, backlog)
@@ -648,7 +648,7 @@ function M.aSocketPathMayBeAPathValue()
     end
 
     install(backend)
-    local paths = require("io.path")
+    local paths = require("io.internal.path")
     local listener = assert(net.listen({path = paths.newpath("/tmp/nupp-b04.sock")}))
     testAssert.eq(state.listenedPath, "/tmp/nupp-b04.sock", "a Path listens on its text")
     listener:close()

@@ -73,7 +73,7 @@ intrinsic namespaces and the declared modules:
   over them.
 - [](io.files) owns filesystem metadata and directories.
 - [](io.net) owns listeners, plain connections, and TLS sessions.
-- [](io.path) models filesystem paths, and [](io.uri) models resource names.
+- [](io) models filesystem paths, and [](io.uri) models resource names.
 - [](log) owns leveled logging over a swappable destination.
 - [](math) owns scalar and two-dimensional vector helpers.
 - [](binary.span) owns rooted, bounds-checked shared and writable C array views.

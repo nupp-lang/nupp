@@ -4,7 +4,6 @@ local json = require("serde.json")
 local hex = require("serde.hex")
 local text = require("nupp.text")
 local utf8 = require("utf8")
-local path = require("io.path")
 local uri = require("io.uri")
 
 local type Player = {
@@ -45,7 +44,7 @@ local function describe(snapshot: Snapshot): string
 end
 
 local function destination(round: integer): (string, string)
-    local localFile = path.newpath("scores", "round-" .. tostring(round)):withextension("json")
+    local localFile = io.newpath("scores", "round-" .. tostring(round)):withextension("json")
     local endpoint = assert2(uri.newuri("https://game.example/scores/"))
     local remoteFile = assert2(endpoint:resolve(assert2(localFile:filename())))
     return localFile:tostring(), remoteFile:tostring()

@@ -13,8 +13,15 @@ local ROOTS = {
     table = {module = "nupp.runtime.standardtable", members = {move = true, Pool = true, newpool = true}},
     io = {
         module = "nupp.runtime.standardio",
-        replace = {popen = true},
+        replace = {popen = true, open = true, lines = true, input = true, output = true},
         members = {
+            newpath = true,
+            cwd = true,
+            sep = true,
+            open = true,
+            lines = true,
+            input = true,
+            output = true,
             Error = true,
             popen = true,
             processexit = true,

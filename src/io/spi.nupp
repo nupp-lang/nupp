@@ -1,4 +1,4 @@
-module io.path.spi
+module io.spi
 
 --[[Implementation interfaces consumed during ordinary module initialization.
 Discover with package.providers; the consumer chooses the unique highest priority.
@@ -8,11 +8,11 @@ Omitted priority is zero. Importing these declarations loads no implementation.]
 ---
 --- sep reports the host convention. cwd and canonicalize may
 --- return nil with an explanatory message when the host has no such facility or
---- an operating-system operation fails. Public Path identity remains in io.path.
-export interface Provider
+--- an operating-system operation fails. The public path type is `io.Path`.
+export interface PathProvider
     @readonly priority: integer?
 
-    --- Returns the host path sep.
+    --- Returns the host path separator.
     @readonly sep: function(): string
 
     --- Returns the process directory or nil and an environmental error.

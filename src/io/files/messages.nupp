@@ -11,7 +11,7 @@ local function isfile(info: messages.Info): boolean
 end
 ```
 ]]
-local paths = require("io.path")
+local paths = require("io.internal.path")
 
 export type Kind = "file" | "directory" | "symlink" | "other"
 export type UserFolder = "home" | "documents" | "downloads" | "desktop" | "pictures" | "music" | "videos"

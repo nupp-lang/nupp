@@ -125,7 +125,7 @@ local MODULES: {[string]: {
     ["nupp.runtime.provider.nativefiles"] = facility("runtime", "native.files"),
     ["nupp.runtime.browser.files"] = facility("runtime", "runtime.files"),
     ["nupp.io.http"] = facility("host", "runtime.http"),
-    ["io.path"] = {kind = "common"},
+    ["io.internal.path"] = {kind = "common"},
     ["serde.base64"] = {kind = "common"},
     ["serde.valuebuilder"] = {kind = "common"},
     ["nupp.io.net"] = facility("host", "runtime.net"),

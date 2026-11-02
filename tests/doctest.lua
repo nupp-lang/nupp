@@ -1557,8 +1557,8 @@ function M.standardDataApiHasCompleteDocumentation()
     end
 end
 
--- io is four modules now rather than one record in the prelude, so what used to be
--- asserted about nested declarations is asserted about each module's own surface.
+-- Public I/O overviews and their implementation declarations document the same
+-- API even when the implementation module is private.
 function M.standardIOApiHasCompleteDocumentation()
     local modules = {
         [
@@ -1574,7 +1574,13 @@ function M.standardIOApiHasCompleteDocumentation()
             },
             functions = {newBuffer = true, newStringReader = true,},
         },
-        ["src/io/path/init.nupp"] = {types = {Path = true,}, functions = {newpath = true, cwd = true, sep = true,},},
+        [
+            "src/io/internal/path.nupp"
+        ] = {
+            types = {Path = true,},
+            functions = {newpath = true, cwd = true, sep = true,},
+            overview = "src/nupp/runtime/standardio.nupp",
+        },
         [
             "src/io/uri/init.nupp"
         ] = {types = {URI = true, Components = true,}, functions = {newuri = true, validate = true, isuri = true,},},
@@ -1590,7 +1596,13 @@ function M.standardIOApiHasCompleteDocumentation()
         local name = relative:match("src/(.+)%.nupp"):gsub("/", "."):gsub("%.init$", "")
         local module, errors = doc.extract(source, relative, name)
         assert(module, errors and errors[1] and errors[1].msg)
-        assert(module.text ~= "", name .. " has no module documentation")
+        local overview = module
+        if expected.overview then
+            overview = assert(
+                doc.extract(readFile(HERE .. "/../" .. expected.overview), expected.overview, "nupp.runtime.standardio")
+            )
+        end
+        assert(overview.text ~= "", name .. " has no public overview documentation")
         local foundTypes, foundFunctions = {}, {}
         for _, item in ipairs(module.items) do
             local prefix = name .. "." .. item.name
@@ -1618,19 +1630,19 @@ function M.standardIOApiHasCompleteDocumentation()
 
     -- Paths are interned by `newpath`; direct construction is intentionally
     -- unavailable.
-    local path = assert(readFile(HERE .. "/../src/io/path/init.nupp"))
-    local module = assert(doc.extract(path, "src/io/path/init.nupp", "io.path"))
+    local path = assert(readFile(HERE .. "/../src/nupp/runtime/standardio.nupp"))
+    local module = assert(doc.extract(path, "src/nupp/runtime/standardio.nupp", "nupp.runtime.standardio"))
     local factory
     for _, item in ipairs(module.items) do
         if item.name == "newpath" then
             factory = item
         end
     end
-    assert(factory, "io.path did not document newpath")
-    assert(factory.doc.text:find("#### Examples", 1, true), "path.newpath has no examples")
+    assert(factory, "io did not document newpath")
+    assert(factory.doc.text:find("#### Examples", 1, true), "io.newpath has no examples")
     assert(
-        factory.doc.text:find('path.newpath("src", "main.nupp")', 1, true),
-        "path.newpath has no component-joining example"
+        factory.doc.text:find('io.newpath("src", "main.nupp")', 1, true),
+        "io.newpath has no component-joining example"
     )
 
     -- URIs are likewise interned by `newuri`; their exported record is a value type,
@@ -5008,7 +5020,7 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
             "write",
             "style"
         }),
-        ["src/io/path.nupp"] = library("io.path", {"join"}),
+        ["src/io/example.nupp"] = library("io.example", {"join"}),
         ["src/assert/init.nupp"] = library("assert", {"equal"}),
         ["src/io/cli/init.nupp"] = library("io.cli", {"parse"}),
         ["src/warn.nupp"] = library("warn", {"emit"}),
@@ -5028,7 +5040,7 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
             {format = "site", output = "site"}
         ) == 0
     )
-    local nested = readFile(dir .. "/site/modules/io/path/index.html")
+    local nested = readFile(dir .. "/site/modules/io/example/index.html")
     local sidebar = assert(nested:match('<aside class="nuppdoc%-sidebar".-</aside>'))
     assert(
         sidebar:find(
@@ -5071,8 +5083,8 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
     assert(api:find('href="../../../modules/assert/index.html"', 1, true), "callable global lost its module page")
     assert(api:find('href="../../../modules/io/cli/index.html"', 1, true), "the CLI module lost its page")
     assert(not api:find('data-module="arg"', 1, true), "the retired argument library has a page")
-    assert(api:find('data-module="io.path"', 1, true), "a submodule disappeared")
-    assert(api:find('href="../../../modules/io/path/index.html"', 1, true), "a submodule lost its page link")
+    assert(api:find('data-module="io.example"', 1, true), "a submodule disappeared")
+    assert(api:find('href="../../../modules/io/example/index.html"', 1, true), "a submodule lost its page link")
     for _, name in ipairs({"example", "example.tools", "example.tools.widget"}) do
         assert(api:find('data-module="' .. name .. '"', 1, true), "a qualified namespace disappeared: " .. name)
     end
@@ -5085,8 +5097,8 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
     assert(tableNode:find('href="../../../modules/table/index.html"', 1, true), "a leaf module lost its page")
     assert(not tableNode:find("<details", 1, true), "a leaf module has an empty expander")
     local outline = assert(nested:match('<aside class="nuppdoc%-outline".-</aside>'))
-    assert(outline:find('#io.path.join', 1, true), "a declaration disappeared from the page outline")
-    assert(nested:find('id="io.path.join"', 1, true), "a declaration disappeared from the body")
+    assert(outline:find('#io.example.join', 1, true), "a declaration disappeared from the page outline")
+    assert(nested:find('id="io.example.join"', 1, true), "a declaration disappeared from the body")
     assert(not api:find(">LuaJIT</a>", 1, true), "obsolete LuaJIT navigation entry")
     local aggregate = readFile(dir .. "/site/reference/lua/index.html")
     for anchor in api:gmatch('href="%.%./%.%./%.%./reference/lua/index%.html#([^"]+)"') do

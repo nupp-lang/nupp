@@ -123,7 +123,7 @@ end
 --- FIFO or directory has no length to send, and the native transport refuses it.
 record http.FileBody
     --- The file to send, named as anything [](io.files) accepts: text, a
-    --- [](io.path.Path), or an application path.
+    --- [](io.Path), or an application path.
     path: Path
 
     --- The `content-type` to send, unless the request names one itself.

@@ -14,7 +14,7 @@ because the provider's transfer lane would add a worker handoff to every small
 compiler file.
 ]]
 const files2 = require("io.files")
-const path2 = require("io.path")
+const path2 = require("io.internal.path")
 
 local fs = {}
 

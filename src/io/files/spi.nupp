@@ -2,7 +2,7 @@
 module io.files.spi
 
 local io = require("nupp.io")
-local paths = require("io.path")
+local paths = require("io.internal.path")
 local messages = require("io.files.messages")
 local appPaths = require("io.files.internal.path")
 

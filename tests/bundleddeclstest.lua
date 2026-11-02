@@ -77,9 +77,11 @@ function M.tlsOverviewExampleChecksAgainstItsPublicApi()
     testAssert.eq(diagsUnderPrelude(example), "")
 end
 
-function M.retiredTlsAndHashNamespacesAreNotBundled()
+function M.retiredNamespacesAreNotBundled()
     local env = strictEnv()
     for _, name in ipairs({
+        "io.path",
+        "io.path.spi",
         "io.net.tls",
         "io.net.tls.spi",
         "binary.hash",

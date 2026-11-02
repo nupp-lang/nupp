@@ -209,7 +209,7 @@ option without a target is refused.
 
 Compiler-provided native APIs do not appear in `dependencies`. Their resolved
 uses record effects while Nupp checks the target's complete source set, and the
-build stages the matching providers automatically. For example, [](io.path)
+build stages the matching providers automatically. For example, [](io)
 spells and transforms paths in Nupp, while calls that reach its working-directory
 and canonicalization provider record `native.path` and select the generic filesystem
 feature in `build/lib/nupp_native`; a target with no resolved native use does not build

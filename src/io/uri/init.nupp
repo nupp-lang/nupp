@@ -156,7 +156,7 @@ and `fragment` are optional strings, and `port` is an optional integer from 0
 through 65535. Every field is URI text rather than a filesystem name.
 
 ::: seealso
-- [](io.path) for filesystem names, where the platform's separators and
+- [](io) for filesystem names, where the platform's separators and
   `..` rules apply instead
 - [standard-library.md](docs/learn/runtime/data/standard-library.md) for how reaching a
   module selects the provider behind it

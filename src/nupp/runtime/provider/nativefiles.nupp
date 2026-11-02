@@ -18,9 +18,9 @@ A file's bytes move through the same `Reader` and `Writer` contracts a buffer
 uses, so a parser written against [byte I/O](io) works over a file without
 knowing one is there.
 
-A path argument is a string, a [](io.path.Path), or an app path
+A path argument is a string, a [](io.Path), or an app path
 returned by `configurationpath`, `datapath`, or `cachepath`; a path result is a
-[](io.path.Path). An operation that fails because of the environment
+[](io.Path). An operation that fails because of the environment
 returns nil or false with a reason, and a malformed argument raises at the call
 site.
 
@@ -218,7 +218,7 @@ reported by `flush`, which is the call to make first when it matters.
 ## Platform directories
 
 Two queries return where the platform keeps a user's folders and where the
-running program lives; [](io.path.cwd) returns where the
+running program lives; [](io.cwd) returns where the
 process is:
 
 ```nupp:fragment
@@ -281,7 +281,7 @@ Metadata, listings and cursor reads through an open `File` do not use the lane.
 Scheduling a transfer costs more than those cost to run.
 
 ::: seealso
-- [](io.path) for building and taking apart the names these operations
+- [](io) for building and taking apart the names these operations
   read
 - [](io) for the buffers, readers and writers a file's bytes move through
 - [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete contract an
@@ -297,7 +297,7 @@ Scheduling a transfer costs more than those cost to run.
 
 const native = require("nupp.runtime.native")
 const suspension = require("coroutine.suspension")
-const paths = require("io.path")
+const paths = require("io.internal.path")
 const io = require("io")
 local privateIo = require("nupp.io")
 const span = require("binary.span")

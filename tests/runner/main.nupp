@@ -28,7 +28,7 @@ require("binary.checksum")
 require("binary.mac")
 require("binary.compress")
 require("serde.json")
-require("io.path")
+const carriedpath = io.newpath
 require("io.uri")
 require("nupp.text")
 require("coroutine")

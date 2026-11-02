@@ -21,7 +21,7 @@ against either contract works over every implementation without knowing which
 one it has.
 
 The rest of what `io` means is a module of its own, because each has a luacase
-name and so can have one. See [](io.path) for filesystem names,
+name and so can have one. See [](io) for filesystem names,
 [](io.uri) for resource identifiers, [](io.files) for the filesystem
 itself, `popen` for running a child process, [](io.net) for
 plain and encrypted network connections, and [](io.http)
@@ -310,7 +310,7 @@ empty leaves an empty queue rather than a released one.
 
 ::: seealso
 - [](io.files) for the same contracts over a file on disk
-- [](io.path) for filesystem names rather than file contents
+- [](io) for filesystem names rather than file contents
 - [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete
   contract every owned value here follows
 - [standard-library.md](docs/learn/runtime/data/standard-library.md) for the

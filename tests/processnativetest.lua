@@ -220,7 +220,7 @@ function M.environmentAndWorkingDirectoryKeepTheirTecsMeaning()
     local child = assert(
         startProcess({
             args = shell("printf '%s|%s' \"$PWD\" \"$NUPP_PROCESS_MARKER\""),
-            cwd = require("io.path").newpath("/"),
+            cwd = require("io.internal.path").newpath("/"),
             clearenv = true,
             env = {NUPP_PROCESS_MARKER = "present"},
             stderr = "null",

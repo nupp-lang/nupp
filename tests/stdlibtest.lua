@@ -858,7 +858,7 @@ function M.filesystemNamesAreFilesPathsEverywhere()
                 "const files = require(\"io.files\")",
                 "const http = require(\"io.http\")",
                 "const net = require(\"io.net\")",
-                "const paths = require('io.path')",
+                "const paths = require('io')",
                 "const process = require('io')",
                 "local function send(where: files.Path): nil",
                 "    local body = http.file(where)",
@@ -1904,13 +1904,38 @@ function M.byteIoInstallerDoesNotSelectStructuredProcesses()
         assert(not expanded["runtime.process"], "loading byte I/O must not select structured processes")
         assert(not expanded["native.process"], "loading byte I/O must not select the native process provider")
         assert(not expanded["native.time"], "loading byte I/O must not select native timers")
+        assert(not expanded["runtime.path"], "loading byte I/O must not select path operations")
+        assert(not expanded["native.path"], "loading byte I/O must not select the native path provider")
         for _, name in ipairs(gen.runtimeModules(code)) do
             assert(
-                name ~= "io.internal.process",
+                name ~= "io.internal.process" and name ~= "io.internal.path",
                 "the optimized lazy dispatcher must not add a packaging edge at O" .. level
             )
         end
     end
+end
+
+function M.pathsAreRootIoTypesAndFilenameInputs()
+    assertClean(
+        [=[
+local function files(path: io.Path): nil
+    local file = assert(io.open(path, "rb"))
+    print(file:read(1))
+    for line in io.lines(path) do print(line) end
+    local input: io.File = io.input(path)
+    io.input(input)
+    local output: io.File = io.output(path)
+    io.output(output)
+end
+local path: io.Path = io.newpath("src", "main.nupp")
+print(path:filename(), io.sep())
+]=]
+    )
+    assertClean("const {type Path, newpath} = require('io')\nlocal path: Path = newpath('src')\nprint(path)")
+    assert(
+        #check.check(parser.parse("io.open({})", "bad-path.nupp"), "bad-path.nupp", envMod.new(HERE .. "/..")) > 0,
+        "an unrelated table is not a path"
+    )
 end
 
 function M.popenAliasesKeepTheirExplicitProcessFeature()
@@ -1998,10 +2023,10 @@ function M.nativeFeaturesAreResolvedEffects()
     )
     assert(not shadowed["native.sha256"], "a local binary is not the global facility")
 
-    local shadowedIO = effectsOf(
-        table.concat({"local io = {path = {separator = function() end}}", "io.path.separator()",}, "\n")
-    )
-    assert(not shadowedIO["native.path"], "a local io is not the global facility")
+    local shadowedIOSource = "local io = {sep = function(): string return '/' end}\nio.sep()"
+    assertClean(shadowedIOSource)
+    local shadowedIO = effectsOf(shadowedIOSource)
+    assert(not shadowedIO["runtime.path"] and not shadowedIO["native.path"], "a local io is not the global facility")
 
     local shadowedRequire = effectsOf(
         table.concat({"local require = function(_) return {} end", "require('lpeg')",}, "\n")
@@ -2019,7 +2044,7 @@ function M.nativeFeaturesAreResolvedEffects()
         ["math.lerp(10, 20, 0.25)"] = "stdlib.math",
         ["math.vec2.len(3, 4)"] = "stdlib.math",
         ["math.quat.len(0, 0, 0, 1)"] = "stdlib.math",
-        ["io.path.sep()"] = "runtime.path",
+        ["io.sep()"] = "runtime.path",
         ["io.uri.newuri('https://example.com')"] = "runtime.uri",
         ["os.uuid7()"] = "runtime.uuid",
         ["os.info()"] = "runtime.system",
@@ -2038,8 +2063,8 @@ function M.nativeFeaturesAreResolvedEffects()
     assertClean(
         table.concat(
             {
-                "const {Path} = require('io.path')",
-                "local source: io.path.Path = io.path.newpath('src', 'main.nupp')",
+                "const {type Path} = require('io')",
+                "local source: io.Path = io.newpath('src', 'main.nupp')",
                 "local components: io.uri.Components = nil as any",
                 "local URIOf: function(",
                 "    value: string | io.uri.Components",
@@ -2064,7 +2089,7 @@ function M.nativeFeaturesAreResolvedEffects()
     local typeOnly = effectsOf(
         table.concat(
             {
-                "const {type Path} = require('io.path')",
+                "const {type Path} = require('io')",
                 "local function describe(p: Path?): string return p == nil and 'none' or 'some' end",
                 "print(describe(nil))",
             },
@@ -2072,7 +2097,7 @@ function M.nativeFeaturesAreResolvedEffects()
         )
     )
     assert(next(typeOnly) == nil, "a type-only import selects no feature")
-    local mixed = effectsOf("const {type Path, sep as separator} = require('io.path')\nprint(separator)")
+    local mixed = effectsOf("const {type Path, sep as separator} = require('io')\nprint(separator)")
     assert(mixed["runtime.path"], "a pattern that also selects a value still uses the module")
 end
 
@@ -2376,11 +2401,9 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     )
 
     testAssert.eq((diagsOf("const files = require(\"io.files\")\nlocal n: number = files.read('x')")), "NUPP2001:2")
-    assertClean(
-        "const files = require(\"io.files\")\nlocal paths: {io.path.Path} = assert(files.glob('src/**/*.nupp'))"
-    )
+    assertClean("const files = require(\"io.files\")\nlocal paths: {io.Path} = assert(files.glob('src/**/*.nupp'))")
     testAssert.eq(
-        (diagsOf("const files = require(\"io.files\")\nfiles.glob(io.path.newpath('src'))")),
+        (diagsOf("const files = require(\"io.files\")\nfiles.glob(io.newpath('src'))")),
         "NUPP2006:2",
         "a glob takes a pattern, not a path"
     )
@@ -2442,7 +2465,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
     assertClean(
         table.concat(
             {
-                "const path = require('io.path')",
+                "const path = require('io')",
                 "local source: path.Path = path.newpath('src', 'main.nupp')",
                 "print(source)",
             },
@@ -2450,11 +2473,11 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
         )
     )
     testAssert.eq(
-        (diagsOf(table.concat({"const path = require('io.path')", "local value = new path.Path()",}, "\n"))),
-        "NUPP2209:2"
+        (diagsOf(table.concat({"const path = require('io')", "local value = new path.Path()",}, "\n"))),
+        "NUPP2004:2"
     )
 
-    local path = require("io.path")
+    local path = require("io.internal.path")
     local first = path.newpath("cache", "first")
     assert(rawequal(first, path.newpath("cache", "first")), "path.newpath interns equal path text")
     assert(path.Path.__nuppCtor1 == nil, "Path exposes no generated constructor")
@@ -3434,7 +3457,7 @@ function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
     testAssert.eq(scalar.readUint32, nil)
     testAssert.eq(scalar:readuint32(), 1)
     scalar:close()
-    local files, path = require("io.files"), require("io.path")
+    local files, path = require("io.files"), require("io.internal.path")
     testAssert.eq(type(files.mkdir), "function")
     testAssert.eq(type(files.tmpfile), "function")
     testAssert.eq(files.createdirectory, nil)

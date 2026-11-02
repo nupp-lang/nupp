@@ -1,4 +1,4 @@
--- `io.path` through the real provider.
+-- `io.Path` through the real provider.
 --
 -- One table of answers, recorded from the implementation this replaced. A path
 -- library's whole job is to agree with everybody else about what a piece of text
@@ -57,7 +57,7 @@ function M.beforeAll()
     previous = rawget(_G, "nupp")
     _G.nupp = nil
     assert(loadstring(source))()
-    path = require("io.path")
+    path = require("io.internal.path")
 end
 
 function M.afterAll()
@@ -74,6 +74,58 @@ local function ready()
         error("skip: " .. unavailable, 0)
     end
     return path
+end
+
+function M.rootIoFunctionsAcceptPathValuesAndKeepLuaFileResults()
+    ready()
+    local channel = require("nupp.runtime.standardio").value
+    test.eq(channel, io, "the existing io table keeps its identity")
+    local baseline = assert(channel.tmpfile())
+    local expectedWrite = baseline:write("sample")
+    assert(baseline:seek("end", 0))
+    local expectedEof = baseline:read(1)
+    assert(baseline:close())
+
+    local function sameWrite(result, file)
+        test.eq(result, expectedWrite == baseline and file or expectedWrite)
+    end
+
+    local filename = channel.newpath(root, "root-io.txt")
+    local file = assert(channel.open(filename, "w"))
+    sameWrite(file:write("first\nsecond\n"), file)
+    assert(file:close())
+
+    local input = assert(channel.open(filename, "r"))
+    test.eq(input:read("*l"), "first")
+    test.eq(input:read("*l"), "second")
+    test.eq(input:read(1), expectedEof, "path opens preserve the host file EOF result")
+    assert(input:close())
+
+    local lines = {}
+    for line in channel.lines(filename) do
+        lines[#lines + 1] = line
+    end
+    test.eq(table.concat(lines, ","), "first,second")
+    local oldInput = channel.input()
+    local selectedInput = channel.input(filename)
+    channel.input(oldInput)
+    test.eq(selectedInput:read("*l"), "first")
+    assert(selectedInput:close())
+
+    local oldOutput = channel.output()
+    local selectedOutput = channel.output(filename)
+    channel.output(oldOutput)
+    sameWrite(selectedOutput:write("changed"), selectedOutput)
+    assert(selectedOutput:close())
+    local stringFile = assert(channel.open(filename:tostring(), "r"))
+    test.eq(stringFile:read("*a"), "changed")
+    assert(stringFile:close())
+
+    local missing, reason = channel.open(channel.newpath(root, "missing"), "r")
+    test.eq(missing, nil)
+    test.eq(type(reason), "string")
+    test.eq(channel.sep(), path.sep())
+    test.eq(assert(channel.cwd()):tostring(), assert(path.cwd()):tostring())
 end
 
 -- A path written the awkward way on purpose: a `.` that normalising removes and
@@ -235,14 +287,14 @@ function M.pathStagesOnlyTheGenericFilesystemSlice()
     test.eq(feature.runtimeModule, "nupp.runtime.provider.nativepath")
     test.eq(table.concat(feature.requires or {}, ","), "runtime.path,runtime.native")
     local runtime = assert(native.feature("runtime.path"))
-    test.eq(runtime.runtimeModule, "io.path")
+    test.eq(runtime.runtimeModule, "io.internal.path")
     test.eq(runtime.portableRuntime, true)
     local handle = io.open("runtime/native/c/path.c", "rb")
     if handle then
         handle:close()
         error("the removed path provider still exists")
     end
-    local source = assert(io.open("src/io/path/init.nupp", "rb"))
+    local source = assert(io.open("src/io/internal/path.nupp", "rb"))
     local text = source:read("*a")
     source:close()
     assert(not text:find("nupp.runtime.native", 1, true), "the shared path implementation has no provider dependency")
@@ -296,9 +348,9 @@ function M.joiningOntoABareDriveStaysDriveRelative()
 end
 
 function M.absolutizingADriveRelativePathRequiresTheCurrentDrive()
-    local loadedPath = package.loaded["io.path"]
+    local loadedPath = package.loaded["io.internal.path"]
     local loadedProvider = package.loaded["nupp.io.path.provider"]
-    package.loaded["io.path"] = nil
+    package.loaded["io.internal.path"] = nil
     package.loaded["nupp.io.path.provider"] = {
         sep = function()
             return "\\"
@@ -310,8 +362,8 @@ function M.absolutizingADriveRelativePathRequiresTheCurrentDrive()
             return value, nil
         end,
     }
-    local ok, windowsPath = pcall(require, "io.path")
-    package.loaded["io.path"] = loadedPath
+    local ok, windowsPath = pcall(require, "io.internal.path")
+    package.loaded["io.internal.path"] = loadedPath
     package.loaded["nupp.io.path.provider"] = loadedProvider
     assert(ok, windowsPath)
 
