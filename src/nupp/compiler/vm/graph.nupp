@@ -1607,6 +1607,7 @@ local coreLibrary: {
     ["table.remove"] = true,
     ["table.unpack"] = true,
     ["table.sort"] = true,
+    print = true,
     ["string.format"] = true,
     ["string.gmatch"] = true,
     ["string.sub"] = true,

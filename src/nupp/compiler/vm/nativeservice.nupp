@@ -50,7 +50,8 @@ local osNames = {
     pageSize = true,
     environment = true,
     formatNumber = true,
-    parseNumber = true
+    parseNumber = true,
+    writeOutput = true
 }
 
 local function need(ok: any, message: string): any

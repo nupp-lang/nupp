@@ -81,6 +81,8 @@ export const GSUB_FINISH_ALL: uint64 = 53ULL
 -- string.format with more values than a library call carries: the format
 -- and a pack of the values.
 export const FORMAT_PACK: uint64 = 54ULL
+-- print(...), its values in a pack.
+export const PRINT: uint64 = 55ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -2056,6 +2058,39 @@ local function gsubFinish(ctx: voidptr, value: uint64, all: boolean): uint64
     end
 end
 
+-- print(...) over a pack {[0] = n, ...}: each value's text, separated by
+-- tabs, and a newline, written to the host's output at once.
+local function printValues(ctx: voidptr, packValue: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestHeap(ctx)
+        local pack = packValue & values.PAYLOAD
+        local n = native.word(integerValue(tables.get(pack, values.TAG_INTEGER)))
+        local builder = state as strings.Builder*
+        local refused: uint64 = 0ULL
+        local i: uint64 = 1ULL
+        while i <= n do
+            if i > 1ULL then
+                refused = refused | strings.appendWord(h, builder, 9ULL, 1ULL)
+            end
+            refused = refused | appendText(h, builder, tables.get(pack, values.TAG_INTEGER | i))
+            i = i + 1ULL
+        end
+        refused = refused | strings.appendWord(h, builder, 10ULL, 1ULL)
+        if refused ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        local written = os.writeOutput(native.pointer(builder.base), builder.length)
+        local length = builder.length
+        strings.release(builder)
+        if written < 0 or native.word(written) ~= length then
+            error("cannot write output")
+        end
+        return values.NIL
+    end
+end
+
 -- select(i, ...) over a variadic pack {[0] = n, ...}: the i-th value, from
 -- the end when negative; nil past the end.
 local function select(packValue: uint64, index: uint64): uint64
@@ -2124,6 +2159,8 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return tostring(ctx, a)
     elseif id == FORMAT then
         return format(ctx, count, a, b, c, d, 0ULL)
+    elseif id == PRINT then
+        return printValues(ctx, a)
     elseif id == FORMAT_PACK then
         -- The pack holds its count at key 0.
         local pack = b & values.PAYLOAD

@@ -105,7 +105,13 @@ local CASES = {
     {"recordsAffineErrors", 0x7FFF00000632F03D},
     {"tablesSort", 0x7FFF000000560C7F},
     {"stringsGsubFunction", 0x7FFF00000000003F},
-    {"stringsQuoted", 0x7FFF00000000003F}
+    {"stringsQuoted", 0x7FFF00000000003F},
+    {"outputPrint", 0x7FFF000000000006}
+}
+-- What the cases that print write to the host's output, as Lua 5.5 writes it.
+local OUTPUT = {
+    outputPrint = "hello\t42\t1.5\ttrue\tnil\tfalse\n\nxxx\t3\t-0.0\t1e+100\t9007199254740992.0\n"
+        .. "line\t1\nline\t2\nline\t3\n"
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their
@@ -163,7 +169,8 @@ local NUMERIC = {
     recordsAffineErrors = "catalog-records-affine-errors",
     tablesSort = "catalog-tables-sort",
     stringsGsubFunction = "catalog-strings-gsubfn",
-    stringsQuoted = "catalog-strings-quoted"
+    stringsQuoted = "catalog-strings-quoted",
+    outputPrint = "catalog-output-print"
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -511,14 +518,16 @@ local function main()
     local empty = OUT .. "/empty.bin"
     write(empty, "")
 
+    -- Answers what the bridge wrote, its output and errors together.
     local function bridgeRun(label, bundle, input, output, expectedStatus, environment)
-        local status = shell(
+        local status, printed = shell(
             (
                 environment or GUEST_ENV
             ) .. ("%s %s %s %s"):format(quote(bridge), quote(bundle), quote(input), quote(output))
         )
+        check((status == 0) == (expectedStatus == 0), label .. " bridge status")
 
-        return check((status == 0) == (expectedStatus == 0), label .. " bridge status")
+        return printed
     end
 
     local function guarded(label, bundle, input, highWater, expectedPath, status)
@@ -582,8 +591,9 @@ local function main()
                 write(expected, u64(expectedWord))
                 local output = OUT .. "/" .. label .. ".out"
                 os.remove(output)
-                bridgeRun(label, bundle, empty, output, 0)
+                local printed = bridgeRun(label, bundle, empty, output, 0)
                 check(read(output) == u64(expectedWord), ("%s result %016x"):format(label, expectedWord))
+                check(printed == (OUTPUT[name] or ""), label .. " printed output")
                 guarded(label, bundle, empty, highWater, expected)
                 -- The same result with a whole collection at every allocation.
                 if STRESS[name] and UNITS then
@@ -591,7 +601,8 @@ local function main()
                     write(input, u64(-1) .. u64(0) .. u64(1))
                     local stressed = OUT .. "/" .. label .. "-stress.out"
                     os.remove(stressed)
-                    bridgeRun(label .. " stress", bundle, input, stressed, 0)
+                    local again = bridgeRun(label .. " stress", bundle, input, stressed, 0)
+                    check(again == (OUTPUT[name] or ""), label .. " printed output under collect-at-every-allocation")
                     check(read(stressed) == u64(expectedWord), label .. " result under collect-at-every-allocation")
                 end
                 -- The workloads read BENCH_SCALE at run time; scale 2 has its own

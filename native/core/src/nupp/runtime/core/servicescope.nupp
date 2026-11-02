@@ -119,6 +119,11 @@ export function parseNumber(scope: voidptr, text: voidptr, bytes: uint64, out: v
     return os.parseNumber(text, bytes, out)
 end
 
+export function writeOutput(scope: voidptr, base: voidptr, bytes: uint64): int64
+    local _ = scope
+    return os.writeOutput(base, bytes)
+end
+
 -- Root-registration close failure retains all backing. Entry must preserve
 -- this scope and ledger, never reset them or drain mappings under live roots.
 export function retain(scope: voidptr): nil

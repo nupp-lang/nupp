@@ -665,6 +665,33 @@ formatMany = function(ctx: any, node: any, arguments: any): integer
     return ctx.emit(node, "LibCall", {54, operands[1], pack}, "tagged") as integer
 end
 
+-- print(...): its values in a pack, the count at key 0, written as one line.
+local function printValues(ctx: any, node: any): integer
+    local exprs = node.args.exprs or {}
+    need(#exprs == 0 or exprs[#exprs].kind ~= "vararg", "print cannot spread `...` yet")
+    local operands = {}
+    if #exprs > 0 then
+        local kinds = {}
+        for index = 1, #exprs do
+            kinds[index] = "tagged"
+        end
+        operands = ctx.operands(exprs, kinds)
+        if operands == nil then
+            return nil as any
+        end
+    end
+    local pack = ctx.emit(node, "NewTable", {}, "tagged")
+    for index, operand in ipairs(operands) do
+        local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(index))}, "tagged")
+        ctx.emit(node, "SetIdx", {pack, key, operand}, nil)
+    end
+    local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
+    local count = ctx.emit(node, "K", {pool(ctx, "int64", tostring(#operands))}, "tagged")
+    ctx.emit(node, "SetIdx", {pack, zero, count}, nil)
+
+    return ctx.emit(node, "LibCall", {55, pack}, "tagged") as integer
+end
+
 -- string.gsub(s, p, f [, n]): the gsub step advances to each match and
 -- leaves its captures as a pack, f is called with them, and its answer
 -- replaces the match. The finished string comes alone or, with `all`, in a
@@ -1564,6 +1591,8 @@ function tagged.forVersion(version: integer): any
                 return libraryCall(ctx, node, form[1], node.args.exprs)
             elseif library == "string.format" then
                 return libraryCall(ctx, node, 2, node.args.exprs or {})
+            elseif library == "print" then
+                return printValues(ctx, node)
             elseif library == "table.sort" then
                 -- Without a comparator the sort step compares with `<` itself.
                 local count = #(node.args.exprs or {})

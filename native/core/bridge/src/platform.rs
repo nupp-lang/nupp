@@ -287,3 +287,19 @@ pub unsafe extern "C" fn parse_number(text: u64, bytes: u64, out: u64) -> u64 {
     unsafe { (out as *mut u64).write(value.to_bits()) };
     1
 }
+
+/// Writes the `bytes` bytes at `base` to standard output and flushes it: the
+/// count written, or all ones when writing fails. The guest's print.
+pub unsafe extern "C" fn write_output(base: u64, bytes: u64) -> u64 {
+    use std::io::Write;
+    if base == 0 && bytes != 0 {
+        return u64::MAX;
+    }
+    let buffer: &[u8] =
+        if bytes == 0 { &[] } else { unsafe { std::slice::from_raw_parts(base as *const u8, bytes as usize) } };
+    let mut out = std::io::stdout().lock();
+    match out.write_all(buffer).and_then(|()| out.flush()) {
+        Ok(()) => bytes,
+        Err(_) => u64::MAX,
+    }
+}

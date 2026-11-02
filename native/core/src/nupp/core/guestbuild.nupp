@@ -79,7 +79,8 @@ local CASES: {[string]: {
     recordsAffineErrors = {fixture = "catalog-records-affine-errors", version = 8},
     tablesSort = {fixture = "catalog-tables-sort", version = 8},
     stringsGsubFunction = {fixture = "catalog-strings-gsubfn", version = 8},
-    stringsQuoted = {fixture = "catalog-strings-quoted", version = 8}
+    stringsQuoted = {fixture = "catalog-strings-quoted", version = 8},
+    outputPrint = {fixture = "catalog-output-print", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.

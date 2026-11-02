@@ -112,6 +112,7 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
         platform::environment as *const () as u64,
         platform::format_number as *const () as u64,
         platform::parse_number as *const () as u64,
+        platform::write_output as *const () as u64,
     ];
     let packet = [
         1,
