@@ -255,17 +255,6 @@ One call site covers all three. A library that reads a file works inside a game
 frame and inside a command-line program without knowing which it is in, and a
 transfer that settled before it was observed never reaches any of this.
 
-::: deepdive Names return immediately, bytes go to a worker lane
-Anything that moves names rather than bytes returns immediately, because the
-platform completes it immediately. Anything that moves a whole file's bytes is
-submitted to the native library's worker lane and waited for, so a program
-inside a scheduler yields instead of blocking its host. Making both suspend
-would tax every `stat` for a wait that never happens; making neither suspend
-would block a host on a transfer it cannot see. See
-[suspension.md](docs/learn/runtime/concurrency/suspension.md) for how one call
-takes either path.
-:::
-
 The immediate operations cannot suspend, so a region that forbids waiting still
 permits asking what a path is, listing a directory, or renaming one:
 

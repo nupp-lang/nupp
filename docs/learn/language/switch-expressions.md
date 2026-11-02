@@ -292,13 +292,6 @@ Every completing path through a block arm must reach one `yield`; a path may
 instead `return` from the enclosing function. Falling through, or placing a
 statement after a yield on the same path, is reported.
 
-::: deepdive
-Giving `return` the switch-result meaning would have been the smaller grammar,
-and it was rejected. An arm is ordinary code, and code that reads as an early
-exit has to be one. `yield` carries the result instead, targeting the nearest
-enclosing do expression and never crossing a function boundary.
-:::
-
 ### Contextual `yield`
 
 `yield` is line-sensitive. These remain ordinary Lua calls:
@@ -454,15 +447,6 @@ switch described above. See
 for
 what the native backend accepts.
 
-::: deepdive
-An ahead-of-time switch whose selector has an established `int32` or `uint32`
-representation lowers to comparison branches on that integer, and the code
-generator's optimizer turns those into a native switch, choosing branches, a
-search tree, bit tests, or a jump table. Lowering already produces exactly that
-shape, so no scalar-IR switch op exists, and the lane path can desugar before
-rewriting.
-:::
-
 ## Formatting
 
 The formatter preserves two visible nesting boundaries: cases sit one level
@@ -486,14 +470,6 @@ statement. The selector-closing `do` stays on the selector's final logical line,
 and formatting never separates contextual `yield` from the first token of its
 operand. See [fmt.md](../tooling/formatter.md#formatting-rules) for the rest of the
 formatter's rules.
-
-::: deepdive
-Switch indentation is language surface here, not presentation. A formatter that
-moved cases back to the containing statement's indentation would make the
-construct read as something it is not, so the boundaries above are fixed rather
-than offered as a style option. That constrains the formatter permanently, which
-is the cost of having the shape carry meaning.
-:::
 
 ## FAQ
 

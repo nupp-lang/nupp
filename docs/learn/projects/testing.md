@@ -119,16 +119,6 @@ on each test and added under the run's `metrics` field.
 The `app`, `lib`, and `love` templates include a real suite using `assert`.
 `nupp test` builds first and forwards its remaining arguments to the runner.
 
-::: deepdive
-The runner is written in Lua rather than Nupp because it loads the compiler
-that the build produced and calls it to compile the Nupp suites. A runner
-written in Nupp would be a build product of the code under test, so the change
-that broke compilation would take the report of that breakage with it.
-Compiling a suite is therefore work the runner does at run time, and a suite
-that fails to compile is reported as a failing test rather than a missing
-runner.
-:::
-
 ### Writing a test
 
 A test is a function on the table a suite returns:
@@ -378,17 +368,6 @@ estimate that was wrong costs the difference rather than the whole imbalance.
 The run stays in one process for a single named suite, for `--jobs=1`, inside
 a shard, and while [coverage](#coverage) is collected, where the shards would
 race each other for the one counter file `NUPP_COVERAGE_FILE` names.
-
-::: deepdive
-The default is one worker per processor. `--jobs=N` is explicit because the
-useful count depends on the machine and on whether the suites spend their time
-computing, compiling, or waiting on subprocesses.
-
-What neither the count nor the queue fixes is a single test case longer than a
-fair share. A case is the smallest thing that can be handed out, so the longest
-one is the floor: on the compiler's own suite that is a `soatest` case at about
-a minute and a half under load, and no arrangement of workers goes under it.
-:::
 
 ## JSON output
 

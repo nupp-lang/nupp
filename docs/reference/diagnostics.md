@@ -47,18 +47,6 @@ Failing an explicit flag, `NO_COLOR` refuses escapes, `CLICOLOR_FORCE` demands
 them, and failing both the stream is asked whether it is a terminal that
 understands them, which `TERM=dumb` answers no for.
 
-::: deepdive
-Color never changes the bytes. A styled report is the plain report with escapes
-wrapped around spans of it, so a tool that reads compiler output has nothing to
-strip and no second format to learn, and a person who pipes a failing build into
-a file gets the same thing they saw.
-
-That constraint is why `NO_COLOR` is one-way. The convention gives a user a way
-to refuse escapes and no way to ask for them, so the variable that forces them
-on is a separate one, and a terminal that has announced itself as incapable
-through `TERM=dumb` is still asked last rather than first.
-:::
-
 ## Diagnostic fields
 
 Every diagnostic carries `severity` and `message`, plus `fixes`, `notes`, and
@@ -134,19 +122,6 @@ and `nupp run` rather than `nupp check`, which does not optimize. The code is
 stable across a pass being renamed, split, or merged, so it can be cited in a
 bug report or passed to `-Zno-opt`. See the [performance
 guide](../learn/performance/index.md) for what each pass reports.
-
-::: deepdive
-An optimizer is the one part of the compiler whose silence is ambiguous. A pass
-that declined to inline a call and a pass that was never reached both produce a
-program with the call still in it, and nothing in the output says which
-happened. `OPT-n` is the answer a language owes its user when a declared
-intention did not reach the generated code.
-
-Giving remarks codes rather than free text is what makes them usable twice. The
-same identifier that names a remark in a bug report turns the pass off through
-`-Zno-opt`, and it survives the pass being renamed or split, so neither use
-breaks when the optimizer is rearranged.
-:::
 
 ## Codes by area
 

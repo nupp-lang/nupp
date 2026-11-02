@@ -50,16 +50,6 @@ it then has no declared surface, so a `.nupp` file sees it as `unknown`. See
 file to, and [modules.md](../../language/modules.md) for what a
 module declares.
 
-::: deepdive
-A `.d.nupp` inside the rock's own versioned directory is reachable by the
-compiler and by nothing else. Shipping declarations on `LUA_PATH` instead would
-put them where `require` searches, so a runtime lookup could find a file that
-has no runtime behavior in it, and the typed surface of every installed rock
-would be resolved through the same flat search path that decides which
-implementation wins. LuaRocks already versions and removes the rock directory,
-so the declaration arrives and leaves with the code it describes.
-:::
-
 ## Build and test the rock
 
 ```bash

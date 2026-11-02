@@ -727,13 +727,6 @@ end
 The root and every field must be `const`. Calls share the binding within the
 same block.
 
-::: deepdive Call binding limits
-The binding is created at first use to preserve lookup order and error
-locations. Labels and `goto` prevent reuse, as do calls with special handling
-for FFI, ownership, constructors, or output parameters. A single call needs no
-shared binding.
-:::
-
 ### `OPT-5`, concat buffer
 
 A loop that appends to a string can use a `nupp.text` buffer:
@@ -899,21 +892,6 @@ column projections are supported too. Arbitrary indices keep bounds checks.
 
 See [SIMD programming](ahead-of-time/simd-programming.md) for vector lanes in AOT code.
 
-::: deepdive Removing view allocations
-The pass can remove temporary view objects: `left` and `right` in the earlier
-example become counts, while accesses use the original views. Slices, shared
-downgrades, and SoA column projections combine their offsets without creating
-wrapper objects. The source owner stays alive for the accesses.
-
-Direct, nonrecursive local calls may pass or return views as flattened state.
-An exact imported helper over borrowed, read-only scalar spans can use a private
-body with the same flattened arguments. The exported function keeps its checked
-entry point. Private copies are limited to four per caller module and 256 syntax
-nodes per body; unsupported operations, captures, stores, recursive calls,
-foreign calls, and `any` boundaries keep view objects. Optimization remarks
-identify the imported helper and the reason a boundary remains.
-:::
-
 ### `OPT-7`, single-return helpers
 
 A local helper with one return expression can be inlined at its call sites:
@@ -985,30 +963,6 @@ end
 
 [AOT](ahead-of-time/index.md) applies the same helper eligibility rules.
 
-::: deepdive Inlining limits
-Inlining requires:
-
-- A nonrecursive, nongeneric local helper with one return expression.
-- Stable bindings: no reassignment or duplicate module declarations, a callee
-  that is the helper's own binding, and every free name of the body bound at
-  the call to what it was bound to in the helper. A loop variable, parameter, or
-  later local of the same name keeps the call.
-- Exactly one argument per parameter, using names, literals, or arithmetic over
-  numbers, whose evaluation can safely repeat or disappear.
-- No argument naming a variable the module writes when the body makes a call,
-  since the body reads the argument after that call rather than before it.
-- No `error` with a level, `debug`, `getfenv` or `setfenv` in the body, which
-  would see the caller's frame instead of the helper's.
-- Name arguments for parameters used as field, index, method, or call receivers.
-- A call in expression position.
-
-An inlined body runs on the caller's line, so an error raised inside it names
-the line of the call rather than the line of the helper.
-
-The compiler limits code growth and repeated argument computation so inlining
-does not make the caller excessively large.
-:::
-
 ### `OPT-8`, const monomorphization
 
 Calls with known scalar `const` arguments can get specialized versions that
@@ -1076,16 +1030,6 @@ as an argument, as `count` is above.
 See [const-specialized
 families](ahead-of-time/index.md#const-specialized-families).
 
-::: deepdive Cost heuristics
-The compiler limits specialization per module to control code growth;
-additional optional specializations stay generic. Calls with equivalent constant
-arguments share a specialized version in the function's declaring module. AOT
-uses the same limit.
-
-`--remarks` reports calls that stay generic, including those whose checked
-bodies are unavailable.
-:::
-
 <a id="rewrites-deliberately-not-made"></a>
 <a id="loop-closures"></a>
 
@@ -1108,56 +1052,6 @@ that depend on the iteration still block tracing;
 them when enabled or inside `@jit` functions.
 
 <a id="benchmark-details"></a>
-
-::: deepdive Benchmark details
-Measure your own workload with [benchmarks](benchmarks.md) before choosing an
-optimization level or disabling a pass.
-
-Recorded local medians, measuring generated code rather than checker time.
-Rows use LuaJIT unless marked AOT:
-
-| Pass and scenario | Before | After | Change |
-| --- | --- | --- | --- |
-| OPT-1, 200,000 tables, four named fields | 0.0159s | 0.0053s | 3.02x faster |
-| OPT-1, 200,000 tables, eight hash fields | 0.0262s | 0.0106s | 2.47x faster |
-| OPT-1, 200,000 tables, four array slots | 0.0168s | 0.0024s | 7.06x faster |
-| OPT-2, eight million visits, 4-element arrays | 0.0126s | 0.0087s | 1.44x faster |
-| OPT-2, eight million visits, 32-element arrays | 0.0053s | 0.0050s | 1.06x faster |
-| OPT-2, eight million visits, 256-element arrays | 0.0051s | 0.0047s | 1.07x faster |
-| OPT-3, 20,000 primitive expressions, load and run | 0.0039s | 0.0024s | 1.64x faster |
-| OPT-3, 20,000 nested paths, load only | 0.0095s | 0.0025s | 3.82x faster |
-| OPT-3, 20,000 nested paths, load and run | 0.0099s | 0.0025s | 3.95x faster |
-| OPT-4, 20,000 dotted calls, load only | 0.0027s | 0.0011s | 2.54x faster |
-| OPT-4, 20,000 dotted calls, load and run | 0.0030s | 0.0012s | 2.53x faster |
-| OPT-6, 8 million struct element updates | 0.01075s | 0.00735s | 1.46x faster |
-| OPT-6, SoA projected update vs handwritten columns | 0.00296s | 0.00307s | 1.037x of direct |
-| OPT-6, 500,000 slice constructions | 0.12183s | 0.00425s | 28.7x faster |
-
-Primitive folding, nested propagation, and static callable binding reduced
-source size by 32.1%, 60.8%, and 63.6%. Warmed speedups were 0.99x, 2.01x, and
-1.06x: hot-loop gains depend on workload and trace shape.
-
-```bash
-luajit bench/presize.lua
-luajit bench/numeric-ipairs.lua
-luajit bench/constant-folding.lua
-luajit bench/constant-propagation.lua
-luajit bench/static-callable.lua
-luajit bench/concat.lua
-bench/span-range-lowering/run.sh
-bench/kernel-subset-spike/mandelbrot.sh const-monomorph-ceiling
-luajit bench/kernel-subset-spike/const-monomorph-lua_main.lua
-```
-
-The `OPT-6` measurements used an arm64 Apple host after warmup, comparing
-disabled and enabled passes. Slice results cover derived-view replacement, not
-general escape analysis. See `bench/span-range-lowering/README.md` for the full
-matrix and `trace.sh` for IR comparisons.
-
-`const-monomorph-lua_main.lua` times a runtime round count against a literal
-four and against four rounds written straight-line through the ordinary Lua
-path; see `bench/kernel-subset-spike/README.md` for its recorded ratios.
-:::
 
 ## Inspecting, controlling, and measuring
 

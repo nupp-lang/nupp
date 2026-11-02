@@ -409,17 +409,6 @@ rooting a value solve different lifetime problems: the pin protects a native
 relationship described to the checker, while the registry handle keeps a Lua
 value reachable for the calling application.
 
-::: deepdive
-Nupp runs in the host's own state, on the host's own heap. A second embedded VM
-would mean two collectors, two object models, and a marshaling layer between
-code that is the same language. Raw pointers into collector-managed values are
-never exposed as a public object ABI, which is the line an embedding API is most
-tempted to cross and the one that would constrain the runtime permanently: a
-published address is a promise about object layout that every later change to
-the runtime has to keep.
-
-:::
-
 ## Errors
 
 Every fallible public function returns `nupp_status` and accepts an optional

@@ -139,12 +139,6 @@ frame;physics;app.nupp:stepWorld_[N] 812
 frame;render;app.nupp:drawWorld_[N] 233
 ```
 
-::: deepdive Avoiding allocations while profiling
-`zone.path` caches the joined path until the zone stack changes. Repeated reads
-reuse the string, avoiding allocations and extra garbage collection caused by
-the sampling callback itself.
-:::
-
 ### Push and pop are intrinsics
 
 When no profiler is active, `push` and `pop` check a boolean and return. During

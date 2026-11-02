@@ -49,15 +49,6 @@ Indexes start at one. `view[index]` raises unless the index is an integer from
 `slice(first, last)` includes both endpoints and borrows the parent; omitting
 `last` extends through the end. An empty slice uses `first, first - 1`.
 
-::: deepdive Nonescaping spans allocate nothing at -O1
-When the complete use of an exact standard Span constructor is static and
-nonescaping, Nupp keeps its anchor, pointer, offset, count, and capability as
-compiler-owned values instead of allocating a wrapper. Constructor validation
-and bounds checks still run, and the source remains strongly rooted through the
-last access, so the checked meaning does not change with the optimization
-level. An escape or an opaque call materializes the same checked span.
-:::
-
 `fromfixedcarray(source, count)` returns `FixedSpan<T, N>` when the array and
 literal count carry the same static `N`. It satisfies `Span<T>`, while
 preserving the exact count for checks and generated code.

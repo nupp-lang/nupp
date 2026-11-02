@@ -1125,7 +1125,6 @@ local function prefix(exclusive out: span.WriteSpan<uint32>, borrows input: span
 end
 ```
 
-
 `extract(s.lanes)` reads the last lane at any tier's width. Lane indices may
 be literals, `species.lanes`, or arithmetic the compiler can fold from them.
 An index beyond the species' lanes, or a parameter it cannot fold, is
@@ -1341,28 +1340,6 @@ one scalar field across several rows and is rejected for a vector field, and
 a SoA row view of such a struct is rejected: a column of vectors is a later
 step. A `Preferred` vector or a mask field keeps the struct a native-only
 aggregate.
-
-::: deepdive
-The compiler's target layout model lays the field out, per target: the
-payload rounded up to a power of two, capped at the allocator's guarantee of
-16 bytes on 64-bit targets and Wasm, or 8 bytes on i686. The payload pads to
-that alignment, so three `float` lanes occupy 16 bytes, 4 of them padding; a
-payload beyond the cap pads to a multiple of the cap. `Particle` above is 48
-bytes a row, `velocity` at offset 16.
-
-Three things are held to that model. The Lua struct declares the field as
-its element's C array with the model's alignment, so `layoutof(Particle)`,
-the FFI's allocation and its stride follow it. The native code spells the
-struct with explicit padding where the model places a field past LLVM's own
-packing, and loads and stores the field as one vector at the model's
-alignment. The compiled object reports every offset, size and alignment,
-which the generated wrapper compares with `layoutof` when the module loads,
-so a struct the two sides lay out differently, by alignment alone included,
-is rejected there rather than read wrong.
-
-As ordinary Lua the field is the struct's C array: reading it returns the
-N-lane vector of its species, and assigning a vector copies the lanes in.
-:::
 
 ## Feature tiers
 

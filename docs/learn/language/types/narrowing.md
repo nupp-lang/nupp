@@ -168,30 +168,6 @@ if entry then
 end
 ```
 
-::: deepdive
-A fact is recorded under a textual path: `s`, or `cfg.server.port`. Two
-evaluations of `a[i]` are two separate reads, and nothing in the path says `i`
-held the same value both times or that `a` was not written in between. Tracking
-one would mean proving that neither the index nor the table changed across
-every statement between the test and the use, which is the analysis narrowing
-exists to do without.
-
-A write clears a fact: an assignment to the path or to anything above it, and a
-call the checker can see writing there. What a called function writes is read
-from its source, whether it is checked before or after the call: a field
-assigned through a parameter or `self`, including through a copy of one, a
-captured local it assigns, and whatever the functions it calls do in turn, a
-callback it is handed among them. A call that could write the path forgets the
-fact and everything under it; a call that writes some other field keeps it. A
-call the checker cannot see into -- a function value read from another
-module's field, a parameter typed as a function -- is trusted to write nothing.
-
-A loop body's writes are forgotten at the loop's entry, and at a label a later
-`goto` jumps back to, because the body runs again after them. A function
-literal does not carry a narrowing of a captured local that is assigned after
-the literal is made, since the literal may run after that assignment.
-:::
-
 ### `any`
 
 `any` never narrows, because it is already compatible with everything. Reach
@@ -275,16 +251,6 @@ end
 
 The body is trusted. The checker verifies that the name is a parameter and that
 the parameter could hold that type, and takes the rest on faith.
-
-::: deepdive
-Proving a predicate would mean deriving `v is Point` from the body's chain of
-field tests, which is the same shape-inference problem the `is` operator exists
-to avoid. Trusting the body keeps the escape hatch one function wide: the
-signature says what is being asserted, the callers get an ordinary narrowing
-test, and the unchecked step is confined to a body a reader can see whole. See
-[overview.md](index.md#deliberate-unsoundness) for the other rules that
-trade soundness for compatibility.
-:::
 
 ## Guard clauses
 

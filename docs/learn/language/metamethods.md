@@ -43,20 +43,6 @@ metatable, or choose what the call constructs, so a program whose runtime never
 installs `__call` fails at the first call. This is the same trust boundary as a
 declaration file or an FFI signature.
 
-::: deepdive
-Nupp types LuaJIT metamethod dispatch without taking ownership of runtime
-metatable construction, because the construction is where the variety is: a
-registrar, a foreign runtime, and a hand-written `setmetatable` all end at the
-same table, and a language feature that covered one of them would refuse the
-other two.
-
-What the contract does buy is enforcement in the other direction. A declared
-contract is checked against the value that fulfills it, because a contract
-nothing enforces is the same defect as one never written down: it is rendered,
-documented, and never read. Computed metatables stay unchecked, since tracking a
-table's shape through arbitrary construction is a different problem.
-:::
-
 ## Installing at runtime
 
 Runtime setup is ordinary Lua, and there are two places to write it: a
@@ -332,20 +318,6 @@ setmetatable(instance, witness as metatable<Task>)
 value built by `new Task(...)` is the reverse. Reaching a member through the
 witness reaches the record's, so `Task.make(...)`, `Task.field = ...` and the
 metamethods installed on it all resolve.
-
-::: deepdive
-One runtime table wears two hats. It is the record's namespace, holding static
-functions and the `__index` instances read through, and it is the metatable
-those instances carry. Giving it one type would make `Task` interchangeable
-with a metatable value everywhere, and the mistakes that follow are silent
-ones: a table passed to `setmetatable` that was meant as a namespace still
-runs, and misbehaves later.
-
-So the witness type is `Type<Task>` and the assertion `witness as
-metatable<Task>` is where a program says it means the other hat. `as` keeps its
-usual semantics and may override the checker, which is the point: the crossing
-is legal, and it is written down.
-:::
 
 ## Excluded contracts
 

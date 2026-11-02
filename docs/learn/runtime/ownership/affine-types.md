@@ -41,19 +41,6 @@ and aliasing a generated type does not create a new nominal identity:
 local type AlsoHeld = affine(LockToken, unlock) -- the same type as HeldLock
 ```
 
-::: deepdive
-Angle brackets apply a declared generic type such as `Box<T>`, and parentheses
-call a compile-time type generator. Keeping those two operations visibly
-distinct is what lets one syntax serve both the built-in generators and
-user-defined comptime type functions, so a package that wants its own policy
-constructor writes an ordinary `@comptime function` rather than asking for a
-language keyword. The cost is that `affine(T, cleanup)` reads like a call at a
-glance, and the payment for it is that `types.affine` and every user
-generator are written the same way. See
-[type-level-computation.md](../../language/types/comptime-types.md) for the rest of the
-comptime type surface.
-:::
-
 ## Cleanup and transfer-only forms
 
 The two forms are calls to the same generator:
@@ -193,16 +180,6 @@ stores its argument preserves the capability into the unique `T` component of
 the result. See [generic
 preservation](borrowing.md#generic-preservation) for the complete set of shapes
 it follows and the ambiguity it refuses.
-
-::: deepdive
-Preservation is a separate relation rather than a property of the type, because
-it is linear flow information and not a subtyping fact. A generic record is an
-ordinary first-order application, and `preserves` supplies the conservation
-proof beside it, which is why none of this needs higher-kinded generics. HKT
-would only be relevant to an API abstracting over the container itself as a type
-constructor, and it would still not supply the proof that the obligation moved
-exactly once.
-:::
 
 ## FAQ
 

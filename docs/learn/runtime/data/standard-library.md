@@ -41,15 +41,6 @@ global `nupp.mem` table and does not add a load check at every call. The same
 rule applies to a dependency root such as `tecs`. See [modules.md](../../language/modules.md)
 for how a declared module is named and resolved.
 
-::: deepdive
-Keeping the intrinsic surface out of the module graph is what lets the compiler
-decide, per program, which implementations exist at all. A package tree would
-have to answer every parent-package import with a table whose members are all
-present, so either every program carries every facility or the answer depends
-on a load order the source does not show. A language surface hands out no such
-table: the members a file names are the members that get emitted.
-:::
-
 ## Library modules
 
 The standard surface is deliberately small. These pages cover both the

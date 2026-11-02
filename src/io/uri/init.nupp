@@ -79,15 +79,6 @@ assert(not ok and why)
 assert(not uri.isuri("https://example.com"))
 ```
 
-::: deepdive Parsing returns a reason, modification raises
-A parse takes text from somewhere else, so failure is data and the caller is
-handed it. A `with` operation starts from a URI that already parsed, so a
-failure means the caller asked for something the grammar cannot express, which
-is a mistake at the call site rather than a bad input. Text that came from
-outside the program therefore goes through `uri.newuri`, `uri.validate` or
-`resolve`, all of which return a reason.
-:::
-
 ## Deriving a new URI
 
 Every `with` operation returns a new URI and leaves the original unchanged.

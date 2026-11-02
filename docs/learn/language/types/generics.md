@@ -249,13 +249,6 @@ Adding parentheses after `>` selects the generic-call reading instead:
 a < b > (c) -- a<b>(c)
 ```
 
-::: deepdive
-The bounded lookahead keeps `a < b > c` and longer comparison expressions
-unchanged. Only the form that can immediately become a call is reinterpreted.
-Whitespace does not change tokens, so `f < T > ()` is the same generic call as
-`f<T>()`.
-:::
-
 ## Instantiation
 
 `Box<number>` is one type everywhere. Instantiations are memoized, and the
@@ -279,15 +272,6 @@ since `Box<number>` would write a float into the integer box. Readonly members
 read covariantly, so `{@readonly value: T}` applications are covariant in `T`.
 An application that exposes no members of its own is opaque, and its arguments
 compare covariantly, since nothing can be written through it.
-
-::: deepdive
-Mutable arrays likewise preserve their element type: `{integer}` does not fit a
-mutable `{number}`, which could write a fractional value into it. A
-`const {number}` parameter accepts the integer array for reading. A fresh array
-literal takes its context's element type because no earlier alias observes a
-narrower type. A generic declaration states each member's capability, so its
-variance falls out of the members rather than needing an annotation.
-:::
 
 ## `self`
 

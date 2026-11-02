@@ -119,17 +119,6 @@ keeps the C library's name, because that name identifies an ABI symbol. A
 camelCase local such as `miniApi` marks the boundary without disguising the
 foreign symbol.
 
-::: deepdive
-Each declaration is imported directly, bridged, or skipped for one reported
-reason. None is substituted with a generic pointer or a guessed ABI, which
-would produce a declaration that checks, links, and is wrong at run time.
-
-The header supplies physical facts only. What a call borrows, takes, retains,
-or releases is not written in it, so deriving those facts would be invention at
-exactly the boundary where invention is most expensive.
-
-:::
-
 ### Included headers
 
 Only the header you name is imported. Whatever arrives through its `#include`s
@@ -717,15 +706,6 @@ Only a `struct` has a layout. A `record` is a table, so `layoutof` on one is
 reported. Nothing is emitted for a struct nothing asks about, because the
 lowering happens at the call site: a program that never calls `layoutof`
 carries none of this.
-
-::: deepdive
-Reifying puts a value where anything that walks a table cannot reach it.
-`string.buffer.encode` refuses cdata outright, `pairs` needs a `__pairs`, and
-`type` returns `"cdata"`. Publishing the layout is what makes such a value
-reachable again without the language choosing a serialization format for
-everyone: a codec, a snapshot writer, or a GPU vertex-attribute descriptor is
-written against the layout, and the format stays yours.
-:::
 
 ## Describe lifetime behavior
 

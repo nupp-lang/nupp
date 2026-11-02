@@ -35,13 +35,6 @@ file and every importer gets the compiled body without naming anything new.
 Kernel wrappers call FFI symbols. Builder wrappers call a cached registered Lua
 C closure, so no generated FFI code fabricates or discovers a `lua_State *`.
 
-::: deepdive Explicit compilation modes
-There is deliberately no mode that quietly mixes compiled functions with
-ordinary fallbacks. Disabling compilation is meant to change performance and
-packaging, never an answer, and a policy that silently fell back per function
-would make a benchmark unattributable and a numeric contract unenforceable.
-:::
-
 ## The code generator
 
 `nupp` compiles AOT code itself. LLVM and its linker, lld, are part of the
@@ -188,13 +181,6 @@ Copy the output tree, move it, hand it to someone: it runs. Copy it without the
 `lib/` directory and the load fails by name, saying what it looked for and
 where, rather than with a missing symbol later on. See
 [distribution.md](../../../reference/distribution.md) for the artifact kinds.
-
-::: deepdive Relocatable library paths
-A path decided at build time could not be relocatable: an absolute path pins the
-program to one machine, and a relative one pins it to one directory. Resolving
-against the loaded chunk is the only form that survives being copied, because
-the loader has already proved that path works from wherever the program started.
-:::
 
 ## Artifact cache key
 

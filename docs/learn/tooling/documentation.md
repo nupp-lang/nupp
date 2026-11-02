@@ -460,14 +460,6 @@ scripting both see source rather than an editor. See
 [`editors/playground`](https://github.com/nupp-lang/nupp/tree/main/editors/playground)
 for how the editor works and what it cannot do.
 
-::: deepdive
-Asking is how a page gets an editor, because most examples on one should not be
-editors. A fragment does not check on its own, a step in a sequence checks as
-an error the prose has already explained, and a program the page has shown
-before teaches nothing a second time. Opting in keeps the editor on the example
-a reader would actually try, which is usually the first one on the page.
-:::
-
 ### Home page
 
 A page whose entry or frontmatter says `layout = "home"` renders a hero above
@@ -617,13 +609,6 @@ a code appears among another section's related codes it is named rather than
 linked. The area reference a code carries is linked when the docs target
 publishes that file and named as a path when it does not, so a page the site
 does not build never becomes a dead link.
-
-::: deepdive
-One page rather than one per code, because an index is searched: the browser's
-find reaches every code, rule and program at once. That is also why no program
-there asks for an editor, since text inside an editor frame is not findable.
-Each reported program instead carries a link that opens it in the playground.
-:::
 
 ### API reference
 

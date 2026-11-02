@@ -37,18 +37,6 @@ The payload and trailer stay covered by the signature because the packager
 extends `__LINKEDIT` over them before the native signer runs. See [Signing for
 macOS](#signing-for-macos) for the order that makes that work.
 
-::: deepdive
-An appended chunk rather than a platform section: an ELF section, a Mach-O
-section and a PE resource are three formats and three writers, and the payload
-contract needs nothing any of them supplies.
-
-The format is specified before its consumers because it stops being revisable
-the moment somebody publishes a stub built against it, in a repository nobody
-here controls. The first two consumers are both Nupp's own, the trivial test
-host and the compiler itself, and the [packaging fixpoint](#packaging-fixpoint)
-is the last gate before a third party is invited to publish one.
-:::
-
 ### Trailer
 
 48 bytes, little-endian, at the end of an unsigned file. For a signed Mach-O it
@@ -374,20 +362,6 @@ deterministic, if the trailer does not round-trip, if the emitter's idea of
 where a payload starts disagrees with the stub's, or if signing is not
 reproducible. It passes, and it is the last gate before a third party is allowed
 to publish a stub, because after that the format cannot move.
-
-::: deepdive
-Two things the fixpoint caught, both of which would otherwise have been found by
-somebody else.
-
-A bundle was carrying every `.lua` under the output directory, which is also
-where native dependencies build, and a dependency tree can contain example
-scripts that are not valid preload modules. A bundle now carries what the build
-compiled and nothing else.
-
-The stub could not provide JSON until the native opener was linked and
-registered in `package.preload`, because the compiler uses JSON before it does
-most work.
-:::
 
 ## Versions
 

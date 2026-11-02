@@ -307,15 +307,6 @@ return {
 `--no-method-parens` wins if both are given; there is no flag to force parens
 back on over a manifest that turned them off.
 
-::: deepdive
-`f{...}` and `f"..."` are how the language writes a record constructor and a
-single string argument, and both forms are used deliberately in checked source.
-Parenthesizing them would rewrite constructor after constructor across a
-project for no gain in what the line means, where a method call's sugar hides
-the receiver's argument list behind a brace. The rewrite is limited to the case
-where the parentheses are what makes the call readable.
-:::
-
 ### Line width
 
 `--width N` changes the code column past which a line breaks, at least 20. The

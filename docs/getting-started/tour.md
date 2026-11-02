@@ -341,18 +341,6 @@ handlers](../learn/runtime/concurrency/suspension.md#hosts-supply-scheduling-pol
 own scheduling policy, and `all`, `gather`, `race`, and `batch` compose several
 waiting operations without promises.
 
-::: deepdive
-Without a checked effect, a library that might wait has three options. Blocking
-makes it unusable under a scheduler. A second asynchronous surface doubles the
-API and splits its callers into two populations that cannot share code. A policy
-parameter pushes the decision onto every caller and into every signature between
-them.
-
-Suspension is one handled effect rather than general algebraic effects. One
-effect with handlers covers the case, and a language where any operation can be
-declared and handled is a much larger language than this needs.
-:::
-
 See [suspension](../learn/runtime/concurrency/suspension.md) for the runtime paths, cancellation
 contract, coroutine inheritance, and concurrent combinators.
 

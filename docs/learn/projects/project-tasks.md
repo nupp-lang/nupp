@@ -147,16 +147,6 @@ home=/home/you channel=beta
 Keys and values are strings, and a key has to be a plain identifier. Values are
 quoted for the platform's shell, so spaces and quotes in a value are safe.
 
-::: deepdive
-A key is restricted to an identifier because the assignment is written in front
-of the command rather than handed to a spawn call. The build tool starts a
-program by giving one string to the system shell, so `cd` and the shell's own
-assignment syntax are what an environment and a working directory can be said
-with, and Windows and POSIX disagree about how to quote both. Callers pass an
-argv and never build a command line, which is what keeps that disagreement in
-one module.
-:::
-
 ## Working directory
 
 `cwd` runs the command from a directory relative to the project containing

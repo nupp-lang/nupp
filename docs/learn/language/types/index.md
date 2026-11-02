@@ -116,16 +116,6 @@ local shaped: {
 shaped.b = 2 -- NUPP2004: no field "b" in {a: number}
 ```
 
-::: deepdive
-Widening is the price of the first rule on this page. `local i = 1` in ordinary
-Lua is a counter, not the number one, and a checker that read the initializer
-literally would report the second line of every loop anybody already wrote. The
-alternative was inferring the literal and asking for `local i: number = 1` at
-each site, which makes the annotation the default for every local.
-Widening applies only where there is no annotation and no `const`, so both
-narrower readings stay one word away.
-:::
-
 ## Typed module boundaries
 
 Two rules apply to every `.nupp` file on top of everything else it is checked

@@ -107,15 +107,6 @@ An API that accepts a declared record or struct takes `Type<T>`. A record name
 is never a `metatable<T>`, which remains for an explicit table passed to Lua's
 metatable functions.
 
-::: deepdive
-A caller supplies the declaration and nothing else. Passing a separate type
-witness beside every value would thread it through every generic that forwards
-the call, so a signature with nothing to do with reflection would acquire a
-parameter because something three layers down wanted one. Taking the
-declaration itself keeps the witness where the API needs it and out of every
-signature between here and there.
-:::
-
 ## Serialization bindings
 
 A type witness supplies neutral field access and construction. A binding

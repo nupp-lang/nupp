@@ -81,14 +81,6 @@ learns a public contract by inspecting its body.
 surface and `local` or `const` for private names. Exporting a nominal does not
 change the visibility of members inside that declaration.
 
-::: deepdive
-A module is its own public declaration. No ambient table and no companion
-declaration file repeats that surface, and this one constraint rejected most of
-the design space: any option that produced a second description of a module's
-surface was ruled out however cheap it was to build, because the second copy is
-the one that goes stale.
-:::
-
 ## Internal modules
 
 A leading `@!internal` restricts checked imports to the package namespace that

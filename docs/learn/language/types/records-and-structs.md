@@ -495,15 +495,6 @@ Both are nominal. Two records with identical fields are different types, and
 neither is assignable to the other. A record is assignable to a structural shape
 with the same fields, so width subtyping works in that direction only.
 
-::: deepdive
-Choosing between a record and a struct is a declaration rather than an
-optimization the compiler makes, because the two have genuinely different
-runtime meanings. On a native target, a struct is FFI cdata with a fixed layout
-and no hash part; a record is a table with a metatable, identity, and dynamism.
-The portable struct provider changes the host representation without changing
-the authored layout contract.
-:::
-
 `layoutof(T)` reports how a declaration is laid out, which is what lets a codec,
 a snapshot writer, or a GPU vertex-attribute descriptor be derived from the
 declaration rather than maintained beside it. See

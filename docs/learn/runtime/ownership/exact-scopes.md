@@ -89,15 +89,6 @@ update(rows)
 own.drop(rows)
 ```
 
-::: deepdive
-This construct survives beside automatic destruction because it guarantees
-something automatic destruction cannot: that the value is inaccessible and
-cannot escape, over one exact extent. It was in fact removed once the general
-case was covered, and then restored. A general feature subsumes a specific one
-only when it provides the specific one's guarantee, not merely its common use
-case.
-:::
-
 ## Failure and control flow
 
 Each successful acquisition is registered before the next begins. If a later

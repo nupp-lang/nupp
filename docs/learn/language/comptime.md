@@ -48,17 +48,6 @@ that is what this is for.
 `comptime` opens a block only when `do` follows it on the same line. Everywhere
 else it is an ordinary name.
 
-::: deepdive
-Constant folding looks like a smaller comptime, and it cannot stand in for one,
-because the two carry opposite obligations. A fold is an `-O1` rewrite that must
-be invisible in the result, is absent at `-O0` and under `nupp check`, and may
-decline silently. A block is a language construct that must be visible in the
-result, runs at every optimization level, and owes a diagnostic when it cannot
-produce a value. Anything whose meaning depends on a compile-time value could
-never be a fold, because `-O0` still has to compile the program.
-
-:::
-
 ## Values checked at their destination
 
 A block returns exactly one value, and that value is checked at the site it
@@ -131,17 +120,6 @@ error: NUPP2414: an opaque comptime value needs a directly declared materializat
 codecs](reflection.md#field-codecs) for the descriptor it reads and the codec it
 produces.
 
-::: deepdive
-Four invariants separate this from a macro system. The provider table is closed
-and compiler-owned, so adding one is a language change. The boundary is an
-explicitly declared runtime type rather than inference from a distant call, so
-deleting the annotation reports that the result needs one instead of silently
-selecting different code. The value cannot observe the program, because it is
-assembled through a sealed typed constructor API. And the block does not choose
-the emitter; the declared type does.
-
-:::
-
 ## Compile-time environment
 
 A block reads its own locals and the compile-time environment, and nothing else.
@@ -194,17 +172,6 @@ state a local operation clearly. A type function builds a structural type and
 never a declaration. See [Comptime
 types](types/comptime-types.md) for the builders, the finite
 operators, and the rules for a call left open inside a generic signature.
-
-::: deepdive
-Type algorithms used to live in a separate expression language with its own
-parser, binders, evaluator, normal forms, recursion admission, five kinds of
-budget, and exhaustive handling in every generic type consumer. The evidence
-that it was the wrong shape was in the compiler's own source: the format-string
-declaration ran to 254 lines of recursive type-state machine, because type
-position had no loop. Making types values in the language that already had
-loops removed the second compile-time language rather than adding a third.
-
-:::
 
 ## FAQ
 

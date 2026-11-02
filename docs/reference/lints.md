@@ -446,20 +446,6 @@ answer is the mistake being described. Writes, shape and metatable changes,
 escapes, declared callees, yielding and raising all are. A function returning
 nothing, including one returning only `nil`, discards nothing and is not judged.
 
-::: deepdive
-Nupp infers [effects](../learn/language/effects.md) for every visible function,
-so being nothing but a result is proved rather than declared at each function.
-
-The proof is two questions. Whether the callee reaches anything the compiler
-cannot see is answered by its effect summary, which is file-local: a callee that
-reaches another module, or makes an unresolved call, widens to `top` and is left
-alone. Whether it writes is answered separately and syntactically, because a
-summary treats a write through a non-parameter local as staying local, and a
-local read out of a parameter is not scratch. See
-[effects.md](../learn/language/effects.md#calls-and-fixed-point-propagation) for the
-propagation those answers come from.
-:::
-
 ### `erased-projection`
 
 A projection whose head inference never worked out is checked as `any`, and the
@@ -706,15 +692,6 @@ A category is a grouping, not a level: the default comes from each lint's own
 registry entry, and a category setting in `nupp.lua` moves every member at once.
 That is how a project opts into a whole category without listing it.
 
-::: deepdive
-Performance is the only opt-in category. What its members describe is real, but
-whether it is worth changing depends on how hot the code is, which the source
-does not state. Reported unprompted they would fire on code that is not hot and
-teach their reader to silence the category before ever meeting the case they
-were written for. `nupp lints` lists them whatever their level, which is where
-they are discovered instead.
-:::
-
 ## Project configuration
 
 A project moves levels in `nupp.lua`, by name or by category:
@@ -788,16 +765,6 @@ diag("missing-require", node, advice)
 `diag` takes the name or the code. Both reach the same lint, and the reported
 diagnostic carries the canonical code either way. Prefer the name at the call
 site: it reads as what is being said rather than as a number.
-
-::: deepdive
-`everyLintIsWellFormed` in `tests/allowtest.lua` checks the shape of every
-entry, covering name, code, category, level, uniqueness, and that both forms
-resolve, so a misspelled category is a failing test rather than a lint nothing
-can configure.
-
-It is a test rather than a load-time assertion on purpose: an assertion in the
-compiler would brick a build tree over a typo until it was deleted.
-:::
 
 ### Editor severity
 

@@ -265,16 +265,6 @@ Signed narrow loads produce `int32` and unsigned narrow loads produce `uint32`.
 Stores at those physical boundaries accept wider numeric inputs, because the
 store itself performs the narrowing.
 
-::: deepdive
-Two names for the same C width would be the obvious alternative, one for storage
-and one for the value a load yields. The division here is narrower on purpose:
-LuaJIT has no `uint8` register, so every narrow load already arrives as a
-32-bit Lua number, and a `uint8` local would be a type describing a
-representation that does not exist at run time. Keeping the narrow names to
-layout positions means the value types are exactly the ones LuaJIT can hold,
-and the diagnostic names the wider type to write instead.
-:::
-
 ### Numeric literals
 
 Literals type as you would expect: `1` is an `integer` literal, `1.5` and `1e3`
@@ -329,16 +319,6 @@ local hits: {integer} = {1, 2, 3}
 local maybe: integer? = counts["misses"]
 local first: integer = hits[1]
 ```
-
-::: deepdive
-An array read yielding `T` rather than `T?` is the one place collections trade
-soundness for use. Every index is in bounds until it is not, so the sound
-reading would put a `?` on `hits[1]` and force a narrowing test into every loop
-body that already knows its own bounds. Maps get the `?` because an absent key
-is the ordinary case there, not the exceptional one: a lookup on a fresh table
-is nil, and code that reads a map is usually asking whether the key is there at
-all.
-:::
 
 ## Pointers
 

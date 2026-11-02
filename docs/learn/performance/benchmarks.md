@@ -509,27 +509,6 @@ nupp: json-decode.large: nondeterministic compiler output: fork 4 reported
       different allocation sites
 ```
 
-::: deepdive
-Allocations are counted per file rather than by line and column: a comment
-inserted above unchanged code would otherwise look like every allocation below
-it was newly introduced.
-
-Remarks are diffed both ways but not gated, because nothing in a remark says
-whether a pass fired or declined. A pass that started firing adds one remark and
-removes another.
-
-An allocation site is one the Nupp optimizer left in the Lua it wrote. It says
-nothing about whether LuaJIT went on to sink it. This catches that optimizer
-regressing, which is narrow and real, and is not a count of allocations
-performed.
-
-Baselines are keyed by optimization level and `-Zno-opt` set, and abort sites
-additionally by the recorder's `traceProfile` identity. The compiler digest is
-recorded and never keys anything: an optimizer change that moves an allocation
-site is exactly the regression this exists to catch, and keying by the digest
-would discard it as uncomparable the moment it appeared.
-:::
-
 ## Profiling benchmark time
 
 ```bash

@@ -410,20 +410,6 @@ The expression form is recognized only as `switch selector do ... end`. The
 required `do` is the unambiguous boundary after an arbitrary selector, and it
 keeps `switch(x)`, `switch {x}`, and `switch "x"` as ordinary Lua calls.
 
-::: deepdive
-Reserving these names is the smaller parser, and it makes `local record = 5` a
-syntax error in a language whose first promise is that existing Lua compiles.
-Position replaces reservation instead: an introducer introduces a declaration
-only where one can start, and only when what follows it on the same line
-agrees.
-
-That costs one deliberate overlap, `local type Alias = 5`, and one more that
-came later: `a or continue` is the [exit suffix](exit-suffixes.md) rather than a
-disjunction with a variable named `continue`. Every other name is recovered from
-where it appears. See [Plain Lua is valid
-Nupp](#plain-lua-is-valid-nupp) for the overlaps and how to write around them.
-:::
-
 ## Compatibility with Lua and LuaJIT
 
 ### Plain Lua is valid Nupp
@@ -456,20 +442,6 @@ house-style judgement a project can turn off.
 Generated Lua targets **LuaJIT 2.1.1784535649 or newer**, the first build
 carrying the backported syntax extensions. `bin/nupp` checks `luajit -v` and
 names the required build rather than letting a run fail on a line nobody wrote.
-
-::: deepdive
-Requiring a recent build buys shorter and faster output. A native `?.` is one
-branch, where the equivalent lowering is a closure call, and the same holds for
-the ternary, `??`, and compound assignment. Lowering them would have widened
-the runtime floor to stock 5.1 at the price of making every program that used
-them slower than the Lua somebody would have written by hand.
-
-The floor is a build rather than a version because the extensions were
-backported into 2.1 rather than released with 3.0. See
-[CONTRIBUTING.md](https://github.com/nupp-lang/nupp/blob/main/CONTRIBUTING.md#luajit)
-for the source-checkout requirement. Released Nupp binaries carry their own
-LuaJIT host.
-:::
 
 ### Pass-through syntax
 
@@ -515,18 +487,6 @@ The rest of level 1 erases: annotations, `as`, generics, `@unsafe do` (which
 becomes `do`), and the `interface` and `type` declarations, which have no
 runtime value at all. A `struct` and a `switch` are the other two constructs
 with output of their own.
-
-::: deepdive
-Generated code never changes the line count. A cursor emits each token at its
-source line and inserts newlines to catch up, never going back, so an
-`@file.nupp` chunkname gives a correct traceback with no source map.
-
-That is what constrains every lowering above to one line. `x ??= "set"`
-becomes a complete `if` statement rather than a formatted block, and the named
-vararg's table is built on the line its `function` keyword was on. A lowering
-that needed two lines would cost either the line correspondence or a source
-map, and every stack trace a reader ever sees is worth more than either.
-:::
 
 ### Builtin functions
 

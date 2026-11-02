@@ -111,15 +111,6 @@ interface, or C declaration is observed even when the source form of a function
 signature did not change. Unrelated declarations stop at their dependency
 boundary and do not force a restart.
 
-::: deepdive
-Staging proves a whole patch compatible before commit touches any slot, because
-a partly-applied patch is what makes reload untrustworthy: the reported behavior
-is then the behavior of no version of the source. The host owns the commit
-boundary because there is no generally safe moment to swap an implementation,
-and only the program knows which one it is in.
-
-:::
-
 ### C declarations
 
 Checked `cdef` declarations are compared by stable aggregate or
@@ -178,14 +169,6 @@ configuration.
 A bare loader name remains legal, but watch mode reports once that its binary
 identity is unverified. A dynamically computed `ffi.load` argument is likewise
 reported as untracked rather than silently receiving a stronger guarantee.
-
-::: deepdive
-Replacing, removing, or retargeting a configured artifact requires a process
-restart, and Nupp deliberately does not unload or replace a library in the live
-VM. Old cdata, callbacks, function pointers, and native state can still belong
-to the loaded image, and nothing available at the swap point can prove that
-every one of them is gone.
-:::
 
 ### Provider inputs
 

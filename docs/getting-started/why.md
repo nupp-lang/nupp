@@ -188,20 +188,6 @@ The compiler optimizes costs paid before execution and facts the type checker
 proves. Eight passes run at `-O1` and `-O2`, each named by a stable `OPT-n`
 code. Ad-hoc builds default to `-O0`; deliverable targets default to `-O2`.
 
-::: deepdive
-A tracing JIT is already good at the transformations an ahead-of-time compiler
-usually performs, and it performs them with the run-time types in hand rather
-than the declared ones. Doing them again in the compiler buys a soundness
-burden on every pass for gains that vanish once a trace warms up, and it puts
-two optimizers in the path of any miscompile.
-
-What is left is the work a trace cannot reach: anything paid once before the
-first trace is recorded, and anything resting on a fact the checker proved and
-then erased. See [optimization
-passes](../learn/performance/index.md#optimization-passes) for what each one
-rewrites, and how to turn one off to bisect a miscompile.
-:::
-
 The type system has deliberate holes, and they are written down rather than
 implied: `as` is unchecked, `table` is compatible with every
 table shape in both directions, and a declared `is` edge is trusted instead of proved. Each buys

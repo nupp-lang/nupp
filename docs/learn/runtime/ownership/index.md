@@ -67,14 +67,6 @@ The parentheses are compile-time call syntax: `affine(Session, closeSession)`
 invokes a built-in type generator while checking and produces a transparent
 type. It does not call `closeSession` or construct a runtime wrapper.
 
-::: deepdive
-Cleanup attaches to a producer rather than to a type alone. One `File` type
-covers a handle that has to be closed and a handle that must not be, so putting
-the obligation on the type would close `stdout`. A function returning
-`affine(File, closeFile)` states which of the two it made, and a function
-returning a plain `File` states that nothing is owed.
-:::
-
 ## `own.Closeable` resources
 
 Use `own.Closeable` when closing is intrinsic to the type rather than one policy a
