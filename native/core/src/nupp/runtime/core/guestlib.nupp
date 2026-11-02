@@ -13,6 +13,7 @@ const strings = require("nupp.runtime.core.corestrings")
 const tables = require("nupp.runtime.core.coretables")
 const patterns = require("nupp.runtime.core.corepattern")
 const guestscope = require("nupp.runtime.core.guestscope")
+const texts = require("nupp.runtime.core.guesttexts")
 const ints = require("nupp.runtime.core.coreintegers")
 const os = require("nupp.runtime.vm.os")
 
@@ -193,9 +194,110 @@ local function tostring(ctx: voidptr, value: uint64): uint64
     end
 end
 
+-- The name of the library function call `id` stands for, or 0.
+local function libraryName(id: uint64): uint64
+    if id == TOSTRING then
+        return texts.NAME_TOSTRING
+    elseif id == FORMAT or id == FORMAT_PACK then
+        return texts.NAME_FORMAT
+    elseif id == CONCAT then
+        return texts.NAME_CONCAT
+    elseif id == GMATCH_NEXT then
+        return texts.NAME_GMATCH
+    elseif id == NEXT_STEP then
+        return texts.NAME_NEXT
+    elseif id == TONUMBER then
+        return texts.NAME_TONUMBER
+    elseif id == GETENV then
+        return texts.NAME_GETENV
+    elseif id == SUB then
+        return texts.NAME_SUB
+    elseif id == BYTE or id == BYTE_ALL then
+        return texts.NAME_BYTE
+    elseif id == CHAR then
+        return texts.NAME_CHAR
+    elseif id == REP then
+        return texts.NAME_REP
+    elseif id == UPPER then
+        return texts.NAME_UPPER
+    elseif id == LOWER then
+        return texts.NAME_LOWER
+    elseif id == LEN then
+        return texts.NAME_LEN
+    elseif id == FIND or id == FIND_ALL then
+        return texts.NAME_FIND
+    elseif id == MATCH or id == MATCH_ALL then
+        return texts.NAME_MATCH
+    elseif id == SELECT then
+        return texts.NAME_SELECT
+    elseif id == GSUB or id == GSUB_ALL or id >= GSUB_BEGIN and id <= GSUB_FINISH_ALL then
+        return texts.NAME_GSUB
+    elseif id == SETMETATABLE then
+        return texts.NAME_SETMETATABLE
+    elseif id == GETMETATABLE then
+        return texts.NAME_GETMETATABLE
+    elseif id == RAWGET then
+        return texts.NAME_RAWGET
+    elseif id == RAWSET then
+        return texts.NAME_RAWSET
+    elseif id == TYPE or id == MATH_TYPE then
+        return texts.NAME_TYPE
+    elseif id == TABLE_INSERT then
+        return texts.NAME_INSERT
+    elseif id == TABLE_REMOVE then
+        return texts.NAME_REMOVE
+    elseif id == TABLE_UNPACK or id == TABLE_UNPACK_ALL then
+        return texts.NAME_UNPACK
+    elseif id == MATH_ABS then
+        return texts.NAME_ABS
+    elseif id == MATH_CEIL then
+        return texts.NAME_CEIL
+    elseif id == MATH_MAX then
+        return texts.NAME_MAX
+    elseif id == MATH_MIN then
+        return texts.NAME_MIN
+    elseif id == MATH_TOINTEGER then
+        return texts.NAME_TOINTEGER
+    elseif id == MATH_SQRT then
+        return texts.NAME_SQRT
+    elseif id >= TABLE_SORT and id <= SORT_STEP then
+        return texts.NAME_SORT
+    elseif id == PRINT then
+        return texts.NAME_PRINT
+    elseif id == MATH_EXP then
+        return texts.NAME_EXP
+    elseif id == MATH_LOG then
+        return texts.NAME_LOG
+    elseif id == MATH_SIN then
+        return texts.NAME_SIN
+    elseif id == MATH_COS then
+        return texts.NAME_COS
+    elseif id == MATH_TAN then
+        return texts.NAME_TAN
+    elseif id == MATH_ASIN then
+        return texts.NAME_ASIN
+    elseif id == MATH_ACOS then
+        return texts.NAME_ACOS
+    elseif id == MATH_ATAN then
+        return texts.NAME_ATAN
+    elseif id == MATH_FMOD then
+        return texts.NAME_FMOD
+    elseif id == REVERSE then
+        return texts.NAME_REVERSE
+    elseif id == TABLE_MOVE or id == TABLE_MOVE_PACK then
+        return texts.NAME_MOVE
+    elseif id == MATH_RANDOM or id == MATH_RANDOM_FLOAT then
+        return texts.NAME_RANDOM
+    elseif id == MATH_RANDOMSEED or id == MATH_RANDOMSEED_HOST then
+        return texts.NAME_RANDOMSEED
+    end
+
+    return 0ULL
+end
+
 -- An integer argument as Lua reads one: an integer, or a float with an exact
 -- integer value; `absent` when the argument is nil.
-local function integerArgument(value: uint64, absent: int64, name: uint64): int64
+local function integerArgument(ctx: voidptr, value: uint64, absent: int64, position: uint64): int64
     if value == values.NIL then
         return absent
     end
@@ -206,9 +308,9 @@ local function integerArgument(value: uint64, absent: int64, name: uint64): int6
         return native.index(ints.floatToBits(value))
     end
     if value & values.QNAN ~= values.QNAN then
-        error("bad argument to string function (number has no integer representation)")
+        texts.argumentError(ctx, position, 0ULL, texts.TEXT_NO_INTEGER, value)
     end
-    error("bad argument to string function (number expected)")
+    texts.argumentError(ctx, position, texts.TEXT_NUMBER, 0ULL, value)
 
     return absent
 end
@@ -323,7 +425,7 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
         local h = guestHeap(ctx)
         local f = strings.header(fmt)
         if f == 0ULL then
-            error("bad argument #1 to 'format' (string expected)")
+            texts.argumentError(ctx, 1ULL, texts.TEXT_STRING, 0ULL, fmt)
         end
         local builder = state as strings.Builder*
         local piece = pieceState as strings.Builder*
@@ -340,6 +442,7 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                 refused = refused | strings.append(h, builder, p, 1ULL)
                 p = p + 2ULL
             else
+                local spec = p
                 p = p + 1ULL
                 -- Flags, then width, then precision.
                 local left = false
@@ -386,14 +489,14 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                 if p >= finish or width > 99ULL or precision > 99ULL then
                     strings.release(builder)
                     strings.release(piece)
-                    error("invalid conversion to 'format'")
+                    texts.conversionError(ctx, spec, p, finish)
                 end
                 local directive = native.word(native.load8(native.pointer(p), 0))
                 p = p + 1ULL
                 if next >= count then
                     strings.release(builder)
                     strings.release(piece)
-                    error("bad argument to 'format' (no value)")
+                    texts.argumentError(ctx, next + 1ULL, 0ULL, texts.TEXT_NO_VALUE, values.NIL)
                 end
                 local argument = a
                 if pack ~= 0ULL then
@@ -409,7 +512,7 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                 local prefix: uint64 = 0ULL
                 local numeric = true
                 if directive == 100ULL or directive == 105ULL then
-                    local n = integerArgument(argument, 0, 2ULL)
+                    local n = integerArgument(ctx, argument, 0, next)
                     local magnitude = native.word(n)
                     if n < 0 then
                         refused = refused | strings.appendWord(h, piece, 45ULL, 1ULL)
@@ -428,7 +531,7 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                     end
                     refused = refused | appendRadix(h, piece, magnitude, 10ULL, false, digits)
                 elseif directive == 120ULL or directive == 88ULL or directive == 111ULL then
-                    local n = native.word(integerArgument(argument, 0, 2ULL))
+                    local n = native.word(integerArgument(ctx, argument, 0, next))
                     local radix: uint64 = 16ULL
                     if directive == 111ULL then
                         radix = 8ULL
@@ -465,7 +568,7 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                     if bits == values.NIL then
                         strings.release(builder)
                         strings.release(piece)
-                        error("bad argument to 'format' (number expected)")
+                        texts.argumentError(ctx, next, texts.TEXT_NUMBER, 0ULL, argument)
                     end
                     refused = refused | strings.appendWord(h, piece, 37ULL, 1ULL)
                     if left then
@@ -500,7 +603,7 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                         if length < 0 or length > 511 then
                             strings.release(builder)
                             strings.release(piece)
-                            error("invalid conversion to 'format'")
+                            texts.conversionError(ctx, spec, p, finish)
                         end
                         piece.length = native.word(length)
                     end
@@ -509,7 +612,12 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                 elseif directive == 99ULL then
                     numeric = false
                     refused = refused
-                        | strings.appendWord(h, piece, native.word(integerArgument(argument, 0, 2ULL)) & 255ULL, 1ULL)
+                        | strings.appendWord(
+                            h,
+                            piece,
+                            native.word(integerArgument(ctx, argument, 0, next)) & 255ULL,
+                            1ULL
+                        )
                 elseif directive == 115ULL then
                     numeric = false
                     refused = refused | appendText(h, piece, argument)
@@ -521,7 +629,7 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                     if left or plus or space or alternate or zero or width > 0ULL or precise then
                         strings.release(builder)
                         strings.release(piece)
-                        error("specifier '%q' cannot have modifiers")
+                        texts.libraryError(ctx, texts.TEXT_Q_MODIFIERS)
                     end
                     numeric = false
                     local quoted = strings.header(argument)
@@ -559,7 +667,7 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                                 if length < 0 or length > 511 then
                                     strings.release(builder)
                                     strings.release(piece)
-                                    error("invalid conversion to 'format'")
+                                    texts.conversionError(ctx, spec, p, finish)
                                 end
                                 piece.length = native.word(length)
                             end
@@ -569,12 +677,13 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                     else
                         strings.release(builder)
                         strings.release(piece)
-                        error("bad argument to 'format' (value has no literal form)")
+                        texts.argumentError(ctx, next, 0ULL, texts.TEXT_NO_LITERAL, argument)
                     end
                 else
+                    -- Any other directive, as Lua refuses it.
                     strings.release(builder)
                     strings.release(piece)
-                    error("format directive not yet supported by the core")
+                    texts.conversionError(ctx, spec, p - 1ULL, finish)
                 end
                 -- Precision decides an integer's digits, so 0 pads only without it.
                 local padZero = zero and not left and numeric and not precise
@@ -617,25 +726,25 @@ local function concat(ctx: voidptr, count: uint64, list: uint64, separator: uint
     @unsafe do
         local h = guestHeap(ctx)
         if list & values.TAG_MASK ~= values.TAG_OBJ then
-            error("bad argument #1 to 'concat' (table expected)")
+            texts.argumentError(ctx, 1ULL, texts.TEXT_TABLE, 0ULL, list)
         end
         local t = list & values.PAYLOAD
         local sep: uint64 = 0ULL
         if count >= 2ULL and separator ~= values.NIL then
             sep = strings.header(separator)
             if sep == 0ULL then
-                error("bad argument #2 to 'concat' (string expected)")
+                texts.argumentError(ctx, 2ULL, texts.TEXT_STRING, 0ULL, separator)
             end
         end
         local builder = state as strings.Builder*
         -- t[i] to t[j], 1 and #t by default; strings and numbers only.
-        local i = integerArgument(first, 1, 3ULL)
-        local j = integerArgument(last, native.index(tables.length(t)), 4ULL)
+        local i = integerArgument(ctx, first, 1, 3ULL)
+        local j = integerArgument(ctx, last, native.index(tables.length(t)), 4ULL)
         while i <= j do
             local item = tables.get(t, values.TAG_INTEGER | native.word(i))
             if strings.header(item) == 0ULL and floatOf(item) == values.NIL then
                 strings.release(builder)
-                error("invalid value (at index) in table for 'concat'")
+                texts.concatError(ctx, item, i)
             end
             appendText(h, builder, item)
             if i < j and sep ~= 0ULL then
@@ -730,7 +839,7 @@ local function negate(ctx: voidptr, a: uint64): uint64
     end
     local x = floatOf(a)
     if x == values.NIL then
-        error("attempt to perform arithmetic on a non-number value")
+        texts.faultError(ctx, guestscope.FAULT_ARITH, a, a)
     end
 
     -- Times -1.0 (its bits, since a leaf has no unary minus), as Lua negates.
@@ -743,9 +852,9 @@ local function isFloat(value: uint64): boolean
 end
 
 -- The number a math function takes, raising as Lua does for anything else.
-local function numberArgument(value: uint64): uint64
+local function numberArgument(ctx: voidptr, value: uint64, position: uint64): uint64
     if not ints.isInteger(value) and not isFloat(value) then
-        error("bad argument #1 to math function (number expected)")
+        texts.argumentError(ctx, position, texts.TEXT_NUMBER, 0ULL, value)
     end
 
     return value
@@ -765,7 +874,7 @@ end
 
 -- math.abs: integers wrap at the minimum, as Lua's do.
 local function mathAbs(ctx: voidptr, a: uint64): uint64
-    numberArgument(a)
+    numberArgument(ctx, a, 1ULL)
     if ints.isInteger(a) then
         local bits = ints.bitsOf(a)
         if bits >> 63ULL == 1ULL then
@@ -779,7 +888,7 @@ end
 
 -- math.ceil: an integer when the result fits one, else the float.
 local function mathCeil(ctx: voidptr, a: uint64): uint64
-    numberArgument(a)
+    numberArgument(ctx, a, 1ULL)
     if ints.isInteger(a) then
         return a
     end
@@ -804,11 +913,19 @@ end
 
 -- math.max and math.min over one to four numbers: the first extreme one, as
 -- given (an integer stays one).
-local function mathExtreme(count: uint64, a: uint64, b: uint64, c: uint64, d: uint64, largest: boolean): uint64
+local function mathExtreme(
+    ctx: voidptr,
+    count: uint64,
+    a: uint64,
+    b: uint64,
+    c: uint64,
+    d: uint64,
+    largest: boolean
+): uint64
     if count == 0ULL then
-        error("bad argument #1 to math function (number expected)")
+        texts.argumentError(ctx, 1ULL, texts.TEXT_NUMBER, 0ULL, values.NIL)
     end
-    local best = numberArgument(a)
+    local best = numberArgument(ctx, a, 1ULL)
     local i: uint64 = 2ULL
     while i <= count do
         local next = b
@@ -817,7 +934,7 @@ local function mathExtreme(count: uint64, a: uint64, b: uint64, c: uint64, d: ui
         elseif i == 4ULL then
             next = d
         end
-        numberArgument(next)
+        numberArgument(ctx, next, i)
         if largest and numberLess(best, next) or not largest and numberLess(next, best) then
             best = next
         end
@@ -853,11 +970,11 @@ local function mathType(ctx: voidptr, a: uint64): uint64
 end
 
 -- Lua's /: always float.
-local function divide(a: uint64, b: uint64): uint64
+local function divide(ctx: voidptr, a: uint64, b: uint64): uint64
     local x = floatOf(a)
     local y = floatOf(b)
     if x == values.NIL or y == values.NIL then
-        error("attempt to perform arithmetic on a non-number value")
+        texts.faultError(ctx, guestscope.FAULT_ARITH, a, b)
     end
 
     return floatValue(native.bits(native.fromBits(x) / native.fromBits(y)))
@@ -870,7 +987,7 @@ local function floorDivide(ctx: voidptr, a: uint64, b: uint64): uint64
         local x = native.index(ints.bitsOf(a))
         local y = native.index(ints.bitsOf(b))
         if y == 0 then
-            error("attempt to perform 'n//0'")
+            texts.libraryError(ctx, texts.TEXT_IDIV_ZERO)
         end
         if y == -1 then
             return guestscope.integer(ctx, 0ULL - native.word(x))
@@ -880,7 +997,7 @@ local function floorDivide(ctx: voidptr, a: uint64, b: uint64): uint64
     local x = floatOf(a)
     local y = floatOf(b)
     if x == values.NIL or y == values.NIL then
-        error("attempt to perform arithmetic on a non-number value")
+        texts.faultError(ctx, guestscope.FAULT_ARITH, a, b)
     end
 
     return floatValue(native.bits(native.floor(native.fromBits(x) / native.fromBits(y))))
@@ -899,7 +1016,7 @@ local function nextStep(ctx: voidptr, stateValue: uint64): uint64
         local t = subject & values.PAYLOAD
         local key = tables.nextKey(t, tables.get(state, values.TAG_INTEGER | 2ULL))
         if key == values.TRUE then
-            error("invalid key to 'next'")
+            texts.libraryError(ctx, texts.TEXT_NEXT_KEY)
         end
         if key == values.NIL then
             return values.FALSE
@@ -939,7 +1056,7 @@ local function tonumber(ctx: voidptr, value: uint64): uint64
     local s = strings.header(value)
     if s == 0ULL then
         if value == values.NIL then
-            error("bad argument #1 to 'tonumber' (value expected)")
+            texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_VALUE_EXPECTED, values.NIL)
         end
         return values.NIL
     end
@@ -1029,7 +1146,7 @@ local function getenv(ctx: voidptr, name: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     local s = strings.header(name)
     if s == 0ULL then
-        error("bad argument #1 to 'getenv' (string expected)")
+        texts.argumentError(ctx, 1ULL, texts.TEXT_STRING, 0ULL, name)
     end
     @unsafe do
         local h = guestHeap(ctx)
@@ -1069,10 +1186,10 @@ local function getenv(ctx: voidptr, name: uint64): uint64
 end
 
 -- The string header of an argument, raising when it is not a string.
-local function stringArgument(value: uint64): uint64
+local function stringArgument(ctx: voidptr, value: uint64, position: uint64): uint64
     local s = strings.header(value)
     if s == 0ULL then
-        error("bad argument to string function (string expected)")
+        texts.argumentError(ctx, position, texts.TEXT_STRING, 0ULL, value)
     end
 
     return s
@@ -1107,10 +1224,10 @@ end
 -- string.sub(s, i [, j]).
 local function sub(ctx: voidptr, value: uint64, a: uint64, b: uint64): uint64
     @unsafe do
-        local s = stringArgument(value)
+        local s = stringArgument(ctx, value, 1ULL)
         local length = native.index(strings.length(s))
-        local i = startPosition(integerArgument(a, 1, 2ULL), length)
-        local j = endPosition(integerArgument(b, -1, 3ULL), length)
+        local i = startPosition(integerArgument(ctx, a, 1, 2ULL), length)
+        local j = endPosition(integerArgument(ctx, b, -1, 3ULL), length)
         if i > j then
             return values.TAG_OBJ | guestscope.makeString(ctx, strings.bytes(s), 0ULL)
         end
@@ -1148,10 +1265,10 @@ local function bytes(ctx: voidptr, value: uint64, a: uint64, b: uint64, all: boo
             pack = guestscope.newTable(ctx)
         end
         local h = guestHeap(ctx)
-        local s = stringArgument(value)
+        local s = stringArgument(ctx, value, 1ULL)
         local length = native.index(strings.length(s))
-        local i = startPosition(integerArgument(a, 1, 2ULL), length)
-        local j = endPosition(integerArgument(b, i, 3ULL), length)
+        local i = startPosition(integerArgument(ctx, a, 1, 2ULL), length)
+        local j = endPosition(integerArgument(ctx, b, i, 3ULL), length)
         if i > j then
             return packed(h, pack, 0ULL, values.NIL)
         end
@@ -1179,9 +1296,9 @@ end
 local function char(ctx: voidptr, a: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        local n = integerArgument(a, -1, 1ULL)
+        local n = integerArgument(ctx, a, -1, 1ULL)
         if n < 0 or n > 255 then
-            error("bad argument #1 to 'char' (value out of range)")
+            texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_VALUE_RANGE, a)
         end
         local h = guestHeap(ctx)
         local builder = state as strings.Builder*
@@ -1197,12 +1314,12 @@ end
 local function rep(ctx: voidptr, value: uint64, a: uint64, separator: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        local s = stringArgument(value)
-        local n = integerArgument(a, 0, 2ULL)
+        local s = stringArgument(ctx, value, 1ULL)
+        local n = integerArgument(ctx, a, 0, 2ULL)
         -- The separator goes between copies.
         local sep: uint64 = 0ULL
         if separator ~= values.NIL then
-            sep = stringArgument(separator)
+            sep = stringArgument(ctx, separator, 3ULL)
         end
         local h = guestHeap(ctx)
         local builder = state as strings.Builder*
@@ -1211,7 +1328,7 @@ local function rep(ctx: voidptr, value: uint64, a: uint64, separator: uint64): u
             each = each + strings.length(sep)
         end
         if n > 0 and (native.word(n) > 0x40000000ULL or native.word(n) * each > 0x40000000ULL) then
-            error("resulting string too large")
+            texts.libraryError(ctx, texts.TEXT_TOO_LARGE)
         end
         local i: int64 = 0
         while i < n do
@@ -1233,7 +1350,7 @@ end
 local function reverse(ctx: voidptr, value: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        local s = stringArgument(value)
+        local s = stringArgument(ctx, value, 1ULL)
         local h = guestHeap(ctx)
         local builder = state as strings.Builder*
         local at = strings.bytes(s)
@@ -1258,7 +1375,7 @@ end
 local function casing(ctx: voidptr, value: uint64, upper: boolean): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        local s = stringArgument(value)
+        local s = stringArgument(ctx, value, 1ULL)
         local h = guestHeap(ctx)
         local builder = state as strings.Builder*
         if strings.appendString(h, builder, s) ~= 0ULL then
@@ -1329,10 +1446,10 @@ local function search(
             pack = guestscope.newTable(ctx)
         end
         local h = guestHeap(ctx)
-        local s = stringArgument(value)
-        local p = stringArgument(pv)
+        local s = stringArgument(ctx, value, 1ULL)
+        local p = stringArgument(ctx, pv, 2ULL)
         local length = native.index(strings.length(s))
-        local init = startPosition(integerArgument(a, 1, 3ULL), length)
+        local init = startPosition(integerArgument(ctx, a, 1, 3ULL), length)
         if init > length + 1 then
             return packed(h, pack, 1ULL, values.NIL)
         end
@@ -1433,23 +1550,24 @@ end
 -- Capture `l` of a match of [at, e) as a replacement names it: the whole
 -- match when the pattern has no captures and `l` is 0.
 local function replacementCapture(
-    h: heap.Heap*,
+    ctx: voidptr,
     ms: patterns.MatchState*,
     subject: uint64,
     l: uint64,
     at: uint64,
     e: uint64
 ): uint64
+    local h = guestHeap(ctx)
     if l >= patterns.level(ms) then
         if l ~= 0ULL then
-            error("invalid capture index in replacement string")
+            texts.indexedError(ctx, texts.TEXT_CAPTURE_INDEX, native.index(l + 1ULL), 0ULL)
         end
         @unsafe do
             return values.TAG_OBJ | strings.make(h, at, e - at)
         end
     end
     if patterns.captureSize(ms, l) == patterns.UNFINISHED then
-        error("unfinished capture")
+        texts.libraryError(ctx, texts.TEXT_UNFINISHED)
     end
 
     return capture(h, ms, subject, l)
@@ -1460,7 +1578,7 @@ end
 -- table, its value at the first capture, the match itself when that is
 -- false or nil. Answers 1 when backing is refused.
 local function appendReplacement(
-    h: heap.Heap*,
+    ctx: voidptr,
     b: strings.Builder*,
     ms: patterns.MatchState*,
     subject: uint64,
@@ -1469,14 +1587,15 @@ local function appendReplacement(
     e: uint64
 ): uint64
     @unsafe do
+        local h = guestHeap(ctx)
         if objectKind(replValue) == heap.KIND_TABLE then
-            local key = replacementCapture(h, ms, subject, 0ULL, at, e)
+            local key = replacementCapture(ctx, ms, subject, 0ULL, at, e)
             local value = tables.lookup(h, replValue & values.PAYLOAD, key)
             if value == values.NIL or value == values.FALSE then
                 return strings.append(h, b, at, e - at)
             end
             if strings.header(value) == 0ULL and not ints.isInteger(value) and value & values.QNAN == values.QNAN then
-                error("invalid replacement value (a table)")
+                texts.replacementError(ctx, value)
             end
             return appendText(h, b, value)
         end
@@ -1505,11 +1624,11 @@ local function appendReplacement(
                         return 1ULL
                     end
                 elseif d >= 49ULL and d <= 57ULL then
-                    if appendText(h, b, replacementCapture(h, ms, subject, d - 49ULL, at, e)) ~= 0ULL then
+                    if appendText(h, b, replacementCapture(ctx, ms, subject, d - 49ULL, at, e)) ~= 0ULL then
                         return 1ULL
                     end
                 else
-                    error("invalid use of '%' in replacement string")
+                    texts.libraryError(ctx, texts.TEXT_PERCENT_USE)
                 end
             end
             i = i + 1ULL
@@ -1529,8 +1648,8 @@ local function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64, 
             pack = guestscope.newTable(ctx)
         end
         local h = guestHeap(ctx)
-        local s = stringArgument(value)
-        local p = stringArgument(pv)
+        local s = stringArgument(ctx, value, 1ULL)
+        local p = stringArgument(ctx, pv, 2ULL)
         -- A number replacement is its text; a table is read per match.
         local repl = replValue
         local kind = objectKind(replValue)
@@ -1541,10 +1660,10 @@ local function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64, 
         elseif kind == heap.KIND_CLOSURE then
             error("gsub with a function replacement is not yet supported by the core")
         else
-            error("bad argument #3 to 'gsub' (string/function/table expected)")
+            texts.argumentError(ctx, 3ULL, texts.TEXT_REPLACEMENT_KINDS, 0ULL, replValue)
         end
         local length = native.index(strings.length(s))
-        local limit = integerArgument(maxValue, length + 1, 4ULL)
+        local limit = integerArgument(ctx, maxValue, length + 1, 4ULL)
         local subject = strings.bytes(s)
         local pattern = strings.bytes(p)
         local pEnd = pattern + strings.length(p)
@@ -1567,7 +1686,7 @@ local function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64, 
             local e = patterns.match(h, ms, src, pattern)
             if e ~= 0ULL and e ~= last then
                 n = n + 1
-                refused = refused | appendReplacement(h, builder, ms, subject, repl, src, e)
+                refused = refused | appendReplacement(ctx, builder, ms, subject, repl, src, e)
                 src = e
                 last = e
             elseif src < finish then
@@ -1598,9 +1717,9 @@ local function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64, 
 end
 
 -- The table a library argument names, raising as Lua does when it is not one.
-local function tableArgument(value: uint64): uint64
+local function tableArgument(ctx: voidptr, value: uint64, position: uint64): uint64
     if objectKind(value) ~= heap.KIND_TABLE then
-        error("bad argument #1 to table function (table expected)")
+        texts.argumentError(ctx, position, texts.TEXT_TABLE, 0ULL, value)
     end
 
     return value & values.PAYLOAD
@@ -1621,16 +1740,16 @@ end
 local function tableInsert(ctx: voidptr, count: uint64, list: uint64, a: uint64, b: uint64): uint64
     @unsafe do
         local h = guestHeap(ctx)
-        local t = tableArgument(list)
+        local t = tableArgument(ctx, list, 1ULL)
         local size = native.index(tables.length(t))
         if count == 2ULL then
             storeAt(h, t, size + 1, a)
             tables.drain(h)
             return values.NIL
         end
-        local pos = integerArgument(a, 0, 2ULL)
+        local pos = integerArgument(ctx, a, 0, 2ULL)
         if pos < 1 or pos > size + 1 then
-            error("bad argument #2 to 'insert' (position out of bounds)")
+            texts.argumentError(ctx, 2ULL, 0ULL, texts.TEXT_OUT_OF_BOUNDS, a)
         end
         local at = size + 1
         while at > pos do
@@ -1648,13 +1767,13 @@ end
 local function tableRemove(ctx: voidptr, count: uint64, list: uint64, a: uint64): uint64
     @unsafe do
         local h = guestHeap(ctx)
-        local t = tableArgument(list)
+        local t = tableArgument(ctx, list, 1ULL)
         local size = native.index(tables.length(t))
         local pos = size
         if count >= 2ULL then
-            pos = integerArgument(a, size, 2ULL)
+            pos = integerArgument(ctx, a, size, 2ULL)
             if pos ~= size and (pos < 1 or pos > size + 1) then
-                error("bad argument #2 to 'remove' (position out of bounds)")
+                texts.argumentError(ctx, 2ULL, 0ULL, texts.TEXT_OUT_OF_BOUNDS, a)
             end
         end
         local removed = loadAt(t, pos)
@@ -1677,22 +1796,22 @@ end
 local function tableMove(ctx: voidptr, source: uint64, fv: uint64, ev: uint64, tv: uint64, target: uint64): uint64
     @unsafe do
         local h = guestHeap(ctx)
-        local a1 = tableArgument(source)
+        local a1 = tableArgument(ctx, source, 1ULL)
         local destination = source
         if target ~= values.NIL then
             destination = target
         end
-        local a2 = tableArgument(destination)
-        local f = integerArgument(fv, 0, 2ULL)
-        local e = integerArgument(ev, 0, 3ULL)
-        local t = integerArgument(tv, 0, 4ULL)
+        local a2 = tableArgument(ctx, destination, 5ULL)
+        local f = integerArgument(ctx, fv, 0, 2ULL)
+        local e = integerArgument(ctx, ev, 0, 3ULL)
+        local t = integerArgument(ctx, tv, 0, 4ULL)
         if e >= f then
             if f <= 0 and e >= native.index(0x7fffffffffffffffULL) + f then
-                error("bad argument #3 to 'move' (too many elements to move)")
+                texts.argumentError(ctx, 3ULL, 0ULL, texts.TEXT_TOO_MANY_MOVE, ev)
             end
             local n = e - f + 1
             if t > native.index(0x7fffffffffffffffULL) - n + 1 then
-                error("bad argument #4 to 'move' (destination wrap around)")
+                texts.argumentError(ctx, 4ULL, 0ULL, texts.TEXT_WRAP, tv)
             end
             if t > e or t <= f or a1 ~= a2 then
                 local i: int64 = 0
@@ -1722,14 +1841,14 @@ local function tableUnpack(ctx: voidptr, list: uint64, a: uint64, b: uint64, all
             pack = guestscope.newTable(ctx)
         end
         local h = guestHeap(ctx)
-        local t = tableArgument(list)
-        local i = integerArgument(a, 1, 2ULL)
-        local j = integerArgument(b, native.index(tables.length(t)), 3ULL)
+        local t = tableArgument(ctx, list, 1ULL)
+        local i = integerArgument(ctx, a, 1, 2ULL)
+        local j = integerArgument(ctx, b, native.index(tables.length(t)), 3ULL)
         if i > j then
             return packed(h, pack, 0ULL, values.NIL)
         end
         if j - i >= 1000000 then
-            error("too many results to unpack")
+            texts.libraryError(ctx, texts.TEXT_UNPACK_MANY)
         end
         local first = loadAt(t, i)
         if pack == 0ULL then
@@ -1773,7 +1892,7 @@ end
 
 -- Whether a sorts before b by `<`, for table.sort without a comparator:
 -- numbers by value, strings byte by byte.
-local function sortLess(a: uint64, b: uint64): boolean
+local function sortLess(ctx: voidptr, a: uint64, b: uint64): boolean
     local ai = ints.isInteger(a)
     local bi = ints.isInteger(b)
     if ai and bi then
@@ -1791,7 +1910,7 @@ local function sortLess(a: uint64, b: uint64): boolean
     local x = strings.header(a)
     local y = strings.header(b)
     if x == 0ULL or y == 0ULL then
-        error("attempt to compare two values that are not both numbers or strings")
+        texts.faultError(ctx, guestscope.FAULT_COMPARE, a, b)
     end
 
     return strings.less(x, y, false)
@@ -1836,7 +1955,7 @@ end
 -- first merge. A bottom-up merge sort: stable, and O(n log n) comparisons.
 local function sortBegin(ctx: voidptr, list: uint64, less: uint64): uint64
     @unsafe do
-        local t = tableArgument(list)
+        local t = tableArgument(ctx, list, 1ULL)
         local state = guestscope.newTable(ctx)
         local buffer = guestscope.newTable(ctx)
         local h = guestHeap(ctx)
@@ -1902,7 +2021,7 @@ local function sortStep(ctx: voidptr, value: uint64): uint64
                     tables.drain(h)
                     return values.TRUE
                 end
-                if sortLess(right, left) then
+                if sortLess(ctx, right, left) then
                     storeAt(h, buffer, k, right)
                     j = j + 1
                 else
@@ -1983,9 +2102,9 @@ end
 -- gsub(s, p, f [, n])'s state, before its first match.
 local function gsubBegin(ctx: voidptr, value: uint64, pv: uint64, fn: uint64, maxValue: uint64): uint64
     @unsafe do
-        local s = stringArgument(value)
-        local p = stringArgument(pv)
-        local limit = integerArgument(maxValue, native.index(strings.length(s)) + 1, 4ULL)
+        local s = stringArgument(ctx, value, 1ULL)
+        local p = stringArgument(ctx, pv, 2ULL)
+        local limit = integerArgument(ctx, maxValue, native.index(strings.length(s)) + 1, 4ULL)
         local state = guestscope.newTable(ctx)
         local pieces = guestscope.newTable(ctx)
         local h = guestHeap(ctx)
@@ -2049,11 +2168,11 @@ local function gsubStep(ctx: voidptr, value: uint64): uint64
                 storeAt(h, loadAt(st, GSUB_PIECES) & values.PAYLOAD, count, text)
                 sortPut(h, st, GSUB_COUNT, count)
             elseif objectKind(answer) == heap.KIND_TABLE then
-                error("invalid replacement value (a table)")
+                texts.replacementError(ctx, answer)
             elseif objectKind(answer) == heap.KIND_CLOSURE then
-                error("invalid replacement value (a function)")
+                texts.replacementError(ctx, answer)
             else
-                error("invalid replacement value (a boolean)")
+                texts.replacementError(ctx, answer)
             end
             sortPut(h, st, GSUB_COPY, e)
             src = e
@@ -2194,18 +2313,18 @@ end
 
 -- select(i, ...) over a variadic pack {[0] = n, ...}: the i-th value, from
 -- the end when negative; nil past the end.
-local function select(packValue: uint64, index: uint64): uint64
+local function select(ctx: voidptr, packValue: uint64, index: uint64): uint64
     @unsafe do
         local pack = packValue & values.PAYLOAD
         local n = native.index(ints.bitsOf(tables.get(pack, values.TAG_INTEGER)))
-        local i = integerArgument(index, 0, 1ULL)
+        local i = integerArgument(ctx, index, 0, 1ULL)
         if i < 0 then
             i = n + i + 1
             if i < 1 then
-                error("bad argument #1 to 'select' (index out of range)")
+                texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_INDEX_RANGE, index)
             end
         elseif i == 0 then
-            error("bad argument #1 to 'select' (index out of range)")
+            texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_INDEX_RANGE, index)
         end
         if i > n then
             return values.NIL
@@ -2260,9 +2379,9 @@ local function hostMath(op: uint64, a: uint64, b: uint64): uint64
 end
 
 -- a ^ b: always a float, by C's pow.
-local function power(a: uint64, b: uint64): uint64
+local function power(ctx: voidptr, a: uint64, b: uint64): uint64
     if floatOf(a) == values.NIL or floatOf(b) == values.NIL then
-        error("attempt to perform arithmetic on a non-number value")
+        texts.faultError(ctx, guestscope.FAULT_ARITH, a, b)
     end
 
     return hostMath(0ULL, a, b)
@@ -2270,13 +2389,13 @@ end
 
 -- math.log(x [, base]): base 2 and 10 by their own functions, any other as
 -- a quotient of natural logarithms.
-local function mathLog(count: uint64, x: uint64, base: uint64): uint64
-    local value = numberArgument(x)
+local function mathLog(ctx: voidptr, count: uint64, x: uint64, base: uint64): uint64
+    local value = numberArgument(ctx, x, 1ULL)
     if count < 2ULL then
         return hostMath(2ULL, value, value)
     end
     -- 2.0 and 10.0 by their bits.
-    local b = floatOf(numberArgument(base))
+    local b = floatOf(numberArgument(ctx, base, 2ULL))
     if b == 0x4000000000000000ULL then
         return hostMath(3ULL, value, value)
     elseif b == 0x4024000000000000ULL then
@@ -2291,13 +2410,13 @@ end
 -- math.fmod(a, b): for integers, the remainder of truncated division (an
 -- error for zero); otherwise C's fmod.
 local function mathFmod(ctx: voidptr, a: uint64, b: uint64): uint64
-    local x = numberArgument(a)
-    local y = numberArgument(b)
+    local x = numberArgument(ctx, a, 1ULL)
+    local y = numberArgument(ctx, b, 2ULL)
     if ints.isInteger(x) and ints.isInteger(y) then
         local n = ints.bitsOf(x)
         local d = ints.bitsOf(y)
         if d == 0ULL then
-            error("bad argument #2 to 'fmod' (zero)")
+            texts.argumentError(ctx, 2ULL, 0ULL, texts.TEXT_ZERO, b)
         end
         local negative = native.index(n) < 0
         local magnitude = n
@@ -2409,16 +2528,16 @@ local function mathRandom(ctx: voidptr, count: uint64, a: uint64, b: uint64): ui
     local low: int64 = 1
     local up: int64 = 0
     if count == 1ULL then
-        up = integerArgument(a, 0, 1ULL)
+        up = integerArgument(ctx, a, 0, 1ULL)
         if up == 0 then
             return guestscope.integer(ctx, rv)
         end
     else
-        low = integerArgument(a, 0, 1ULL)
-        up = integerArgument(b, 0, 2ULL)
+        low = integerArgument(ctx, a, 0, 1ULL)
+        up = integerArgument(ctx, b, 0, 2ULL)
     end
     if low > up then
-        error("bad argument #1 to 'random' (interval is empty)")
+        texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_EMPTY_INTERVAL, a)
     end
 
     return guestscope.integer(ctx, project(s, rv, native.word(up) - native.word(low)) + native.word(low))
@@ -2433,8 +2552,8 @@ local function mathRandomseed(ctx: voidptr, count: uint64, a: uint64, b: uint64)
         n1 = os.randomSeed()
         n2 = nextRandom(randomState(ctx))
     else
-        n1 = native.word(integerArgument(a, 0, 1ULL))
-        n2 = native.word(integerArgument(b, 0, 2ULL))
+        n1 = native.word(integerArgument(ctx, a, 0, 1ULL))
+        n2 = native.word(integerArgument(ctx, b, 0, 2ULL))
     end
     seedRandom(randomBase(ctx), n1, n2)
 
@@ -2444,24 +2563,25 @@ end
 -- Library call `id` with `count` arguments; answers the result value. error
 -- (ERROR) is raised by its handler, which records where.
 export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
+    guestscope.nameLibrary(ctx, libraryName(id))
     if id == TOSTRING then
         return tostring(ctx, a)
     elseif id == FORMAT then
         return format(ctx, count, a, b, c, d, 0ULL)
     elseif id == POW then
-        return power(a, b)
+        return power(ctx, a, b)
     elseif id == MATH_EXP then
-        return hostMath(1ULL, numberArgument(a), a)
+        return hostMath(1ULL, numberArgument(ctx, a, 1ULL), a)
     elseif id == MATH_LOG then
-        return mathLog(count, a, b)
+        return mathLog(ctx, count, a, b)
     elseif id >= MATH_SIN and id <= MATH_ACOS then
-        return hostMath(id - MATH_SIN + 5ULL, numberArgument(a), a)
+        return hostMath(id - MATH_SIN + 5ULL, numberArgument(ctx, a, 1ULL), a)
     elseif id == MATH_ATAN then
         local x = values.TAG_INTEGER | 1ULL
         if count >= 2ULL then
-            x = numberArgument(b)
+            x = numberArgument(ctx, b, 2ULL)
         end
-        return hostMath(10ULL, numberArgument(a), x)
+        return hostMath(10ULL, numberArgument(ctx, a, 1ULL), x)
     elseif id == MATH_FMOD then
         return mathFmod(ctx, a, b)
     elseif id == MATH_RANDOM then
@@ -2486,7 +2606,7 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == CONCAT2 then
         return concat2(ctx, a, b)
     elseif id == DIVIDE then
-        return divide(a, b)
+        return divide(ctx, a, b)
     elseif id == FLOOR_DIVIDE then
         return floorDivide(ctx, a, b)
     elseif id == NEXT_STEP then
@@ -2512,7 +2632,7 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == LOWER then
         return casing(ctx, a, false)
     elseif id == LEN then
-        return values.TAG_INTEGER | strings.length(stringArgument(a))
+        return values.TAG_INTEGER | strings.length(stringArgument(ctx, a, 1ULL))
     elseif id == FIND then
         return search(ctx, a, b, c, d, false, false)
     elseif id == MATCH then
@@ -2565,15 +2685,15 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == MATH_CEIL then
         return mathCeil(ctx, a)
     elseif id == MATH_MAX then
-        return mathExtreme(count, a, b, c, d, true)
+        return mathExtreme(ctx, count, a, b, c, d, true)
     elseif id == MATH_MIN then
-        return mathExtreme(count, a, b, c, d, false)
+        return mathExtreme(ctx, count, a, b, c, d, false)
     elseif id == MATH_TOINTEGER then
         return integral(ctx, a)
     elseif id == MATH_TYPE then
         return mathType(ctx, a)
     elseif id == MATH_SQRT then
-        return floatValue(native.bits(native.sqrt(native.fromBits(floatOf(numberArgument(a))))))
+        return floatValue(native.bits(native.sqrt(native.fromBits(floatOf(numberArgument(ctx, a, 1ULL))))))
     elseif id == LANDED then
         return guestscope.takeLanded(ctx)
     elseif id == TYPE then
@@ -2589,7 +2709,7 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == RAWSET then
         return guestscope.rawSet(ctx, a, b, c)
     elseif id == SELECT then
-        return select(a, b)
+        return select(ctx, a, b)
     elseif id == PACK_COPY then
         return packCopy(ctx, a)
     end

@@ -1494,6 +1494,7 @@ export function LibCall(
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
+    guestscope.librarySite(ctx, frame, pc, native.word(count))
     slots.writeValue(frame, regs, dst, guestlib.call(ctx, native.word(id), native.word(count), a, b, c, d))
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then

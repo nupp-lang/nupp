@@ -52,6 +52,14 @@ export struct Services
     random1: uint64
     random2: uint64
     random3: uint64
+    -- The library call running (its function's name, a guesttexts NAME_, and
+    -- its argument count) and its owner and pc, which a library error's
+    -- position names; libraryRaised is 1 while `raised` holds such an error.
+    libraryName: uint64
+    libraryCount: uint64
+    libraryOwner: uint64
+    libraryPc: uint64
+    libraryRaised: uint64
 end
 
 -- tableSet's answer when a __newindex function is to be called instead.
@@ -141,6 +149,9 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("random1"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("random2"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("random3"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("libraryName"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("libraryCount"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("libraryRaised"), 0ULL)
     end
 
     return 1ULL
@@ -580,12 +591,74 @@ export function raise(ctx: voidptr, value: uint64, level: uint64): nil
     end
 end
 
+-- Before a library call: which call it is and where, for its errors.
+export function librarySite(ctx: voidptr, frame: voidptr, pc: voidptr, count: uint64): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        native.store64(services, native.fieldOffset<Services>("libraryCount"), count)
+        native.store64(
+            services,
+            native.fieldOffset<Services>("libraryOwner"),
+            native.load64(frame, native.fieldOffset<frames.Frame>("functionId"))
+        )
+        local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+        local address = native.address(pc)
+        local index: uint64 = 0ULL
+        if address >= code then
+            index = (address - code) // 16ULL
+        end
+        native.store64(services, native.fieldOffset<Services>("libraryPc"), index)
+    end
+end
+
+-- The name of the library function running, for its errors.
+export function nameLibrary(ctx: voidptr, name: uint64): nil
+    @unsafe do
+        native.store64(
+            native.loadPointer(ctx, context.SERVICE_SCOPE),
+            native.fieldOffset<Services>("libraryName"),
+            name
+        )
+    end
+end
+
+export function libraryNameOf(ctx: voidptr): uint64
+    @unsafe do
+        return native.load64(
+            native.loadPointer(ctx, context.SERVICE_SCOPE),
+            native.fieldOffset<Services>("libraryName")
+        )
+    end
+end
+
+export function libraryCount(ctx: voidptr): uint64
+    @unsafe do
+        return native.load64(
+            native.loadPointer(ctx, context.SERVICE_SCOPE),
+            native.fieldOffset<Services>("libraryCount")
+        )
+    end
+end
+
+-- A library error: `message` raised at level 1, positioned at the library
+-- call once the entry's failure unwinds to its recovery.
+export function raiseLibrary(ctx: voidptr, message: uint64): nil
+    raise(ctx, message, 1ULL)
+    @unsafe do
+        native.store64(
+            native.loadPointer(ctx, context.SERVICE_SCOPE),
+            native.fieldOffset<Services>("libraryRaised"),
+            1ULL
+        )
+    end
+end
+
 -- A string message with Lua's position before it, "chunk:line: ", naming
 -- the frame `level` calls out from the one that failed: 1 is that frame at
--- the pc its failure recorded, 2 its caller at the call. Anything else, or a
--- frame with no known line, answers the message as it is. pcall has no line,
--- so a level past a protected call's own frame names nothing.
-local function positioned(ctx: voidptr, message: uint64, level: uint64): uint64
+-- `pc` in `owner`, 2 its caller at the call. Anything else, or a frame with
+-- no known line, answers the message as it is. pcall has no line, so a
+-- level past a protected call's own frame names nothing.
+local function positioned(ctx: voidptr, message: uint64, level: uint64, failedOwner: uint64, failedPc: uint64): uint64
     local state0 = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local s = strings.header(message)
@@ -594,8 +667,8 @@ local function positioned(ctx: voidptr, message: uint64, level: uint64): uint64
         end
         local state = native.loadPointer(ctx, context.STATE)
         local frame = native.load64(state, native.fieldOffset<frames.State>("active"))
-        local owner = native.load64(ctx, context.ERROR_OWNER)
-        local pc = native.load64(ctx, context.ERROR_PC)
+        local owner = failedOwner
+        local pc = failedPc
         local k: uint64 = 1ULL
         while k < level do
             if frame == 0ULL
@@ -862,6 +935,20 @@ local function runtimeError(ctx: voidptr): uint64
     end
 end
 
+-- A runtime error a library call meets (a FAULT_ kind and the operands its
+-- message names), raised as a library error.
+export function raiseFault(ctx: voidptr, kind: uint64, culprit: uint64, other: uint64): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        native.store64(services, native.fieldOffset<Services>("fault"), kind)
+        native.store64(services, native.fieldOffset<Services>("culprit"), culprit)
+        native.store64(services, native.fieldOffset<Services>("other"), other)
+        local message = runtimeError(ctx)
+        native.store64(services, native.fieldOffset<Services>("fault"), 0ULL)
+        raiseLibrary(ctx, message)
+    end
+end
+
 -- 1 when the function a frame runs owns affine values (its catalog record
 -- lands errors).
 local function lands(ctx: voidptr, frame: uint64): boolean
@@ -928,6 +1015,15 @@ export function recoverEntry(ctx: voidptr): uint64
         if not (status == context.GUEST_ERROR_STATUS or status == 0ULL and raisedInScope) then
             return 0ULL
         end
+        -- A library leaf's raise is the scope's error, which every service
+        -- call below would take for its own failure: hold it aside, and put it
+        -- back when no protected call takes the error.
+        local scopeError = native.load64(scope, native.fieldOffset<servicescope.ServiceScope>("error"))
+        local scopeOwner = native.load64(scope, native.fieldOffset<servicescope.ServiceScope>("errorOwner"))
+        local scopeSite = native.load64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"))
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("error"), 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorOwner"), 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), 0ULL)
         local value = native.load64(services, native.fieldOffset<Services>("raised"))
         local level = native.load64(services, native.fieldOffset<Services>("raisedLevel"))
         if value == 0ULL then
@@ -937,8 +1033,23 @@ export function recoverEntry(ctx: voidptr): uint64
         -- A failure the handlers recorded names its owner and pc; one a
         -- library leaf raised does not.
         if status == context.GUEST_ERROR_STATUS then
-            value = positioned(ctx, value, level)
+            value = positioned(
+                ctx,
+                value,
+                level,
+                native.load64(ctx, context.ERROR_OWNER),
+                native.load64(ctx, context.ERROR_PC)
+            )
+        elseif native.load64(services, native.fieldOffset<Services>("libraryRaised")) == 1ULL then
+            value = positioned(
+                ctx,
+                value,
+                level,
+                native.load64(services, native.fieldOffset<Services>("libraryOwner")),
+                native.load64(services, native.fieldOffset<Services>("libraryPc"))
+            )
         end
+        native.store64(services, native.fieldOffset<Services>("libraryRaised"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("lastError"), value)
         local state = native.loadPointer(ctx, context.STATE)
         -- A frame that owns affine values and waits on a call nearer than any
@@ -954,6 +1065,9 @@ export function recoverEntry(ctx: voidptr): uint64
             parent = frames.recover(state, value)
         end
         if parent == 0ULL then
+            native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("error"), scopeError)
+            native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorOwner"), scopeOwner)
+            native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), scopeSite)
             return 0ULL
         end
         native.store64(ctx, context.STATUS, 0ULL)
