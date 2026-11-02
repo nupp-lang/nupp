@@ -36,7 +36,10 @@ end
 function tagged.initialize(fn: any, options: any): any
     need(options.program and options.program.owners[fn.id + 1] == fn, "checked function owner required")
     need(
-        fn.node.kind == "localFuncStmt" or fn.node.kind == "funcExpr" or fn.node.kind == "funcStmt",
+        fn.node.kind == "localFuncStmt"
+        or fn.node.kind == "funcExpr"
+        or fn.node.kind == "funcStmt"
+        or fn.node.kind == "inlineMethod",
         "unsupported function declaration form"
     )
     local body = fn.body
@@ -354,7 +357,10 @@ end
 function tagged.closure(ctx: any, node: any, expected: string?): integer
     need(expected == nil or expected == "tagged", "closure requires tagged destination")
     need(
-        node.kind == "localFuncStmt" or node.kind == "funcExpr" or node.kind == "funcStmt",
+        node.kind == "localFuncStmt"
+        or node.kind == "funcExpr"
+        or node.kind == "funcStmt"
+        or node.kind == "inlineMethod",
         "unsupported function declaration form"
     )
     local target = need(catalog(ctx).byBody[node.body], "closure lacks checked owner")
@@ -519,10 +525,14 @@ end
 function tagged.erasedStatement(ctx: any, stat: any): nil
     if stat.kind == "recordDecl" then
         -- A record of fields declares a type only; its values are built where
-        -- they are constructed.
+        -- they are constructed. Methods in its body are stored on the table its
+        -- name holds (`recordValue`).
         need(stat.declKind == "record" and not stat.generics, "only plain record declarations are admitted")
         for _, entry in ipairs(stat.entries or {}) do
-            need(entry.kind == "fieldDecl", "record methods are unsupported")
+            need(
+                entry.kind == "fieldDecl" or entry.kind == "inlineMethod" and entry.overloadMember == nil,
+                "record constructors, metamethods and overloaded methods are unsupported"
+            )
         end
         return
     end
@@ -762,10 +772,11 @@ function tagged.forVersion(version: integer): any
         end
         profile.fieldRead = function(ctx: any, node: any, expected: string?): integer
             local slot = recordSlot(recordOrigin(node.obj.inferredType), node.name and node.name.text)
-            -- A field of a plain table is its string key.
+            -- A field of a plain table is its string key, and so is one of a
+            -- record's name (`R.f`), which holds the table of its methods.
             local tag = typeKind(node.obj.inferredType)
             local plain = slot == nil
-                and (tag == "table" or tag == "map" or tag == "array" or tag == "shape")
+                and (tag == "table" or tag == "map" or tag == "array" or tag == "shape" or tag == "typeobject")
                 and node.name ~= nil
             if slot == nil and not plain then
                 return tagged.constant(ctx, node, expected)
@@ -937,11 +948,33 @@ function tagged.forVersion(version: integer): any
         -- `function T.f(...)` and `function T:m(...)`: the closure stored into the
         -- table T names, as Lua does. One level of name only.
         -- The table a record's methods are stored in, when its name is bound.
+        -- A call through a field has no declaration to compose with: it calls
+        -- the value the field holds when it runs.
+        profile.resolveCallee = function(_: any, call: any): (boolean, any)
+            if call.obj.kind == "dotIndex" then
+                return true, nil
+            end
+            return false, nil
+        end
+        -- The table a record's name holds, with every method its body
+        -- declares stored by name, as `function R:m` stores one.
         profile.recordValue = function(ctx: any, stat: any): integer?
             if catalog(ctx).byDefinition[stat.name.definition] == nil then
                 return nil
             end
-            return ctx.emit(stat, "NewTable", {}, "tagged") as integer
+            local held = ctx.hold(ctx.emit(stat, "NewTable", {}, "tagged"))
+            for _, entry in ipairs(stat.entries or {}) do
+                if entry.kind == "inlineMethod" then
+                    local closure = ctx.hold(tagged.closure(ctx, entry))
+                    local key = ctx.emit(entry, "K", {pool(ctx, "str", entry.name.text)}, "tagged")
+                    ctx.emit(entry, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(closure)}, nil)
+                    ctx.release(closure)
+                end
+            end
+            local value = ctx.readHeld(held)
+            ctx.release(held)
+
+            return value as integer
         end
         profile.functionStatement = function(ctx: any, stat: any): nil
             local name = stat.name

@@ -1,0 +1,31 @@
+module nupp.core.catalogrecordsinline
+
+-- Methods written inside a record body: an instance method takes `self`
+-- first and is called with `:`, a static one has no receiver and is called
+-- through the record's table, and both are stored on that table.
+local record Counter
+    count: integer
+    step: integer
+
+    function bump(self, by: integer): integer
+        self.count = self.count + by * self.step
+        return self.count
+    end
+
+    function twice(self): (integer, integer)
+        return self.count, self.count * 2
+    end
+
+    function make(step: integer): Counter
+        return new Counter(count = 0, step = step)
+    end
+end
+
+local c = Counter.make(3)
+local total: integer = 0
+for i = 1, 10 do
+    total = total + c:bump(i)
+end
+c:bump(1)
+local a, b = c:twice()
+export = total * 1000 + a * 10 + b
