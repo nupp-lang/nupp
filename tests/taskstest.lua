@@ -1512,6 +1512,7 @@ function M.acceptingWorkNameRunsTheExistingWorkerSubmission()
     local source = [[
 module acceptingworkernames
 
+export function run(): (integer, nil, string, boolean, boolean, integer)
 return coroutine.run(function(borrows scope: coroutine.Scope): (integer, nil, string, boolean, boolean, integer)
     assert(scope.work == scope.fork)
     local handle = scope:work(6, function(value: integer): (integer, nil, string)
@@ -1521,12 +1522,14 @@ return coroutine.run(function(borrows scope: coroutine.Scope): (integer, nil, st
     local first, middle, last = handle:await()
     return first, middle, last, handle:isdone(), handle:isDone(), select("#", handle:await())
 end)
+end
 ]]
     local parsed = parser.parse(source, "acceptingworkernames.nupp")
     testAssert.eq(#parsed.errors, 0)
     local diagnostics = checker.check(parsed, "acceptingworkernames.nupp", environment)
     testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    local first, middle, last, done, precedingDone, count = program.run(parsed, "acceptingworkernames")
+    local module = program.run(parsed, "acceptingworkernames")
+    local first, middle, last, done, precedingDone, count = module.run()
     testAssert.eq(first, 7)
     testAssert.eq(middle, nil)
     testAssert.eq(last, "tail")
