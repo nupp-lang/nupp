@@ -1,0 +1,31 @@
+module nupp.core.catalogstringsquoted
+
+-- string.format with more than three values, and %q: strings quoted with
+-- their escapes, integers in decimal (the least in hexadecimal), floats in
+-- hexadecimal, and nil and Booleans by name.
+local many = string.format("%d-%s-%d-%s-%d", 1, "two", 3, "four", 5)
+local wide = ("%s|%5d|%-3s|%x|%s|%s"):format("a", 42, "b", 255, "c", "d")
+local quoted = string.format("%q", "say \"hi\"\\\n\r\0x\0001\127")
+local numbers = string.format("%q %q %q", 42, -7, math.mininteger)
+local floats = string.format("%q %q %q", 0.5, -2.0, 1 / 0)
+local others = string.format("%q %q %q", nil, true, false)
+local score: integer = 0
+if many == "1-two-3-four-5" then
+    score = score + 1
+end
+if wide == "a|   42|b  |ff|c|d" then
+    score = score + 2
+end
+if quoted == "\"say \\\"hi\\\"\\\\\\\n\\13\\0x\\0001\\127\"" then
+    score = score + 4
+end
+if numbers == "42 -7 0x8000000000000000" then
+    score = score + 8
+end
+if floats == "0x1p-1 -0x1p+1 1e9999" then
+    score = score + 16
+end
+if others == "nil true false" then
+    score = score + 32
+end
+export = score

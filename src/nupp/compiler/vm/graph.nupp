@@ -1388,9 +1388,16 @@ local function invokeContract(contract: any): nil
             callSignature = true,
             effects = true,
             protected = true,
-            handled = true
+            handled = true,
+            callback = true,
+            given = true,
+            spread = true
         })
         local call, called = contract.call, contract.callSignature
+        -- A library call's callback: the argument it calls, with the values
+        -- the library supplies.
+        local callback = contract.callback
+        local argument = callback and call.args and call.args.exprs[callback]
         -- pcall(f, ...): the callee is the first argument, and the rest are its
         -- arguments.
         local protected = contract.protected == true
@@ -1398,10 +1405,11 @@ local function invokeContract(contract: any): nil
         local offset = protected and (contract.handled == true and 2 or 1) or 0
         assert(
             type(call) == "table"
-            and call.kind == "call"
+            and (call.kind == "call" or callback and call.kind == "methodCall")
             and (
                 protected and call.args and call.args.exprs[1] and call.args.exprs[1].inferredType == called
-                or not protected and call.calleeType == called
+                or callback and argument and argument.inferredType == called
+                or not protected and not callback and call.calleeType == called
             )
             and not call.scalarIntrinsic
             and not call.ownershipIntrinsic
@@ -1412,6 +1420,23 @@ local function invokeContract(contract: any): nil
         assert(call.args and call.args.kind == "args", "invoke requires explicit positional arguments")
         dense(call.args.exprs)
         local given = #call.args.exprs - offset
+        if callback then
+            assert(
+                contract.spread == true and contract.given == 0
+                or type(contract.given) == "number"
+                and contract.given % 1 == 0
+                and (contract.given == #called.params or called.vararg and contract.given > #called.params),
+                "callback arity differs"
+            )
+            assert(
+                contract.effects.mayCollect == true
+                and contract.effects.mayRaise == true
+                and contract.effects.mayPark == false
+                and contract.effects.pure == false,
+                "invoke requires conservative scalar guest effects"
+            )
+            return
+        end
         assert(
             given == #called.params
             or called.vararg and given > #called.params
@@ -1581,6 +1606,7 @@ local coreLibrary: {
     ["table.insert"] = true,
     ["table.remove"] = true,
     ["table.unpack"] = true,
+    ["table.sort"] = true,
     ["string.format"] = true,
     ["string.gmatch"] = true,
     ["string.sub"] = true,
@@ -1646,6 +1672,46 @@ function graph.dynamicInvokeContract(call: any): any
         dynamic = true,
         call = call,
         callSignature = call.calleeType,
+        effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
+    }
+    invokeContract(contract)
+
+    return contract
+end
+
+-- The argument a library call calls back, by its index among the call's
+-- arguments: table.sort's comparator, or string.gsub's replacement when it
+-- is a function. Nil for any other call.
+function graph.callbackArgument(call: any): integer?
+    local library = graph.coreLibraryCall(call)
+    local exprs = call and call.args and call.args.exprs
+    if library == "table.sort" and exprs and #exprs == 2 then
+        return 2
+    end
+    if library == "string.gsub" and exprs then
+        local index = call.kind == "methodCall" and 2 or 3
+        local replacement = exprs[index]
+        local t = replacement and replacement.inferredType
+        if t and t.tag == "func" then
+            return index
+        end
+    end
+
+    return nil
+end
+
+-- The contract of a library call's call of its callback with `given` values,
+-- or with `spread` a pack of them.
+function graph.callbackInvokeContract(call: any, given: integer, spread: boolean?): any
+    local argument = graph.callbackArgument(call)
+    assert(argument ~= nil, "call takes no callback")
+    local contract = {
+        dynamic = true,
+        callback = argument,
+        given = given,
+        spread = spread == true or nil,
+        call = call,
+        callSignature = call.args.exprs[argument].inferredType,
         effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
     }
     invokeContract(contract)
@@ -2304,6 +2370,10 @@ end
 function graph.verify(g: any): nil
     verifyGraph(g, function(term: any, index: integer): integer
         invokeContract(term.contract)
+        -- A library call's callback takes the values the library supplies.
+        if term.contract.callback then
+            return term.contract.given
+        end
         -- A spread `...` last is the term's pack, not one of its arguments; a
         -- method call's receiver is its first one.
         local count: integer = #term.contract.call.args.exprs

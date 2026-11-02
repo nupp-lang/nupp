@@ -623,7 +623,16 @@ function program.describe(modules: {any}, entryModule: string): any
         end
         -- A call through anything but a name (`R.f(...)`, `t[i](x)`, `f()()`,
         -- a cast) calls the value it evaluates, resolved when it runs.
-        if node.kind == "call" and node.obj.kind ~= "name" and not loader and not intrinsic and not loopForms[node] then
+        -- So does a library call taking a function it calls back, which is
+        -- that function's callsite: table.sort's comparator, and gsub's
+        -- function replacement, in `s:gsub(p, f)` form too.
+        if node.kind == "call"
+            and node.obj.kind ~= "name"
+            and not loader
+            and not intrinsic
+            and (not loopForms[node] or graph.callbackArgument(node) ~= nil)
+            or node.kind == "methodCall" and graph.callbackArgument(node) ~= nil
+        then
             local item = {id = #p.calls, owner = owner.id, node = node, field = true}
             p.calls[#p.calls + 1], p.callByNode[node] = item, item
         end
@@ -936,8 +945,10 @@ function program.verify(p: any): boolean
             need(referenceOwners[item.classToken] == item.owner, "construction callsite does not belong to its owner")
         elseif item.field then
             need(
-                node.kind == "call"
-                and node.obj.kind ~= "name"
+                (
+                    node.kind == "call" and node.obj.kind ~= "name"
+                    or node.kind == "methodCall" and graph.callbackArgument(node) ~= nil
+                )
                 and p.callByNode[node] == item
                 and item.definition == nil
                 and not node.runtimeLoader

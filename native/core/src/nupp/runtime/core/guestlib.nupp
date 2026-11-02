@@ -68,6 +68,19 @@ export const MATH_SQRT: uint64 = 44ULL
 export const LANDED: uint64 = 45ULL
 -- The landed error raised again, as it was, once the owners are destroyed.
 export const RERAISE: uint64 = 46ULL
+-- table.sort(t) by `<`; with a comparator, its state and its step.
+export const TABLE_SORT: uint64 = 47ULL
+export const SORT_BEGIN: uint64 = 48ULL
+export const SORT_STEP: uint64 = 49ULL
+-- string.gsub with a function replacement: its state, its step, and the
+-- finished string alone or in a pack with the count.
+export const GSUB_BEGIN: uint64 = 50ULL
+export const GSUB_STEP: uint64 = 51ULL
+export const GSUB_FINISH: uint64 = 52ULL
+export const GSUB_FINISH_ALL: uint64 = 53ULL
+-- string.format with more values than a library call carries: the format
+-- and a pack of the values.
+export const FORMAT_PACK: uint64 = 54ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -247,7 +260,41 @@ end
 -- by the host's C formatting) and %%, with Lua's flags (-, +, space, #, 0),
 -- width and precision; up to three arguments after the format. %q is not
 -- yet the core's.
-local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: uint64, c: uint64): uint64
+-- Appends %q's form of string s: quoted, with `"`, `\` and newline escaped
+-- and other control bytes as decimal escapes, padded to three digits when a
+-- digit follows. Answers 1 when backing is refused.
+local function appendQuoted(h: heap.Heap*, b: strings.Builder*, s: uint64): uint64
+    local refused = strings.appendWord(h, b, 34ULL, 1ULL)
+    local n = strings.length(s)
+    local at = strings.bytes(s)
+    local i: uint64 = 0ULL
+    while i < n do
+        local c = native.word(native.load8(native.pointer(at), native.index(i)))
+        if c == 34ULL or c == 92ULL or c == 10ULL then
+            refused = refused | strings.appendWord(h, b, 92ULL | (c << 8ULL), 2ULL)
+        elseif c < 32ULL or c == 127ULL then
+            local digit = false
+            if i + 1ULL < n then
+                local d = native.word(native.load8(native.pointer(at), native.index(i + 1ULL)))
+                digit = d >= 48ULL and d <= 57ULL
+            end
+            refused = refused | strings.appendWord(h, b, 92ULL, 1ULL)
+            if digit then
+                refused = refused | appendRadix(h, b, c, 10ULL, false, 3ULL)
+            else
+                refused = refused | strings.appendInteger(h, b, native.index(c))
+            end
+        else
+            refused = refused | strings.appendWord(h, b, c, 1ULL)
+        end
+        i = i + 1ULL
+    end
+
+    return refused | strings.appendWord(h, b, 34ULL, 1ULL)
+end
+
+-- string.format's values are a, b and c, or with `pack` that pack's.
+local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: uint64, c: uint64, pack: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     local pieceState = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
@@ -327,7 +374,9 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                     error("bad argument to 'format' (no value)")
                 end
                 local argument = a
-                if next == 2ULL then
+                if pack ~= 0ULL then
+                    argument = tables.get(pack, values.TAG_INTEGER | next)
+                elseif next == 2ULL then
                     argument = b
                 elseif next == 3ULL then
                     argument = c
@@ -444,6 +493,61 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                     refused = refused | appendText(h, piece, argument)
                     if precise and piece.length > precision then
                         piece.length = precision
+                    end
+                elseif directive == 113ULL then
+                    -- %q: the value as Lua source reads it back.
+                    if left or plus or space or alternate or zero or width > 0ULL or precise then
+                        strings.release(builder)
+                        strings.release(piece)
+                        error("specifier '%q' cannot have modifiers")
+                    end
+                    numeric = false
+                    local quoted = strings.header(argument)
+                    if quoted ~= 0ULL then
+                        refused = refused | appendQuoted(h, piece, quoted)
+                    elseif ints.isInteger(argument) then
+                        local n = ints.bitsOf(argument)
+                        if n == 0x8000000000000000ULL then
+                            refused = refused
+                                | strings.appendWord(h, piece, 0x7830ULL, 2ULL)
+                                | appendRadix(h, piece, n, 16ULL, false, 1ULL)
+                        else
+                            refused = refused | strings.appendInteger(h, piece, native.index(n))
+                        end
+                    elseif floatOf(argument) ~= values.NIL then
+                        -- Hexadecimal, which reads back exactly; infinities
+                        -- and NaN as the expressions that make them.
+                        local x = native.fromBits(argument)
+                        if argument == 0x7ff0000000000000ULL then
+                            refused = refused | strings.appendWord(h, piece, 0x393939396531ULL, 6ULL)
+                        elseif argument == 0xfff0000000000000ULL then
+                            refused = refused | strings.appendWord(h, piece, 0x3939393965312dULL, 7ULL)
+                        elseif x ~= x then
+                            refused = refused | strings.appendWord(h, piece, 0x29302f3028ULL, 5ULL)
+                        else
+                            refused = refused
+                                | strings.appendWord(h, piece, 0x006125ULL, 3ULL)
+                                | strings.reserve(h, piece, 520ULL)
+                            if refused == 0ULL then
+                                local length = os.formatNumber(
+                                    argument,
+                                    native.pointer(piece.base),
+                                    512ULL | 0x8000000000000000ULL
+                                )
+                                if length < 0 or length > 511 then
+                                    strings.release(builder)
+                                    strings.release(piece)
+                                    error("invalid conversion to 'format'")
+                                end
+                                piece.length = native.word(length)
+                            end
+                        end
+                    elseif argument == values.NIL or argument == values.TRUE or argument == values.FALSE then
+                        refused = refused | appendText(h, piece, argument)
+                    else
+                        strings.release(builder)
+                        strings.release(piece)
+                        error("bad argument to 'format' (value has no literal form)")
                     end
                 else
                     strings.release(builder)
@@ -1537,6 +1641,421 @@ local function tableUnpack(ctx: voidptr, list: uint64, a: uint64, b: uint64, all
     end
 end
 
+-- table.sort's state, a table keyed 1 to 15: the list and comparator, the
+-- pair awaiting the comparator's answer and the answer, then where the merge
+-- sort stands. PENDING is 1 while an answer is awaited and 2 once sorted.
+const SORT_LIST: int64 = 1
+const SORT_LESS: int64 = 2
+const SORT_A: int64 = 3
+const SORT_B: int64 = 4
+const SORT_ANSWER: int64 = 5
+const SORT_N: int64 = 6
+const SORT_WIDTH: int64 = 7
+const SORT_LO: int64 = 8
+const SORT_MID: int64 = 9
+const SORT_HI: int64 = 10
+const SORT_I: int64 = 11
+const SORT_J: int64 = 12
+const SORT_K: int64 = 13
+const SORT_BUFFER: int64 = 14
+const SORT_PENDING: int64 = 15
+
+local function sortGet(st: uint64, key: int64): int64
+    return native.index(loadAt(st, key) & values.PAYLOAD)
+end
+
+local function sortPut(h: heap.Heap*, st: uint64, key: int64, n: int64): nil
+    storeAt(h, st, key, values.TAG_INTEGER | native.word(n))
+end
+
+-- Whether a sorts before b by `<`, for table.sort without a comparator:
+-- numbers by value, strings byte by byte.
+local function sortLess(a: uint64, b: uint64): boolean
+    local ai = ints.isInteger(a)
+    local bi = ints.isInteger(b)
+    if ai and bi then
+        return native.index(ints.bitsOf(a)) < native.index(ints.bitsOf(b))
+    end
+    if ai and isFloat(b) then
+        return ints.intFloatLess(ints.bitsOf(a), b, false)
+    end
+    if isFloat(a) and bi then
+        return ints.floatIntLess(a, ints.bitsOf(b), false)
+    end
+    if isFloat(a) and isFloat(b) then
+        return native.fromBits(a) < native.fromBits(b)
+    end
+    local x = strings.header(a)
+    local y = strings.header(b)
+    if x == 0ULL or y == 0ULL then
+        error("attempt to compare two values that are not both numbers or strings")
+    end
+
+    return strings.less(x, y, false)
+end
+
+-- The merge of runs [lo, lo + width - 1] and [lo + width, hi], the second
+-- cut short by the list's end.
+local function sortAt(h: heap.Heap*, st: uint64, lo: int64, width: int64): nil
+    local n = sortGet(st, SORT_N)
+    local hi = lo + 2 * width - 1
+    if hi > n then
+        hi = n
+    end
+    sortPut(h, st, SORT_WIDTH, width)
+    sortPut(h, st, SORT_LO, lo)
+    sortPut(h, st, SORT_MID, lo + width - 1)
+    sortPut(h, st, SORT_HI, hi)
+    sortPut(h, st, SORT_I, lo)
+    sortPut(h, st, SORT_J, lo + width)
+    sortPut(h, st, SORT_K, lo)
+end
+
+-- The next pair of runs to merge, doubling the width once a pass ends.
+-- False once one run spans the list.
+local function sortRuns(h: heap.Heap*, st: uint64): boolean
+    local n = sortGet(st, SORT_N)
+    local width = sortGet(st, SORT_WIDTH)
+    local lo = sortGet(st, SORT_LO) + 2 * width
+    if lo + width > n then
+        width = width * 2
+        lo = 1
+        if width >= n then
+            return false
+        end
+    end
+    sortAt(h, st, lo, width)
+
+    return true
+end
+
+-- table.sort's state for list t and comparator `less` (nil for `<`), at the
+-- first merge. A bottom-up merge sort: stable, and O(n log n) comparisons.
+local function sortBegin(ctx: voidptr, list: uint64, less: uint64): uint64
+    @unsafe do
+        local t = tableArgument(list)
+        local state = guestscope.newTable(ctx)
+        local buffer = guestscope.newTable(ctx)
+        local h = guestHeap(ctx)
+        storeAt(h, state, SORT_LIST, list)
+        storeAt(h, state, SORT_LESS, less)
+        storeAt(h, state, SORT_BUFFER, values.TAG_OBJ | buffer)
+        local n = native.index(tables.length(t))
+        sortPut(h, state, SORT_N, n)
+        sortPut(h, state, SORT_PENDING, 0)
+        if n < 2 then
+            sortPut(h, state, SORT_PENDING, 2)
+        else
+            sortAt(h, state, 1, 1)
+        end
+        tables.drain(h)
+        return values.TAG_OBJ | state
+    end
+end
+
+-- Advances the sort: true when the comparator must say whether state[3]
+-- sorts before state[4] (its answer goes to state[5]), false once sorted.
+-- Without a comparator it runs to the end.
+local function sortStep(ctx: voidptr, value: uint64): uint64
+    @unsafe do
+        local h = guestHeap(ctx)
+        local st = value & values.PAYLOAD
+        local pending = sortGet(st, SORT_PENDING)
+        if pending == 2 then
+            return values.FALSE
+        end
+        local t = loadAt(st, SORT_LIST) & values.PAYLOAD
+        local buffer = loadAt(st, SORT_BUFFER) & values.PAYLOAD
+        local less = loadAt(st, SORT_LESS)
+        local mid = sortGet(st, SORT_MID)
+        local hi = sortGet(st, SORT_HI)
+        local i = sortGet(st, SORT_I)
+        local j = sortGet(st, SORT_J)
+        local k = sortGet(st, SORT_K)
+        if pending == 1 then
+            -- The right element goes first only when it sorts before the left,
+            -- which keeps equal elements in order.
+            local answer = loadAt(st, SORT_ANSWER)
+            if answer ~= values.NIL and answer ~= values.FALSE then
+                storeAt(h, buffer, k, loadAt(t, j))
+                j = j + 1
+            else
+                storeAt(h, buffer, k, loadAt(t, i))
+                i = i + 1
+            end
+            k = k + 1
+        end
+        while true do
+            if i <= mid and j <= hi then
+                local right = loadAt(t, j)
+                local left = loadAt(t, i)
+                if less ~= values.NIL then
+                    storeAt(h, st, SORT_A, right)
+                    storeAt(h, st, SORT_B, left)
+                    sortPut(h, st, SORT_I, i)
+                    sortPut(h, st, SORT_J, j)
+                    sortPut(h, st, SORT_K, k)
+                    sortPut(h, st, SORT_PENDING, 1)
+                    tables.drain(h)
+                    return values.TRUE
+                end
+                if sortLess(right, left) then
+                    storeAt(h, buffer, k, right)
+                    j = j + 1
+                else
+                    storeAt(h, buffer, k, left)
+                    i = i + 1
+                end
+                k = k + 1
+            else
+                while i <= mid do
+                    storeAt(h, buffer, k, loadAt(t, i))
+                    i = i + 1
+                    k = k + 1
+                end
+                while j <= hi do
+                    storeAt(h, buffer, k, loadAt(t, j))
+                    j = j + 1
+                    k = k + 1
+                end
+                local at = sortGet(st, SORT_LO)
+                while at <= hi do
+                    storeAt(h, t, at, loadAt(buffer, at))
+                    at = at + 1
+                end
+                if not sortRuns(h, st) then
+                    sortPut(h, st, SORT_PENDING, 2)
+                    tables.drain(h)
+                    return values.FALSE
+                end
+                mid = sortGet(st, SORT_MID)
+                hi = sortGet(st, SORT_HI)
+                i = sortGet(st, SORT_I)
+                j = sortGet(st, SORT_J)
+                k = sortGet(st, SORT_K)
+            end
+        end
+
+        return values.FALSE
+    end
+end
+
+-- gsub's state for a function replacement, a table keyed 1 to 16: the
+-- subject, pattern and function, the byte offsets the search has reached
+-- and the last match ended at (plus one, so 0 is none), the count and its
+-- limit, the pieces of the result and their number, the captures awaiting
+-- the function and its answer, the match they came from, PENDING (1 while
+-- an answer is awaited, 2 once finished), the anchor, and the offset the
+-- unreplaced text runs from.
+const GSUB_SUBJECT: int64 = 1
+const GSUB_PATTERN: int64 = 2
+const GSUB_FUNCTION: int64 = 3
+const GSUB_SRC: int64 = 4
+const GSUB_LAST: int64 = 5
+const GSUB_N: int64 = 6
+const GSUB_LIMIT: int64 = 7
+const GSUB_PIECES: int64 = 8
+const GSUB_CAPTURES: int64 = 9
+const GSUB_ANSWER: int64 = 10
+const GSUB_AT: int64 = 11
+const GSUB_END: int64 = 12
+const GSUB_PENDING: int64 = 13
+const GSUB_ANCHOR: int64 = 14
+const GSUB_COPY: int64 = 15
+const GSUB_COUNT: int64 = 16
+
+-- Adds the subject's bytes [from, to) to the result's pieces.
+local function gsubPiece(h: heap.Heap*, st: uint64, subject: uint64, from: int64, to: int64): nil
+    @unsafe do
+        if to <= from then
+            return
+        end
+        local count = sortGet(st, GSUB_COUNT) + 1
+        local piece = strings.make(h, subject + native.word(from), native.word(to - from))
+        storeAt(h, loadAt(st, GSUB_PIECES) & values.PAYLOAD, count, values.TAG_OBJ | piece)
+        sortPut(h, st, GSUB_COUNT, count)
+    end
+end
+
+-- gsub(s, p, f [, n])'s state, before its first match.
+local function gsubBegin(ctx: voidptr, value: uint64, pv: uint64, fn: uint64, maxValue: uint64): uint64
+    @unsafe do
+        local s = stringArgument(value)
+        local p = stringArgument(pv)
+        local limit = integerArgument(maxValue, native.index(strings.length(s)) + 1, 4ULL)
+        local state = guestscope.newTable(ctx)
+        local pieces = guestscope.newTable(ctx)
+        local h = guestHeap(ctx)
+        storeAt(h, state, GSUB_SUBJECT, value)
+        storeAt(h, state, GSUB_PATTERN, pv)
+        storeAt(h, state, GSUB_FUNCTION, fn)
+        storeAt(h, state, GSUB_PIECES, values.TAG_OBJ | pieces)
+        sortPut(h, state, GSUB_SRC, 0)
+        sortPut(h, state, GSUB_LAST, 0)
+        sortPut(h, state, GSUB_N, 0)
+        sortPut(h, state, GSUB_LIMIT, 0)
+        if limit > 0 then
+            sortPut(h, state, GSUB_LIMIT, limit)
+        end
+        sortPut(h, state, GSUB_PENDING, 0)
+        local anchor = strings.length(p) > 0ULL
+            and native.word(native.load8(native.pointer(strings.bytes(p)), 0)) == 94ULL
+        sortPut(h, state, GSUB_ANCHOR, native.index(native.asWord(anchor)))
+        sortPut(h, state, GSUB_COPY, 0)
+        sortPut(h, state, GSUB_COUNT, 0)
+        tables.drain(h)
+        return values.TAG_OBJ | state
+    end
+end
+
+-- Advances gsub to its next match: true when the function must be called
+-- with the captures at state[9] (its answer goes to state[10]), false once
+-- the subject is done.
+local function gsubStep(ctx: voidptr, value: uint64): uint64
+    local ms0 = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestHeap(ctx)
+        local st = value & values.PAYLOAD
+        local pending = sortGet(st, GSUB_PENDING)
+        if pending == 2 then
+            return values.FALSE
+        end
+        local s = strings.header(loadAt(st, GSUB_SUBJECT))
+        local p = strings.header(loadAt(st, GSUB_PATTERN))
+        local subject = strings.bytes(s)
+        local length = native.index(strings.length(s))
+        local anchor = sortGet(st, GSUB_ANCHOR) == 1
+        local src = sortGet(st, GSUB_SRC)
+        local last = sortGet(st, GSUB_LAST)
+        local finished = false
+        if pending == 1 then
+            -- The function's answer replaces the match: false or nil keeps it,
+            -- a string or number is its text.
+            local at = sortGet(st, GSUB_AT)
+            local e = sortGet(st, GSUB_END)
+            gsubPiece(h, st, subject, sortGet(st, GSUB_COPY), at)
+            local answer = loadAt(st, GSUB_ANSWER)
+            if answer == values.NIL or answer == values.FALSE then
+                gsubPiece(h, st, subject, at, e)
+            elseif strings.header(answer) ~= 0ULL or ints.isInteger(answer) or isFloat(answer) then
+                local text = answer
+                if strings.header(answer) == 0ULL then
+                    text = tostring(ctx, answer)
+                end
+                local count = sortGet(st, GSUB_COUNT) + 1
+                storeAt(h, loadAt(st, GSUB_PIECES) & values.PAYLOAD, count, text)
+                sortPut(h, st, GSUB_COUNT, count)
+            elseif objectKind(answer) == heap.KIND_TABLE then
+                error("invalid replacement value (a table)")
+            elseif objectKind(answer) == heap.KIND_CLOSURE then
+                error("invalid replacement value (a function)")
+            else
+                error("invalid replacement value (a boolean)")
+            end
+            sortPut(h, st, GSUB_COPY, e)
+            src = e
+            last = e + 1
+            finished = anchor
+        end
+        if not finished then
+            local pattern = strings.bytes(p)
+            local pEnd = pattern + strings.length(p)
+            if anchor then
+                pattern = pattern + 1ULL
+            end
+            local ms = ms0 as patterns.MatchState*
+            if patterns.prepare(h, ms, subject, strings.length(s), pEnd) ~= 0ULL then
+                patterns.release(ms)
+                error("not enough memory")
+            end
+            local n = sortGet(st, GSUB_N)
+            local limit = sortGet(st, GSUB_LIMIT)
+            while n < limit do
+                local e = patterns.match(h, ms, subject + native.word(src), pattern)
+                if e ~= 0ULL and (last == 0 or e ~= subject + native.word(last - 1)) then
+                    -- The captures, or the whole match without any, as the
+                    -- pack the function is called with.
+                    local pack = guestscope.newTable(ctx)
+                    local level = patterns.level(ms)
+                    if level == 0ULL then
+                        packPut(
+                            h,
+                            pack,
+                            1ULL,
+                            values.TAG_OBJ | strings.make(h, subject + native.word(src), e - subject - native.word(src))
+                        )
+                        level = 1ULL
+                    else
+                        local i: uint64 = 0ULL
+                        while i < level do
+                            packPut(h, pack, i + 1ULL, capture(h, ms, subject, i))
+                            i = i + 1ULL
+                        end
+                    end
+                    packed(h, pack, level, values.NIL)
+                    patterns.release(ms)
+                    storeAt(h, st, GSUB_CAPTURES, values.TAG_OBJ | pack)
+                    sortPut(h, st, GSUB_N, n + 1)
+                    sortPut(h, st, GSUB_AT, src)
+                    sortPut(h, st, GSUB_END, native.index(e - subject))
+                    sortPut(h, st, GSUB_SRC, src)
+                    sortPut(h, st, GSUB_LAST, last)
+                    sortPut(h, st, GSUB_PENDING, 1)
+                    tables.drain(h)
+                    return values.TRUE
+                elseif src < length then
+                    src = src + 1
+                else
+                    break
+                end
+                if anchor then
+                    break
+                end
+            end
+            patterns.release(ms)
+        end
+        gsubPiece(h, st, subject, sortGet(st, GSUB_COPY), length)
+        sortPut(h, st, GSUB_PENDING, 2)
+        tables.drain(h)
+        return values.FALSE
+    end
+end
+
+-- gsub's result once its step answers false: the pieces joined, alone or
+-- with `all` in a pack with the count of matches.
+local function gsubFinish(ctx: voidptr, value: uint64, all: boolean): uint64
+    local buffer = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local pack: uint64 = 0ULL
+        if all then
+            pack = guestscope.newTable(ctx)
+        end
+        local h = guestHeap(ctx)
+        local st = value & values.PAYLOAD
+        local pieces = loadAt(st, GSUB_PIECES) & values.PAYLOAD
+        local count = sortGet(st, GSUB_COUNT)
+        local builder = buffer as strings.Builder*
+        local refused: uint64 = 0ULL
+        local i: int64 = 1
+        while i <= count do
+            refused = refused | strings.appendString(h, builder, strings.header(loadAt(pieces, i)))
+            i = i + 1
+        end
+        if refused ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        local result = values.TAG_OBJ | strings.finish(h, builder)
+        if pack ~= 0ULL then
+            packPut(h, pack, 1ULL, result)
+            packPut(h, pack, 2ULL, values.TAG_INTEGER | native.word(sortGet(st, GSUB_N)))
+        end
+        tables.drain(h)
+
+        return packed(h, pack, 2ULL, result)
+    end
+end
+
 -- select(i, ...) over a variadic pack {[0] = n, ...}: the i-th value, from
 -- the end when negative; nil past the end.
 local function select(packValue: uint64, index: uint64): uint64
@@ -1604,7 +2123,12 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     if id == TOSTRING then
         return tostring(ctx, a)
     elseif id == FORMAT then
-        return format(ctx, count, a, b, c, d)
+        return format(ctx, count, a, b, c, d, 0ULL)
+    elseif id == FORMAT_PACK then
+        -- The pack holds its count at key 0.
+        local pack = b & values.PAYLOAD
+        local n = native.word(integerValue(tables.get(pack, values.TAG_INTEGER)))
+        return format(ctx, n + 1ULL, a, values.NIL, values.NIL, values.NIL, pack)
     elseif id == CONCAT then
         return concat(ctx, count, a, b)
     elseif id == GMATCH_NEXT then
@@ -1657,6 +2181,21 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return tableUnpack(ctx, a, b, c, false)
     elseif id == TABLE_UNPACK_ALL then
         return tableUnpack(ctx, a, b, c, true)
+    elseif id == TABLE_SORT then
+        sortStep(ctx, sortBegin(ctx, a, values.NIL))
+        return values.NIL
+    elseif id == SORT_BEGIN then
+        return sortBegin(ctx, a, b)
+    elseif id == SORT_STEP then
+        return sortStep(ctx, a)
+    elseif id == GSUB_BEGIN then
+        return gsubBegin(ctx, a, b, c, d)
+    elseif id == GSUB_STEP then
+        return gsubStep(ctx, a)
+    elseif id == GSUB_FINISH then
+        return gsubFinish(ctx, a, false)
+    elseif id == GSUB_FINISH_ALL then
+        return gsubFinish(ctx, a, true)
     elseif id == MATH_ABS then
         return mathAbs(ctx, a)
     elseif id == MATH_CEIL then

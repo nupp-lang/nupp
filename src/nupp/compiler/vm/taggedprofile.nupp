@@ -175,8 +175,18 @@ local function packSpec(library: string?): integer?
     return packLibrary[library]
 end
 
+local gsubWith: function(any, any, any, boolean): integer
+local formatMany: function(any, any, any): integer
+
 -- A core library call (guestlib): its arguments staged as values.
 local function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
+    -- gsub with a function replacement calls it, so it is a loop.
+    if (id == 26 or id == 27) and graph.callbackArgument(node) ~= nil then
+        return gsubWith(ctx, node, arguments, id == 27)
+    end
+    if id == 2 and #arguments > 4 then
+        return formatMany(ctx, node, arguments)
+    end
     need(#arguments >= 1 and #arguments <= 4, "core library calls take one to four arguments")
     need(arguments[#arguments].kind ~= "vararg", "a library call cannot spread `...` yet")
     local kinds = {}
@@ -585,6 +595,124 @@ local function invokeProtected(ctx: any, node: any, keepResult: boolean, count: 
     end
 
     return ctx.invoke(node, value, args, contract, keepResult)
+end
+
+-- table.sort(t, f): a merge sort the sort step advances until it needs f's
+-- answer, which a call of f here gives it. The step leaves the state table
+-- {t, f, a, b, answer, ...} asking whether a sorts before b, and answers
+-- false once t is sorted.
+local function sortWith(ctx: any, node: any): integer
+    local p = catalog(ctx)
+    local site = need(p.callByNode[node], "table.sort lacks its comparator's callsite")
+    need(site.field and site.owner == ctx.fn.id, "comparator callsite belongs to another owner")
+    local operands = ctx.operands(node.args.exprs, {"tagged", "tagged"})
+    if operands == nil then
+        return nil as any
+    end
+    local state = ctx.hold(ctx.emit(node, "LibCall", {48, operands[1], operands[2]}, "tagged"))
+    local contract = graph.callbackInvokeContract(node, 2)
+    ctx.loop(
+        node,
+        function(c: any, n: any): integer
+            return c.emit(n, "LibCall", {49, c.readHeld(state)}, "tagged")
+        end,
+        function(c: any, n: any): nil
+            local fields = {}
+            for index = 2, 4 do
+                local key = c.emit(n, "K", {pool(c, "int64", tostring(index))}, "tagged")
+                fields[index] = c.emit(n, "GetIdx", {c.readHeld(state), key}, "tagged")
+            end
+            if cleanupGraphs[c.g] then
+                c.beforeCall(n)
+            end
+            local answer = landed(c, n, c.invoke(n, fields[2], {fields[3], fields[4]}, contract, true))
+            if c.block == nil then
+                return
+            end
+            local key = c.emit(n, "K", {pool(c, "int64", "5")}, "tagged")
+            c.emit(n, "SetIdx", {c.readHeld(state), key, answer}, nil)
+        end
+    )
+    ctx.release(state)
+    if ctx.block == nil then
+        return nil as any
+    end
+
+    return ctx.emit(node, "Nil", {}, "tagged") as integer
+end
+
+-- string.format with more than three values: they go in a pack, its count
+-- at key 0, beside the format.
+formatMany = function(ctx: any, node: any, arguments: any): integer
+    need(arguments[#arguments].kind ~= "vararg", "a library call cannot spread `...` yet")
+    local kinds = {}
+    for index = 1, #arguments do
+        kinds[index] = "tagged"
+    end
+    local operands = ctx.operands(arguments, kinds)
+    if operands == nil then
+        return nil as any
+    end
+    local pack = ctx.emit(node, "NewTable", {}, "tagged")
+    for index = 2, #operands do
+        local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(index - 1))}, "tagged")
+        ctx.emit(node, "SetIdx", {pack, key, operands[index]}, nil)
+    end
+    local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
+    local count = ctx.emit(node, "K", {pool(ctx, "int64", tostring(#operands - 1))}, "tagged")
+    ctx.emit(node, "SetIdx", {pack, zero, count}, nil)
+
+    return ctx.emit(node, "LibCall", {54, operands[1], pack}, "tagged") as integer
+end
+
+-- string.gsub(s, p, f [, n]): the gsub step advances to each match and
+-- leaves its captures as a pack, f is called with them, and its answer
+-- replaces the match. The finished string comes alone or, with `all`, in a
+-- pack with the count.
+gsubWith = function(ctx: any, node: any, arguments: any, all: boolean): integer
+    local p = catalog(ctx)
+    local site = need(p.callByNode[node], "gsub lacks its function's callsite")
+    need(site.field and site.owner == ctx.fn.id, "gsub callsite belongs to another owner")
+    need(#arguments == 3 or #arguments == 4, "gsub takes a subject, pattern, function and an optional count")
+    local kinds = {}
+    for index = 1, #arguments do
+        kinds[index] = "tagged"
+    end
+    local operands = ctx.operands(arguments, kinds)
+    if operands == nil then
+        return nil as any
+    end
+    table.insert(operands, 1, 50)
+    local state = ctx.hold(ctx.emit(node, "LibCall", operands, "tagged"))
+    local contract = graph.callbackInvokeContract(node, 0, true)
+    ctx.loop(
+        node,
+        function(c: any, n: any): integer
+            return c.emit(n, "LibCall", {51, c.readHeld(state)}, "tagged")
+        end,
+        function(c: any, n: any): nil
+            local fnKey = c.emit(n, "K", {pool(c, "int64", "3")}, "tagged")
+            local fn = c.emit(n, "GetIdx", {c.readHeld(state), fnKey}, "tagged")
+            local packKey = c.emit(n, "K", {pool(c, "int64", "9")}, "tagged")
+            local captures = c.emit(n, "GetIdx", {c.readHeld(state), packKey}, "tagged")
+            if cleanupGraphs[c.g] then
+                c.beforeCall(n)
+            end
+            local answer = landed(c, n, c.invoke(n, fn, {}, contract, true, captures))
+            if c.block == nil then
+                return
+            end
+            local key = c.emit(n, "K", {pool(c, "int64", "10")}, "tagged")
+            c.emit(n, "SetIdx", {c.readHeld(state), key, answer}, nil)
+        end
+    )
+    local finished = ctx.readHeld(state)
+    ctx.release(state)
+    if ctx.block == nil then
+        return nil as any
+    end
+
+    return ctx.emit(node, "LibCall", {all and 53 or 52, finished}, "tagged") as integer
 end
 
 -- A record method call, `c:m(...)`: the method is loaded from the table the
@@ -1436,6 +1564,14 @@ function tagged.forVersion(version: integer): any
                 return libraryCall(ctx, node, form[1], node.args.exprs)
             elseif library == "string.format" then
                 return libraryCall(ctx, node, 2, node.args.exprs or {})
+            elseif library == "table.sort" then
+                -- Without a comparator the sort step compares with `<` itself.
+                local count = #(node.args.exprs or {})
+                need(count == 1 or count == 2, "table.sort takes a table and an optional comparator")
+                if count == 2 then
+                    return sortWith(ctx, node)
+                end
+                return libraryCall(ctx, node, 47, node.args.exprs)
             elseif library == "type" then
                 need(#(node.args.exprs or {}) == 1, "type takes one value")
                 return libraryCall(ctx, node, 32, node.args.exprs)

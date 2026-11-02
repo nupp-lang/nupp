@@ -465,6 +465,34 @@ function frontend.compile(fn: any, options: any, profile: any): any
         block = nil
     end
 
+    -- A loop a library form builds, table.sort's comparator calls: `step`
+    -- answers a value whose truth goes round again, and `body` emits one
+    -- iteration. What either needs across iterations it holds.
+    ctx.loop = function(node: any, step: any, body: any): nil
+        local before = need(block, "loop after terminator")
+        local header = branch()
+        before.term = {kind = "jump", edges = {header.edge}, pos = position(node)}
+        resume(header)
+        context()
+        local condition = step(ctx, node)
+        block = ctx.block
+        if not block then
+            return
+        end
+        local enter, exit = branch(), branch()
+        block.term = {kind = "branch", value = condition, edges = {enter.edge, exit.edge}, pos = position(node)}
+        block = nil
+        resume(enter)
+        context()
+        body(ctx, node)
+        block = ctx.block
+        if block then
+            jump(header, node)
+        end
+        resume(exit)
+        context()
+    end
+
     -- How many results a last call supplies when `count` targets outnumber the
     -- expressions, or nil when the profile has no multi-result calls.
     local function spreadCall(exprs: any, count: integer): integer?
