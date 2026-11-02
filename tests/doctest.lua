@@ -4104,7 +4104,13 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(compact:find("filter:drop%-shadow"), css)
     assert(compact:find("nuppdoc%-mobile%-outline%-toggle"), css)
     assert(compact:find("is%-mobile%-outline%-open"), css)
-    assert(compact:find("nuppdoc%-content%{font%-size:1rem%}"), css)
+    assert(compact:find("html%{font%-size:16px%}"), "the root defines the prose size")
+    local contentRules = 0
+    for declarations in compact:gmatch("%.nuppdoc%-content%{([^}]*)%}") do
+        contentRules = contentRules + 1
+        assert(not declarations:find("font-size:", 1, true), "prose inherits the root font size")
+    end
+    assert(contentRules > 0, "the content rules were checked")
     -- one mechanism clears the sticky header; two would stack into twice the gap
     assert(compact:find("scroll%-margin%-top:calc%(var%(%-%-nuppdoc%-header%-height%) ?%+ ?1%.4rem%)"), css)
     assert(not compact:find("scroll-padding-top", 1, true), css)
