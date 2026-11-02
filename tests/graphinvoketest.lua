@@ -358,10 +358,6 @@ end
 function M.closedPacksAndScalarSignaturesAreRequired()
     for _, case in ipairs({
         {
-            "local function target(...): integer return 1 end; return target(1)",
-            "signature is outside the scalar guest subset"
-        },
-        {
             "local function target(): (integer" .. string.rep(
                 ", integer",
                 16
@@ -380,6 +376,10 @@ function M.closedPacksAndScalarSignaturesAreRequired()
     local owner, call = checked("local function target(): nil return nil end; return target()")
     local contract = graph.invokeContract(owner, call)
     assert(#contract.signature.rets == 1 and contract.signature.rets[1].tag == "nil")
+    -- An untyped `...` is variadic values, as a generic pack erases to.
+    owner, call = checked("local function target(...): integer return 1 end; return target(1)", true)
+    contract = graph.invokeContract(owner, call)
+    assert(contract.signature.vararg)
     -- `any` passes as a value, checked where it is used.
     owner, call = checked("local function target(value: any): integer return 1 end; return target(1)", true)
     contract = graph.invokeContract(owner, call)

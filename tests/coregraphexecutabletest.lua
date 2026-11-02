@@ -213,12 +213,8 @@ function M.flaggedArgumentCountsAndPhysicalOverflowRefuse()
         end,
         "fixed CallK"
     )
-    refuses(
-        function()
-            bytecode.encode({"CallK", 1, 10, 10, 0, 0})
-        end,
-        "fixed CallK"
-    )
+    -- Wanting none is wanting every result as one pack.
+    assert(bytecode.encode({"CallK", 1, 10, 10, 0, 0}), "an open CallK encodes")
     refuses(
         function()
             bytecode.encode({"CallK", 1, 10, 10, 0, 17})
