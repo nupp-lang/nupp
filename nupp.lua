@@ -472,6 +472,7 @@ for _, relative in ipairs({
     "nupp/vm/ownedCoroutine.d.nupp",
     "nupp/vm/persist.d.nupp",
     "nupp/vm/process.d.nupp",
+    "nupp/vm/storagebinding.d.nupp",
     "nupp/vm/regex.d.nupp",
     "nupp/vm/snapshot.d.nupp",
     "nupp/vm/taskScope.d.nupp",
