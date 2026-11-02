@@ -84,7 +84,8 @@ local CASES: {[string]: {
     numbersPower = {fixture = "catalog-numbers-power", version = 8},
     libraryRanges = {fixture = "catalog-library-ranges", version = 8},
     numbersRandom = {fixture = "catalog-numbers-random", version = 8},
-    errorsLibrary = {fixture = "catalog-errors-library", version = 8}
+    errorsLibrary = {fixture = "catalog-errors-library", version = 8},
+    callsAny = {fixture = "catalog-calls-any", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.

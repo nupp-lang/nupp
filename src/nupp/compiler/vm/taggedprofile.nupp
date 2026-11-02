@@ -466,7 +466,7 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
     if target == nil and dynamic then
         -- From v8 a call through a function value is resolved when it runs.
         need(p.functionsByDefinition[site.definition] == nil, "dynamic call names a declaration")
-        contract = graph.dynamicInvokeContract(node)
+        contract = graph.dynamicInvokeContract(node, count)
     else
         need(target, "call requires a stable checked declaration")
         need(

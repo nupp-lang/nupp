@@ -545,7 +545,10 @@ function verify.resultKind(g: any, signature: any, output: any): string
                 or output.schema.version >= 7
                 and kinds[term.callee] == "value"
                 or contract.target == output.schema.absent
-                and tostring(kinds[term.callee]):match("^function:") ~= nil,
+                and tostring(kinds[term.callee]):match("^function:") ~= nil
+                -- From v8 a dynamic call takes any value, its callee checked
+                -- when it runs ("attempt to call a number value").
+                or contract.target == output.schema.absent and output.schema.version >= 8 and kinds[term.callee] ~= nil,
                 "actual callee provenance differs"
             )
             -- A variadic callee takes its fixed arguments and any number more.

@@ -1305,7 +1305,9 @@ invokeScalar = function(t: any): nil
         -- them from profile v8.
         or t.tag == "array" or t.tag == "map" or t.tag == "table" or t.tag == "func"
         -- A plain type parameter erases to a value, and a record is a table.
-        or t.tag == "typevar" or t.tag == "nominal" and t.declKind == "record"),
+        or t.tag == "typevar" or t.tag == "nominal" and t.declKind == "record"
+        -- `any` is a value checked where it is used.
+        or t.tag == "any"),
         "invoke requires a checked scalar type, got " .. tostring(t and t.tag)
     )
 end
@@ -1380,6 +1382,10 @@ local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
     end
 end
 
+-- The signatures calls through `any` values are checked against, one per
+-- call so a contract's identity check finds it.
+local anySignatures: {[any]: any} = setmetatable({}, {__mode = "k"})
+
 local function invokeContract(contract: any): nil
     if contract.dynamic then
         nativeContract(contract, {
@@ -1409,7 +1415,7 @@ local function invokeContract(contract: any): nil
             and (
                 protected and call.args and call.args.exprs[1] and call.args.exprs[1].inferredType == called
                 or callback and argument and argument.inferredType == called
-                or not protected and not callback and call.calleeType == called
+                or not protected and not callback and (call.calleeType == called or anySignatures[call] == called)
             )
             and not call.scalarIntrinsic
             and not call.ownershipIntrinsic
@@ -1681,11 +1687,43 @@ function graph.coreLibraryCall(call: any): string?
     return name and coreLibrary[name] and name or nil
 end
 
-function graph.dynamicInvokeContract(call: any): any
+-- The signature a call through an `any` value is checked against: its
+-- arguments and `count` results, all `any`.
+local function anySignature(call: any, count: integer): any
+    local held = anySignatures[call]
+    if held and #held.rets == count then
+        return held
+    end
+    local params, modes = {}, {}
+    for index = 1, #(call.args and call.args.exprs or {}) do
+        params[index], modes[index] = {tag = "any"}, "plain"
+    end
+    local rets, retModes = {}, {}
+    for index = 1, count do
+        rets[index], retModes[index] = {tag = "any"}, "plain"
+    end
+    local signature = {
+        tag = "func",
+        params = params,
+        paramPack = {head = params, modes = modes},
+        rets = rets,
+        retPack = {head = rets, modes = retModes}
+    }
+    anySignatures[call] = signature
+
+    return signature
+end
+
+-- `count`: the results the call keeps, which a call through `any` declares.
+function graph.dynamicInvokeContract(call: any, count: integer?): any
+    local called = call.calleeType
+    if called and called.tag == "any" then
+        called = anySignature(call, count or 1)
+    end
     local contract = {
         dynamic = true,
         call = call,
-        callSignature = call.calleeType,
+        callSignature = called,
         effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
     }
     invokeContract(contract)

@@ -71,6 +71,7 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
             or value.tag == "map"
             or value.tag == "table"
             or value.tag == "func"
+            or value.tag == "any"
         )
     then
         return "value"

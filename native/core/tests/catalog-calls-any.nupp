@@ -1,0 +1,39 @@
+module nupp.core.catalogcallsany
+
+-- Calls through `any` values are checked when they run: a function held as
+-- `any`, called with its arguments, keeping one result or several; functions
+-- that take and return `any`; and a value that is not a function.
+local function add(a: integer, b: integer): integer
+    return a + b
+end
+
+local function pair(x: any): (any, any)
+    return x, x
+end
+
+local function kind(value: any): string
+    return type(value)
+end
+
+local held: any = add
+local twice: any = pair
+local named: {[string]: any} = {}
+named.inc = function(n: integer): integer
+    return n + 1
+end
+local score: integer = held(2, 3) as integer
+local a, b = twice(7)
+score = score * 10 + (a as integer) + (b as integer)
+local inc: any = named.inc
+score = score * 10 + (inc(41) as integer)
+if kind(1) == "number" and kind("s") == "string" and kind(held) == "function" then
+    score = score + 10000
+end
+local ok, e = pcall(function(): any
+    local nope: any = 5
+    return nope()
+end)
+if not ok and string.find(tostring(e), "attempt to call a number value", 1, true) ~= nil then
+    score = score + 100000
+end
+export = score
