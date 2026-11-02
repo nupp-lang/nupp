@@ -60,6 +60,8 @@ export struct Services
     libraryOwner: uint64
     libraryPc: uint64
     libraryRaised: uint64
+    -- 1 when the library call is in method form (`s:rep(n)`).
+    libraryMethod: uint64
 end
 
 -- tableSet's answer when a __newindex function is to be called instead.
@@ -636,10 +638,11 @@ export function raise(ctx: voidptr, value: uint64, level: uint64): nil
 end
 
 -- Before a library call: which call it is and where, for its errors.
-export function librarySite(ctx: voidptr, frame: voidptr, pc: voidptr, count: uint64): nil
+export function librarySite(ctx: voidptr, frame: voidptr, pc: voidptr, count: uint64, method: uint64): nil
     @unsafe do
         local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
         native.store64(services, native.fieldOffset<Services>("libraryCount"), count)
+        native.store64(services, native.fieldOffset<Services>("libraryMethod"), method)
         native.store64(
             services,
             native.fieldOffset<Services>("libraryOwner"),
@@ -652,6 +655,15 @@ export function librarySite(ctx: voidptr, frame: voidptr, pc: voidptr, count: ui
             index = (address - code) // 16ULL
         end
         native.store64(services, native.fieldOffset<Services>("libraryPc"), index)
+    end
+end
+
+export function libraryMethod(ctx: voidptr): uint64
+    @unsafe do
+        return native.load64(
+            native.loadPointer(ctx, context.SERVICE_SCOPE),
+            native.fieldOffset<Services>("libraryMethod")
+        )
     end
 end
 

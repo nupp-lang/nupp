@@ -1,0 +1,31 @@
+module nupp.core.catalogerrorsmethods
+
+-- A library error in a method call counts arguments from the one after self,
+-- as Lua does; string arguments take numbers as their text.
+local function says(ok: boolean, message: string, line: integer, text: string): boolean
+    local at = ":" .. tostring(line) .. ": "
+    return not ok and string.find(message, at .. text, 1, true) ~= nil and string.sub(message, -#text) == text
+end
+
+local half: number = 1.5
+local five: any = 5
+local score: integer = 0
+local ok1, e1 = pcall(function(): string
+    return ("x"):rep(half as integer)
+end)
+if says(ok1, tostring(e1), 14, "bad argument #1 to 'rep' (number has no integer representation)") then
+    score = score + 1
+end
+local ok2, e2 = pcall(function(): string
+    return ("%d"):format(half)
+end)
+if says(ok2, tostring(e2), 20, "bad argument #1 to 'format' (number has no integer representation)") then
+    score = score + 2
+end
+if string.rep(five as string, 3) == "555" and string.len(five as string) == 1 then
+    score = score + 4
+end
+if string.upper(half as string) == "1.5" and string.sub(12345 as any as string, 2, 3) == "23" then
+    score = score + 8
+end
+export = score

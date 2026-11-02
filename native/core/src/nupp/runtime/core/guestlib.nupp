@@ -1192,6 +1192,10 @@ end
 -- The string header of an argument, raising when it is not a string.
 local function stringArgument(ctx: voidptr, value: uint64, position: uint64): uint64
     local s = strings.header(value)
+    -- A number is its text, as Lua's string arguments take one.
+    if s == 0ULL and (ints.isInteger(value) or floatOf(value) ~= values.NIL) then
+        s = strings.header(tostring(ctx, value))
+    end
     if s == 0ULL then
         texts.argumentError(ctx, position, texts.TEXT_STRING, 0ULL, value)
     end

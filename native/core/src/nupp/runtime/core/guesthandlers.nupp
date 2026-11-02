@@ -1416,7 +1416,9 @@ export function LibCall(
         return native.fail()
     end
     local dst = program.readByte(pc, 1)
-    local id = program.readByte(pc, 2)
+    -- The id's high bit marks a call in method form, for its errors.
+    local encoded = native.word(program.readByte(pc, 2))
+    local libraryId = encoded & 127ULL
     local base = program.readByte(pc, 3)
     local count = program.readByte(pc, 4)
     local valueCount = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
@@ -1440,7 +1442,7 @@ export function LibCall(
     -- .., /, //, tostring and unary minus on a table with the metamethod
     -- call it, its answer landing in dst.
     local which: uint64 = 0ULL
-    local word = native.word(id)
+    local word = libraryId
     if word == guestlib.CONCAT2 then
         which = guestscope.META_CONCAT
     elseif word == guestlib.DIVIDE then
@@ -1480,12 +1482,12 @@ export function LibCall(
     end
     -- error(value [, level]) fails the entry here, so the failure records
     -- the pc the message's position names.
-    if native.word(id) == guestlib.RERAISE then
+    if libraryId == guestlib.RERAISE then
         guestscope.raise(ctx, guestscope.lastError(ctx), 0ULL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
-    if native.word(id) == guestlib.ERROR then
+    if libraryId == guestlib.ERROR then
         local level: uint64 = 1ULL
         if count >= 2 then
             level = guestlib.errorLevel(b)
@@ -1494,8 +1496,8 @@ export function LibCall(
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
-    guestscope.librarySite(ctx, frame, pc, native.word(count))
-    slots.writeValue(frame, regs, dst, guestlib.call(ctx, native.word(id), native.word(count), a, b, c, d))
+    guestscope.librarySite(ctx, frame, pc, native.word(count), encoded >> 7ULL)
+    slots.writeValue(frame, regs, dst, guestlib.call(ctx, libraryId, native.word(count), a, b, c, d))
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)

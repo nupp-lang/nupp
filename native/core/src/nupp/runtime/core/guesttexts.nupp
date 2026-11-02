@@ -92,6 +92,8 @@ export const NAME_REVERSE: uint64 = 79ULL
 export const NAME_MOVE: uint64 = 80ULL
 export const NAME_RANDOM: uint64 = 81ULL
 export const NAME_RANDOMSEED: uint64 = 82ULL
+export const TEXT_CALLING: uint64 = 83ULL
+export const TEXT_BAD_SELF: uint64 = 84ULL
 
 export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
     if id == TEXT_BAD then
@@ -397,6 +399,13 @@ export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64
     elseif id == NAME_RANDOMSEED then
         -- "randomseed"
         return strings.appendWord(h, b, 0x65736d6f646e6172ULL, 8ULL) | strings.appendWord(h, b, 0x6465ULL, 2ULL)
+    elseif id == TEXT_CALLING then
+        -- "calling '"
+        return strings.appendWord(h, b, 0x20676e696c6c6163ULL, 8ULL) | strings.appendWord(h, b, 0x27ULL, 1ULL)
+    elseif id == TEXT_BAD_SELF then
+        -- "' on bad self ("
+        return strings.appendWord(h, b, 0x646162206e6f2027ULL, 8ULL)
+            | strings.appendWord(h, b, 0x2820666c657320ULL, 7ULL)
     end
 
     return 0ULL
@@ -440,11 +449,24 @@ export function argumentError(ctx: voidptr, position: uint64, expected: uint64, 
     @unsafe do
         local h = guestHeap(ctx)
         local builder = state as strings.Builder*
-        local refused = appendLibraryText(h, builder, TEXT_BAD)
-            | strings.appendInteger(h, builder, native.index(position))
-            | appendLibraryText(h, builder, TEXT_TO)
-            | appendLibraryText(h, builder, guestscope.libraryNameOf(ctx))
-            | appendLibraryText(h, builder, TEXT_OPEN)
+        -- A method call counts from the argument after self, as Lua does,
+        -- and self itself is "calling 'name' on bad self (...)".
+        local shown = position
+        if guestscope.libraryMethod(ctx) == 1ULL then
+            shown = position - 1ULL
+        end
+        local refused: uint64 = 0ULL
+        if shown == 0ULL then
+            refused = appendLibraryText(h, builder, TEXT_CALLING)
+                | appendLibraryText(h, builder, guestscope.libraryNameOf(ctx))
+                | appendLibraryText(h, builder, TEXT_BAD_SELF)
+        else
+            refused = appendLibraryText(h, builder, TEXT_BAD)
+                | strings.appendInteger(h, builder, native.index(shown))
+                | appendLibraryText(h, builder, TEXT_TO)
+                | appendLibraryText(h, builder, guestscope.libraryNameOf(ctx))
+                | appendLibraryText(h, builder, TEXT_OPEN)
+        end
         if expected ~= 0ULL then
             refused = refused | appendLibraryText(h, builder, expected) | appendLibraryText(h, builder, TEXT_EXPECTED)
             if position > guestscope.libraryCount(ctx) then

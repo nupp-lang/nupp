@@ -204,7 +204,9 @@ local function libraryCall(ctx: any, node: any, id: integer, arguments: any): in
     if operands == nil then
         return nil as any
     end
-    table.insert(operands, 1, id)
+    -- A call in method form (`s:rep(n)`) sets the id's high bit, so its
+    -- errors count arguments from the one after self, as Lua's do.
+    table.insert(operands, 1, node.kind == "methodCall" and id + 128 or id)
 
     return ctx.emit(node, "LibCall", operands, "tagged") as integer
 end
