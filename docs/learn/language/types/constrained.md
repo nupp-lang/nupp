@@ -59,20 +59,20 @@ being passed. That is admission, and it is written.
 ## Admission is written
 
 A value the compiler can prove needs nothing. A value it cannot prove is
-refused, and `nupp.admit` is how the program says it meant it.
+refused, and `types.admit` is how the program says it meant it.
 
 ```nupp:playground
 local type ShiftCount = types.range(integer, 0, 31)
 
 local function shift(bits: integer, by: integer): integer
-    local count: ShiftCount = nupp.admit(by)
+    local count: ShiftCount = types.admit(by)
     return bits * count
 end
 
 print(shift(1, 4))
 ```
 
-`nupp.admit` takes the constrained type from where its result goes -- an
+`types.admit` takes the constrained type from where its result goes -- an
 annotated binding, a declared result, a parameter, or an assignment to a
 declared binding -- so nothing names the type twice. It raises when the
 constraint does not hold.
@@ -111,7 +111,7 @@ so a constraint used in twenty places costs one function between them, and a
 trace inlines it.
 
 ```lua
--- from `local count: ShiftCount = nupp.admit(by)`
+-- from `local count: ShiftCount = types.admit(by)`
 local __nuppAdmit1 = function(__nuppV)
     if __nuppV % 1 == 0 and (__nuppV <= 31 and __nuppV >= 0) then return __nuppV end
     error("value is not established as ShiftCount", 2)
@@ -178,7 +178,7 @@ record m.Box
 end
 
 function m.put(box: m.Box, value: integer): nil
-    box.n = nupp.admit(value)
+    box.n = types.admit(value)
 end
 
 return m

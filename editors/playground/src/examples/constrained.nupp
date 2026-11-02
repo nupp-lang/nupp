@@ -2,7 +2,7 @@
 -- It goes wherever its base goes, and a narrower one goes where a wider one is
 -- wanted. Entering one is admission rather than subtyping: a value the compiler
 -- can prove needs nothing written, and one it cannot prove is refused until
--- `nupp.admit` says the program meant it.
+-- `types.admit` says the program meant it.
 
 local type Percent = types.range(integer, 0, 100)
 local type Digit = types.range(Percent, 0, 9)
@@ -20,7 +20,7 @@ local function count(value: Percent): integer
 end
 
 local function shift(by: integer): Percent
-    return nupp.admit(by) -- unprovable, so written; raises outside 0..100
+    return types.admit(by) -- unprovable, so written; raises outside 0..100
 end
 
 local function named(text: string): Identifier?
@@ -33,6 +33,6 @@ end
 print(half, name, widen(7), count(half))
 print(shift(30), named("height"), named(""))
 
--- try breaking it: write `local no: Percent = 101`, drop the `nupp.admit` from
+-- try breaking it: write `local no: Percent = 101`, drop the `types.admit` from
 -- `shift` and return `by` directly, or narrow `Digit` to `types.range(Percent,
 -- 200, 300)` and watch the empty intersection get refused at the declaration

@@ -1768,12 +1768,12 @@ the same bounds written in a type are the same type. The alias name is what
 hover and diagnostics show.
 
 Entering one is admission rather than subtyping. A value the compiler can prove
-needs nothing written; a value it cannot is refused, and `nupp.admit(value)`
+needs nothing written; a value it cannot is refused, and `types.admit(value)`
 says the program meant it. That is the rule `int32` already follows, and for the
 same reason: `as` is erased, so it can claim a value is one of these but cannot
 establish it, and claiming it is `NUPP2013`.
 
-`nupp.admit` takes the type from where its result goes -- an annotated binding, a
+`types.admit` takes the type from where its result goes -- an annotated binding, a
 declared result, a parameter, an assignment to a declared binding -- so nothing
 names it twice. It raises when the constraint does not hold. `value is Type` is
 the same test without the raise, for a caller that wants to recover.
@@ -1810,7 +1810,7 @@ function m.widen(value: Digit): Percent
 end
 
 function m.shift(value: integer): ShiftCount
-    return nupp.admit(value)
+    return types.admit(value)
 end
 
 function m.label(text: string): Short?
@@ -2640,7 +2640,7 @@ directly as `kind`, `name`, `fields`, `annotations`, and `fingerprint`.
 Comptime code reads descriptor members, uses `#`, and traverses arrays with
 deterministic `ipairs` or `pairs`. Views preserve identity for equality, reject
 mutation, and cannot escape as runtime tables. Reflection reads declared meaning
-rather than FFI layout, so `nupp.sizeof`, `nupp.alignof`, and `nupp.offsetof`
+rather than FFI layout, so `types.sizeof`, `types.alignof`, and `types.offsetof`
 use the build's `layoutTarget` instead.
 
 The fingerprint is computed from the canonical semantic graph rather than the

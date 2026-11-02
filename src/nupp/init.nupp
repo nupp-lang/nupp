@@ -1,6 +1,6 @@
 --[[
-`nupp` holds admission and layout queries alongside the remaining host,
-storage, provider, random-generator, and text-buffer APIs. Most library code
+`nupp` holds the remaining host, storage, provider, random-generator, and
+text-buffer APIs. Most library code
 uses the standard roots directly:
 
 ```nupp

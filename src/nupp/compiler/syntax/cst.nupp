@@ -427,7 +427,7 @@ interface cst.Hints
     --- find that out.
     primitiveTest: string?
 
-    --- The refinement a `nupp.admit` call has to establish, attached by the checker so
+    --- The refinement a `types.admit` call has to establish, attached by the checker so
     --- the generator emits it without resolving anything again. Absent when the value
     --- was already proved, which is what makes a written admission around one cost
     --- nothing.
@@ -2896,7 +2896,7 @@ local COMPTIME_TYPE_INTRINSICS: {[string]: boolean} = {sizeof = true, alignof = 
 ---
 --- @param callee the expression being applied
 --- @return the intrinsic's name, or nil
---- @return whether it was written on `nupp`
+--- @return whether it was written on `types`
 function cst.comptimeTypeIntrinsicSpelling(callee: cst.Node?): string?, boolean?
     if not callee then
         return nil
@@ -2910,7 +2910,7 @@ function cst.comptimeTypeIntrinsicSpelling(callee: cst.Node?): string?, boolean?
     if baseToken and baseToken.text == "types" and member == "reflect" then
         return member, true
     end
-    if not baseToken or baseToken.text ~= "nupp" or not COMPTIME_TYPE_INTRINSICS[member] then
+    if not baseToken or baseToken.text ~= "types" or not COMPTIME_TYPE_INTRINSICS[member] then
         return nil
     end
 

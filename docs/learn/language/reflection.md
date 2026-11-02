@@ -26,7 +26,7 @@ The two forms are separate:
 | Runtime | `Record.reflect()` | one cached immutable descriptor for that record |
 
 Both describe declarations, not object layout. For the target-specific layout of
-a `struct`, use `nupp.sizeof`, `nupp.alignof`, `nupp.offsetof`, and
+a `struct`, use `types.sizeof`, `types.alignof`, `types.offsetof`, and
 `soa.layoutof`. See [Layout
 reflection](../runtime/data/structure-of-arrays.md#layout-reflection) for what those report.
 
@@ -209,7 +209,7 @@ behind; runtime descriptors are cached per record and carry the extension cache.
 ### Can reflection report a struct's memory layout?
 
 No. Reflection reads declared meaning, so a field's offset is not one of its
-results. Use `nupp.sizeof`, `nupp.alignof`, `nupp.offsetof`, and `soa.layoutof`,
+results. Use `types.sizeof`, `types.alignof`, `types.offsetof`, and `soa.layoutof`,
 which report against the build's `layoutTarget`.
 
 ::: seealso

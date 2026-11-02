@@ -2709,23 +2709,23 @@ function M.aShapeMustCarryAnInterfacesDefaultMember()
 end
 
 -- A value the checker cannot prove is refused where it would enter a constrained
--- type, and `nupp.admit` is how the source says it meant it. The destination
+-- type, and `types.admit` is how the source says it meant it. The destination
 -- supplies the type, so nothing names it twice.
 function M.admissionIsWrittenWhereProofRunsOut()
     local alias = "local type Small = types.range(integer, 0, 10)\n"
-    clean(alias .. "local function of(v: integer): Small\n    return nupp.admit(v)\nend\nprint(of(1))")
-    clean(alias .. "local v: integer = 1\nlocal x: Small = nupp.admit(v)\nprint(x)")
+    clean(alias .. "local function of(v: integer): Small\n    return types.admit(v)\nend\nprint(of(1))")
+    clean(alias .. "local v: integer = 1\nlocal x: Small = types.admit(v)\nprint(x)")
     -- a proved value may be admitted too: a bound can move, and the source that
     -- says what it meant should keep compiling when it does
-    clean(alias .. "local function of(): Small\n    return nupp.admit(7)\nend\nprint(of())")
+    clean(alias .. "local function of(): Small\n    return types.admit(7)\nend\nprint(of())")
     -- the destination has to be constrained
     testAssert.eq(
-        codes(alias .. "local function of(v: integer): integer\n    return nupp.admit(v)\nend\nprint(of(1))"),
+        codes(alias .. "local function of(v: integer): integer\n    return types.admit(v)\nend\nprint(of(1))"),
         "NUPP2013"
     )
     -- and the value has to be the constraint's base: this admits, it does not convert
     testAssert.eq(
-        codes(alias .. "local function of(v: string): Small\n    return nupp.admit(v)\nend\nprint(of('x'))"),
+        codes(alias .. "local function of(v: string): Small\n    return types.admit(v)\nend\nprint(of('x'))"),
         "NUPP2013"
     )
 end
@@ -2744,12 +2744,62 @@ function M.admissionEmitsOnlyWhatProofLeaves()
         return gen.generate(parsed, "admit.nupp")
     end
 
-    local unproved = lua(alias .. "local function of(v: integer): Small\n    return nupp.admit(v)\nend\nprint(of(1))")
+    local unproved = lua(alias .. "local function of(v: integer): Small\n    return types.admit(v)\nend\nprint(of(1))")
     assert(unproved:find("__nuppAdmit", 1, true), "an unprovable admission emits its test")
     assert(unproved:find("__nuppV <= 10", 1, true), "the test carries the upper bound")
     assert(unproved:find("__nuppV %% 1 == 0"), "an integer base tests integrality")
-    local proved = lua(alias .. "local function of(): Small\n    return nupp.admit(7)\nend\nprint(of())")
+    local proved = lua(alias .. "local function of(): Small\n    return types.admit(7)\nend\nprint(of())")
     assert(not proved:find("__nuppAdmit", 1, true), "a proved admission emits nothing")
+end
+
+function M.admissionUsesTheTypesBindingAndRejectsRetiredNames()
+    clean(
+        [[
+local types = {admit = function(value: integer): string return tostring(value) end}
+local result: string = types.admit(7)
+return result
+]]
+    )
+    clean(
+        [[
+local type Small = types.range(integer, 0, 10)
+local query = types
+local function checked(value: integer): Small return query.admit(value) end
+return checked
+]]
+    )
+    for _, name in ipairs({"admit", "sizeof", "alignof", "offsetof"}) do
+        assert(codes("return nupp." .. name) ~= "", "retired nupp." .. name .. " must be refused")
+    end
+end
+
+function M.admissionChecksOnceAndKeepsItsRuntimeFailure()
+    local parsed = parser.parse(
+        [[
+local type Small = types.range(integer, 0, 10)
+local reads: integer = 0
+local function read(value: integer): integer
+    reads += 1
+    return value
+end
+local function checked(value: integer): Small return types.admit(read(value)) end
+return checked, function(): integer return reads end
+]],
+        "admission-runtime.nupp"
+    )
+    testAssert.eq(#parsed.errors, 0)
+    for _, diagnostic in ipairs(check.check(parsed, "admission-runtime.nupp", env)) do
+        assert(diagnostic.severity ~= "error", diagnostic.msg)
+    end
+    local code = gen.generate(parsed, "admission_runtime")
+    local chunk = assert(loadstring(code))
+    local admit, reads = chunk()
+    testAssert.eq(admit(5), 5)
+    local accepted, failure = pcall(admit, 11)
+    testAssert.eq(accepted, false)
+    assert(tostring(failure):find("Small", 1, true), tostring(failure))
+    testAssert.eq(pcall(admit, 1.5), false)
+    testAssert.eq(reads(), 3, "each admission evaluates its argument once")
 end
 
 -- One constraint is one type however it was reached: written in a type, returned
@@ -2904,9 +2954,9 @@ function M.admissionCarriesExactlyTheEffectsItLeft()
         return alias .. table.concat(
             {
                 "local function of(v: integer): Small",
-                "    local out: Small = nupp.admit(0)",
+                "    local out: Small = types.admit(0)",
                 "    " .. region .. " do",
-                "        out = nupp.admit(" .. value .. ")",
+                "        out = types.admit(" .. value .. ")",
                 "    end",
                 "    return out",
                 "end",
@@ -2955,7 +3005,7 @@ function M.aConstrainedTypeReachesAUnionAsItself()
     clean(alias .. "local function pass(v: Short): Short?\n    return v\nend\nprint(pass('ab'))")
     -- and an assignment into a field resolves what it admits into, like a binding
     local box = alias .. "local record Box\n    text: Short\nend\n"
-    clean(box .. "local function put(b: Box, v: string): nil\n    b.text = nupp.admit(v)\nend\nprint(put)")
+    clean(box .. "local function put(b: Box, v: string): nil\n    b.text = types.admit(v)\nend\nprint(put)")
 end
 
 function M.sharedGenericSignatureSubstitutionUsesOneRefreshWalk()

@@ -1156,7 +1156,7 @@ local function check(a: Type, b: Type): boolean, string?
     -- nothing fits it that is not already narrowed at least as far.
     --
     -- Entering one is admission rather than subtyping: a value the checker cannot
-    -- prove is refused here and the source says so with `nupp.admit`. That is the
+    -- prove is refused here and the source says so with `types.admit`. That is the
     -- whole reason this answers false instead of widening the way a literal does.
     if atag == "constrained" or btag == "constrained" then
         local predicate = require("nupp.compiler.types.predicate")

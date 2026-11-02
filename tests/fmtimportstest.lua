@@ -121,10 +121,10 @@ end
 
 function M.leavesIntrinsicsAndExplicitRequirePlacement()
     local output = formatted(
-        'local function size()\nreturn nupp.sizeof(int32), require("io.files").read("a")\nend\nreturn size\n'
+        'local function size()\nreturn types.sizeof(int32), require("io.files").read("a")\nend\nreturn size\n'
     )
     assert(not output:find('const files', 1, true), output)
-    assert(output:find('nupp.sizeof(int32)', 1, true), output)
+    assert(output:find('types.sizeof(int32)', 1, true), output)
     assert(output:find('require("io.files").read', 1, true), output)
 end
 

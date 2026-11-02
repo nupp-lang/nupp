@@ -846,7 +846,7 @@ local struct PointerSized
     tag: int8
     pointer: int8*
 end
-return comptime do return nupp.sizeof(PointerSized) end
+return comptime do return types.sizeof(PointerSized) end
 ]],
     })
 
@@ -886,7 +886,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"},
 ]],
         ["src/main.nupp"] = [[
 local models = require("models")
-return comptime do return nupp.sizeof(models.Wire) end
+return comptime do return types.sizeof(models.Wire) end
 ]],
         ["src/models.nupp"] = model,
     })

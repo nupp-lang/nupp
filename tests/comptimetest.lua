@@ -426,14 +426,14 @@ local type Pair<T> = T[2]
 return comptime do
     const INNER = "inner"
     return {
-        nupp.sizeof(Packet),
-        nupp.alignof(Packet),
-        nupp.offsetof(Packet, "value"),
-        nupp.offsetof(Packet, INNER),
-        nupp.sizeof(int32),
-        nupp.sizeof(Inner*),
-        nupp.sizeof(PacketAlias),
-        nupp.sizeof(Pair<int16>)
+        types.sizeof(Packet),
+        types.alignof(Packet),
+        types.offsetof(Packet, "value"),
+        types.offsetof(Packet, INNER),
+        types.sizeof(int32),
+        types.sizeof(Inner*),
+        types.sizeof(PacketAlias),
+        types.sizeof(Pair<int16>)
     }
 end
 ]]
@@ -453,7 +453,40 @@ function M.computesLayoutForTheDeclaredTargetRatherThanTheHost()
     testAssert.eq(table.concat(wasm32, ","), "40,8,8,20,4,4,40,4", "wasm32 layout")
 end
 
-function M.compilerTypeIntrinsicsRequireTheNuppNamespace()
+function M.layoutNamesRespectShadowedTypesAtRuntimeAndComptime()
+    local source = [[
+local types: {
+    sizeof: function(integer): number,
+    alignof: function(integer): number,
+    offsetof: function(string): integer
+} = {sizeof = math.abs, alignof = math.abs, offsetof = string.len}
+local size: number = types.sizeof(-9)
+local alignment: number = types.alignof(-4)
+local offset: integer = types.offsetof("field")
+return {size, alignment, offset}
+]]
+    testAssert.eq(table.concat(run(source), ","), "9,4,5")
+    testAssert.eq(table.concat(run("return comptime do " .. source .. " end"), ","), "9,4,5")
+end
+
+function M.layoutNamespaceAliasesKeepTheDeclaredTarget()
+    local values = runIn(
+        [[
+local struct Value
+    tag: int8
+    value: int32
+end
+return comptime do
+    local query = types
+    return {query.sizeof(Value), query.alignof(Value), query.offsetof(Value, "value")}
+end
+]],
+        layoutEnv("x86_64-unknown-linux-gnu")
+    )
+    testAssert.eq(table.concat(values, ","), "8,4,4")
+end
+
+function M.compilerTypeIntrinsicsRequireTheTypesNamespace()
     for _, name in ipairs({"reflect", "sizeof", "alignof", "offsetof"}) do
         local argument = name == "offsetof" and 'int32, "value"' or "int32"
         local codes = errorsOf(("return comptime do return %s(%s) end"):format(name, argument))
@@ -462,12 +495,14 @@ function M.compilerTypeIntrinsicsRequireTheNuppNamespace()
 end
 
 function M.layoutIntrinsicsRequireATargetAndAReifiableType()
-    local codes, diags = errorsOf([[
+    local codes, diags = errorsOf(
+        [[
 local struct Value
     n: int32
 end
-return comptime do return nupp.sizeof(Value) end
-]])
+return comptime do return types.sizeof(Value) end
+]]
+    )
     testAssert.eq(codes[1], "NUPP2419", "missing target")
     assert(diags[1].help and diags[1].help:find("layoutTarget", 1, true), "the diagnostic names the manifest selection")
 
@@ -476,7 +511,7 @@ return comptime do return nupp.sizeof(Value) end
 local record Value
     n: int32
 end
-return comptime do return nupp.sizeof(Value) end
+return comptime do return types.sizeof(Value) end
 ]],
         layoutEnv("x86_64-unknown-linux-gnu")
     )
@@ -490,7 +525,7 @@ function M.offsetofRequiresAKnownExistingField()
 local struct Value
     n: int32
 end
-return comptime do return nupp.offsetof(Value, "missing") end
+return comptime do return types.offsetof(Value, "missing") end
 ]],
         layoutEnv("x86_64-unknown-linux-gnu")
     )
@@ -503,7 +538,7 @@ local struct Value
     n: int32
 end
 local name: string = "n"
-return comptime do return nupp.offsetof(Value, name) end
+return comptime do return types.offsetof(Value, name) end
 ]],
         layoutEnv("x86_64-unknown-linux-gnu"),
         {strict = false}
