@@ -371,7 +371,7 @@ input {
 }
 
 .nuppdoc-content {
-    width: min(100% - 10rem, var(--nuppdoc-content-width));
+    width: min(100% - clamp(2rem, 8vw, 10rem), var(--nuppdoc-content-width));
     margin: 0 auto;
     padding: 1.25rem 0 6rem
 }
@@ -654,10 +654,6 @@ input {
     .nuppdoc-outline {
         display: none
     }
-
-    .nuppdoc-content {
-        width: min(100% - 5rem, var(--nuppdoc-content-width))
-    }
 }
 
 @media(max-width:760px) {
@@ -694,7 +690,7 @@ input {
 
     .nuppdoc-content {
         width: auto;
-        padding: 1.5rem 1.25rem 4rem
+        padding: 1.5rem clamp(.5rem, 2vw, 1.25rem) 4rem
     }
 }
 
