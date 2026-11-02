@@ -182,6 +182,15 @@ local function derive(g: any, catalog: any): any
         if block.term.kind == "invoke" then
             need(#block.term.args <= 63, "fixed CallK argument capacity")
             maximumArguments = math.max(maximumArguments, #block.term.args) as integer
+            -- xpcall's handler is staged past the arguments and the results,
+            -- and called from the four slots at the top of the window, above
+            -- them all.
+            local contract = catalog.contracts[block.term.contract + 1]
+            if contract and contract.handled then
+                local results: integer = math.max(#block.term.args - 1, #(block.term.results or {}), 1) as integer
+                maximumArguments = math.max(maximumArguments, results + 5) as integer
+                metaCalls = true
+            end
             -- Several results land after the callee slot; a spread call stages
             -- its pack there too, in 63 argument slots.
             maximumArguments = math.max(maximumArguments, #(block.term.results or {})) as integer
@@ -399,14 +408,24 @@ local function derive(g: any, catalog: any): any
                 -- All source values were evaluated by the common graph frontend.
                 -- The entire staging window is disjoint from every SSA location.
                 emit({"Move", callBase, physical(term.callee)}, position)
-                for index, argument in ipairs(term.args) do
-                    emit({"Move", callBase + index, physical(argument)}, position)
+                local nargs = contract.handled and #term.args - 1 or #term.args
+                for index = 1, nargs do
+                    emit({"Move", callBase + index, physical(term.args[index])}, position)
                 end
                 local wanted: integer = term.results and #term.results or 1
+                -- xpcall's handler: past the arguments and the results.
+                local handlerSlot = callBase + 1 + math.max(nargs, wanted)
+                if contract.handled then
+                    emit({"Move", handlerSlot, physical(term.args[#term.args])}, position)
+                end
                 local at: integer
                 if contract.protected then
                     need(not term.spread, "pcall cannot spread `...` yet")
-                    at = emit({"PCall", contract.target, callBase, callBase, #term.args, wanted}, position)
+                    at = emit({"PCall", contract.target, callBase, callBase, nargs, wanted}, position)
+                    if contract.handled then
+                        -- After a failure, the handler's answer replaces the error.
+                        emit({"XPHandle", callBase + 1, handlerSlot, wanted}, position)
+                    end
                 elseif term.spread then
                     at = emit(
                         {"CallV", contract.target, callBase, callBase, #term.args, wanted, physical(term.spread)},
@@ -424,7 +443,7 @@ local function derive(g: any, catalog: any): any
                     target = contract.target,
                     signature = contract.signature,
                     argumentBase = callBase,
-                    argumentCount = #term.args,
+                    argumentCount = nargs,
                     resultSlot = callBase + 1,
                     wanted = wanted,
                     spread = term.spread ~= nil,

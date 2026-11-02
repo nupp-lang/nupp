@@ -517,7 +517,8 @@ function program.describe(modules: {any}, entryModule: string): any
         end
         -- pcall is a library form whose name is never read, but it calls its
         -- first argument, so it is a callsite all the same.
-        local protected = node.kind == "call" and graph.coreLibraryCall(node) == "pcall"
+        local protected = node.kind == "call"
+            and (graph.coreLibraryCall(node) == "pcall" or graph.coreLibraryCall(node) == "xpcall")
         if node.kind == "call"
             and node.obj.kind == "name"
             and not loader

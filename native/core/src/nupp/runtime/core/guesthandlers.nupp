@@ -1866,6 +1866,56 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
 end
 
+-- After xpcall's protected call: when it failed (false in the status
+-- slot), its message handler is called with the error, its answer landing
+-- where the error would, or nowhere when only the status is wanted.
+export function XPHandle(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local status, handlerSlot, wanted = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(status) + 1ULL >= count or native.word(handlerSlot) >= count or count < 5ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if slots.readValue(frame, regs, status) == values.FALSE then
+        local top = native.index(count - 4ULL)
+        slots.writeValue(frame, regs, top, slots.readValue(frame, regs, handlerSlot))
+        slots.writeValue(frame, regs, top + 1, guestscope.lastError(ctx))
+        local resultSlot = count - 1ULL
+        if wanted >= 2 then
+            resultSlot = native.word(status) + 1ULL
+        end
+        if ops.metaCall(ctx, frame, pc, 1ULL, resultSlot, 0ULL) ~= 1ULL then
+            return native.fail()
+        end
+        local s = native.pointer(ops.state(ctx))
+        local current = native.pointer(access.active(s))
+        local currentValues = native.pointer(access.values(s, current))
+        local currentIntegers = native.pointer(access.integers(s, current))
+        local currentFloats = native.pointer(access.floats(s, current))
+        local currentPC = native.pointer(access.pc(s, current))
+        access.refresh(s, current, ctx)
+        return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+    end
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
+end
+
 export function Jmp(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
     if ops.current(ctx, frame, pc) == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)

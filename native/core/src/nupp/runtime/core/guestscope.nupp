@@ -40,6 +40,8 @@ export struct Services
     -- table whose metatable named it, for its handler to call; 0 for none.
     metaCallee: uint64
     metaSelf: uint64
+    -- The value the last recovered error carried, for xpcall's handler.
+    lastError: uint64
 end
 
 -- tableSet's answer when a __newindex function is to be called instead.
@@ -315,6 +317,13 @@ export function takeMeta(ctx: voidptr): uint64
         local callee = native.load64(services, native.fieldOffset<Services>("metaCallee"))
         native.store64(services, native.fieldOffset<Services>("metaCallee"), 0ULL)
         return callee
+    end
+end
+
+-- The value the last recovered error carried.
+export function lastError(ctx: voidptr): uint64
+    @unsafe do
+        return native.load64(native.loadPointer(ctx, context.SERVICE_SCOPE), native.fieldOffset<Services>("lastError"))
     end
 end
 
@@ -825,6 +834,7 @@ export function recoverEntry(ctx: voidptr): uint64
         if status == context.GUEST_ERROR_STATUS then
             value = positioned(ctx, value, level)
         end
+        native.store64(services, native.fieldOffset<Services>("lastError"), value)
         local state = native.loadPointer(ctx, context.STATE)
         local parent = frames.recover(state, value)
         if parent == 0ULL then

@@ -429,6 +429,9 @@ end
 
 -- pcall(f, ...): f called as a protected call, its results after true, or
 -- false and the error. With `count`, it keeps that many results.
+-- xpcall(f, handler, ...) is the same call with its handler, evaluated
+-- second and carried last among the arguments, answering in the error's
+-- place.
 local function invokeProtected(ctx: any, node: any, keepResult: boolean, count: integer?): any
     local p = catalog(ctx)
     local site = need(p.callByNode[node], "pcall lacks checked callsite")
@@ -441,16 +444,26 @@ local function invokeProtected(ctx: any, node: any, keepResult: boolean, count: 
         return nil
     end
     local held = ctx.hold(callee)
+    local handled = graph.coreLibraryCall(node) == "xpcall"
+    need(not handled or #exprs >= 2, "xpcall takes a function and a message handler")
     local rest, kinds = {}, {}
     for index = 2, #exprs do
         need(exprs[index].kind ~= "vararg", "pcall cannot spread `...` yet")
         rest[#rest + 1], kinds[#kinds + 1] = exprs[index], "tagged"
     end
-    local args = ctx.operands(rest, kinds)
+    local operands = ctx.operands(rest, kinds)
     local value = ctx.readHeld(held)
     ctx.release(held)
-    if args == nil then
+    if operands == nil then
         return nil
+    end
+    local args = operands
+    if handled then
+        args = {}
+        for index = 2, #operands do
+            args[#args + 1] = operands[index]
+        end
+        args[#args + 1] = operands[1]
     end
     if count then
         return ctx.invokeMany(node, value, args, contract, count)
@@ -1014,7 +1027,7 @@ function tagged.forVersion(version: integer): any
             if node.kind == "methodCall" and site and site.method then
                 return invokeMethod(ctx, node, true, count)
             end
-            if graph.coreLibraryCall(node) == "pcall" then
+            if graph.coreLibraryCall(node) == "pcall" or graph.coreLibraryCall(node) == "xpcall" then
                 return invokeProtected(ctx, node, true, count)
             end
             -- A string library call with several results answers a pack,
@@ -1143,7 +1156,7 @@ function tagged.forVersion(version: integer): any
             elseif library == "tonumber" then
                 need(#(node.args.exprs or {}) == 1, "tonumber takes one value; a base is not yet admitted")
                 return libraryCall(ctx, node, 9, node.args.exprs)
-            elseif library == "pcall" then
+            elseif library == "pcall" or library == "xpcall" then
                 return invokeProtected(ctx, node, true) as integer
             elseif library == "error" then
                 -- error(value [, level]): a string value gets the position the
@@ -1232,7 +1245,7 @@ function tagged.forVersion(version: integer): any
                 tagged.statementCall(ctx, node)
             elseif node.kind == "methodCall" and site and site.method then
                 invokeMethod(ctx, node, false)
-            elseif graph.coreLibraryCall(node) == "pcall" then
+            elseif graph.coreLibraryCall(node) == "pcall" or graph.coreLibraryCall(node) == "xpcall" then
                 invokeProtected(ctx, node, false)
             elseif node.kind == "call" and graph.coreLibraryCall(node) ~= nil then
                 -- error, setmetatable and the other library calls made for
