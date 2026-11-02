@@ -638,7 +638,7 @@ function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
     local summary = api.moduleSummary(module)
     assert(not summary:find("<h3>Constructors</h3>", 1, true), summary)
     assert(summary:find("nuppdoc-kind-comptime-function", 1, true), summary)
-    assert(summary:find(">comptime function</span>", 1, true), summary)
+    assert(summary:find(">comptime</span>", 1, true), summary)
     assert(summary:find("nuppdoc-kind-comptime-type", 1, true), summary)
 
     local rendered = {}
@@ -4146,12 +4146,15 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(compact:find("nuppdoc%-mobile%-outline%-toggle"), css)
     assert(compact:find("is%-mobile%-outline%-open"), css)
     assert(compact:find("html%{font%-size:16px%}"), "the root defines the prose size")
-    local contentRules = 0
+    local contentRules, explicitSize = 0, false
     for declarations in compact:gmatch("%.nuppdoc%-content%{([^}]*)%}") do
         contentRules = contentRules + 1
-        assert(not declarations:find("font-size:", 1, true), "prose inherits the root font size")
+        if declarations:find("font-size:", 1, true) then
+            assert(declarations:find("font-size:1rem", 1, true), "prose uses the root font size")
+            explicitSize = true
+        end
     end
-    assert(contentRules > 0, "the content rules were checked")
+    assert(contentRules > 0 and explicitSize, "the content size was checked")
     -- one mechanism clears the sticky header; two would stack into twice the gap
     assert(compact:find("scroll%-margin%-top:calc%(var%(%-%-nuppdoc%-header%-height%) ?%+ ?1%.4rem%)"), css)
     assert(not compact:find("scroll-padding-top", 1, true), css)
@@ -4194,6 +4197,7 @@ function M.headingKindsRenderAsBadgesAndStayOutOfTheOutline()
     -- A comptime kind is two words, and a badge is what a member heading gets too.
     local comptime = html.markdownHtml("#### `sizeof` _comptime function_", {})
     assert(comptime:find("nuppdoc-kind-comptime-function", 1, true), comptime)
+    assert(comptime:find(">comptime</span>", 1, true), comptime)
 
     -- Nothing else loses its emphasis. A heading has to name a declaration in code
     -- before its trailing emphasis reads as a kind at all.

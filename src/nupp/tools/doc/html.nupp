@@ -81,7 +81,7 @@ local function kindClass(kind: string): string
 end
 
 local function kindBadge(kind: string): string
-    local label = kind == "annotation" and "Annotation" or kind
+    local label = kind == "annotation" and "Annotation" or kind == "comptime function" and "comptime" or kind
     return '<span class="nuppdoc-kind-badge nuppdoc-kind-' .. kindClass(kind) .. '">' .. htmlEscape(label) .. "</span>"
 end
 

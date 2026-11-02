@@ -1,6 +1,6 @@
 :root {
-  /* Set the site-wide rem scale to 18px at the browser default of 16px. */
-  font-size: 112.5%;
+  /* Follow the browser's default text size. */
+  font-size: 100%;
   /* A palette surveyed across woodblock prints — thirty-eight colors: paper
    * through ink black, the earth/moss/indigo tones between, and (since the
    * survey ran short of both) three near-whites and three near-blacks, each
