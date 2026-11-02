@@ -20,7 +20,7 @@ damage:release(damage:acquire())
 `Bitset` stores bit positions counting from zero. `Pool` reuses cleared
 instances of one declared record.
 
-`try` and `tryWith` run a function protected and return `(result, reason)`.
+`try` and `trywith` run a function protected and return `(result, reason)`.
 The `or return` suffix reads that layout directly.
 
 ]]

@@ -126,32 +126,27 @@ local function codesFor(entry, index, which)
     return reportedFor(entry.aot and true or false)[fileFor(index, which)] or {}
 end
 
-local function everyWrongExampleReportsTheCodeItIsFiledUnder()
-    local checked = 0
+-- Both catalogues read the same two bulk compiler reports. Keep them in one
+-- schedulable case so slicing cannot rebuild those projects in two processes.
+function M.everyWorkedExampleMatchesItsDiagnosticEntry()
+    local checked, problems = 0, {}
     for index, entry in ipairs(explain.entries) do
         if entry.wrong then
             checked = checked + 1
             local codes = codesFor(entry, index, "wrong")
-            assert(codes[entry.code], entry.code .. ": its `wrong` example no longer reports it")
+            if not codes[entry.code] then
+                problems[#problems + 1] = entry.code .. ": its `wrong` example no longer reports it"
+            end
+        end
+        if entry.right then
+            local codes = codesFor(entry, index, "right")
+            if codes[entry.code] then
+                problems[#problems + 1] = entry.code .. ": its `right` example still reports it"
+            end
         end
     end
     assert(checked > 0, "the catalogue has worked examples to check")
-end
-
-local function everyRightExampleReportsNothing()
-    for index, entry in ipairs(explain.entries) do
-        if entry.right then
-            local codes = codesFor(entry, index, "right")
-            assert(not codes[entry.code], entry.code .. ": its `right` example still reports it")
-        end
-    end
-end
-
--- Both catalogues read the same two bulk compiler reports. Keep them in one
--- schedulable case so slicing cannot rebuild those projects in two processes.
-function M.everyWorkedExampleMatchesItsDiagnosticEntry()
-    everyWrongExampleReportsTheCodeItIsFiledUnder()
-    everyRightExampleReportsNothing()
+    assert(#problems == 0, table.concat(problems, "\n"))
 end
 
 -- What lowering refuses is reported by a check of a target that lowers, so each

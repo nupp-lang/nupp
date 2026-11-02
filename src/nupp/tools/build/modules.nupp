@@ -83,6 +83,24 @@ function modules.linkPackagedRuntime(name: string, context: modules.RuntimeSourc
     end
 end
 
+-- A sibling belongs to this compiler generation only while its recorded source
+-- and emitted bytes both match. Unrecorded files can outlive a narrower rebuild.
+function modules.currentCarriedArtifact(
+    record: any,
+    source: string?,
+    artifact: string?,
+    digest: function(string): string
+): string?
+    if type(record) ~= "table" or source == nil or artifact == nil then
+        return nil
+    end
+    if record.sourceHash == digest(source as string) and record.artifactHash == digest(artifact as string) then
+        return artifact
+    end
+
+    return nil
+end
+
 local function hiddenDirectory(name: string): boolean
     return name:sub(1, 1) == "."
 end
@@ -1686,6 +1704,24 @@ local function buildModules(root: string, outDir: string, config: Config, target
     local addingCarriedRuntime: {[string]: boolean} = {}
     local carriedRuntime: {[string]: boolean} = {}
     local runtimeSourceRoot = join(root, join(outDir, "cache/runtime-source"))
+    local compilerGeneration: any = nil
+    local carriedSourceText: {[string]: any} = {}
+
+    local function currentCarriedSource(name: string): string?
+        if carriedSourceText[name] == nil then
+            local bundled = require("nupp.compiler.bundled")
+            local source: string? = nil
+            for _, suffix in ipairs({".nupp", "/init.nupp", ".d.nupp", ".lua"}) do
+                source = bundled.source("/" .. name:gsub("%.", "/") .. suffix)
+                if source ~= nil then
+                    break
+                end
+            end
+            carriedSourceText[name] = source or false
+        end
+
+        return carriedSourceText[name] or nil
+    end
 
     local function addCarriedRuntime(name: string): boolean
         if browserTarget then
@@ -1709,8 +1745,16 @@ local function buildModules(root: string, outDir: string, config: Config, target
         end
         local bundled = require("nupp.compiler.bundled")
         local modulePath = name:gsub("%.", "/") .. ".lua"
-        local text = readFile(join(bundled.moduleDir(), "../../" .. modulePath))
-            or bundled.source("/" .. name:gsub("%.", "/") .. ".lua")
+        if compilerGeneration == nil then
+            compilerGeneration = cache.loadState(join(bundled.moduleDir(), "../../.nupp-state.json"))
+        end
+        local text = modules.currentCarriedArtifact(
+            compilerGeneration.modules[name],
+            currentCarriedSource(name),
+            readFile(join(bundled.moduleDir(), "../../" .. modulePath)),
+            contentDigest
+        )
+            or bundled.source("/" .. modulePath)
         local carried = rawget(_G, "__nuppCompilerModuleArtifacts")
         local carriedRecord = carried and carried[name]
         if text == nil and carriedRecord and type(carriedRecord.source) == "string" then

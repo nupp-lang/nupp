@@ -555,6 +555,36 @@ return Codec:encode(new Message(text = "ok")).text as string
     remove(dir)
 end
 
+function M.carriedRuntimeArtifactsRequireCurrentSourceAndEmittedBytes()
+    local modules = require("nupp.tools.build.modules")
+    local source = "module carried\nexport function value(): integer return 7 end\n"
+    local artifact = "return {value=function() return 7 end}"
+    local record = {sourceHash = hash.digest(source), artifactHash = hash.digest(artifact)}
+    testAssert.eq(modules.currentCarriedArtifact(record, source, artifact, hash.digest), artifact)
+    testAssert.eq(
+        modules.currentCarriedArtifact(nil, source, artifact, hash.digest),
+        nil,
+        "an orphan is not generation-owned"
+    )
+    testAssert.eq(
+        modules.currentCarriedArtifact({}, source, artifact, hash.digest),
+        nil,
+        "an incomplete record is not provenance"
+    )
+    testAssert.eq(
+        modules.currentCarriedArtifact(record, nil, artifact, hash.digest),
+        nil,
+        "no source falls back to carried loading"
+    )
+    testAssert.eq(
+        modules.currentCarriedArtifact(record, source, nil, hash.digest),
+        nil,
+        "a missing artifact is not reusable"
+    )
+    testAssert.eq(modules.currentCarriedArtifact(record, source .. "-- changed\n", artifact, hash.digest), nil)
+    testAssert.eq(modules.currentCarriedArtifact(record, source, artifact .. "-- changed\n", hash.digest), nil)
+end
+
 function M.cachedProducersRetainNestedRuntimeTypeWitnesses()
     local dir = tempProject({
         ["nupp.lua"] = 'return {include={"src"},build={outDir="out",entries={"main"}}}',
@@ -589,7 +619,19 @@ return child == getmetatable(value.child) and value.child.value == 7
     )
     local stats = {}
     testAssert.eq(project.build(dir, {stats = stats}), 0)
-    testAssert.eq(stats.checkedModules, 2, "the consumer and newly reached reflection facade are checked")
+    testAssert.eq(stats.checkedModules, 1, "only the changed consumer is checked; its reflection facade is current")
+    local state = json.decode(read(dir .. "/out/.nupp-state.json"))
+    testAssert.eq(
+        state.modules["types.reflect"].compilerRuntime,
+        true,
+        "the generation-owned reflection facade is reused"
+    )
+    local bundled = require("nupp.compiler.bundled")
+    testAssert.eq(
+        read(dir .. "/out/types/reflect.lua"),
+        read(bundled.moduleDir() .. "/../../types/reflect.lua"),
+        "the current reflection artifact is preserved byte-for-byte"
+    )
     testAssert.eq(read(dir .. "/out/witnessmodels.lua"), producer)
     testAssert.eq(answerFrom(dir .. "/out", dir), "true", producer .. read(dir .. "/out/main.lua"))
     local warm = {}

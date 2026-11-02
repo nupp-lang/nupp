@@ -1914,7 +1914,7 @@ end
 
 function m.total(): number
     const storage = carray(Value, 4)
-    const values = span.fromCarray(storage, 4)
+    const values = span.fromcarray(storage, 4)
     const rows = indexed.range(1, #values, values)
     local total = 0
     for index = rows.first, rows.last do
@@ -2381,14 +2381,14 @@ local uri = require("io.uri")
 
 function m.statuses(urls: {string}): {integer}
     local function storeStatus(codes: {integer}, index: integer, url: string): nil
-        local client = http.newClient()
-        local response = assert(client:send(new http.Request(url = assert(uri.newURI(url)))))
+        local client = http.newclient()
+        local response = assert(client:send(new http.Request(url = assert(uri.newuri(url)))))
         codes[index] = response.status
         response:close()
     end
 
     local codes: {integer} = {}
-    with scope = tasks.open() do
+    with scope = tasks.scope() do
         for index, url in ipairs(urls) do
             scope:spawn(codes, index, url, storeStatus)
         end
