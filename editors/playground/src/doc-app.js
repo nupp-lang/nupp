@@ -162,7 +162,7 @@ const styles = `
   --pg-accent-hover: var(--nuppdoc-accent-hover, color-mix(in srgb, #768d93 80%, black));
   --pg-accent-soft: var(--nuppdoc-accent-soft, #f1e1df);
   --pg-background: var(--nuppdoc-code-background, #e6eaec);
-  --pg-code-background: var(--nuppdoc-code-background, #e6eaec);
+  --pg-code-background: transparent;
   --pg-background-alt: var(--nuppdoc-background-alt, #f0ebe7);
   --pg-border: var(--nuppdoc-border, color-mix(in srgb, #50676c 70%, white));
   --pg-code-block-radius: var(--nuppdoc-code-block-radius, 4px);
@@ -295,7 +295,7 @@ select {
   margin-top: .25rem;
   border: 1px solid var(--pg-border);
   border-radius: var(--pg-code-block-radius);
-  background: var(--pg-background);
+  background: transparent;
 }
 .editor .cm-scroller {
   max-height: 28rem;
@@ -303,7 +303,7 @@ select {
   font-family: var(--pg-font-mono);
   font-size: 13px;
 }
-.editor .cm-content { padding: .75rem 0 !important; }
+.editor .cm-content { padding: 0 !important; }
 .tooltip-layer {
   position: absolute;
   z-index: 3;
@@ -354,10 +354,10 @@ select {
   overflow: auto;
   max-height: 28rem;
   margin-top: .25rem;
-  padding: .75rem 0;
+  padding: 0;
   border: 1px solid var(--pg-border);
   border-radius: var(--pg-code-block-radius);
-  background: var(--pg-background);
+  background: transparent;
   color: var(--pg-text);
   font-family: var(--pg-font-mono);
   font-size: 13px;

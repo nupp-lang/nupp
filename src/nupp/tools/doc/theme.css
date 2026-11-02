@@ -494,9 +494,8 @@ input {
 }
 
 .nuppdoc-content :not(pre)>code {
-    padding: .1em .35em;
-    border-radius: 4px;
-    background: var(--nuppdoc-code-background);
+    padding: 0;
+    background: transparent;
     font-family: var(--nuppdoc-font-mono);
     font-size: .91em
 }

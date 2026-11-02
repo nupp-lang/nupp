@@ -302,9 +302,6 @@
   color: var(--nuppdoc-feature-heading);
 }
 
-.nuppdoc-content h2 {
-  border-top-width: 2px;
-}
 
 /* A `::: columns` block (see the home page's Learning Nupp / Language
  * reference / Performance / Guides groups) reads as peer lists rather than
