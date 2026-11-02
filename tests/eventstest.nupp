@@ -1016,7 +1016,7 @@ function M.structRowsReadAsZeroWhenLeasedAndAreDeliveredAsStructReferences(): ni
     test.eq(rows.seenA[3], 0)
     test.eq(rows.seenB[3], 0)
     test.eq(rows.seenImpulse[3], 0)
-    test.eq(seen[3], "9.0 1e1 0.75")
+    test.eq(seen[3], "9.0 10.0 0.75")
     test.eq(rows.inner:live(), 0)
 end
 

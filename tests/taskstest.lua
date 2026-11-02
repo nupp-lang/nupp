@@ -1510,6 +1510,8 @@ function M.acceptingWorkNameRunsTheExistingWorkerSubmission()
     local program = require("program")
     local environment = require("nupp.compiler.project.env").new(".")
     local source = [[
+module acceptingworkernames
+
 return coroutine.run(function(borrows scope: coroutine.Scope): (integer, nil, string, boolean, boolean, integer)
     assert(scope.work == scope.fork)
     local handle = scope:work(6, function(value: integer): (integer, nil, string)
@@ -1520,11 +1522,11 @@ return coroutine.run(function(borrows scope: coroutine.Scope): (integer, nil, st
     return first, middle, last, handle:isdone(), handle:isDone(), select("#", handle:await())
 end)
 ]]
-    local parsed = parser.parse(source, "accepting-worker-names.nupp")
+    local parsed = parser.parse(source, "acceptingworkernames.nupp")
     testAssert.eq(#parsed.errors, 0)
-    local diagnostics = checker.check(parsed, "accepting-worker-names.nupp", environment)
+    local diagnostics = checker.check(parsed, "acceptingworkernames.nupp", environment)
     testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    local first, middle, last, done, precedingDone, count = program.run(parsed, "accepting-worker-names")
+    local first, middle, last, done, precedingDone, count = program.run(parsed, "acceptingworkernames")
     testAssert.eq(first, 7)
     testAssert.eq(middle, nil)
     testAssert.eq(last, "tail")
