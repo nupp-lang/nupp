@@ -1897,3 +1897,30 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     padding: 0;
     white-space: normal
 }
+
+/* Keep navigation hierarchy visible while emphasizing the current item. */
+.nuppdoc-sidebar a,
+.nuppdoc-outline a {
+    opacity: .75
+}
+
+.nuppdoc-sidebar>ul>li>a,
+.nuppdoc-sidebar>ul>li>details>summary>a,
+.nuppdoc-sidebar a[aria-current="page"],
+.nuppdoc-outline a[aria-current] {
+    opacity: 1
+}
+
+/* Nested summaries also contain labels and arrows outside their links. */
+.nuppdoc-sidebar ul ul summary {
+    opacity: .75
+}
+
+.nuppdoc-sidebar ul ul summary>a,
+.nuppdoc-sidebar ul ul summary:has(>a[aria-current="page"]) {
+    opacity: 1
+}
+
+.nuppdoc-outline-section summary::after {
+    opacity: .75
+}
