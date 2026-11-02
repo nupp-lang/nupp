@@ -350,7 +350,7 @@ function WaitingMT.ready(self: any): boolean
     return self.isReady()
 end
 
-function WaitingMT.onResume(self: any, waker: function(): nil): nil
+function WaitingMT.onresume(self: any, waker: function(): nil): nil
     self.setWaker(waker)
 end
 
@@ -389,18 +389,18 @@ function ContextMT.uses(self: any, source: any): nil
 end
 
 -- Not a context member. Whether a park is permitted is a property of the handler in
--- force, which `canSuspend` answers; a per-subscription spelling of the same question
+-- force, which `cansuspend` answers; a per-subscription spelling of the same question
 -- had no caller outside this file.
 local function contextCanPark(self: any): boolean
     local handler = self._handler
     if handler == nil then
         return true
     end
-    if handler.canPark == nil then
+    if handler.canpark == nil then
         return true
     end
 
-    return handler.canPark(handler) ~= false
+    return handler.canpark(handler) ~= false
 end
 
 -- Releases the pumps a subscription registered through its context. They belonged to
@@ -702,7 +702,7 @@ local function closeInstallation(self: any): nil
     self._released = true
 end
 
--- What `install` and `installDriver` share. A driver differs only in not bounding a
+-- What `install` and `installdriver` share. A driver differs only in not bounding a
 -- host turn, which is one flag in the extent's own state rather than a parameter
 -- either entry point asks its caller about.
 local function installHandler(handler: suspension.Handler, transparent: boolean): affine(contract.Installed)
@@ -774,7 +774,7 @@ end
 ---
 --- @param handler what answers suspensions inside the scope
 --- @return the installation, owned by the caller
-function suspension.installDriver(handler: suspension.Handler): affine(contract.Installed)
+function suspension.installdriver(handler: suspension.Handler): affine(contract.Installed)
     return installHandler(handler, true)
 end
 
@@ -830,11 +830,11 @@ end
 ---
 --- A private handler changes where a branch yields; it must not quietly grant
 --- permission the handler it displaced refused. So a driver takes this before
---- it installs, and its own `canPark` delegates to it -- dynamically, because a
+--- it installs, and its own `canpark` delegates to it -- dynamically, because a
 --- host such as an ECS scheduler enters and leaves barriers while a family is
 --- still live, and one boolean sampled at install time would answer for the
 --- wrong moment.
-function suspension.delegatedCanPark(): function(): boolean
+function suspension.delegatedcanpark(): function(): boolean
     const captured = effectiveInstallation()
 
     return function(): boolean
@@ -843,11 +843,11 @@ function suspension.delegatedCanPark(): function(): boolean
             current = current._previous
         end
         const outer = current and current.handler or nil
-        if outer == nil or outer.canPark == nil then
+        if outer == nil or outer.canpark == nil then
             return true
         end
 
-        return outer.canPark(outer) ~= false
+        return outer.canpark(outer) ~= false
     end
 end
 
@@ -856,9 +856,9 @@ end
 --- A driver runs its own family while the frame waits, and what it cannot satisfy --
 --- a wait on the host's clock or sockets with no child left to run -- it hands to the
 --- handler it displaced, or to the blocking park where there is none. Captured before
---- the driver installs, like `delegatedCanPark`, and resolved when called, stepping
+--- the driver installs, like `delegatedcanpark`, and resolved when called, stepping
 --- over extents that have since ended.
-function suspension.delegatedPark(): function(suspension.Waiting, function(): nil): nil
+function suspension.delegatedpark(): function(suspension.Waiting, function(): nil): nil
     const captured = effectiveInstallation()
 
     return function(waiting: suspension.Waiting, cancel: function(): nil): nil
@@ -880,13 +880,13 @@ end
 ---
 --- The run-time backstop for what `@nosuspend` checks while compiling, for the calls
 --- static analysis could not see.
-function suspension.canSuspend(): boolean
+function suspension.cansuspend(): boolean
     local handler = effective()
-    if handler == nil or handler.canPark == nil then
+    if handler == nil or handler.canpark == nil then
         return true
     end
 
-    return handler.canPark(handler) ~= false
+    return handler.canpark(handler) ~= false
 end
 
 ----------------------------------------------------------------------------
@@ -930,7 +930,7 @@ local function turnDeferralSource(): suspension.Source
 end
 
 --- Whether the aggregate here may spend another activation before it owes a turn.
-function suspension.turnAvailable(): boolean
+function suspension.turnavailable(): boolean
     local current = effectiveInstallation()
     if current == nil then
         return true
@@ -955,7 +955,7 @@ function suspension.turnAvailable(): boolean
 end
 
 --- Records one coroutine activation against the current turn.
-function suspension.consumeTurn(): nil
+function suspension.consumeturn(): nil
     local token = turnTokens[currentTurnOwner()]
     if token ~= nil and token.generation == providerState.turnGeneration then
         token.remaining = token.remaining - 1
@@ -963,7 +963,7 @@ function suspension.consumeTurn(): nil
 end
 
 --- Parks until the host has had its turn.
-function suspension.deferTurn(): nil
+function suspension.deferturn(): nil
     suspension.suspend("nupp coroutine turn budget", function(
         resume: function(boolean),
         context: suspension.Context
@@ -1028,7 +1028,7 @@ function suspension.derive(
                     wake()
                 end
 
-                base:onResume(wakeOnce)
+                base:onresume(wakeOnce)
                 arm(wakeOnce)
             end,
         },
