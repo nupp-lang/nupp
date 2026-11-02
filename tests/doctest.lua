@@ -709,6 +709,12 @@ function M.documentsFunctionTypedRecordFieldsAsMethods()
     assert(step and step.isFunction, "function-typed field must document as a method")
     assert(step.params[2].name == "by" and step.params[2].text == "How much to add.")
     assert(step.returns[1].text == "The counter itself.", step.returns[1].text)
+    local rendered = {}
+    require("nupp.tools.doc.api").renderHtmlItem(rendered, counter)
+    local html = table.concat(rendered)
+    assert(html:find('<h5>Arguments</h5><dl class="nuppdoc-api-details">', 1, true), html)
+    assert(html:find('<h5>Returns</h5><dl class="nuppdoc-api-details">', 1, true), html)
+    assert(html:find("How much to add.", 1, true) and html:find("The counter itself.", 1, true), html)
     local markdown = doc.markdown({module})
     assert(markdown:find("#### Members", 1, true), "members table missing")
     assert(markdown:find("| [`step`](#num.Counter.step) | method |", 1, true), markdown)
@@ -717,6 +723,29 @@ function M.documentsFunctionTypedRecordFieldsAsMethods()
     assert(markdown:find("##### Arguments", 1, true), "method arguments missing")
     assert(markdown:find('<a id="num.Counter.count"></a>', 1, true), "field anchor missing")
     assert(markdown:find("#### `count` _field_", 1, true), "field sub-heading missing")
+end
+
+function M.rendersFunctionArgumentsAndReturnsAsDescriptionLists()
+    local module = assert(
+        doc.extract(
+            [[
+--- Describes a value.
+--- @param value The supplied value.
+--- @return The value again.
+export function identity(value: string): string return value end
+]],
+            "src/example.nupp",
+            "example"
+        )
+    )
+    local rendered = {}
+    require("nupp.tools.doc.api").renderHtmlItem(rendered, module.items[1])
+    local html = table.concat(rendered)
+    assert(html:find('<h4>Arguments</h4><dl class="nuppdoc-api-details">', 1, true), html)
+    assert(html:find('<h4>Returns</h4><dl class="nuppdoc-api-details">', 1, true), html)
+    assert(html:find("<dt><code>value</code>", 1, true), html)
+    assert(html:find("<dd><p>The supplied value.</p>", 1, true), html)
+    assert(html:find("<dd><p>The value again.</p>", 1, true), html)
 end
 
 local NESTED_DECLARATIONS = table.concat(

@@ -44,9 +44,7 @@ local function annotationBadges(annotations)
     return '<div class="nuppdoc-annotations">' .. table.concat(marks) .. "</div>"
 end
 
--- `takes` and `borrows` decide whether the caller still owns the value afterwards,
--- which
--- no other column of the arguments table says.
+-- `takes` and `borrows` say whether the caller still owns the value afterwards.
 local function spelledParam(param)
     return (param.mode and (param.mode .. " ") or "") .. param.name
 end
@@ -233,6 +231,38 @@ local function inlineNupp(source, links)
     return "<code>" .. highlightNupp(source, links) .. "</code>"
 end
 
+local function argumentsHtml(params, heading, links)
+    if #params == 0 then
+        return ""
+    end
+    local out = {"<" .. heading .. ">Arguments</" .. heading .. '><dl class="nuppdoc-api-details">'}
+    for _, param in ipairs(params) do
+        out[
+            #out + 1
+        ] = "<dt><code>" .. htmlEscape(
+            spelledParam(param)
+        ) .. "</code>: " .. inlineNupp(param.type, links) .. "</dt><dd>" .. markdownHtml(param.text, links) .. "</dd>"
+    end
+    out[#out + 1] = "</dl>"
+
+    return table.concat(out)
+end
+
+local function returnsHtml(returns, heading, links)
+    if #returns == 0 then
+        return ""
+    end
+    local out = {"<" .. heading .. ">Returns</" .. heading .. '><dl class="nuppdoc-api-details">'}
+    for _, value in ipairs(returns) do
+        out[
+            #out + 1
+        ] = "<dt>" .. inlineNupp(value.type, links) .. "</dt><dd>" .. markdownHtml(value.text, links) .. "</dd>"
+    end
+    out[#out + 1] = "</dl>"
+
+    return table.concat(out)
+end
+
 -- A raise names the type `error` is called with and says what brings it about, so it
 -- tabulates the way a result does. The type goes through the same highlighter a
 -- signature does, which is what makes the declaration it names a link from here.
@@ -352,28 +382,8 @@ local function renderHtmlMembers(out: {string}, members: {extractMod.Member}?, l
         end
         out[#out + 1] = annotationBadges(member.annotations)
         out[#out + 1] = markdownHtml(member.text, links, nil, path)
-        if #member.params > 0 then
-            local rows = {}
-            for _, param in ipairs(member.params) do
-                rows[
-                    #rows + 1
-                ] = {
-                    "<code>" .. htmlEscape(spelledParam(param)) .. "</code>",
-                    inlineNupp(param.type, links),
-                    markdownHtml(param.text, links)
-                }
-            end
-            out[
-                #out + 1
-            ] = "<" .. hSub .. ">Arguments</" .. hSub .. ">" .. tableHtml({"Name", "Type", "Description"}, rows)
-        end
-        if #member.returns > 0 then
-            local rows = {}
-            for _, value in ipairs(member.returns) do
-                rows[#rows + 1] = {inlineNupp(value.type, links), markdownHtml(value.text, links)}
-            end
-            out[#out + 1] = "<" .. hSub .. ">Returns</" .. hSub .. ">" .. tableHtml({"Type", "Description"}, rows)
-        end
+        out[#out + 1] = argumentsHtml(member.params, hSub, links)
+        out[#out + 1] = returnsHtml(member.returns, hSub, links)
         out[#out + 1] = raisesHtml(member.raises, hSub, links)
         if member.isType then
             out[#out + 1] = memberSummary(member.members, links)
@@ -409,26 +419,8 @@ local function renderHtmlItem(out: {string}, item: extractMod.Item, links: Links
         end
         out[#out + 1] = "<h4>Type parameters</h4>" .. tableHtml({"Name", "Description"}, rows)
     end
-    if #item.params > 0 then
-        local rows = {}
-        for _, param in ipairs(item.params) do
-            rows[
-                #rows + 1
-            ] = {
-                "<code>" .. htmlEscape(spelledParam(param)) .. "</code>",
-                inlineNupp(param.type, links),
-                markdownHtml(param.text, links)
-            }
-        end
-        out[#out + 1] = "<h4>Arguments</h4>" .. tableHtml({"Name", "Type", "Description"}, rows)
-    end
-    if #item.returns > 0 then
-        local rows = {}
-        for _, value in ipairs(item.returns) do
-            rows[#rows + 1] = {inlineNupp(value.type, links), markdownHtml(value.text, links)}
-        end
-        out[#out + 1] = "<h4>Returns</h4>" .. tableHtml({"Type", "Description"}, rows)
-    end
+    out[#out + 1] = argumentsHtml(item.params, "h4", links)
+    out[#out + 1] = returnsHtml(item.returns, "h4", links)
     out[#out + 1] = raisesHtml(item.raises, "h4", links)
     out[#out + 1] = memberSummary(item.members, links, item.kind == "annotation" and "Values" or nil)
     renderHtmlMembers(out, item.members, links, 4)

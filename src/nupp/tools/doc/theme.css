@@ -547,6 +547,27 @@ input {
     margin-bottom: 0
 }
 
+.nuppdoc-api-details {
+    margin: .75rem 0 1.5rem
+}
+
+.nuppdoc-api-details dt {
+    margin-top: 1rem;
+    overflow-wrap: anywhere
+}
+
+.nuppdoc-api-details dd {
+    margin: .25rem 0 0 1rem
+}
+
+.nuppdoc-api-details dd p:first-child {
+    margin-top: 0
+}
+
+.nuppdoc-api-details dd p:last-child {
+    margin-bottom: 0
+}
+
 
 .nuppdoc-module-grid {
     display: grid;
