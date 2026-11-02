@@ -89,23 +89,23 @@ local function diagnosticsFor(section)
 end
 
 function M.everyExampleChecksClean()
-    local checked = 0
+    local checked, problems = 0, {}
     for _, section in ipairs(reference.sections) do
         if section.example then
             checked = checked + 1
             local diagnostics = diagnosticsFor(section)
             if #diagnostics > 0 then
                 local first = diagnostics[1]
-                error(
-                    (
-                        "the %q example reports %s: %s\n%s"
-                    ):format(section.title, first.code or "?", first.message or "", section.example),
-                    2
-                )
+                problems[
+                    #problems + 1
+                ] = (
+                    "the %q example reports %s: %s\n%s"
+                ):format(section.title, first.code or "?", first.message or "", section.example)
             end
         end
     end
     assert(checked > 10, "expected the reference to carry examples")
+    assert(#problems == 0, table.concat(problems, "\n"))
 end
 
 -- A reference that cites a code nothing can explain sends its reader nowhere.

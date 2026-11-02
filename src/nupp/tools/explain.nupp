@@ -722,7 +722,7 @@ local ENTRIES: {any} = {
         .. "local record Forged is spans.Span<int32>\nend\n\nreturn Forged\n",
         right = "local spans = require(\"binary.span\")\n\n"
         .. "local storage = ffi.new<int32[4]>()\n"
-        .. "local view = spans.fromFixedCarray(storage, 4)\n\nreturn #view\n",
+        .. "local view = spans.fromfixedcarray(storage, 4)\n\nreturn #view\n",
         related = {"NUPP2001", "NUPP2117"},
         docs = "docs/learn/language/types/interfaces.md#sealed-interfaces",
     },

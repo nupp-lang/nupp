@@ -122,36 +122,27 @@ local function codesFor(entry, index, which)
     return reportedFor(entry.aot and true or false)[fileFor(index, which)] or {}
 end
 
--- Every entry is checked before failing, so one run names all that drifted.
-local function everyWrongExampleReportsTheCodeItIsFiledUnder()
-    local checked, silent = 0, {}
+-- Both catalogues read the same two bulk compiler reports. Keep them in one
+-- schedulable case so slicing cannot rebuild those projects in two processes.
+function M.everyWorkedExampleMatchesItsDiagnosticEntry()
+    local checked, problems = 0, {}
     for index, entry in ipairs(explain.entries) do
         if entry.wrong then
             checked = checked + 1
-            if not codesFor(entry, index, "wrong")[entry.code] then
-                silent[#silent + 1] = entry.code
+            local codes = codesFor(entry, index, "wrong")
+            if not codes[entry.code] then
+                problems[#problems + 1] = entry.code .. ": its `wrong` example no longer reports it"
+            end
+        end
+        if entry.right then
+            local codes = codesFor(entry, index, "right")
+            if codes[entry.code] then
+                problems[#problems + 1] = entry.code .. ": its `right` example still reports it"
             end
         end
     end
     assert(checked > 0, "the catalogue has worked examples to check")
-    assert(#silent == 0, "`wrong` examples that no longer report their code: " .. table.concat(silent, ", "))
-end
-
-local function everyRightExampleReportsNothing()
-    local loud = {}
-    for index, entry in ipairs(explain.entries) do
-        if entry.right and codesFor(entry, index, "right")[entry.code] then
-            loud[#loud + 1] = entry.code
-        end
-    end
-    assert(#loud == 0, "`right` examples that still report their code: " .. table.concat(loud, ", "))
-end
-
--- Both catalogues read the same two bulk compiler reports. Keep them in one
--- schedulable case so slicing cannot rebuild those projects in two processes.
-function M.everyWorkedExampleMatchesItsDiagnosticEntry()
-    everyWrongExampleReportsTheCodeItIsFiledUnder()
-    everyRightExampleReportsNothing()
+    assert(#problems == 0, table.concat(problems, "\n"))
 end
 
 -- What the checker refuses in an `@aot` body under a target that compiles one is
