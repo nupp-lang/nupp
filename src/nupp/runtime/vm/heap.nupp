@@ -42,6 +42,7 @@ export const KIND_BYTES: uint64 = 7
 export const KIND_ITER: uint64 = 8
 export const KIND_SLICE: uint64 = 9
 export const KIND_USERDATA: uint64 = 10
+export const KIND_THREAD: uint64 = 11
 export const KIND_INTEGER: uint64 = 12
 
 export const COLOR_WHITE: uint64 = 0
@@ -118,6 +119,22 @@ end
 
 export struct CellBody
     value: uint64
+end
+
+--- A coroutine's inline payload begins with these words; the runtime that
+--- runs it (`nupp.runtime.core.threads`) keeps its control after them. The
+--- first three are traced values, and `segment` addresses the descriptor of
+--- its frame segment, whose first and third words are the base and cursor
+--- bounding the frame words the walk reads as root candidates, or is zero.
+--- `pages` and `pageBytes` are the mapping that segment lives in, which a
+--- released thread gives back.
+export struct ThreadBody
+    body: uint64
+    resumer: uint64
+    transfer: uint64
+    segment: uint64
+    pages: uint64
+    pageBytes: uint64
 end
 
 --- A chunk's first bytes: class, slot size, slot count and its index in

@@ -247,8 +247,11 @@ export function complete(ctx: voidptr, original: voidptr, serial: uint64): uint6
     then
         return 0ULL
     end
-    local state = native.loadPointer(ctx, context.STATE)
+    -- An error that ended the entry in a coroutine leaves the context on
+    -- that thread's state: the root's own frames are what unwind.
     local root = native.loadPointer(ctx, context.ROOT_CONTROL)
+    native.store64(ctx, context.STATE, native.load64(root, native.fieldOffset<frames.RootControl>("state")))
+    local state = native.loadPointer(ctx, context.STATE)
     local mark = native.offset(root, native.fieldOffset<frames.RootControl>("mark"))
     if native.load64(root, native.fieldOffset<frames.RootControl>("state")) ~= native.address(state)
         or native.load64(root, native.fieldOffset<frames.RootControl>("frame")) ~= native.address(original)

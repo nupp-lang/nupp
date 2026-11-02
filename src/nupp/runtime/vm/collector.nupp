@@ -157,13 +157,33 @@ local function visit(h: heap.Heap*, value: uint64, stack: heap.Words*?): nil
     end
 end
 
+--- Grays a root candidate when it addresses a live slot (5.1).
+local function shadeRoot(h: heap.Heap*, value: uint64): nil
+    @unsafe h.stats.rootCandidates = h.stats.rootCandidates + marking.rootCandidate(h, value)
+end
+
+--- A root word for the oracle: pushed when it addresses a live slot.
+local function rootFor(h: heap.Heap*, value: uint64, stack: heap.Words*?): nil
+    @unsafe do
+        if stack == nil then
+            shadeRoot(h, value)
+        elseif value & values.TAG_MASK == values.TAG_OBJ and heap.isLiveSlot(h, value & values.PAYLOAD) then
+            heap.wordsPush(stack, value)
+        end
+    end
+end
+
 --- Visits every child in the canonical object order.
 export function eachChild(h: heap.Heap*, o: heap.Header*, stack: heap.Words*?): nil
     @unsafe do
         local state = new childwalk.Cursor(0ULL, 0ULL, values.NIL)
         local cursor = state as childwalk.Cursor*
         while childwalk.childNext(o, cursor) ~= 0ULL do
-            visit(h, cursor.value, stack)
+            if childwalk.candidate(o, cursor) then
+                rootFor(h, cursor.value, stack)
+            else
+                visit(h, cursor.value, stack)
+            end
         end
     end
 end
@@ -177,22 +197,6 @@ local function scanObject(h: heap.Heap*, o: heap.Header*): nil
             weak.scanWeak(h, o)
         else
             marking.scanStrong(h, o)
-        end
-    end
-end
-
---- Grays a root candidate when it addresses a live slot (5.1).
-local function shadeRoot(h: heap.Heap*, value: uint64): nil
-    @unsafe h.stats.rootCandidates = h.stats.rootCandidates + marking.rootCandidate(h, value)
-end
-
---- A root word for the oracle: pushed when it addresses a live slot.
-local function rootFor(h: heap.Heap*, value: uint64, stack: heap.Words*?): nil
-    @unsafe do
-        if stack == nil then
-            shadeRoot(h, value)
-        elseif value & values.TAG_MASK == values.TAG_OBJ and heap.isLiveSlot(h, value & values.PAYLOAD) then
-            heap.wordsPush(stack, value)
         end
     end
 end
@@ -271,6 +275,18 @@ end
 --- cycle it is one load and a branch.
 export function barrier(h: heap.Heap*, parent: heap.Header*, child: uint64): nil
     marking.insertionBarrier(h, parent, child)
+end
+
+--- An object whose words changed without the barrier, as a coroutine's
+--- frames do while it runs: while marking, a black one is gray again, so
+--- its words are scanned once more.
+export function rescan(h: heap.Heap*, o: heap.Header*): nil
+    @unsafe do
+        if h.marking as uint64 ~= 0 and o.color as uint64 == heap.COLOR_BLACK then
+            heap.grayPush(h, o)
+            o.color = heap.COLOR_GRAY
+        end
+    end
 end
 
 --- After a constructor has written an object's initial references (4.3a):

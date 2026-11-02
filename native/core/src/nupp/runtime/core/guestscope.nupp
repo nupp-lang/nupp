@@ -62,6 +62,11 @@ export struct Services
     libraryRaised: uint64
     -- 1 when the library call is in method form (`s:rep(n)`).
     libraryMethod: uint64
+    -- The coroutine running (`threads`), as a value rooted for as long as it
+    -- runs, or 0 on the main one; and the main one's thread, once
+    -- coroutine.running has made one.
+    running: uint64
+    main: uint64
 end
 
 -- tableSet's answer when a __newindex function is to be called instead.
@@ -138,6 +143,9 @@ export function open(
         local h = heap.create(a)
         collector.register(h, pool, poolWords)
         collector.register(h, world, worldWords)
+        native.store64(services, native.fieldOffset<Services>("running"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("main"), 0ULL)
+        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 2ULL)
         -- Collect-at-every-allocation: a whole cycle at every safepoint.
         h.stress = stress ~= 0ULL
         native.store64(services, native.fieldOffset<Services>("heap"), native.address(h))
@@ -816,6 +824,7 @@ const PHRASE_FUNCTION: uint64 = 16ULL
 const PHRASE_USERDATA: uint64 = 17ULL
 const PHRASE_KEYNIL: uint64 = 18ULL
 const PHRASE_KEYNAN: uint64 = 19ULL
+const PHRASE_THREAD: uint64 = 20ULL
 
 -- Appends phrase `id`; answers 1 when backing is refused.
 local function appendPhrase(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
@@ -870,6 +879,8 @@ local function appendPhrase(h: heap.Heap*, b: strings.Builder*, id: uint64): uin
         return strings.appendWord(h, b, 0x6e6f6974636e7566ULL, 8ULL)
     elseif id == PHRASE_USERDATA then
         return strings.appendWord(h, b, 0x6174616472657375ULL, 8ULL)
+    elseif id == PHRASE_THREAD then
+        return strings.appendWord(h, b, 0x646165726874ULL, 6ULL)
     elseif id == PHRASE_KEYNIL then
         return strings.appendWord(h, b, 0x6e6920656c626174ULL, 8ULL)
             | strings.appendWord(h, b, 0x6e20736920786564ULL, 8ULL)
@@ -902,6 +913,8 @@ local function typePhrase(value: uint64): uint64
             return PHRASE_TABLE
         elseif kind == heap.KIND_CLOSURE then
             return PHRASE_FUNCTION
+        elseif kind == heap.KIND_THREAD then
+            return PHRASE_THREAD
         end
     end
 
@@ -1135,5 +1148,53 @@ export function recoverEntry(ctx: voidptr): uint64
         native.store64(services, native.fieldOffset<Services>("fault"), 0ULL)
         access.refresh(state, native.pointer(parent), ctx)
         return access.pc(state, native.pointer(parent))
+    end
+end
+
+-- Whether an error is failing the entry that a recovery could take: what
+-- recoverEntry recovers from.
+export function failing(ctx: voidptr): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local status = native.load64(ctx, context.STATUS)
+        local scope = native.offset(services, native.fieldOffset<Services>("scope"))
+        local raisedInScope = native.load64(scope, native.fieldOffset<servicescope.ServiceScope>("error")) ~= 0ULL
+        if status == context.GUEST_ERROR_STATUS or status == 0ULL and raisedInScope then
+            return 1ULL
+        end
+
+        return 0ULL
+    end
+end
+
+-- Nothing is failing any more: an error was given to a coroutine's resumer
+-- (`threads`) rather than to a frame.
+export function recovered(ctx: voidptr): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local scope = native.offset(services, native.fieldOffset<Services>("scope"))
+        native.store64(ctx, context.STATUS, 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("error"), 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorOwner"), 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("raisedLevel"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("fault"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("libraryRaised"), 0ULL)
+    end
+end
+
+-- Fails the entry with `value` raised again at `pc` in function `owner`, a
+-- string getting that position: a wrapped coroutine's error, raised where
+-- the wrapped function was called, as Lua 5.5 raises it.
+export function reraise(ctx: voidptr, value: uint64, owner: uint64, pc: uint64): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        native.store64(ctx, context.ERROR_OWNER, owner)
+        native.store64(ctx, context.ERROR_PC, pc)
+        native.store64(services, native.fieldOffset<Services>("raised"), value)
+        native.store64(services, native.fieldOffset<Services>("raisedLevel"), 1ULL)
+        native.store64(services, native.fieldOffset<Services>("libraryRaised"), 0ULL)
+        native.store64(ctx, context.STATUS, context.GUEST_ERROR_STATUS)
     end
 end

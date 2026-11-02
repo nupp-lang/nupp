@@ -1316,14 +1316,12 @@ end
 -- be open.
 local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
     assert(type(signature) == "table" and signature.tag == "func", "invoke requires a checked function signature")
-    assert(
-        not signature.foreign
-        and not signature.comptimeOnly
-        and not signature.noreturn
-        and not signature.yieldPack
-        and not signature.resumePack,
-        "invoke signature is outside the scalar guest subset"
-    )
+    -- What a coroutine body yields and resumes with (`yieldPack`,
+    -- `resumePack`) is a static protocol; at run time the values pass as
+    -- packs, which the core does not check against it.
+    -- A function that never returns (`noreturn`) is called as any is: its
+    -- error unwinds past the call.
+    assert(not signature.foreign and not signature.comptimeOnly, "invoke signature is outside the scalar guest subset")
     -- A typed `...` is a homogeneous tail; its values pass in a pack. A
     -- generic one (`...: A...`) erases to values, as plain generics do.
     local tail = signature.paramPack and signature.paramPack.tail
@@ -1495,16 +1493,12 @@ local function invokeContract(contract: any): nil
         and owner.body.signatureType == contract.signature,
         "invoke checked body identity differs"
     )
-    -- An unknown effect (top) is still nonsuspending here: guest graphs refuse
-    -- yields and suspension, and every callee is such a graph. Coroutines must
-    -- revisit this.
+    -- A coroutine's yield switches threads on the core (`threads`), so a
+    -- body that yields is called as any is; an external effect is refused.
     local summary = contract.summary
     assert(
-        type(summary) == "table"
-        and owner.body.effectSummary == summary
-        and summary.yields == false
-        and summary.external == false,
-        "invoke requires a proven nonsuspending body summary"
+        type(summary) == "table" and owner.body.effectSummary == summary and summary.external == false,
+        "invoke requires a proven body summary"
     )
     local definition = contract.definition
     assert(
@@ -1647,7 +1641,14 @@ local coreLibrary: {
     ["string.len"] = true,
     ["string.find"] = true,
     ["string.match"] = true,
-    ["string.gsub"] = true
+    ["string.gsub"] = true,
+    ["coroutine.create"] = true,
+    ["coroutine.resume"] = true,
+    ["coroutine.yield"] = true,
+    ["coroutine.status"] = true,
+    ["coroutine.wrap"] = true,
+    ["coroutine.running"] = true,
+    ["coroutine.isyieldable"] = true
 }
 
 local function preludeName(node: any): boolean
@@ -1723,12 +1724,19 @@ local function anySignature(call: any, count: integer): any
     return signature
 end
 
+-- Whether a function type's results are one of several packs, as a wrapped
+-- coroutine's are (what it yields, or what it returns): its calls are
+-- checked as calls through `any` are.
+local function alternativeResults(called: any): boolean
+    return called.tag == "func" and called.retPack ~= nil and called.retPack.alternatives ~= nil
+end
+
 -- `count`: the results the call keeps, which a call through `any` declares.
 function graph.dynamicInvokeContract(call: any, count: integer?): any
     -- A call through `any`, or through a value its metatable's __call makes
     -- callable, is checked against the call itself.
     local called = call.calleeType
-    if called and called.tag ~= "func" then
+    if called and (called.tag ~= "func" or alternativeResults(called)) then
         called = anySignature(call, count or 1)
     end
     local contract = {
@@ -1749,6 +1757,9 @@ function graph.expandsResults(expr: any): boolean
         return false
     end
     local called = expr.calleeType
+    if called ~= nil and alternativeResults(called) then
+        return true
+    end
     if called == nil or called.tag ~= "func" then
         -- Through `any`, as many as the callee gives.
         return called ~= nil and called.tag == "any"

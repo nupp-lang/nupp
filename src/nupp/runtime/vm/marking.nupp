@@ -52,7 +52,11 @@ export function scanStrong(h: heap.Heap*, o: heap.Header*): uint64
         local children = 0ULL
         while childwalk.childNext(o, cursor) ~= 0ULL do
             children = children + 1ULL
-            shadeValue(h, cursor.value)
+            if childwalk.candidate(o, cursor) then
+                rootCandidate(h, cursor.value)
+            else
+                shadeValue(h, cursor.value)
+            end
         end
         o.color = heap.COLOR_BLACK
         return children

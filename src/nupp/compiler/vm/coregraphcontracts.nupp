@@ -109,10 +109,7 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
     need(
         (not variadic or dynamic and tail and (tail.kind == "homogeneous" or erasedTail) and tail.mode == nil)
         and not signature.foreign
-        and not signature.comptimeOnly
-        and not signature.noreturn
-        and not signature.yieldPack
-        and not signature.resumePack,
+        and not signature.comptimeOnly,
         "unsupported callable signature"
     )
     -- From v8 plain type parameters erase to dynamic values, and what a
@@ -198,13 +195,11 @@ local function checkedSignature(owner: any, numeric: boolean, dynamic: boolean):
         signature.tag == "func" and owner.body.signatureType == signature,
         "checked callable signature identity differs"
     )
-    -- From v8 a call through a value makes a summary unknown; guest graphs
-    -- cannot suspend, so only a known yield or external effect is refused.
+    -- From v8 a call through a value makes a summary unknown, and a
+    -- coroutine's yield runs on the core (`threads`): only an external effect
+    -- is refused.
     local summary = owner.body.effectSummary
-    need(
-        summary and summary.yields == false and (summary.top == false or dynamic) and summary.external == false,
-        "unknown callable effects"
-    )
+    need(summary and (summary.top == false or dynamic) and summary.external == false, "unknown callable effects")
 
     local result = typeSignature(signature, numeric, dynamic, owner.node.kind == "constructorDecl")
     -- A method's receiver is its first parameter on the core, though its

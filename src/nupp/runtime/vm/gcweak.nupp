@@ -180,7 +180,7 @@ local function owns(o: heap.Header*): boolean
             return o.auxPtr ~= 0
         elseif kind == heap.KIND_BYTES or kind == heap.KIND_STORAGE then
             return o.auxPtr ~= 0 and o.auxPtr ~= body
-        elseif kind == heap.KIND_USERDATA or kind == heap.KIND_INTEGER then
+        elseif kind == heap.KIND_USERDATA or kind == heap.KIND_INTEGER or kind == heap.KIND_THREAD then
             return true
         end
         return (o.flags as uint64) & heap.F_INTERNED ~= 0

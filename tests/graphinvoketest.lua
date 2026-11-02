@@ -306,7 +306,7 @@ function M.staleSourceAndUnknownEffectsRefuse()
         {"body", {}, "body identity"},
         {"definition", {}, "declaration identity"},
         {"callSignature", {}, "call identity"},
-        {"summary", {}, "nonsuspending body summary"},
+        {"summary", {}, "proven body summary"},
         {
             "effects",
             {mayCollect = false, mayRaise = true, mayPark = false, pure = false},
@@ -333,25 +333,26 @@ function M.staleSourceAndUnknownEffectsRefuse()
     )
 end
 
--- An unknown (top) summary is accepted: guest graphs refuse yields and
--- suspension themselves. A known yield or an external effect still refuses.
-function M.retainedEffectSummaryMustRemainPositivelyNonsuspending()
+-- An unknown (top) summary is accepted, and so is a coroutine's yield,
+-- which switches threads on the core. An external effect still refuses.
+function M.retainedEffectSummaryMustStayInternal()
     local g, entry = fixture()
     entry.term.contract.summary.top = true
     graph.verify(g)
-    for _, field in ipairs({"yields", "external"}) do
-        for _, state in ipairs({"true", "missing"}) do
-            local g, entry = fixture()
-            local summary = entry.term.contract.summary
-            summary[field] = state == "true" and true or nil
-            assert(summary == entry.term.contract.owner.body.effectSummary)
-            refuses(
-                function()
-                    graph.verify(g)
-                end,
-                "nonsuspending body summary"
-            )
-        end
+    g, entry = fixture()
+    entry.term.contract.summary.yields = true
+    graph.verify(g)
+    for _, state in ipairs({"true", "missing"}) do
+        local g, entry = fixture()
+        local summary = entry.term.contract.summary
+        summary.external = state == "true" and true or nil
+        assert(summary == entry.term.contract.owner.body.effectSummary)
+        refuses(
+            function()
+                graph.verify(g)
+            end,
+            "proven body summary"
+        )
     end
 end
 

@@ -94,6 +94,21 @@ export const NAME_RANDOM: uint64 = 81ULL
 export const NAME_RANDOMSEED: uint64 = 82ULL
 export const TEXT_CALLING: uint64 = 83ULL
 export const TEXT_BAD_SELF: uint64 = 84ULL
+export const TEXT_SUSPENDED: uint64 = 85ULL
+export const TEXT_RUNNING: uint64 = 86ULL
+export const TEXT_NORMAL: uint64 = 87ULL
+export const TEXT_DEAD: uint64 = 88ULL
+export const TEXT_RESUME_DEAD: uint64 = 89ULL
+export const TEXT_RESUME_ACTIVE: uint64 = 90ULL
+export const TEXT_YIELD_OUTSIDE: uint64 = 91ULL
+export const TEXT_COROUTINE: uint64 = 92ULL
+export const NAME_CREATE: uint64 = 93ULL
+export const NAME_RESUME: uint64 = 94ULL
+export const NAME_YIELD: uint64 = 95ULL
+export const NAME_STATUS: uint64 = 96ULL
+export const NAME_WRAP: uint64 = 97ULL
+export const NAME_ISYIELDABLE: uint64 = 98ULL
+export const TEXT_FUNCTION: uint64 = 99ULL
 
 export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
     if id == TEXT_BAD then
@@ -406,6 +421,63 @@ export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64
         -- "' on bad self ("
         return strings.appendWord(h, b, 0x646162206e6f2027ULL, 8ULL)
             | strings.appendWord(h, b, 0x2820666c657320ULL, 7ULL)
+    elseif id == TEXT_SUSPENDED then
+        -- "suspended"
+        return strings.appendWord(h, b, 0x65646e6570737573ULL, 8ULL) | strings.appendWord(h, b, 0x64ULL, 1ULL)
+    elseif id == TEXT_RUNNING then
+        -- "running"
+        return strings.appendWord(h, b, 0x676e696e6e7572ULL, 7ULL)
+    elseif id == TEXT_NORMAL then
+        -- "normal"
+        return strings.appendWord(h, b, 0x6c616d726f6eULL, 6ULL)
+    elseif id == TEXT_DEAD then
+        -- "dead"
+        return strings.appendWord(h, b, 0x64616564ULL, 4ULL)
+    elseif id == TEXT_RESUME_DEAD then
+        -- "cannot resume dead coroutine"
+        return strings.appendWord(h, b, 0x7220746f6e6e6163ULL, 8ULL)
+            | strings.appendWord(h, b, 0x656420656d757365ULL, 8ULL)
+            | strings.appendWord(h, b, 0x756f726f63206461ULL, 8ULL)
+            | strings.appendWord(h, b, 0x656e6974ULL, 4ULL)
+    elseif id == TEXT_RESUME_ACTIVE then
+        -- "cannot resume non-suspended coroutine"
+        return strings.appendWord(h, b, 0x7220746f6e6e6163ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6f6e20656d757365ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6e65707375732d6eULL, 8ULL)
+            | strings.appendWord(h, b, 0x6f726f6320646564ULL, 8ULL)
+            | strings.appendWord(h, b, 0x656e697475ULL, 5ULL)
+    elseif id == TEXT_YIELD_OUTSIDE then
+        -- "attempt to yield from outside a coroutine"
+        return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
+            | strings.appendWord(h, b, 0x646c656979206f74ULL, 8ULL)
+            | strings.appendWord(h, b, 0x756f206d6f726620ULL, 8ULL)
+            | strings.appendWord(h, b, 0x2061206564697374ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6e6974756f726f63ULL, 8ULL)
+            | strings.appendWord(h, b, 0x65ULL, 1ULL)
+    elseif id == TEXT_COROUTINE then
+        -- "coroutine"
+        return strings.appendWord(h, b, 0x6e6974756f726f63ULL, 8ULL) | strings.appendWord(h, b, 0x65ULL, 1ULL)
+    elseif id == NAME_CREATE then
+        -- "create"
+        return strings.appendWord(h, b, 0x657461657263ULL, 6ULL)
+    elseif id == NAME_RESUME then
+        -- "resume"
+        return strings.appendWord(h, b, 0x656d75736572ULL, 6ULL)
+    elseif id == NAME_YIELD then
+        -- "yield"
+        return strings.appendWord(h, b, 0x646c656979ULL, 5ULL)
+    elseif id == NAME_STATUS then
+        -- "status"
+        return strings.appendWord(h, b, 0x737574617473ULL, 6ULL)
+    elseif id == NAME_WRAP then
+        -- "wrap"
+        return strings.appendWord(h, b, 0x70617277ULL, 4ULL)
+    elseif id == NAME_ISYIELDABLE then
+        -- "isyieldable"
+        return strings.appendWord(h, b, 0x61646c6569797369ULL, 8ULL) | strings.appendWord(h, b, 0x656c62ULL, 3ULL)
+    elseif id == TEXT_FUNCTION then
+        -- "function"
+        return strings.appendWord(h, b, 0x6e6f6974636e7566ULL, 8ULL)
     end
 
     return 0ULL
@@ -428,6 +500,20 @@ local function raiseText(ctx: voidptr, h: heap.Heap*, b: strings.Builder*, refus
         end
         guestscope.raiseLibrary(ctx, values.TAG_OBJ | strings.finish(h, b))
         error("library error")
+    end
+end
+
+-- One of the library's texts as a string value.
+export function textValue(ctx: voidptr, id: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestHeap(ctx)
+        local builder = state as strings.Builder*
+        if appendLibraryText(h, builder, id) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
     end
 end
 

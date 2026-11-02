@@ -119,6 +119,9 @@ export const TRUTH_DESTINATION: uint64 = 4ULL
 -- A call whose caller takes every result as one pack {[0] = n, ...}: its
 -- return handler packs them, and the caller's slot gets the pack.
 export const PACK_DESTINATION: uint64 = 5ULL
+-- A coroutine's body (`threads`): the bottom frame of the thread's own
+-- segment, whose results go to whoever resumed it.
+export const THREAD_DESTINATION: uint64 = 6ULL
 -- The most results a caller frame may want from one call.
 export const MAX_RESULTS: uint64 = 16ULL
 
@@ -1113,6 +1116,84 @@ export function beginRoot(state: voidptr, control: voidptr, info: voidptr, plan:
     native.store64(state, native.fieldOffset<State>("active"), payload)
 
     return payload
+end
+
+-- The bottom frame of a coroutine's empty `state`, reserved under `mark`,
+-- which the thread keeps outside the segment: it calls `closure` and answers
+-- to `owner`, the thread. Its parameters are nil until the caller fills
+-- them. Answers the frame, active, or 0 on refusal.
+export function beginThread(
+    state: voidptr,
+    mark: voidptr,
+    info: voidptr,
+    plan: voidptr,
+    closure: uint64,
+    owner: uint64
+): uint64
+    if validStorage(state) == 0ULL
+        or describe(info, plan, 0ULL) == 0ULL
+        or stableMetadata(state, info, plan) == 0ULL
+        or native.load64(state, native.fieldOffset<State>("active")) ~= 0ULL
+        or native.load64(state, native.fieldOffset<State>("depth")) ~= 0ULL
+        or native.load64(state, native.fieldOffset<State>("limit")) == 0ULL
+    then
+        return 0ULL
+    end
+    local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
+    local bytes = native.load64(plan, native.fieldOffset<WindowPlan>("bytes"))
+    if arena.reserve(segment, bytes, 16ULL, mark) == 0ULL then
+        return 0ULL
+    end
+    local payload = initializeFrame(native.pointer(0ULL), info, plan, mark, closure, 0ULL)
+    local frame = native.pointer(payload)
+    native.store64(frame, native.fieldOffset<Frame>("resultKind"), THREAD_DESTINATION)
+    native.store64(frame, native.fieldOffset<Frame>("resultOwner"), owner)
+    native.store64(
+        frame,
+        native.fieldOffset<Frame>("liveValues"),
+        native.load64(frame, native.fieldOffset<Frame>("valueCount"))
+    )
+    native.store64(frame, native.fieldOffset<Frame>("phase"), ACTIVE)
+    native.store64(state, native.fieldOffset<State>("lastResultCount"), 0ULL)
+    native.store64(state, native.fieldOffset<State>("depth"), 1ULL)
+    native.store64(state, native.fieldOffset<State>("active"), payload)
+
+    return payload
+end
+
+-- Retires a coroutine's frames, deepest first, its bottom frame last: the
+-- thread is done, by returning or by an error nothing in it caught.
+-- Answers 1, or 0 when the frames are not as expected.
+export function endThread(state: voidptr, mark: voidptr): uint64
+    if validState(state) == 0ULL then
+        return 0ULL
+    end
+    local active = native.load64(state, native.fieldOffset<State>("active"))
+    local child = native.load64(native.pointer(active), native.fieldOffset<Frame>("child"))
+    if child ~= 0ULL and native.load64(native.pointer(child), native.fieldOffset<Frame>("phase")) == PREPARED then
+        if abortPrepared(state, native.pointer(active), native.pointer(child)) ~= 1ULL then
+            return 0ULL
+        end
+    end
+    while native.load64(state, native.fieldOffset<State>("depth")) > 1ULL do
+        if abortActive(state, native.pointer(native.load64(state, native.fieldOffset<State>("active")))) ~= 1ULL then
+            return 0ULL
+        end
+    end
+    local bottom = native.load64(state, native.fieldOffset<State>("active"))
+    if native.load64(native.pointer(bottom), native.fieldOffset<Frame>("resultKind")) ~= THREAD_DESTINATION
+        or native.load64(native.pointer(bottom), native.fieldOffset<Frame>("frameMark")) ~= native.address(mark)
+    then
+        return 0ULL
+    end
+    local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
+    if arena.release(segment, mark) == 0ULL then
+        return 0ULL
+    end
+    native.store64(state, native.fieldOffset<State>("depth"), 0ULL)
+    native.store64(state, native.fieldOffset<State>("active"), 0ULL)
+
+    return 1ULL
 end
 
 local function rootReservation(state: voidptr, control: voidptr, frame: voidptr, serial: uint64): uint64

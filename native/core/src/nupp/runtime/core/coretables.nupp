@@ -15,6 +15,7 @@ const values = require("nupp.runtime.vm.values")
 const arrays = require("nupp.runtime.vm.valuearray")
 const hashes = require("nupp.runtime.vm.objecttable")
 const ints = require("nupp.runtime.core.coreintegers")
+const os = require("nupp.runtime.vm.os")
 
 export const OK: uint64 = 0ULL
 export const BAD_KEY: uint64 = 1ULL
@@ -255,9 +256,10 @@ export function length(table: uint64): uint64
     end
 end
 
--- Recycles every object the sweep retired onto the released list (tables,
--- interned strings and boxed integers), releasing a table's owned parts
--- first. Every allocating guest leaf calls this after its collector work.
+-- Recycles every object the sweep retired onto the released list (tables, interned
+-- strings, boxed integers and coroutines), releasing a table's owned parts and a
+-- coroutine's frame pages first. Every allocating guest leaf calls this after its
+-- collector work.
 export function drain(h: heap.Heap*): nil
     @unsafe do
         while h.released.count > 0ULL do
@@ -272,6 +274,12 @@ export function drain(h: heap.Heap*): nil
                 local t = hashOf(o)
                 if t.ptr ~= 0ULL then
                     hashes.tableOwnedRelease(t)
+                end
+            elseif o.aux as uint64 == heap.KIND_THREAD then
+                local thread = native.pointer(address + heap.HEADER_BYTES) as heap.ThreadBody*
+                if thread.pages ~= 0ULL then
+                    os.unmapPages(native.pointer(thread.pages), thread.pageBytes)
+                    thread.pages = 0ULL
                 end
             end
             heap.recycle(h, o)

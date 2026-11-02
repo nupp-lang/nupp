@@ -1,0 +1,742 @@
+module nupp.runtime.core.threads
+
+-- Coroutines on the core. A thread is a KIND_THREAD heap object whose body
+-- holds a frame State and Segment of its own, the segment in pages it maps
+-- when it first runs. Resuming one points the context's STATE at its state,
+-- so the handlers run its frames as they run any; yielding, returning or
+-- failing points it back at the resumer's. A switch is a few stores and a
+-- dispatch: no native stack is involved.
+--
+-- The threads running form a stack, main at the bottom: each resumed the
+-- next. Their frames are roots for as long as they run (a registered range,
+-- popped as they stop), and a suspended thread's frames are traced through
+-- its object, so one nothing reaches is collected with them.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const collector = require("nupp.runtime.vm.collector")
+const os = require("nupp.runtime.vm.os")
+const arena = require("nupp.runtime.core.arena")
+const frames = require("nupp.runtime.core.frames")
+const context = require("nupp.runtime.core.context")
+const catalog = require("nupp.runtime.core.guestcatalog")
+const guestscope = require("nupp.runtime.core.guestscope")
+const texts = require("nupp.runtime.core.guesttexts")
+const tables = require("nupp.runtime.core.coretables")
+const ints = require("nupp.runtime.core.coreintegers")
+
+-- The body: heap.ThreadBody's words first, then the control only this
+-- module reads.
+export struct Thread
+    body: uint64
+    resumer: uint64
+    transfer: uint64
+    segment: uint64
+    pages: uint64
+    pageBytes: uint64
+    status: uint64
+    -- How the resumer takes what the thread yields or returns (a MODE_), the
+    -- state and frame it waits in, and the slot and count it wants them in.
+    mode: uint64
+    resumerState: uint64
+    resumerFrame: uint64
+    resumerSlot: uint64
+    resumerWanted: uint64
+    -- The slot the pending yield's results land in when it is resumed.
+    yieldSlot: uint64
+    mark: arena.Mark
+    stack: arena.Segment
+    state: frames.State
+end
+
+export const FRESH: uint64 = 1ULL
+export const SUSPENDED: uint64 = 2ULL
+export const RUNNING: uint64 = 3ULL
+export const NORMAL: uint64 = 4ULL
+export const DEAD: uint64 = 5ULL
+-- The main thread's object, which coroutine.running answers there.
+export const MAIN: uint64 = 6ULL
+
+-- coroutine.resume: the resumer takes one pack, {true, ...} or {false, e}.
+export const MODE_PACK: uint64 = 1ULL
+-- A call of a wrapped thread: the resumer takes the values as a call's
+-- results (`wanted` of them, or all as a pack when it wants 0), and an
+-- error is raised again in the resumer.
+export const MODE_CALL: uint64 = 2ULL
+
+-- What resume answers: the thread runs; it cannot, and the resumer has its
+-- reason; it cannot, and its reason is raised; the frames are not as
+-- expected.
+-- The coroutine library's LibCall ids. Resume and yield switch threads,
+-- which the LibCall handler does itself; the rest are `call`'s.
+export const LIB_CREATE: uint64 = 75ULL
+export const LIB_RESUME: uint64 = 76ULL
+export const LIB_YIELD: uint64 = 77ULL
+export const LIB_STATUS: uint64 = 78ULL
+export const LIB_WRAP: uint64 = 79ULL
+export const LIB_RUNNING: uint64 = 80ULL
+export const LIB_ISYIELDABLE: uint64 = 81ULL
+
+export const SWITCHED: uint64 = 1ULL
+export const REFUSED: uint64 = 2ULL
+export const RAISED: uint64 = 3ULL
+export const BROKEN: uint64 = 4ULL
+
+local function services(ctx: voidptr): voidptr
+    return native.loadPointer(ctx, context.SERVICE_SCOPE)
+end
+
+local function heapOf(ctx: voidptr): uint64
+    return native.load64(services(ctx), native.fieldOffset<guestscope.Services>("heap"))
+end
+
+local function running(ctx: voidptr): uint64
+    return native.load64(services(ctx), native.fieldOffset<guestscope.Services>("running"))
+end
+
+-- The body of a thread value, or 0 for anything else.
+local function bodyOf(value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ or value & values.PAYLOAD == 0ULL then
+        return 0ULL
+    end
+    local header = value & values.PAYLOAD
+    if native.word(
+        native.load8(native.pointer(header), native.fieldOffset<heap.Header>("kind"))
+    ) ~= heap.KIND_THREAD then
+        return 0ULL
+    end
+
+    return header + heap.HEADER_BYTES
+end
+
+-- The function a closure value calls, plus one, or 0 for anything else: a
+-- wrapped thread's closure included.
+local function target(value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ or value & values.PAYLOAD == 0ULL then
+        return 0ULL
+    end
+    local header = native.pointer(value & values.PAYLOAD)
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_CLOSURE
+        or native.load64(header, native.fieldOffset<heap.Header>("auxLen")) == 0ULL
+    then
+        return 0ULL
+    end
+    local first = native.load64(native.pointer(native.load64(header, native.fieldOffset<heap.Header>("auxPtr"))), 0)
+    if first == values.TRUE then
+        return 0ULL
+    end
+
+    return (first & values.PAYLOAD) + 1ULL
+end
+
+-- A fresh thread object, `initial` its status, calling `fn`; answers its value.
+local function newThread(ctx: voidptr, fn: uint64, initial: uint64): uint64
+    @unsafe do
+        local h = native.pointer(heapOf(ctx)) as heap.Heap*
+        tables.drain(h)
+        local o = collector.allocate(h, heap.KIND_THREAD, native.sizeOf<Thread>())
+        local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
+        local at: uint64 = 0ULL
+        while at < native.sizeOf<Thread>() do
+            native.store64(t, native.index(at), 0ULL)
+            at = at + 8ULL
+        end
+        native.store64(t, native.fieldOffset<Thread>("body"), fn)
+        native.store64(t, native.fieldOffset<Thread>("resumer"), values.NIL)
+        native.store64(t, native.fieldOffset<Thread>("transfer"), values.NIL)
+        native.store64(t, native.fieldOffset<Thread>("status"), initial)
+        collector.initialized(h, o)
+
+        return values.TAG_OBJ | native.address(o as voidptr)
+    end
+end
+
+-- coroutine.create(f).
+export function create(ctx: voidptr, fn: uint64): uint64
+    if target(fn) == 0ULL then
+        texts.argumentError(ctx, 1ULL, texts.TEXT_FUNCTION, 0ULL, fn)
+    end
+
+    return newThread(ctx, fn, FRESH)
+end
+
+-- coroutine.wrap(f): a closure whose first word marks it as a thread's and
+-- whose second holds the thread; calling it resumes the thread.
+export function wrap(ctx: voidptr, fn: uint64): uint64
+    if target(fn) == 0ULL then
+        texts.argumentError(ctx, 1ULL, texts.TEXT_FUNCTION, 0ULL, fn)
+    end
+    @unsafe do
+        local h = native.pointer(heapOf(ctx)) as heap.Heap*
+        local thread = newThread(ctx, fn, FRESH)
+        local mark = collector.scopeOpen(h)
+        collector.scopePush(h, thread)
+        local header = guestscope.allocate(ctx, heap.KIND_CLOSURE, 2ULL)
+        local slots = native.pointer(native.load64(native.pointer(header), native.fieldOffset<heap.Header>("auxPtr")))
+        native.store64(slots, 0, values.TRUE)
+        native.store64(slots, 8, thread)
+        guestscope.initialized(ctx, header)
+        collector.scopeClose(h, mark)
+
+        return values.TAG_OBJ | header
+    end
+end
+
+-- The thread a wrapped thread's closure resumes, or 0 for any other value.
+export function wrapped(value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ or value & values.PAYLOAD == 0ULL then
+        return 0ULL
+    end
+    local header = native.pointer(value & values.PAYLOAD)
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_CLOSURE
+        or native.load64(header, native.fieldOffset<heap.Header>("auxLen")) ~= 2ULL
+    then
+        return 0ULL
+    end
+    local slots = native.pointer(native.load64(header, native.fieldOffset<heap.Header>("auxPtr")))
+    if native.load64(slots, 0) ~= values.TRUE then
+        return 0ULL
+    end
+
+    return native.load64(slots, 8)
+end
+
+-- A pack {[0] = n, ...}: `lead` of `a` and `b` first, then the values of
+-- the pack `rest` (0 for none). Every value it takes must be rooted.
+local function packed(ctx: voidptr, lead: uint64, a: uint64, b: uint64, rest: uint64): uint64
+    @unsafe do
+        local h = native.pointer(heapOf(ctx)) as heap.Heap*
+        tables.drain(h)
+        local t = tables.create(h)
+        local n: uint64 = 0ULL
+        if lead >= 1ULL then
+            n = 1ULL
+            if tables.set(h, t, values.TAG_INTEGER | 1ULL, a) == tables.NO_MEMORY then
+                error("not enough memory")
+            end
+        end
+        if lead >= 2ULL then
+            n = 2ULL
+            if tables.set(h, t, values.TAG_INTEGER | 2ULL, b) == tables.NO_MEMORY then
+                error("not enough memory")
+            end
+        end
+        if rest ~= 0ULL then
+            local more = ints.bitsOf(tables.get(rest, values.TAG_INTEGER))
+            local k: uint64 = 1ULL
+            while k <= more do
+                n = n + 1ULL
+                if tables.set(
+                    h,
+                    t,
+                    values.TAG_INTEGER | n,
+                    tables.get(rest, values.TAG_INTEGER | k)
+                ) == tables.NO_MEMORY then
+                    error("not enough memory")
+                end
+                k = k + 1ULL
+            end
+        end
+        if tables.set(h, t, values.TAG_INTEGER, values.TAG_INTEGER | n) == tables.NO_MEMORY then
+            error("not enough memory")
+        end
+        tables.drain(h)
+
+        return values.TAG_OBJ | t
+    end
+end
+
+-- The pack {false, value}, `value` rooted while it is made.
+local function failure(ctx: voidptr, value: uint64): uint64
+    @unsafe do
+        local h = native.pointer(heapOf(ctx)) as heap.Heap*
+        local mark = collector.scopeOpen(h)
+        collector.scopePush(h, value)
+        local pack = packed(ctx, 2ULL, values.FALSE, value, 0ULL)
+        collector.scopeClose(h, mark)
+
+        return pack
+    end
+end
+
+-- coroutine.status(co).
+export function status(ctx: voidptr, value: uint64): uint64
+    local t = bodyOf(value)
+    if t == 0ULL then
+        texts.argumentError(ctx, 1ULL, texts.TEXT_COROUTINE, 0ULL, value)
+    end
+    local state = native.load64(native.pointer(t), native.fieldOffset<Thread>("status"))
+    local text = texts.TEXT_DEAD
+    if state == FRESH or state == SUSPENDED then
+        text = texts.TEXT_SUSPENDED
+    elseif state == RUNNING then
+        text = texts.TEXT_RUNNING
+    elseif state == NORMAL then
+        text = texts.TEXT_NORMAL
+    elseif state == MAIN then
+        text = texts.TEXT_NORMAL
+        if running(ctx) == 0ULL then
+            text = texts.TEXT_RUNNING
+        end
+    end
+
+    return texts.textValue(ctx, text)
+end
+
+-- coroutine.running(): the pack {thread, whether it is the main one}.
+export function current(ctx: voidptr): uint64
+    local thread = running(ctx)
+    if thread ~= 0ULL then
+        return packed(ctx, 2ULL, thread, values.FALSE, 0ULL)
+    end
+    local main = native.load64(services(ctx), native.fieldOffset<guestscope.Services>("main"))
+    if main == 0ULL then
+        main = newThread(ctx, values.NIL, MAIN)
+        native.store64(services(ctx), native.fieldOffset<guestscope.Services>("main"), main)
+    end
+
+    return packed(ctx, 2ULL, main, values.TRUE, 0ULL)
+end
+
+-- coroutine.isyieldable().
+export function yieldable(ctx: voidptr): uint64
+    if running(ctx) ~= 0ULL then
+        return values.TRUE
+    end
+
+    return values.FALSE
+end
+
+-- The context runs `thread` (body `t`), which `frame` resumed at `pc`.
+local function switchIn(ctx: voidptr, frame: voidptr, pc: voidptr, thread: uint64, t: voidptr): nil
+    @unsafe do
+        local h = native.pointer(heapOf(ctx)) as heap.Heap*
+        local outer = running(ctx)
+        local resumer = bodyOf(outer)
+        if resumer ~= 0ULL then
+            native.store64(native.pointer(resumer), native.fieldOffset<Thread>("status"), NORMAL)
+        end
+        native.store64(t, native.fieldOffset<Thread>("resumer"), native.chooseWord(outer == 0ULL, values.NIL, outer))
+        native.store64(t, native.fieldOffset<Thread>("status"), RUNNING)
+        native.store64(t, native.fieldOffset<Thread>("resumerState"), native.load64(ctx, context.STATE))
+        native.store64(t, native.fieldOffset<Thread>("resumerFrame"), native.address(frame))
+        local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+        native.store64(frame, native.fieldOffset<frames.Frame>("resumePC"), (native.address(pc) - code) // 16ULL + 1ULL)
+        native.store64(services(ctx), native.fieldOffset<guestscope.Services>("running"), thread)
+        local stack = native.offset(t, native.fieldOffset<Thread>("stack"))
+        local base = native.load64(stack, native.fieldOffset<arena.Segment>("base"))
+        local limit = native.load64(stack, native.fieldOffset<arena.Segment>("limit"))
+        collector.register(h, base, (limit - base) // 8ULL)
+        native.store64(ctx, context.STATE, native.address(native.offset(t, native.fieldOffset<Thread>("state"))))
+    end
+end
+
+-- The context runs the thread that resumed `thread` (body `t`), which is
+-- now `after`.
+local function switchOut(ctx: voidptr, thread: uint64, t: voidptr, after: uint64): nil
+    @unsafe do
+        local h = native.pointer(heapOf(ctx)) as heap.Heap*
+        -- Its frame range was the last registered: the threads running nest.
+        heap.wordsPop(h.ranges)
+        heap.wordsPop(h.ranges)
+        -- Its frames changed without the barrier while it ran.
+        collector.rescan(h, native.pointer(thread & values.PAYLOAD) as heap.Header*)
+        native.store64(t, native.fieldOffset<Thread>("status"), after)
+        local resumer = native.load64(t, native.fieldOffset<Thread>("resumer"))
+        native.store64(t, native.fieldOffset<Thread>("resumer"), values.NIL)
+        if resumer == values.NIL then
+            resumer = 0ULL
+        else
+            native.store64(native.pointer(bodyOf(resumer)), native.fieldOffset<Thread>("status"), RUNNING)
+        end
+        native.store64(services(ctx), native.fieldOffset<guestscope.Services>("running"), resumer)
+        native.store64(ctx, context.STATE, native.load64(t, native.fieldOffset<Thread>("resumerState")))
+    end
+end
+
+-- Gives the resumer of `t` what the thread yielded or returned: `result`,
+-- a pack, as its mode takes it.
+local function deliver(t: voidptr, result: uint64): nil
+    local frame = native.pointer(native.load64(t, native.fieldOffset<Thread>("resumerFrame")))
+    local window = native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("values")))
+    local slot = native.load64(t, native.fieldOffset<Thread>("resumerSlot"))
+    local wanted = native.load64(t, native.fieldOffset<Thread>("resumerWanted"))
+    if native.load64(t, native.fieldOffset<Thread>("mode")) == MODE_PACK or wanted == 0ULL then
+        native.store64(window, native.index(slot * 8ULL), result)
+        return
+    end
+    local pack = result & values.PAYLOAD
+    local count = ints.bitsOf(tables.get(pack, values.TAG_INTEGER))
+    local i: uint64 = 0ULL
+    while i < wanted do
+        local value = values.NIL
+        if i < count then
+            value = tables.get(pack, values.TAG_INTEGER | (i + 1ULL))
+        end
+        native.store64(window, native.index((slot + i) * 8ULL), value)
+        i = i + 1ULL
+    end
+end
+
+-- Maps a fresh thread's frame pages and makes its bottom frame, calling its
+-- function with the values of the pack `args`. Answers 1, or 0 when the
+-- frames are not as expected.
+local function start(ctx: voidptr, thread: uint64, t: voidptr, args: uint64): uint64
+    @unsafe do
+        local outer = native.pointer(native.load64(ctx, context.STATE))
+        local outerStack = native.loadPointer(outer, native.fieldOffset<frames.State>("segment"))
+        local bytes = native.load64(
+            outerStack,
+            native.fieldOffset<arena.Segment>("limit")
+        ) - native.load64(outerStack, native.fieldOffset<arena.Segment>("base"))
+        local page = os.pageSize()
+        local mapped = (bytes + page - 1ULL) // page * page
+        local fn = native.load64(t, native.fieldOffset<Thread>("body"))
+        local id = target(fn) - 1ULL
+        local c = native.loadPointer(ctx, context.CATALOG)
+        if id >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
+            return 0ULL
+        end
+        local record = native.offset(
+            native.loadPointer(c, native.fieldOffset<catalog.Catalog>("records")),
+            native.index(id * native.sizeOf<catalog.Function>())
+        )
+        local signature = native.offset(
+            native.loadPointer(c, native.fieldOffset<catalog.Catalog>("signatures")),
+            native.index(
+                native.load64(
+                    record,
+                    native.fieldOffset<catalog.Function>("signature")
+                ) * native.sizeOf<catalog.Signature>()
+            )
+        )
+        local declared = native.load64(signature, native.fieldOffset<catalog.Signature>("parameterCount"))
+        local variadic = native.load64(signature, native.fieldOffset<catalog.Signature>("variadic")) == 1ULL
+        local fixed = declared
+        if variadic then
+            fixed = declared - 1ULL
+        end
+        local given: uint64 = 0ULL
+        if args ~= 0ULL then
+            given = ints.bitsOf(tables.get(args & values.PAYLOAD, values.TAG_INTEGER))
+        end
+        -- The arguments past the fixed ones, as the pack a variadic body
+        -- takes: made before the frame, which nothing roots until it runs.
+        local extra = values.NIL
+        if variadic then
+            @unsafe do
+                local h = native.pointer(heapOf(ctx)) as heap.Heap*
+                local t2 = tables.create(h)
+                local k: uint64 = 0ULL
+                while fixed + k < given do
+                    if tables.set(
+                        h,
+                        t2,
+                        values.TAG_INTEGER | (k + 1ULL),
+                        tables.get(args & values.PAYLOAD, values.TAG_INTEGER | (fixed + k + 1ULL))
+                    ) == tables.NO_MEMORY then
+                        error("not enough memory")
+                    end
+                    k = k + 1ULL
+                end
+                if tables.set(h, t2, values.TAG_INTEGER, values.TAG_INTEGER | k) == tables.NO_MEMORY then
+                    error("not enough memory")
+                end
+                tables.drain(h)
+                extra = values.TAG_OBJ | t2
+            end
+        end
+        local base = os.mapPages(mapped)
+        if base == nil then
+            error("not enough memory")
+        end
+        native.store64(t, native.fieldOffset<Thread>("pages"), native.address(base as voidptr))
+        native.store64(t, native.fieldOffset<Thread>("pageBytes"), mapped)
+        local stack = native.offset(t, native.fieldOffset<Thread>("stack"))
+        if arena.initialize(stack, native.address(base as voidptr), mapped) == 0ULL then
+            return 0ULL
+        end
+        local state = native.offset(t, native.fieldOffset<Thread>("state"))
+        native.store64(state, native.fieldOffset<frames.State>("segment"), native.address(stack))
+        native.store64(
+            state,
+            native.fieldOffset<frames.State>("limit"),
+            native.load64(outer, native.fieldOffset<frames.State>("limit"))
+        )
+        native.store64(
+            state,
+            native.fieldOffset<frames.State>("helperBase"),
+            native.load64(outer, native.fieldOffset<frames.State>("helperBase"))
+        )
+        native.store64(
+            state,
+            native.fieldOffset<frames.State>("helperBytes"),
+            native.load64(outer, native.fieldOffset<frames.State>("helperBytes"))
+        )
+        native.store64(t, native.fieldOffset<Thread>("segment"), native.address(stack))
+        local info = native.offset(
+            native.loadPointer(c, native.fieldOffset<catalog.Catalog>("infos")),
+            native.index(id * native.sizeOf<frames.FunctionInfo>())
+        )
+        local plan = native.offset(
+            native.loadPointer(c, native.fieldOffset<catalog.Catalog>("plans")),
+            native.index(id * native.sizeOf<frames.WindowPlan>())
+        )
+        local mark = native.offset(t, native.fieldOffset<Thread>("mark"))
+        local frame = frames.beginThread(state, mark, info, plan, fn, thread & values.PAYLOAD)
+        if frame == 0ULL then
+            return 0ULL
+        end
+        -- Its parameters, nil past the arguments given; the kinds a typed
+        -- parameter admits are checked as a call checks them.
+        local window = native.pointer(native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("values")))
+        local data = native.loadPointer(c, native.fieldOffset<catalog.Catalog>("data"))
+        local kinds = native.load64(signature, native.fieldOffset<catalog.Signature>("parameters"))
+        local i: uint64 = 0ULL
+        while i < fixed do
+            local value = values.NIL
+            if i < given then
+                value = tables.get(args & values.PAYLOAD, values.TAG_INTEGER | (i + 1ULL))
+            end
+            if catalog.scalar(native.load64(data, native.index(kinds + i * 8ULL)), value) == 0ULL then
+                return 0ULL
+            end
+            native.store64(window, native.index((i + 1ULL) * 8ULL), value)
+            i = i + 1ULL
+        end
+        if variadic then
+            native.store64(window, native.index(declared * 8ULL), extra)
+        end
+
+        return 1ULL
+    end
+end
+
+-- Resumes the thread `value` with the arguments in the pack `args`: the
+-- resumer, `frame` at `pc`, takes the results as `mode` says, from the slot
+-- in the low half of `place` and as many as its high half wants. Answers SWITCHED once the context runs the thread;
+-- REFUSED when it cannot run and the resumer has the reason, in MODE_PACK;
+-- RAISED when it cannot and the reason is raised, in MODE_CALL; BROKEN when
+-- the frames are not as expected.
+export function resume(
+    ctx: voidptr,
+    frame: voidptr,
+    pc: voidptr,
+    value: uint64,
+    args: uint64,
+    mode: uint64,
+    place: uint64
+): uint64
+    local slot = place & 0xffffffffULL
+    local wanted = place >> 32ULL
+    local t = bodyOf(value)
+    if t == 0ULL then
+        texts.argumentError(ctx, 1ULL, texts.TEXT_COROUTINE, 0ULL, value)
+    end
+    local body = native.pointer(t)
+    local state = native.load64(body, native.fieldOffset<Thread>("status"))
+    if state ~= FRESH and state ~= SUSPENDED then
+        local text = texts.TEXT_RESUME_ACTIVE
+        if state == DEAD then
+            text = texts.TEXT_RESUME_DEAD
+        end
+        local reason = texts.textValue(ctx, text)
+        if mode == MODE_PACK then
+            local window = native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("values")))
+            native.store64(window, native.index(slot * 8ULL), failure(ctx, reason))
+            return REFUSED
+        end
+        -- Positioned at the call, as a wrapped thread's errors are.
+        guestscope.raise(ctx, reason, 1ULL)
+        return RAISED
+    end
+    native.store64(body, native.fieldOffset<Thread>("mode"), mode)
+    native.store64(body, native.fieldOffset<Thread>("resumerSlot"), slot)
+    native.store64(body, native.fieldOffset<Thread>("resumerWanted"), wanted)
+    if state == FRESH then
+        if start(ctx, value, body, args) ~= 1ULL then
+            return BROKEN
+        end
+    else
+        -- The pending yield answers the arguments, as a pack.
+        local yielding = native.pointer(
+            native.load64(body, native.fieldOffset<Thread>("state") + native.fieldOffset<frames.State>("active"))
+        )
+        local window = native.pointer(native.load64(yielding, native.fieldOffset<frames.Frame>("values")))
+        native.store64(window, native.index(native.load64(body, native.fieldOffset<Thread>("yieldSlot")) * 8ULL), args)
+    end
+    switchIn(ctx, frame, pc, value, body)
+
+    return SWITCHED
+end
+
+-- coroutine.yield: the running thread suspends at `pc` in `frame`, its
+-- results to land in `slot` when it is resumed, and its resumer takes the
+-- values of the pack `args`. Answers 1, or 0 having raised the error on the
+-- main thread, which cannot yield.
+export function yield(ctx: voidptr, frame: voidptr, pc: voidptr, slot: uint64, args: uint64): uint64
+    local thread = running(ctx)
+    if thread == 0ULL then
+        guestscope.raise(ctx, texts.textValue(ctx, texts.TEXT_YIELD_OUTSIDE), 0ULL)
+        return 0ULL
+    end
+    local t = native.pointer(bodyOf(thread))
+    native.store64(t, native.fieldOffset<Thread>("yieldSlot"), slot)
+    local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+    native.store64(frame, native.fieldOffset<frames.Frame>("resumePC"), (native.address(pc) - code) // 16ULL + 1ULL)
+    local result = args
+    if native.load64(t, native.fieldOffset<Thread>("mode")) == MODE_PACK then
+        result = packed(ctx, 1ULL, values.TRUE, 0ULL, args & values.PAYLOAD)
+    end
+    switchOut(ctx, thread, t, SUSPENDED)
+    deliver(t, result)
+
+    return 1ULL
+end
+
+-- Retires a finished thread's frames and gives its pages back.
+local function retire(ctx: voidptr, thread: uint64, t: voidptr): uint64
+    if frames.endThread(
+        native.offset(t, native.fieldOffset<Thread>("state")),
+        native.offset(t, native.fieldOffset<Thread>("mark"))
+    ) ~= 1ULL then
+        return 0ULL
+    end
+    switchOut(ctx, thread, t, DEAD)
+    native.store64(t, native.fieldOffset<Thread>("segment"), 0ULL)
+    local pages = native.load64(t, native.fieldOffset<Thread>("pages"))
+    if pages ~= 0ULL then
+        os.unmapPages(native.pointer(pages), native.load64(t, native.fieldOffset<Thread>("pageBytes")))
+        native.store64(t, native.fieldOffset<Thread>("pages"), 0ULL)
+    end
+
+    return 1ULL
+end
+
+-- A thread's bottom frame returns the values of the pack `results`: the
+-- thread is dead and its resumer runs. Answers 1, or 0 when the frames are
+-- not as expected.
+export function finish(ctx: voidptr, frame: voidptr, results: uint64): uint64
+    local thread = values.TAG_OBJ | native.load64(frame, native.fieldOffset<frames.Frame>("resultOwner"))
+    if bodyOf(thread) == 0ULL or thread ~= running(ctx) then
+        return 0ULL
+    end
+    local t = native.pointer(bodyOf(thread))
+    local result = results
+    if native.load64(t, native.fieldOffset<Thread>("mode")) == MODE_PACK then
+        @unsafe do
+            local h = native.pointer(heapOf(ctx)) as heap.Heap*
+            local mark = collector.scopeOpen(h)
+            collector.scopePush(h, results)
+            result = packed(ctx, 1ULL, values.TRUE, 0ULL, results & values.PAYLOAD)
+            collector.scopeClose(h, mark)
+        end
+    end
+    if retire(ctx, thread, t) ~= 1ULL then
+        return 0ULL
+    end
+    deliver(t, result)
+
+    return 1ULL
+end
+
+-- An error nothing in the running thread takes: the thread is dead and
+-- its resumer runs. Answers the pc the resumer continues at, having the
+-- pack {false, error}; 1 when the error is raised again in the resumer (a
+-- wrapped thread's call); or 0 when the frames are not as expected.
+export function fail(ctx: voidptr, value: uint64): uint64
+    local thread = running(ctx)
+    local t = native.pointer(bodyOf(thread))
+    local result: uint64 = 0ULL
+    if native.load64(t, native.fieldOffset<Thread>("mode")) == MODE_PACK then
+        result = failure(ctx, value)
+    end
+    if retire(ctx, thread, t) ~= 1ULL then
+        return 0ULL
+    end
+    if result == 0ULL then
+        return 1ULL
+    end
+    deliver(t, result)
+    local frame = native.pointer(native.load64(t, native.fieldOffset<Thread>("resumerFrame")))
+    local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+
+    return code + native.load64(frame, native.fieldOffset<frames.Frame>("resumePC")) * 16ULL
+end
+
+-- Whether a thread runs (not the main one).
+export function inThread(ctx: voidptr): uint64
+    if running(ctx) ~= 0ULL then
+        return 1ULL
+    end
+
+    return 0ULL
+end
+
+-- The entry's recovery: guestscope's, and when nothing in the running
+-- thread takes the error, the thread dies and its resumer takes it, as
+-- resume's false and the error or raised again for a wrapped thread's call.
+-- Answers the pc to continue at, or 0 when the error ends the entry.
+export function recoverEntry(ctx: voidptr): uint64
+    local at = guestscope.recoverEntry(ctx)
+    while at == 0ULL and running(ctx) ~= 0ULL and guestscope.failing(ctx) == 1ULL do
+        local value = guestscope.lastError(ctx)
+        guestscope.recovered(ctx)
+        local resumed = fail(ctx, value)
+        if resumed == 0ULL then
+            native.store64(ctx, context.STATUS, 4ULL)
+            return 0ULL
+        end
+        if resumed ~= 1ULL then
+            return resumed
+        end
+        -- Raised again at the call of the wrapped function.
+        local frame = native.pointer(
+            native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
+        )
+        guestscope.reraise(
+            ctx,
+            value,
+            native.load64(frame, native.fieldOffset<frames.Frame>("functionId")),
+            native.load64(frame, native.fieldOffset<frames.Frame>("resumePC")) - 1ULL
+        )
+        at = guestscope.recoverEntry(ctx)
+    end
+
+    return at
+end
+
+-- The name a coroutine library call's errors give it.
+export function libraryName(id: uint64): uint64
+    if id == LIB_CREATE then
+        return texts.NAME_CREATE
+    elseif id == LIB_RESUME then
+        return texts.NAME_RESUME
+    elseif id == LIB_YIELD then
+        return texts.NAME_YIELD
+    elseif id == LIB_STATUS then
+        return texts.NAME_STATUS
+    elseif id == LIB_WRAP then
+        return texts.NAME_WRAP
+    elseif id == LIB_RUNNING then
+        return texts.TEXT_RUNNING
+    end
+
+    return texts.NAME_ISYIELDABLE
+end
+
+-- The coroutine library calls that switch nothing: create, status, wrap,
+-- running (a pack) and isyieldable, with their one argument `a`.
+export function call(ctx: voidptr, id: uint64, a: uint64): uint64
+    if id == LIB_CREATE then
+        return create(ctx, a)
+    elseif id == LIB_STATUS then
+        return status(ctx, a)
+    elseif id == LIB_WRAP then
+        return wrap(ctx, a)
+    elseif id == LIB_RUNNING then
+        return current(ctx)
+    end
+
+    return yieldable(ctx)
+end

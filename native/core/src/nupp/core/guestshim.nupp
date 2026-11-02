@@ -110,9 +110,11 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
     ], rootNames[completeIndex] = "nupp.runtime.core.guestentry.start", "nupp.runtime.core.guestentry.complete"
     local servicesIndex = #rootNames + 1
     if not raw then
-        for _, name in ipairs({"prepare", "open", "close", "finish", "recoverEntry"}) do
+        for _, name in ipairs({"prepare", "open", "close", "finish"}) do
             rootNames[#rootNames + 1] = "nupp.runtime.core.guestscope." .. name
         end
+        -- Recovery crosses coroutines, so the threads module owns it.
+        rootNames[#rootNames + 1] = "nupp.runtime.core.threads.recoverEntry"
     end
     local rawIndex = #rootNames + 1
     if raw then

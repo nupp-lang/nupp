@@ -15,6 +15,7 @@ const strings = require("nupp.runtime.core.corestrings")
 const tables = require("nupp.runtime.core.coretables")
 const heap = require("nupp.runtime.vm.heap")
 const wide = require("nupp.runtime.core.coreintegers")
+const threads = require("nupp.runtime.core.threads")
 
 -- The closed checked producer binds these program/slot reads to corebytecode's
 -- canonical opcode recipes and its retained complete graph-derived byte stream.
@@ -1497,6 +1498,43 @@ export function LibCall(
         return native.fail()
     end
     guestscope.librarySite(ctx, frame, pc, native.word(count), encoded >> 7ULL)
+    -- The coroutine library. Resume and yield switch threads: the context
+    -- then runs the other thread, from its active frame.
+    if libraryId >= threads.LIB_CREATE and libraryId <= threads.LIB_ISYIELDABLE then
+        guestscope.nameLibrary(ctx, threads.libraryName(libraryId))
+        local switched = true
+        if libraryId ~= threads.LIB_RESUME and libraryId ~= threads.LIB_YIELD then
+            slots.writeValue(frame, regs, dst, threads.call(ctx, libraryId, a))
+            switched = false
+        elseif libraryId == threads.LIB_RESUME then
+            local answer = threads.resume(ctx, frame, pc, a, b, threads.MODE_PACK, native.word(dst) | (1ULL << 32ULL))
+            if answer == threads.BROKEN then
+                ops.fail(ctx, frame, pc, ops.INVALID)
+                return native.fail()
+            end
+            switched = answer == threads.SWITCHED
+        elseif threads.yield(ctx, frame, pc, native.word(dst), a) ~= 1ULL then
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return native.fail()
+        end
+        if switched then
+            local s = native.pointer(ops.state(ctx))
+            local current = native.pointer(access.active(s))
+            local currentValues = native.pointer(access.values(s, current))
+            local currentIntegers = native.pointer(access.integers(s, current))
+            local currentFloats = native.pointer(access.floats(s, current))
+            local currentPC = native.pointer(access.pc(s, current))
+            access.refresh(s, current, ctx)
+            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        end
+        -- Otherwise dst has the answer: a refused resume's false and reason.
+        local after = ops.branch(ctx, frame, pc, 0)
+        if after == 0ULL then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
+    end
     slots.writeValue(frame, regs, dst, guestlib.call(ctx, libraryId, native.word(count), a, b, c, d))
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
@@ -1566,6 +1604,39 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         return native.fail()
     end
     local callee = slots.readValue(frame, regs, calleeSlot)
+    -- A wrapped coroutine's closure resumes its thread with the arguments,
+    -- whose values land where this call's results would.
+    local wrapped = threads.wrapped(callee)
+    if wrapped ~= 0ULL then
+        local first = native.index(native.word(base) + 1ULL)
+        local args = guestscope.packValues(ctx, native.offset(regs, first * 8), native.word(nargs), 0ULL)
+        -- The frame roots the pack until the thread has it.
+        slots.writeValue(frame, regs, first, args)
+        local answer = threads.resume(
+            ctx,
+            frame,
+            pc,
+            wrapped,
+            args,
+            threads.MODE_CALL,
+            (native.word(base) + 1ULL) | (native.word(wanted) << 32ULL)
+        )
+        if answer == threads.RAISED then
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return native.fail()
+        elseif answer ~= threads.SWITCHED then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        local resumed = native.pointer(ops.state(ctx))
+        local active = native.pointer(access.active(resumed))
+        local activeValues = native.pointer(access.values(resumed, active))
+        local activeIntegers = native.pointer(access.integers(resumed, active))
+        local activeFloats = native.pointer(access.floats(resumed, active))
+        local activePC = native.pointer(access.pc(resumed, active))
+        access.refresh(resumed, active, ctx)
+        return native.dispatch(activePC, activeValues, activeIntegers, activeFloats, ctx, active)
+    end
     if ops.uncallable(ctx, callee) == 1ULL then
         -- A table with __call is called through it, the table first: the
         -- arguments move up a slot and __call takes the callee's place.
@@ -1680,6 +1751,27 @@ export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     local s = native.pointer(ops.state(ctx))
     ops.checkpoint(ctx, frame, pc)
+    -- A coroutine's body returns to whoever resumed it, its values in a pack.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.THREAD_DESTINATION then
+        local results = guestscope.packValues(
+            ctx,
+            native.offset(regs, native.index(native.word(src) * 8ULL)),
+            1ULL,
+            0ULL
+        )
+        if threads.finish(ctx, frame, results) ~= 1ULL then
+            ops.failure(ctx, ops.INVALID)
+            return native.fail()
+        end
+        local resumer = native.pointer(ops.state(ctx))
+        local current = native.pointer(access.active(resumer))
+        local currentValues = native.pointer(access.values(resumer, current))
+        local currentIntegers = native.pointer(access.integers(resumer, current))
+        local currentFloats = native.pointer(access.floats(resumer, current))
+        local currentPC = native.pointer(access.pc(resumer, current))
+        access.refresh(resumer, current, ctx)
+        return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+    end
     if ops.root(ctx, frame) == 1ULL then
         -- The root result outlives the guest heap, so it must be an immediate:
         -- a table, string or boxed integer cannot be published.
@@ -1739,6 +1831,27 @@ export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     end
     local s = native.pointer(ops.state(ctx))
     ops.checkpoint(ctx, frame, pc)
+    -- A coroutine's body returns to whoever resumed it, its values in a pack.
+    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.THREAD_DESTINATION then
+        local results = guestscope.packValues(
+            ctx,
+            native.offset(regs, native.index(native.word(src) * 8ULL)),
+            native.word(count),
+            0ULL
+        )
+        if threads.finish(ctx, frame, results) ~= 1ULL then
+            ops.failure(ctx, ops.INVALID)
+            return native.fail()
+        end
+        local resumer = native.pointer(ops.state(ctx))
+        local current = native.pointer(access.active(resumer))
+        local currentValues = native.pointer(access.values(resumer, current))
+        local currentIntegers = native.pointer(access.integers(resumer, current))
+        local currentFloats = native.pointer(access.floats(resumer, current))
+        local currentPC = native.pointer(access.pc(resumer, current))
+        access.refresh(resumer, current, ctx)
+        return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+    end
     if ops.root(ctx, frame) == 1ULL then
         if value & values.TAG_MASK == values.TAG_OBJ then
             ops.fail(ctx, frame, pc, ops.RESOURCE)
@@ -1838,6 +1951,39 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     end
     local total = native.word(nargs) + extra
     local callee = slots.readValue(frame, regs, calleeSlot)
+    -- A wrapped coroutine's closure resumes its thread with the arguments,
+    -- whose values land where this call's results would.
+    local wrapped = threads.wrapped(callee)
+    if wrapped ~= 0ULL then
+        local first = native.index(native.word(base) + 1ULL)
+        local args = guestscope.packValues(ctx, native.offset(regs, first * 8), total, 0ULL)
+        -- The frame roots the pack until the thread has it.
+        slots.writeValue(frame, regs, first, args)
+        local answer = threads.resume(
+            ctx,
+            frame,
+            pc,
+            wrapped,
+            args,
+            threads.MODE_CALL,
+            (native.word(base) + 1ULL) | (native.word(wanted) << 32ULL)
+        )
+        if answer == threads.RAISED then
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return native.fail()
+        elseif answer ~= threads.SWITCHED then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        local resumed = native.pointer(ops.state(ctx))
+        local active = native.pointer(access.active(resumed))
+        local activeValues = native.pointer(access.values(resumed, active))
+        local activeIntegers = native.pointer(access.integers(resumed, active))
+        local activeFloats = native.pointer(access.floats(resumed, active))
+        local activePC = native.pointer(access.pc(resumed, active))
+        access.refresh(resumed, active, ctx)
+        return native.dispatch(activePC, activeValues, activeIntegers, activeFloats, ctx, active)
+    end
     if ops.uncallable(ctx, callee) == 1ULL then
         guestscope.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
@@ -1907,10 +2053,10 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
         return native.fail()
     end
     local pack = slots.readValue(frame, regs, packSlot) & values.PAYLOAD
-    -- A caller taking every result as one pack gets them all, past sixteen.
-    if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.PACK_DESTINATION
-        and ops.root(ctx, frame) ~= 1ULL
-    then
+    -- A caller taking every result as one pack gets them all, past sixteen,
+    -- as does a coroutine's resumer.
+    local kind = native.load64(frame, native.fieldOffset<frames.Frame>("resultKind"))
+    if (kind == frames.PACK_DESTINATION or kind == frames.THREAD_DESTINATION) and ops.root(ctx, frame) ~= 1ULL then
         -- The first result is held to the signature, as any return's is.
         local first = values.NIL
         if fixed > 0 then
@@ -1928,12 +2074,17 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
             native.word(fixed),
             pack
         )
-        local state = native.pointer(ops.state(ctx))
         ops.checkpoint(ctx, frame, pc)
-        if frames.returnScalar(state, frame, packed) ~= 1ULL then
+        if kind == frames.THREAD_DESTINATION then
+            if threads.finish(ctx, frame, packed) ~= 1ULL then
+                ops.failure(ctx, ops.INVALID)
+                return native.fail()
+            end
+        elseif frames.returnScalar(native.pointer(ops.state(ctx)), frame, packed) ~= 1ULL then
             ops.failure(ctx, ops.INVALID)
             return native.fail()
         end
+        local state = native.pointer(ops.state(ctx))
         local active = native.pointer(access.active(state))
         local activeValues = native.pointer(access.values(state, active))
         local activeIntegers = native.pointer(access.integers(state, active))

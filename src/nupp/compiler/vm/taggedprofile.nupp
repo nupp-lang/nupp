@@ -75,7 +75,6 @@ function tagged.initialize(fn: any, options: any): any
         "unsupported function declaration form"
     )
     local body = fn.body
-    need(not body.yieldPack and not body.resumePack, "suspended functions are unsupported")
     -- Plain type parameters erase; packs and const parameters do not.
     need(not body.generics or next(fn.signature.constParams or {}) == nil, "const generic parameters are unsupported")
     need(
@@ -156,7 +155,11 @@ local stringLibrary: {[string]: {integer}} = {
     ["table.insert"] = {34, 2, 3},
     ["table.remove"] = {35, 1, 2},
     ["table.unpack"] = {36, 1, 3},
-    ["table.move"] = {67, 4, 5}
+    ["table.move"] = {67, 4, 5},
+    -- The coroutine library calls answering one value.
+    ["coroutine.create"] = {75, 1, 1},
+    ["coroutine.status"] = {78, 1, 1},
+    ["coroutine.wrap"] = {79, 1, 1}
 }
 
 local function stringSpec(library: string?): {integer}?
@@ -171,7 +174,16 @@ end
 -- answers every result as a pack.
 local packLibrary: {
     [string]: integer
-} = {["string.find"] = 23, ["string.match"] = 24, ["string.byte"] = 25, ["string.gsub"] = 27, ["table.unpack"] = 37}
+} = {
+    ["string.find"] = 23,
+    ["string.match"] = 24,
+    ["string.byte"] = 25,
+    ["string.gsub"] = 27,
+    ["table.unpack"] = 37,
+    ["coroutine.resume"] = 76,
+    ["coroutine.yield"] = 77,
+    ["coroutine.running"] = 80
+}
 
 local function packSpec(library: string?): integer?
     if library == nil then
@@ -694,10 +706,9 @@ packedCall = function(ctx: any, node: any, arguments: any, id: integer): integer
     return ctx.emit(node, "LibCall", {id, operands[1], pack}, "tagged") as integer
 end
 
--- print(...): its values in a pack, the count at key 0, written as one line.
-local function printValues(ctx: any, node: any): integer
-    local exprs = node.args.exprs or {}
-    -- A `...` or a call giving other than one result last gives them all.
+-- The values of `exprs` as one pack, the count at key 0: a `...` or a call
+-- giving other than one result last gives them all.
+local function valuesPack(ctx: any, node: any, exprs: any): integer
     local last = exprs[#exprs]
     local tail = last ~= nil and (last.kind == "vararg" or graph.expandsResults(last))
     local fixed, kinds = {}, {}
@@ -736,7 +747,55 @@ local function printValues(ctx: any, node: any): integer
         ctx.emit(node, "SetIdx", {pack, zero, count}, nil)
     end
 
+    return pack
+end
+
+-- print(...): its values in a pack, written as one line.
+local function printValues(ctx: any, node: any): integer
+    local pack = valuesPack(ctx, node, node.args.exprs or {})
+    if pack == nil then
+        return nil as any
+    end
+
     return ctx.emit(node, "LibCall", {55, pack}, "tagged") as integer
+end
+
+-- coroutine.resume(co, ...), coroutine.yield(...) and coroutine.running():
+-- each answers its results as one pack, and resume and yield take their
+-- values as one.
+local function coroutinePack(ctx: any, node: any): integer
+    local library = graph.coreLibraryCall(node)
+    local exprs = node.args.exprs or {}
+    if library == "coroutine.running" then
+        need(#exprs == 0, "coroutine.running takes no arguments")
+        local none = ctx.emit(node, "Nil", {}, "tagged")
+        return ctx.emit(node, "LibCall", {80, none}, "tagged") as integer
+    elseif library == "coroutine.yield" then
+        local pack = valuesPack(ctx, node, exprs)
+        if pack == nil then
+            return nil as any
+        end
+        return ctx.emit(node, "LibCall", {77, pack}, "tagged") as integer
+    end
+    need(#exprs >= 1, "coroutine.resume takes a coroutine")
+    local thread = ctx.expression(exprs[1], "tagged")
+    if thread == nil then
+        return nil as any
+    end
+    local held = ctx.hold(thread)
+    local rest = {}
+    for index = 2, #exprs do
+        rest[#rest + 1] = exprs[index]
+    end
+    local pack = valuesPack(ctx, node, rest)
+    if pack == nil then
+        ctx.release(held)
+        return nil as any
+    end
+    local value = ctx.readHeld(held)
+    ctx.release(held)
+
+    return ctx.emit(node, "LibCall", {76, value, pack}, "tagged") as integer
 end
 
 -- string.gsub(s, p, f [, n]): the gsub step advances to each match and
@@ -1634,8 +1693,22 @@ function tagged.forVersion(version: integer): any
                 return invokeProtected(ctx, node, true, count)
             end
             -- A string library call with several results answers a pack,
-            -- read in order; past its end is nil.
+            -- read in order; past its end is nil. So does a coroutine call.
             local library = graph.coreLibraryCall(node)
+            if library == "coroutine.resume" or library == "coroutine.yield" or library == "coroutine.running" then
+                local pack = coroutinePack(ctx, node)
+                if pack == nil then
+                    return nil
+                end
+                local held = ctx.hold(pack)
+                local values = {}
+                for index = 1, count do
+                    local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(index))}, "tagged")
+                    values[index] = ctx.emit(node, "GetIdx", {ctx.readHeld(held), key}, "tagged")
+                end
+                ctx.release(held)
+                return values
+            end
             local packId = packSpec(library)
             if packId then
                 local spec: {integer} = need(stringSpec(library), "string library call")
@@ -1892,6 +1965,18 @@ function tagged.forVersion(version: integer): any
             elseif library == "os.getenv" then
                 need(#(node.args.exprs or {}) == 1, "os.getenv takes one name")
                 return libraryCall(ctx, node, 10, node.args.exprs)
+            elseif library == "coroutine.resume" or library == "coroutine.yield" or library == "coroutine.running" then
+                -- Kept as one value: its pack's first.
+                local pack = coroutinePack(ctx, node)
+                if pack == nil then
+                    return nil as any
+                end
+                local key = ctx.emit(node, "K", {pool(ctx, "int64", "1")}, "tagged")
+                return ctx.emit(node, "GetIdx", {pack, key}, "tagged") as integer
+            elseif library == "coroutine.isyieldable" then
+                need(#(node.args.exprs or {}) == 0, "coroutine.isyieldable takes no arguments")
+                local none = ctx.emit(node, "Nil", {}, "tagged")
+                return ctx.emit(node, "LibCall", {81, none}, "tagged") as integer
             elseif stringSpec(library) then
                 local spec: {integer} = need(stringSpec(library), "string library call")
                 local count = #(node.args.exprs or {})

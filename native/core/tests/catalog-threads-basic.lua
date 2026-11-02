@@ -1,0 +1,151 @@
+-- Lua twin of catalog-threads-basic.nupp.
+
+-- Coroutines: values cross resume and yield both ways, statuses follow the
+-- resume chain, errors come back as resume's false, wrapped threads raise
+-- them again, and suspended threads keep what their frames hold while the
+-- main thread allocates.
+local score = 0
+
+local function counter(limit)
+    local total = 0
+    for i = 1, limit do
+        local got = coroutine.yield(i)
+        total = total + got
+    end
+
+    return total
+end
+
+local co = coroutine.create(counter)
+local ok, v = coroutine.resume(co, 3)
+local seen = 0
+while coroutine.status(co) == "suspended" do
+    seen = seen * 10 + v
+    ok, v = coroutine.resume(co, v * 2)
+end
+if ok and v == 12 and seen == 123 and coroutine.status(co) == "dead" then
+    score = score + 1
+end
+local again, why = coroutine.resume(co)
+if not again and why == "cannot resume dead coroutine" then
+    score = score + 2
+end
+
+-- Statuses along a chain: the outer one is normal while the inner runs.
+local outer = nil
+local inner = coroutine.create(function()
+    return coroutine.status(outer)
+end)
+outer = coroutine.create(function()
+    local _, status = coroutine.resume(inner)
+    return status .. "/" .. coroutine.status(outer)
+end)
+local _, chain = coroutine.resume(outer)
+if chain == "normal/running" then
+    score = score + 4
+end
+
+-- An error nothing in the thread catches ends it and comes back as false.
+local failing = coroutine.create(function()
+    error("boom")
+end)
+local fine, message = coroutine.resume(failing)
+if not fine and string.sub(message, -9) == ":50: boom" and coroutine.status(failing) == "dead" then
+    score = score + 8
+end
+
+-- One a protected call in the thread catches stays there.
+local guarded = coroutine.create(function()
+    local caught, err = pcall(function()
+        error("deep", 0)
+    end)
+    coroutine.yield(caught)
+
+    return err == "deep" and "kept" or "lost"
+end)
+local _, first = coroutine.resume(guarded)
+local _, second = coroutine.resume(guarded)
+if first == false and second == "kept" then
+    score = score + 16
+end
+
+-- A wrapped thread is called; its error is raised where it is called.
+local gen = coroutine.wrap(function(a)
+    local b = coroutine.yield(a + 1)
+    return b * 2
+end)
+local w1 = gen(1)
+local w2 = gen(5)
+if w1 == 2 and w2 == 10 then
+    score = score + 32
+end
+local dead, deadMessage = pcall(function()
+    return gen(0)
+end)
+if not dead and string.sub(tostring(deadMessage), -33) == ":83: cannot resume dead coroutine" then
+    score = score + 64
+end
+local raising = coroutine.wrap(function()
+    error("inside", 0)
+end)
+local raised, raisedMessage = pcall(function()
+    raising()
+end)
+if not raised and string.sub(tostring(raisedMessage), -11) == ":92: inside" then
+    score = score + 128
+end
+
+-- Yielding outside a coroutine is an error; inside, it is allowed.
+local outside, outsideMessage = pcall(function() return coroutine.yield(1) end)
+local probe = coroutine.create(function()
+    return coroutine.isyieldable()
+end)
+local _, yieldable = coroutine.resume(probe)
+if not outside
+    and outsideMessage == "attempt to yield from outside a coroutine"
+    and yieldable
+    and not coroutine.isyieldable()
+then
+    score = score + 256
+end
+local _, isMain = coroutine.running()
+if isMain and type(co) == "thread" then
+    score = score + 512
+end
+
+-- Many suspended threads, each holding a table its frame alone reaches,
+-- while the main thread allocates: each still has its own on resume.
+local held = {}
+for i = 1, 40 do
+    held[i] = coroutine.create(function(n)
+        local mine = {label = tostring(n), double = n * 2}
+        coroutine.yield()
+        return mine.double + #mine.label
+    end)
+    coroutine.resume(held[i], i)
+end
+local junk = {}
+for i = 1, 2000 do
+    junk[i % 50 + 1] = {i, tostring(i)}
+end
+local sum = 0
+for i = 1, 40 do
+    local _, value = coroutine.resume(held[i])
+    sum = sum + value
+end
+if sum == 1711 then
+    score = score + 1024
+end
+
+-- A variadic body takes every argument; resume takes every value back.
+local spread = coroutine.create(function(...)
+    local count = select("#", ...)
+    local a, b, c = coroutine.yield(count, ...)
+    return a + b + c
+end)
+local _, count, x, y = coroutine.resume(spread, 4, 5, 6)
+local _, total = coroutine.resume(spread, 1, 2, 3)
+if count == 3 and x == 4 and y == 5 and total == 6 then
+    score = score + 2048
+end
+return score

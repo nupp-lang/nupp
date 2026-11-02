@@ -117,7 +117,8 @@ local CASES = {
     {"callsOpen", 0x7FFF000000000461},
     {"callsExpand", 0x7FFF00000E655693},
     {"errorsMethods", 0x7FFF00000000000F},
-    {"recordsAffineReturns", 0x7FFF001A27644F86}
+    {"recordsAffineReturns", 0x7FFF001A27644F86},
+    {"threadsBasic", 0x7FFF000000000FFF}
 }
 -- What the cases that print write to the host's output, as Lua 5.5 writes it.
 local OUTPUT = {
@@ -135,7 +136,8 @@ local STRESS = {
     workloadClosures = true,
     workloadTables = true,
     stringsBasic = true,
-    integersWide = true
+    integersWide = true,
+    threadsBasic = true
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
@@ -193,7 +195,8 @@ local NUMERIC = {
     callsOpen = "catalog-calls-open",
     callsExpand = "catalog-calls-expand",
     errorsMethods = "catalog-errors-methods",
-    recordsAffineReturns = "catalog-records-affine-returns"
+    recordsAffineReturns = "catalog-records-affine-returns",
+    threadsBasic = "catalog-threads-basic"
 }
 local FIXTURES = {
     "catalog-boolean",
