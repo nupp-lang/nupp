@@ -122,14 +122,16 @@ local CASES = {
     {"threadsCalls", 0x7FFF00000000003F},
     {"threadsClose", 0x7FFF00000000007F},
     {"threadsIterate", 0x7FFF00000000001F},
-    {"outputWrite", 0x7FFF000000000001}
+    {"outputWrite", 0x7FFF000000000001},
+    {"librarySpread", 0x7FFF000000000C8D}
 }
 -- What the cases that print write to the host's output, as Lua 5.5 writes it.
 local OUTPUT = {
     outputPrint = "hello\t42\t1.5\ttrue\tnil\tfalse\n\nxxx\t3\t-0.0\t1e+100\t9007199254740992.0\n"
         .. "line\t1\nline\t2\nline\t3\n",
     callsExpand = "1\t2\nx\t1\t2\n",
-    outputWrite = "hello 42 1.5\n3.0 -0.0 9.2233720368547758e+18\nab\nx7\np\n"
+    outputWrite = "hello 42 1.5\n3.0 -0.0 9.2233720368547758e+18\nab\nx7\np\n",
+    librarySpread = "1\t2\t3\n3\t3\n97\t98\t99\n2\t3\ntrue\t1\t2\n"
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their
@@ -208,7 +210,8 @@ local NUMERIC = {
     threadsCalls = "catalog-threads-calls",
     threadsClose = "catalog-threads-close",
     threadsIterate = "catalog-threads-iterate",
-    outputWrite = "catalog-output-write"
+    outputWrite = "catalog-output-write",
+    librarySpread = "catalog-library-spread"
 }
 local FIXTURES = {
     "catalog-boolean",

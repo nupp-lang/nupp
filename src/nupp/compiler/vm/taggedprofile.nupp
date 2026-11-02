@@ -189,12 +189,7 @@ local packLibrary: {
 -- The coroutine calls answering a pack, which coroutinePack makes.
 local coroutinePacked: {
     [string]: boolean
-} = {
-    ["coroutine.resume"] = true,
-    ["coroutine.yield"] = true,
-    ["coroutine.running"] = true,
-    ["coroutine.close"] = true
-}
+} = {["coroutine.resume"] = true, ["coroutine.yield"] = true, ["coroutine.running"] = true, ["coroutine.close"] = true}
 
 local function packSpec(library: string?): integer?
     if library == nil then
@@ -206,6 +201,7 @@ end
 
 local gsubWith: function(any, any, any, boolean): integer
 local packedCall: function(any, any, any, integer): integer
+local libraryPack: function(any, any): integer?
 
 -- A core library call (guestlib): its arguments staged as values.
 local function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
@@ -479,6 +475,10 @@ end
 -- as a list.
 -- With `open`, it keeps every result as one pack.
 local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean?, count: integer?, open: boolean?): any
+    -- A library call with several results is open already: its pack.
+    if open and graph.packedLibraryCall(node) then
+        return libraryPack(ctx, node)
+    end
     local p = catalog(ctx)
     local site = need(p.callByNode[node], "ordinary call lacks checked callsite")
     need(site.owner == ctx.fn.id, "callsite belongs to another owner")
@@ -824,6 +824,26 @@ local function coroutinePack(ctx: any, node: any): integer
     ctx.release(held)
 
     return ctx.emit(node, "LibCall", {76, value, pack}, "tagged") as integer
+end
+
+-- A library call with several results, as the pack of them: a string
+-- library call's or table.unpack's pack form, or a coroutine call.
+libraryPack = function(ctx: any, node: any): integer?
+    local library = graph.coreLibraryCall(node)
+    if coroutinePacked[library or ""] then
+        return coroutinePack(ctx, node)
+    end
+    local spec: {integer} = need(stringSpec(library), "string library call")
+    local arguments = {}
+    if node.kind == "methodCall" then
+        arguments[1] = node.obj
+    end
+    for _, argument in ipairs(node.args.exprs or {}) do
+        arguments[#arguments + 1] = argument
+    end
+    need(#arguments >= spec[2] and #arguments <= spec[3], tostring(library) .. " argument count is not admitted")
+
+    return libraryCall(ctx, node, need(packSpec(library), "library call with one result"), arguments)
 end
 
 -- string.gsub(s, p, f [, n]): the gsub step advances to each match and
@@ -1268,7 +1288,10 @@ function tagged.forVersion(version: integer): any
     -- with affine values live; the statement runs as it would without it.
     profile.checkedPragma = function(ctx: any, node: any): nil
         need(
-            node.name and node.name.text == "unsafe" and node.annotationDefinition and node.annotationDefinition.name == "unsafe",
+            node.name
+            and node.name.text == "unsafe"
+            and node.annotationDefinition
+            and node.annotationDefinition.name == "unsafe",
             "only a checked @unsafe scope is admitted"
         )
     end
@@ -1767,11 +1790,10 @@ function tagged.forVersion(version: integer): any
             if graph.coreLibraryCall(node) == "pcall" or graph.coreLibraryCall(node) == "xpcall" then
                 return invokeProtected(ctx, node, true, count)
             end
-            -- A string library call with several results answers a pack,
-            -- read in order; past its end is nil. So does a coroutine call.
-            local library = graph.coreLibraryCall(node)
-            if coroutinePacked[library or ""] then
-                local pack = coroutinePack(ctx, node)
+            -- A library call with several results answers a pack, read in
+            -- order; past its end is nil.
+            if graph.packedLibraryCall(node) then
+                local pack = libraryPack(ctx, node)
                 if pack == nil then
                     return nil
                 end
@@ -1782,31 +1804,6 @@ function tagged.forVersion(version: integer): any
                     values[index] = ctx.emit(node, "GetIdx", {ctx.readHeld(held), key}, "tagged")
                 end
                 ctx.release(held)
-                return values
-            end
-            local packId = packSpec(library)
-            if packId then
-                local spec: {integer} = need(stringSpec(library), "string library call")
-                local arguments = {}
-                if node.kind == "methodCall" then
-                    arguments[1] = node.obj
-                end
-                for _, argument in ipairs(node.args.exprs or {}) do
-                    arguments[#arguments + 1] = argument
-                end
-                need(
-                    #arguments >= spec[2] and #arguments <= spec[3],
-                    tostring(library) .. " argument count is not admitted"
-                )
-                local pack = libraryCall(ctx, node, packId, arguments)
-                if pack == nil then
-                    return nil
-                end
-                local values = {}
-                for index = 1, count do
-                    local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(index))}, "tagged")
-                    values[index] = ctx.emit(node, "GetIdx", {pack, key}, "tagged")
-                end
                 return values
             end
             need(node.kind == "call" and node.runtimeLoader ~= "require", "only plain calls spread their results")

@@ -824,6 +824,15 @@ const table: {
     ---     is used when it is omitted
     sort: function<V>(t: {V}, scoped cmp: (function(V, V): boolean)?),
 
+    --- Returns the elements of `t` from index `i` through `j` as separate values.
+    ---
+    --- @typearg T the element type
+    --- @param t the array to expand
+    --- @param i the first index, 1 by default
+    --- @param j the last index, `#t` by default
+    --- @return the selected elements
+    unpack: @nosuspend function<T>(t: const{T}, i: number?, j: number?): ...T,
+
     --- Returns the largest positive numeric key of `t`, or 0 when it has none.
     --- Deprecated, and unlike `#t` it also sees keys past a hole.
     ---

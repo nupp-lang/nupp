@@ -1725,6 +1725,31 @@ function graph.coreLibraryCall(call: any): string?
     return name and coreLibrary[name] and name or nil
 end
 
+-- The library calls with several results, which answer them as a pack.
+local packedLibrary: {
+    [string]: boolean
+} = {
+    ["string.find"] = true,
+    ["string.match"] = true,
+    ["string.byte"] = true,
+    ["string.gsub"] = true,
+    ["table.unpack"] = true,
+    ["coroutine.resume"] = true,
+    ["coroutine.yield"] = true,
+    ["coroutine.running"] = true,
+    ["coroutine.close"] = true
+}
+
+--- Whether `expr` is a library call with several results.
+function graph.packedLibraryCall(expr: any): boolean
+    if expr == nil or expr.kind ~= "call" and expr.kind ~= "methodCall" then
+        return false
+    end
+    local library = graph.coreLibraryCall(expr)
+
+    return library ~= nil and packedLibrary[library] == true
+end
+
 -- The signature a call through an `any` value is checked against: its
 -- arguments and `count` results, all `any`.
 local function anySignature(call: any, count: integer, skipped: integer?): any
@@ -1831,6 +1856,10 @@ end
 -- Whether a call last in a list gives other than exactly one result, a fixed
 -- count or an open one: then the list takes them all, as a pack.
 function graph.expandsResults(expr: any): boolean
+    -- A library call with several results gives them all, as Lua's do.
+    if graph.packedLibraryCall(expr) then
+        return true
+    end
     if expr == nil or expr.kind ~= "call" or expr.runtimeLoader ~= nil or graph.coreLibraryCall(expr) ~= nil then
         return false
     end
