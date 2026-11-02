@@ -320,7 +320,7 @@ function M.aComputedRequireArgumentIsChecked()
         "a field no value has is reported inside the call"
     )
     testAssert.eq((diagsOf("local n: integer = 5\nreturn require(n)")), "NUPP2006:2", "require takes a string")
-    testAssert.eq((diagsOf("return require('nupp.util', 'extra')")), "NUPP2007:1", "and takes one of them")
+    testAssert.eq((diagsOf("return require('serde', 'extra')")), "NUPP2007:1", "and takes one of them")
 end
 
 function M.randomUsesPortableBitops()
@@ -1887,7 +1887,7 @@ function M.bitsetsReachTheCheckedModule()
     assert(target:read():get(1) == 5, "first position")
     assert(resume == 43, "and reported where to carry on")
 
-    assert(data.WORD_BITS == 32)
+    assert(data.WORD_BITS == nil, "word width is private implementation storage")
     assert(set:wordAt(0) == 32)
     assert(bitset(8) ~= bitset(8))
 end

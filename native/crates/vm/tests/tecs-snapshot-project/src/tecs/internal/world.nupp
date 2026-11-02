@@ -16,11 +16,10 @@ const types = require("types")
 
 const {type Source} = require("events")
 const {type Observers} = require("events")
-const {type Store} = require("nupp.util")
+const {type Store} = require("types")
 const {type DoubleArray} = require("tecs.internal.entitycolumn")
 const {type Emittable} = require("events")
 const {type Observer} = require("events")
-const util = require("nupp.util")
 
 local tasks = require("coroutine")
 local nativeStorage: any = assert2(require("nupp.mem.representation").storage)
@@ -1016,7 +1015,7 @@ export function new(
         archetypeCount = 1,
         systemCount = 0,
         observers = nuppevents.newobservers(),
-        resources = util.newStore()
+        resources = types.newstore()
     )
 end
 

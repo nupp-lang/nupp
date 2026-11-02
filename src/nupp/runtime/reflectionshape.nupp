@@ -13,6 +13,25 @@ local entrynames: {[string]: string} = {["defaultValue"] = "defaultvalue", ["has
 local nodenames: {
     [string]: string
 } = {
+    ["moduleName"] = "modulename",
+    ["deriveKey"] = "derivekey",
+    ["arrayOf"] = "arrayof",
+    ["varargType"] = "varargtype",
+    ["borrowedFrom"] = "borrowedfrom",
+    ["borrowedFromMany"] = "borrowedfrommany",
+    ["borrowedResult"] = "borrowedresult",
+    ["parameterPack"] = "parameterpack",
+    ["returnPack"] = "returnpack",
+    ["yieldPack"] = "yieldpack",
+    ["resumePack"] = "resumepack",
+    ["startPack"] = "startpack",
+    ["resultKind"] = "resultkind",
+    ["transferOnly"] = "transferonly",
+    ["countTerm"] = "countterm",
+    ["readKey"] = "readkey",
+    ["readValue"] = "readvalue",
+    ["writeKey"] = "writekey",
+    ["writeValue"] = "writevalue",
     ["associatedTypes"] = "associatedtypes",
     ["constArguments"] = "constarguments",
     ["constParameters"] = "constparameters",
@@ -29,6 +48,12 @@ local nodenames: {
 }
 
 local infonames: {[string]: string} = {["qualifiedName"] = "qualifiedname",}
+
+local indexnames: {
+    [string]: string
+} = {["readKey"] = "readkey", ["readValue"] = "readvalue", ["writeKey"] = "writekey", ["writeValue"] = "writevalue",}
+local constructionnames: {[string]: string} = {["requiresFactory"] = "requiresfactory"}
+local cleanupnames: {[string]: string} = {["functionType"] = "functiontype"}
 
 local function copy(value: any, names: {[string]: string}): any
     if type(value) ~= "table" then
@@ -55,6 +80,10 @@ local function entry(value: any): any
     return copy(value, entrynames)
 end
 
+local function cleanup(value: any): any
+    return copy(value, cleanupnames)
+end
+
 local function list(values: any, transform: function(any): any): any
     if type(values) ~= "table" then
         return values
@@ -74,6 +103,9 @@ local function node(value: any): any
     if type(value) ~= "table" then
         return result
     end
+    result.index = copy(value.index, indexnames)
+    result.construction = copy(value.construction, constructionnames)
+    result.cleanups = list(value.cleanups, cleanup)
     for _, name in ipairs(entrylists) do
         if value[name] ~= nil then
             local entries = list(value[name], entry)

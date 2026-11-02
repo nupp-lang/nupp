@@ -1301,6 +1301,65 @@ record types.reflect
         @readonly copyable: boolean?
 
         @readonly kind: string
+        -- Public descriptor aliases accepted before canonical source adoption.
+        @readonly moduleName: string?
+        @readonly modulename: string?
+        @readonly deriveKey: string?
+        @readonly derivekey: string?
+        @readonly arrayOf: integer?
+        @readonly arrayof: integer?
+        @readonly varargType: integer?
+        @readonly varargtype: integer?
+        @readonly borrowedFrom: integer?
+        @readonly borrowedfrom: integer?
+        @readonly borrowedFromMany: {integer}?
+        @readonly borrowedfrommany: {integer}?
+        @readonly borrowedResult: integer?
+        @readonly borrowedresult: integer?
+        @readonly parameterPack: integer?
+        @readonly parameterpack: integer?
+        @readonly returnPack: integer?
+        @readonly returnpack: integer?
+        @readonly yieldPack: integer?
+        @readonly yieldpack: integer?
+        @readonly resumePack: integer?
+        @readonly resumepack: integer?
+        @readonly startPack: integer?
+        @readonly startpack: integer?
+        @readonly resultKind: string?
+        @readonly resultkind: string?
+        @readonly transferOnly: boolean?
+        @readonly transferonly: boolean?
+        @readonly countTerm: integer?
+        @readonly countterm: integer?
+        @readonly readKey: integer?
+        @readonly readkey: integer?
+        @readonly readValue: integer?
+        @readonly readvalue: integer?
+        @readonly writeKey: integer?
+        @readonly writekey: integer?
+        @readonly writeValue: integer?
+        @readonly writevalue: integer?
+        @readonly index: const{
+            @readonly readKey: integer?,
+            @readonly readkey: integer?,
+            @readonly readValue: integer?,
+            @readonly readvalue: integer?,
+            @readonly writeKey: integer?,
+            @readonly writekey: integer?,
+            @readonly writeValue: integer?,
+            @readonly writevalue: integer?
+        }?
+        @readonly construction: const{
+            @readonly requiresFactory: boolean?,
+            @readonly requiresfactory: boolean?,
+            @readonly [string]: any
+        }?
+        @readonly cleanups: {const{
+            @readonly functionType: integer?,
+            @readonly functiontype: integer?,
+            @readonly [string]: any
+        }}?
         @readonly name: string?
         @readonly nominal: boolean?
         @readonly annotations: {Annotation}?

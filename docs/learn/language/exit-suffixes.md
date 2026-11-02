@@ -87,29 +87,26 @@ reporting `NUPP2002` when it does not fit.
 
 ## Protected calls
 
-`pcall` and `xpcall` have the layout backwards: the boolean comes first and the
-protected function's results follow it. A direct call to either is refused as an
-operand, naming the pair that returns the conventional order instead:
+`pcall` and `xpcall` return a boolean before the protected function's results.
+A direct call to either is refused as an exit-suffix operand; test the boolean
+in an explicit conditional:
 
 ```nupp:fragment
-const util = require("nupp.util")
-
 function parsed(text: string): (Config?, unknown)
-    local config = util.try(decode, text) or return
+    local ok, value = pcall(decode, text)
+    if not ok then
+        return nil, value
+    end
 
-    return config, nil
+    return value, nil
 end
 ```
 
-[`try`](nupp.util) passes the raised value
-through as `unknown`, so a function propagating it declares its reason
-`unknown` and narrows at the edge that reports the error. `nupp.util.trywith`
-takes a handler instead, which runs before the stack unwinds — so it can still
-collect a traceback — and whatever it returns is the reason.
-
-Neither wrapper stringifies, and neither can tell a protected function that
-succeeded returning nil from one that raised. Where that matters, the explicit
-`local ok, value = pcall(f)` is still the form to write.
+A raised value passes through unchanged, including a table or nil. The boolean
+keeps a successful nil distinct from a failure that raised nil. `xpcall` takes
+a handler that runs before the stack unwinds, so it can collect a traceback;
+its result becomes the failure value. Narrow an `unknown` failure explicitly
+before returning it as a more specific type.
 
 ## Loops, precedence and spelling
 

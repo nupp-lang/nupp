@@ -1,20 +1,23 @@
 --[[
-`nupp` is an always available global table that declares the Nupp
-standard library. It's available without a `require`.
+`nupp` holds admission and layout queries alongside the remaining host,
+storage, random-generator, and text-buffer APIs. Most library code
+uses the standard roots directly:
 
 ```nupp
--- You can use nupp and nested modules without any `require` statements.
-local text = serde.json.encodevalue({ok = true})
-
-log.info("wrote %d bytes", #text)
+local encoded = serde.json.encodevalue({ok = true})
+log.info("wrote %d bytes", #encoded)
 ```
 
-`nupp` and nested submodules within it are available using sub-property access
-without the need to require anything. Submodules are loaded lazily on first
-access.
+The documented `nupp.host`, `nupp.io.process`, `nupp.mem`, `nupp.random`,
+and `nupp.text` namespaces retain their current contracts.
+I/O, system facts, tasks, types, binary codecs, and serialization use `io`,
+`os`, `coroutine`, `types`, `binary`, and `serde` respectively. Private
+implementation modules remain beneath `nupp`; application imports use the
+documented public module names.
 
-See [standard-library.md](docs/learn/runtime/data/standard-library.md) for what belongs here and what does not,
-and [modules.md](docs/learn/language/modules.md) for how a declared module is reached.
+See [standard-library.md](docs/learn/runtime/data/standard-library.md) for the
+library overview and [modules.md](docs/learn/language/modules.md) for module
+lookup.
 ]]
 
 const nupp = {}

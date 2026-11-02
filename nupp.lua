@@ -345,10 +345,8 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/runtime/provider/nativehost.nupp"
     },
     {source = "src/nupp/runtime/browser/system.nupp", output = "nupp/compiler/nupp/runtime/browser/system.nupp"},
-    {source = "src/nupp/util/init.nupp", output = "nupp/compiler/nupp/util/init.nupp"},
     {source = "src/nupp/util/internal/bitset.nupp", output = "nupp/compiler/nupp/util/internal/bitset.nupp"},
     {source = "src/nupp/util/internal/store.nupp", output = "nupp/compiler/nupp/util/internal/store.nupp"},
-    {source = "src/nupp/util/internal/protected.nupp", output = "nupp/compiler/nupp/util/internal/protected.nupp"},
     {source = "src/nupp/mem/init.nupp", output = "nupp/compiler/nupp/mem/init.nupp"},
     {source = "src/io/path/init.nupp", output = "nupp/compiler/io/path/init.nupp"},
     {source = "src/nupp/io/path/provider.nupp", output = "nupp/compiler/nupp/io/path/provider.nupp"},

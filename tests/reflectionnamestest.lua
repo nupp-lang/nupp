@@ -102,4 +102,101 @@ function M.managedExclusiveAliasIsTheSameOperation()
     test.eq(reason.code, "NUPP2614")
 end
 
+function M.acceptsEveryProducedDescriptorKeyAtItsExactRecordBoundary()
+    local source, user = descriptor()
+    local node = source.types[1]
+    node.moduleName = "owner.Value"
+    node.deriveKey = "owner.Value"
+    node.arrayOf = 2
+    node.varargType = 2
+    node.borrowedFrom = 2
+    node.borrowedFromMany = {2, 3}
+    node.borrowedResult = 2
+    node.parameterPack = 2
+    node.returnPack = 2
+    node.yieldPack = 2
+    node.resumePack = 2
+    node.startPack = 2
+    node.resultKind = "owner.Value"
+    node.transferOnly = false
+    node.countTerm = 2
+    node.readKey = 2
+    node.readValue = 2
+    node.writeKey = 2
+    node.writeValue = 2
+    node.kind = "protocolThread"
+    node.operation = "comptimeTypeCall"
+    node.index = {readKey = 2, readValue = 3, writeKey = 4, writeValue = 5}
+    node.construction = {requiresFactory = false, params = {{name = "readKey"}}}
+    node.cleanups = {{functionType = 2, name = "readKey", key = "tasks.isDone"}}
+    local public = shape.accept(source)
+    local current = public.types[1]
+    for _, names in ipairs({
+        {"modulename", "moduleName"},
+        {"derivekey", "deriveKey"},
+        {"arrayof", "arrayOf"},
+        {"varargtype", "varargType"},
+        {"borrowedfrom", "borrowedFrom"},
+        {"borrowedfrommany", "borrowedFromMany"},
+        {"borrowedresult", "borrowedResult"},
+        {"parameterpack", "parameterPack"},
+        {"returnpack", "returnPack"},
+        {"yieldpack", "yieldPack"},
+        {"resumepack", "resumePack"},
+        {"startpack", "startPack"},
+        {"resultkind", "resultKind"},
+        {"transferonly", "transferOnly"},
+        {"countterm", "countTerm"},
+        {"readkey", "readKey"},
+        {"readvalue", "readValue"},
+        {"writekey", "writeKey"},
+        {"writevalue", "writeValue"},
+    }) do
+        test.eq(current[names[1]], node[names[2]], names[1])
+        test.eq(current[names[1]], current[names[2]], "accepting keys share the value")
+        test.eq(rawget(node, names[1]), nil, "private graph was not changed")
+    end
+    for _, names in ipairs({
+        {"readkey", "readKey"},
+        {"readvalue", "readValue"},
+        {"writekey", "writeKey"},
+        {"writevalue", "writeValue"},
+    }) do
+        test.eq(current.index[names[1]], node.index[names[2]])
+        test.eq(current.index[names[1]], current.index[names[2]])
+        test.eq(rawget(node.index, names[1]), nil)
+    end
+    test.eq(current.construction.requiresfactory, false)
+    test.eq(current.construction.requiresFactory, false)
+    test.eq(current.construction.params, node.construction.params)
+    test.eq(current.cleanups[1].functiontype, 2)
+    test.eq(current.cleanups[1].functionType, 2)
+    test.eq(current.cleanups[1].key, "tasks.isDone", "native ID is unchanged")
+    test.eq(current.cleanups[1].name, "readKey", "user member identity is unchanged")
+    test.eq(current.kind, "protocolThread", "single-valued tag changes belong to final adoption")
+    test.eq(current.operation, "comptimeTypeCall")
+    test.eq(public.fields[1].defaultvalue, user)
+    test.eq(user.qualifiedName, "user-owned")
+    test.eq(rawget(user, "qualifiedname"), nil)
+    test.eq(rawget(node.construction, "requiresfactory"), nil)
+    test.eq(rawget(node.cleanups[1], "functiontype"), nil)
+
+    local state = {}
+    providers.installEvaluator(state, {})
+    local held = providers.reflect(state, source)
+    local types = providers.index(state, held, "types")
+    local first = providers.index(state, types, 1)
+    local index = providers.index(state, first, "index")
+    test.eq(providers.index(state, first, "modulename"), "owner.Value")
+    test.eq(providers.index(state, index, "readkey"), 2)
+    local namespace = {}
+    local runtime = reflect.install(namespace)
+    local witness = {}
+    namespace.__reflect.blueprints[witness] = source
+    local published = runtime.runtime(witness)
+    test.eq(published.types[1].index.readkey, 2)
+    test.eq(published.types[1].cleanups[1].functiontype, 2)
+    test.eq(runtime.runtime(witness), published)
+end
+
 return M
