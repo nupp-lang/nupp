@@ -7,8 +7,8 @@ pure-Lua provider behind the same API. It parses, pulls selected fields,
 serializes, and streams.
 
 ```nupp
-local encoded = serde.json.encodeValue({name = "Nupp", ready = true})
-local decoded = assert(serde.json.decodeValue(encoded))
+local encoded = serde.json.encodevalue({name = "Nupp", ready = true})
+local decoded = assert(serde.json.decodevalue(encoded))
 assert(decoded.name == "Nupp")
 ```
 

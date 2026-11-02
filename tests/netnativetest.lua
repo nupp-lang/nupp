@@ -10,6 +10,22 @@ local io_ = require("io")
 local test = require("assert")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
+
+-- Runs Nupp `source` as a program on the VM, through `nupp run` on a copy
+-- under build/: its exit status and what it wrote.
+local function runOnVm(root, name, source)
+    local directory = root .. "/build/doc-examples"
+    os.execute("mkdir -p '" .. directory .. "'")
+    local path = directory .. "/" .. name:gsub("[^%w]", "_") .. ".nupp"
+    local file = assert(io.open(path, "wb"))
+    file:write(source, "\n")
+    file:close()
+    local pipe = assert(io.popen("cd '" .. root .. "' && ./bin/nupp run '" .. path .. "' 2>&1; echo __exit__:$?"))
+    local output = pipe:read("*a")
+    pipe:close()
+
+    return tonumber(output:match("__exit__:(%d+)%s*$")), (output:gsub("__exit__:%d+%s*$", ""))
+end
 local HOST = require("nupp.compiler.targetlayout").hostKey() or ""
 local WINDOWS = package.config:sub(1, 1) == "\\"
 local MACOS = HOST:find("apple-darwin", 1, true) ~= nil
@@ -40,23 +56,9 @@ function M.theModuleExampleConnectsItsOwnPeer()
     for _, diagnostic in ipairs(require("fragment").check(parsed, "net-doc-example.nupp", env)) do
         assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
     end
-    local code, diagnostics = require("nupp.compiler.lua.gen").generate(parsed, "net-doc-example.nupp")
-    test.eq(#diagnostics, 0)
-    local output = {}
-    local chunk = assert(loadstring(code))
-    setfenv(
-        chunk,
-        setmetatable(
-            {
-                print = function(value)
-                    output[#output + 1] = value
-                end
-            },
-            {__index = _G}
-        )
-    )
-    chunk()
-    test.eq(table.concat(output, "\n"), "x")
+    local status, output = runOnVm(HERE .. "/..", "net-doc-example", example)
+    test.eq(status, 0, output)
+    test.eq(output, "x\n")
 end
 
 function M.bytesCrossALoopbackConnection()

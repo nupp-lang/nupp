@@ -356,11 +356,11 @@ A `cdef` block declares a C type and a C function against a named library.
 
 ```nupp
 cdef struct nativePoint
-    x: number
-    y: number
+    x: float64
+    y: float64
 end
 
-cdef function point_length(borrows point: nativePoint*): number from"mini"
+cdef function point_length(borrows point: nativePoint*): float64 from"mini"
 ```
 
 The VM calls it through libffi, loading the `mini` library by name. The

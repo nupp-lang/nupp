@@ -32,6 +32,22 @@ if not HERE:match("^/") then
 end
 local ROOT = HERE:match("^(.*)/[^/]+$")
 
+-- Runs Nupp `source` as a program on the VM, through `nupp run` on a copy
+-- under build/: its exit status and what it wrote.
+local function runOnVm(root, name, source)
+    local directory = root .. "/build/doc-examples"
+    os.execute("mkdir -p '" .. directory .. "'")
+    local path = directory .. "/" .. name:gsub("[^%w]", "_") .. ".nupp"
+    local file = assert(io.open(path, "wb"))
+    file:write(source, "\n")
+    file:close()
+    local pipe = assert(io.popen("cd '" .. root .. "' && ./bin/nupp run '" .. path .. "' 2>&1; echo __exit__:$?"))
+    local output = pipe:read("*a")
+    pipe:close()
+
+    return tonumber(output:match("__exit__:(%d+)%s*$")), (output:gsub("__exit__:%d+%s*$", ""))
+end
+
 local M = {}
 
 -- An example is a fragment of a program in one respect: it binds what it is about and
@@ -248,7 +264,10 @@ function M.everyLuaExampleParses()
                 checked = checked + 1
                 local chunk, problem = loadstring(block.text, "@" .. path .. ":" .. block.line)
                 if marked(block, "refused") then
-                    if chunk then
+                    -- On the VM loadstring is Nupp's own front end, which reads
+                    -- annotations; the block's refusal is then the check's, as
+                    -- for a .lua file.
+                    if chunk and #errorsOf(environment(), "example.lua", block.text) == 0 then
                         problems[#problems + 1] = path .. ":" .. block.line .. " is marked :refused and parses clean"
                     end
                 elseif not chunk then
@@ -295,7 +314,6 @@ end
 -- These self-contained examples use only memory. Running the actual docblock
 -- catches forwarding shims whose declarations check but whose values are missing.
 function M.pureFacadeExamplesRunTheirAssertions()
-    local gen = require("nupp.compiler.lua.gen")
     for _, path in ipairs({
         "src/binary/span.nupp",
         "src/types/reflect.nupp",
@@ -308,14 +326,8 @@ function M.pureFacadeExamplesRunTheirAssertions()
         local name = exampleName(path, block)
         local errors = errorsOf(environment(), name, block.text)
         assert(#errors == 0, path .. " checks before execution")
-        local parsed = parser.parse(block.text, name)
-        -- Checking attaches the type and ownership facts used by lowering.
-        check.check(parsed, name, environment(), {lints = LINTS})
-        local code, diagnostics = gen.generate(parsed, name)
-        assert(#diagnostics == 0, path .. " lowers before execution")
-        local chunk = assert(loadstring(code, "@" .. path .. ":" .. block.line))
-        local ok, problem = pcall(chunk)
-        assert(ok, path .. ":" .. block.line .. ": " .. tostring(problem))
+        local status, output = runOnVm(ROOT, name, block.text)
+        assert(status == 0, path .. ":" .. block.line .. ": " .. output)
     end
 end
 

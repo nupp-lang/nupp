@@ -566,20 +566,18 @@ function that owns its extent.
 const arena = require("nupp.runtime.vm.arena")
 
 local function work(): uint64
-    with stack = arena.openGrowable(4096) do
-        with scratch = arena.openGrowable(4096) do
-            return arena.used(stack) + arena.used(scratch)
-        end
-    end
+    local stack = arena.openGrowable(4096)
+    local scratch = arena.openGrowable(4096)
+    return arena.used(stack) + arena.used(scratch)
 end
 
 return work
 ```
 
 ```text [nupp check output]
-src/one-growable-arena.nupp:5:23: warning: NUPP2519 one-growable-arena: this function opens a second growable arena
- 5 |         with scratch = arena.openGrowable(4096) do
-   |                        ^~~~~~~~~~~~~~~~~~
+src/one-growable-arena.nupp:5:21: warning: NUPP2519 one-growable-arena: this function opens a second growable arena
+ 5 |     local scratch = arena.openGrowable(4096)
+   |                     ^~~~~
 help: open one growable arena per function and fixed arenas (arena.open) beside it
 ```
 :::

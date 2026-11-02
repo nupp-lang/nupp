@@ -90,11 +90,11 @@ supplies the ABI and the pointer contract:
 
 ```nupp
 cdef struct nativePoint
-    x: number
-    y: number
+    x: float64
+    y: float64
 end
 
-cdef function point_length(borrows point: nativePoint*): number from"mini"
+cdef function point_length(borrows point: nativePoint*): float64 from"mini"
 ```
 
 Now the call is checked, and `borrows` records something the C prototype could

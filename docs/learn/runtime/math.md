@@ -57,13 +57,13 @@ intrinsic treatment.
 
 ### Integer namespaces
 
-`i32` and `u32` wrap modulo 2^32. Shift counts are masked by 31, and each
-operation states whether its interpretation is signed or unsigned, as
-`shiftrightarithmetic` against `shiftrightlogical`. Calls use Lua numbers in
-canonical ranges rather than allocating scalar cdata.
+`i32` and `u32` wrap modulo 2^32. Calls use Lua numbers in canonical ranges
+rather than allocating scalar cdata, and a shift is Lua's own operator, which
+is logical on a `uint32`:
 
 ```nupp
-assert(math.u32.shiftrightlogical(math.u32.wrap(-1), 24) == 255)
+local all: uint32 = math.u32.wrap(-1)
+assert(all >> 24 == 255)
 ```
 
 `u32` and `u64` also carry rotations, `popcount`, `trailingzeros` and
