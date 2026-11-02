@@ -144,8 +144,8 @@ end
 
 -- Generated code reaches these private hooks after checking, so keep them off the
 -- authored module surface while retaining them on the runtime table.
-workers.defineSendable = defineSendable
-workers.describeSendable = describeSendable
+workers.definesendable = defineSendable
+workers.describesendable = describeSendable
 
 ----------------------------------------------------------------------------
 -- Handles
@@ -214,8 +214,6 @@ local record TaskImpl
     await: function(TaskImpl): ...any
 
     --- Whether the child has settled and its reply has reached this Lua state.
-    isDone: @nosuspend function(TaskImpl): boolean
-
     isdone: @nosuspend function(TaskImpl): boolean
 
     status: @nosuspend function(TaskImpl): string
@@ -1628,7 +1626,7 @@ end
 -- Tasks
 ----------------------------------------------------------------------------
 
-function TaskImpl:isDone(): boolean
+function TaskImpl:isdone(): boolean
     if self._state ~= "queued" then
         return true
     end
@@ -1638,11 +1636,10 @@ function TaskImpl:isDone(): boolean
     return self._state == "done" or self._state == "failed" or self._state == "cancelled"
 end
 
--- A0 seed transition: retain the private provider method and share its exact handle.
-TaskImpl.isdone = TaskImpl.isDone as any
+TaskImpl.isdone = TaskImpl.isdone as any
 
 function TaskImpl:status(): string
-    if not self:isDone() then
+    if not self:isdone() then
         local status = native.workerTaskStatus(self._lane.handle, self._id)
         if status == 2 or status == 3 then
             return "running"
@@ -1687,7 +1684,7 @@ settleReply = function(task: any, reply: Frame): nil
 end
 
 function TaskImpl:cancel(reason: string?): boolean
-    if self:isDone() then
+    if self:isdone() then
         return false
     end
     local requested = native.workerTaskCancel(self._lane.handle, self._id)
@@ -1706,7 +1703,7 @@ end
 
 function TaskImpl:await(): ...any
     self._observed = true
-    if not self:isDone() then
+    if not self:isdone() then
         waitFor(self._scheduler, self._lane, self._id)
     end
     release(self)
@@ -1724,7 +1721,7 @@ end
 --- the wait parks, and without one it blocks on the native channel.
 local function settleParking(task: any): string?
     task._observed = true
-    if not TaskImpl.isDone(task) then
+    if not TaskImpl.isdone(task) then
         waitFor(task._scheduler, task._lane, task._id)
     end
     release(task)
@@ -1732,7 +1729,7 @@ local function settleParking(task: any): string?
     return task._state == "failed" and "nupp: worker task failed: " .. (task._error or "unknown failure") or nil
 end
 
---- Settles a task for a task scope's `fork`, answering rather than raising.
+--- Settles a task for a task scope's `work`, answering rather than raising.
 ---
 --- The task scope owns the failure rule -- level, prefix, and what cancels what
 --- -- so this returns the settled state and lets the caller raise in its own
@@ -1742,7 +1739,7 @@ end
 --- @return the status, the packed values, their count, and the problem or cancellation
 local function settleForScope(task: any): (string, {any}?, integer, any)
     task._observed = true
-    if not TaskImpl.isDone(task) then
+    if not TaskImpl.isdone(task) then
         waitFor(task._scheduler, task._lane, task._id)
     end
     release(task)
@@ -1801,7 +1798,7 @@ local function settleOldestScope(self: workers.Scope): boolean
     if task == nil then
         return false
     end
-    if not TaskImpl.isDone(task) then
+    if not TaskImpl.isdone(task) then
         waitFor(task._scheduler, task._lane, task._id)
     end
     release(task)
@@ -1828,7 +1825,7 @@ local function openScope(deadline: number?, observer: any): workers.Scope
     ) as workers.Scope
 end
 
-workers.openScope = openScope
+workers.openscope = openScope
 
 -- How many tasks a scope still lists, for the task scope's lifecycle hook.
 rawset(workers, "__registered", function(scope: any): integer
@@ -1913,7 +1910,7 @@ end
 
 --- Runs the scheduler loop inside a native worker state. Compiler-owned bootstrap only.
 --- @raises string when called outside the compiler-owned worker bootstrap
-function workers.runScheduler(): nil
+function workers.runscheduler(): nil
     local inHandle, outHandle = native.current()
     if inHandle == nil or outHandle == nil then
         error("nupp: worker scheduler started outside a worker state", 2)

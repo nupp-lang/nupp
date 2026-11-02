@@ -73,7 +73,7 @@ Overlong forms, surrogate halves and codepoints above the maximum are
 malformed even though their lead bytes are well formed, so they are rejected
 on the value rather than on the shape.
 
-`validprefixlength(value, maxBytes)` returns the length of the largest valid
+`validprefixlen(value, maxbytes)` returns the length of the largest valid
 prefix no longer than a byte budget, which is what keeps a fixed-width field
 from splitting a scalar in half. `truncate` applies that to a string and copies
 the prefix:
@@ -81,7 +81,7 @@ the prefix:
 ```nupp
 const utf8 = utf8
 
-assert(utf8.validprefixlength("A€B", 4) == 4)
+assert(utf8.validprefixlen("A€B", 4) == 4)
 assert(utf8.truncate("A€B", 4) == "A€")
 ```
 
@@ -110,7 +110,7 @@ local function bytes(borrows value: string | ByteView): string
         return tostring(value)
     end
 
-    return (value as ByteView):getString()
+    return (value as ByteView):getstring()
 end
 
 --- @raises string when at is not an integer, or is outside the value
@@ -266,14 +266,14 @@ end
 --- ```
 ---
 --- @param value the bytes to read
---- @param byteOffset the 1-based byte to start at; one past the end is allowed
+--- @param byteoffset the 1-based byte to start at; one past the end is allowed
 --- @return the codepoint, or nil at the end of the value
 --- @return the byte the next codepoint starts at
---- @raises string when byteOffset is not an integer, or is outside the value
-function utf8.decodeat(borrows value: string | ByteView, byteOffset: integer): (integer?, integer)
+--- @raises string when byteoffset is not an integer, or is outside the value
+function utf8.decodeat(borrows value: string | ByteView, byteoffset: integer): (integer?, integer)
     local source = bytes(value)
 
-    return decode(source, offset(source, byteOffset, true))
+    return decode(source, offset(source, byteoffset, true))
 end
 
 --- Reads the codepoint ending just before a byte offset, and where it starts.
@@ -292,13 +292,13 @@ end
 --- ```
 ---
 --- @param value the bytes to read
---- @param byteOffset the 1-based byte to look back from
+--- @param byteoffset the 1-based byte to look back from
 --- @return the codepoint, or nil at the start of the value
 --- @return the byte that codepoint starts at
---- @raises string when byteOffset is not an integer, or is outside the value
-function utf8.decodebefore(borrows value: string | ByteView, byteOffset: integer): (integer?, integer)
+--- @raises string when byteoffset is not an integer, or is outside the value
+function utf8.decodebefore(borrows value: string | ByteView, byteoffset: integer): (integer?, integer)
     local source = bytes(value)
-    local at = offset(source, byteOffset, true)
+    local at = offset(source, byteoffset, true)
     if at == 1 then
         return nil, 1
     end
@@ -375,30 +375,30 @@ function utf8.isvalid(borrows value: string | ByteView): boolean
     return scan(source, #source) == #source
 end
 
---- Measures the longest well-formed prefix no longer than `maxBytes`.
+--- Measures the longest well-formed prefix no longer than `maxbytes`.
 ---
 --- ```nupp
 --- const utf8 = utf8
 ---
 --- -- "A€B" is 5 bytes; the 4-byte budget stops just short of "B" rather
 --- -- than splitting "€" in half.
---- assert(utf8.validprefixlength("A€B", 4) == 4)
+--- assert(utf8.validprefixlen("A€B", 4) == 4)
 --- ```
 ---
 --- @param value the bytes to measure
---- @param maxBytes the most bytes the prefix may use
+--- @param maxbytes the most bytes the prefix may use
 --- @return the prefix length, in bytes
---- @raises string when maxBytes is not an integer
-function utf8.validprefixlength(borrows value: string | ByteView, maxBytes: integer): integer
+--- @raises string when maxbytes is not an integer
+function utf8.validprefixlen(borrows value: string | ByteView, maxbytes: integer): integer
     local source = bytes(value)
-    if maxBytes ~= math.floor(maxBytes) or maxBytes == math.huge or maxBytes == -math.huge then
+    if maxbytes ~= math.floor(maxbytes) or maxbytes == math.huge or maxbytes == -math.huge then
         error("nupp: UTF-8 byte limit must be an integer", 2)
     end
 
-    return scan(source, math.max(0, math.min(#source, maxBytes)) as integer)
+    return scan(source, math.max(0, math.min(#source, maxbytes)) as integer)
 end
 
---- Cuts text to at most `maxBytes`, never through a codepoint.
+--- Cuts text to at most `maxbytes`, never through a codepoint.
 ---
 --- ```nupp
 --- const utf8 = utf8
@@ -407,11 +407,11 @@ end
 --- ```
 ---
 --- @param text the text to cut
---- @param maxBytes the most bytes the answer may use
+--- @param maxbytes the most bytes the answer may use
 --- @return the cut text
---- @raises string when maxBytes is not an integer
-function utf8.truncate(text: string, maxBytes: integer): string
-    return text:sub(1, utf8.validprefixlength(text, maxBytes))
+--- @raises string when maxbytes is not an integer
+function utf8.truncate(text: string, maxbytes: integer): string
+    return text:sub(1, utf8.validprefixlen(text, maxbytes))
 end
 
 export = utf8

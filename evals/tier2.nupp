@@ -95,7 +95,7 @@ local function main(): integer
     if commit == nil or commit == "" then
         error("cannot resolve the commit", 0)
     end
-    local made, reason = files.createdirectory(out)
+    local made, reason = files.mkdir(out)
     if not made then
         error("cannot create " .. out .. ": " .. tostring(reason), 0)
     end

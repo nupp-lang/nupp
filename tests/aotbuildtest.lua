@@ -268,7 +268,7 @@ local function stream(source: string, tape: string, nullValue: any): (any, uint3
     valueBuilder.key(state, source, math.u32.wrap(0), math.u32.wrap(4), false)
     valueBuilder.numberslice(state, source, math.u32.wrap(4), math.u32.wrap(2))
     valueBuilder.key(state, source, math.u32.wrap(6), math.u32.wrap(4), false)
-    valueBuilder.boolean(state, true)
+    valueBuilder.bool(state, true)
     valueBuilder.close(state)
     return valueBuilder.finish(state), valueBuilder.byte(source, math.u32.wrap(4)),
         valueBuilder.word(tape, math.u32.wrap(0))
@@ -1841,7 +1841,7 @@ function M.constGenericSelectsValueStreamModePerVariant()
                 "    if variant as integer == 0 then",
                 "        _valueBuilder.null(values)",
                 "    else",
-                "        _valueBuilder.boolean(values, true)",
+                "        _valueBuilder.bool(values, true)",
                 "    end",
                 "    return _valueBuilder.finish(values)",
                 "end",
@@ -5448,7 +5448,7 @@ local function indexed(exclusive out: span.WriteSpan<float>, borrows input: span
     local active = data:tail(#map)
     local indices = offsets:load(map, 1)
     local values = data:gather(input, indices, active)
-    data:scatterUnchecked(out, indices, values + 1, active)
+    data:scatterunchecked(out, indices, values + 1, active)
 end
 @aot
 local function gather(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, borrows map: span.Span<int64>): nil
@@ -6882,14 +6882,14 @@ local function grey(exclusive out: span.WriteSpan<uint8>, borrows rgb: span.Span
     local at: uint32 = 0
     local written: uint32 = 0
     while at + 3 * bytes.lanes <= #rgb and written + bytes.lanes <= #out do
-        local r, g, b = bytes:loadTriples(rgb, at + 1)
+        local r, g, b = bytes:loadtriples(rgb, at + 1)
         local sum = wide:convert(r) * 77 + wide:convert(g) * 150 + wide:convert(b) * 29
         bytes:store(out, written + 1, bytes:convert(sum >> 8))
         at = at + 3 * bytes.lanes
         written = written + bytes.lanes
     end
     if written < #out then
-        local r, g, b = bytes:loadTriples(rgb, at + 1)
+        local r, g, b = bytes:loadtriples(rgb, at + 1)
         local sum = wide:convert(r) * 77 + wide:convert(g) * 150 + wide:convert(b) * 29
         bytes:store(out, written + 1, bytes:convert(sum >> 8), bytes:tail(#out - written))
     end
@@ -6905,14 +6905,14 @@ local function prefix(exclusive out: span.WriteSpan<uint32>, borrows input: span
     local carry = s:splat(0)
     local cursor: uint32 = 0
     while cursor + s.lanes <= #input do
-        local sums = s:load(input, cursor + 1):orderedPrefixSum() + carry
+        local sums = s:load(input, cursor + 1):orderedprefixsum() + carry
         s:store(out, cursor + 1, sums)
         carry = s:splat(sums:extract(s.lanes))
         cursor = cursor + s.lanes
     end
     if cursor < #input then
         local rest = s:tail(#input - cursor)
-        local sums = s:load(input, cursor + 1, rest):orderedPrefixSum() + carry
+        local sums = s:load(input, cursor + 1, rest):orderedprefixsum() + carry
         s:store(out, cursor + 1, sums, rest)
     end
     return #input
@@ -7364,11 +7364,11 @@ local function integers(exclusive out: span.WriteSpan<int32>, borrows input: spa
     local v = s:load(input, 1, active)
     s:store(out, 1, v % divisor, active)
     s:store(out, 5, v // divisor, active)
-    s:store(out, 9, v:saturatingAdd(2000000000), active)
-    s:store(out, 13, v:saturatingSub(2000000000), active)
+    s:store(out, 9, v:saturatingadd(2000000000), active)
+    s:store(out, 13, v:saturatingsub(2000000000), active)
     s:store(out, 17, v:popcount(), active)
-    s:store(out, 21, v:mulHigh(v), active)
-    s:store(out, 25, v:mulHigh(divisor), active)
+    s:store(out, 21, v:mulhigh(v), active)
+    s:store(out, 25, v:mulhigh(divisor), active)
 end
 
 @aot
@@ -7376,10 +7376,10 @@ local function bytes(exclusive out: span.WriteSpan<uint8>, borrows input: span.S
     local s = assert(simd.species(array.uint8, 16))
     local active = s:tail(#input)
     local v = s:load(input, 1, active)
-    s:store(out, 1, v:saturatingAdd(200), active)
-    s:store(out, 17, v:saturatingSub(200), active)
+    s:store(out, 1, v:saturatingadd(200), active)
+    s:store(out, 17, v:saturatingsub(200), active)
     s:store(out, 33, v:popcount(), active)
-    s:store(out, 49, v:mulHigh(200), active)
+    s:store(out, 49, v:mulhigh(200), active)
     s:store(out, 65, v % 7, active)
     s:store(out, 81, v // 7, active)
 end
@@ -7389,10 +7389,10 @@ local function wide(exclusive out: span.WriteSpan<int64>, borrows input: span.Sp
     local s = assert(simd.species(array.int64, 2))
     local active = s:tail(#input)
     local v = s:load(input, 1, active)
-    s:store(out, 1, v:mulHigh(factor), active)
-    s:store(out, 3, v:mulHigh(v), active)
-    s:store(out, 5, v:saturatingAdd(factor), active)
-    s:store(out, 7, v:saturatingSub(factor), active)
+    s:store(out, 1, v:mulhigh(factor), active)
+    s:store(out, 3, v:mulhigh(v), active)
+    s:store(out, 5, v:saturatingadd(factor), active)
+    s:store(out, 7, v:saturatingsub(factor), active)
     s:store(out, 9, v:popcount(), active)
     s:store(out, 11, v % -3, active)
     s:store(out, 13, v // -3, active)
@@ -7633,8 +7633,8 @@ local function crossLane(exclusive out: span.WriteSpan<int32>, borrows input: sp
     local positive = v > s:splat(0)
     s:store(out, 1, v:compress(positive))
     s:store(out, 9, v:compress(positive):expand(positive))
-    s:store(out, 17, v:orderedPrefixSum())
-    s:store(out, 25, v:prefixXor())
+    s:store(out, 17, v:orderedprefixsum())
+    s:store(out, 25, v:prefixxor())
     s:store(out, 33, s:splat(math.i32.wrap(positive:count() as integer)))
     s:store(out, 41, s:splat(math.i32.wrap(positive:first() as integer)))
 end

@@ -1306,8 +1306,8 @@ local function lanes(exclusive out: span.WriteSpan<number>, borrows input: span.
     local v = s:load(input, 1, active)
     local w = si:load(counts, 1, si:mask(active))
     s:store(out, 1, v:fma(v, 2.0), active)
-    local clamped = w:saturatingAdd(w)
-    local high = clamped:mulHigh(w)
+    local clamped = w:saturatingadd(w)
+    local high = clamped:mulhigh(w)
     si:store(bits, 1, high:popcount(), si:mask(active))
 end
 return {lanes = lanes}
@@ -1786,8 +1786,8 @@ local function crossLane(borrows input: span.Span<number>): number
     local v = s:load(input, 1, active)
     local packed = v:compress(active)
     local spread = packed:expand(active)
-    local scanned = spread:orderedPrefixSum()
-    local bits = si:iota(1, 1):prefixXor()
+    local scanned = spread:orderedprefixsum()
+    local bits = si:iota(1, 1):prefixxor()
     local total: number = simd.horizontal.orderedsum(scanned)
     return total + (bits:extract(1) as number) + (active:count() as number)
 end

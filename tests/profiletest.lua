@@ -191,7 +191,7 @@ end
 -------------------------------------------------------------------------------
 
 function M.sampleCollectsCollapsedStacks()
-    local session = profile.sample({intervalMs = 1})
+    local session = profile.sample({intervalms = 1})
     burn(sampleWindow(0.2))
     local report = session:stop()
 
@@ -203,15 +203,15 @@ function M.sampleCollectsCollapsedStacks()
     -- A timer can land entirely in native VM work; those samples have no Lua
     -- source location to retain. Check the mapping only when Lua was sampled.
     if report.text:find("_[N] ", 1, true) or report.text:find("_[I] ", 1, true) then
-        assert(#report.sourceSamples > 0, "Lua leaf source samples are retained")
+        assert(#report.sourcesamples > 0, "Lua leaf source samples are retained")
     end
     local sourceCount = 0
-    for _, sample in ipairs(report.sourceSamples) do
+    for _, sample in ipairs(report.sourcesamples) do
         assert(sample.line > 0 and sample.samples > 0 and #sample.file > 0, "a source sample has its measured location")
         sourceCount = sourceCount + sample.samples
     end
     assert(sourceCount <= report.samples, "native VM states have no fabricated source count")
-    testAssert.eq(report.intervalMs, 1, "the interval it ran at")
+    testAssert.eq(report.intervalms, 1, "the interval it ran at")
     testAssert.eq(tostring(report), report.text, "tostring is the collapsed text")
 
     for _, line in ipairs(lines(report.text)) do
@@ -221,7 +221,7 @@ function M.sampleCollectsCollapsedStacks()
 end
 
 function M.sampleAttributesToTheOpenZone()
-    local session = profile.sample({intervalMs = 1})
+    local session = profile.sample({intervalms = 1})
     zone.push("frame")
     zone.push("physics")
     burn(sampleWindow(0.2))
@@ -239,7 +239,7 @@ function M.sampleAttributesToTheOpenZone()
 end
 
 function M.sampleZoneFilterKeepsThatSubtreeAlone()
-    local session = profile.sample({intervalMs = 1, zone = "kept"})
+    local session = profile.sample({intervalms = 1, zone = "kept"})
     zone.push("kept")
     burn(sampleWindow(0.15))
     zone.pop()
@@ -260,7 +260,7 @@ end
 -- The filter names a subtree, not a character prefix: a sibling zone that merely
 -- starts with the same text is outside it.
 function M.sampleZoneFilterEndsAtAPathComponent()
-    local session = profile.sample({intervalMs = 1, zone = "kept"})
+    local session = profile.sample({intervalms = 1, zone = "kept"})
     zone.push("keptothers")
     burn(sampleWindow(0.15))
     zone.pop()
@@ -271,7 +271,7 @@ function M.sampleZoneFilterEndsAtAPathComponent()
 end
 
 function M.sampleZoneFilterThatMatchesNothingIsEmptyRatherThanEverything()
-    local session = profile.sample({intervalMs = 1, zone = "absent"})
+    local session = profile.sample({intervalms = 1, zone = "absent"})
     burn(sampleWindow(0.1))
     local report = session:stop()
 
@@ -284,17 +284,17 @@ end
 -- the VM. Native samples intentionally hide their Lua frames, so a live sampler
 -- can spend the entire window in C without exercising this behavior.
 function M.sampleRootTrimsHarnessFramesAndMergesMatchingStacks()
-    local session = profile.sample({intervalMs = 1000, root = "profiletest.lua"})
+    local session = profile.sample({intervalms = 1000, root = "profiletest.lua"})
     session:pause()
 
     local function sample(stack, count)
         return {
-            zonePath = "",
+            zonepath = "",
             stack = stack,
             count = count,
             compiled = count,
             interpreted = 0,
-            cCode = 0,
+            ccode = 0,
             collecting = 0,
             compiling = 0,
         }
@@ -322,7 +322,7 @@ end
 
 function M.sampleWritesTheSameTextItReturns()
     local path = os.tmpname()
-    local session = profile.sample({intervalMs = 1})
+    local session = profile.sample({intervalms = 1})
     burn(sampleWindow(0.15))
     local report = session:stop(path)
 
@@ -331,7 +331,7 @@ function M.sampleWritesTheSameTextItReturns()
 end
 
 function M.samplePauseLeavesTheWindowOut()
-    local session = profile.sample({intervalMs = 1})
+    local session = profile.sample({intervalms = 1})
     session:pause()
     session:pause()
     burn(sampleWindow(0.2))
@@ -342,7 +342,7 @@ function M.samplePauseLeavesTheWindowOut()
 end
 
 function M.sampleResumeStartsRecordingAgain()
-    local session = profile.sample({intervalMs = 1})
+    local session = profile.sample({intervalms = 1})
     session:pause()
     burn(sampleWindow(0.1))
     session:resume()
@@ -356,7 +356,7 @@ function M.sampleResumeStartsRecordingAgain()
 end
 
 function M.onlyOneSampleSessionRunsAtATime()
-    local session = profile.sample({intervalMs = 10})
+    local session = profile.sample({intervalms = 10})
     local ok, err = pcall(profile.sample)
     assert(not ok, "a second session must be refused")
     assertMatch(err, "already running", "and say why")
@@ -365,7 +365,7 @@ function M.onlyOneSampleSessionRunsAtATime()
 end
 
 function M.aStoppedSampleSessionRefusesEverything()
-    local session = profile.sample({intervalMs = 10})
+    local session = profile.sample({intervalms = 10})
     session:stop()
 
     local ok, err = pcall(function()
@@ -391,9 +391,9 @@ end
 -- Closing is what leaving a `with` does: it ends a session nothing stopped, without a
 -- report, so the next one can start, and it is free once `stop` has run.
 function M.closingEndsASessionWithoutAReport()
-    local sampling = profile.sample({intervalMs = 10})
+    local sampling = profile.sample({intervalms = 10})
     testAssert.eq(sampling:close(), nil, "close answers no report")
-    local again = profile.sample({intervalMs = 10})
+    local again = profile.sample({intervalms = 10})
     assertMatch(tostring(select(2, pcall(sampling.stop, sampling))), "already stopped", "a closed session is over")
     again:stop()
     again:close()
@@ -407,10 +407,10 @@ function M.closingEndsASessionWithoutAReport()
 end
 
 function M.sampleRefusesAnIntervalItCannotHonour()
-    assert(not pcall(profile.sample, {intervalMs = 0}), "zero milliseconds")
-    assert(not pcall(profile.sample, {intervalMs = 2147483648}), "interval exceeds LuaJIT's signed range")
-    assert(not pcall(profile.sample, {stackDepth = 0}), "zero frames")
-    assert(not pcall(profile.sample, {stackDepth = 2147483648}), "depth exceeds LuaJIT's signed range")
+    assert(not pcall(profile.sample, {intervalms = 0}), "zero milliseconds")
+    assert(not pcall(profile.sample, {intervalms = 2147483648}), "interval exceeds LuaJIT's signed range")
+    assert(not pcall(profile.sample, {stackdepth = 0}), "zero frames")
+    assert(not pcall(profile.sample, {stackdepth = 2147483648}), "depth exceeds LuaJIT's signed range")
     -- Neither attempt may leave the singleton latched.
     local session = profile.sample()
     session:stop()
@@ -442,11 +442,39 @@ end
 
 -- The digest is a fixed-width word however the hash lands: a negative 32-bit
 -- value must not widen the rendering.
+
+function M.publicTraceProfilesKeepTheirSerializedMetadataContract()
+    local registry = require("nupp.profile.trace")
+    local project = require("nupp.tools.profilemetadata").capture
+    local value = registry.profile()
+    local wire = project(value)
+    assert(wire ~= value)
+    for old, current in pairs({
+        luajitRevision = "luajitrevision",
+        luajitVersion = "luajitversion",
+        operatingSystem = "operatingsystem",
+        enabledRecorderFeatures = "enabledrecorderfeatures",
+        bytecodeSchema = "bytecodeschema",
+    }) do
+        assert(value[current] ~= nil and value[old] == nil)
+        assert(wire[old] == value[current] and wire[current] == nil)
+    end
+    assert(wire.id == value.id and wire.architecture == value.architecture)
+    assert(wire.supported == value.supported)
+    assert(registry.CATALOG_ID == nil and registry.CATALOG_VERSION == nil)
+    local features = {"test"}
+    local preceding = {id = "private", supported = false, enabledRecorderFeatures = features}
+    local copied = project(preceding)
+    assert(copied ~= preceding and copied.supported == false)
+    assert(copied.enabledRecorderFeatures == features)
+    assert(preceding.enabledrecorderfeatures == nil)
+end
+
 function M.traceProfileDigestIsEightHexCharacters()
     local registry = require("nupp.profile.trace")
     local described = registry.profile()
-    assertMatch(described.bytecodeSchema, "^%x%x%x%x%x%x%x%x$", "the bytecode schema digest")
-    assertMatch(described.id, described.bytecodeSchema, "and the profile id carries it")
+    assertMatch(described.bytecodeschema, "^%x%x%x%x%x%x%x%x$", "the bytecode schema digest")
+    assertMatch(described.id, described.bytecodeschema, "and the profile id carries it")
 end
 
 function M.traceRecordsWhereTheCompilerGaveUp()
@@ -458,11 +486,11 @@ function M.traceRecordsWhereTheCompilerGaveUp()
     local report = session:stop()
     jit.on()
 
-    testAssert.eq(report.totalAborts, 1, "the emitted abort is counted")
+    testAssert.eq(report.totalaborts, 1, "the emitted abort is counted")
     testAssert.eq(#report.sites, 1, "the emitted abort has one site")
-    testAssert.eq(report.sites[1].reasonId, "jit/loop-function-construction", "the unrecordable bytecode is reported")
-    testAssert.eq(report.sites[1].reasonClass, "blocker", "the operation-level classification is preserved")
-    assertMatch(report.sites[1].rawReason, "FNEW", "the VM's bytecode detail remains visible")
+    testAssert.eq(report.sites[1].reasonid, "jit/loop-function-construction", "the unrecordable bytecode is reported")
+    testAssert.eq(report.sites[1].reasonclass, "blocker", "the operation-level classification is preserved")
+    assertMatch(report.sites[1].rawreason, "FNEW", "the VM's bytecode detail remains visible")
 end
 
 function M.traceReportRendersAsCsv()
@@ -494,7 +522,7 @@ function M.tracePauseLeavesTheWindowOut()
     emitFnewAbort(session)
     local report = session:stop()
 
-    testAssert.eq(report.totalAborts, 0, "a paused session counts nothing")
+    testAssert.eq(report.totalaborts, 0, "a paused session counts nothing")
 end
 
 function M.onlyOneTraceSessionRunsAtATime()
@@ -532,7 +560,7 @@ end
 -- The channels share the zone stack through a reference count, so one stopping
 -- must not take the zones out from under the other.
 function M.theTwoChannelsShareTheZoneStack()
-    local sampling = profile.sample({intervalMs = 10})
+    local sampling = profile.sample({intervalms = 10})
     local tracing = profile.trace()
     zone.push("shared")
     testAssert.eq(zone.path(), "shared", "both sessions hold the stack open")
@@ -763,19 +791,19 @@ function M.helpDescribesTheProfilingFlags()
 end
 
 function M.samplePreservesEveryVmStateInCollapsedStacks()
-    local session = profile.sample({intervalMs = 1000})
+    local session = profile.sample({intervalms = 1000})
     session:pause()
     session.aggregate = {
         [
             ""
         ] = {
             one = {
-                zonePath = "",
+                zonepath = "",
                 stack = "work:entry;library:callback",
                 count = 10,
                 compiled = 2,
                 interpreted = 1,
-                cCode = 3,
+                ccode = 3,
                 collecting = 4,
                 compiling = 0,
             }
@@ -803,9 +831,9 @@ function M.traceKeepsRootWhenRecordingAbortsInsideALibrary()
     session.callback("abort", 91, library, 1, FNEW_ERROR_CODE, FNEW_OPCODE)
     local report = session:stop()
     jit.on()
-    testAssert.eq(report.totalAborts, 2, "both recording attempts counted")
+    testAssert.eq(report.totalaborts, 2, "both recording attempts counted")
     testAssert.eq(#report.sites, 1, "root and abort site aggregate together")
-    assertMatch(report.sites[1].rootLocation, "program.nupp:", "origin retained")
+    assertMatch(report.sites[1].rootlocation, "program.nupp:", "origin retained")
     assertMatch(report.sites[1].location, "runtime/library.lua:", "library retained")
 end
 
@@ -862,19 +890,19 @@ for i=1,40 do run(100) end
 end
 
 function M.sourceSamplesRespectZoneBoundariesAndPreserveFullPaths()
-    local session = profile.sample({intervalMs = 1000, zone = "kept"})
+    local session = profile.sample({intervalms = 1000, zone = "kept"})
     session:pause()
-    session.sourceSamples = {
+    session.sourcesamples = {
         kept = {["C:/project/work.nupp:12"] = 3},
         ["kept/child"] = {["C:/project/work.nupp:12"] = 2, ["C:/project/work.nupp:14"] = 1},
         keptElsewhere = {["C:/project/work.nupp:12"] = 99},
     }
     local report = session:stop()
-    testAssert.eq(#report.sourceSamples, 2, "one row per retained source line")
-    testAssert.eq(report.sourceSamples[1].file, "C:/project/work.nupp", "path includes drive and directories")
-    testAssert.eq(report.sourceSamples[1].line, 12, "line split occurs after final colon")
-    testAssert.eq(report.sourceSamples[1].samples, 5, "zone subtree counts merge")
-    testAssert.eq(report.sourceSamples[2].samples, 1, "other line stays separate")
+    testAssert.eq(#report.sourcesamples, 2, "one row per retained source line")
+    testAssert.eq(report.sourcesamples[1].file, "C:/project/work.nupp", "path includes drive and directories")
+    testAssert.eq(report.sourcesamples[1].line, 12, "line split occurs after final colon")
+    testAssert.eq(report.sourcesamples[1].samples, 5, "zone subtree counts merge")
+    testAssert.eq(report.sourcesamples[2].samples, 1, "other line stays separate")
 end
 
 function M.cliProfileJoinsMeasuredHeatToOptimizerRemarks()

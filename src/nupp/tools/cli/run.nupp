@@ -315,7 +315,7 @@ local function run(options: any): integer
 
     if values.gpuCosts ~= nil then
         local directory = require("nupp.compiler.fs").dirname(values.gpuCosts)
-        local made, makeErr = require("io.files").createdirectory(directory)
+        local made, makeErr = require("io.files").mkdir(directory)
         if not made then
             io.stderr:write(errors.message(makeErr) .. "\n")
             return 1
@@ -344,10 +344,10 @@ local function run(options: any): integer
         if profiling then
             -- The chunk was named after the file, so that is what its frames say;
             -- everything under them is this command getting there.
-            sampling = profile.sample({intervalMs = intervalMs, root = path})
+            sampling = profile.sample({intervalms = intervalMs, root = path})
         end
         if tracingAborts then
-            tracing = profile.trace({includeBenign = true})
+            tracing = profile.trace({includebenign = true})
         end
     end
 
@@ -379,7 +379,7 @@ local function run(options: any): integer
     if sampling then
         local summary = sampling:stop(profileOut)
         own.drop(sampling)
-        compile.attachSamples(settings, summary.sourceSamples, summary.samples, summary.intervalMs)
+        compile.attachSamples(settings, summary.sourcesamples, summary.samples, summary.intervalms)
         if sampledRemarks then
             require(
                 "nupp.compiler.diagnostics"
@@ -388,7 +388,7 @@ local function run(options: any): integer
         io.stderr:write(
             (
                 "nupp: %d samples on %d stacks every %dms, written to " .. "%s\n"
-            ):format(summary.samples, summary.stacks, summary.intervalMs, profileOut)
+            ):format(summary.samples, summary.stacks, summary.intervalms, profileOut)
         )
     end
     -- Complete after lazy loading and sampling, so the artifact carries runtime heat.
@@ -408,21 +408,21 @@ local function run(options: any): integer
                 ] = {
                     count = site.count,
                     reason = site.reason,
-                    reasonId = site.reasonId,
-                    class = site.reasonClass,
+                    reasonId = site.reasonid,
+                    class = site.reasonclass,
                     blacklisted = site.severity == "blacklist",
-                    rawReason = site.rawReason,
+                    rawReason = site.rawreason,
                     location = siteLocation(site.location),
-                    rootLocation = siteLocation(site.rootLocation),
-                    zone = site.zonePath,
+                    rootLocation = siteLocation(site.rootlocation),
+                    zone = site.zonepath,
                 }
             end
             local document = {
-                durationMs = summary.durationSec * 1000,
-                totalAborts = summary.totalAborts,
+                durationMs = summary.durationsec * 1000,
+                totalAborts = summary.totalaborts,
                 blacklisted = summary.blacklisted,
-                traceProfile = summary.traceProfile,
-                reasonCatalog = {id = summary.reasonCatalogId, version = summary.reasonCatalogVersion,},
+                traceProfile = require("nupp.tools.profilemetadata").capture(summary.traceprofile),
+                reasonCatalog = {id = summary.reasoncatalogid, version = summary.reasoncatalogversion,},
                 sites = sites,
             }
             -- `NaN` and `Infinity` are not JSON, so a document carrying one is one a
@@ -446,7 +446,7 @@ local function run(options: any): integer
         io.stderr:write(
             (
                 "nupp: %d trace aborts, %d blacklisted, written to " .. "%s\n"
-            ):format(summary.totalAborts, summary.blacklisted, abortsOut)
+            ):format(summary.totalaborts, summary.blacklisted, abortsOut)
         )
     end
 
@@ -476,7 +476,7 @@ end
 ---     nupp run src/main.nupp first second
 ---     nupp run --profile --profile-interval-ms 2 --profile-out hot.txt src/main.nupp
 ---     nupp run --jit-aborts=jit-aborts.csv src/main.nupp
-@cli(name = "run", stopAtFirstArgument = true)
+@cli(name = "run", stopatfirstargument = true)
 @derive(cliModule.command)
 local record Run
     --- Optimization level.
@@ -498,11 +498,11 @@ local record Run
     remarksFor: string?
 
     --- Write the optimizer's account to a file, build/remarks.json by default.
-    @cli(arity = "optionalAttached", constant = "build/remarks.json", value = "PATH")
+    @cli(arity = "optionalattached", constant = "build/remarks.json", value = "PATH")
     remarksOut: string?
 
     --- Turn off one optimizer pass by stable code.
-    @cli(short = "Zno-opt", long = false, arity = "attachedOnly", value = "CODE")
+    @cli(short = "Zno-opt", long = false, arity = "attachedonly", value = "CODE")
     disabled: {[string]: boolean} = {}
 
     --- Keep named function identities patchable at poll points.
@@ -524,7 +524,7 @@ local record Run
     gpuCosts: string?
 
     --- Record JIT aborts, optionally naming an attached output path.
-    @cli(arity = "optionalAttached", constant = "\0", value = "PATH")
+    @cli(arity = "optionalattached", constant = "\0", value = "PATH")
     jitAborts: string?
 
     --- Write JIT aborts as JSON rather than CSV.

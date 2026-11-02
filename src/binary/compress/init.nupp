@@ -11,7 +11,7 @@ local compression = require("binary.compress")
 
 const gzip = compression.format("gzip")
 
-const encoded = gzip:newWriter(destination, {
+const encoded = gzip:newwriter(destination, {
     gzip = {level = 6},
 })
 
@@ -31,16 +31,16 @@ is keyed by format name.
 
 | Name | Container | Writer options | Reader options |
 | --- | --- | --- | --- |
-| `gzip` | RFC 1952 gzip | `gzip = { level = 0..9 }` | `gzip = { concatenatedMembers = boolean }` |
+| `gzip` | RFC 1952 gzip | `gzip = { level = 0..9 }` | `gzip = { concatenatedmembers = boolean }` |
 | `zlib` | RFC 1950 zlib | `zlib = { level = 0..9 }` | none |
-| `deflate-raw` | RFC 1951 raw DEFLATE | `deflateRaw = { level = 0..9 }` | none |
+| `deflate-raw` | RFC 1951 raw DEFLATE | `deflateraw = { level = 0..9 }` | none |
 
 All three take levels zero through nine. Gzip checks its CRC and size trailers
 and reads concatenated members by default, zlib checks its Adler-32 trailer, and
 raw DEFLATE has no checksum at all. Trailing bytes are rejected in every case.
 
 A provider-added format keys its options by its own canonical name;
-`deflateRaw` above is the built-in ergonomic spelling of `deflate-raw`.
+`deflateraw` above is the built-in ergonomic spelling of `deflate-raw`.
 ]]
 const assert2 = require("assert")
 
@@ -69,7 +69,7 @@ export interface ZlibWriterOptions
     level: integer?
 end
 
---- Options in the `deflateRaw` block passed to a compression writer.
+--- Options in the `deflateraw` block passed to a compression writer.
 export interface DeflateRawWriterOptions
     --- Compression level from zero through nine; six by default.
     level: integer?
@@ -78,13 +78,13 @@ end
 --- Options in the `gzip` block passed to a decompression reader.
 export interface GzipReaderOptions
     --- Whether to decode concatenated gzip members; true by default.
-    concatenatedMembers: boolean?
+    concatenatedmembers: boolean?
 end
 
 --- Common compression-writer policy.
 export interface WriterOptions
     --- Provider workspace in bytes; 65536 by default.
-    workspaceBytes: integer?
+    workspacebytes: integer?
 
     --- Gzip-specific options, accepted only by the gzip descriptor.
     gzip: GzipWriterOptions?
@@ -93,19 +93,19 @@ export interface WriterOptions
     zlib: ZlibWriterOptions?
 
     --- Raw-DEFLATE-specific options, accepted only by the deflate-raw descriptor.
-    deflateRaw: DeflateRawWriterOptions?
+    deflateraw: DeflateRawWriterOptions?
 end
 
 --- Common decompression-reader policy.
 export interface ReaderOptions
     --- Provider workspace in bytes; 65536 by default.
-    workspaceBytes: integer?
+    workspacebytes: integer?
 
     --- Most decompressed bytes to produce; 64 MiB by default.
-    maxOutputBytes: integer?
+    maxoutputbytes: integer?
 
     --- Maximum output-to-input ratio after a 1 KiB input allowance.
-    maxExpansionRatio: number?
+    maxexpansionratio: number?
 
     --- Explicitly removes the default output cap.
     unbounded: boolean?
@@ -139,11 +139,11 @@ local function validProgress(value: any, maximum: integer): boolean
 end
 
 local function needsOutput(status: integer, written: integer, capacity: integer): boolean
-    return status ~= provider.NEED_OUTPUT or written == capacity
+    return status ~= provider.needoutput or written == capacity
 end
 
 local function optionKey(name: string): string
-    return name == "deflate-raw" and "deflateRaw" or name
+    return name == "deflate-raw" and "deflateraw" or name
 end
 
 local function validateKeys(options: provider.FormatOptions?, allowed: {[string]: boolean}, what: string): nil
@@ -179,10 +179,10 @@ local function formatOptions(
     return selected as provider.FormatOptions?
 end
 
-local WRITER_COMMON: {[string]: boolean} = {workspaceBytes = true}
+local WRITER_COMMON: {[string]: boolean} = {workspacebytes = true}
 local READER_COMMON: {
     [string]: boolean
-} = {workspaceBytes = true, maxOutputBytes = true, maxExpansionRatio = true, unbounded = true,}
+} = {workspacebytes = true, maxoutputbytes = true, maxexpansionratio = true, unbounded = true,}
 
 local function encoderOptions(settings: WriterOptions, name: string): provider.FormatOptions?
     local options = formatOptions(settings, name, "writer", WRITER_COMMON)
@@ -200,10 +200,10 @@ end
 local function decoderOptions(settings: ReaderOptions, name: string): provider.FormatOptions?
     local options = formatOptions(settings, name, "reader", READER_COMMON)
     if name == "gzip" then
-        validateKeys(options, {concatenatedMembers = true}, "gzip reader")
-        local concatenatedMembers = options ~= nil and options.concatenatedMembers or nil
+        validateKeys(options, {concatenatedmembers = true}, "gzip reader")
+        local concatenatedMembers = options ~= nil and options.concatenatedmembers or nil
         if concatenatedMembers ~= nil and type(concatenatedMembers) ~= "boolean" then
-            error("nupp: gzip concatenatedMembers must be a boolean", 3)
+            error("nupp: gzip concatenatedmembers must be a boolean", 3)
         end
     elseif name == "zlib" or name == "deflate-raw" then
         validateKeys(options, {}, optionKey(name) .. " reader")
@@ -264,7 +264,7 @@ local record Writer is CompressionWriter
 
     function write(exclusive self, bytes: string): (boolean, string?)
         local input = span.fromstring(bytes)
-        local written, reason = self:writeSpan(input)
+        local written, reason = self:writespan(input)
         if written == nil or written ~= #bytes then
             return false, reason or "compression writer accepted only part of the input"
         end
@@ -272,7 +272,7 @@ local record Writer is CompressionWriter
         return true, nil
     end
 
-    function writeSpan(exclusive self, borrows input: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows input: span.ByteSpan): (integer?, string?)
         local at: integer = 1
         while at <= #input do
             local remaining = input:slice(at, #input)
@@ -284,8 +284,8 @@ local record Writer is CompressionWriter
             end
             if not validProgress(consumed, #remaining)
                 or not validProgress(written, self.capacity)
-                or (status ~= provider.NEED_INPUT and status ~= provider.NEED_OUTPUT)
-                or (status == provider.NEED_INPUT and consumed ~= #remaining)
+                or (status ~= provider.needinput and status ~= provider.needoutput)
+                or (status == provider.needinput and consumed ~= #remaining)
                 or not needsOutput(status, written, self.capacity)
             then
                 return nil, "compression provider reported invalid progress"
@@ -312,7 +312,7 @@ local record Writer is CompressionWriter
                 return false, reason
             end
             if not validProgress(written, self.capacity)
-                or (status ~= provider.NEED_INPUT and status ~= provider.NEED_OUTPUT)
+                or (status ~= provider.needinput and status ~= provider.needoutput)
                 or not needsOutput(status, written, self.capacity)
             then
                 return false, "compression provider reported invalid progress"
@@ -321,7 +321,7 @@ local record Writer is CompressionWriter
             if not ok then
                 return false, why
             end
-            if status == provider.NEED_INPUT then
+            if status == provider.needinput then
                 return self.destination:flush()
             end
             if written == 0 then
@@ -341,7 +341,7 @@ local record Writer is CompressionWriter
                     return false, reason
                 end
                 if not validProgress(written, capacity)
-                    or (status ~= provider.NEED_OUTPUT and status ~= provider.FINISHED)
+                    or (status ~= provider.needoutput and status ~= provider.finished)
                     or not needsOutput(status, written, capacity)
                 then
                     return false, "compression provider reported invalid progress"
@@ -351,7 +351,7 @@ local record Writer is CompressionWriter
                     local at: integer = 1
                     while at <= written do
                         local remaining = bytes:slice(at, written)
-                        local moved, why = owner.destination:writeSpan(remaining)
+                        local moved, why = owner.destination:writespan(remaining)
                         if moved == nil then
                             return false, why
                         end
@@ -361,7 +361,7 @@ local record Writer is CompressionWriter
                         at = at + moved
                     end
                 end
-                if status == provider.FINISHED then
+                if status == provider.finished then
                     local ok, why = owner.destination:flush()
                     return ok, why
                 end
@@ -387,7 +387,7 @@ function Writer.drain(exclusive self: Writer, count: integer): (boolean, string?
     local at: integer = 1
     while at <= count do
         local remaining = bytes:slice(at, count)
-        local written, reason = self.destination:writeSpan(remaining)
+        local written, reason = self.destination:writespan(remaining)
         if written == nil then
             return false, reason
         end
@@ -411,10 +411,10 @@ local function makeWriter(
     options: WriterOptions?
 ): Writer
     local configured = settings(options, "writer")
-    local capacity = positive(configured.workspaceBytes, DEFAULT_WORKSPACE, "compression workspaceBytes")
+    local capacity = positive(configured.workspacebytes, DEFAULT_WORKSPACE, "compression workspacebytes")
     local formatSettings = encoderOptions(configured as WriterOptions, name)
     return new Writer(
-        state = implementation:createEncoder(formatSettings),
+        state = implementation:createencoder(formatSettings),
         destination = destination,
         output = storage.allocateBytes(capacity),
         capacity = capacity
@@ -442,14 +442,14 @@ local record Reader is io.Reader
     @private refill: function(self: Reader): (boolean?, string?)
     @private account: function(self: Reader, consumed: integer, written: integer): string?
 
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         local destinationLength: integer
         do
             local output = destination as span.ByteWriteSpan
             destinationLength = #output
         end
         if destinationLength < 1 then
-            error("nupp: compression Reader:readSpan destination must be positive", 2)
+            error("nupp: compression Reader:readspan destination must be positive", 2)
         end
         if self.ended then
             return 0, nil
@@ -472,15 +472,15 @@ local record Reader is io.Reader
                     return nil, why
                 end
                 if not hasInput then
-                    local written, status, reason = self.state:finishInput(destination)
+                    local written, status, reason = self.state:finishinput(destination)
                     if written == nil or status == nil then
                         return nil, reason
                     end
                     if not validProgress(written, destinationLength)
                         or (
-                            status ~= provider.NEED_INPUT
-                            and status ~= provider.NEED_OUTPUT
-                            and status ~= provider.FINISHED
+                            status ~= provider.needinput
+                            and status ~= provider.needoutput
+                            and status ~= provider.finished
                         )
                         or not needsOutput(status, written, destinationLength)
                     then
@@ -490,14 +490,14 @@ local record Reader is io.Reader
                     if limitFailure ~= nil then
                         return nil, limitFailure
                     end
-                    if status == provider.NEED_INPUT then
+                    if status == provider.needinput then
                         return nil, "compressed stream ended before its trailer"
                     end
-                    self.streamFinished = status == provider.FINISHED
+                    self.streamFinished = status == provider.finished
                     if written > 0 then
                         return written, nil
                     end
-                    if status == provider.NEED_OUTPUT then
+                    if status == provider.needoutput then
                         return nil, "compression provider made no progress"
                     end
                     self.ended = true
@@ -513,8 +513,8 @@ local record Reader is io.Reader
             end
             if not validProgress(consumed, #input)
                 or not validProgress(written, destinationLength)
-                or (status ~= provider.NEED_INPUT and status ~= provider.NEED_OUTPUT and status ~= provider.FINISHED)
-                or (status == provider.NEED_INPUT and consumed ~= #input)
+                or (status ~= provider.needinput and status ~= provider.needoutput and status ~= provider.finished)
+                or (status == provider.needinput and consumed ~= #input)
                 or not needsOutput(status, written, destinationLength)
             then
                 return nil, "compression provider reported invalid progress"
@@ -524,7 +524,7 @@ local record Reader is io.Reader
             if limitFailure ~= nil then
                 return nil, limitFailure
             end
-            if status == provider.FINISHED then
+            if status == provider.finished then
                 if self.inputAt <= self.inputLength then
                     return nil, "compressed stream has trailing bytes"
                 end
@@ -543,7 +543,7 @@ local record Reader is io.Reader
         local wanted = positive(count, count, "compression Reader:read count")
         local output = storage.allocateBytes(wanted)
         local writable = span.writecarray(output, wanted)
-        local written, reason = self:readSpan(writable)
+        local written, reason = self:readspan(writable)
         own.drop(writable)
         if written == nil then
             return nil, reason
@@ -552,7 +552,7 @@ local record Reader is io.Reader
         return storage.string(output, written), nil
     end
 
-    function readInto(
+    function readinto(
         exclusive self,
         exclusive destination: io.Buffer,
         offset: integer?,
@@ -560,15 +560,15 @@ local record Reader is io.Reader
     ): (integer?, string?)
         local from: any = offset == nil and 0 or offset
         if type(from) ~= "number" or from < 0 or from > MAX_EXACT_INTEGER or from ~= math.floor(from) then
-            error("nupp: compression Reader:readInto offset must be a non-negative integer", 2)
+            error("nupp: compression Reader:readinto offset must be a non-negative integer", 2)
         end
-        local wanted = positive(count, DEFAULT_WORKSPACE, "compression Reader:readInto count")
-        local lease = destination:reserveWrite(from as integer, wanted)
+        local wanted = positive(count, DEFAULT_WORKSPACE, "compression Reader:readinto count")
+        local lease = destination:reservewrite(from as integer, wanted)
         local written: integer?
         local reason: string?
         do
             local output = lease:span()
-            written, reason = self:readSpan(output)
+            written, reason = self:readspan(output)
             own.drop(output)
         end
         if written == nil then
@@ -580,12 +580,12 @@ local record Reader is io.Reader
         return written, nil
     end
 
-    function transferTo(exclusive self, exclusive destination: io.Writer): (integer?, string?)
+    function transferto(exclusive self, exclusive destination: io.Writer): (integer?, string?)
         local output = storage.allocateBytes(self.capacity)
         local total: integer = 0
         while true do
             local writable = span.writecarray(output, self.capacity)
-            local read, reason = self:readSpan(writable)
+            local read, reason = self:readspan(writable)
             own.drop(writable)
             if read == nil then
                 return nil, reason
@@ -596,7 +596,7 @@ local record Reader is io.Reader
             local at: integer = 1
             while at <= read do
                 local remaining = bytes:slice(at, read)
-                local written, why = destination:writeSpan(remaining)
+                local written, why = destination:writespan(remaining)
                 if written == nil then
                     return nil, why
                 end
@@ -612,7 +612,7 @@ end
 
 function Reader.refill(self: Reader): (boolean?, string?)
     local writable = span.writecarray(self.input, self.capacity)
-    local count, reason = self.source:readSpan(writable)
+    local count, reason = self.source:readspan(writable)
     own.drop(writable)
     if count == nil then
         return nil, reason
@@ -630,11 +630,11 @@ function Reader.account(self: Reader, consumed: integer, written: integer): stri
     self.inputTotal = self.inputTotal + consumed
     self.outputTotal = self.outputTotal + written
     if self.maxOutputBytes ~= nil and self.outputTotal > self.maxOutputBytes then
-        return "decompressed output exceeds maxOutputBytes"
+        return "decompressed output exceeds maxoutputbytes"
     end
     local ratioInput = math.max(self.inputTotal, RATIO_ALLOWANCE)
     if self.maxExpansionRatio ~= nil and self.outputTotal > ratioInput * self.maxExpansionRatio then
-        return "decompressed output exceeds maxExpansionRatio"
+        return "decompressed output exceeds maxexpansionratio"
     end
 
     return nil
@@ -649,25 +649,25 @@ export record Format
 
     --- Wraps and owns a reader, validating the stream before EOF.
     --- @raises string when options are invalid or a format block does not match
-    function newReader(self, takes source: io.Reader, options: ReaderOptions?): io.Reader
+    function newreader(self, takes source: io.Reader, options: ReaderOptions?): io.Reader
         local configured = settings(options, "reader")
-        local capacity = positive(configured.workspaceBytes, DEFAULT_WORKSPACE, "compression workspaceBytes")
+        local capacity = positive(configured.workspacebytes, DEFAULT_WORKSPACE, "compression workspacebytes")
         if configured.unbounded ~= nil and type(configured.unbounded) ~= "boolean" then
             error("nupp: compression unbounded must be a boolean", 2)
         end
-        if configured.unbounded and configured.maxOutputBytes ~= nil then
-            error("nupp: compression ReaderOptions cannot set both unbounded and maxOutputBytes", 2)
+        if configured.unbounded and configured.maxoutputbytes ~= nil then
+            error("nupp: compression ReaderOptions cannot set both unbounded and maxoutputbytes", 2)
         end
         local maximum: integer? = configured.unbounded and nil
-            or positive(configured.maxOutputBytes, DEFAULT_MAX_OUTPUT, "compression maxOutputBytes")
-        local ratio = configured.maxExpansionRatio
+            or positive(configured.maxoutputbytes, DEFAULT_MAX_OUTPUT, "compression maxoutputbytes")
+        local ratio = configured.maxexpansionratio
         if ratio ~= nil and (type(ratio) ~= "number" or ratio <= 0 or ratio >= math.huge or ratio ~= ratio) then
-            error("nupp: compression maxExpansionRatio must be positive and finite", 2)
+            error("nupp: compression maxexpansionratio must be positive and finite", 2)
         end
         local formatSettings = decoderOptions(configured as ReaderOptions, self.name)
 
         return new Reader(
-            state = self.implementation:createDecoder(formatSettings),
+            state = self.implementation:createdecoder(formatSettings),
             source = source,
             input = storage.allocateBytes(capacity),
             capacity = capacity,
@@ -684,7 +684,7 @@ export record Format
 
     --- Wraps and owns a writer. Consume the result with `finish()`.
     --- @raises string when options are invalid or a format block does not match
-    function newWriter(self, takes destination: io.Writer, options: WriterOptions?): CompressionWriter
+    function newwriter(self, takes destination: io.Writer, options: WriterOptions?): CompressionWriter
         return makeWriter(self.implementation, self.name, destination, options)
     end
 
@@ -696,9 +696,9 @@ export record Format
         exclusive destination: io.Buffer,
         options: WriterOptions?
     ): nil
-        local sink = destination:newWriter()
+        local sink = destination:newwriter()
         local compressed = makeWriter(self.implementation, self.name, sink, options)
-        local written, reason = compressed:writeSpan(bytes)
+        local written, reason = compressed:writespan(bytes)
         if written == nil then
             compressed:abort()
             error(reason or "compression failed", 2)
@@ -722,7 +722,7 @@ export record Format
     function compress(self, borrows bytes: span.ByteSpan, options: WriterOptions?): string
         local destination = io.newbuffer()
         self:compress(bytes, destination, options)
-        local answer = destination:getString()
+        local answer = destination:getstring()
         destination:close()
 
         return answer
@@ -745,9 +745,9 @@ export record Format
         options: ReaderOptions?
     ): nil
         local source = io.newstringreader(storage.string(bytes:ref(), #bytes))
-        local reader = self:newReader(source, options)
-        local writer = destination:newWriter()
-        local _, reason = reader:transferTo(writer)
+        local reader = self:newreader(source, options)
+        local writer = destination:newwriter()
+        local _, reason = reader:transferto(writer)
         reader:close()
         writer:close()
         if reason ~= nil then
@@ -769,7 +769,7 @@ export record Format
     function decompress(self, borrows bytes: span.ByteSpan, options: ReaderOptions?): string
         local destination = io.newbuffer()
         self:decompress(bytes, destination, options)
-        local answer = destination:getString()
+        local answer = destination:getstring()
         destination:close()
 
         return answer
@@ -790,8 +790,8 @@ local function validate(selected: provider.Provider): nil
             or name == ""
             or type(implementation) ~= "table"
             or implementation.name ~= name
-            or type(implementation.createEncoder) ~= "function"
-            or type(implementation.createDecoder) ~= "function"
+            or type(implementation.createencoder) ~= "function"
+            or type(implementation.createdecoder) ~= "function"
             or WRITER_COMMON[name]
             or READER_COMMON[name]
         then

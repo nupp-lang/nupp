@@ -259,15 +259,15 @@ function M.layoutReflectionDescribesEveryColumn()
         PRELUDE
         .. [[
 local layout = soa.layoutof(ffi.typeof<Particle>())
-local instance = layout:forCount(4)
+local instance = layout:forcount(4)
 return {
     fingerprint = layout.fingerprint,
     alignment = layout.alignment,
     names = layout.fields[1].name .. layout.fields[4].name,
     identity = layout.fields[4].identity,
-    firstBytes = instance.segments[1].byteCount,
+    firstBytes = instance.segments[1].bytecount,
     secondOffset = instance.segments[2].offset,
-    total = instance.byteSize,
+    total = instance.bytesize,
 }
 ]]
     )
@@ -323,13 +323,13 @@ local struct Sample
     history: float[3]
 end
 local layout = soa.layoutof(ffi.typeof<Sample>())
-local instance = layout:forCount(2)
+local instance = layout:forcount(2)
 return {
     fields = #layout.fields,
     first = layout.fields[1].name,
     second = layout.fields[2].name,
-    firstBytes = instance.segments[1].byteCount,
-    secondBytes = instance.segments[2].byteCount,
+    firstBytes = instance.segments[1].bytecount,
+    secondBytes = instance.segments[2].bytecount,
 }
 ]]
     )
@@ -556,7 +556,7 @@ do
 end
 do
     local rows = target:write()
-    rows:copyFrom(2, source:read(), 1, 3)
+    rows:copyfrom(2, source:read(), 1, 3)
     own.drop(rows)
 end
 local rows = target:read()
@@ -641,7 +641,7 @@ function M.zeroCountsAndBoundsAreChecked()
         .. [[
 local layout = soa.layoutof(ffi.typeof<Particle>())
 local empty = soa.alloc(ffi.typeof<Particle>(), 0)
-local zero = layout:forCount(0)
+local zero = layout:forcount(0)
 local okRead = pcall(function() return empty:read()[1] end)
 local one = soa.alloc(ffi.typeof<Particle>(), 1)
 local okDirect = pcall(function()
@@ -654,7 +654,7 @@ local okNegative = pcall(function()
     invalid:close()
 end)
 local okFractionalLayout = pcall(function()
-    layout:forCount(1.5 as any)
+    layout:forcount(1.5 as any)
 end)
 local okFractionalAllocation = pcall(function()
     local invalid = soa.alloc(ffi.typeof<Particle>(), 1.5 as any)
@@ -663,10 +663,10 @@ end)
 local okOverflow = false
 if jit.os ~= "Windows" then
     okOverflow = pcall(function()
-        layout:forCount(9007199254740991 as integer)
+        layout:forcount(9007199254740991 as integer)
     end)
 end
-return zero.byteSize == 0
+return zero.bytesize == 0
     and empty.count == 0
     and empty.fingerprint == layout.fingerprint
     and not okRead
@@ -716,12 +716,12 @@ for _, bad in ipairs({0 / 0, 1.5}) do
         end),
         pcall(function()
             local rows = particles:write()
-            rows:copyFrom(index, source:read(), 1, 1)
+            rows:copyfrom(index, source:read(), 1, 1)
             own.drop(rows)
         end),
         pcall(function()
             local rows = particles:write()
-            rows:copyFrom(1, source:read(), 1, index)
+            rows:copyfrom(1, source:read(), 1, index)
             own.drop(rows)
         end),
         pcall(function() return particles:read():slice(3, 4)[index].x end),

@@ -318,7 +318,7 @@ local record ExportC
     target: string?
 
     --- Select the report representation.
-    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", constantaliases = {json = "json", text = "text"})
     format: "text" | "json" = "text"
 
     --- Print the JSON Schema of JSON output and exit.

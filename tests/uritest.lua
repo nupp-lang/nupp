@@ -194,7 +194,7 @@ function M.parsingAnswersTheRecordedComponents()
     for _, row in ipairs(PARSED) do
         local value, reason = module.newuri(row[1])
         assert(value, row[1] .. ": " .. tostring(reason))
-        test.eq(value:toString(), row[2], row[1] .. " normalizes")
+        test.eq(value:tostring(), row[2], row[1] .. " normalizes")
         for _, name in ipairs(COMPONENTS) do
             local wanted = row[name]
             if wanted ~= nil then
@@ -231,30 +231,30 @@ function M.derivingReplacesOneComponentAtATime()
     local module = ready()
     local base = assert(module.newuri("https://user:pass@example.com:8443/api/v1?q=1#top"))
 
-    test.eq(base:withScheme("http"):toString(), "http://user:pass@example.com:8443/api/v1?q=1#top")
-    test.eq(base:withUserInfo(nil):toString(), "https://example.com:8443/api/v1?q=1#top")
-    test.eq(base:withUserInfo("u"):toString(), "https://u@example.com:8443/api/v1?q=1#top")
-    test.eq(base:withUserInfo("u:p"):toString(), "https://u:p@example.com:8443/api/v1?q=1#top")
-    test.eq(base:withHost("other.example"):toString(), "https://user:pass@other.example:8443/api/v1?q=1#top")
-    test.eq(base:withPort(99):toString(), "https://user:pass@example.com:99/api/v1?q=1#top")
-    test.eq(base:withPort(nil):toString(), "https://user:pass@example.com/api/v1?q=1#top")
-    test.eq(base:withPath("/x"):toString(), "https://user:pass@example.com:8443/x?q=1#top")
+    test.eq(base:withscheme("http"):tostring(), "http://user:pass@example.com:8443/api/v1?q=1#top")
+    test.eq(base:withuserinfo(nil):tostring(), "https://example.com:8443/api/v1?q=1#top")
+    test.eq(base:withuserinfo("u"):tostring(), "https://u@example.com:8443/api/v1?q=1#top")
+    test.eq(base:withuserinfo("u:p"):tostring(), "https://u:p@example.com:8443/api/v1?q=1#top")
+    test.eq(base:withhost("other.example"):tostring(), "https://user:pass@other.example:8443/api/v1?q=1#top")
+    test.eq(base:withport(99):tostring(), "https://user:pass@example.com:99/api/v1?q=1#top")
+    test.eq(base:withport(nil):tostring(), "https://user:pass@example.com/api/v1?q=1#top")
+    test.eq(base:withpath("/x"):tostring(), "https://user:pass@example.com:8443/x?q=1#top")
     -- A path is a hierarchy under an authority, so one written without a leading
     -- separator gets one rather than running into the host.
-    test.eq(base:withPath("x/y"):toString(), "https://user:pass@example.com:8443/x/y?q=1#top")
-    test.eq(base:withPath(""):toString(), "https://user:pass@example.com:8443/?q=1#top")
-    test.eq(base:withQuery(nil):toString(), "https://user:pass@example.com:8443/api/v1#top")
-    test.eq(base:withQuery("a=b"):toString(), "https://user:pass@example.com:8443/api/v1?a=b#top")
-    test.eq(base:withFragment(nil):toString(), "https://user:pass@example.com:8443/api/v1?q=1")
-    test.eq(base:withFragment("z"):toString(), "https://user:pass@example.com:8443/api/v1?q=1#z")
+    test.eq(base:withpath("x/y"):tostring(), "https://user:pass@example.com:8443/x/y?q=1#top")
+    test.eq(base:withpath(""):tostring(), "https://user:pass@example.com:8443/?q=1#top")
+    test.eq(base:withquery(nil):tostring(), "https://user:pass@example.com:8443/api/v1#top")
+    test.eq(base:withquery("a=b"):tostring(), "https://user:pass@example.com:8443/api/v1?a=b#top")
+    test.eq(base:withfragment(nil):tostring(), "https://user:pass@example.com:8443/api/v1?q=1")
+    test.eq(base:withfragment("z"):tostring(), "https://user:pass@example.com:8443/api/v1?q=1#z")
 
     -- The original is untouched by all of it.
-    test.eq(base:toString(), "https://user:pass@example.com:8443/api/v1?q=1#top")
+    test.eq(base:tostring(), "https://user:pass@example.com:8443/api/v1?q=1#top")
 
     local raised = select(
         2,
         pcall(function()
-            return base:withPort(70000)
+            return base:withport(70000)
         end)
     )
     assert(tostring(raised):find("0 through 65535", 1, true), "a port outside the range raises: " .. tostring(raised))
@@ -265,20 +265,20 @@ function M.concatenatingAPathAddsOneSeparator()
     local module = ready()
     local plain = assert(module.newuri("https://api.example.com/v1"))
     local slashed = assert(module.newuri("https://api.example.com/v1/"))
-    test.eq(plain:concatPath("users"):path(), "/v1/users")
-    test.eq(plain:concatPath("/users"):path(), "/v1/users")
-    test.eq(slashed:concatPath("users"):path(), "/v1/users")
-    test.eq(slashed:concatPath("/users"):path(), "/v1/users")
-    test.eq(plain:concatPath(""), plain, "an empty suffix leaves the URI unchanged")
+    test.eq(plain:concatpath("users"):path(), "/v1/users")
+    test.eq(plain:concatpath("/users"):path(), "/v1/users")
+    test.eq(slashed:concatpath("users"):path(), "/v1/users")
+    test.eq(slashed:concatpath("/users"):path(), "/v1/users")
+    test.eq(plain:concatpath(""), plain, "an empty suffix leaves the URI unchanged")
 end
 
 function M.removingAHostRemovesItsAuthority()
     local module = ready()
     local value = assert(module.newuri("custom://user:pass@example.com:8080/path"))
-    local without = value:withHost(nil)
-    test.eq(without:toString(), "custom:/path")
+    local without = value:withhost(nil)
+    test.eq(without:tostring(), "custom:/path")
     test.eq(without:authority(), nil)
-    test.eq(without:userInfo(), nil)
+    test.eq(without:userinfo(), nil)
     test.eq(without:port(), nil)
 end
 
@@ -299,7 +299,7 @@ function M.composingRefusesComponentsThatShiftBoundaries()
         {{scheme = "https", host = "example.com/evil"}, "host cannot contain a component delimiter"},
         {{scheme = "https", host = "evil@example.com"}, "host cannot contain a component delimiter"},
         {
-            {scheme = "https", userInfo = "u/v", host = "example.com", path = "/"},
+            {scheme = "https", userinfo = "u/v", host = "example.com", path = "/"},
             "userInfo cannot contain a component delimiter"
         },
     }
@@ -319,7 +319,7 @@ function M.composingRefusesComponentsThatShiftBoundaries()
     for _, row in ipairs(accepted) do
         local value, why = module.newuri(row[1])
         assert(value, row[2] .. ": " .. tostring(why))
-        test.eq(value:toString(), row[2], row[2] .. " composes")
+        test.eq(value:tostring(), row[2], row[2] .. " composes")
     end
 end
 
@@ -342,7 +342,7 @@ function M.resolvingFollowsTheReferenceRules()
     for _, row in ipairs(expected) do
         local resolved, reason = page:resolve(row[1])
         assert(resolved, "[" .. row[1] .. "]: " .. tostring(reason))
-        test.eq(resolved:toString(), row[2], "resolve [" .. row[1] .. "]")
+        test.eq(resolved:tostring(), row[2], "resolve [" .. row[1] .. "]")
     end
 end
 
@@ -405,7 +405,7 @@ function M.resolvingFollowsRfc3986Examples()
     for _, row in ipairs(expected) do
         local resolved, reason = base:resolve(row[1])
         assert(resolved, "[" .. row[1] .. "]: " .. tostring(reason))
-        test.eq(resolved:toString(), row[2], "resolve [" .. row[1] .. "]")
+        test.eq(resolved:tostring(), row[2], "resolve [" .. row[1] .. "]")
     end
 end
 
@@ -418,7 +418,7 @@ function M.derivingRefusesTextThatIsNotTheComponent()
     for _, scheme in ipairs({"http://evil/", "a:b", "", "1http", "ht tp", "http/"}) do
         test.raises(
             function()
-                base:withScheme(scheme)
+                base:withscheme(scheme)
             end,
             "scheme"
         )
@@ -426,19 +426,19 @@ function M.derivingRefusesTextThatIsNotTheComponent()
     for _, host in ipairs({"h:1", "evil.example:1", "[::1]:80"}) do
         test.raises(
             function()
-                base:withHost(host)
+                base:withhost(host)
             end,
             "host"
         )
     end
-    test.eq(base:withHost("[::1]"):host(), "[::1]")
-    test.eq(base:withScheme("HTTP"):toString(), "http://example.com/x")
+    test.eq(base:withhost("[::1]"):host(), "[::1]")
+    test.eq(base:withscheme("HTTP"):tostring(), "http://example.com/x")
     -- A scheme change that would move text into the authority is refused
     -- rather than letting the new parse find a host the old URI did not have.
     local mail = assert(module.newuri("mailto:evil.example"))
     test.raises(
         function()
-            mail:withScheme("http")
+            mail:withscheme("http")
         end,
         "scheme"
     )
@@ -450,11 +450,11 @@ function M.rerootingKeepsThePathQueryAndFragment()
     local module = ready()
     local request = assert(module.newuri("https://service.example/v1/items?a=1#f"))
     test.eq(
-        request:withEndpoint(assert(module.newuri("http://127.0.0.1:8080/prefix"))):toString(),
+        request:withendpoint(assert(module.newuri("http://127.0.0.1:8080/prefix"))):tostring(),
         "http://127.0.0.1:8080/prefix/v1/items?a=1#f"
     )
     test.eq(
-        request:withEndpoint(assert(module.newuri("http://127.0.0.1:8080/"))):toString(),
+        request:withendpoint(assert(module.newuri("http://127.0.0.1:8080/"))):tostring(),
         "http://127.0.0.1:8080/v1/items?a=1#f"
     )
 end
@@ -870,10 +870,10 @@ function M.seededReferencesResolveAsTheHostDoes()
         local parts = portable.parse(text, assert(portable.parse(baseTexts[index])))
         local label = ("%q against %s"):format(text, baseTexts[index])
         if not (parts == nil and resolved ~= nil and text:find("[\128-\255]")) then
-            test.eq(parts and parts.text, resolved and resolved:toString(), label .. " portable")
+            test.eq(parts and parts.text, resolved and resolved:tostring(), label .. " portable")
         end
         if hrefs ~= nil and not newerThanTheCrate(text) and not newerThanTheCrate(baseTexts[index]) then
-            test.eq(resolved and resolved:toString() or false, hrefs[index], label .. " host URL")
+            test.eq(resolved and resolved:tostring() or false, hrefs[index], label .. " host URL")
         end
     end
     if hrefs == nil then

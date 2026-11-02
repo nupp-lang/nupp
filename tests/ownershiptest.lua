@@ -1728,7 +1728,7 @@ function M.managedCallbackBorrowsReleaseOnErrorsAndRejectConflicts()
             "local handle = owner:alias()",
             "local conflict: string? = nil",
             "local _, outerProblem = handle:with(function(borrows value)",
-            "   local _, problem = handle:withExclusive(function(exclusive item) return item.value end)",
+            "   local _, problem = handle:withexclusive(function(exclusive item) return item.value end)",
             "   conflict = problem and problem.code",
             "   return value.value",
             "end)",
@@ -1736,7 +1736,7 @@ function M.managedCallbackBorrowsReleaseOnErrorsAndRejectConflicts()
             "local raised = pcall(function(): nil",
             "   handle:with(function(borrows value): nil error('callback failed') end)",
             "end)",
-            "local answer, finalProblem = handle:withExclusive(function(exclusive value)",
+            "local answer, finalProblem = handle:withexclusive(function(exclusive value)",
             "   value.value = value.value + 1",
             "   return value.value",
             "end)",
@@ -2239,7 +2239,7 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
             "end",
             "local storage = ffi.new<int32[8]>()",
             "local writable = spans.writecarray(storage, 8)",
-            "local split = writable:splitAt(4)",
+            "local split = writable:splitat(4)",
         },
         "\n"
     )
@@ -2250,7 +2250,7 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
     testAssert.eq(
         codes(
             prelude .. table.concat(
-                {"", "local nested = split.left:splitAt(2)", "pair(split.left, nested.right)",},
+                {"", "local nested = split.left:splitat(2)", "pair(split.left, nested.right)",},
                 "\n"
             )
         ),
@@ -2263,7 +2263,7 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
             {
                 prelude,
                 "do",
-                "   local nested = split.right:splitAt(2)",
+                "   local nested = split.right:splitat(2)",
                 "   pair(nested.left, nested.right)",
                 "end",
                 "pair(split.left, split.right)",
@@ -2279,7 +2279,7 @@ function M.writeSpansProveSiblingPartitionsAndRejectOverlap()
                 "local storage = ffi.new<int32[2]>()",
                 "local writable = spans.writecarray(storage, 2)",
                 "do",
-                "   local split = writable:splitAt(1)",
+                "   local split = writable:splitat(1)",
                 "   split.left[1] = 1 as int32",
                 "end",
                 "writable[2] = 2 as int32",
@@ -2353,12 +2353,12 @@ function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
             "   do",
             "      local writable = values:write()",
             "      do",
-            "         local split = writable:splitAt(mid)",
+            "         local split = writable:splitat(mid)",
             "         leftCount, rightCount = #split.left, #split.right",
             "         if #split.left > 0 then split.left[#split.left] = 11 as int32 end",
             "         if #split.right > 0 then split.right[1] = 22 as int32 end",
             "         if #split.right > 1 then",
-            "            local nested = split.right:splitAt(1)",
+            "            local nested = split.right:splitat(1)",
             "            nested.right[1] = 33 as int32",
             "         end",
             "      end",
@@ -2412,7 +2412,7 @@ function M.tecsShapedColumnsPartitionIntoCheckedNativeKernelInputs()
                 "do",
                 "   local writable = column:write()",
                 "   do",
-                "      local halves = writable:splitAt(512)",
+                "      local halves = writable:splitat(512)",
                 "      update_transforms(halves.left)",
                 "      update_transforms(halves.right)",
                 "   end",

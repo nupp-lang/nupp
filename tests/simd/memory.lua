@@ -44,9 +44,9 @@ end
         -- place or written to the wrong one cannot cancel out.
         for ways, access in ipairs({
             false,
-            {'Pairs', 'a, b', 'b, a'},
-            {'Triples', 'a, b, c', 'c, a, b'},
-            {'Quads', 'a, b, c, d', 'd, c, a, b'}
+            {'pairs', 'a, b', 'b, a'},
+            {'triples', 'a, b, c', 'c, a, b'},
+            {'quads', 'a, b, c, d', 'd, c, a, b'}
         }) do
             if access then
                 local body = (
@@ -109,7 +109,7 @@ local function %s(exclusive output: span.WriteSpan<%s>, borrows input: span.Span
                     else
                         source[
                             #source + 1
-                        ] = ('        s:scatterUnchecked(output, picks%d, a, selected)\n'):format(group)
+                        ] = ('        s:scatterunchecked(output, picks%d, a, selected)\n'):format(group)
                     end
                 end
             end

@@ -15,7 +15,7 @@ XML namespaces, or field numbers off them.
 local serde = require("serde")
 local adapters = require("serde.adapters")
 local json = require("serde.json")
-local plain = json.codec(json.memberNamePolicy)
+local plain = json.codec(json.membernamepolicy)
 
 -- The model's own member type. A real library would carry its schema here.
 local record Member is serde.Member
@@ -103,7 +103,7 @@ export const text = scalars.text
 ---
 --- @param member the member the value sits at
 --- @return the adapter
-export const boolean = scalars.boolean
+export const bool = scalars.boolean
 
 --- An integer of a fixed width and signedness, as a [](serde.Integer).
 ---
@@ -166,7 +166,7 @@ export const atom = scalars.atom
 --- local adapters = require("serde.adapters")
 --- local document = require("serde.document")
 --- local json = require("serde.json")
---- local plain = json.codec(json.memberNamePolicy)
+--- local plain = json.codec(json.membernamepolicy)
 --- local record Member is serde.Member
 ---     @readonly name: string
 ---     @readonly index: integer?
@@ -188,7 +188,7 @@ export const document = scalars.document
 --- local serde = require("serde")
 --- local adapters = require("serde.adapters")
 --- local json = require("serde.json")
---- local plain = json.codec(json.memberNamePolicy)
+--- local plain = json.codec(json.membernamepolicy)
 --- local record Member is serde.Member
 ---     @readonly name: string
 ---     @readonly index: integer?
@@ -241,7 +241,7 @@ export const list = lists.adapter
 --- @param construction how a draft is opened and finished
 --- @param unknown what to do with undeclared wire fields; nil rejects them
 --- @param additional extra members to write after the fields, or nil
---- @param deferredConstruction whether setters may run after the input is validated, in
+--- @param deferredconstruction whether setters may run after the input is validated, in
 ---     field order
 --- @return the adapter
 --- @raises string when two fields share a member
@@ -251,7 +251,7 @@ export const structure = structures.adapter
 ---
 --- `get` borrows the field from the value on write and `set` stores a decoded
 --- one into the draft on read. A `required` field must be present when
---- reading; `hasDefault` tells codecs the construction supplies one, so the
+--- reading; `hasdefault` tells codecs the construction supplies one, so the
 --- field may be absent. `present`, when given, decides per value whether the
 --- field is written at all.
 ---
@@ -260,7 +260,7 @@ export const structure = structures.adapter
 --- @param set stores a decoded value into the draft
 --- @param adapter the field value's adapter
 --- @param required whether reading needs the field
---- @param hasDefault whether construction supplies a default
+--- @param hasdefault whether construction supplies a default
 --- @param present decides whether to write the field; nil always writes it
 --- @return the field
 export const field = structures.field
@@ -320,7 +320,7 @@ export const inspect = structures.inspect
 --- local serde = require("serde")
 --- local adapters = require("serde.adapters")
 --- local json = require("serde.json")
---- local plain = json.codec(json.memberNamePolicy)
+--- local plain = json.codec(json.membernamepolicy)
 --- local record Member is serde.Member
 ---     @readonly name: string
 ---     @readonly index: integer?
@@ -329,7 +329,7 @@ export const inspect = structures.inspect
 --- local pages = new Member(name = "pages")
 --- local layout = adapters.layout(new Member(name = "Book"))
 --- local titleSlot = layout:add(title, adapters.text(title), true)
---- local pagesSlot = layout:addDefault(pages, adapters.float(pages, 64), function(): number return 0 end)
+--- local pagesSlot = layout:adddefault(pages, adapters.float(pages, 64), function(): number return 0 end)
 --- local books = layout:binding()
 ---
 --- local book = plain:decode(books, '{"title":"Dune"}')

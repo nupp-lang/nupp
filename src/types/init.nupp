@@ -54,12 +54,12 @@ end
 @comptime
 local function detail(T: type): any
     local value = types.describe(T)
-    if value.sourceKind then
+    if value.sourcekind then
         local normalized = {}
         for key, item in pairs(value) do
             normalized[key] = item
         end
-        normalized.kind = value.sourceKind
+        normalized.kind = value.sourcekind
         return normalized
     end
 
@@ -111,7 +111,7 @@ local function debugSpec(T: type, contract: type): any
     elseif value.kind == "array" then
         return {kind = "array", value = debugSpec(value.element, contract)}
     elseif value.kind == "map" then
-        return {kind = "map", key = debugSpec(value.readKey, contract), value = debugSpec(value.readValue, contract)}
+        return {kind = "map", key = debugSpec(value.readkey, contract), value = debugSpec(value.readvalue, contract)}
     elseif value.kind == "tuple" then
         local items = {}
         for index, member in ipairs(value.members or {}) do
@@ -158,7 +158,7 @@ function api.debug(info: types.derive.Info): types.derive.Result<types.Debug>
                 "NUPP2803"
             )
         end
-        if field.name ~= "debug" and not skip and not redact and not debugSpec(field.readType, info.interfaceType) then
+        if field.name ~= "debug" and not skip and not redact and not debugSpec(field.readtype, info.interfacetype) then
             return types.derive.error("field type cannot be formatted by Debug", field.reference, "NUPP2803")
         end
     end
@@ -167,7 +167,7 @@ function api.debug(info: types.derive.Info): types.derive.Result<types.Debug>
         methods = {
             debug = types.derive.forward{
                 helper = types.derive.helper(runtime, "debug"),
-                arguments = {types.derive.witness(info.ownerType), types.derive.receiver()},
+                arguments = {types.derive.witness(info.ownertype), types.derive.receiver()},
             }
         },
     }

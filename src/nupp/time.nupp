@@ -24,7 +24,7 @@ export const sleep: function(milliseconds: number): nil = provider.sleep
 --- A deadline already past returns without waiting.
 ---
 --- @raises string when the deadline is invalid or cannot be scheduled
-export const sleepUntil: function(deadline: number): nil = provider.sleepUntil
+export const sleepUntil: function(deadline: number): nil = provider.sleepuntil
 
 --- Schedules a callback for a non-negative deadline in the [](os.monotonic) domain.
 ---
@@ -32,4 +32,4 @@ export const sleepUntil: function(deadline: number): nil = provider.sleepUntil
 --- Registration itself does not suspend.
 ---
 --- @raises string when the deadline is invalid or cannot be scheduled
-export const wakeAt: function(deadline: number, resume: function(boolean): nil): function(): nil = provider.wakeAt
+export const wakeAt: function(deadline: number, resume: function(boolean): nil): function(): nil = provider.wakeat

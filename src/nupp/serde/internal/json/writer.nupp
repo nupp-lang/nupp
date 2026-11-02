@@ -103,7 +103,7 @@ export record Output<M is core.Member> is core.Writer<M>
         local frame = self.frames[#self.frames]
         local action = frame ~= nil and frame.plan:action(member) or "traverse"
         if action == "redact" then
-            self:writeString(member, "[redacted]")
+            self:writestring(member, "[redacted]")
         end
 
         return action == "traverse"
@@ -182,7 +182,7 @@ export record Output<M is core.Member> is core.Writer<M>
         self.sink:key(text)
     end
 
-    function writeNull(exclusive self, member: M): nil
+    function writenull(exclusive self, member: M): nil
         self:live()
         self:select(member)
         local description = self:child(member).description
@@ -193,7 +193,7 @@ export record Output<M is core.Member> is core.Writer<M>
         self.sink:null()
     end
 
-    function writeBoolean(exclusive self, member: M, value: boolean): nil
+    function writebool(exclusive self, member: M, value: boolean): nil
         self:live()
         self:select(member)
         if self.keyMode then
@@ -204,7 +204,7 @@ export record Output<M is core.Member> is core.Writer<M>
         end
     end
 
-    function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
+    function writeinteger(exclusive self, member: M, borrows value: core.Integer): nil
         self:live()
         self:select(member)
         numbers.integer(value.decimal, value.width, value.signed)
@@ -217,7 +217,7 @@ export record Output<M is core.Member> is core.Writer<M>
         end
     end
 
-    function writeFloat(exclusive self, member: M, value: number, width: 32 | 64): nil
+    function writefloat(exclusive self, member: M, value: number, width: 32 | 64): nil
         self:live()
         self:select(member)
         value = numbers.floating(value, width)
@@ -225,7 +225,7 @@ export record Output<M is core.Member> is core.Writer<M>
         self.sink:write(value)
     end
 
-    function writeBigInteger(exclusive self, member: M, value: string): nil
+    function writebiginteger(exclusive self, member: M, value: string): nil
         self:live()
         self:select(member)
         if not value:match("^%-?%d+$") then
@@ -235,7 +235,7 @@ export record Output<M is core.Member> is core.Writer<M>
         self.sink:write(json.numberToken(value))
     end
 
-    function writeDecimal(exclusive self, member: M, borrows value: core.Decimal): nil
+    function writedecimal(exclusive self, member: M, borrows value: core.Decimal): nil
         self:live()
         self:select(member)
         if not value.coefficient:match("^%-?%d+$") then
@@ -248,14 +248,14 @@ export record Output<M is core.Member> is core.Writer<M>
         self.sink:write(json.numberToken(value.coefficient .. "e" .. tostring(value.exponent)))
     end
 
-    function writeNumberToken(exclusive self, member: M, value: string): nil
+    function writenumbertoken(exclusive self, member: M, value: string): nil
         self:live()
         self:select(member)
         self:position(member)
         self.sink:write(json.numberToken(value))
     end
 
-    function writeString(exclusive self, member: M, value: string): nil
+    function writestring(exclusive self, member: M, value: string): nil
         self:live()
         self:select(member)
         if self.keyMode then
@@ -266,14 +266,14 @@ export record Output<M is core.Member> is core.Writer<M>
         end
     end
 
-    function writeBytes(exclusive self, member: M, value: string): nil
+    function writebytes(exclusive self, member: M, value: string): nil
         self:live()
         self:select(member)
         self:position(member)
         self.sink:write(base64.encode(value))
     end
 
-    function writeTimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
+    function writetimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
         self:live()
         self:select(member)
         local encoded = self.policy:timestamp(member, value)
@@ -281,7 +281,7 @@ export record Output<M is core.Member> is core.Writer<M>
         self.sink:write(encoded)
     end
 
-    function writeAtom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
+    function writeatom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
         self:live()
         self:select(member)
         error(
@@ -295,7 +295,7 @@ export record Output<M is core.Member> is core.Writer<M>
         )
     end
 
-    function writeDocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
+    function writedocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
         self:live()
         self:select(member)
         self:position(member)
@@ -333,9 +333,9 @@ export record Output<M is core.Member> is core.Writer<M>
         self:position(member)
         self:enter()
         if kind == "array" then
-            self.sink:startArray()
+            self.sink:startarray()
         else
-            self.sink:startObject()
+            self.sink:startobject()
         end
         local frame = new Frame<M>(kind = kind, plan = plan, count = 0, seen = {})
         self.frames[#self.frames + 1] = frame
@@ -346,43 +346,43 @@ export record Output<M is core.Member> is core.Writer<M>
         table.remove(self.frames)
         self.budget.depth -= 1
         if kind == "array" then
-            self.sink:endArray()
+            self.sink:endarray()
         else
-            self.sink:endObject()
+            self.sink:endobject()
         end
     end
 
-    function writeStruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+    function writestruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
         self:live()
         self:aggregate(member, source, emit, "object", nil)
     end
 
-    function writeUnion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+    function writeunion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
         self:live()
         self:aggregate(member, source, emit, "object", 1)
     end
 
-    function writeList<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+    function writelist<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
         self:live()
         self:aggregate(member, source, emit, "array", size)
     end
 
-    function writeTuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
+    function writetuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
         self:live()
         self:aggregate(member, source, emit, "array", size)
     end
 
-    function writeMap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+    function writemap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
         self:live()
         self:aggregate(member, source, emit, "map", size)
     end
 
-    function writeEntry<K, V>(
+    function writeentry<K, V>(
         exclusive self,
         borrows key: K,
-        keyEmit: core.Members<M, K>,
+        keyemit: core.Members<M, K>,
         borrows value: V,
-        valueEmit: core.Members<M, V>
+        valueemit: core.Members<M, V>
     ): nil
         self:live()
         local frame = self.frames[#self.frames]
@@ -391,17 +391,17 @@ export record Output<M is core.Member> is core.Writer<M>
         end
         frame.currentName = "<key>"
         self.keyMode, self.keyCount = true, 0
-        keyEmit:apply(key, self)
+        keyemit:apply(key, self)
         self.keyMode = false
         assert(self.keyCount == 1, "map key did not emit a value")
         local before = frame.count
-        valueEmit:apply(value, self)
+        valueemit:apply(value, self)
         if frame.count ~= before + 1 then
             error("map entry must emit one value", 2)
         end
     end
 
-    function writeUnknown<F is core.WireField, D>(
+    function writeunknown<F is core.WireField, D>(
         exclusive self,
         field: F,
         borrows value: D,
@@ -495,5 +495,5 @@ writeContents = function<D>(
         cache = cache or extensions.scope(factory),
         budget = budget
     )
-    adapter:contents():acceptInto(consumer, value, sink)
+    adapter:contents():acceptinto(consumer, value, sink)
 end

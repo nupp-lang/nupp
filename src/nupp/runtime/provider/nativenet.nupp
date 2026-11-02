@@ -205,7 +205,7 @@ local function create(): contract.Provider
             return handle[0]
         end,
 
-        listenPath = function(self: contract.Provider, path: string, backlog: integer): (any?, string?)
+        listenpath = function(self: contract.Provider, path: string, backlog: integer): (any?, string?)
 
             local options = native.ffi.new("NuppNativeNetPathListenOptions")
             options.path = slice(path)
@@ -217,7 +217,7 @@ local function create(): contract.Provider
             return handle[0]
         end,
 
-        listenerPort = function(self: contract.Provider, listener: any): integer
+        listenerport = function(self: contract.Provider, listener: any): integer
             if C.nuppNativeNetListenerKind(listener, state) ~= 0 or state[0] == LISTENER_PATH then
                 return -1
             end
@@ -239,7 +239,7 @@ local function create(): contract.Provider
             return handle[0]
         end,
 
-        closeListener = function(self: contract.Provider, listener: any): nil
+        closelistener = function(self: contract.Provider, listener: any): nil
             C.nuppNativeNetListenerRelease(listener)
         end,
 
@@ -256,7 +256,7 @@ local function create(): contract.Provider
             return handle[0]
         end,
 
-        connectPath = function(self: contract.Provider, path: string, timeoutMs: integer): (any?, string?)
+        connectpath = function(self: contract.Provider, path: string, timeoutMs: integer): (any?, string?)
 
             local options = native.ffi.new("NuppNativeNetPathConnectOptions")
             options.path = slice(path)
@@ -268,7 +268,7 @@ local function create(): contract.Provider
             return handle[0]
         end,
 
-        connectPoll = function(self: contract.Provider, request: any): (any?, string?)
+        connectpoll = function(self: contract.Provider, request: any): (any?, string?)
             if C.nuppNativeNetConnectPoll(request, state, handle) ~= 0 then
                 return nil, reason("nupp: could not connect")
             end
@@ -282,7 +282,7 @@ local function create(): contract.Provider
             return handle[0]
         end,
 
-        closeConnect = function(self: contract.Provider, request: any): nil
+        closeconnect = function(self: contract.Provider, request: any): nil
             C.nuppNativeNetConnectRelease(request)
         end,
 
@@ -322,15 +322,15 @@ local function create(): contract.Provider
             return tonumber(count[0]) as integer
         end,
 
-        writeFailed = function(self: contract.Provider, stream: any): boolean
+        writefailed = function(self: contract.Provider, stream: any): boolean
             return streamFlags(stream) & STREAM_WRITE_FAILED ~= 0
         end,
 
-        shuttingDown = function(self: contract.Provider, stream: any): boolean
+        shuttingdown = function(self: contract.Provider, stream: any): boolean
             return streamFlags(stream) & STREAM_SHUTTING_DOWN ~= 0
         end,
 
-        shutdownWrite = function(self: contract.Provider, stream: any): (boolean, string?)
+        shutdownwrite = function(self: contract.Provider, stream: any): (boolean, string?)
             if C.nuppNativeNetStreamShutdownWrite(stream) ~= 0 then
                 return false, reason("nupp: could not end the sending half")
             end
@@ -352,7 +352,7 @@ local function create(): contract.Provider
             return {host = host, port = port} as shared.Address
         end,
 
-        noDelay = function(self: contract.Provider, stream: any, enable: boolean): (boolean, string?)
+        nodelay = function(self: contract.Provider, stream: any, enable: boolean): (boolean, string?)
             if C.nuppNativeNetStreamSetNoDelay(stream, enable and 1 or 0) ~= 0 then
                 return false, reason("nupp: could not set the delay option")
             end
@@ -360,13 +360,13 @@ local function create(): contract.Provider
             return true
         end,
 
-        keepAlive = function(
+        keepalive = function(
             self: contract.Provider,
             stream: any,
             enable: boolean,
-            delayMs: integer
+            delayms: integer
         ): (boolean, string?)
-            if C.nuppNativeNetStreamSetKeepAliveMs(stream, enable and 1 or 0, delayMs) ~= 0 then
+            if C.nuppNativeNetStreamSetKeepAliveMs(stream, enable and 1 or 0, delayms) ~= 0 then
                 return false, reason("nupp: could not set the keepalive option")
             end
 
@@ -381,7 +381,7 @@ local function create(): contract.Provider
             return true
         end,
 
-        multicastTtl = function(self: contract.Provider, socket: any, ttl: integer): (boolean, string?)
+        multicastttl = function(self: contract.Provider, socket: any, ttl: integer): (boolean, string?)
             if C.nuppNativeNetDatagramSetMulticastTtl(socket, ttl) ~= 0 then
                 return false, reason("nupp: could not set the multicast hop limit")
             end
@@ -389,7 +389,7 @@ local function create(): contract.Provider
             return true
         end,
 
-        multicastLoop = function(self: contract.Provider, socket: any, enable: boolean): (boolean, string?)
+        multicastloop = function(self: contract.Provider, socket: any, enable: boolean): (boolean, string?)
             if C.nuppNativeNetDatagramSetMulticastLoop(socket, enable and 1 or 0) ~= 0 then
                 return false, reason("nupp: could not set the multicast loop option")
             end
@@ -419,11 +419,11 @@ local function create(): contract.Provider
             return true
         end,
 
-        closeStream = function(self: contract.Provider, stream: any): nil
+        closestream = function(self: contract.Provider, stream: any): nil
             C.nuppNativeNetStreamRelease(stream)
         end,
 
-        bindDatagram = function(
+        binddatagram = function(
             self: contract.Provider,
             host: string,
             port: integer,
@@ -441,7 +441,7 @@ local function create(): contract.Provider
             return handle[0]
         end,
 
-        datagramPort = function(self: contract.Provider, socket: any): integer
+        datagramport = function(self: contract.Provider, socket: any): integer
             if C.nuppNativeNetDatagramPort(socket, portOutput) ~= 0 then
                 return -1
             end
@@ -471,7 +471,7 @@ local function create(): contract.Provider
             return ffiString(into, landed), host, port, scalar[0] ~= 0
         end,
 
-        sendTo = function(
+        sendto = function(
             self: contract.Provider,
             socket: any,
             host: string,
@@ -488,7 +488,7 @@ local function create(): contract.Provider
             return state[0] == DATAGRAM_SENT
         end,
 
-        closeDatagram = function(self: contract.Provider, socket: any): nil
+        closedatagram = function(self: contract.Provider, socket: any): nil
             C.nuppNativeNetDatagramRelease(socket)
         end,
 

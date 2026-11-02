@@ -1063,10 +1063,13 @@ return api.identity(5), shadow.submitted(7)
     end)
 end
 
-function M.acceptingWorkUsesTheExistingWorkerCallSurface()
+function M.canonicalWorkKeepsTheWorkerCallSurfaceAndRetiresFork()
     local surfaces = require("nupp.compiler.check.surfaces").COMPILER_SURFACES["nupp.tasks"].Scope
-    test.eq(surfaces.work, surfaces.fork, "the exact existing effect and rotation descriptor is shared")
-    for _, member in ipairs({"fork", "work"}) do
+    test.eq(surfaces.fork, nil, "the preceding public call surface is absent")
+    test.eq(surfaces.work.effect, "runtime.workers")
+    test.eq(surfaces.work.rotate, true)
+    test.eq(surfaces.work.sendableLast, true)
+    for _, member in ipairs({"work"}) do
         local source = (
             [[
 module acceptingwork
@@ -1122,6 +1125,15 @@ end
         )
         assert(capture ~= "" and capture:find("thread", 1, true), capture)
     end
+    local _, retired = compile(
+        [[
+local function stale(borrows scope: coroutine.Scope): nil
+    scope:fork(function(): integer return 1 end)
+end
+return stale
+]]
+    )
+    assert(retired:find("NUPP2004", 1, true), retired)
     local ordinary = run(
         [[
 local function ordinary(scope: {work: function(any, integer, string): integer}): integer

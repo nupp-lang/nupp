@@ -243,7 +243,7 @@ end
 ---     nupp task --list
 ---     nupp task --list app
 ---     nupp task serve --port 8080
-@cli(name = "task", stopAtFirstArgument = true)
+@cli(name = "task", stopatfirstargument = true)
 @derive(cliModule.command)
 local record Task
     --- List project tasks, or inspect NAME.
@@ -251,7 +251,7 @@ local record Task
     list: boolean = false
 
     --- Select the list representation.
-    @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", choices = {"text", "json"}, constantaliases = {json = "json", text = "text"})
     format: string?
 
     --- Print the JSON Schema of list output and exit.

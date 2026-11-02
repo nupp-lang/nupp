@@ -110,8 +110,9 @@ function M.nativeProcessProviderAcceptsCoherentStatuses()
     assert(wrote == 0 and gone)
 
     local exit = provider:poll({handle = 1})
-    assert(exit.exitCode == 7 and not exit.killed)
-    assert(provider:waitReady({child = {handle = 1}, read = {}, write = {},}, 20) == 1)
+    assert(exit.exitcode == 7 and not exit.killed)
+    assert(provider.waitReady == nil and provider.closeStream == nil)
+    assert(provider:waitready({child = {handle = 1}, read = {}, write = {},}, 20) == 1)
 end
 
 function M.nativeProcessProviderRejectsMalformedStatuses()
@@ -187,7 +188,7 @@ function M.nativeProcessProviderRejectsMalformedStatuses()
     values.readyCount = 2
     rejects(
         function()
-            provider:waitReady({child = {handle = 1}, read = {}, write = {},}, 20)
+            provider:waitready({child = {handle = 1}, read = {}, write = {},}, 20)
         end,
         "invalid readiness count"
     )

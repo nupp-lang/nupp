@@ -76,7 +76,7 @@ local M = {}
 function M.everyTopLevelNuppBenchmarkUsesTheHarness()
     local paths = {}
     for index, path in ipairs(assert(files.glob(HERE .. "/../bench/*.nupp"))) do
-        paths[index] = path:toString()
+        paths[index] = path:tostring()
     end
     table.sort(paths)
     testAssert.eq(#paths, 6, "all six top-level Nupp benchmarks are present")
@@ -213,8 +213,8 @@ function M.uncollectedTraceAbortsNeverLookComparable()
     local bench = require("debug.bench")
     local profile = {optLevel = 1, disabled = ""}
     local recorder = {id = "test-recorder"}
-    local current = {executionProfile = profile, traceProfile = recorder, cases = {{name = "x", abortSites = nil}},}
-    local baseline = {executionProfile = profile, traceProfile = recorder, cases = {{name = "x", abortSites = {}}},}
+    local current = {executionProfile = profile, traceProfile = recorder, cases = {{name = "x", abortsites = nil}},}
+    local baseline = {executionProfile = profile, traceProfile = recorder, cases = {{name = "x", abortsites = {}}},}
     local failures, uncompared = bench.compare(current, baseline)
     testAssert.eq(#failures, 0, "missing observations are not regressions")
     testAssert.eq(#uncompared, 1, "missing observations are reported as incomparable")
@@ -237,8 +237,8 @@ function M.formatsHumanResultsAsPerOperationScores()
     local bench = require("debug.bench")
     local rendered = bench.format({
         cases = {
-            {name = "parse", kind = "case", n = 4, rounds = 7, medianMs = 0.000004, allocatedKb = 0.5,},
-            {name = "frame", kind = "frames", frames = 60, p50Ms = 1.25, p99Ms = 2.5, p999Ms = 3.75, overBudget = 2,},
+            {name = "parse", kind = "case", n = 4, rounds = 7, medianms = 0.000004, allocatedkb = 0.5,},
+            {name = "frame", kind = "frames", frames = 60, p50ms = 1.25, p99ms = 2.5, p999ms = 3.75, overbudget = 2,},
         },
     })
     testAssert.eq(
@@ -269,12 +269,12 @@ function M.formatsSuiteAllocationAsBytesPerRepresentedOperation()
                 name = "copy.block",
                 kind = "suite",
                 rounds = 20,
-                medianMs = 0.001,
-                allocatedKb = 1.5,
+                medianms = 0.001,
+                allocatedkb = 1.5,
                 suite = "copy",
-                caseName = "block",
+                casename = "block",
                 variant = "base",
-                baselineVariant = "base",
+                baselinevariant = "base",
             },
         },
     })
@@ -294,10 +294,10 @@ function M.singleForkTableRefusesToCallItsSpreadAnInterval()
                 kind = "case",
                 n = 4,
                 rounds = 7,
-                medianMs = 0.000004,
-                p25Ms = 0.0000035,
-                p75Ms = 0.0000052,
-                p99Ms = 0.0000081,
+                medianms = 0.000004,
+                p25ms = 0.0000035,
+                p75ms = 0.0000052,
+                p99ms = 0.0000081,
             },
         },
     })
@@ -322,15 +322,15 @@ function M.replicatedTableReportsAttainedCoverage()
                     name = "map.lookup.table",
                     kind = "suite",
                     rounds = 40,
-                    forkCount = 10,
-                    medianMs = 0.000004,
+                    forkcount = 10,
+                    medianms = 0.000004,
                     suite = "map",
-                    caseName = "lookup",
+                    casename = "lookup",
                     variant = "table",
-                    baselineVariant = "table",
-                    intervalLowMs = 0.0000038,
-                    intervalHighMs = 0.0000043,
-                    intervalCoverage = 0.978515625,
+                    baselinevariant = "table",
+                    intervallowms = 0.0000038,
+                    intervalhighms = 0.0000043,
+                    intervalcoverage = 0.978515625,
                 },
             },
         },
@@ -354,13 +354,13 @@ function M.withheldIntervalIsNamedInTheTable()
                     name = "map.lookup.table",
                     kind = "suite",
                     rounds = 40,
-                    forkCount = 12,
-                    medianMs = 0.000004,
+                    forkcount = 12,
+                    medianms = 0.000004,
                     suite = "map",
-                    caseName = "lookup",
+                    casename = "lookup",
                     variant = "table",
-                    baselineVariant = "table",
-                    intervalWithheld = "trend-warning",
+                    baselinevariant = "table",
+                    intervalwithheld = "trend-warning",
                 },
             },
         },
@@ -377,66 +377,66 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 name = "map.lookup.table:size=100",
                 kind = "suite",
                 rounds = 20,
-                medianMs = 0.00002,
+                medianms = 0.00002,
                 suite = "map",
-                caseName = "lookup",
+                casename = "lookup",
                 variant = "table",
-                baselineVariant = "table",
+                baselinevariant = "table",
                 parameters = {size = 100},
             },
             {
                 name = "map.lookup.array:size=100",
                 kind = "suite",
                 rounds = 20,
-                medianMs = 0.00001,
+                medianms = 0.00001,
                 suite = "map",
-                caseName = "lookup",
+                casename = "lookup",
                 variant = "array",
-                baselineVariant = "table",
+                baselinevariant = "table",
                 parameters = {size = 100},
             },
             {
                 name = "map.lookup.table:size=200",
                 kind = "suite",
                 rounds = 20,
-                medianMs = 0.00008,
+                medianms = 0.00008,
                 suite = "map",
-                caseName = "lookup",
+                casename = "lookup",
                 variant = "table",
-                baselineVariant = "table",
+                baselinevariant = "table",
                 parameters = {size = 200},
             },
             {
                 name = "map.lookup.array:size=200",
                 kind = "suite",
                 rounds = 20,
-                medianMs = 0.00002,
+                medianms = 0.00002,
                 suite = "map",
-                caseName = "lookup",
+                casename = "lookup",
                 variant = "array",
-                baselineVariant = "table",
+                baselinevariant = "table",
                 parameters = {size = 200},
             },
             {
                 name = "map.insert.table:size=100",
                 kind = "suite",
                 rounds = 20,
-                medianMs = 0.00003,
+                medianms = 0.00003,
                 suite = "map",
-                caseName = "insert",
+                casename = "insert",
                 variant = "table",
-                baselineVariant = "table",
+                baselinevariant = "table",
                 parameters = {size = 100},
             },
             {
                 name = "map.insert.array:size=100",
                 kind = "suite",
                 rounds = 20,
-                medianMs = 0.00006,
+                medianms = 0.00006,
                 suite = "map",
-                caseName = "insert",
+                casename = "insert",
                 variant = "array",
-                baselineVariant = "table",
+                baselinevariant = "table",
                 parameters = {size = 100},
             },
         },
@@ -452,7 +452,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
         "each workload names its winner against the runner-up\n" .. rendered
     )
     assert(rendered:find("Geometric mean", 1, true) == nil, "geometric means are opt-in\n" .. rendered)
-    local geometric = bench.format(record, {geometricMean = true})
+    local geometric = bench.format(record, {geometricmean = true})
     assert(
         geometric:find("Geometric mean: map %(vs table%)") ~= nil and geometric:find("array%s+1%.189x") ~= nil,
         "the summary weights parameter expansions within their logical case\n" .. geometric
@@ -995,7 +995,7 @@ end
 -- version reads.
 function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
     local bench = require("debug.bench")
-    testAssert.eq(bench.SCHEMA, 4, "records are written at schema 4")
+    testAssert.eq(bench.schema, 4, "records are written at schema 4")
     for _, schema in ipairs({2, 3, 4}) do
         local document, refused = bench.decodebaseline(('{"schema":%d,"cases":[]}'):format(schema), "b.json")
         assert(document ~= nil and refused == nil, "schema " .. schema .. " reads as a baseline")
@@ -1013,6 +1013,96 @@ function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
         testAssert.eq(document, nil, text .. " was read as a baseline")
         assert(refused ~= nil and refused:find(expected, 1, true) ~= nil, tostring(refused))
     end
+end
+
+function M.finalBenchNamesRetireTheOldPublicKeys()
+    local bench = require("debug.bench")
+    testAssert.eq(bench.schema, 4)
+    testAssert.eq(bench.oldestbaselineschema, 2)
+    testAssert.eq(rawget(bench, "SCHEMA"), nil)
+    testAssert.eq(rawget(bench, "OLDEST_BASELINE_SCHEMA"), nil)
+    compile(
+        [[
+local bench = debug.bench
+local measurement = new bench.Measurement(name = "x", kind = "case", medianms = 1.25, samplesms = {1.25})
+local options: debug.bench.SuiteOptions = {
+    name = "x", variants = {}, cases = {}, baselinevariant = "base",
+    warmupiterations = 1, sampleiterations = 2, minsamples = 3,
+    mindurationms = 4, maxsamples = 5, maxdurationms = 6
+}
+local format: debug.bench.FormatOptions = {geometricmean = true}
+local frames = bench.frames("typed-only", budgetms = 16, count = 1)
+bench.keep(measurement.medianms)
+bench.keep(frames.budgetms)
+bench.keep(options.sampleiterations)
+bench.keep(format.geometricmean)
+]]
+    )
+end
+
+function M.schema4AdaptersTranslateOnlyMeasurementSlots()
+    local recordio = require("nupp.bench.internal.record")
+    local bench = require("debug.bench")
+    local codec = require("serde.json")
+    local payload = {medianMs = "user value", samplesMs = {9, 8}, caseName = "user case"}
+    local measurement = {
+        name = "x",
+        kind = "suite",
+        medianMs = 1.25,
+        samplesMs = {1, 2},
+        allocatedKb = 0.5,
+        caseName = "case",
+        operationsPerInvocation = 7,
+        intervalLowMs = 1,
+        intervalHighMs = 2,
+        intervalCoverage = 0.98,
+        parameters = payload,
+        extension = payload
+    }
+    local wire = {
+        schema = 4,
+        cases = {measurement},
+        metadata = payload,
+        benchmarks = {{summary = measurement, forks = {{measurement = measurement}}}},
+        comparisons = {{baseline = {cases = {measurement}}}}
+    }
+    local public = recordio.read(wire)
+    testAssert.eq(public.cases[1].medianms, 1.25, "milliseconds retain their units")
+    testAssert.eq(public.cases[1].operationsperinvocation, 7)
+    testAssert.eq(public.cases[1].medianMs, nil, "the old key is not a public alias")
+    testAssert.eq(public.benchmarks[1].summary.samplesms[2], 2)
+    testAssert.eq(public.benchmarks[1].forks[1].measurement.casename, "case")
+    testAssert.eq(public.comparisons[1].baseline.cases[1].allocatedkb, 0.5)
+    assert(public.cases[1].parameters == payload and public.metadata == payload)
+    assert(public.cases[1].extension == payload, "unknown payloads are not recursively renamed")
+    testAssert.eq(payload.medianMs, "user value", "input objects are not mutated")
+    testAssert.deepeq(recordio.write(public), wire, "schema4 keeps its original keys")
+    local decoded = assert(bench.decodebaseline(json.encode(wire), "schema4.json"))
+    testAssert.eq(decoded.cases[1].medianms, 1.25)
+    testAssert.eq(decoded.cases[1].medianMs, nil)
+    testAssert.deepeq(recordio.write(decoded), codec.decodevalue(json.encode(wire)))
+    for schema = 2, 3 do
+        local legacy = {schema = schema, cases = {{name = "x", medianSec = 2}}}
+        local accepted = assert(bench.decodebaseline(json.encode(legacy), "old.json"))
+        testAssert.eq(accepted.cases[1].medianms, nil, "older seconds are not relabeled milliseconds")
+        testAssert.eq(accepted.cases[1].medianSec, 2)
+    end
+end
+
+function M.schema4AdapterPreservesEmptyArraysAndMissingObservations()
+    local recordio = require("nupp.bench.internal.record")
+    local serde = require("serde.json")
+    local wire = serde.decodevalue('{"schema":4,"cases":[],"benchmarks":[],"comparisons":[]}')
+    local public = recordio.read(wire)
+    assert(serde.isarray(public.cases) and serde.isarray(public.benchmarks) and serde.isarray(public.comparisons))
+    local encoded = serde.encodevalue(recordio.write(public))
+    local back = serde.decodevalue(encoded)
+    assert(serde.isarray(back.cases) and serde.isarray(back.benchmarks) and serde.isarray(back.comparisons))
+    local absent = recordio.read({schema = 4, cases = {{name = "x"}}})
+    testAssert.eq(absent.cases[1].abortsites, nil, "unobserved is distinct from an empty observation")
+    testAssert.eq(recordio.write(absent).cases[1].abortSites, nil)
+    local odd = {schema = 4, cases = {7}, benchmarks = {false, 9}, comparisons = {3}}
+    testAssert.deepeq(recordio.write(recordio.read(odd)), odd, "the adapter does not add schema validation")
 end
 
 return M

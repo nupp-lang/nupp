@@ -459,7 +459,12 @@ function M.theFusedDecoderDecodesEveryCorpusDocumentAsLunajsonDoes()
         theirs, theirError = decodedBy(lunajson, text, true)
         assert(
             mine == theirs,
-            string.format("%s decodes to %s without nulls but lunajson says %s", show(text), tostring(mine or myError), tostring(theirs or theirError))
+            string.format(
+                "%s decodes to %s without nulls but lunajson says %s",
+                show(text),
+                tostring(mine or myError),
+                tostring(theirs or theirError)
+            )
         )
         checked = checked + 1
     end
@@ -517,7 +522,7 @@ function M.compiledPullAndSerdeRefuseRepeatedMemberNames()
         {'{"a":1,"b":2,"b":3}', {a = true}, 14},
         {'{"a":{"x":1,"x":2}}', {b = true}, 13},
         {'{"a":null,"a":1}', {a = true}, 11},
-        {'[{"a":1,"a":1}]', fused.arrayOf({a = true}), 9},
+        {'[{"a":1,"a":1}]', fused.arrayof({a = true}), 9},
     }
     for _, row in ipairs(pulled) do
         local ok, problem = pcall(fused.pull, row[1], row[2])
@@ -536,16 +541,13 @@ function M.compiledPullAndSerdeRefuseRepeatedMemberNames()
         },
     }
     for _, unknown in ipairs({"reject", "ignore"}) do
-        local schema = fused.compileSerde(plan, unknown)
-        local decoded = {
-            {'{"id":1,"id":2}', 9},
-            {'{"id":1,"name":null,"name":"b"}', 21},
-        }
+        local schema = fused.compileserde(plan, unknown)
+        local decoded = {{'{"id":1,"id":2}', 9}, {'{"id":1,"name":null,"name":"b"}', 21},}
         if unknown == "ignore" then
             decoded[#decoded + 1] = {'{"id":1,"other":2,"other":3}', 19}
         end
         for _, row in ipairs(decoded) do
-            local ok, value, problem = pcall(fused.decodeSerde, schema, row[1])
+            local ok, value, problem = pcall(fused.decodeserde, schema, row[1])
             local message = not ok and tostring(value) or tostring(problem)
             assert(not ok or value == nil, show(row[1]) .. " was decoded")
             assert(

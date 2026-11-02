@@ -381,7 +381,7 @@ function M.everyPublicCommandHelpHasExamples()
 
     local function visit(subject, prefix)
         for _, child in ipairs(subject.subcommands and subject.subcommands() or {}) do
-            local path = prefix == "" and child.cliName() or prefix .. " " .. child.cliName()
+            local path = prefix == "" and child.cliname() or prefix .. " " .. child.cliname()
             requireExamples(path .. " --help", "nupp " .. path)
             visit(child, path)
         end
@@ -1408,7 +1408,7 @@ function M.aChildForkingOnItsOwnScopeChecksInAProject()
                 "    with scope = coroutine.scope(limit = 4) do",
                 "        for name, path in pairs(paths) do",
                 "            scope:spawn(function(): nil",
-                "                const size = scope:fork(name, path, jobs.compress):await()",
+                "                const size = scope:work(name, path, jobs.compress):await()",
                 "                sum = sum + size",
                 "            end)",
                 "        end",
@@ -1422,7 +1422,7 @@ function M.aChildForkingOnItsOwnScopeChecksInAProject()
                 "        for _, mirror in ipairs(mirrors) do",
                 "            if winner ~= nil then break end",
                 "            scope:spawn(function(): nil",
-                "                const answer = scope:fork(mirror, jobs.probe):await()",
+                "                const answer = scope:work(mirror, jobs.probe):await()",
                 "                if answer ~= nil and winner == nil then",
                 "                    winner = answer",
                 "                    scope:cancel(\"a mirror answered\")",

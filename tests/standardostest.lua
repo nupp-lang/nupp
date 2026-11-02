@@ -35,7 +35,7 @@ function M.preservesTheHostTableAndQueriesParallelismPerCall()
                     return count
                 end,
             },
-            ["nupp.runtime.clocks"] = {selected = {now = monotonic, wallTime = walltime}},
+            ["nupp.runtime.clocks"] = {selected = {now = monotonic, walltime = walltime}},
             ["nupp.util.internal.uuid"] = {uuid4 = uuid4, uuid7 = uuid7},
             ["nupp.runtime.entropy"] = {randombytes = randombytes},
         },

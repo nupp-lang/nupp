@@ -218,7 +218,7 @@ local record Decoder is contract.Decoder
         ) as integer, tonumber(self.written[0]) as integer, tonumber(self.status[0]) as integer
     end
 
-    function finishInput(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
+    function finishinput(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
         local code = decoderFinishInput(self.handle, output:ref(), #output, self.written, self.status)
         if code ~= 0 then
             return nil, nil, failure("compression decode failed")
@@ -232,7 +232,7 @@ local record Format is contract.Format
     @readonly name: string
     @private id: integer
 
-    function createEncoder(self, options: contract.FormatOptions?): contract.Encoder
+    function createencoder(self, options: contract.FormatOptions?): contract.Encoder
         local level = options ~= nil and options.level or 6
         local handle = native.ffi.new("uint64_t[1]")
         native.succeeded(C.nuppNativeCompressionEncoderCreate(self.id, level, handle), 2)
@@ -244,8 +244,8 @@ local record Format is contract.Format
         )
     end
 
-    function createDecoder(self, options: contract.FormatOptions?): contract.Decoder
-        local concatenatedMembers = self.name == "gzip" and (options == nil or options.concatenatedMembers ~= false)
+    function createdecoder(self, options: contract.FormatOptions?): contract.Decoder
+        local concatenatedMembers = self.name == "gzip" and (options == nil or options.concatenatedmembers ~= false)
         local handle = native.ffi.new("uint64_t[1]")
         native.succeeded(C.nuppNativeCompressionDecoderCreate(self.id, concatenatedMembers and 1 or 0, handle), 2)
 

@@ -26,6 +26,13 @@ local browserGpuEnv = envMod.new(HERE .. "/..", {
 
 local M = {}
 
+function M.gpuLayoutUsesOnlyCanonicalMethodKeys()
+    local layout = require("gpu.layout")
+    local rows = layout.new({2, 2}, {2, 1})
+    assert(rows:isdense() and rows:isinjective())
+    assert(rows.isDense == nil and rows.isInjective == nil)
+end
+
 function M.privateSymbolsPreserveDistinctSourceNames()
     assert(
         scalarIR.privateSymbol("fooBar") ~= scalarIR.privateSymbol("foo_bar"),
@@ -594,10 +601,10 @@ local dimensions = row:dimensions()
 local strides = row:strides()
 assert(row.count == 8 and bytes == nil and dimensions[1] == 1 and dimensions[2] == 8)
 assert(strides[1] == 8 and strides[2] == 1)
-assert(row:isDense() and row:isInjective())
-assert(not columns:isDense() and columns:isInjective())
-assert(not repeated:isDense() and not repeated:isInjective())
-assert(not gapped:isDense() and gapped:isInjective())
+assert(row:isdense() and row:isinjective())
+assert(not columns:isdense() and columns:isinjective())
+assert(not repeated:isdense() and not repeated:isinjective())
+assert(not gapped:isdense() and gapped:isinjective())
 return true
 ]],
         "",

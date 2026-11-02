@@ -450,7 +450,7 @@ end
 ---     nupp test clitest doctest
 ---     nupp test --group=docs --json
 ---     nupp test --coverage clitest
-@cli(name = "test", preserveUnknown = true)
+@cli(name = "test", preserveunknown = true)
 @derive(cliModule.command)
 local record Test
     --- Run against a separately instrumented build.

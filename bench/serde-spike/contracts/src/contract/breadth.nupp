@@ -39,20 +39,20 @@ local function bindingCases(name, binding, input, policy)
     end)
     task(name .. "/buffer", function()
         buffer:reset()
-        codec:encodeInto(binding, value, buffer)
+        codec:encodeinto(binding, value, buffer)
         return #buffer
     end)
     task(name .. "/fresh-buffer", function()
         local fresh = text.newbuffer()
-        codec:encodeInto(binding, value, fresh)
+        codec:encodeinto(binding, value, fresh)
         return fresh
     end)
     task(name .. "/embedded", function()
         buffer:reset()
         local sink = syntax.newwriter(buffer)
-        sink:startArray()
-        codec:writeValue(binding, value, sink)
-        sink:endArray()
+        sink:startarray()
+        codec:writevalue(binding, value, sink)
+        sink:endarray()
         sink:close()
 
         return #buffer
@@ -74,7 +74,7 @@ task("document/typed-view-create", function()
     return views.view(nominal, value)
 end)
 task("document/typed-view-encode", function()
-    return codec:encodeDocument(viewAdapter, view)
+    return codec:encodedocument(viewAdapter, view)
 end)
 task("document/typed-snapshot", function()
     return view:snapshot()
@@ -173,7 +173,7 @@ local smithyFields = {
         function(exclusive state: StringBuilder, value: boolean): nil
             state.active = value
         end,
-        scalar.boolean(activeMember),
+        scalar.bool(activeMember),
         true,
         false
     ),
@@ -200,7 +200,7 @@ local record Escaped
 end
 local escaped = serde.binding(
     Escaped,
-    new serde.Options(fields = {name = new serde.FieldOptions(name = 'a"b')}, unknownMembers = "ignore")
+    new serde.Options(fields = {name = new serde.FieldOptions(name = 'a"b')}, unknownmembers = "ignore")
 )
 bindingCases("matching/escaped-unknown", escaped, '{"unknown":{"nested":[1,null,{"x":false}]},"a\\\"b":"value"}')
 local record Event
@@ -208,7 +208,7 @@ local record Event
 end
 local hook = serde.binding(
     Event,
-    new serde.Options(fields = {createdAt = new serde.FieldOptions(representation = serde.iso8601Seconds)})
+    new serde.Options(fields = {createdAt = new serde.FieldOptions(representation = serde.iso8601seconds)})
 )
 bindingCases("hook/timestamp", hook, '{"createdAt":"1970-01-01T00:00:02Z"}')
 local documentAdapter = docs.adapter()
@@ -218,12 +218,12 @@ local rich = docs.tuple({
     docs.bytes(string.rep("blob", 16384))
 })
 local richCodec = json.codec(epoch)
-local richBytes = richCodec:encodeDocument(documentAdapter, rich)
+local richBytes = richCodec:encodedocument(documentAdapter, rich)
 task("rich/blob-exact-encode", function()
-    return richCodec:encodeDocument(documentAdapter, rich)
+    return richCodec:encodedocument(documentAdapter, rich)
 end)
 task("rich/json-contents-decode", function()
-    return richCodec:decodeDocument(documentAdapter, richBytes)
+    return richCodec:decodedocument(documentAdapter, richBytes)
 end)
 bindingCases(
     "large-string",
@@ -233,24 +233,24 @@ bindingCases(
 local richContents = documentAdapter:contents()
 local richBuffer = text.newbuffer()
 local richCanonical = richCodec:encode(richContents, rich)
-richCodec:encodeInto(richContents, rich, richBuffer)
+richCodec:encodeinto(richContents, rich, richBuffer)
 assert2(richBuffer:tostring() == richCanonical)
 task("rich/blob-buffer", function()
     richBuffer:reset()
-    richCodec:encodeInto(richContents, rich, richBuffer)
+    richCodec:encodeinto(richContents, rich, richBuffer)
     return #richBuffer
 end)
 task("rich/blob-fresh-buffer", function()
     local fresh = text.newbuffer()
-    richCodec:encodeInto(richContents, rich, fresh)
+    richCodec:encodeinto(richContents, rich, fresh)
     return fresh
 end)
 task("rich/blob-embedded", function()
     richBuffer:reset()
     local sink = syntax.newwriter(richBuffer)
-    sink:startArray()
-    richCodec:writeValue(richContents, rich, sink)
-    sink:endArray()
+    sink:startarray()
+    richCodec:writevalue(richContents, rich, sink)
+    sink:endarray()
     sink:close()
 
     return #richBuffer
@@ -261,8 +261,8 @@ for index = 1, 64 do
     local binding = model.binding(model.newModel())
     local item = bounded:decode(binding, source)
     assert2(bounded:encode(binding, item) ~= "")
-    assert2(bounded:cachedBindings() <= 8)
+    assert2(bounded:cachedbindings() <= 8)
 end
 bounded:clear()
-assert2(bounded:cachedBindings() == 0)
+assert2(bounded:cachedbindings() == 0)
 export = cases

@@ -623,7 +623,7 @@ function M.computedTypesExpandIntoCallablePacks()
                 "   local info = types.describe(F)",
                 "   if info.kind ~= 'literal' then return types.pack({}, types.any) end",
                 "   if info.value == 'pair' then return types.pack({types.string, types.number}) end",
-                "   if info.value == 'one' then return types.pack({types.boolean}) end",
+                "   if info.value == 'one' then return types.pack({types.bool}) end",
                 "   if info.value == 'many' then return types.pack({}, types.integer) end",
                 "   return types.pack({}, types.any)",
                 "end",
@@ -2627,7 +2627,7 @@ local value: simd.Vector<float, simd.Fixed<4>> = nil as any
 local prefix: simd.Vector<float, simd.Fixed<4>> = value:NAME()
 return prefix
 ]]
-    clean((source:gsub("NAME", "orderedPrefixSum")))
+    clean((source:gsub("NAME", "orderedprefixsum")))
     testAssert.eq(codes((source:gsub("NAME", "prefixSumOrdered"))), "NUPP2004")
 end
 
@@ -2795,7 +2795,7 @@ function M.computedConstraintsKeepExactIntegerBounds()
     end
 
     testAssert.eq(codes(generated("range", "integer")), "NUPP2415")
-    testAssert.eq(codes(generated("length", "string")), "NUPP2415")
+    testAssert.eq(codes(generated("len", "string")), "NUPP2415")
 end
 
 -- `pairs` takes a read-only indexer, and an array and a record shape both satisfy
@@ -2937,7 +2937,7 @@ end
 -- itself where a union is expected rather than widened to its base first. `is`
 -- narrowing a base-typed value is the shape that asks: `Short` reaching `Short?`.
 function M.aConstrainedTypeReachesAUnionAsItself()
-    local alias = "local type Short = types.length(string, 1, 4)\n"
+    local alias = "local type Short = types.len(string, 1, 4)\n"
     clean(
         alias .. table.concat(
             {
@@ -3259,7 +3259,7 @@ local value: types.formatarguments("%d")
     )
 end
 
-function M.acceptingTypeNamesWorkInRealTypePositions()
+function M.canonicalTypeNamesWorkInRealTypePositions()
     clean(
         [[
 @comptime local function Bool(): type return types.bool end
@@ -3269,57 +3269,80 @@ function M.acceptingTypeNamesWorkInRealTypePositions()
     return types.functiontype(types.pack({types.string}), types.pack({types.bool, types.niltype}))
 end
 local type Short = types.len(string, 1, 4)
-local type PrecedingShort = types.length(string, 1, 4)
 local flag: Bool() = true
 local nothing: Nil() = nil
 local object: Table() = {}
 local word: Short = "word"
-local preceding: PrecedingShort = word
 local predicate: Callable() = function(value: string): (boolean, nil) return value ~= "", nil end
-return flag, nothing, object, preceding, predicate
+return flag, nothing, object, word, predicate
 ]]
     )
     testAssert.eq(codes('local type Bad = types.len(string, 4, 1)'), "NUPP2422")
+    assert(
+        codes('local type Bad = types.length(string, 1, 4)') ~= "",
+        "the preceding constrained type builder is retired"
+    )
 end
 
-function M.acceptingMetadataKeysAreDeclaredWithoutDroppingPrecedingKeys()
+function M.canonicalMetadataKeysAreDeclaredAndPrecedingKeysAreRefused()
     clean(
         [[
 @comptime local function Recipe(info: types.derive.Info, field: types.derive.Field): string
-    assert(info.qualifiedname == info.qualifiedName)
-    assert(info.provideridentity == info.providerIdentity and info.owneridentity == info.ownerIdentity)
-    assert(info.ownertype == info.ownerType and info.interfacetype == info.interfaceType)
-    assert(info.hasconstructor == info.hasConstructor)
-    assert(field.readtype == field.readType and field.writetype == field.writeType)
-    assert(field.hasdefault == field.hasDefault and field.defaultvalue == field.defaultValue)
+    local a, b, c = info.provideridentity, info.owneridentity, info.hasconstructor
+    local d, e = info.ownertype, info.interfacetype
+    local f, g, h, i = field.readtype, field.writetype, field.hasdefault, field.defaultvalue
     return info.qualifiedname
 end
 @comptime local function Reflected(info: types.reflect.Info, field: types.reflect.Field, edge: types.reflect.Entry, node: types.reflect.Node): string
-    assert(info.qualifiedname == info.qualifiedName and field.typename == field.typeName)
-    assert(field.hasdefault == field.hasDefault and field.defaultvalue == field.defaultValue)
-    assert(edge.hasdefault == edge.hasDefault and edge.defaultvalue == edge.defaultValue)
-    assert(node.staticfields == node.staticFields and node.nestedtypes == node.nestedTypes)
-    assert(node.associatedtypes == node.associatedTypes and node.typeparameters == node.typeParameters)
-    assert(node.typebounds == node.typeBounds and node.packparameters == node.packParameters)
-    assert(node.constparameters == node.constParameters and node.parameterkinds == node.parameterKinds)
-    assert(node.typearguments == node.typeArguments and node.packarguments == node.packArguments)
-    assert(node.constarguments == node.constArguments and node.noreturn == node.noReturn and node.noyield == node.noYield)
+    local a, b, c = field.typename, field.hasdefault, field.defaultvalue
+    local d, e = edge.hasdefault, edge.defaultvalue
+    local f, g, h = node.staticfields, node.nestedtypes, node.associatedtypes
+    local i, j, k = node.typeparameters, node.typebounds, node.packparameters
+    local l, m, n = node.constparameters, node.parameterkinds, node.typearguments
+    local o, p, q, r = node.packarguments, node.constarguments, node.noreturn, node.noyield
+    local s, t, u = node.modulename, node.derivekey, node.arrayof
+    local v, w, x = node.varargtype, node.borrowedfrom, node.borrowedfrommany
+    local y, z = node.borrowedresult, node.parameterpack
+    local aa, ab, ac = node.returnpack, node.yieldpack, node.resumepack
+    local ad, ae, af, ag = node.startpack, node.resultkind, node.transferonly, node.countterm
+    local ah, ai, aj, ak = node.readkey, node.readvalue, node.writekey, node.writevalue
     return info.qualifiedname
 end
 @comptime local function Described(T: type): type
     local info = types.describe(T)
-    assert(info.sourcekind == info.sourceKind and info.declarationkind == info.declarationKind)
-    assert(info.readkey == info.readKey and info.readvalue == info.readValue)
-    assert(info.writekey == info.writeKey and info.writevalue == info.writeValue)
+    local a, b = info.sourcekind, info.declarationkind
+    local c, d, e, f = info.readkey, info.readvalue, info.writekey, info.writevalue
     return T
 end
 local value: Described(string) = "checked"
 return value
 ]]
     )
+    for _, reference in ipairs({"info.qualifiedName", "field.readType", "field.hasDefault"}) do
+        assert(
+            codes(
+                "@comptime local function Bad(info: types.derive.Info, field: types.derive.Field): any return "
+                .. reference
+                .. " end"
+            ) ~= "",
+            reference .. " is retired"
+        )
+    end
+    -- Node keeps its readonly string indexer for extension metadata. Its actual
+    -- output keys are checked by reflectionnamestest rather than typed refusal.
+    for _, reference in ipairs({"info.qualifiedName", "field.typeName"}) do
+        assert(
+            codes(
+                "@comptime local function Bad(info: types.reflect.Info, field: types.reflect.Field, node: types.reflect.Node): any return "
+                .. reference
+                .. " end"
+            ) ~= "",
+            reference .. " is retired"
+        )
+    end
 end
 
-function M.acceptingAliasMemberKeepsItsExclusiveCallbackContract()
+function M.canonicalAliasMemberKeepsItsExclusiveCallbackContract()
     clean(
         [[
 local record Value
@@ -3327,9 +3350,19 @@ local record Value
 end
 local function inspect(handle: alias(Value)): nil
     handle:withexclusive(function(exclusive value: Value): integer return value.count end)
+end
+]]
+    )
+    assert(
+        codes(
+            [[
+local record Value count: integer end
+local function inspect(handle: alias(Value)): nil
     handle:withExclusive(function(exclusive value: Value): integer return value.count end)
 end
 ]]
+        ) ~= "",
+        "the preceding alias callback member is retired"
     )
 end
 

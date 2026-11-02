@@ -173,7 +173,7 @@ record tls.Session is Reader, Writer
     --- False once this session is released: closing frees the native session,
     --- so the question has to be answered from this record's own state rather
     --- than asked of memory that has been given back.
-    function isConnected(self): boolean
+    function isconnected(self): boolean
         if self._closed then
             return false
         end
@@ -182,17 +182,17 @@ record tls.Session is Reader, Writer
     end
 
     --- Whether the handshake has finished.
-    function isReady(self): boolean
+    function isready(self): boolean
         return self._ready
     end
 
     --- Whether this session has been released.
-    function isReleased(self): boolean
+    function isreleased(self): boolean
         return self._closed
     end
 
     --- Whether the peer closed its sending half.
-    function isEnded(self): boolean
+    function isended(self): boolean
         return self._ended
     end
 
@@ -215,7 +215,7 @@ record tls.Session is Reader, Writer
     ---
     --- Answered after the handshake and not before, because before it there is
     --- no certificate to have an opinion about.
-    function isVerified(self): boolean
+    function isverified(self): boolean
         if self._closed or not self._ready then
             return false
         end
@@ -229,7 +229,7 @@ record tls.Session is Reader, Writer
     --- Servers return false. The server-side store is deliberately opaque: a
     --- client can use this answer to observe its cache, while accepting a
     --- session does not change what a server application may do with it.
-    function isResumed(self): boolean
+    function isresumed(self): boolean
         if self._closed or not self._ready then
             return false
         end
@@ -275,7 +275,7 @@ record tls.Session is Reader, Writer
         if self._closed then
             return false, io.toError("the session is closed")
         end
-        if not self:isConnected() then
+        if not self:isconnected() then
             return false, io.toError("the connection underneath was closed first")
         end
         if self._ready then
@@ -358,7 +358,7 @@ record tls.Session is Reader, Writer
 
     --- Reads directly into a checked writable span. A zero answer is the end.
     --- @raises string when the destination is empty
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         const wanted = positive(#destination, "tls.Session readSpan destination length", 2)
         const chunk, why = self:read(wanted)
         if chunk == nil then
@@ -374,7 +374,7 @@ record tls.Session is Reader, Writer
 
     --- Reads into a buffer. A zero answer is the end.
     --- @raises string when count is not a positive integer
-    function readInto(
+    function readinto(
         exclusive self,
         exclusive destination: Buffer,
         offset: integer?,
@@ -388,7 +388,7 @@ record tls.Session is Reader, Writer
         const landed = #chunk as integer
         if landed > 0 then
             const input = span.fromstring(chunk)
-            const lease = destination:reserveWrite(offset or 0, landed)
+            const lease = destination:reservewrite(offset or 0, landed)
             do
                 const output = lease:span()
                 for index = 1, landed do
@@ -403,7 +403,7 @@ record tls.Session is Reader, Writer
     end
 
     --- Writes everything left to a writer.
-    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
+    function transferto(exclusive self, exclusive destination: Writer): (integer?, string?)
         local moved: integer = 0
         while true do
             const chunk, why = self:read(READ_SIZE)
@@ -430,7 +430,7 @@ record tls.Session is Reader, Writer
         if self._closed then
             return false, "the session is closed"
         end
-        if not self:isConnected() then
+        if not self:isconnected() then
             return false, "the connection underneath was closed first"
         end
         if not self._ready then
@@ -473,7 +473,7 @@ record tls.Session is Reader, Writer
     end
 
     --- Appends bytes from a checked shared span.
-    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
         const bytes = spanStringValue(source:ref(), #source)
         const wrote, why = self:write(bytes)
         if not wrote then
@@ -493,7 +493,7 @@ record tls.Session is Reader, Writer
         if self._closed then
             return false, "the session is closed"
         end
-        if not self:isConnected() then
+        if not self:isconnected() then
             return false, "the connection underneath was closed first"
         end
 
@@ -527,7 +527,7 @@ record tls.Session is Reader, Writer
         if self._closed then
             return
         end
-        if self._ready and self:isConnected() then
+        if self._ready and self:isconnected() then
             -- The records already written go first, then the alert that says
             -- this side is finished, and both are waited for. Submitting the
             -- alert and returning would let the connection be released with it
@@ -537,7 +537,7 @@ record tls.Session is Reader, Writer
             -- answers once they are out or once the drain's time is spent.
             const chosen, session = self._provider, self._session
             await("nupp.io.tls close", function(): boolean
-                const sent, why = chosen:closeNotify(session)
+                const sent, why = chosen:closenotify(session)
 
                 return sent or why ~= nil
             end)
@@ -598,7 +598,7 @@ function tls.server(takes stream: net.Stream, options: tls.ServerOptions): (affi
         true,
         "",
         options.certificate,
-        options.privateKey,
+        options.privatekey,
         nil,
         protocols,
         false

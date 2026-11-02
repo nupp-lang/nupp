@@ -34,7 +34,7 @@ export record Input<M is core.Member> is core.Reader<M>
         return self.sourceContext
     end
 
-    function isNull(self): boolean
+    function isnull(self): boolean
         self:live()
         return self.mapKey == nil and self.cursor:peek() == "null"
     end
@@ -52,7 +52,7 @@ export record Input<M is core.Member> is core.Reader<M>
         return key
     end
 
-    function readNull(exclusive self, member: M): nil
+    function readnull(exclusive self, member: M): nil
         self:live()
         if not self.plan.description.nullable and self.plan.description.kind ~= "null" then
             error("binding does not admit null", 2)
@@ -63,7 +63,7 @@ export record Input<M is core.Member> is core.Reader<M>
         self.cursor:readNull()
     end
 
-    function readBoolean(exclusive self, member: M): boolean
+    function readbool(exclusive self, member: M): boolean
         local key = self:key()
         if key ~= nil then
             if key == "true" then
@@ -77,12 +77,12 @@ export record Input<M is core.Member> is core.Reader<M>
         return self.cursor:readBoolean()
     end
 
-    function readInteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
+    function readinteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
         local key = self:key()
         return numbers.integer(key or self.cursor:readNumber(), width, signed)
     end
 
-    function readFloat(exclusive self, member: M, width: 32 | 64): number
+    function readfloat(exclusive self, member: M, width: 32 | 64): number
         self:live()
         if self.mapKey ~= nil then
             error("JSON map key cannot be a float", 2)
@@ -95,7 +95,7 @@ export record Input<M is core.Member> is core.Reader<M>
         return numbers.floating(value, width)
     end
 
-    function readBigInteger(exclusive self, member: M): string
+    function readbiginteger(exclusive self, member: M): string
         self:live()
         local value = self.cursor:readNumber()
         if not value:match("^%-?%d+$") then
@@ -105,7 +105,7 @@ export record Input<M is core.Member> is core.Reader<M>
         return value
     end
 
-    function readDecimal(exclusive self, member: M): core.Decimal
+    function readdecimal(exclusive self, member: M): core.Decimal
         self:live()
         local token = self.cursor:readNumber()
         local mantissa, exponent = token:match("^(.-)[eE]([+-]?%d+)$")
@@ -135,17 +135,17 @@ export record Input<M is core.Member> is core.Reader<M>
         return new core.Decimal(coefficient = mantissa, exponent = scale)
     end
 
-    function readNumberToken(exclusive self, member: M): string
+    function readnumbertoken(exclusive self, member: M): string
         self:live()
         return self.cursor:readNumber()
     end
 
-    function readString(exclusive self, member: M): string
+    function readstring(exclusive self, member: M): string
         local key = self:key()
         return key or self.cursor:readString()
     end
 
-    function readBytes(exclusive self, member: M): string
+    function readbytes(exclusive self, member: M): string
         self:live()
         local value, problem = base64.decode(self.cursor:readString())
         if value == nil then
@@ -155,28 +155,28 @@ export record Input<M is core.Member> is core.Reader<M>
         return value
     end
 
-    function readTimestamp(exclusive self, member: M): core.Timestamp
+    function readtimestamp(exclusive self, member: M): core.Timestamp
         self:live()
         local kind = self.cursor:peek()
         if kind == "string" then
-            return self.policy:parseTimestamp(member, self.cursor:readString(), "string")
+            return self.policy:parsetimestamp(member, self.cursor:readString(), "string")
         elseif kind == "number" then
-            return self.policy:parseTimestamp(member, self.cursor:readNumber(), "number")
+            return self.policy:parsetimestamp(member, self.cursor:readNumber(), "number")
         else
             error("expected a timestamp", 2)
         end
     end
 
-    function readAtom(exclusive self, member: M): core.Atom
+    function readatom(exclusive self, member: M): core.Atom
         self:live()
         error("JSON atom requires a model conversion", 2)
     end
 
-    function readDocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
+    function readdocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
         self:live()
         local mark = self.cursor:mark()
         local reader = documents.contents(self.cursor, self.sourceContext)
-        local ok, result = pcall(adapter.readContents, adapter, reader)
+        local ok, result = pcall(adapter.readcontents, adapter, reader)
         reader:expire()
         if not ok then
             error(result, 0)
@@ -246,7 +246,7 @@ export record Input<M is core.Member> is core.Reader<M>
         end
     end
 
-    function readStruct<S>(
+    function readstruct<S>(
         exclusive self,
         member: M,
         exclusive state: S,
@@ -256,7 +256,7 @@ export record Input<M is core.Member> is core.Reader<M>
         self:object(member, state, consume, unknown, false)
     end
 
-    function readUnion<S>(
+    function readunion<S>(
         exclusive self,
         member: M,
         exclusive state: S,
@@ -300,11 +300,11 @@ export record Input<M is core.Member> is core.Reader<M>
         end
     end
 
-    function readList<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
+    function readlist<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
         self:array(member, state, consume, nil)
     end
 
-    function readTuple<S>(
+    function readtuple<S>(
         exclusive self,
         member: M,
         size: integer,
@@ -314,7 +314,7 @@ export record Input<M is core.Member> is core.Reader<M>
         self:array(member, state, consume, size)
     end
 
-    function readMap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
+    function readmap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
         self:live()
         self.cursor:start("object")
         while true do
@@ -353,7 +353,7 @@ export record Input<M is core.Member> is core.Reader<M>
         end
     end
 
-    function containerSize(self): integer?
+    function containersize(self): integer?
         self:live()
         return nil
     end

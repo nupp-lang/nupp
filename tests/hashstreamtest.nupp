@@ -96,10 +96,10 @@ function M.metadataAndIndependentContexts(): nil
     test(table.concat(digest.algorithms(), ",") == "md5,sha1,sha256,sha512")
     test(digest.lookup("unknown") == nil)
     local algorithm = digest.algorithm("sha256")
-    test(algorithm.name == "sha256" and algorithm.digestSize == 32)
-    local first = algorithm:newDigest()
-    local second = algorithm:newDigest()
-    test(first:algorithm() == "sha256" and first:digestSize() == 32)
+    test(algorithm.name == "sha256" and algorithm.digestsize == 32)
+    local first = algorithm:newdigest()
+    local second = algorithm:newdigest()
+    test(first:algorithm() == "sha256" and first:digestsize() == 32)
     first:write("a")
     second:write("abc")
     first:write("bc")
@@ -108,9 +108,9 @@ function M.metadataAndIndependentContexts(): nil
     test(table.concat(mac.algorithms(), ",") == "hmac-sha256")
     test(mac.lookup("unknown") == nil)
     local macAlgorithm = mac.algorithm("hmac-sha256")
-    test(macAlgorithm.name == "hmac-sha256" and macAlgorithm.digestSize == 32)
-    local firstMac = macAlgorithm:newMac("key")
-    local secondMac = macAlgorithm:newMac("key")
+    test(macAlgorithm.name == "hmac-sha256" and macAlgorithm.digestsize == 32)
+    local firstMac = macAlgorithm:newmac("key")
+    local secondMac = macAlgorithm:newmac("key")
     firstMac:write("a")
     secondMac:write("abc")
     firstMac:write("bc")
@@ -120,17 +120,17 @@ end
 function M.overloadedFinalizationWritesOnlyTheSuppliedSlice(): nil
     for _, name in ipairs(digest.algorithms()) do
         local algorithm = digest.algorithm(name)
-        local bytes = array.bytes(algorithm.digestSize + 2)
+        local bytes = array.bytes(algorithm.digestsize + 2)
         local output = bytes:write()
         output[1] = 0xa5
         output[#output] = 0x5a
-        local region = output:slice(2, algorithm.digestSize + 1)
-        local rolling = algorithm:newDigest()
+        local region = output:slice(2, algorithm.digestsize + 1)
+        local rolling = algorithm:newdigest()
         local source = "abc"
         local input = span.fromstring(source)
-        rolling:writeSpan(input)
+        rolling:writespan(input)
         local written: integer = rolling:digest(region)
-        test(written == algorithm.digestSize)
+        test(written == algorithm.digestsize)
         own.drop(region)
         test(output[1] == 0xa5 and output[#output] == 0x5a)
         local expected = digest.digest(name, "abc")
@@ -161,7 +161,7 @@ function M.chunkingAndBinaryInput(): nil
             for index = 1, #input, 7 do
                 rolling:write(input:sub(index, index + 6))
             end
-            test(rolling:hexDigest() == digest.hexdigest(name, input), name .. " length " .. length)
+            test(rolling:hexdigest() == digest.hexdigest(name, input), name .. " length " .. length)
         end
     end
 end
@@ -227,7 +227,7 @@ function M.checksumVectorsAndNonConsumingReads(): nil
         test(rolling:value() == checksum.value(name, "1234"))
         local source = "56789"
         local tail = span.fromstring(source)
-        rolling:writeSpan(tail)
+        rolling:writespan(tail)
         test(rolling:value() == checksum.value(name, "123456789"))
 
         local chunked = checksum.newchecksum(name)
@@ -266,7 +266,7 @@ function M.crcViewsRespectOffsetsAndContextsAreIndependent(): nil
     for _, name in ipairs({"crc32", "crc32c", "crc64-ecma", "crc64nvme"}) do
         local first = checksum.newchecksum(name)
         local second = checksum.newchecksum(name)
-        first:writeSpan(view)
+        first:writespan(view)
         second:write("1234")
         test(first:value() == checksum.value(name, payload))
         local before = first:value()
@@ -283,16 +283,16 @@ function M.aReaderTransfersIntoADigestAndAChecksum(): nil
     local message = string.rep("a\0b\255c", 20000)
     local byHand = digest.newdigest("sha256")
     byHand:write(message)
-    local expected = byHand:hexDigest()
+    local expected = byHand:hexdigest()
 
     local rolling = digest.newdigest("sha256")
     local source = io.newstringreader(message)
-    test(source:transferTo(rolling) == #message)
-    test(rolling:hexDigest() == expected)
+    test(source:transferto(rolling) == #message)
+    test(rolling:hexdigest() == expected)
 
     local sum = checksum.newchecksum("crc32c")
     local again = io.newstringreader(message)
-    test(again:transferTo(sum) == #message)
+    test(again:transferto(sum) == #message)
     test(sum:value() == checksum.value("crc32c", message))
 end
 

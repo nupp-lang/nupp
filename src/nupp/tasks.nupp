@@ -25,15 +25,15 @@ end
 assert(greeting == "hello world")
 ```
 
-`scope` takes a `limit`, which parks `spawn` and `fork` while that many children
-are live, and a `timeoutMs`, how long the scope may take. A running child
+`scope` takes a `limit`, which parks `spawn` and `work` while that many children
+are live, and a `timeoutms`, how long the scope may take. A running child
 cooperates by calling `checkpoint`, which is where it learns the scope was
 cancelled or its deadline passed.
 
 ```nupp
 local total = 0
 
-with scope = coroutine.scope(timeoutMs = 1000) do
+with scope = coroutine.scope(timeoutms = 1000) do
     const sum = scope:spawn("sum values", function(): integer
         local answer: integer = 0
         for value = 1, 1000 do
@@ -60,7 +60,7 @@ children found over time and one answer to what happens when the body returns, a
 child fails, or the whole thing is cancelled.
 
 CPU work on other threads is [](coroutine.workers), and a task scope is the only way
-to it: `fork` hands a child to a lane, and the scope owns the family of lanes
+to it: `work` hands a child to a lane, and the scope owns the family of lanes
 lazily and closes it through the suspension-aware path, so leaving the block
 inside a frame parks rather than blocking the thread.
 
@@ -90,7 +90,7 @@ local function missingTime(): never
     error("nupp: a task scope timeout requires a clock provider", 2)
 end
 
-local timeModule: any = loadedTime or {now = missingTime, wakeAt = missingTime}
+local timeModule: any = loadedTime or {now = missingTime, wakeat = missingTime}
 
 local tasks = {}
 
@@ -210,7 +210,7 @@ local type ScopeState = {
     frame: any
 }
 
---- Represents the handle one `spawn` or `fork` returns.
+--- Represents the handle one `spawn` or `work` returns.
 ---
 --- Its `await` result pack is the body's, which is why this is derived from the
 --- function type rather than declared once over `any`. The worker contract
@@ -287,12 +287,7 @@ record tasks.Scope is own.Closeable
         name: string
     ): tasks.Task<F> borrows (self)
 
-    --- Starts a child on a worker lane: `scope:fork(arguments..., f)`.
-    fork: function<F is Submittable>(
-        borrows self: tasks.Scope,
-        F,
-        ...: unpackof nupp.workers.spi.Submitted(F)
-    ): tasks.Task<F> borrows (self)
+    --- Starts a child on a worker lane: `scope:work(arguments..., f)`.
 
     -- A0 seed transition: same borrowed worker submission; retire fork after the new
     -- seed pin.
@@ -462,7 +457,7 @@ local function unlink(owner: ScopeState, child: Child): nil
     child.after = nil
 end
 
---- Resumes whoever parked in `spawn` or `fork` waiting for the scope to have room.
+--- Resumes whoever parked in `spawn` or `work` waiting for the scope to have room.
 local function wakeSlots(owner: ScopeState): nil
     const waiting = owner.slotWaiters
     if #waiting == 0 then
@@ -702,7 +697,7 @@ local function parkScope(owner: ScopeState): function(function(any), suspension.
                 removeWaker(owner, wake)
             end
         end
-        const cancelTimer = timeModule.wakeAt(deadline, function(_: boolean): nil
+        const cancelTimer = timeModule.wakeat(deadline, function(_: boolean): nil
             fireWakers(owner)
         end)
 
@@ -811,7 +806,7 @@ local function frameHandler(owner: ScopeState): suspensionHost.Handler
                 owner.wakers[#owner.wakers + 1] = waker
                 const deadline = owner.deadline
                 if deadline ~= nil and cancelTimer == nil then
-                    cancelTimer = timeModule.wakeAt(deadline, function(_: boolean): nil
+                    cancelTimer = timeModule.wakeat(deadline, function(_: boolean): nil
                         fireWakers(owner)
                     end)
                 end
@@ -868,7 +863,7 @@ local function frameHandler(owner: ScopeState): suspensionHost.Handler
                 error(cancelled as any, 0)
             end
         end,
-        canPark = function(_: suspensionHost.Handler): boolean
+        canpark = function(_: suspensionHost.Handler): boolean
             return outerCanPark()
         end,
         shutdown = function(_: suspensionHost.Handler): nil
@@ -909,13 +904,11 @@ local function newTask(owner: ScopeState, child: Child): any
     return setmetatable({_owner = owner, _child = child,}, TaskMT)
 end
 
-function TaskMT.isDone(self: any): boolean
+function TaskMT.isdone(self: any): boolean
     const status = (self._child as Child).status
 
     return status == "done" or status == "failed" or status == "cancelled"
 end
-
-TaskMT.isdone = TaskMT.isDone
 
 function TaskMT.status(self: any): string
     return (self._child as Child).status
@@ -924,7 +917,7 @@ end
 function TaskMT.cancel(self: any, reason: string?): boolean
     const child = self._child as Child
     const owner = self._owner as ScopeState
-    if child.requested or TaskMT.isDone(self) then
+    if child.requested or TaskMT.isdone(self) then
         return false
     end
     child.requested = true
@@ -948,11 +941,11 @@ function TaskMT.await(self: any): ...any
     const owner = self._owner as ScopeState
     const child = self._child as Child
     settleAgainstScope(owner)
-    if not TaskMT.isDone(self) then
+    if not TaskMT.isdone(self) then
         if drivesScope(owner) then
             -- The frame that opened the scope is waiting, so it owns the driver.
             pump(owner, child.name, function(): boolean
-                return TaskMT.isDone(self) or owner.failed
+                return TaskMT.isdone(self) or owner.failed
             end)
         else
             -- A child is waiting on a sibling: park, and let whoever owns the driver
@@ -973,7 +966,7 @@ function TaskMT.await(self: any): ...any
                 end
             end
 
-            while not TaskMT.isDone(self) and not owner.failed do
+            while not TaskMT.isdone(self) and not owner.failed do
                 suspension.suspend(child.name, subscribe)
                 if waitingChild.requested then
                     error(waitingChild.cancelled as any, 0)
@@ -1206,7 +1199,7 @@ local function workersImpl(owner: ScopeState): any
             end,
         }
         owner.settleHook = workerModule.settle
-        owner.workerScope = workerModule.openScope(owner.deadline, observer)
+        owner.workerScope = workerModule.openscope(owner.deadline, observer)
     end
 
     return owner.workerScope
@@ -1216,18 +1209,16 @@ end
 -- Worker children
 ----------------------------------------------------------------------------
 
--- The handle a `fork` answers. The same vocabulary as a coroutine child's, over a
+-- The handle a `work` answers. The same vocabulary as a coroutine child's, over a
 -- worker task: the provider answers settlement without raising, and the task scope
 -- raises in its own terms -- the scope's failure first, at level 0, with no
 -- awaiting-site prefix.
 local ForkMT: any = {}
 ForkMT.__index = ForkMT
 
-function ForkMT.isDone(self: any): boolean
-    return (self._task as any):isDone()
+function ForkMT.isdone(self: any): boolean
+    return (self._task as any):isdone()
 end
-
-ForkMT.isdone = ForkMT.isDone
 
 function ForkMT.status(self: any): string
     return (self._task as any):status()
@@ -1359,7 +1350,7 @@ end
 
 --- Starts a child on a worker lane.
 ---
---- Written `scope:fork(arguments..., f)`, the same shape as `spawn`, and
+--- Written `scope:work(arguments..., f)`, the same shape as `spawn`, and
 --- answering the same kind of handle. `f` must be sendable -- a module
 --- function, or a literal whose effectively-final captures can be copied into
 --- another Lua state -- and its arguments and results must be values a copy can
@@ -1368,7 +1359,7 @@ end
 --- worded `nupp: worker task failed: ...`.
 ---
 --- ```nupp:fragment
---- const thumbnail = scope:fork(bytes, jobs.thumbnail)
+--- const thumbnail = scope:work(bytes, jobs.thumbnail)
 --- save(thumbnail:await())
 --- ```
 ---
@@ -1378,8 +1369,7 @@ end
 --- @raises any the scope's failure
 --- @raises tasks.Cancellation its cancellation, where a deadline passed
 @unsafe do
-    tasks.Scope.fork = forkSurface as any
-    tasks.Scope.work = tasks.Scope.fork
+    tasks.Scope.work = forkSurface as any
 end
 
 --- Requests cancellation of every child, as the scope's own decision.
@@ -1512,7 +1502,7 @@ local function newState(deadline: number?, limit: integer?): ScopeState
         frame = nil,
     }
     -- A private handler so a child's park returns to this driver rather than
-    -- blocking it. Scheduling only: `canPark` delegates outward, so a host barrier
+    -- blocking it. Scheduling only: `canpark` delegates outward, so a host barrier
     -- stays visible however deeply scopes nest inside it.
     const outerCanPark = suspensionHost.delegatedCanPark()
     owner.handler = new suspensionHost.Handler(
@@ -1525,7 +1515,7 @@ local function newState(deadline: number?, limit: integer?): ScopeState
             end
 
             while not waiting:ready() do
-                waiting:onResume(ready)
+                waiting:onresume(ready)
                 if waiting:ready() then
                     break
                 end
@@ -1539,7 +1529,7 @@ local function newState(deadline: number?, limit: integer?): ScopeState
                 end
             end
         end,
-        canPark = function(_: suspensionHost.Handler): boolean
+        canpark = function(_: suspensionHost.Handler): boolean
             return outerCanPark()
         end,
         shutdown = function(_: suspensionHost.Handler): nil
@@ -1686,27 +1676,27 @@ end
 
 --- Opens a scope, to be held by a `with`.
 ---
---- The block is the scope's body. Children started in it with `spawn` and `fork` are
+--- The block is the scope's body. Children started in it with `spawn` and `work` are
 --- its family, and leaving the block -- normally, by `break` or `return`, or by an
 --- error -- settles them: every one has run, been cancelled, or unwound before the
 --- block is left. A child's failure is the scope's from the moment it happens, cancels
 --- its siblings, and is raised where the block is left, whether or not anything
 --- awaited that child.
 ---
---- With a `limit`, `spawn` and `fork` park while that many children are live,
+--- With a `limit`, `spawn` and `work` park while that many children are live,
 --- so a loop that fans out over a source is bounded by the loop itself: nothing
 --- is pulled from the source until there is room to run it. A child that starts
 --- one beside itself on a full scope lends it the slot it holds and parks until
 --- it has one again, so children forking inside children cannot deadlock the
---- bound. With a `timeoutMs`, the scope's deadline is that many milliseconds
+--- bound. With a `timeoutms`, the scope's deadline is that many milliseconds
 --- from now on the monotonic clock, and expiry requests ordinary cancellation.
 --- A scope opened inside another takes the earlier of the two deadlines: a
 --- child may bound itself more tightly than its parent did, and may not extend
 --- what its parent already promised. [](coroutine.deadline) returns the
 --- absolute deadline that results.
 ---
---- Both are named arguments: `scope()`, `scope(limit = 8)`, `scope(timeoutMs = 500)`,
---- or `scope(limit = 8, timeoutMs = 500)`.
+--- Both are named arguments: `scope()`, `scope(limit = 8)`, `scope(timeoutms = 500)`,
+--- or `scope(limit = 8, timeoutms = 500)`.
 ---
 --- ```nupp:fragment
 --- const sizes: {integer} = {}
@@ -1750,8 +1740,8 @@ local function openState(limit: integer?, timeoutMs: number?): ScopeState
     return owner
 end
 
-function tasks.open(limit: integer?, timeoutMs: number?): affine(tasks.Scope)
-    return setmetatable({_state = openState(limit, timeoutMs),}, ScopeMT) as tasks.Scope
+function tasks.open(limit: integer?, timeoutms: number?): affine(tasks.Scope)
+    return setmetatable({_state = openState(limit, timeoutms),}, ScopeMT) as tasks.Scope
 end
 
 ----------------------------------------------------------------------------
@@ -1803,7 +1793,7 @@ end
 --- Runs `body` in a new scope and settles the scope however the body ends.
 ---
 --- The callback form of [](coroutine.scope). The body is handed the scope and may
---- start children in it with `spawn` and `fork`. Where it returns, the children run
+--- start children in it with `spawn` and `work`. Where it returns, the children run
 --- to completion and its results are this call's, every position kept, `nil`s
 --- included; a child's failure is raised instead, as leaving an `scope` block raises
 --- it. Where the body fails, its children are cancelled before the scope drains
@@ -1815,7 +1805,7 @@ end
 --- knows how its body ended, so a failure is not held up behind children that only
 --- mattered while the body was going to use them.
 ---
---- Takes the same named `limit` and `timeoutMs` as `scope`. The body may come alone,
+--- Takes the same named `limit` and `timeoutms` as `scope`. The body may come alone,
 --- `run(body)`, or named after them, `run(limit = 8, body = body)`.
 ---
 --- ```nupp:fragment
@@ -1828,15 +1818,15 @@ end
 --- ```
 ---
 --- @param limit how many children may be live at once, or nil for no bound
---- @param timeoutMs how long the whole scope may take, in milliseconds, or nil
+--- @param timeoutms how long the whole scope may take, in milliseconds, or nil
 --- @param body what runs with the scope
 --- @return what `body` returned
 --- @raises any the body's failure, or the first failure a child had
 --- @raises tasks.Cancellation the cancellation a deadline caused
 local run: function<R...>(scoped body: function(borrows scope: tasks.Scope): R...): R...
     & function<R...>(takes body: function(borrows scope: tasks.Scope): R...): R...
-    & function<R...>(limit: integer?, timeoutMs: number?, scoped body: function(borrows scope: tasks.Scope): R...): R...
-    & function<R...>(limit: integer?, timeoutMs: number?, takes body: function(borrows scope: tasks.Scope): R...): R...
+    & function<R...>(limit: integer?, timeoutms: number?, scoped body: function(borrows scope: tasks.Scope): R...): R...
+    & function<R...>(limit: integer?, timeoutms: number?, takes body: function(borrows scope: tasks.Scope): R...): R...
 @unsafe do
     -- Every arm calls the body once, synchronously, before this returns; the owning
     -- arms additionally let `runImpl` consume a single-shot body by calling it.

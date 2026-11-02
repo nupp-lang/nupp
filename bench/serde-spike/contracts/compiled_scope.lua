@@ -13,7 +13,7 @@ local function inspect(binding, factory)
         {
             apply = function(_, adapter)
                 local description = adapter:describe("read")
-                local policy = (factory or json.defaultPolicy):policy(description.member)
+                local policy = (factory or json.defaultpolicy):policy(description.member)
                 return {adapter = adapter, plan = plans.resolve(description, policy, "read")}
             end,
         },
@@ -27,7 +27,7 @@ local function visitor(bytes)
         {
             apply = function(_, adapter, source)
                 local description = adapter:describe("read")
-                local policy = json.defaultPolicy:policy(description.member)
+                local policy = json.defaultpolicy:policy(description.member)
                 local cursor = cursors.reader(source:sub(1))
                 local reader = inputs.input(cursor, policy, plans.resolve(description, policy, "read"), nil)
                 local ok, result = pcall(adapter.read, adapter, reader)
@@ -224,5 +224,5 @@ assert(bufferError.path == stringError.path and bufferError.byte == stringError.
 -- The public facade also works when its selected provider uses a string route.
 inputBuffer:set('{"name":"facade","child":{"value":"retained"}}')
 local facade = json.codec()
-assert(facade:decodeBuffer(fixture.recordBinding, inputBuffer).child.value == "retained")
+assert(facade:decodebuffer(fixture.recordBinding, inputBuffer).child.value == "retained")
 assert(json.decodebuffer(fixture.recordBinding, inputBuffer).name == "facade")

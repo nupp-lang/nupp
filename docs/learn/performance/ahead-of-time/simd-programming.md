@@ -453,8 +453,8 @@ Saturating arithmetic clamps to the element's range instead of wrapping:
 ```nupp:fragment
 local bytes = simd.species(array.uint8)
 local value = bytes:splat(200)
-local brighter = value:saturatingAdd(100)
-local darker = value:saturatingSub(250)
+local brighter = value:saturatingadd(100)
+local darker = value:saturatingsub(250)
 ```
 
 `brighter` holds 255 in every lane, and `darker` holds zero. Ordinary byte
@@ -465,11 +465,11 @@ Bit counting and multiplication also operate at the element's width:
 ```nupp:fragment
 local bits = value:popcount()
 local low = value * 3
-local high = value:mulHigh(3)
+local high = value:mulhigh(3)
 ```
 
 200 has three set bits, so `bits` holds 3. The full product is 600: `low`
-holds its low byte, 88, and `high` its high byte, 2. `mulHigh` follows the
+holds its low byte, 88, and `high` its high byte, 2. `mulhigh` follows the
 element's signedness; together with `*` it supplies the full-width product.
 It also supports fixed-point multiplication by a scaled reciprocal.
 
@@ -1044,8 +1044,8 @@ lane counts; matching checked type names alone do not establish that.
 
 ### Interleaved records
 
-RGB pixels store their fields as `R G B R G B`. `loadTriples` separates those
-*interleaved records* into channel vectors, and `storeQuads` adds an alpha
+RGB pixels store their fields as `R G B R G B`. `loadtriples` separates those
+*interleaved records* into channel vectors, and `storequads` adds an alpha
 channel when writing RGBA:
 
 ```nupp:fragment
@@ -1053,8 +1053,8 @@ local species = simd.species(array.uint8)
 local at: uint32 = 0
 local out: uint32 = 0
 while at + 3 * species.lanes <= #rgb and out + 4 * species.lanes <= #rgba do
-    local r, g, b = species:loadTriples(rgb, at + 1)
-    species:storeQuads(rgba, out + 1, r, g, b, species:splat(255))
+    local r, g, b = species:loadtriples(rgb, at + 1)
+    species:storequads(rgba, out + 1, r, g, b, species:splat(255))
     at = at + 3 * species.lanes
     out = out + 4 * species.lanes
 end
@@ -1062,7 +1062,7 @@ end
 
 Pairs, triples, and quads read `2`, `3`, or `4` times the lane count. Result
 `j` holds elements `j`, `j + ways`, and so on; the results must initialize
-locals. `storePairs`, `storeTriples`, and `storeQuads` reverse the layout.
+locals. `storepairs`, `storetriples`, and `storequads` reverse the layout.
 
 A bound covering the whole run permits a single interleaved access. NEON
 uses `ld2`, `ld3`, or `ld4` and the matching stores, avoiding separate
@@ -1077,7 +1077,7 @@ before narrowing the result to a byte:
 ```nupp:fragment
 local bytes = simd.species(array.uint8)
 local wide = bytes:widen(array.uint16)
-local r, g, b = bytes:loadTriples(rgb, at + 1)
+local r, g, b = bytes:loadtriples(rgb, at + 1)
 local sum = wide:convert(r) * 77 + wide:convert(g) * 150 + wide:convert(b) * 29
 bytes:store(output, written + 1, bytes:convert(sum >> 8))
 ```
@@ -1089,7 +1089,7 @@ loop, a partial group uses the same calculation and a masked store:
 
 ```nupp:fragment
 if written < #output then
-    local r, g, b = bytes:loadTriples(rgb, at + 1)
+    local r, g, b = bytes:loadtriples(rgb, at + 1)
     local sum = wide:convert(r) * 77 + wide:convert(g) * 150 + wide:convert(b) * 29
     bytes:store(output, written + 1, bytes:convert(sum >> 8), bytes:tail(#output - written))
 end
@@ -1117,7 +1117,7 @@ local function prefix(exclusive out: span.WriteSpan<uint32>, borrows input: span
     local s = simd.species(array.uint32)
     local carry = s:splat(0)
     for at, active in s:over(#input) do
-        local sums = s:load(input, at, active):orderedPrefixSum() + carry
+        local sums = s:load(input, at, active):orderedprefixsum() + carry
         s:store(out, at, sums, active)
         carry = s:splat(sums:extract(s.lanes))
     end

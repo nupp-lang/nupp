@@ -396,9 +396,9 @@ return {doubled = doubled}
     assert(not binding:find("msl =", 1, true), binding)
     assert(binding:find("compileGenerated", 1, true), binding)
     assert(binding:find("bindKernel", 1, true), binding)
-    assert(binding:find("setRead(0, input, true)", 1, true), binding)
-    assert(binding:find("setWrite(0, output, true)", 1, true), binding)
-    assert(binding:find("dispatchPacked", 1, true), binding)
+    assert(binding:find("setread(0, input, true)", 1, true), binding)
+    assert(binding:find("setwrite(0, output, true)", 1, true), binding)
+    assert(binding:find("dispatchpacked", 1, true), binding)
 
     local wasmBinding, wasmBindingCode = run(dir, "--emit binding --triple wasm32-unknown-emscripten gpu.nupp")
     test.eq(wasmBindingCode, 1, wasmBinding)
@@ -460,10 +460,19 @@ return convert
     test.eq(shader.range.start.line, 2)
     test.eq(shader.artifactId, require("nupp.compiler.hash").digest(module))
     assert(report.binding:find(shader.artifactId, 1, true), "runtime and inspection share the shader digest")
-    assert(report.binding:find('sourceLine = 2', 1, true), report.binding)
-    assert(report.binding:find('artifactId = "', 1, true), report.binding)
-    assert(report.binding:find('readonlyNames = {"input"}', 1, true), report.binding)
-    assert(report.binding:find('writableNames = {"output"}', 1, true), report.binding)
+    assert(report.binding:find('sourceline = 2', 1, true), report.binding)
+    assert(report.binding:find('artifactid = "', 1, true), report.binding)
+    assert(report.binding:find('readonlynames = {"input"}', 1, true), report.binding)
+    assert(report.binding:find('writablenames = {"output"}', 1, true), report.binding)
+    for _, retired in ipairs({
+        "sourceFile = ",
+        "sourceLine = ",
+        "artifactId = ",
+        "readonlyNames = ",
+        "writableNames = "
+    }) do
+        assert(not report.binding:find(retired, 1, true), "retired ArtifactSet key in generated binding: " .. retired)
+    end
 end
 
 function M.mandelbrotGpuBenchmarkUsesTheCpuFmaRecurrence()
@@ -734,7 +743,7 @@ return bindingNames
     test.eq(nativeCode, 0, native)
     assert(native:find("local gpuImplementation_ks_binding_names_ = require", 1, true), native)
     assert(native:find("local raw_ = gpuImplementation_ks_binding_names_.bindKernel", 1, true), native)
-    assert(native:find("raw_:setWrite(0, raw, true)", 1, true), native)
+    assert(native:find("raw_:setwrite(0, raw, true)", 1, true), native)
     assert(native:find("uniforms_.uniform_2 = uniforms", 1, true), native)
     assert(native:find("uniforms_.uniform_3 = gpuParameter", 1, true), native)
 
@@ -1142,9 +1151,9 @@ return {gemm = gemm}
 
     local binding, bindingCode = run(dir, "--emit binding gemm.nupp")
     test.eq(bindingCode, 0, binding)
-    assert(binding:find("setRead(0, rowOf, true)", 1, true), binding)
-    assert(binding:find("setRead(1, a, false)", 1, true), binding)
-    assert(binding:find("setWrite(0, c, true)", 1, true), binding)
+    assert(binding:find("setread(0, rowOf, true)", 1, true), binding)
+    assert(binding:find("setread(1, a, false)", 1, true), binding)
+    assert(binding:find("setwrite(0, c, true)", 1, true), binding)
 end
 
 -- CPU maps use the same per-access proof as GPU maps: only spans addressed by
@@ -1300,11 +1309,11 @@ end
 export record Phases
     scratch: function<T>(borrows self: Phases, initial: T, count: integer): Shared<T>
     run: function(borrows self: Phases, scoped stage: function(uint32): nil): nil
-    reduceSum: function(borrows self: Phases, exclusive values: Shared<float>): nil
-    inclusiveScan: function(
+    reducesum: function(borrows self: Phases, exclusive values: Shared<float>): nil
+    inclusivescan: function(
         borrows self: Phases,
         exclusive values: Shared<uint32>,
-        exclusive temporary: Shared<uint32>
+        exclusive tmp: Shared<uint32>
     ): nil
 end
 
@@ -1344,7 +1353,7 @@ local function reduce(
                 values[localIndex] = math.f32.narrow(0.0)
             end
         end)
-        phases:reduceSum(values)
+        phases:reducesum(values)
         phases:run(function(localIndex: uint32)
             if localIndex == math.u32.wrap(0) and groupIndex < #output then
                 output[groupIndex + 1] = values[0]
@@ -1364,7 +1373,7 @@ return {reduce = reduce}
     local binding, bindingCode = run(dir, "--emit binding reduce.nupp")
     test.eq(bindingCode, 0, binding)
     assert(binding:find("bindKernel(self._kernel, input.count)", 1, true), binding)
-    assert(binding:find("raw:setRead(0, input, false)", 1, true), binding)
+    assert(binding:find("raw:setread(0, input, false)", 1, true), binding)
     assert(binding:find(", 4)", 1, true), binding)
 end
 
@@ -1469,7 +1478,7 @@ local function scan(exclusive output: span.WriteSpan<uint32>): nil
         phases:run(function(localIndex: uint32)
             values[localIndex] = math.u32.add(localIndex, math.u32.wrap(1))
         end)
-        phases:inclusiveScan(values, temporary)
+        phases:inclusivescan(values, temporary)
         phases:run(function(localIndex: uint32)
             local cursor = math.u32.add(
                 math.u32.mul(groupIndex, math.u32.wrap(4)),
@@ -2632,9 +2641,9 @@ local function transform(
     local selected = values > 4
     local packed = values:compress(selected)
     local expanded = packed:expand(selected)
-    local aligned = values:align(values:reverse(), 2):rotateLeft(1):rotateRight(1)
-    local prefix = expanded:orderedPrefixSum()
-    local parity = values:prefixXor()
+    local aligned = values:align(values:reverse(), 2):rotateleft(1):rotateright(1)
+    local prefix = expanded:orderedprefixsum()
+    local parity = values:prefixxor()
     species:store(output, 1, prefix + aligned + parity, active)
     local bits = selected:bits()
     return math.u64.popcount(bits & (bits - 1))
@@ -2751,7 +2760,7 @@ local function move(exclusive output: span.WriteSpan<float>, borrows input: span
     local indices = positions:load(map, 1)
     local active = values:tail(#map)
     local gathered = values:gather(input, indices, active)
-    values:scatterUnchecked(output, indices, gathered + 1, active)
+    values:scatterunchecked(output, indices, gathered + 1, active)
 end
 return {move = move}
 ]]
@@ -2761,7 +2770,7 @@ function M.indexedSimdMemoryCarriesItsExplicitConflictContract()
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json indexed.nupp")
     test.eq(code, 0, raw)
     assert(decoded.ir:find("simd_load.gather", 1, true), decoded.ir)
-    assert(decoded.ir:find("simd_store.scatterUnchecked", 1, true), decoded.ir)
+    assert(decoded.ir:find("simd_store.scatterunchecked", 1, true), decoded.ir)
     local asm = neonAsm(dir, "indexed.nupp")
     if asm ~= nil then
         assert(asm:match("kernel: [^\n]* [1-9]%d* vector"), asm)
@@ -2769,12 +2778,12 @@ function M.indexedSimdMemoryCarriesItsExplicitConflictContract()
 end
 
 function M.scatterRefusesUnprovedUniquenessWithoutARuntimeFallback()
-    local source = INDEXED_SIMD:gsub("scatterUnchecked", "scatter")
+    local source = INDEXED_SIMD:gsub("scatterunchecked", "scatter")
     local dir = project{["indexed.nupp"] = source}
     local out, code = run(dir, "--triple aarch64-apple-darwin --features neon --emit llvm indexed.nupp")
     test.eq(code, 1, out)
     assert(out:find("provably unique indices", 1, true), out)
-    assert(out:find("scatterUnchecked", 1, true), out)
+    assert(out:find("scatterunchecked", 1, true), out)
 end
 
 -- At AVX-512F the preferred binary32 vector holds sixteen lanes, so the eight
@@ -2806,7 +2815,7 @@ function M.indexedSimdUsesNativeAvx512MemoryInstructions()
 end
 
 function M.scatterProvesAConstantNonWrappingProgression()
-    local source = INDEXED_SIMD:gsub("scatterUnchecked%(output, indices", "scatter(output, positions:iota(1, 2)")
+    local source = INDEXED_SIMD:gsub("scatterunchecked%(output, indices", "scatter(output, positions:iota(1, 2)")
     local dir = project{["indexed.nupp"] = source}
     local decoded, raw, code = lowered(dir, "--triple aarch64-apple-darwin --features neon --json indexed.nupp")
     test.eq(code, 0, raw)
@@ -3166,14 +3175,14 @@ local function ignoringMissing(): (number, number)
     local values = species:iota(3.0, -1.0)
     local other = species:splat(0.5)
 
-    return simd.horizontal.numbermin(values:numberMin(other)), simd.horizontal.numberargmin(values)
+    return simd.horizontal.numbermin(values:numbermin(other)), simd.horizontal.numberargmin(values)
 end
 
 @aot
 local function counted(): (number, number)
     local species = assert(simd.species(array.int32, 8))
     local values = species:iota(3, -1)
-    local clamped = values:propagatingMin(species:splat(1)):propagatingMax(species:splat(-1))
+    local clamped = values:propagatingmin(species:splat(1)):propagatingmax(species:splat(-1))
     return simd.horizontal.propagatingmin(clamped), simd.horizontal.propagatingargmax(clamped)
 end
 
@@ -4585,7 +4594,7 @@ function builder.numberslice(state: any, source: string, start: uint32, length: 
 function builder.integerslice(state: any, source: string, start: uint32, length: uint32): nil end
 function builder.integer64(state: any, magnitude: uint64, negative: boolean): nil end
 function builder.decimal64(state: any, source: string, start: uint32, length: uint32, magnitude: uint64, exponent: int32, negative: boolean, exact: boolean): nil end
-function builder.boolean(state: any, value: boolean): nil end
+function builder.bool(state: any, value: boolean): nil end
 function builder.null(state: any): nil end
 function builder.close(state: any): nil end
 function builder.finish(state: any): any return nil end
@@ -5880,19 +5889,19 @@ local function widen(exclusive output: span.WriteSpan<uint8>, borrows input: spa
     local at: uint32 = 0
     local out: uint32 = 0
     while at + 3 * s.lanes <= #input and out + 4 * s.lanes <= #output do
-        local r, g, b = s:loadTriples(input, at + 1)
-        s:storeQuads(output, out + 1, b, g, r, s:splat(255))
+        local r, g, b = s:loadtriples(input, at + 1)
+        s:storequads(output, out + 1, b, g, r, s:splat(255))
         at = at + 3 * s.lanes
         out = out + 4 * s.lanes
     end
     while at + 2 * s.lanes <= #input and out + 2 * s.lanes <= #output do
-        local x, y = s:loadPairs(input, at + 1)
-        s:storePairs(output, out + 1, y, x)
+        local x, y = s:loadpairs(input, at + 1)
+        s:storepairs(output, out + 1, y, x)
         at = at + 2 * s.lanes
         out = out + 2 * s.lanes
     end
-    local r, g, b = s:loadTriples(input, at + 1)
-    s:storeTriples(output, out + 1, b, g, r)
+    local r, g, b = s:loadtriples(input, at + 1)
+    s:storetriples(output, out + 1, b, g, r)
     return out
 end
 return {widen = widen}
@@ -5953,7 +5962,7 @@ local simd = require("simd")
 @aot
 local function misplaced(exclusive output: span.WriteSpan<uint8>, borrows input: span.Span<uint8>): nil
     local s = assert(simd.species(array.uint8))
-    s:store(output, 1, s:loadPairs(input, 1) + 1)
+    s:store(output, 1, s:loadpairs(input, 1) + 1)
 end
 return {misplaced = misplaced}
 ]],

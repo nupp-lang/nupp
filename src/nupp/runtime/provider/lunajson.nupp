@@ -16,7 +16,7 @@ fragments, and the writer backed by the shared
 Import through [](serde.json). The facade retains this provider's functions
 and marker objects for the lifetime of the loaded module. Markers and verified
 fragments belong to this implementation; values from a separately loaded codec
-must not be assumed to carry the same marker identity. `asArray` and `asObject`
+must not be assumed to carry the same marker identity. `asarray` and `asobject`
 return the original table and preserve its ownership.
 
 Native serde compilation hooks are optional and are not supplied here. Portable
@@ -147,7 +147,7 @@ end
 
 function json.asArray(value: any): any
     if type(value) ~= "table" then
-        error("json.asArray needs a table", 2)
+        error("json.asarray needs a table", 2)
     end
     local count: integer = 0
     local highest: integer = 0
@@ -167,7 +167,7 @@ end
 
 function json.asObject(value: any): any
     if type(value) ~= "table" then
-        error("json.asObject needs a table", 2)
+        error("json.asobject needs a table", 2)
     end
     for key in pairs(value) do
         if type(key) ~= "string" then
@@ -242,8 +242,8 @@ local function encodeValue(value: any, nullValue: any?, visiting: {[any]: boolea
     return kind == "array" and "[" .. contents .. "]" or "{" .. contents .. "}"
 end
 
-function json.encode(value: any, nullValue: any?): string
-    local ok, encoded = pcall(encodeValue, value, nullValue, {}, 0)
+function json.encode(value: any, nullvalue: any?): string
+    local ok, encoded = pcall(encodeValue, value, nullvalue, {}, 0)
     if not ok then
         error(vendorProblem(encoded), 0)
     end
@@ -251,16 +251,16 @@ function json.encode(value: any, nullValue: any?): string
     return encoded
 end
 
-function json.decode(text: string, nullValue: any?): any
+function json.decode(text: string, nullvalue: any?): any
     if not validUtf8(text) then
         error("invalid UTF-8 in JSON", 0)
     end
-    local ok, value = pcall(core.decode, text, nil, nullValue, true)
+    local ok, value = pcall(core.decode, text, nil, nullvalue, true)
     if not ok then
         error(vendorProblem(value), 0)
     end
 
-    return mark(value, nullValue)
+    return mark(value, nullvalue)
 end
 
 function json.isArray(value: any): boolean
@@ -312,12 +312,12 @@ local function project(value: any, shape: any, nullValue: any?): any
     return out
 end
 
-function json.pull(text: string, shape: any, nullValue: any?): any
-    return project(json.decode(text, nullValue), shape, nullValue)
+function json.pull(text: string, shape: any, nullvalue: any?): any
+    return project(json.decode(text, nullvalue), shape, nullvalue)
 end
 
-function json.encoded(value: any, nullValue: any?): any
-    return setmetatable({bytes = json.encode(value, nullValue),}, ENCODED_VALUE)
+function json.encoded(value: any, nullvalue: any?): any
+    return setmetatable({bytes = json.encode(value, nullvalue),}, ENCODED_VALUE)
 end
 
 function json.numberToken(text: string): any
@@ -363,7 +363,7 @@ function json.verifiedString(text: string): any
     return verified
 end
 
-function json.newWriter(exclusive out: Buffer, nullValue: any?): any
+function json.newWriter(exclusive out: Buffer, nullvalue: any?): any
     local parts, stack, root, closed = {}, {}, false, false
     local pending = 0
     local writer = {}
@@ -403,7 +403,7 @@ function json.newWriter(exclusive out: Buffer, nullValue: any?): any
         end
     end
 
-    function writer:startArray(): any
+    function writer:startarray(): any
         prepare()
         add("[")
         stack[#stack + 1] = {kind = "array", first = true,}
@@ -411,7 +411,7 @@ function json.newWriter(exclusive out: Buffer, nullValue: any?): any
         return self
     end
 
-    function writer:startObject(): any
+    function writer:startobject(): any
         prepare()
         add("{")
         stack[#stack + 1] = {kind = "object", first = true, value = false,}
@@ -450,7 +450,7 @@ function json.newWriter(exclusive out: Buffer, nullValue: any?): any
     function writer:write(value: any): any
         local marker = getmetatable(value)
         local encoded = (marker == ENCODED_VALUE or marker == ENCODED_STRING) and value.bytes
-            or json.encode(value, nullValue)
+            or json.encode(value, nullvalue)
         prepare()
         add(encoded)
 
@@ -478,12 +478,12 @@ function json.newWriter(exclusive out: Buffer, nullValue: any?): any
         return writer
     end
 
-    function writer:endArray(): any
-        return finish("array", "endArray()")
+    function writer:endarray(): any
+        return finish("array", "endarray()")
     end
 
-    function writer:endObject(): any
-        return finish("object", "endObject()")
+    function writer:endobject(): any
+        return finish("object", "endobject()")
     end
 
     function writer:flush(): nil
@@ -529,25 +529,25 @@ end
 
 -- Check every member against the canonical JSON provider contract.
 local checked: contracts.Provider = {
-    arrayOf = json.arrayOf,
-    -- `asArray` and `asObject` are asserted where every other member is checked.
+    arrayof = json.arrayOf,
+    -- `asarray` and `asobject` are asserted where every other member is checked.
     -- The contract owns what it marks, because `serde.json.asarray` promises
     -- its caller the same table back. No provider can state that and still read
     -- the table: `pairs` takes neither an owner nor a borrow, so a body that
     -- validates keys cannot also carry the owning signature. Both providers
     -- therefore mark through `any`, and the cast is where that ends.
-    asArray = json.asArray as contracts.MarkContainer,
-    asObject = json.asObject as contracts.MarkContainer,
-    isArray = json.isArray,
+    asarray = json.asArray as contracts.MarkContainer,
+    asobject = json.asObject as contracts.MarkContainer,
+    isarray = json.isArray,
     decode = json.decode,
     encode = json.encode,
     encoded = json.encoded,
-    encodedString = json.encodedString,
-    numberToken = json.numberToken,
+    encodedstring = json.encodedString,
+    numbertoken = json.numberToken,
     pull = json.pull,
     verified = json.verified,
-    verifiedString = json.verifiedString,
-    newWriter = json.newWriter,
+    verifiedstring = json.verifiedString,
+    newwriter = json.newWriter,
     NULL = json.NULL,
     EMPTY_ARRAY = json.EMPTY_ARRAY,
     EMPTY_OBJECT = json.EMPTY_OBJECT,

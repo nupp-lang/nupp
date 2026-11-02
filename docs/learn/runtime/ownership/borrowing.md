@@ -521,7 +521,7 @@ loan can dangle across an edge that carries none:
 local frame = heap.allocate(ffi.typeof<uint8>(), size)
 with scope = coroutine.scope() do
     for generation = 1, 60 do
-        frame = scope:fork(frame, generation, jobs.fill):await()
+        frame = scope:work(frame, generation, jobs.fill):await()
     end
 end
 own.drop(frame)
@@ -598,7 +598,7 @@ states are live, shared-borrowed, exclusive-borrowed, closing, closed, and
 taken. State changes before cleanup or transfer, active borrows are released
 even when callbacks raise, and close or take clears the payload and cleanup.
 
-`with` provides a shared callback borrow, `withExclusive` provides an exclusive
+`with` provides a shared callback borrow, `withexclusive` provides an exclusive
 one, `take` restores the original affine payload, and `close` exercises close
 authority without making the alias an owner. `own.recoveralias(anyValue)`
 checks the unforgeable brand and yields `alias(unknown)`; `downcast<T>` then

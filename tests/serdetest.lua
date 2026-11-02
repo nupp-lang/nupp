@@ -260,8 +260,8 @@ local record User
 end
 local selected = serde.binding(User, new serde.Options(fields = {
     userId = new serde.FieldOptions(name = "id"),
-    labels = new serde.FieldOptions(omitEmpty = true),
-}, unknownMembers = "ignore"))
+    labels = new serde.FieldOptions(omitempty = true),
+}, unknownmembers = "ignore"))
 local value = new User(userId = 7)
 local first = json.decode(selected, '{"id":1,"extra":[null,true]}')
 local second = json.decode(selected, '{"id":2}')
@@ -303,10 +303,10 @@ buffer:put("prefix:")
 json.encodeinto(binding, new User(id = 7), buffer)
 local first = buffer:get()
 local writer = json.newwriter(buffer)
-writer:startArray()
+writer:startarray()
 json.writevalue(binding, new User(id = 8), writer)
 json.writevalue(binding, new User(id = 9), writer)
-writer:endArray()
+writer:endarray()
 writer:close()
 return {first = first, embedded = buffer:get()}
 ]]
@@ -330,6 +330,72 @@ return wrong
         found = found or problem.code == "NUPP2001"
     end
     assert(found, "a binding was assigned a different nominal value type")
+end
+
+function M.canonicalSerdeKeysKeepKindsAndAccessMetadata()
+    local result = run(
+        [=[
+local serde = require("serde")
+local document = require("serde.document")
+local json = require("serde.json")
+local adapters = require("serde.adapters")
+local record Entry
+    enabled: boolean = true
+end
+local access = serde.access(Entry)
+assert(access.typeindex > 0)
+assert(access.fields[1].typeindex > 0 and access.fields[1].hasdefault)
+assert(access.parameters[1].typeindex > 0)
+assert(access:constructionerror() == nil)
+local binding = serde.binding(Entry, new serde.Options(naming = "snakecase", unknownmembers = "reject"))
+local value = json.decode(binding, '{"enabled":false}')
+assert(not value.enabled and json.encode(binding, value) == '{"enabled":false}')
+local boolean = document.bool(true)
+assert(boolean.kind == "bool" and boolean:bool())
+local token = document.numbertoken("1e400")
+assert(token.kind == "numbertoken" and token:numbertoken() == "1e400")
+local integer = document.biginteger("123456789012345678901234567890")
+assert(integer.kind == "biginteger" and integer:biginteger() == "123456789012345678901234567890")
+return true
+]=]
+    )
+    assert(result)
+    local document = require("serde.document")
+    local adapters = require("serde.adapters")
+    local builder = require("serde.valuebuilder")
+    assert(type(document.bool) == "function" and document.boolean == nil)
+    assert(type(adapters.bool) == "function" and adapters.boolean == nil)
+    assert(type(builder.bool) == "function" and builder.boolean == nil)
+    assert(type(builder.scratchlen) == "function" and builder.scratchlength == nil)
+    assert(
+        document.Document.boolean == nil
+        and document.Document.bigInteger == nil
+        and document.Document.numberToken == nil
+    )
+    local codec = require("serde.json").codec()
+    for _, pair in ipairs({
+        {"cachedbindings", "cachedBindings"},
+        {"decodebuffer", "decodeBuffer"},
+        {"decodedocument", "decodeDocument"},
+        {"encodedocument", "encodeDocument"},
+        {"encodeinto", "encodeInto"},
+        {"writevalue", "writeValue"}
+    }) do
+        assert(type(codec[pair[1]]) == "function" and codec[pair[2]] == nil, pair[1])
+    end
+    local provider = require("nupp.runtime.provider.lunajson")
+    for _, pair in ipairs({
+        {"arrayof", "arrayOf"},
+        {"asarray", "asArray"},
+        {"asobject", "asObject"},
+        {"isarray", "isArray"},
+        {"newwriter", "newWriter"},
+        {"numbertoken", "numberToken"},
+        {"encodedstring", "encodedString"},
+        {"verifiedstring", "verifiedString"}
+    }) do
+        assert(type(provider[pair[1]]) == "function" and provider[pair[2]] == nil, pair[1])
+    end
 end
 
 return M

@@ -116,7 +116,7 @@ local releaseStream: function(borrows stream: process.Reader | process.Writer | 
 --- `communicate` can drain three pipes without deadlocking.
 ---
 --- `read` is the `nupp.io.Reader` operation and waits as long as the stream stays
---- open: the child's deadline in `Options.timeoutMs`, and the enclosing task scope's
+--- open: the child's deadline in `Options.timeoutms`, and the enclosing task scope's
 --- deadline, are what bound it. `poll` is the concrete nonblocking operation the
 --- combined drain needs; generic readers are not widened with readiness operations.
 ---
@@ -126,7 +126,7 @@ local releaseStream: function(borrows stream: process.Reader | process.Writer | 
 --- still exists leaves that reference reading freed memory, which no amount of care
 --- at the call site can make safe.
 ---
---- Borrowing the record through `asReader` keeps a single owner and makes its lifetime
+--- Borrowing the record through `asreader` keeps a single owner and makes its lifetime
 --- a question about Nupp values, which the checker can answer.
 record process.Reader is Reader2
     @private owner: any
@@ -143,12 +143,12 @@ record process.Reader is Reader2
     --- Whether the far end has finished and every byte it sent has been taken,
     --- or this end has been closed. A read returns empty exactly when this is
     --- true.
-    function isEnded(self): boolean
+    function isended(self): boolean
         return self.closed or self.eof
     end
 
     --- Whether this end has been closed.
-    function isReleased(self): boolean
+    function isreleased(self): boolean
         return self.closed
     end
 
@@ -156,7 +156,7 @@ record process.Reader is Reader2
     --- whether the stream has ended as the second result.
     ---
     --- Nil with `false` is "nothing yet" and nil with `true` is the end, so the two
-    --- are never the same answer. Without `timeoutMs` this does not wait, which is the
+    --- are never the same answer. Without `timeoutms` this does not wait, which is the
     --- half of reading `communicate` needs so that one quiet stream does not stop it
     --- serving another. With it, this waits up to that many milliseconds for bytes
     --- or the end, for a caller that has other work to come back to.
@@ -168,20 +168,20 @@ record process.Reader is Reader2
     --- an enormous one. `read` passes its caller's count straight through.
     --- @param self this stream
     --- @param limit the most bytes to take
-    --- @param timeoutMs how long to wait for bytes or the end, or nothing to not wait
+    --- @param timeoutms how long to wait for bytes or the end, or nothing to not wait
     --- @return the bytes, or nil when none are available
     --- @return whether the stream has ended
-    --- @raises string when the provider returns an invalid result, or timeoutMs is
+    --- @raises string when the provider returns an invalid result, or timeoutms is
     ---     outside 0 through 2147483647
-    function poll(self, limit: integer?, timeoutMs: integer?): (string?, boolean)
+    function poll(self, limit: integer?, timeoutms: integer?): (string?, boolean)
         local wanted = math.floor(limit or READ_LIMIT)
         if wanted < 1 then
             wanted = 1
         end
-        if timeoutMs == nil or timeoutMs == 0 then
+        if timeoutms == nil or timeoutms == 0 then
             return self:takeNow(wanted)
         end
-        if timeoutMs < 0 or timeoutMs > 2147483647 or math.floor(timeoutMs) ~= timeoutMs then
+        if timeoutms < 0 or timeoutms > 2147483647 or math.floor(timeoutms) ~= timeoutms then
             error("nupp: process poll timeout must be 0 through 2147483647 milliseconds", 2)
         end
 
@@ -203,7 +203,7 @@ record process.Reader is Reader2
                 -- sleep through the very event that answers it.
                 return new shared.Interest(child = self.owner.handle, read = {self.handle}, write = {})
             end,
-            self.owner.backend:now() + timeoutMs
+            self.owner.backend:now() + timeoutms
         )
 
         return chunk, ended
@@ -236,7 +236,7 @@ record process.Reader is Reader2
     end
 
     --- @raises string when the destination is empty
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         local wanted = positive(#destination, "process reader destination length", 2)
         local chunk, reason = self:read(wanted)
         if chunk == nil then
@@ -251,7 +251,7 @@ record process.Reader is Reader2
     end
 
     --- @raises string when offset is negative or count is not a positive integer
-    function readInto(
+    function readinto(
         exclusive self,
         exclusive destination: Buffer,
         offset: integer?,
@@ -270,7 +270,7 @@ record process.Reader is Reader2
             return 0
         end
         local input = span.fromstring(chunk)
-        local lease = destination:reserveWrite(at, wanted)
+        local lease = destination:reservewrite(at, wanted)
         do
             local output = lease:span()
             for index = 1, #chunk do
@@ -283,7 +283,7 @@ record process.Reader is Reader2
         return #chunk
     end
 
-    function transferTo(exclusive self, exclusive destination: Writer2): (integer?, string?)
+    function transferto(exclusive self, exclusive destination: Writer2): (integer?, string?)
         local total: integer = 0
         while true do
             local chunk, reason = self:read(READ_LIMIT)
@@ -302,7 +302,7 @@ record process.Reader is Reader2
     end
 
     --- Borrows this stream through the shared completion-oriented contract.
-    function asReader(borrows self): Reader2 borrows (self)
+    function asreader(borrows self): Reader2 borrows (self)
         return self
     end
 
@@ -337,12 +337,12 @@ record process.Writer is Writer2
 
     --- Whether the far end has gone, so that no amount of waiting will deliver another
     --- byte, or this end has been closed.
-    function isEnded(self): boolean
+    function isended(self): boolean
         return self.closed or self.gone
     end
 
     --- Whether this end has been closed.
-    function isReleased(self): boolean
+    function isreleased(self): boolean
         return self.closed
     end
 
@@ -375,16 +375,16 @@ record process.Writer is Writer2
     --- ran out first.
     ---
     --- `deadline` is a time in the [](os.monotonic) domain after which no more is
-    --- sent, however the child is keeping up. `stallTimeoutMs` bounds a period with no
+    --- sent, however the child is keeping up. `stalltimeoutms` bounds a period with no
     --- progress instead, so a child that keeps taking bytes keeps the write going
     --- until the deadline. Without either, only the child's own deadline and the
     --- enclosing task scope's bound the wait.
     --- @param self this stream
     --- @param data the bytes to send
     --- @param deadline when to stop, in the monotonic clock's milliseconds
-    --- @param stallTimeoutMs how long the pipe may take nothing before giving up
+    --- @param stalltimeoutms how long the pipe may take nothing before giving up
     --- @return how many bytes went
-    function send(self, data: string, deadline: number?, stallTimeoutMs: integer?): integer
+    function send(self, data: string, deadline: number?, stalltimeoutms: integer?): integer
         if self.closed or self.gone then
             return 0
         end
@@ -422,8 +422,8 @@ record process.Writer is Writer2
             end
             before = sent
             local stopAt = deadline
-            if stallTimeoutMs ~= nil then
-                local stalled = now + stallTimeoutMs
+            if stalltimeoutms ~= nil then
+                local stalled = now + stalltimeoutms
                 if stopAt == nil or stalled < stopAt then
                     stopAt = stalled
                 end
@@ -465,7 +465,7 @@ record process.Writer is Writer2
         return true
     end
 
-    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
         local count = #source
         local wrote, reason = self:write(spanString(source))
         if not wrote then
@@ -487,7 +487,7 @@ record process.Writer is Writer2
     end
 
     --- Borrows this stream through the shared completion-oriented contract.
-    function asWriter(borrows self): Writer2 borrows (self)
+    function aswriter(borrows self): Writer2 borrows (self)
         return self
     end
 
@@ -534,7 +534,7 @@ releaseStream = function(borrows stream: process.Reader | process.Writer | nil):
     -- stream is still ours, the safe reading is that it is gone: retaining one
     -- native handle is a bounded cost, and retrying a returned handle is not.
     local ok, released, why = pcall(function(): (boolean?, string?)
-        return stream.owner.backend:closeStream(stream.handle)
+        return stream.owner.backend:closestream(stream.handle)
     end)
     if not ok then
         stream.closed = true
@@ -626,7 +626,7 @@ record process.Process is own.Closeable
     stderr: process.Reader?
 
     --- Whether it is still running, enforcing an elapsed process deadline first.
-    function isRunning(self): boolean
+    function isrunning(self): boolean
         if self.state.exit ~= nil then
             return false
         end
@@ -654,7 +654,7 @@ record process.Process is own.Closeable
             end
         )
         if self.state.timedOut and self.state.exit ~= nil then
-            self.state.exit.timedOut = true
+            self.state.exit.timedout = true
         end
 
         return self.state.exit as process.Exit
@@ -692,15 +692,15 @@ record process.Process is own.Closeable
                 pending = ""
             elseif type(input) == "string" then
                 pending = input as string
-            elseif type(input) == "table" and type((input as any).getString) == "function" then
-                pending = (input as any):getString()
+            elseif type(input) == "table" and type((input as any).getstring) == "function" then
+                pending = (input as any):getstring()
                 if type(pending) ~= "string" then
                     error("nupp: process input getString must return a string", 2)
                 end
             else
                 error("nupp: process input must be a string, Buffer, or ByteView", 2)
             end
-            local maximum = given.maxOutputBytes or 268435456
+            local maximum = given.maxoutputbytes or 268435456
             if type(maximum) ~= "number" or maximum < 0 or maximum ~= math.floor(maximum) then
                 error("nupp: process maximum output must be a non-negative integer", 2)
             end
@@ -823,7 +823,7 @@ record process.Process is own.Closeable
 
             abandonInput()
 
-            return new process.Result(output = table.concat(out), errorOutput = table.concat(err), exit = self:wait())
+            return new process.Result(output = table.concat(out), erroroutput = table.concat(err), exit = self:wait())
         end)
         if not ok then
             return nil, io.toError(
@@ -1133,7 +1133,7 @@ local function blockOnce(self: any, interest: shared.Interest, stopAt: number?):
             budget = remaining > 0 and remaining or 0
         end
     end
-    self.backend:waitReady(interest, budget)
+    self.backend:waitready(interest, budget)
     pumpOnce(self)
 end
 
@@ -1174,7 +1174,7 @@ awaitTick = function(self: any, operation: string, scoped interest: function(): 
             -- Only the built-in driver calls this, when a task scope runs with no host
             -- beneath it. Without it a drain loop there polled flat out.
             function(waitMs: integer): integer
-                self.backend:waitReady(wanted, waitMs)
+                self.backend:waitready(wanted, waitMs)
 
                 return 0
             end
@@ -1255,7 +1255,7 @@ await = function(
             -- one it would poll the child flat out for as long as the child ran.
             function(waitMs: integer): integer
                 if wanted ~= nil then
-                    self.backend:waitReady(wanted, waitMs)
+                    self.backend:waitready(wanted, waitMs)
                 end
 
                 return 0
@@ -1331,7 +1331,7 @@ validateOptions = function(options: process.Options): nil
     end
     if given.cwd ~= nil
         and type(given.cwd) ~= "string"
-        and (type(given.cwd) ~= "table" or type(given.cwd.toString) ~= "function")
+        and (type(given.cwd) ~= "table" or type(given.cwd.tostring) ~= "function")
     then
         error("nupp: process cwd must be a string or path", 3)
     end
@@ -1348,8 +1348,8 @@ validateOptions = function(options: process.Options): nil
             error("nupp: process env names must be non-empty and contain no '='", 3)
         end
     end
-    if given.clearEnv ~= nil and type(given.clearEnv) ~= "boolean" then
-        error("nupp: process clearEnv must be a boolean", 3)
+    if given.clearenv ~= nil and type(given.clearenv) ~= "boolean" then
+        error("nupp: process clearenv must be a boolean", 3)
     end
     local streams = {pipe = true, inherit = true, null = true}
     if given.stdin ~= nil and streams[given.stdin] ~= true then
@@ -1361,12 +1361,12 @@ validateOptions = function(options: process.Options): nil
     if given.stderr ~= nil and streams[given.stderr] ~= true and given.stderr ~= "stdout" then
         error("nupp: process stderr must be pipe, inherit, null, or stdout", 3)
     end
-    if given.timeoutMs ~= nil
+    if given.timeoutms ~= nil
         and (
-            type(given.timeoutMs) ~= "number"
-            or given.timeoutMs < 0
-            or given.timeoutMs > 2147483647
-            or math.floor(given.timeoutMs) ~= given.timeoutMs
+            type(given.timeoutms) ~= "number"
+            or given.timeoutms < 0
+            or given.timeoutms > 2147483647
+            or math.floor(given.timeoutms) ~= given.timeoutms
         )
     then
         error("nupp: process timeout must be 0 through 2147483647 milliseconds", 3)
@@ -1403,7 +1403,7 @@ function process.spawn(options: process.Options): (affine(process.Process)?, io.
     local state = new Child(
         backend = backend,
         handle = handle,
-        deadline = options.timeoutMs ~= nil and (backend:now() + options.timeoutMs) or nil,
+        deadline = options.timeoutms ~= nil and (backend:now() + options.timeoutms) or nil,
         exit = nil,
         reaped = false,
         childReleased = false,

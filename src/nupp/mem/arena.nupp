@@ -45,7 +45,7 @@ record arena.Arena<S>
     @private @readonly width: integer
 
     --- How many rows each page holds.
-    @readonly pageSize: integer
+    @readonly pagesize: integer
 
     @private pageList: {S[?]}
     @private rows: {{S}}
@@ -78,10 +78,10 @@ end
 -- array read and a cursor increment rather than an indexing operation that
 -- would box a fresh reference each time.
 local function addPage<S>(exclusive self: arena.Arena<S>, index: integer): nil
-    local page = storage.allocateArray(self.element, self.pageSize) as S[?]
+    local page = storage.allocateArray(self.element, self.pagesize) as S[?]
     local cached: {S} = {}
     @unsafe do
-        for offset = 0, self.pageSize - 1 do
+        for offset = 0, self.pagesize - 1 do
             cached[offset + 1] = page[offset]
         end
     end
@@ -101,7 +101,7 @@ end
 function arena.Arena.acquire<S>(exclusive self: arena.Arena<S>): S
     local cursor = self.cursor
     local page = self.pageIndex
-    if cursor >= self.pageSize then
+    if cursor >= self.pagesize then
         page = page + 1
         cursor = 0
         if self.pageList[page] == nil then
@@ -152,7 +152,7 @@ function arena.Arena.reset<S>(exclusive self: arena.Arena<S>): nil
         error("nupp: arena reset with " .. tostring(self.liveCount) .. " live leases", 2)
     end
     self.pageIndex = 0
-    self.cursor = self.pageSize
+    self.cursor = self.pagesize
     self.usedCount = 0
 end
 
@@ -180,7 +180,7 @@ function arena.Arena.live<S>(self: arena.Arena<S>): integer
     return self.liveCount
 end
 
---- Creates an arena of `witness` rows with a page of `pageSize` rows already
+--- Creates an arena of `witness` rows with a page of `pagesize` rows already
 --- allocated.
 ---
 --- ```nupp:fragment
@@ -193,12 +193,12 @@ end
 --- ```
 ---
 --- @param witness the struct declaration every row is laid out as
---- @param pageSize rows per page, 256 when omitted
+--- @param pagesize rows per page, 256 when omitted
 --- @return the arena, holding its first page
---- @raises string when pageSize is not a positive integer
+--- @raises string when pagesize is not a positive integer
 --- @export
-function arena.newarena<S>(witness: Type<S>, pageSize: integer?): arena.Arena<S>
-    local rows = pageSize or 256
+function arena.newarena<S>(witness: Type<S>, pagesize: integer?): arena.Arena<S>
+    local rows = pagesize or 256
     if rows < 1 or rows % 1 ~= 0 then
         error("nupp: arena page size must be a positive integer", 2)
     end
@@ -211,7 +211,7 @@ function arena.newarena<S>(witness: Type<S>, pageSize: integer?): arena.Arena<S>
     local created = new arena.Arena(
         element = element,
         width = storage.sizeOf(element),
-        pageSize = rows,
+        pagesize = rows,
         pageList = {} as {S[?]},
         rows = {},
         pageIndex = 0,

@@ -383,7 +383,7 @@ function bytecode.analyze(chunk: function(): any): bytecode.Analysis
 
     return {
         profile = trace.profile(),
-        reasonCatalog = {id = trace.CATALOG_ID, version = trace.CATALOG_VERSION},
+        reasonCatalog = {id = trace.catalogid, version = trace.catalogversion},
         bytecodeFingerprint = hash.sha256(string.dump(chunk)),
         functions = functions,
         blockers = blockers,

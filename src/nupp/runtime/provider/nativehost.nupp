@@ -53,7 +53,7 @@ local refusingHandler = new suspensionContract.Handler(
     park = function(_: any, _: any, _: any): nil
         error("nupp: a host late handler cannot suspend; release with host.post", 0)
     end,
-    canPark = function(_: any): boolean
+    canpark = function(_: any): boolean
         return false
     end,
     shutdown = function(_: any): nil

@@ -536,7 +536,7 @@ local record Client is NativeClient
             bodyLength = #(value as string)
         end
         local request = native.ffi.new("NuppNativeHttpRequest")
-        request.url = slice(descriptor.uri:toString())
+        request.url = slice(descriptor.uri:tostring())
         request.method = slice(descriptor.method)
         request.headers = packed
         request.header_count = count

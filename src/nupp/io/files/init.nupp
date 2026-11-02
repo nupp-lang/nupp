@@ -97,14 +97,14 @@ local application: string?
 local roots: {[string]: appPaths.ApplicationPath} = {}
 
 --- Selects the identity used to resolve configuration, data, and cache roots.
---- @param newOrganization the organization component
---- @param newApplication the application component
+--- @param neworganization the organization component
+--- @param newapplication the application component
 --- @return nil after selecting the identity
-export function setApplicationIdentity(newOrganization: string, newApplication: string): nil
-    appPaths.encodeIdentity(newOrganization, "organization")
-    appPaths.encodeIdentity(newApplication, "application")
-    organization = newOrganization
-    application = newApplication
+export function setApplicationIdentity(neworganization: string, newapplication: string): nil
+    appPaths.encodeIdentity(neworganization, "organization")
+    appPaths.encodeIdentity(newapplication, "application")
+    organization = neworganization
+    application = newapplication
 end
 
 --- Returns the selected application identity, or nil values before one is set.
@@ -207,7 +207,7 @@ end
 --- Reports whether a path itself is a symbolic link.
 ---
 --- Any failure reads as `false`, and so does a provider with no links at all;
---- `capabilities().symbolicLinks` says which that is.
+--- `capabilities().symlinks` says which that is.
 --- @param path the path to inspect
 --- @return whether it is a symbolic link
 export function isSymlink(path: Path): boolean
@@ -223,22 +223,22 @@ export function readLink(path: Path): (paths.Path?, io.Error?)
 end
 
 --- Creates a symbolic link when the provider supports one.
---- @param targetPath the path the link names
+--- @param targetpath the path the link names
 --- @param link where to create the link
 --- @param kind whether a Windows link names a file or directory
 --- @return whether the link was created
 --- @return a failure reason, when unsuccessful
-export function createSymlink(targetPath: Path, link: Path, kind: ("file" | "directory")?): (boolean, io.Error?)
-    return answered(provider.createSymlink(targetPath, link, kind))
+export function createSymlink(targetpath: Path, link: Path, kind: ("file" | "directory")?): (boolean, io.Error?)
+    return answered(provider.createSymlink(targetpath, link, kind))
 end
 
 --- Sets or clears a path's native read-only attribute.
 --- @param path the path to change
---- @param readOnly whether writes should be refused
+--- @param readonly whether writes should be refused
 --- @return whether the attribute was changed
 --- @return a failure reason, when unsuccessful
-export function setReadOnly(path: Path, readOnly: boolean): (boolean, io.Error?)
-    return answered(provider.setReadOnly(path, readOnly))
+export function setReadOnly(path: Path, readonly: boolean): (boolean, io.Error?)
+    return answered(provider.setReadOnly(path, readonly))
 end
 
 --- Creates a directory and all missing parents.

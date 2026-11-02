@@ -21,18 +21,18 @@ function bridge.validate(programs: {scalar.Program}): string?
 end
 
 function bridge.metadata(programs: {scalar.Program}, tier: string): any
-    local entries = json.asArray({})
+    local entries = json.asarray({})
     for index, program in ipairs(programs) do
-        local params = json.asArray({})
+        local params = json.asarray({})
         for _, param in ipairs(program.params) do
             params[#params + 1] = {kind = param.kind, type = param.type, sourceType = param.sourceType}
         end
-        local layouts = json.asArray({})
+        local layouts = json.asarray({})
         for _, layout in ipairs(program.layouts or {}) do
             if layout.nativeOnly == true then
                 goto nextLayout
             end
-            local fields = json.asArray({})
+            local fields = json.asarray({})
             for _, field in ipairs(layout.fields) do
                 fields[#fields + 1] = field.name
             end
@@ -52,7 +52,7 @@ function bridge.metadata(programs: {scalar.Program}, tier: string): any
             call = "nupp_bridge_" .. tostring(index),
             params = params,
             independentCounts = scalar.independentCounts(program),
-            results = json.asArray(program.resultTypes or {}),
+            results = json.asarray(program.resultTypes or {}),
             layouts = layouts
         }
     end

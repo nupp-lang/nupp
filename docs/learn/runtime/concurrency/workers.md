@@ -27,8 +27,8 @@ const tasks = coroutine
 
 export function hashes(left: string, right: string): (string, string)
     with scope = tasks.scope() do
-        const first = scope:fork(left, jobs.hash)
-        const second = scope:fork(right, jobs.hash)
+        const first = scope:work(left, jobs.hash)
+        const second = scope:work(right, jobs.hash)
 
         return first:await(), second:await()
     end
@@ -71,7 +71,7 @@ awaited and every path out by return or error.
 
 ```nupp:fragment
 with scope = tasks.scope() do
-    scope:fork(snapshot, jobs.rebuildIndex)
+    scope:work(snapshot, jobs.rebuildIndex)
 end -- rebuildIndex has settled here
 ```
 
@@ -85,7 +85,7 @@ scope cancels its unfinished children, waits for them, and raises the failure
 where the block is left. [Failure and termination](#failure-and-termination)
 says more.
 
-`Task:isDone()` returns whether a reply has arrived without waiting for one. It
+`Task:isdone()` returns whether a reply has arrived without waiting for one. It
 is a progress question, not a scheduling one: a task is settled or it is not,
 and the way to have its values is still `await`.
 
@@ -116,7 +116,7 @@ export function hashEach(inputs: {string}): {string}
 
     local function hashInto(index: integer, bytes: string): nil
         with lane = tasks.scope() do
-            hashed[index] = lane:fork(bytes, jobs.hash):await()
+            hashed[index] = lane:work(bytes, jobs.hash):await()
         end
     end
 
@@ -132,7 +132,7 @@ end
 
 Waiting inside the loop that forks would fork one task, wait for it, and fork the
 next: still correct, and exactly as parallel as calling the function. A handle
-rarely needs a type annotation, because `const task = scope:fork(bytes,
+rarely needs a type annotation, because `const task = scope:work(bytes,
 jobs.hash)` infers one. Where one is written, it is `coroutine.Task<F>`, named
 by the submitted function's type: the handle is derived from the signature
 alone, so it is `coroutine.Task<function(string): string>` even though [`fork`
@@ -146,7 +146,7 @@ work divides:
 ```nupp:fragment
 export function bothHashes(left: string, right: string): (string, string)
     with scope = tasks.scope() do
-        const task = scope:fork(right, jobs.hash)
+        const task = scope:work(right, jobs.hash)
         const mine = jobs.hash(left)
 
         return mine, task:await()
@@ -166,7 +166,7 @@ export function hashChunks(inputs: {string}, size: integer): {string}
 
     local function hashChunk(at: integer, chunk: {string}): nil
         with lane = tasks.scope() do
-            chunks[at] = lane:fork(chunk, jobs.hashAll):await()
+            chunks[at] = lane:work(chunk, jobs.hashAll):await()
         end
     end
 
@@ -231,7 +231,7 @@ export function countAll(shards: {{string}}): integer
     local total: integer = 0
     with scope = tasks.scope() do
         for _, paths in ipairs(shards) do
-            total = total + scope:fork(|| -> #paths):await()
+            total = total + scope:work(|| -> #paths):await()
         end
     end
 
@@ -256,7 +256,7 @@ export function countAll(shards: {{string}}): number
 
     local function countShard(paths: {string}): nil
         with lane = tasks.scope() do
-            total = total + lane:fork(paths, indexJobs.count):await()
+            total = total + lane:work(paths, indexJobs.count):await()
         end
     end
 
@@ -289,7 +289,7 @@ end
 
 ```nupp:fragment
 const imageJobs = image.jobs
-const task = scope:fork(bytes, 320, imageJobs.resize)
+const task = scope:work(bytes, 320, imageJobs.resize)
 ```
 
 The function reference is also the build dependency. The binary automatically
@@ -299,7 +299,7 @@ An eligible function literal is sendable too. Its activation-local captures are
 snapshotted when the literal is created and copied with the explicit arguments:
 
 ```nupp:fragment
-scope:fork(bytes, |input: string| -> imageJobs.resize(input, requestedWidth))
+scope:work(bytes, |input: string| -> imageJobs.resize(input, requestedWidth))
 ```
 
 The binding `requestedWidth` must be initialized and never reassigned. Its value
@@ -381,16 +381,16 @@ with scope = tasks.scope() do
     const row = new jobs.Row(name = "a")
 
     -- The lane receives its own jobs.Row metatable, so its methods work there.
-    scope:fork(row, jobs.displayRow)
+    scope:work(row, jobs.displayRow)
 
     const plain = {name = "a"}
 
     -- nupp: cannot copy task arguments: arguments[1][2] repeats a table
     -- already present in the message
-    scope:fork({plain, plain}, jobs.count)
+    scope:work({plain, plain}, jobs.count)
 
     -- Two tables, and a lane that reads two rows:
-    scope:fork({{name = "a"}, {name = "a"}}, jobs.count)
+    scope:work({{name = "a"}, {name = "a"}}, jobs.count)
 end
 ```
 
@@ -447,7 +447,7 @@ end
 local frame = heap.alloc(ffi.typeof<uint8>(), 8 * 1048576)
 with scope = tasks.scope() do
     for generation = 1, 60 do
-        frame = scope:fork(frame, generation, jobs.fill):await()
+        frame = scope:work(frame, generation, jobs.fill):await()
     end
 end
 own.drop(frame)
@@ -486,7 +486,7 @@ raises it too, and so does any later task operation in the scope.
 export function observed(): string
     local digest = ""
     with scope = tasks.scope() do
-        const bad = scope:fork("beta", jobs.refuse)
+        const bad = scope:work("beta", jobs.refuse)
 
         -- false, "nupp: worker task failed: ...: cannot hash beta"
         print(pcall(function(): nil
@@ -501,7 +501,7 @@ end
 
 export function unobserved(): string
     with scope = tasks.scope() do
-        scope:fork("beta", jobs.refuse)
+        scope:work("beta", jobs.refuse)
 
         return jobs.hash("alpha") -- the failure is raised leaving the scope
     end
@@ -574,7 +574,7 @@ fork is made.
 Three things a program can observe differ, because a browser gives two Workers no
 synchronous channel:
 
-- a reply reaches the calling state when it next waits, so `Task:isDone` returns
+- a reply reaches the calling state when it next waits, so `Task:isdone` returns
   as of that point rather than the moment a lane produced the value;
 - `Task:cancel` still reports whether it made the first request, but a queued
   task settles at the next wait rather than inside the call;

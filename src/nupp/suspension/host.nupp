@@ -62,16 +62,16 @@ host.Installed = contract.Installed
 host.install = provider.install
 
 --- Installs a driver's handler, which stands in front of a host rather than being one.
-host.installDriver = provider.installDriver
+host.installDriver = provider.installdriver
 
 --- Creates a coroutine that inherits the handler installed where it was created.
 host.create = provider.create
 
 --- Captures the barrier in force here, for a driver about to displace it.
-host.delegatedCanPark = provider.delegatedCanPark
+host.delegatedCanPark = provider.delegatedcanpark
 
 --- Captures how a wait is parked here, for a driver about to displace it.
-host.delegatedPark = provider.delegatedPark
+host.delegatedPark = provider.delegatedpark
 
 --- Builds a wait that settles when the one a driver was handed does, or when the
 --- driver's own work becomes runnable.

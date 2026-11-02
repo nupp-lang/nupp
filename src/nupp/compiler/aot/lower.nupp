@@ -1888,6 +1888,29 @@ local function simdOperand(
     )
 end
 
+const SIMD_METHOD_OPERATIONS: {
+    [string]: string
+} = {
+    loadpairs = "loadPairs",
+    loadquads = "loadQuads",
+    loadtriples = "loadTriples",
+    mulhigh = "mulHigh",
+    numbermax = "numberMax",
+    numbermin = "numberMin",
+    orderedprefixsum = "orderedPrefixSum",
+    prefixxor = "prefixXor",
+    propagatingmax = "propagatingMax",
+    propagatingmin = "propagatingMin",
+    rotateleft = "rotateLeft",
+    rotateright = "rotateRight",
+    saturatingadd = "saturatingAdd",
+    saturatingsub = "saturatingSub",
+    scatterunchecked = "scatterUnchecked",
+    storepairs = "storePairs",
+    storequads = "storeQuads",
+    storetriples = "storeTriples",
+}
+
 --- The elementwise extrema, by the method that names their NaN contract.
 ---
 --- There is no unqualified `min`: the two disagree on every pair containing a
@@ -4280,6 +4303,7 @@ local function simdMethod(
 
     local genericFamily, genericElement, genericShape = genericSimdParts(receiverType)
     if genericFamily ~= nil then
+        method = SIMD_METHOD_OPERATIONS[method] or method
         local vectorType = "simd_vector_" .. tostring(genericElement) .. "_" .. tostring(genericShape)
         local maskType = "simd_mask_" .. tostring(genericElement) .. "_" .. tostring(genericShape)
         if genericFamily == "species" and method == "mask" and #raw == 1 then
@@ -4466,7 +4490,7 @@ local function simdMethod(
                 if method == "scatter" and not simdindices.unique(offset) then
                     kernel.context.reject(
                         source,
-                        "SIMD scatter needs provably unique indices; scatterUnchecked explicitly asserts uniqueness without a runtime check"
+                        "SIMD scatter needs provably unique indices; scatterunchecked explicitly asserts uniqueness without a runtime check"
                     )
                 end
             else
@@ -4751,7 +4775,7 @@ local function simdMethod(
             )
         elseif genericFamily == "vector" and (method == "orderedPrefixSum" or method == "prefixXor") and #raw == 0 then
             if method == "prefixXor" and tostring(genericElement):sub(1, 1) == "f" then
-                kernel.context.reject(source, "SIMD prefixXor requires an integer vector element")
+                kernel.context.reject(source, "SIMD prefixxor requires an integer vector element")
             end
             return new scalarIR.Simd(
                 op = "simd_prefix",
@@ -7720,7 +7744,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 and (method as cst.MethodCall).name ~= nil
                 and ((method as cst.MethodCall).name as lexer.Token).text
                 or nil
-            if method ~= nil and phaseMethod == "reduceSum" then
+            if method ~= nil and phaseMethod == "reducesum" then
                 local args = (method as cst.MethodCall).args ~= nil
                     and ((((method as cst.MethodCall).args as cst.Args).exprs or {}))
                     or {}
@@ -7728,7 +7752,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                 local shared = sharedName ~= nil and environment[sharedName as string] or nil
                 local size = kernel.workgroupSize
                 if shared == nil or shared.kind ~= "workgroup_shared" or shared.element ~= "f32" then
-                    context.reject(lower.site(method), "phases:reduceSum takes one f32 scratch array")
+                    context.reject(lower.site(method), "phases:reducesum takes one f32 scratch array")
                 end
                 if size == nil or size < 1 or size & (size - 1) ~= 0 then
                     context.reject(lower.site(method), "fixed-tree reduction needs a power-of-two workgroup size")
@@ -7807,7 +7831,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     )
                     stride = stride // 2
                 end
-            elseif method ~= nil and phaseMethod == "inclusiveScan" then
+            elseif method ~= nil and phaseMethod == "inclusivescan" then
                 local args = (method as cst.MethodCall).args ~= nil
                     and ((((method as cst.MethodCall).args as cst.Args).exprs or {}))
                     or {}
@@ -7824,7 +7848,7 @@ function lower.block(statements: {cst.Node}, environment: {[string]: any}, kerne
                     or temporary.element ~= "u32"
                     or valuesName == temporaryName
                 then
-                    context.reject(lower.site(method), "phases:inclusiveScan takes two distinct u32 scratch arrays")
+                    context.reject(lower.site(method), "phases:inclusivescan takes two distinct u32 scratch arrays")
                 end
                 if size == nil
                     or size < 1

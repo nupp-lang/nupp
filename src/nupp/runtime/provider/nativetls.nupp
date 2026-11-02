@@ -205,7 +205,7 @@ local function create(): contract.Provider
             return scalar[0] ~= 0
         end,
 
-        closeNotify = function(self: contract.Provider, session: any): (boolean, string?)
+        closenotify = function(self: contract.Provider, session: any): (boolean, string?)
             const status = C.nuppNativeTlsCloseNotify(session, scalar)
             if status ~= 0 then
                 return false, lastError("nupp: could not send close_notify")

@@ -137,7 +137,7 @@ function M.fusedEntryModulesRetainTheirBuilderAndStatusIdentity()
     local serde = require("nupp.codec.json.internal.decoder.serde")
     assert(pull.decode == fused.decodePull)
     assert(eager.decode == fused.decodeEager)
-    assert(serde.decode == fused.decodeSerde)
+    assert(serde.decode == fused.decodeserde)
     for _, entry in ipairs({pull, eager, serde}) do
         assert(entry.OK == 0)
         assert(entry.SYNTAX == 1)

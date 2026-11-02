@@ -29,12 +29,32 @@ function M.hashRootDoesNotInitializeAnyAlgorithmFamily()
     assert(load("binary.hash") == hash)
 end
 
+function M.binaryContextNamesUseCanonicalKeysOnly()
+    for _, kind in ipairs({"checksum", "digest", "mac"}) do
+        local load = state.family(kind, {})
+        local facade = load("binary.hash." .. kind)
+        local name = kind == "checksum" and "crc32" or kind == "digest" and "sha256" or "hmac-sha256"
+        local algorithm = facade.algorithm(name)
+        local final = kind == "checksum" and "newchecksum" or kind == "digest" and "newdigest" or "newmac"
+        local retired = kind == "checksum" and "newChecksum" or kind == "digest" and "newDigest" or "newMac"
+        assert(type(algorithm[final]) == "function" and algorithm[retired] == nil)
+        local context = kind == "mac" and algorithm[final](algorithm, "key") or algorithm[final](algorithm)
+        assert(type(context.writespan) == "function" and context.writeSpan == nil)
+        if kind ~= "checksum" then
+            assert(algorithm.digestsize > 0 and algorithm.digestSize == nil)
+            assert(context:digestsize() == algorithm.digestsize and context.digestSize == nil)
+            assert(type(context.hexdigest) == "function" and context.hexDigest == nil)
+        end
+        context:close()
+    end
+end
+
 function M.providerSelectionAndCleanup()
     local created, closed = 0, 0
     local load, counts = selected("digest", {
         sha256 = {
             name = "sha256",
-            digestSize = 32,
+            digestsize = 32,
             create = function()
                 created = created + 1
                 local inner = builtin.lookup("sha256"):create()
@@ -56,7 +76,7 @@ function M.providerSelectionAndCleanup()
     local digest = load("binary.hash.digest")
     local initialized = counts.resolutions
     assert(initialized > 0)
-    assert(digest.algorithm("sha256").digestSize == 32 and created == 0)
+    assert(digest.algorithm("sha256").digestsize == 32 and created == 0)
     assert(digest.lookup("sha512") ~= nil, "unreplaced built-ins remain available")
     for _ = 1, 20 do
         assert(digest.hexdigest("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
@@ -75,7 +95,7 @@ function M.digestAndMacProviderFailuresCloseAndDoNotFallBack()
             local load = selected(kind, {
                 [name] = {
                     name = name,
-                    digestSize = 32,
+                    digestsize = 32,
                     create = function()
                         return {
                             update = function()
@@ -170,9 +190,9 @@ end
 
 function M.invalidDescriptorsFailAtRequireTime()
     for _, case in ipairs({
-        {"digest", "sha256", "digestSize", 31},
+        {"digest", "sha256", "digestsize", 31},
         {"checksum", "crc32c", "width", 16},
-        {"mac", "hmac-sha256", "digestSize", 31}
+        {"mac", "hmac-sha256", "digestsize", 31}
     }) do
         local load = selected(case[1], {
             [case[2]] = {
@@ -274,7 +294,7 @@ local function catalog(kind, name, priority)
             error("not used")
         end,
     }
-    descriptor[kind == "checksum" and "width" or "digestSize"] = 1
+    descriptor[kind == "checksum" and "width" or "digestsize"] = 1
 
     return {priority = priority, algorithms = {[name] = descriptor}}
 end

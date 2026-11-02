@@ -84,7 +84,7 @@ function M.revalidatesMutableRecipeInputsAtFinalization()
     assert(finalizeFailure and finalizeFailure.code == "NUPP2810", "mutated recipe used the wrong diagnostic")
 end
 
-function M.acceptsLowercaseInfoAndFieldKeysWithoutRewritingUserViews()
+function M.canonicalInfoAndFieldKeysRetireAliasesWithoutRewritingUserViews()
     local state = evaluator()
     local ownerType, interfaceType, readType, writeType = {}, {}, {}, {}
     local input = {
@@ -123,8 +123,9 @@ function M.acceptsLowercaseInfoAndFieldKeysWithoutRewritingUserViews()
     }) do
         local current, problem = providers.index(state, info, names[1])
         assert(problem == nil, names[1] .. " was rejected")
-        local preceding = providers.index(state, info, names[2])
-        assert(current == preceding and current ~= nil, names[1] .. " changed the payload")
+        local preceding, failure = providers.index(state, info, names[2])
+        assert(preceding == nil and failure.code == "NUPP2810", names[2] .. " was not retired")
+        assert(current == state.opaque[info].payload[names[2]], names[1] .. " changed the payload")
         assert(state.opaque[info].payload[names[1]] == nil, "public aliases leaked into the private Info payload")
     end
     local fields = assert(providers.index(state, info, "fields"))
@@ -137,8 +138,9 @@ function M.acceptsLowercaseInfoAndFieldKeysWithoutRewritingUserViews()
     }) do
         local current, problem = providers.index(state, field, names[1])
         assert(problem == nil, names[1] .. " was rejected")
-        local preceding = providers.index(state, field, names[2])
-        assert(current == preceding and current ~= nil, names[1] .. " changed the payload")
+        local preceding, failure = providers.index(state, field, names[2])
+        assert(preceding == nil and failure.code == "NUPP2810", names[2] .. " was not retired")
+        assert(current == state.opaque[field].payload[names[2]], names[1] .. " changed the payload")
         assert(state.opaque[field].payload[names[1]] == nil, "public aliases leaked into the private Field payload")
     end
     local default = assert(providers.index(state, field, "defaultvalue"))

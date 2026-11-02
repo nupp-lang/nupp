@@ -613,7 +613,7 @@ function M.aScopeNestsInsideAHostHandlerWithoutAnsweringItsOwnWaits()
                 suspension.poll()
             end
         end,
-        canPark = function()
+        canpark = function()
             return true
         end,
         shutdown = function()
@@ -644,7 +644,7 @@ function M.aNamedChildIsTheOperationAStuckHostSees()
                 suspension.poll()
             end
         end,
-        canPark = function()
+        canpark = function()
             return true
         end,
         shutdown = function()
@@ -682,7 +682,7 @@ function M.oneTurnBudgetIsSharedByNestedAndSequentialScopes()
                 suspension.poll()
             end
         end,
-        canPark = function()
+        canpark = function()
             return true
         end,
         shutdown = function()
@@ -736,7 +736,7 @@ function M.aHostBarrierStaysVisibleThroughAScope()
         park = function()
             error("the barrier should have refused before parking", 0)
         end,
-        canPark = function()
+        canpark = function()
             return false
         end,
         shutdown = function()
@@ -1053,7 +1053,7 @@ function M.aFamilyCallNestsInsideAnInstalledHandler()
                 suspension.poll()
             end
         end,
-        canPark = function()
+        canpark = function()
             return true
         end,
         shutdown = function()
@@ -1084,7 +1084,7 @@ function M.nestedFamilyCallsPreserveAnOuterBarrier()
         park = function()
             error("the refused wait reached the outer park", 0)
         end,
-        canPark = function()
+        canpark = function()
             return false
         end,
         shutdown = function()
@@ -1224,7 +1224,7 @@ function M.aCancelledTaskCanParkWhileItDrainsItsOwnScope()
                 suspension.poll()
             end
         end,
-        canPark = function()
+        canpark = function()
             return true
         end,
         shutdown = function()
@@ -1486,23 +1486,23 @@ function M.runRefusesABadLimit()
     assert(tostring(problem):find("limit must be a positive integer", 1, true) ~= nil, tostring(problem))
 end
 
-function M.acceptingTaskCompletionNameSharesTheExistingMethod()
+function M.canonicalTaskCompletionRetiresThePrecedingMethod()
     scoped(nil, function(scope)
         local child = scope:spawn(function()
             return 17, nil, "tail"
         end)
-        testAssert.eq(child.isdone, child.isDone, "completion aliases share one method handle")
+        testAssert.eq(child.isDone, nil, "the preceding public method is absent")
         testAssert.eq(child:isdone(), false)
         local first, middle, last = child:await()
         testAssert.eq(first, 17)
         testAssert.eq(middle, nil)
         testAssert.eq(last, "tail")
         testAssert.eq(child:isdone(), true)
-        testAssert.eq(child:isdone(), child:isDone())
+        testAssert.eq(child.isDone, nil)
     end)
 end
 
-function M.acceptingWorkNameRunsTheExistingWorkerSubmission()
+function M.canonicalWorkRunsTheExistingWorkerSubmission()
     local taskName, providerName = "nupp.tasks", "nupp.runtime.workersprovider"
     local previousTasks, previousProvider = package.loaded[taskName], package.loaded[providerName]
     local submitted, closed = 0, 0
@@ -1515,7 +1515,7 @@ function M.acceptingWorkNameRunsTheExistingWorkerSubmission()
         local child
         function workerScope:spawn(body, ...)
             submitted = submitted + 1
-            child = {values = {body(...)}, count = 3, isDone = done}
+            child = {values = {body(...)}, count = 3, isdone = done}
             observer.created(self, child)
             observer.settled(self, child, "done", nil)
 
@@ -1532,7 +1532,7 @@ function M.acceptingWorkNameRunsTheExistingWorkerSubmission()
 
         package.loaded[providerName] = {
             provider = {
-                openScope = function(_, callbacks)
+                openscope = function(_, callbacks)
                     observer = callbacks
                     return workerScope
                 end,
@@ -1544,14 +1544,14 @@ function M.acceptingWorkNameRunsTheExistingWorkerSubmission()
         package.loaded[taskName] = nil
         local isolated = require(taskName)
         local scope = isolated.open()
-        testAssert.eq(scope.work, scope.fork, "worker aliases share one method handle")
+        testAssert.eq(scope.fork, nil, "the preceding public worker method is absent")
         local handle = scope:work(
             function(value)
                 return value + 1, nil, "tail"
             end,
             6
         )
-        testAssert.eq(handle.isdone, handle.isDone, "worker completion shares one method handle")
+        testAssert.eq(handle.isDone, nil, "the preceding worker completion method is absent")
         testAssert.eq(handle:isdone(), true)
         local first, middle, last = handle:await()
         testAssert.eq(first, 7)

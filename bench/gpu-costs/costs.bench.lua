@@ -44,9 +44,9 @@ end
 local function runGpu(state)
     state.context:upload(state.inputBuffer, state.source)
     state.binding:dispatch()
-    state.context:enqueueDownload(state.outputBuffer)
+    state.context:enqueuedownload(state.outputBuffer)
     state.context:synchronize()
-    state.context:readDownloaded(state.outputBuffer, state.destination)
+    state.context:readdownloaded(state.outputBuffer, state.destination)
 
     return tonumber(state.output[state.count - 1])
 end
@@ -83,7 +83,7 @@ end
 
 bench.suite({
     name = "gpu-costs",
-    baselineVariant = "cpu-aot",
+    baselinevariant = "cpu-aot",
     variants = {
         {name = "cpu-aot", setup = host, run = runCpu, teardown = check},
         {
@@ -97,11 +97,11 @@ bench.suite({
         },
     },
     cases = {{name = "mix64", parameters = {count = {64, 4096, 262144}}}},
-    warmupIterations = 1,
-    sampleIterations = 64,
-    minSamples = 7,
-    minDurationMs = 100,
-    maxSamples = 100000,
-    maxDurationMs = 3000,
+    warmupiterations = 1,
+    sampleiterations = 64,
+    minsamples = 7,
+    mindurationms = 100,
+    maxsamples = 100000,
+    maxdurationms = 3000,
 })
 bench.report()

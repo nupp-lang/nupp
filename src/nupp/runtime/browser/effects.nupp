@@ -46,7 +46,7 @@ local function decodedResponse(text: any): (any, {any})
     if not decoded then
         invalidResponse("invalid JSON")
     end
-    if type(response) ~= "table" or json.isArray(response) then
+    if type(response) ~= "table" or json.isarray(response) then
         invalidResponse("expected an object")
     end
     if response.cancelled ~= nil and type(response.cancelled) ~= "boolean" then
@@ -55,7 +55,7 @@ local function decodedResponse(text: any): (any, {any})
     local responses = response.responses
     if responses == nil then
         responses = {}
-    elseif type(responses) ~= "table" or not json.isArray(responses) then
+    elseif type(responses) ~= "table" or not json.isarray(responses) then
         invalidResponse("responses must be an array")
     end
     local count: integer = 0

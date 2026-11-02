@@ -172,8 +172,8 @@ local function probe(): {number}
     local first, second = a:deinterleave(b)
     out[#out + 1] = first:extract(4)
     out[#out + 1] = second:extract(2)
-    out[#out + 1] = v:rotateLeft(1):extract(4)
-    out[#out + 1] = v:rotateRight(1):extract(1)
+    out[#out + 1] = v:rotateleft(1):extract(4)
+    out[#out + 1] = v:rotateright(1):extract(1)
     out[#out + 1] = v:align(w, 1):extract(1)
     out[#out + 1] = v:align(w, 1):extract(2)
     out[#out + 1] = v:align(w, 4):extract(3)
@@ -186,20 +186,20 @@ local function probe(): {number}
     out[#out + 1] = v:compress(even):extract(3)
     out[#out + 1] = v:expand(even):extract(4)
     out[#out + 1] = v:expand(even):extract(2)
-    out[#out + 1] = v:orderedPrefixSum():extract(4)
-    out[#out + 1] = v:prefixXor():extract(3)
-    out[#out + 1] = v:prefixXor():extract(4)
+    out[#out + 1] = v:orderedprefixsum():extract(4)
+    out[#out + 1] = v:prefixxor():extract(3)
+    out[#out + 1] = v:prefixxor():extract(4)
     out[#out + 1] = even:all() and 1 or 0
     out[#out + 1] = (v > 0):all() and 1 or 0
     out[#out + 1] = even:any() and 1 or 0
     out[#out + 1] = even:count()
     out[#out + 1] = even:first()
     out[#out + 1] = tonumber(even:bits()) as number
-    out[#out + 1] = v:propagatingMax(w):extract(4)
-    out[#out + 1] = v:numberMin(2):extract(3)
-    out[#out + 1] = v:saturatingSub(w):extract(1)
+    out[#out + 1] = v:propagatingmax(w):extract(4)
+    out[#out + 1] = v:numbermin(2):extract(3)
+    out[#out + 1] = v:saturatingsub(w):extract(1)
     out[#out + 1] = v:popcount():extract(3)
-    out[#out + 1] = v:mulHigh(s:splat(0x40000000)):extract(4)
+    out[#out + 1] = v:mulhigh(s:splat(0x40000000)):extract(4)
     return out
 end
 return probe
@@ -411,16 +411,16 @@ local function probe(
     local f = simd.species(array.float, 4)
     local i = simd.species(array.int32, 4)
     local answers: {number} = {}
-    local a, b = f:loadPairs(data, 1)
+    local a, b = f:loadpairs(data, 1)
     answers[#answers + 1] = a:extract(4)
     answers[#answers + 1] = b:extract(1)
-    f:storePairs(out, 1, b, a)
-    local p, q, r = f:loadTriples(data, 1)
+    f:storepairs(out, 1, b, a)
+    local p, q, r = f:loadtriples(data, 1)
     answers[#answers + 1] = r:extract(4)
     answers[#answers + 1] = q:extract(1)
-    local _, _, _, last = f:loadQuads(data, 1)
+    local _, _, _, last = f:loadquads(data, 1)
     answers[#answers + 1] = last:extract(3)
-    f:storeQuads(out, 9, last, last, last, last)
+    f:storequads(out, 9, last, last, last, last)
     local indices = i:splat(1):insert(1, 8):insert(3, 8)
     answers[#answers + 1] = f:gather(data, indices):extract(1)
     answers[#answers + 1] = f:gather(data, indices):extract(2)
@@ -630,7 +630,7 @@ local function smooth(exclusive out: span.WriteSpan<float>, borrows input: span.
     for at, active in s:over(#input) do
         local v = s:load(input, at, active)
         local shifted = v:align(previous, 1)
-        local scan = ((v + shifted) * 0.5):orderedPrefixSum()
+        local scan = ((v + shifted) * 0.5):orderedprefixsum()
         s:store(out, at, (v > 2.0):select(scan, v:reverse()), active)
         total:add(v, active)
         previous = v

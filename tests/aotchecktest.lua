@@ -386,7 +386,7 @@ local valuebuilder = require("serde.valuebuilder")
 local function pair(nullValue: any): any
     local builder = valuebuilder.new(nullValue)
     valuebuilder.openarray(builder, 2)
-    valuebuilder.boolean(builder, true)
+    valuebuilder.bool(builder, true)
     valuebuilder.null(builder)
     valuebuilder.close(builder)
     return valuebuilder.finish(builder)

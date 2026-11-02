@@ -7,12 +7,12 @@ export type Presence = "absent" | "null" | "value"
 
 --- The scalar kinds a `Writer` and `Reader` carry.
 export type ScalarKind = "null"
-    | "boolean"
+    | "bool"
     | "integer"
     | "float"
-    | "bigInteger"
+    | "biginteger"
     | "decimal"
-    | "numberToken"
+    | "numbertoken"
     | "string"
     | "bytes"
     | "timestamp"
@@ -41,7 +41,7 @@ end
 --- A wire field a decoder met that the model does not declare.
 export interface WireField
     --- Returns the field's name as a diagnostic shows it.
-    diagnosticLabel: function(self): string
+    diagnosticlabel: function(self): string
 end
 
 --- An integer of a declared width, carried as its decimal text so 64-bit
@@ -134,7 +134,7 @@ export interface DocumentAdapter<D> is Discard<D>
     contents: function(self): Binding<D>
 
     --- Constructs a document by reading its contents from `reader`.
-    readContents: function(self, exclusive reader: DocumentReader): D
+    readcontents: function(self, exclusive reader: DocumentReader): D
 end
 
 --- Reads one document value without a schema.
@@ -149,55 +149,55 @@ export interface DocumentReader
     kind: function(self): Kind
 
     --- Reads an explicit null.
-    readNull: function(exclusive self: DocumentReader): nil
+    readnull: function(exclusive self: DocumentReader): nil
 
     --- Reads a boolean.
-    readBoolean: function(exclusive self: DocumentReader): boolean
+    readbool: function(exclusive self: DocumentReader): boolean
 
     --- Reads a number as its unparsed text.
-    readNumberToken: function(exclusive self: DocumentReader): string
+    readnumbertoken: function(exclusive self: DocumentReader): string
 
     --- Reads a string.
-    readString: function(exclusive self: DocumentReader): string
+    readstring: function(exclusive self: DocumentReader): string
 
     --- Reads a byte string.
-    readBytes: function(exclusive self: DocumentReader): string
+    readbytes: function(exclusive self: DocumentReader): string
 
     --- Reads a timestamp.
-    readTimestamp: function(exclusive self: DocumentReader): Timestamp
+    readtimestamp: function(exclusive self: DocumentReader): Timestamp
 
     --- Reads an integer with the width it was written at.
-    readInteger: function(exclusive self: DocumentReader): Integer
+    readinteger: function(exclusive self: DocumentReader): Integer
 
     --- Reads an exact decimal.
-    readDecimal: function(exclusive self: DocumentReader): Decimal
+    readdecimal: function(exclusive self: DocumentReader): Decimal
 
     --- Reads a floating-point value with the width it was written at.
-    readFloat: function(exclusive self: DocumentReader): Float
+    readfloat: function(exclusive self: DocumentReader): Float
 
     --- Reads an integer of any size as decimal text.
-    readBigInteger: function(exclusive self: DocumentReader): string
+    readbiginteger: function(exclusive self: DocumentReader): string
 
     --- Reads a model-defined atom.
-    readAtom: function(exclusive self: DocumentReader): Atom
+    readatom: function(exclusive self: DocumentReader): Atom
 
     --- Reads a nested document through `adapter`.
-    readDocument: function<D>(exclusive self: DocumentReader, adapter: DocumentAdapter<D>): D
+    readdocument: function<D>(exclusive self: DocumentReader, adapter: DocumentAdapter<D>): D
 
     --- Reads a list, passing each element to `consume` in order.
-    readList: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentElement<S>): nil
+    readlist: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentElement<S>): nil
 
     --- Reads a tuple, passing each slot to `consume` in order.
-    readTuple: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentElement<S>): nil
+    readtuple: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentElement<S>): nil
 
     --- Reads a structure, passing each member to `consume` with its name.
-    readStruct: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentMember<S>): nil
+    readstruct: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentMember<S>): nil
 
     --- Reads a union, passing its one alternative to `consume` with its name.
-    readUnion: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentMember<S>): nil
+    readunion: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentMember<S>): nil
 
     --- Reads a map, passing each entry's key and value to `consume`.
-    readMap: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentEntry<S>): nil
+    readmap: function<S>(exclusive self: DocumentReader, exclusive state: S, consume: DocumentEntry<S>): nil
 end
 
 --- Receives one document map entry.
@@ -224,10 +224,10 @@ end
 --- Exactly one of its methods must be called, once.
 export interface UnknownReader
     --- Skips the value.
-    skipValue: function(exclusive self: UnknownReader): nil
+    skipvalue: function(exclusive self: UnknownReader): nil
 
     --- Reads the value as a document through `adapter`.
-    captureValue: function<D>(exclusive self: UnknownReader, adapter: DocumentAdapter<D>): D
+    capturevalue: function<D>(exclusive self: UnknownReader, adapter: DocumentAdapter<D>): D
 end
 
 --- Receives a wire field the model does not declare.
@@ -276,57 +276,57 @@ export interface Writer<M is Member> is own.Closeable
     include: function(exclusive self: Writer<M>, member: M): boolean
 
     --- Writes an explicit null at a member.
-    writeNull: function(exclusive self: Writer<M>, member: M): nil
+    writenull: function(exclusive self: Writer<M>, member: M): nil
 
     --- Writes a boolean at a member.
-    writeBoolean: function(exclusive self: Writer<M>, member: M, value: boolean): nil
+    writebool: function(exclusive self: Writer<M>, member: M, value: boolean): nil
 
     --- Writes an integer at a member, raising when it does not fit its
     --- width.
-    writeInteger: function(exclusive self: Writer<M>, member: M, borrows value: Integer): nil
+    writeinteger: function(exclusive self: Writer<M>, member: M, borrows value: Integer): nil
 
     --- Writes a floating-point value at a member, narrowed to `width` bits.
-    writeFloat: function(exclusive self: Writer<M>, member: M, value: number, width: 32 | 64): nil
+    writefloat: function(exclusive self: Writer<M>, member: M, value: number, width: 32 | 64): nil
 
     --- Writes an integer of any size, given as decimal text, at a member.
-    writeBigInteger: function(exclusive self: Writer<M>, member: M, value: string): nil
+    writebiginteger: function(exclusive self: Writer<M>, member: M, value: string): nil
 
     --- Writes an exact decimal at a member.
-    writeDecimal: function(exclusive self: Writer<M>, member: M, borrows value: Decimal): nil
+    writedecimal: function(exclusive self: Writer<M>, member: M, borrows value: Decimal): nil
 
     --- Writes a number given as unparsed number text at a member.
-    writeNumberToken: function(exclusive self: Writer<M>, member: M, value: string): nil
+    writenumbertoken: function(exclusive self: Writer<M>, member: M, value: string): nil
 
     --- Writes a string at a member.
-    writeString: function(exclusive self: Writer<M>, member: M, value: string): nil
+    writestring: function(exclusive self: Writer<M>, member: M, value: string): nil
 
     --- Writes a byte string at a member.
-    writeBytes: function(exclusive self: Writer<M>, member: M, value: string): nil
+    writebytes: function(exclusive self: Writer<M>, member: M, value: string): nil
 
     --- Writes a timestamp at a member.
-    writeTimestamp: function(exclusive self: Writer<M>, member: M, borrows value: Timestamp): nil
+    writetimestamp: function(exclusive self: Writer<M>, member: M, borrows value: Timestamp): nil
 
     --- Writes a model-defined atom at a member. A codec that cannot represent
     --- the atom raises.
-    writeAtom: function<A is Atom>(exclusive self: Writer<M>, member: M, borrows value: A): nil
+    writeatom: function<A is Atom>(exclusive self: Writer<M>, member: M, borrows value: A): nil
 
     --- Writes a document at a member, through `adapter`.
-    writeDocument: function<D>(exclusive self: Writer<M>, member: M, borrows value: D, adapter: DocumentAdapter<D>): nil
+    writedocument: function<D>(exclusive self: Writer<M>, member: M, borrows value: D, adapter: DocumentAdapter<D>): nil
 
     --- Writes a structure at a member, whose members `emit` writes from
     --- `source`.
-    writeStruct: function<S>(exclusive self: Writer<M>, member: M, borrows source: S, emit: Members<M, S>): nil
+    writestruct: function<S>(exclusive self: Writer<M>, member: M, borrows source: S, emit: Members<M, S>): nil
 
     --- Writes a union at a member. `emit` writes exactly one alternative
     --- from `source`.
-    writeUnion: function<S>(exclusive self: Writer<M>, member: M, borrows source: S, emit: Members<M, S>): nil
+    writeunion: function<S>(exclusive self: Writer<M>, member: M, borrows source: S, emit: Members<M, S>): nil
 
     --- Writes a list at a member, whose elements `emit` writes from
     --- `source`.
     ---
     --- `size` is the element count, or nil when it is not known in advance.
     --- The codec raises when `emit` writes a different count.
-    writeList: function<S>(
+    writelist: function<S>(
         exclusive self: Writer<M>,
         member: M,
         size: integer?,
@@ -336,7 +336,7 @@ export interface Writer<M is Member> is own.Closeable
 
     --- Writes a tuple of `size` slots at a member, which `emit` writes from
     --- `source`. The codec raises when `emit` writes a different count.
-    writeTuple: function<S>(
+    writetuple: function<S>(
         exclusive self: Writer<M>,
         member: M,
         size: integer,
@@ -345,11 +345,11 @@ export interface Writer<M is Member> is own.Closeable
     ): nil
 
     --- Writes a map at a member, whose entries `emit` writes from `source`
-    --- through `writeEntry`.
+    --- through `writeentry`.
     ---
     --- `size` is the entry count, or nil when it is not known in advance.
     --- The codec raises when `emit` writes a different count.
-    writeMap: function<S>(
+    writemap: function<S>(
         exclusive self: Writer<M>,
         member: M,
         size: integer?,
@@ -359,14 +359,14 @@ export interface Writer<M is Member> is own.Closeable
 
     --- Writes one entry of the map being written.
     ---
-    --- `keyEmit` writes exactly one value from `key`, and `valueEmit`
-    --- exactly one from `value`. The codec raises outside a `writeMap`.
-    writeEntry: function<K, V>(
+    --- `keyemit` writes exactly one value from `key`, and `valueemit`
+    --- exactly one from `value`. The codec raises outside a `writemap`.
+    writeentry: function<K, V>(
         exclusive self: Writer<M>,
         borrows key: K,
-        keyEmit: Members<M, K>,
+        keyemit: Members<M, K>,
         borrows value: V,
-        valueEmit: Members<M, V>
+        valueemit: Members<M, V>
     ): nil
 
     --- Writes an undeclared wire field, such as one captured on an earlier
@@ -375,7 +375,7 @@ export interface Writer<M is Member> is own.Closeable
     --- `adapter` writes the field's document value. The codec raises outside
     --- a structure or union, or when the field collides with a declared
     --- member.
-    writeUnknown: function<F is WireField, D>(
+    writeunknown: function<F is WireField, D>(
         exclusive self: Writer<M>,
         field: F,
         borrows value: D,
@@ -393,52 +393,52 @@ export interface Reader<M is Member>
 
     --- Returns whether the next value is an explicit null, without consuming
     --- it.
-    isNull: function(self): boolean
+    isnull: function(self): boolean
 
     --- Reads an explicit null at a member, raising when the member's
     --- description does not admit null.
-    readNull: function(exclusive self: Reader<M>, member: M): nil
+    readnull: function(exclusive self: Reader<M>, member: M): nil
 
     --- Reads a boolean at a member.
-    readBoolean: function(exclusive self: Reader<M>, member: M): boolean
+    readbool: function(exclusive self: Reader<M>, member: M): boolean
 
     --- Reads an integer at a member, raising when it does not fit `width`
     --- and `signed`.
-    readInteger: function(exclusive self: Reader<M>, member: M, width: 8 | 16 | 32 | 64, signed: boolean): Integer
+    readinteger: function(exclusive self: Reader<M>, member: M, width: 8 | 16 | 32 | 64, signed: boolean): Integer
 
     --- Reads a floating-point value at a member, narrowed to `width` bits.
-    readFloat: function(exclusive self: Reader<M>, member: M, width: 32 | 64): number
+    readfloat: function(exclusive self: Reader<M>, member: M, width: 32 | 64): number
 
     --- Reads an integer of any size at a member, as decimal text.
-    readBigInteger: function(exclusive self: Reader<M>, member: M): string
+    readbiginteger: function(exclusive self: Reader<M>, member: M): string
 
     --- Reads an exact decimal at a member.
-    readDecimal: function(exclusive self: Reader<M>, member: M): Decimal
+    readdecimal: function(exclusive self: Reader<M>, member: M): Decimal
 
     --- Reads a number at a member as its unparsed text.
-    readNumberToken: function(exclusive self: Reader<M>, member: M): string
+    readnumbertoken: function(exclusive self: Reader<M>, member: M): string
 
     --- Reads a string at a member.
-    readString: function(exclusive self: Reader<M>, member: M): string
+    readstring: function(exclusive self: Reader<M>, member: M): string
 
     --- Reads a byte string at a member.
-    readBytes: function(exclusive self: Reader<M>, member: M): string
+    readbytes: function(exclusive self: Reader<M>, member: M): string
 
     --- Reads a timestamp at a member.
-    readTimestamp: function(exclusive self: Reader<M>, member: M): Timestamp
+    readtimestamp: function(exclusive self: Reader<M>, member: M): Timestamp
 
     --- Reads a model-defined atom at a member. A codec that cannot represent
     --- atoms raises.
-    readAtom: function(exclusive self: Reader<M>, member: M): Atom
+    readatom: function(exclusive self: Reader<M>, member: M): Atom
 
     --- Reads a document at a member, through `adapter`.
-    readDocument: function<D>(exclusive self: Reader<M>, member: M, adapter: DocumentAdapter<D>): D
+    readdocument: function<D>(exclusive self: Reader<M>, member: M, adapter: DocumentAdapter<D>): D
 
     --- Reads a structure at a member.
     ---
     --- Each declared member the policy reads is passed to `consume`, and each
     --- wire field the model does not declare to `unknown`.
-    readStruct: function<S>(
+    readstruct: function<S>(
         exclusive self: Reader<M>,
         member: M,
         exclusive state: S,
@@ -451,7 +451,7 @@ export interface Reader<M is Member>
     ---
     --- A declared alternative is passed to `consume`, and an undeclared one
     --- to `unknown`.
-    readUnion: function<S>(
+    readunion: function<S>(
         exclusive self: Reader<M>,
         member: M,
         exclusive state: S,
@@ -460,11 +460,11 @@ export interface Reader<M is Member>
     ): nil
 
     --- Reads a list at a member, passing each element to `consume` in order.
-    readList: function<S>(exclusive self: Reader<M>, member: M, exclusive state: S, consume: ElementConsumer<M, S>): nil
+    readlist: function<S>(exclusive self: Reader<M>, member: M, exclusive state: S, consume: ElementConsumer<M, S>): nil
 
     --- Reads a tuple of `size` slots at a member, passing each to `consume`
     --- in order. The codec raises when the input holds a different count.
-    readTuple: function<S>(
+    readtuple: function<S>(
         exclusive self: Reader<M>,
         member: M,
         size: integer,
@@ -474,11 +474,11 @@ export interface Reader<M is Member>
 
     --- Reads a map at a member, passing each entry's key and value to
     --- `consume`.
-    readMap: function<S>(exclusive self: Reader<M>, member: M, exclusive state: S, consume: EntryConsumer<M, S>): nil
+    readmap: function<S>(exclusive self: Reader<M>, member: M, exclusive state: S, consume: EntryConsumer<M, S>): nil
 
     --- Returns the member, element, or entry count of the next value when
     --- the format knows it before reading, or nil.
-    containerSize: function(self): integer?
+    containersize: function(self): integer?
 end
 
 --- The shape of an adapter's value for one direction, which a codec plans
@@ -501,7 +501,7 @@ export interface Description<M is Member>
 
     --- Whether the adapter can construct a value when reading. A codec
     --- refuses to plan a read of a value that cannot be constructed.
-    @readonly canRead: boolean
+    @readonly canread: boolean
 
     --- The members of a structure or union, a list's one element, a tuple's
     --- slots in order, or a map's key and then its value.
@@ -517,7 +517,7 @@ export interface Child<M is Member>
     @readonly required: boolean
 
     --- Whether construction supplies a value when the member is absent.
-    @readonly hasDefault: boolean
+    @readonly hasdefault: boolean
 
     --- Describes the child's value for a direction.
     describe: function(self, direction: Direction): Description<M>
@@ -565,7 +565,7 @@ export interface Binding<T> is Discard<T>
 
     --- Passes the erased adapter, `state`, and `output` to `consumer`,
     --- recovering the member type.
-    acceptInto: function<S, O, R>(self, consumer: IntoConsumer<T, S, O, R>, borrows state: S, exclusive output: O): R
+    acceptinto: function<S, O, R>(self, consumer: IntoConsumer<T, S, O, R>, borrows state: S, exclusive output: O): R
 end
 
 --- Erases an `Adapter`'s member type into a `Binding` for a Copyable value.
@@ -589,7 +589,7 @@ export record Bound<T is own.Copyable, M is Member> is Binding<T>
     end
 
     --- Passes `adapter`, `state`, and `output` to `consumer`.
-    function acceptInto<S, O, R>(self, consumer: IntoConsumer<T, S, O, R>, borrows state: S, exclusive output: O): R
+    function acceptinto<S, O, R>(self, consumer: IntoConsumer<T, S, O, R>, borrows state: S, exclusive output: O): R
         return consumer:apply<M>(self.adapter, state, output)
     end
 
@@ -620,7 +620,7 @@ export record OwnedBound<T, M is Member> is Binding<T>
     end
 
     --- Passes `adapter`, `state`, and `output` to `consumer`.
-    function acceptInto<S, O, R>(self, consumer: IntoConsumer<T, S, O, R>, borrows state: S, exclusive output: O): R
+    function acceptinto<S, O, R>(self, consumer: IntoConsumer<T, S, O, R>, borrows state: S, exclusive output: O): R
         return consumer:apply<M>(self.adapter, state, output)
     end
 end

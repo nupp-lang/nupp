@@ -1095,7 +1095,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             name = selected.traceName,
             range = spanRange(doc.text, selectedFrom, selectedTo),
             findings = findings,
-            traceProfile = profile,
+            traceProfile = require("nupp.tools.profilemetadata").capture(profile),
             reasonCatalog = analysis.reasonCatalog,
             contract = selected.body and selected.body.jitRequired and "@jit" or "inspection",
             addContract = addContract,

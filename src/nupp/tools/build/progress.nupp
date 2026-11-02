@@ -495,7 +495,7 @@ record progress.Reporter
                     {heading = "took", align = "right", paint = style.faint,}
                 },
                 rows = rows,
-                showHeading = false,
+                showheading = false,
                 indent = "    ",
             } as terminal.TableOptions
         )

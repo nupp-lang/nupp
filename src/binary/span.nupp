@@ -98,12 +98,12 @@ Asking one array for a shared span while a writer over it is live reports
 remains blocked until the child is dropped, preventing a write through the
 parent from overlapping the slice.
 
-`splitAt(mid)` partitions a writer into audited, non-overlapping left and right
+`splitat(mid)` partitions a writer into audited, non-overlapping left and right
 regions. `mid` is the number of elements in the left region, so zero gives an
 empty left side and `count` gives an empty right side. Both children retain the
 parent as their root.
 
-Use a slice for one subrange and `splitAt` when two disjoint writable regions
+Use a slice for one subrange and `splitat` when two disjoint writable regions
 must be live together. Unknown indexes and bounds otherwise conservatively
 overlap.
 

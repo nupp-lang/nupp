@@ -79,11 +79,11 @@ local tiledElapsed = measure(tiledDispatch)
 
 local naiveOutput = ffi.new("float[?]", m * n)
 local tiledOutput = ffi.new("float[?]", m * n)
-context:enqueueDownload(naiveBuffer)
-context:enqueueDownload(tiledBuffer)
+context:enqueuedownload(naiveBuffer)
+context:enqueuedownload(tiledBuffer)
 context:synchronize()
-context:readDownloaded(naiveBuffer, span.writecarray(naiveOutput, m * n))
-context:readDownloaded(tiledBuffer, span.writecarray(tiledOutput, m * n))
+context:readdownloaded(naiveBuffer, span.writecarray(naiveOutput, m * n))
+context:readdownloaded(tiledBuffer, span.writecarray(tiledOutput, m * n))
 for i = 0, m * n - 1 do
     assert(naiveOutput[i] == expected[i], ("naive mismatch at %d"):format(i))
     assert(

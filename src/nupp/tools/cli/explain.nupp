@@ -129,10 +129,7 @@ local function run(options: any): integer
             class = display.class,
             repair = display.repair,
             reasonCatalog = reason
-            and {
-                id = require("nupp.profile.trace").CATALOG_ID,
-                version = require("nupp.profile.trace").CATALOG_VERSION,
-            }
+            and {id = require("nupp.profile.trace").catalogid, version = require("nupp.profile.trace").catalogversion,}
             or nil,
         })
         return 0
@@ -203,7 +200,7 @@ local record Explain
     list: boolean = false
 
     --- Select the report representation.
-    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", constantaliases = {json = "json", text = "text"})
     format: "text" | "json" = "text"
 
     --- Print the JSON Schema of JSON output and exit.

@@ -173,7 +173,7 @@ local function create(): contract.Provider
 
             local cwd: string? = nil
             if options.cwd ~= nil then
-                cwd = type(options.cwd) == "string" and options.cwd as string or (options.cwd as any):toString()
+                cwd = type(options.cwd) == "string" and options.cwd as string or (options.cwd as any):tostring()
             end
             local descriptor = native.ffi.new("NuppNativeProcessSpawn[1]")
             local cwdLength = 0
@@ -187,7 +187,7 @@ local function create(): contract.Provider
             descriptor[0].cwd.data = cwd
             descriptor[0].cwd.length = cwdLength
             descriptor[0].cwd_present = cwd == nil and 0 or 1
-            descriptor[0].clear_env = options.clearEnv == true and 1 or 0
+            descriptor[0].clear_env = options.clearenv == true and 1 or 0
             descriptor[0].stdin_mode = MODE[inputMode]
             descriptor[0].stdout_mode = MODE[outputMode]
             descriptor[0].stderr_mode = MODE[errorMode]
@@ -290,7 +290,7 @@ local function create(): contract.Provider
             end
             error("nupp: native process provider returned an invalid write state", 0)
         end,
-        closeStream = function(self: contract.Provider, stream: any): (boolean, string?)
+        closestream = function(self: contract.Provider, stream: any): (boolean, string?)
             if stream.released then
                 return true, nil
             end
@@ -319,7 +319,7 @@ local function create(): contract.Provider
         now = function(self: contract.Provider): number
             return os.monotonic()
         end,
-        waitReady = function(self: contract.Provider, interest: shared.Interest, timeoutMs: number): integer
+        waitready = function(self: contract.Provider, interest: shared.Interest, timeoutMs: number): integer
             local readable, readCount = makeArray(interest.read)
             local writable, writeCount = makeArray(interest.write)
             local timeout = whole(timeoutMs)

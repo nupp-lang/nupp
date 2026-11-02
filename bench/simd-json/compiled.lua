@@ -54,7 +54,7 @@ return function()
     local proof = {
         eager = prove(codec.decodevalue, "decode", "eagerDecoder"),
         pull = prove(codec.pull, "pull", "pullDecoder"),
-        serde = prove(codec.decodevalue, "decodeSerde", "serdeDecoder"),
+        serde = prove(codec.decodevalue, "decodeserde", "serdeDecoder"),
     }
     for _, kernel in ipairs({{"scanner", "classify"}, {"indexer", "index"}, {"parser", "parse"}}) do
         local entry = require("simd_json." .. kernel[1])[kernel[2]]

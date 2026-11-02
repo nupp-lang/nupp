@@ -29,7 +29,7 @@ end
 
 local function writerFor(provider: any): (any, any)
     local output = tableBuffer()
-    local opened, writer = pcall(provider.newWriter, output, provider.NULL)
+    local opened, writer = pcall(provider.newwriter, output, provider.NULL)
     if opened then
         return output, writer
     end
@@ -41,7 +41,7 @@ local function writerFor(provider: any): (any, any)
     end
     output = nativeBuffer.new()
 
-    return output, provider.newWriter(output, provider.NULL)
+    return output, provider.newwriter(output, provider.NULL)
 end
 
 --- Runs the behavioral contract against one structurally valid implementation.
@@ -53,12 +53,12 @@ function jsonSuite.test(provider: any): (boolean, string?)
         assert(type(decoded) == "table" and decoded.answer == 42, "encode/decode must round-trip an object")
         assert(provider.encode(provider.EMPTY_ARRAY) == "[]", "EMPTY_ARRAY must encode as []")
         assert(provider.encode(provider.EMPTY_OBJECT) == "{}", "EMPTY_OBJECT must encode as {}")
-        assert(provider.encode(provider.asArray({})) == "[]", "asArray must preserve an empty array")
-        assert(provider.encode(provider.asObject({})) == "{}", "asObject must preserve an empty object")
-        assert(provider.isArray(provider.decode("[]", provider.NULL)), "decoded [] must retain array shape")
-        assert(not provider.isArray(provider.decode("{}", provider.NULL)), "decoded {} must retain object shape")
-        assert(provider.isArray({1}), "an ordinary consecutive table must have array shape")
-        assert(not provider.isArray({answer = 42}), "a string-keyed table must have object shape")
+        assert(provider.encode(provider.asarray({})) == "[]", "asarray must preserve an empty array")
+        assert(provider.encode(provider.asobject({})) == "{}", "asobject must preserve an empty object")
+        assert(provider.isarray(provider.decode("[]", provider.NULL)), "decoded [] must retain array shape")
+        assert(not provider.isarray(provider.decode("{}", provider.NULL)), "decoded {} must retain object shape")
+        assert(provider.isarray({1}), "an ordinary consecutive table must have array shape")
+        assert(not provider.isarray({answer = 42}), "a string-keyed table must have object shape")
         assert(
             provider.encode({
                 1,
@@ -75,14 +75,14 @@ function jsonSuite.test(provider: any): (boolean, string?)
         assert(pulled.ignored == nil, "pull must discard unselected object members")
 
         local output, writer = writerFor(provider)
-        writer:startObject()
-            :key(provider.encodedString("answer"))
+        writer:startobject()
+            :key(provider.encodedstring("answer"))
             :write(1)
-            :key(provider.verifiedString('"nothing"'))
+            :key(provider.verifiedstring('"nothing"'))
             :write(provider.verified("null"))
             :key("nested")
             :write(provider.encoded({answer = 42}))
-            :endObject()
+            :endobject()
         writer:close()
         local document = output:tostring()
         local values = provider.decode(document, provider.NULL)

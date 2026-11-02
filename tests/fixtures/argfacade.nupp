@@ -18,7 +18,7 @@ assert2(cli == rawget(_G, "arg"))
 local alias = require("arg")
 local parser = alias.optparser({"--flag"})
 local kind: TokenKind? = parser:next()
-assert2(kind == alias.longOption)
+assert2(kind == alias.longoption)
 assert2(parser:key() == "flag")
 
 local localArg = {

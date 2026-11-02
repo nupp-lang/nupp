@@ -147,7 +147,7 @@ function workloads.streamFrames(options)
         "bench"
     )
     local route = not stub
-        and host.route("bench.move", hostevents.PointerMove, bus, 1, options.inputPolicy or "dropOldest", 256)
+        and host.route("bench.move", hostevents.PointerMove, bus, 1, options.inputPolicy or "dropoldest", 256)
         or nil
     local tick = host.bindsend("bench.frame", "latest")
     local post = host.bindsend("bench.packet", "latest")
@@ -213,7 +213,7 @@ function workloads.channelFrames(options)
         end,
         "bench"
     )
-    local route = host.route("bench.move", hostevents.PointerMove, bus, 1, options.inputPolicy or "dropOldest", 256)
+    local route = host.route("bench.move", hostevents.PointerMove, bus, 1, options.inputPolicy or "dropoldest", 256)
     local nextFrame = host.bind("bench.tick")
     local post = host.bindsend("bench.packet", "latest")
     local packetText = bytes(packetBytes)

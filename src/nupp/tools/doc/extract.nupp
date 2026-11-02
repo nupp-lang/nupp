@@ -1444,7 +1444,7 @@ declarationItem = function(
     if item.annotation then
         for _, member in ipairs(item.members) do
             for _, applied in ipairs(member.annotations or {}) do
-                if applied == "@annotationValue" then
+                if applied == "@annotationvalue" then
                     item.annotation.singleValue = member.name
                 end
             end
@@ -1785,7 +1785,7 @@ local function literalBuilderMembers(root: any, item: any, imports: any, include
 
     local primitives: {
         [string]: boolean
-    } = {any = true, boolean = true, integer = true, number = true, string = true, never = true}
+    } = {any = true, bool = true, integer = true, number = true, string = true, never = true}
     local typeText: (function(node: any): string?)
 
     local function packText(node: any): string?
@@ -1818,7 +1818,7 @@ local function literalBuilderMembers(root: any, item: any, imports: any, include
     typeText = function(node)
         local primitive = node.kind == "dotIndex" and syntax(node):match("^" .. namespace .. "%.([%w_]+)$")
         if primitive and primitives[primitive] then
-            return primitive
+            return primitive == "bool" and "boolean" or primitive
         end
         local args = constructor(node, "literal")
         if args
@@ -1849,7 +1849,7 @@ local function literalBuilderMembers(root: any, item: any, imports: any, include
 
             return "(" .. table.concat(pieces, " | ") .. ")"
         end
-        args = constructor(node, "function_")
+        args = constructor(node, "functiontype")
         if args and #args == 2 then
             local params, results = packText(args[1]), packText(args[2])
             if params and results then

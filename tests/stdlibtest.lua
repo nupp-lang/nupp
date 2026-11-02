@@ -37,7 +37,7 @@ end)
 local M = {}
 
 function M.digestFinalizationConsumesButChecksumReadsDoNot()
-    for _, finalizer in ipairs({"digest()", "hexDigest()"}) do
+    for _, finalizer in ipairs({"digest()", "hexdigest()"}) do
         local _, diagnostics = diagsOf(
             table.concat(
                 {
@@ -79,7 +79,7 @@ local FORMER_DROP_OWNERS = {
     "local owner = io.newscalarwriter()",
     "local owner = io.newlines(io.newstringreader('one'))",
     "local owner = assert(io.files.open('input.bin'))",
-    "local owner = assert(io.files.createtemporaryfile())",
+    "local owner = assert(io.files.tmpfile())",
     "local owner = nupp.mem.heap.alloc(ffi.typeof<int32>(), 4)",
     "local struct Row\n    x: int32\nend\nlocal owner = nupp.mem.soa.alloc(ffi.typeof<Row>(), 4)",
 }
@@ -100,7 +100,7 @@ function M.twoLiveReadersOverOneCursorAreRefused()
     local source = table.concat(
         {
             "local stream = assert(io.net.connect({host = '127.0.0.1', port = 9}))",
-            "local view = stream:asReader()",
+            "local view = stream:asreader()",
             "local first = stream:read(1)",
             "print(view:read(1), first)",
         },
@@ -113,7 +113,7 @@ function M.twoLiveReadersOverOneCursorAreRefused()
             {
                 "local stream = assert(io.net.connect({host = '127.0.0.1', port = 9}))",
                 "do",
-                "    local view = stream:asReader()",
+                "    local view = stream:asreader()",
                 "    print(view:read(1))",
                 "end",
                 "print(stream:read(1))",
@@ -161,7 +161,7 @@ function M.formerResultClosesAnswerNothing()
     testAssert.eq(select("#", io.newscalarreader("abcd"):close()), 0, "ScalarReader:close answers nothing")
     testAssert.eq(select("#", io.newscalarwriter():close()), 0, "ScalarWriter:close answers nothing")
     testAssert.eq(select("#", io.newscalarwriter(buffer):close()), 0, "a borrowing ScalarWriter answers nothing")
-    testAssert.eq(buffer:isReleased(), false, "a borrowing scalar writer leaves its buffer open")
+    testAssert.eq(buffer:isreleased(), false, "a borrowing scalar writer leaves its buffer open")
     testAssert.eq(select("#", buffer:close()), 0, "Buffer:close answers nothing")
     testAssert.eq(select("#", buffer:close()), 0, "a second close is safe")
 end
@@ -412,7 +412,7 @@ function M.digestUsesPortableBitops()
                 "local digest = require('binary.hash.digest')",
                 "local rolling = digest.newdigest('sha256')",
                 "rolling:write('message')",
-                "return rolling:hexDigest()",
+                "return rolling:hexdigest()",
             },
             "\n"
         )
@@ -456,7 +456,7 @@ function M.httpBodyHelpersRejectMalformedRuntimeInputs()
         7,
         {},
         {
-            toString = function()
+            tostring = function()
                 return "file.txt"
             end,
         }
@@ -590,8 +590,8 @@ end
 
 function M.browserHttpRejectsUnsupportedClientPolicy()
     local browser = require("providerstate").browserHttp()
-    for _, options in ipairs({{userAgent = "nupp-test"}, {connectTimeoutMs = 10}}) do
-        local ok, problem = pcall(browser.newClient, options)
+    for _, options in ipairs({{useragent = "nupp-test"}, {connecttimeoutms = 10}}) do
+        local ok, problem = pcall(browser.newclient, options)
         assert(
             not ok and tostring(problem):find("does not support option", 1, true),
             "unsupported shared options must fail explicitly: " .. tostring(problem)
@@ -606,7 +606,7 @@ function M.browserHttpRejectsMalformedSharedInputsBeforeEffects()
 
     local function rejected(fields, expected)
         local request = setmetatable(fields, messages.Request)
-        local client = browser.newClient()
+        local client = browser.newclient()
         local ok, problem = pcall(client.send, client, request)
         client:close()
         assert(not ok and tostring(problem):find(expected, 1, true), tostring(problem))
@@ -615,7 +615,7 @@ function M.browserHttpRejectsMalformedSharedInputsBeforeEffects()
     rejected({url = assert(uri.newuri("file:///tmp/result"))}, "must use http or https")
     rejected({url = assert(uri.newuri("https://example.com/")), method = "GET\nX"}, "valid token")
     rejected({url = assert(uri.newuri("https://example.com/")), headers = {ok = false}}, "valid string")
-    rejected({url = assert(uri.newuri("https://example.com/")), timeoutMs = 1.5}, "integer")
+    rejected({url = assert(uri.newuri("https://example.com/")), timeoutms = 1.5}, "integer")
 end
 
 function M.nativeHttpDispatchDrainsAfterAWakerRaises()
@@ -685,7 +685,7 @@ function M.nativeHttpDispatchDrainsAfterAWakerRaises()
     local transfer = assert(
         client:send({
             uri = {
-                toString = function()
+                tostring = function()
                     return "https://example.com/"
                 end
             },
@@ -763,16 +763,16 @@ function M.nativeHttpProviderRejectsMalformedBoundaries()
     })
 
     for _, case in ipairs({
-        {options = {timeoutMs = math.huge}, expected = "timeoutMs"},
-        {options = {maxConnections = 4294967296}, expected = "maxConnections"},
+        {options = {timeoutms = math.huge}, expected = "timeoutms"},
+        {options = {maxconnections = 4294967296}, expected = "maxconnections"},
         {options = {headers = "bad"}, expected = "headers"},
-        {options = {insecureHosts = {[2] = "example.com"}}, expected = "dense list"},
+        {options = {insecurehosts = {[2] = "example.com"}}, expected = "dense list"},
     }) do
-        local ok, problem = pcall(provider.newClient, case.options)
+        local ok, problem = pcall(provider.newclient, case.options)
         assert(not ok and tostring(problem):find(case.expected, 1, true), tostring(problem))
     end
 
-    local client = provider.newClient()
+    local client = provider.newclient()
     local request = setmetatable(
         {url = assert(require("io.uri").newuri("https://example.com/"))},
         require("nupp.io.http.messages").Request
@@ -884,9 +884,9 @@ function M.optionBagsArePlainTables()
         table.concat(
             {
                 "const http = require(\"io.http\")",
-                "local options: http.Options = {timeoutMs = 5000, maxConnections = 2}",
+                "local options: http.Options = {timeoutms = 5000, maxconnections = 2}",
                 "do local client = http.newclient(options) end",
-                "do local client = http.newclient({userAgent = 'nupp/1'}) end",
+                "do local client = http.newclient({useragent = 'nupp/1'}) end",
             },
             "\n"
         )
@@ -931,7 +931,7 @@ function M.anHttpClientPumpsItsTransfersOnRequest()
             return backend
         end,
     })
-    local client = provider.newClient()
+    local client = provider.newclient()
     testAssert.eq(client.flush, nil, "the old flush spelling is gone")
     -- Waiting sleeps on the shared readiness generation rather than inside the
     -- transport, so a pump drains once and, told to wait and finding nothing
@@ -941,7 +941,7 @@ function M.anHttpClientPumpsItsTransfersOnRequest()
     client:pump(25)
     testAssert.eq(polls, 3, "a pump told to wait drains, sleeps, and drains again")
     local ok, problem = pcall(client.pump, client, -1)
-    assert(not ok and tostring(problem):find("timeoutMs", 1, true), tostring(problem))
+    assert(not ok and tostring(problem):find("timeoutms", 1, true), tostring(problem))
     client:close()
     client:pump()
     testAssert.eq(polls, 3, "a closed client drives nothing")
@@ -1001,7 +1001,7 @@ function M.nativeGpuRejectsFractionalCountsBeforeTheAbi()
         assert(not ok and tostring(problem):find("buffer count", 1, true), tostring(problem))
     end
     local fractionalKernel, kernelProblem = pcall(
-        context.compileGenerated,
+        context.compilegenerated,
         context,
         {spirv = "x", entrypoint = "main"},
         0.5,
@@ -1010,8 +1010,35 @@ function M.nativeGpuRejectsFractionalCountsBeforeTheAbi()
         1
     )
     assert(not fractionalKernel and tostring(kernelProblem):find("read buffer count", 1, true), tostring(kernelProblem))
-    local kernel = context:compileGenerated({spirv = "x", entrypoint = "main"}, 0, 1, 12, 1)
-    local fractionalDispatch, dispatchProblem = pcall(context.bindKernel, context, kernel, 1.5)
+    assert(type(context.compilegenerated) == "function" and context.compileGenerated == nil)
+    local cost
+    C.nuppNativeGpuCostsEnabled = function()
+        return 1
+    end
+    C.nuppNativeGpuCostMetadata = function(_, _, isKernel, text)
+        assert(isKernel == 1)
+        cost = require("testjson").decode(text)
+        return 0
+    end
+    local kernel = context:compilegenerated(
+        {
+            spirv = "x",
+            entrypoint = "main",
+            sourcefile = "fixture.nupp",
+            sourceline = 7,
+            artifactid = "stable-id",
+            readonlynames = {},
+            writablenames = {"output"}
+        },
+        0,
+        1,
+        12,
+        1
+    )
+    assert(cost.sourceFile == "fixture.nupp" and cost.sourceLine == 7 and cost.artifactId == "stable-id")
+    assert(cost.sourcefile == nil and cost.sourceline == nil and cost.artifactid == nil)
+    assert(cost.writableNames[1] == "output" and cost.writablenames == nil)
+    local fractionalDispatch, dispatchProblem = pcall(context.bindkernel, context, kernel, 1.5)
     assert(
         not fractionalDispatch and tostring(dispatchProblem):find("dispatch count", 1, true),
         tostring(dispatchProblem)
@@ -1029,12 +1056,12 @@ function M.browserCryptoRejectsMalformedHostValues()
     local base64 = require("serde.base64")
 
     returned.random = {bytesBase64 = base64.encode("\0")}
-    testAssert.eq(browser.randomBytes(1), "\0")
+    testAssert.eq(browser.randombytes(1), "\0")
     returned.random = {bytesBase64 = base64.encode("short")}
-    local ok, problem = pcall(browser.randomBytes, 6)
+    local ok, problem = pcall(browser.randombytes, 6)
     assert(not ok and tostring(problem):find("bytesBase64", 1, true), tostring(problem))
     returned.random = {bytesBase64 = "not base64"}
-    ok, problem = pcall(browser.randomBytes, 1)
+    ok, problem = pcall(browser.randombytes, 1)
     assert(not ok and tostring(problem):find("bytesBase64", 1, true), tostring(problem))
 
     returned.sha256 = string.rep("a", 64)
@@ -1066,11 +1093,11 @@ function M.browserSystemRejectsMalformedParallelism()
     })
     for _, malformed in ipairs({false, {}, {availableParallelism = 0}, {availableParallelism = 1.5}}) do
         value = malformed
-        local ok, problem = pcall(browser.availableParallelism)
+        local ok, problem = pcall(browser.availableparallelism)
         assert(not ok and tostring(problem):find("invalid available parallelism", 1, true), tostring(problem))
     end
     value = {availableParallelism = 3}
-    testAssert.eq(browser.availableParallelism(), 3)
+    testAssert.eq(browser.availableparallelism(), 3)
 end
 
 function M.browserTimeRejectsMalformedClocksAndWakeResults()
@@ -1091,7 +1118,7 @@ function M.browserTimeRejectsMalformedClocksAndWakeResults()
         }
     )
     testAssert.eq(browser.now(), 12.5)
-    testAssert.eq(browser.wallTime(), 1000)
+    testAssert.eq(browser.walltime(), 1000)
     for _, malformed in ipairs({"12", -1, math.huge}) do
         values.now = malformed
         local ok, problem = pcall(browser.now)
@@ -1099,7 +1126,7 @@ function M.browserTimeRejectsMalformedClocksAndWakeResults()
     end
     values.now = 12.5
     local woke
-    browser.wakeAt(20, function(answer)
+    browser.wakeat(20, function(answer)
         woke = answer
     end)
     delivered({ok = true, value = nil})
@@ -1146,7 +1173,7 @@ function M.browserHttpRejectsMalformedHostValuesAndReleasesBodies()
             {url = assert(require("io.uri").newuri("https://example.com/"))},
             require("nupp.io.http.messages").Request
         )
-        local client = browser.newClient({maxBytes = 4})
+        local client = browser.newclient({maxbytes = 4})
         for _, case in ipairs({
             {value = false, expected = "invalid response value"},
             {value = {status = 200, body = 0, bodyBytes = 0, headers = {}}, expected = "body handle"},
@@ -1229,7 +1256,7 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
     end
     local ok, problem = pcall(function()
         local options = {headers = {["X-Test"] = "client", ["Content-Type"] = "client/type", ["X-Default"] = "client"},}
-        local client = browser.newClient(options)
+        local client = browser.newclient(options)
         options.headers["X-Default"] = "changed after client construction"
         local closedUpload = false
         local input = "upload"
@@ -1258,16 +1285,16 @@ function M.browserHttpTransfersItsBodyToTheReturnedResponse()
         testAssert.eq(response.version, nil)
         testAssert.eq(response:header("X-TEST"), "one, two")
         testAssert.eq(response:header("set-cookie"), "first")
-        local repeated = response:headerValues("x-test")
+        local repeated = response:headervalues("x-test")
         testAssert.eq(#repeated, 2)
         repeated[1] = "changed"
-        testAssert.eq(response:headerValues("x-test")[1], "one", "headerValues returns a fresh list")
+        testAssert.eq(response:headervalues("x-test")[1], "one", "headervalues returns a fresh list")
         local headers = response:headers()
         headers["x-test"] = "changed"
         testAssert.eq(response:headers()["x-test"], "one, two", "headers returns a fresh mapping")
         local destination = require("io").newbuffer()
-        testAssert.eq(response.body:readInto(destination, 0, 2), 2)
-        testAssert.eq(destination:getString(), "ab")
+        testAssert.eq(response.body:readinto(destination, 0, 2), 2)
+        testAssert.eq(destination:getstring(), "ab")
         testAssert.eq(response.body:read(3), "c", "the returned response owns a live ordinary reader")
         response:close()
         local bytes, closed = response.body:read(1)
@@ -1325,7 +1352,7 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
     for _, malformed in ipairs({false, {}, {kernel = 0}, {kernel = 1.5}, {kernel = 4294967296}}) do
         returned = malformed
         local ok, problem = pcall(
-            context.compileGenerated,
+            context.compilegenerated,
             context,
             {wgsl = "shader", entrypoint = "main"},
             0,
@@ -1339,10 +1366,10 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
         )
     end
     returned = {kernel = 4294967295}
-    local kernel = context:compileGenerated({wgsl = "shader", entrypoint = "main"}, 0, 1, 12, 1)
+    local kernel = context:compilegenerated({wgsl = "shader", entrypoint = "main"}, 0, 1, 12, 1)
     assert(kernel._handle == 4294967295)
     local duplicateKernel, duplicateKernelProblem = pcall(
-        context.compileGenerated,
+        context.compilegenerated,
         context,
         {wgsl = "shader", entrypoint = "main"},
         0,
@@ -1354,13 +1381,13 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
         not duplicateKernel and tostring(duplicateKernelProblem):find("duplicate kernel handle", 1, true),
         tostring(duplicateKernelProblem)
     )
-    local fractionalDispatch, fractionalDispatchProblem = pcall(context.bindKernel, context, kernel, 1.5)
+    local fractionalDispatch, fractionalDispatchProblem = pcall(context.bindkernel, context, kernel, 1.5)
     assert(
         not fractionalDispatch and tostring(fractionalDispatchProblem):find("dispatch count", 1, true),
         tostring(fractionalDispatchProblem)
     )
     returned = {kernel = 8}
-    local releasedKernel = context:compileGenerated({wgsl = "shader", entrypoint = "main"}, 0, 1, 12, 1)
+    local releasedKernel = context:compilegenerated({wgsl = "shader", entrypoint = "main"}, 0, 1, 12, 1)
     releasedKernel:close()
     context:close()
     assert(host.closed.kind == "gpu")
@@ -1401,7 +1428,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     local buffered, bufferProblem = pcall(cancelledContext.buffer, cancelledContext, element, 1)
     assert(not buffered and bufferProblem == "cancelled buffer", tostring(bufferProblem))
     local compiled, kernelProblem = pcall(
-        cancelledContext.compileGenerated,
+        cancelledContext.compilegenerated,
         cancelledContext,
         {wgsl = "shader", entrypoint = "main"},
         0,
@@ -1464,7 +1491,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
 
     failure = "runtime-read-download"
     local downloaded, downloadProblem = pcall(
-        context.readDownloaded,
+        context.readdownloaded,
         context,
         output,
         spans.writecarray(destination, 1)
@@ -1473,12 +1500,12 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     assert(next(leases) == nil, "a failed download must release its transfer lease")
 
     failure = nil
-    local kernel = context:compileGenerated({wgsl = "shader", entrypoint = "main"}, 1, 1, 20, 1)
-    local binding = context:bindKernel(kernel, 1)
-    binding:setRead(0, input, true)
-    binding:setWrite(0, output, true)
+    local kernel = context:compilegenerated({wgsl = "shader", entrypoint = "main"}, 1, 1, 20, 1)
+    local binding = context:bindkernel(kernel, 1)
+    binding:setread(0, input, true)
+    binding:setwrite(0, output, true)
     failure = "runtime-dispatch"
-    local dispatched, dispatchProblem = pcall(binding.dispatchWords, binding, {})
+    local dispatched, dispatchProblem = pcall(binding.dispatchwords, binding, {})
     assert(not dispatched and dispatchProblem == "fixture runtime-dispatch", tostring(dispatchProblem))
     assert(next(leases) == nil, "a failed dispatch must release its transfer lease")
 
@@ -1563,7 +1590,7 @@ function M.browserEffectsDropCancelledRequestsBeforeTheyShip()
     local ok, encoded = coroutine.resume(shipped)
     assert(ok, encoded)
     testAssert.eq(json.decode(encoded).kind, "poll", "a request cancelled before it ships never happens")
-    assert(coroutine.resume(shipped, json.encode({responses = json.asArray({})})))
+    assert(coroutine.resume(shipped, json.encode({responses = json.asarray({})})))
     assert(not discarded, "nothing was opened, so nothing is discarded")
 end
 
@@ -1573,7 +1600,7 @@ function M.browserEffectsRejectMalformedResponsesBeforeDispatch()
     for _, malformed in ipairs({
         "{",
         json.encode(7),
-        json.encode(json.asArray({})),
+        json.encode(json.asarray({})),
         json.encode({
             cancelled = "yes"
         }),
@@ -2003,8 +2030,8 @@ function M.processViewsSatisfyTheSharedContracts()
                 "local output = child.stdout as process.Reader",
                 "local function useReader(borrows value: io.Reader) value:read(1) end",
                 "local function useWriter(borrows value: io.Writer) value:write('x') end",
-                "local reader = output:asReader()",
-                "local writer = input:asWriter()",
+                "local reader = output:asreader()",
+                "local writer = input:aswriter()",
                 "useReader(reader)",
                 "useWriter(writer)",
             },
@@ -2020,7 +2047,7 @@ function M.processViewsSatisfyTheSharedContracts()
                         "local child = nil as process.Process",
                         "local output = child.stdout as process.Reader",
                         "local leaked: io.Reader? = nil",
-                        "leaked = output:asReader()",
+                        "leaked = output:asreader()",
                     },
                     "\n"
                 )
@@ -2052,7 +2079,7 @@ function M.processSurfaceIsBundledOutsideThisCheckout()
         {
             "local process = require('nupp.io.process')",
             "local child = assert(process.spawn({args = {'true'}}))",
-            "assert(child:isRunning() or not child:isRunning())",
+            "assert(child:isrunning() or not child:isrunning())",
         },
         "\n"
     )
@@ -2145,13 +2172,13 @@ function M.compilerProvidedPureLibraries()
             .. [[
       local io = require("io")
       local buffer = io.newbuffer("hello")
-      local writer = buffer:newWriter()
+      local writer = buffer:newwriter()
       assert(writer:write("world"))
-      assert(buffer:getString() == "world")
-      local viewReader = buffer:view():newReader()
+      assert(buffer:getstring() == "world")
+      local viewReader = buffer:view():newreader()
       assert(not pcall(function() viewReader:read(0) end))
       assert(viewReader:read(1) == "w")
-      local reader = buffer:newReader()
+      local reader = buffer:newreader()
       assert(reader:read(3) == "wor")
       assert(reader:read(8) == "ld")
       assert(reader:read(1) == "")
@@ -2197,25 +2224,25 @@ function M.bitsetsReachTheCheckedModule()
       local set = bitset(64)
       assert(set:count() == 0)
       set:set(5)
-      set:setRange(40, 70)
+      set:setrange(40, 70)
       assert(set:count() == 32)
       assert(set:get(5) and set:get(70) and not set:get(71))
 
       local other = bitset(64)
-      other:setRange(0, 50)
-      set:andWith(other)
+      other:setrange(0, 50)
+      set:andwith(other)
       assert(set:count() == 12)
-      assert(set:nextSetBit(0) == 5)
+      assert(set:nextsetbit(0) == 5)
 
       local ffi = require("ffi")
       local target = ffi.new("int32_t[?]", 4)
-      local written, resume = set:positionsInto(target, 4, 0)
-      assert(written == 4, "positionsInto filled the destination")
+      local written, resume = set:positionsinto(target, 4, 0)
+      assert(written == 4, "positionsinto filled the destination")
       assert(target[0] == 5, "first position")
       assert(resume == 43, "and reported where to carry on")
 
       assert(data.WORD_BITS == nil, "word width is private implementation storage")
-      assert(set:wordAt(0) == 32)
+      assert(set:wordat(0) == 32)
       assert(bitset(8) ~= bitset(8))
    ]]
         )
@@ -2232,7 +2259,7 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
             {
                 "const files = require(\"io.files\")",
                 "local function drain(exclusive source: io.Reader, exclusive sink: io.Writer): (integer?, string?)",
-                "    return source:transferTo(sink)",
+                "    return source:transferto(sink)",
                 "end",
                 "do",
                 "    local file, reason = files.open('input.txt')",
@@ -2252,7 +2279,7 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
             {
                 "local buffer = io.newbuffer()",
                 "local reader = io.newstringreader('abc')",
-                "local moved: integer? = reader:readInto(buffer)",
+                "local moved: integer? = reader:readinto(buffer)",
                 "const files = require(\"io.files\")",
                 "local info = files.info('x')",
                 "local size: integer? = info and info.size",
@@ -2273,7 +2300,7 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     assertClean("const files = require(\"io.files\")\nlocal link: boolean = files.issymlink('x')")
     testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.info(42)")), "NUPP2006:2")
     testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.open('x')")), "NUPP2605:2")
-    testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.createtemporaryfile()")), "NUPP2605:2")
+    testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.tmpfile()")), "NUPP2605:2")
 end
 
 function M.luaFilesAndPublicResourcesUseAffineConstructors()
@@ -2380,7 +2407,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
     assert(uri.URI.__nuppCtor1 == nil, "URI exposes no generated constructor")
     local base = assert(uri.newuri("https://example.com/base"))
     assert(
-        rawequal(base:withPath("/derived"), assert(uri.newuri("https://example.com/derived"))),
+        rawequal(base:withpath("/derived"), assert(uri.newuri("https://example.com/derived"))),
         "URI-producing operations share the uri.newuri cache"
     )
     for index = 1, 1024 do
@@ -2406,17 +2433,17 @@ function M.bufferAppendsInAmortizedConstantTime()
             [[
       local io = require("io")
       local buffer = io.newbuffer()
-      local writer = buffer:newWriter()
+      local writer = buffer:newwriter()
       local piece = string.rep("x", 64)
       for _ = 1, 100000 do assert(writer:write(piece)) end
       assert(buffer:len() == 6400000, "every write landed")
       assert(buffer:capacity() >= buffer:len(), "capacity covers the length")
-      assert(buffer:getString(6399936, 64) == piece, "the last write is intact")
+      assert(buffer:getstring(6399936, 64) == piece, "the last write is intact")
       buffer:clear()
       assert(buffer:len() == 0 and buffer:capacity() >= 6400000,
          "clearing keeps the reserved bytes")
-      buffer:setString("tail", 6)
-      assert(buffer:getString() == string.char(0):rep(6) .. "tail",
+      buffer:setstring("tail", 6)
+      assert(buffer:getstring() == string.char(0):rep(6) .. "tail",
          "a gap past the length reads as zeros, not as stale bytes")
    ]]
         )
@@ -2471,24 +2498,24 @@ function M.theJsonModuleLoadsItsNuppProviderOnRequire()
         local name = json.encodedstring('quoted"key')
         assert(name == json.encodedstring('quoted"key'), "encoded keys are interned")
         local writer = json.newwriter(buffer)
-        writer:startObject():key(name):write(json.verified("4.20e1")):endObject()
+        writer:startobject():key(name):write(json.verified("4.20e1")):endobject()
         writer:close()
         assert(buffer:tostring() == [[{"quoted\"key":4.20e1}]])
 
         local partial = require("string.buffer").new()
         local streaming = json.newwriter(partial)
-        streaming:startArray():write(1)
+        streaming:startarray():write(1)
         streaming:flush()
         assert(partial:tostring() == "[1", "flush publishes an incomplete batch")
-        streaming:write(json.verified("2")):endArray()
+        streaming:write(json.verified("2")):endarray()
         streaming:close()
         assert(partial:tostring() == "[1,2]", "close publishes the completed root")
         assert(not pcall(streaming.write, streaming, 3), "a closed writer stays stale")
 
         local incomplete = json.newwriter(require("string.buffer").new())
-        incomplete:startObject()
+        incomplete:startobject()
         assert(not pcall(incomplete.close, incomplete), "close rejects an incomplete root")
-        assert(not pcall(incomplete.endObject, incomplete), "a failed consuming close still leaves a terminal writer")
+        assert(not pcall(incomplete.endobject, incomplete), "a failed consuming close still leaves a terminal writer")
 
         local replacement = json.newwriter(require("string.buffer").new())
         replacement:write(true)
@@ -2604,15 +2631,15 @@ function M.utf8ByteViewsAndBudgetsMatchStrings()
     local view = buffer:view()
     testAssert.eq(utf8.len(view), 3, "byte-view length")
     testAssert.eq(utf8.isvalid(view), true, "byte-view validation")
-    testAssert.eq(utf8.validprefixlength(view, 4), 4, "byte-view prefix")
+    testAssert.eq(utf8.validprefixlen(view, 4), 4, "byte-view prefix")
     view:close()
     buffer:close()
 
-    testAssert.eq(utf8.validprefixlength("A", -1), 0, "a negative budget is empty")
-    testAssert.eq(utf8.validprefixlength("A", 0), 0, "a zero budget is empty")
-    testAssert.eq(utf8.validprefixlength("A", 2), 1, "a large budget stops at the end")
-    assert(not pcall(utf8.validprefixlength, "AB", 1.5), "a prefix budget must be an integer")
-    assert(not pcall(utf8.validprefixlength, "AB", math.huge), "an infinite prefix budget is not an integer")
+    testAssert.eq(utf8.validprefixlen("A", -1), 0, "a negative budget is empty")
+    testAssert.eq(utf8.validprefixlen("A", 0), 0, "a zero budget is empty")
+    testAssert.eq(utf8.validprefixlen("A", 2), 1, "a large budget stops at the end")
+    assert(not pcall(utf8.validprefixlen, "AB", 1.5), "a prefix budget must be an integer")
+    assert(not pcall(utf8.validprefixlen, "AB", math.huge), "an infinite prefix budget is not an integer")
     assert(not pcall(utf8.truncate, "AB", 1.5), "a truncate budget must be an integer")
 end
 
@@ -2668,7 +2695,7 @@ function M.utf8ValidationCoversEveryShape()
         testAssert.eq(utf8.isvalid(value), valid, "validating " .. what)
         -- The longest valid prefix within every budget the value admits.
         for budget = 0, #value do
-            local length = utf8.validprefixlength(value, budget)
+            local length = utf8.validprefixlen(value, budget)
             assert(length <= budget, "a prefix of " .. what .. " overran its budget")
             assert(utf8.isvalid(value:sub(1, length)), ("prefix %d of %s is not valid"):format(length, what))
             if length < budget then
@@ -3147,7 +3174,7 @@ request:close()
     local diagnostics = diagsOf(
         [[const gpu = require("gpu")
 local function expose(borrows context: gpu.Context): nil
-    local hook = context.compileGenerated
+    local hook = context.compilegenerated
 end
 ]]
     )
@@ -3250,10 +3277,10 @@ function M.ioFacadeKeepsRichContractsAndPrivateState()
         [[
 const io = require("io")
 local function copy(borrows source: io.Reader, exclusive target: io.Buffer): nil
-    source:readInto(target, 0, 16)
+    source:readinto(target, 0, 16)
 end
 local function write(exclusive target: io.Writer, borrows source: binary.span.ByteSpan): nil
-    target:writeSpan(source)
+    target:writespan(source)
 end
 ]]
     )
@@ -3277,6 +3304,37 @@ end
         local diagnostics = diagsOf(('local hidden = require(%q)'):format(name))
         assert(diagnostics:find("NUPP2144", 1, true), name .. " must reject application imports: " .. diagnostics)
     end
+end
+
+function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
+    local storage = io.newbuffer("abcd")
+    for _, names in ipairs({
+        {"getString", "getstring"},
+        {"setString", "setstring"},
+        {"newReader", "newreader"},
+        {"newWriter", "newwriter"},
+        {"reserveWrite", "reservewrite"},
+        {"readSpan", "readspan"},
+        {"isReleased", "isreleased"},
+        {"ensureCapacity", "ensurecapacity"},
+    }) do
+        testAssert.eq(type(storage[names[2]]), "function", names[2])
+        testAssert.eq(storage[names[1]], nil, "the preceding IO storage member is absent")
+    end
+    testAssert.eq(storage:getstring(), "abcd")
+    storage:close()
+    local scalar = io.newscalarreader(string.char(1, 0, 0, 0))
+    testAssert.eq(type(scalar.readuint32), "function")
+    testAssert.eq(scalar.readUint32, nil)
+    testAssert.eq(scalar:readuint32(), 1)
+    scalar:close()
+    local files, path = require("io.files"), require("io.path")
+    testAssert.eq(type(files.mkdir), "function")
+    testAssert.eq(type(files.tmpfile), "function")
+    testAssert.eq(files.createdirectory, nil)
+    testAssert.eq(files.createtemporaryfile, nil)
+    testAssert.eq(type(path.cwd), "function")
+    testAssert.eq(path.currentdirectory, nil)
 end
 
 return M

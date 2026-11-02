@@ -12,7 +12,7 @@ local record Wide
 end
 local text = declarations.binding(Text)
 local wide = declarations.binding(Wide)
-local codec = json.codec(__serdeJson.defaultPolicy)
+local codec = json.codec(__serdeJson.defaultpolicy)
 local original: any = _G.require
 _G.require = function(name: string): any
     if name == "ffi" then

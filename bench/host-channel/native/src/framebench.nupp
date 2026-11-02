@@ -42,7 +42,7 @@ export function setup(packetBytes: integer, channel: boolean): nil
         "bench"
     )
     if channel and route == nil then
-        route = host.route("bench.move", hostevents.PointerMove, bus, 1, "dropOldest", 256)
+        route = host.route("bench.move", hostevents.PointerMove, bus, 1, "dropoldest", 256)
     end
 end
 

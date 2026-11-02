@@ -514,8 +514,8 @@ function M.annotationValueOnANamelessEntryFormats()
         {
             "@annotation",
             "record Marker",
-            "    @annotationValue [string]: integer",
-            "    @annotationValue {integer}",
+            "    @annotationvalue [string]: integer",
+            "    @annotationvalue {integer}",
             "end",
             "",
         },

@@ -13,7 +13,7 @@ local function binding(kind)
             return {member = member, kind = kind or "string", nullable = false, children = {}}
         end,
         write = function(_, value, writer)
-            writer:writeString(member, value)
+            writer:writestring(member, value)
         end,
     }
     weak[adapter] = true
@@ -30,7 +30,7 @@ for _ = 1, 2 do
 end
 assert(calls == 2)
 renderer:render(binding(), "d")
-assert(renderer:cachedBindings() == 2)
+assert(renderer:cachedbindings() == 2)
 renderer:render(first, "e")
 assert(calls == 4, "least recently used extension was not evicted")
 first, failed = nil, nil

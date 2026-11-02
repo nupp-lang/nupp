@@ -101,52 +101,52 @@ end
 
 function M.directoriesAreCreatedWithTheirParents()
     local files = ready()
-    assert(files.createdirectory(inRoot("a/b/c")))
+    assert(files.mkdir(inRoot("a/b/c")))
     assert(files.isdirectory(inRoot("a/b/c")))
     assert(files.isdirectory(inRoot("a")))
     assert(not files.isfile(inRoot("a")))
-    assert(files.createdirectory(inRoot("a/b/c")), "creating an existing directory succeeds")
+    assert(files.mkdir(inRoot("a/b/c")), "creating an existing directory succeeds")
 end
 
 function M.infoDescribesAFileAndFailsOnAMissingOne()
     local files = ready()
-    assert(files.createdirectory(inRoot("info")))
+    assert(files.mkdir(inRoot("info")))
     write(inRoot("info/five.txt"), "hello")
     local info = assert(files.info(inRoot("info/five.txt")))
     test.eq(info.kind, "file")
     test.eq(info.size, 5)
-    test.eq(info.readOnly, false)
+    test.eq(info.readonly, false)
     assert(info.modified > 1500000000000, "a modification time is a Unix timestamp in milliseconds")
     local now = os.walltime()
     assert(math.abs(now - info.modified) < 1000, "a fresh write's time is the clock's, in the clock's unit")
 
     local missing, reason = files.info(inRoot("info/absent"))
     test.eq(missing, nil)
-    assert(isIoError(reason, "notFound"), "a missing path is notFound, whatever the platform said")
+    assert(isIoError(reason, "notfound"), "a missing path is notFound, whatever the platform said")
     assert(("cannot read: " .. reason):find(reason.message, 1, true), "and joins text as its message")
     assert(not files.exists(inRoot("info/absent")))
 end
 
 function M.symbolicLinksAreCreatedReadAndDistinguished()
     local files = ready()
-    assert(files.createdirectory(inRoot("links")))
+    assert(files.mkdir(inRoot("links")))
     write(inRoot("links/target.txt"), "bytes")
-    assert(files.createsymlink(inRoot("links/target.txt"), inRoot("links/alias")))
+    assert(files.symlink(inRoot("links/target.txt"), inRoot("links/alias")))
 
     test.eq(files.issymlink(inRoot("links/alias")), true)
     test.eq(files.issymlink(inRoot("links/target.txt")), false)
     test.eq(files.issymlink(inRoot("links/absent")), false, "a failure reads as false, not as nil and a reason")
     assert(files.isfile(inRoot("links/alias")), "every other query follows the link")
     local target = assert(files.readlink(inRoot("links/alias")))
-    test.eq(target:toString(), inRoot("links/target.txt"), "a link's target is a path value")
+    test.eq(target:tostring(), inRoot("links/target.txt"), "a link's target is a path value")
     test.eq(assert(files.info(inRoot("links/alias"))).kind, "file")
 end
 
 function M.listingDescribesEachChildWithoutFollowingLinks()
     local files = ready()
-    assert(files.createdirectory(inRoot("listing/child")))
+    assert(files.mkdir(inRoot("listing/child")))
     write(inRoot("listing/file.txt"), "x")
-    assert(files.createsymlink(inRoot("listing/file.txt"), inRoot("listing/alias")))
+    assert(files.symlink(inRoot("listing/file.txt"), inRoot("listing/alias")))
 
     local entries = assert(files.list(inRoot("listing")))
     local kinds = {}
@@ -165,7 +165,7 @@ end
 
 function M.globbingMatchesRecursivelyAndSortsPaths()
     local files = ready()
-    assert(files.createdirectory(inRoot("glob/nested/deep")))
+    assert(files.mkdir(inRoot("glob/nested/deep")))
     write(inRoot("glob/root.nupp"), "root")
     write(inRoot("glob/nested/child.nupp"), "child")
     write(inRoot("glob/nested/deep/leaf.nupp"), "leaf")
@@ -181,7 +181,7 @@ function M.globbingMatchesRecursivelyAndSortsPaths()
 
     for index, path in ipairs(matches) do
         assert(type(path) == "table", "a match is a path value")
-        matches[index] = nativePath(path:toString())
+        matches[index] = nativePath(path:tostring())
     end
     test.eq(
         table.concat(matches, "|"),
@@ -203,7 +203,7 @@ end
 
 function M.renamingAndRemovingMoveAndDeletePaths()
     local files = ready()
-    assert(files.createdirectory(inRoot("moves/tree/deep")))
+    assert(files.mkdir(inRoot("moves/tree/deep")))
     write(inRoot("moves/from.txt"), "content")
     assert(files.rename(inRoot("moves/from.txt"), inRoot("moves/to.txt")))
     assert(files.isfile(inRoot("moves/to.txt")))
@@ -220,42 +220,36 @@ end
 
 function M.readOnlyIsSetAndCleared()
     local files = ready()
-    assert(files.createdirectory(inRoot("attributes")))
+    assert(files.mkdir(inRoot("attributes")))
     write(inRoot("attributes/locked.txt"), "x")
     assert(files.setreadonly(inRoot("attributes/locked.txt"), true))
-    assert(assert(files.info(inRoot("attributes/locked.txt"))).readOnly)
+    assert(assert(files.info(inRoot("attributes/locked.txt"))).readonly)
     assert(files.setreadonly(inRoot("attributes/locked.txt"), false))
-    assert(not assert(files.info(inRoot("attributes/locked.txt"))).readOnly)
+    assert(not assert(files.info(inRoot("attributes/locked.txt"))).readonly)
 end
 
 function M.temporariesAreCreatedNotProposed()
     local files = ready()
-    assert(files.createdirectory(inRoot("temporary")))
-    local file = assert(
-        files.createtemporaryfile({
-            directory = inRoot("temporary"),
-            prefix = "unit-",
-            suffix = ".tmp",
-        })
-    )
-    local name = file:toString()
+    assert(files.mkdir(inRoot("temporary")))
+    local file = assert(files.tmpfile({directory = inRoot("temporary"), prefix = "unit-", suffix = ".tmp",}))
+    local name = file:tostring()
     assert(files.isfile(name), "the temporary file exists when its name is answered")
     assert(
         name:find("/unit-", 1, true) and name:sub(-4) == ".tmp",
         "the generated name carries the prefix and suffix: " .. name
     )
 
-    local other = assert(files.createtemporaryfile({directory = inRoot("temporary")}))
-    test.ne(other:toString(), name, "two temporaries do not collide")
+    local other = assert(files.tmpfile({directory = inRoot("temporary")}))
+    test.ne(other:tostring(), name, "two temporaries do not collide")
 
-    local directory = assert(files.createtemporarydirectory({directory = inRoot("temporary"),}))
-    assert(files.isdirectory(directory:toString()))
+    local directory = assert(files.tmpdirectory({directory = inRoot("temporary"),}))
+    assert(files.isdirectory(directory:tostring()))
 
-    local absent, reason = files.createtemporaryfile({directory = inRoot("temporary/absent"),})
+    local absent, reason = files.tmpfile({directory = inRoot("temporary/absent"),})
     test.eq(absent, nil)
     assert(isIoError(reason), "an unusable directory answers a reason")
 
-    local escaped, escapeReason = files.createtemporaryfile({directory = inRoot("temporary"), prefix = "../outside-",})
+    local escaped, escapeReason = files.tmpfile({directory = inRoot("temporary"), prefix = "../outside-",})
     test.eq(escaped, nil)
     assert(isIoError(escapeReason), "a name fragment cannot escape its selected directory")
 
@@ -266,20 +260,20 @@ end
 
 function M.aTemporaryIsRemovedOnCloseAndKeptOnPersist()
     local files = ready()
-    assert(files.createdirectory(inRoot("settling")))
-    local doomed = assert(files.createtemporaryfile({directory = inRoot("settling")}))
-    local name = doomed:toString()
-    test.eq(doomed:path():toString(), name, "a temporary answers its path as a path value too")
+    assert(files.mkdir(inRoot("settling")))
+    local doomed = assert(files.tmpfile({directory = inRoot("settling")}))
+    local name = doomed:tostring()
+    test.eq(doomed:path():tostring(), name, "a temporary answers its path as a path value too")
     assert(files.isfile(name))
     test.eq(select("#", doomed:close()), 0, "a temporary's close answers nothing")
     assert(not files.exists(name), "closing removes what was created")
-    assert(doomed:isReleased())
+    assert(doomed:isreleased())
     doomed:close()
 
-    local kept = assert(files.createtemporaryfile({directory = inRoot("settling")}))
-    assert(files.write(kept:toString(), "final"))
+    local kept = assert(files.tmpfile({directory = inRoot("settling")}))
+    assert(files.write(kept:tostring(), "final"))
     assert(kept:persist(inRoot("settling/report.txt")))
-    assert(kept:isReleased(), "persisting discharges the obligation")
+    assert(kept:isreleased(), "persisting discharges the obligation")
     kept:close()
     test.eq(assert(files.read(inRoot("settling/report.txt"))), "final", "the persisted file survives the close")
 end
@@ -293,7 +287,7 @@ function M.wholeFilesAreReadWrittenAndCopied()
         return answer
     end
 
-    succeeds("create whole directory", files.createdirectory(inRoot("whole")))
+    succeeds("create whole directory", files.mkdir(inRoot("whole")))
     succeeds("initial write", files.write(inRoot("whole/a.txt"), "hello"))
     test.eq(assert(files.read(inRoot("whole/a.txt"))), "hello")
     succeeds("append", files.append(inRoot("whole/a.txt"), " world"))
@@ -326,7 +320,7 @@ end
 
 function M.transfersSettleThroughTheLaneAndReleaseTheirSlots()
     local files = ready()
-    assert(files.createdirectory(inRoot("lane")))
+    assert(files.mkdir(inRoot("lane")))
     test.eq(files.pendingtransfers(), 0, "the lane starts idle")
 
     local payload = ("lane"):rep(50000)
@@ -355,7 +349,7 @@ function M.aTransferParksUnderAHandlerAndBlocksWithoutOne()
     local files = ready()
     local suspension = require("coroutine.suspension")
     local suspensionHost = require("coroutine.suspension.host")
-    assert(files.createdirectory(inRoot("parking")))
+    assert(files.mkdir(inRoot("parking")))
     assert(files.write(inRoot("parking/payload.bin"), ("park"):rep(40000)))
 
     local parked, pumped = nil, 0
@@ -391,7 +385,7 @@ end
 function M.aCancelledTransferGivesItsLaneSlotBack()
     local files = ready()
     local tasks = require("coroutine")
-    assert(files.createdirectory(inRoot("cancel")))
+    assert(files.mkdir(inRoot("cancel")))
     assert(files.write(inRoot("cancel/large.bin"), ("drop"):rep(1000000)))
     test.eq(files.pendingtransfers(), 0, "the lane starts idle")
 
@@ -413,7 +407,7 @@ end
 
 function M.anAtomicWriteLeavesTheDestinationAloneWhenItFails()
     local files = ready()
-    assert(files.createdirectory(inRoot("atomic")))
+    assert(files.mkdir(inRoot("atomic")))
     assert(files.write(inRoot("atomic/kept.txt"), "original"))
     local written, reason = files.writeatomic(inRoot("atomic/absent/kept.txt"), "replacement")
     assert(not written and isIoError(reason))
@@ -422,7 +416,7 @@ end
 
 function M.anOpenFileReadsAndWritesThroughTheSharedContracts()
     local files = ready()
-    assert(files.createdirectory(inRoot("handles")))
+    assert(files.mkdir(inRoot("handles")))
     assert(files.write(inRoot("handles/source.txt"), "hello world!"))
 
     local file = assert(files.open(inRoot("handles/source.txt")))
@@ -446,7 +440,7 @@ function M.anOpenFileReadsAndWritesThroughTheSharedContracts()
     assert(isIoError(overflowReason), "a seek beyond the exact integer range answers a reason")
     test.eq(assert(file:position()), 9007199254740991, "a refused seek leaves the cursor unchanged")
     file:close()
-    assert(file:isReleased())
+    assert(file:isreleased())
     test.eq(select(2, reader:read(1)), "the file is closed", "a read from a closed file says so")
 
     local out = assert(files.open(inRoot("handles/sink.txt"), "w"))
@@ -469,13 +463,13 @@ end
 
 function M.transfersMoveBytesWithoutAStringInBetween()
     local files = ready()
-    assert(files.createdirectory(inRoot("transfer")))
+    assert(files.mkdir(inRoot("transfer")))
     local payload = ("chunk"):rep(60000)
     assert(files.write(inRoot("transfer/big.bin"), payload))
 
     local source = assert(files.open(inRoot("transfer/big.bin")))
     local sink = assert(files.open(inRoot("transfer/copy.bin"), "w"))
-    test.eq(source:transferTo(sink), #payload)
+    test.eq(source:transferto(sink), #payload)
     source:close()
     sink:close()
     test.eq(assert(files.read(inRoot("transfer/copy.bin"))), payload)
@@ -483,31 +477,31 @@ function M.transfersMoveBytesWithoutAStringInBetween()
     local file = assert(files.open(inRoot("transfer/big.bin")))
     local buffer = buffers.newbuffer()
     local reader = file
-    test.eq(reader:readInto(buffer, 0, 5), 5)
-    test.eq(buffer:getString(), "chunk")
-    test.eq(reader:readInto(buffer, 8, 5), 5, "a read lands where it is told")
-    test.eq(buffer:getString(), "chunk\0\0\0chunk", "the gap before an offset reads as zero bytes")
+    test.eq(reader:readinto(buffer, 0, 5), 5)
+    test.eq(buffer:getstring(), "chunk")
+    test.eq(reader:readinto(buffer, 8, 5), 5, "a read lands where it is told")
+    test.eq(buffer:getstring(), "chunk\0\0\0chunk", "the gap before an offset reads as zero bytes")
     file:close()
 end
 
 function M.aBufferWritesIntoAFileFromItsOwnStorage()
     local files = ready()
-    assert(files.createdirectory(inRoot("frombuffer")))
+    assert(files.mkdir(inRoot("frombuffer")))
     local buffer = buffers.newbuffer("prefix:body")
     local file = assert(files.open(inRoot("frombuffer/out.bin"), "w"))
     local writer = file
-    local bytes = buffer:readSpan()
-    test.eq(writer:writeSpan(bytes:slice(1, 7)), 7)
-    test.eq(writer:writeSpan(bytes:slice(8)), 4)
+    local bytes = buffer:readspan()
+    test.eq(writer:writespan(bytes:slice(1, 7)), 7)
+    test.eq(writer:writespan(bytes:slice(8)), 4)
     local prefix = buffer:view(0, 3)
-    test.eq(writer:writeSpan(prefix:readSpan()), 3)
+    test.eq(writer:writespan(prefix:readspan()), 3)
     assert(writer:flush())
     file:close()
     test.eq(assert(files.read(inRoot("frombuffer/out.bin"))), "prefix:bodypre")
     test.raises(
         function()
             local other = assert(files.open(inRoot("frombuffer/out.bin"), "w"))
-            other:writeSpan(bytes:slice(9, 48))
+            other:writespan(bytes:slice(9, 48))
         end,
         "out of bounds"
     )
@@ -528,7 +522,7 @@ end
 
 function M.linesSplitOnEitherPlatformsEnding()
     local files = ready()
-    assert(files.createdirectory(inRoot("lines")))
+    assert(files.mkdir(inRoot("lines")))
     assert(files.write(inRoot("lines/mixed.txt"), "one\ntwo\r\nthree"))
     local seen, reason = readLines(assert(files.lines(inRoot("lines/mixed.txt"))))
     test.eq(table.concat(seen, "|"), "one|two|three")
@@ -549,14 +543,14 @@ function M.linesSplitOnEitherPlatformsEnding()
 
     local missing, missingReason = files.lines(inRoot("lines/absent"))
     test.eq(missing, nil)
-    assert(isIoError(missingReason, "notFound"), "a missing file is notFound")
+    assert(isIoError(missingReason, "notfound"), "a missing file is notFound")
 end
 
 -- A directory is the deterministic way to make the first read fail on a handle
 -- that opened: POSIX opens one for reading and refuses to read it.
 function M.aFailingReadAnswersAReasonRatherThanEndingTheLines()
     local files = ready()
-    assert(files.createdirectory(inRoot("lines")))
+    assert(files.mkdir(inRoot("lines")))
     local lines = files.lines(inRoot("lines"))
     if lines ~= nil then
         local seen, reason = readLines(lines)
@@ -599,7 +593,7 @@ end
 
 function M.pathsAndFoldersAnswerTheEnvironment()
     local files = ready()
-    test.eq(files.currentDirectory, nil, "the working directory is io.path's question")
+    test.eq(files.cwd, nil, "the working directory is io.path's question")
     local home = assert(files.userfolder("home"))
     assert(type(home) == "table", "a user folder is a path value")
     assert(files.isdirectory(home), "the home folder is a directory")
@@ -627,19 +621,19 @@ function M.argumentsAreCheckedAtTheCallSite()
     )
     test.raises(
         function()
-            files.createsymlink(inRoot("a"), inRoot("b"), "sideways")
+            files.symlink(inRoot("a"), inRoot("b"), "sideways")
         end,
         "symlink kind"
     )
     test.raises(
         function()
-            files.createtemporaryfile({prefix = 7})
+            files.tmpfile({prefix = 7})
         end,
         "prefix must be a string"
     )
     test.raises(
         function()
-            files.createtemporaryfile(true)
+            files.tmpfile(true)
         end,
         "options must be a table"
     )
@@ -647,7 +641,7 @@ function M.argumentsAreCheckedAtTheCallSite()
         function()
             files.setreadonly(inRoot("a"), "yes")
         end,
-        "readOnly must be a boolean"
+        "readonly must be a boolean"
     )
     test.raises(
         function()
@@ -676,12 +670,12 @@ function M.aPathObjectIsAcceptedWhereverAStringIs()
     local files = ready()
     local asPath = setmetatable({_text = inRoot("viapath")}, {
         __index = {
-            toString = function(self)
+            tostring = function(self)
                 return self._text
             end
         },
     })
-    assert(files.createdirectory(asPath))
+    assert(files.mkdir(asPath))
     assert(files.isdirectory(inRoot("viapath")))
 end
 
@@ -740,7 +734,7 @@ function M.applicationPathsAreScopedPortableAndStable()
     local data = applicationPaths.native(root, "nupp", application)
 
     local safe = data:join("save files", "slot-1.dat")
-    assert(safe:toString():find("save files", 1, true))
+    assert(safe:tostring():find("save files", 1, true))
     for _, invalid in ipairs({
         "",
         ".",
@@ -771,8 +765,8 @@ function M.applicationPathsAreScopedPortableAndStable()
 
     files.setapplicationidentity("nupp", application .. "-next")
     local nextData = applicationPaths.native(root, "nupp", application .. "-next")
-    assert(nextData:toString() ~= data:toString(), "changing identity selects another root")
-    assert(data:join("old"):toString():find(application, 1, true), "an existing path retains its identity")
+    assert(nextData:tostring() ~= data:tostring(), "changing identity selects another root")
+    assert(data:join("old"):tostring():find(application, 1, true), "an existing path retains its identity")
 
 end
 

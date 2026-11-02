@@ -38,7 +38,7 @@ export const integer = numbers.integer
 ---
 --- @param value the number
 --- @param width 32 or 64 bits
---- @param allowNonfinite whether infinities and NaN are accepted
+--- @param allownonfinite whether infinities and NaN are accepted
 --- @return the number at that width
 --- @raises string when the value is not finite and that is not allowed
 export const float = numbers.floating

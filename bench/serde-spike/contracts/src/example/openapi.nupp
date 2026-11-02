@@ -54,7 +54,7 @@ local record Description is core.Description<Property>
     @readonly nullable: boolean = false
     @readonly width: integer?
     @readonly signed: boolean?
-    @readonly canRead: boolean = true
+    @readonly canread: boolean = true
     @readonly children: {core.Child<Property>} = {}
 end
 local record Text is core.Adapter<string, Property>
@@ -64,11 +64,11 @@ local record Text is core.Adapter<string, Property>
     end
 
     function write(self, borrows value: string, exclusive writer: core.Writer<Property>): nil
-        writer:writeString(self.member, tostring(value))
+        writer:writestring(self.member, tostring(value))
     end
 
     function read(self, exclusive reader: core.Reader<Property>): string
-        return reader:readString(self.member)
+        return reader:readstring(self.member)
     end
 end
 
@@ -76,8 +76,8 @@ local function choose(schema: Model, value: documents.Document): Choice
     if value.kind == "string" then
         return new Choice(alternative = "text", value = value)
     else
-        assert2(value.kind == "numberToken", "oneOf accepts text or an integer")
-        local token = value:numberToken()
+        assert2(value.kind == "numbertoken", "oneOf accepts text or an integer")
+        local token = value:numbertoken()
         assert2(token:match("^%-?%d+$") ~= nil, "oneOf integer branch refused a fraction")
         local parsed = assert2(tonumber(token), "invalid integer")
         assert2(parsed >= -2147483648 and parsed <= 2147483647, "oneOf integer overflow")
@@ -96,14 +96,14 @@ local record Alternatives is core.Adapter<Choice, Property>
         local selected = choose(self.schema, value.value)
         assert2(selected.alternative == value.alternative, "wrong oneOf selection")
         if selected.alternative == "text" then
-            writer:writeString(self.schema.payload, selected.value:string())
+            writer:writestring(self.schema.payload, selected.value:string())
         else
-            writer:writeNumberToken(self.schema.payload, selected.value:numberToken())
+            writer:writenumbertoken(self.schema.payload, selected.value:numbertoken())
         end
     end
 
     function read(self, exclusive reader: core.Reader<Property>): Choice
-        local value = reader:readDocument(self.schema.payload, documents.adapter())
+        local value = reader:readdocument(self.schema.payload, documents.adapter())
         return choose(self.schema, value)
     end
 end
@@ -145,7 +145,7 @@ local record Unknown is core.UnknownConsumer<Builder>
         -- This fixture's JSON field identity exposes its literal name explicitly.
         -- Protocols with different identities supply their own capture operation.
         local name = jsonDocument.fieldname(field)
-        state.additional[name] = reader:captureValue(documents.adapter())
+        state.additional[name] = reader:capturevalue(documents.adapter())
     end
 end
 local record Additional is core.Members<Property, Value>
@@ -156,7 +156,7 @@ local record Additional is core.Members<Property, Value>
         end
         table.sort(names)
         for _, name in ipairs(names) do
-            writer:writeUnknown(
+            writer:writeunknown(
                 new jsonDocument.FieldName(name = name),
                 assert2(value.additional[name]),
                 documents.adapter()
@@ -249,7 +249,7 @@ end
 local record DocumentField is structures.Field<documents.Document, DocumentBuilder, Property>
     @readonly member: Property
     @readonly required: boolean
-    @readonly hasDefault: boolean
+    @readonly hasdefault: boolean
     @readonly adapter: core.Adapter<documents.Document, Property>
     function describe(self, direction: core.Direction): core.Description<Property>
         return self.adapter:describe(direction)
@@ -302,24 +302,24 @@ local record DocumentScalar is core.Adapter<documents.Document, Property>
     function write(self, borrows value: documents.Document, exclusive writer: core.Writer<Property>): nil
         if self.member == self.schema.payload then
             local copied = value.kind == "string" and documents.string(value:string())
-                or documents.numbertoken(value:numberToken())
+                or documents.numbertoken(value:numbertoken())
             local selected = choose(self.schema, copied)
             if selected.alternative == "text" then
-                writer:writeString(self.member, selected.value:string())
+                writer:writestring(self.member, selected.value:string())
             else
-                writer:writeNumberToken(self.member, selected.value:numberToken())
+                writer:writenumbertoken(self.member, selected.value:numbertoken())
             end
         else
-            writer:writeString(self.member, value:string())
+            writer:writestring(self.member, value:string())
         end
     end
 
     function read(self, exclusive reader: core.Reader<Property>): documents.Document
         if self.member == self.schema.payload then
-            local value = reader:readDocument(self.member, documents.adapter())
+            local value = reader:readdocument(self.member, documents.adapter())
             return choose(self.schema, value).value
         else
-            return documents.string(reader:readString(self.member))
+            return documents.string(reader:readstring(self.member))
         end
     end
 end
@@ -332,7 +332,7 @@ local record DocumentUnknown is core.UnknownConsumer<DocumentBuilder>
     ): nil
         state.fields[
             #state.fields + 1
-        ] = new documents.Entry(name = jsonDocument.fieldname(field), value = reader:captureValue(documents.adapter()))
+        ] = new documents.Entry(name = jsonDocument.fieldname(field), value = reader:capturevalue(documents.adapter()))
     end
 end
 local record DocumentAdditional is core.Members<Property, documents.Document>
@@ -347,7 +347,7 @@ local record DocumentAdditional is core.Members<Property, documents.Document>
         end
         table.sort(names)
         for _, name in ipairs(names) do
-            writer:writeUnknown(new jsonDocument.FieldName(name = name), assert2(value:get(name)), documents.adapter())
+            writer:writeunknown(new jsonDocument.FieldName(name = name), assert2(value:get(name)), documents.adapter())
         end
     end
 end
@@ -361,7 +361,7 @@ export function documentBinding(schema: Model): core.Binding<documents.Document>
         ] = new DocumentField(
             member = member,
             required = required,
-            hasDefault = not required,
+            hasdefault = not required,
             adapter = new DocumentScalar(schema = schema, member = member)
         )
         names[member.name] = true
@@ -398,7 +398,7 @@ local record Policy<M is core.Member> is plans.Policy<M>
         error("OpenAPI fixture has no timestamp mapping")
     end
 
-    function parseTimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
+    function parsetimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
         error("OpenAPI fixture has no timestamp mapping")
     end
 end

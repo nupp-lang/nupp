@@ -104,6 +104,8 @@ end
 -- buffer's are.
 function M.regionExtentsAreZeroBasedOffsetsAndCounts()
     local region = sharedbytes.copy("abcdef")
+    assert(region:tostring() == "abcdef")
+    assert(region.toString == nil and region.viewAs == nil, "old public methods are absent")
     assert(region:len() == 6, "length")
     local middle = region:slice(1, 2)
     assert(middle:len() == 2, "slice length")
@@ -124,7 +126,7 @@ function M.regionExtentsAreZeroBasedOffsetsAndCounts()
     assert(one.count == 1 and byteAt(one, 1) == string.byte("f"), "counted view")
     assert(region:slice(6, 0):len() == 0, "an empty extent at the end is inside")
     assert(not pcall(region.slice, region, 6, 1), "an extent past the end is refused")
-    assert(region.size == nil and region.text == nil, "length and toString are the only spellings")
+    assert(region.size == nil and region.text == nil, "len and tostring are the public methods")
 end
 
 -- A file that cannot be read is the environment failing, so it is answered.
@@ -150,7 +152,7 @@ end
 function M.typedViewsUseTheAddressAlignmentRatherThanTheElementWidth()
     local triple = ffi.typeof("struct { int32_t a; int32_t b; int32_t c; }")
     local region = sharedbytes.copy(string.rep("\0", 28)):slice(4, 24)
-    local values = region:viewAs(triple)
+    local values = region:viewas(triple)
     assert(values.count == 2)
 end
 

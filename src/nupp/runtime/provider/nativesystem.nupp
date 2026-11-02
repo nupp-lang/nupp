@@ -24,9 +24,9 @@ local architectures: {[string]: string} = {x64 = "x86_64", x86 = "x86", arm64 = 
 export const platform: string = platforms[ffi.os] or string.lower(ffi.os)
 export const architecture: string = architectures[ffi.arch] or ffi.arch
 export const endianness: string = ffi.abi("le") and "little" or "big"
-export const pointerBits: integer = ffi.abi("64bit") and 64 or 32
+export const pointerbits: integer = ffi.abi("64bit") and 64 or 32
 
 --- Estimates usable parallelism, always at least one, without opening a worker pool.
-export function availableParallelism(): integer
+export function availableparallelism(): integer
     return tonumber(native.C.nuppNativeAvailableParallelism()) as integer
 end

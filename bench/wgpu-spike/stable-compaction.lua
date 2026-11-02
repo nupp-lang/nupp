@@ -64,9 +64,9 @@ until now() - started >= 1.0
 local elapsed = (now() - started) / passes
 
 local output = ffi.new("uint32_t[?]", count)
-context:enqueueDownload(outputBuffer)
+context:enqueuedownload(outputBuffer)
 context:synchronize()
-context:readDownloaded(outputBuffer, span.writecarray(output, count))
+context:readdownloaded(outputBuffer, span.writecarray(output, count))
 for index, value in ipairs(expected) do
     assert(
         output[index - 1] == value,

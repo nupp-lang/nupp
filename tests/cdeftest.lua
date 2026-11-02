@@ -150,7 +150,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
             "do",
             "   local writer = spans.writecarray(output, 6)",
             "   do",
-            "      local parts = writer:splitAt(1)",
+            "      local parts = writer:splitat(1)",
             "      local readable = spans.fromcarray(input, 6):slice(2, 6)",
             "      counted_pointer_transform(parts.right, readable)",
             "   end",

@@ -57,9 +57,9 @@ with context = gpu.open() do
                 binding:dispatch(2.0)
             end
         end
-        context:enqueueDownload(output)
+        context:enqueuedownload(output)
         context:synchronize()
-        context:readDownloaded(output, result:write())
+        context:readdownloaded(output, result:write())
     end
 end
 ```
@@ -134,7 +134,7 @@ local function reduce(
                 shared[localIndex] = input[cursor + 1]
             end
         end)
-        phases:reduceSum(shared)
+        phases:reducesum(shared)
         phases:run(function(localIndex: uint32)
             if localIndex == math.u32.wrap(0) and groupIndex < #output then
                 output[groupIndex + 1] = shared[0]
@@ -151,7 +151,7 @@ elements past the last whole group are not visited; pad the span to a multiple
 of the workgroup size to cover them.
 
 Generated workgroups admit at most 256 lanes and 16 KiB of scratch. Scratch
-writes are structurally disjoint. `reduceSum` and `inclusiveScan` expand
+writes are structurally disjoint. `reducesum` and `inclusivescan` expand
 to fixed trees whose stage order is the same in the CPU definition and the GPU
 artifact; unordered and atomic reductions are not part of this contract.
 
@@ -162,11 +162,11 @@ artifact; unordered and atomic reductions are not part of this contract.
 `layout.new(shape, strides, offset?)` and provides `layout.subview`,
 `layout.transpose`, `layout.broadcast`, and `layout.asStrided` to transform
 checked layout values without allocating. A layout provides `dimensions()`,
-`strides()`, `offset()`, `extent()`, `isDense()` and `isInjective()` as methods,
+`strides()`, `offset()`, `extent()`, `isdense()` and `isinjective()` as methods,
 the way a buffer does.
 
 `buffer:view(layout)` applies a layout while preserving the buffer element type, and
-`buffer:isDense()` and `buffer:isInjective()` answer for the buffer or view.
+`buffer:isdense()` and `buffer:isinjective()` answer for the buffer or view.
 
 Host transfers and dispatch-indexed spans require dense layouts. Cursor-indexed
 kernels may consume other input layouts by passing dimensions and strides as

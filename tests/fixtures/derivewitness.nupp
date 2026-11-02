@@ -6,7 +6,7 @@ const derivewitness = require("tests.fixtures.derivewitness")
 
 @annotation(targets = {"field", "record"})
 export record inspectWitness
-    @annotationValue @ref subject: any
+    @annotationvalue @ref subject: any
 end
 
 export interface HasWitness

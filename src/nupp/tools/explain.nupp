@@ -2015,10 +2015,10 @@ ENTRIES[
     #ENTRIES + 1
 ] = {
     code = "NUPP2114",
-    summary = "@annotationValue or @ref is used outside an annotation-definition field, or a definition's own shape is invalid",
-    rule = "@annotationValue and @ref are meaningful only on a field inside a record or struct itself marked @annotation, and @annotation takes exactly one named `targets` argument: a non-empty array of target-name string literals. Any of these written where that context is missing describes a definition that cannot exist.",
-    wrong = "local record Plain\n    @annotationValue\n    x: string\nend\n",
-    right = "@annotation(targets = {\"record\"})\nlocal record Plain\n    @annotationValue\n    x: string\nend\n",
+    summary = "@annotationvalue or @ref is used outside an annotation-definition field, or a definition's own shape is invalid",
+    rule = "@annotationvalue and @ref are meaningful only on a field inside a record or struct itself marked @annotation, and @annotation takes exactly one named `targets` argument: a non-empty array of target-name string literals. Any of these written where that context is missing describes a definition that cannot exist.",
+    wrong = "local record Plain\n    @annotationvalue\n    x: string\nend\n",
+    right = "@annotation(targets = {\"record\"})\nlocal record Plain\n    @annotationvalue\n    x: string\nend\n",
     related = {"NUPP2115", "NUPP2112"},
     docs = "docs/learn/language/annotations.md#single-value-applications",
 }
@@ -2028,7 +2028,7 @@ ENTRIES[
 ] = {
     code = "NUPP2115",
     summary = "A typed annotation's argument does not fit its member, or is not a compile-time constant",
-    rule = "A `typed`-argument annotation checks each supplied argument against the member it names: the value must fit the member's declared type, a `@ref` member must resolve to a compatible type reference, no member may be supplied twice, and every required member must be supplied. Only the member marked `@annotationValue` may be supplied positionally.",
+    rule = "A `typed`-argument annotation checks each supplied argument against the member it names: the value must fit the member's declared type, a `@ref` member must resolve to a compatible type reference, no member may be supplied twice, and every required member must be supplied. Only the member marked `@annotationvalue` may be supplied positionally.",
     wrong = "@syntax(42)\nlocal value = 1\n\nreturn value\n",
     right = "@syntax(\"json\")\nlocal value = 1\n\nreturn value\n",
     related = {"NUPP2114", "NUPP2112"},
@@ -2328,7 +2328,7 @@ ENTRIES[
 ] = {
     code = "NUPP2422",
     summary = "A constrained type declaration names an unsupported base or empty bounds",
-    rule = "types.range narrows integer, int32 or uint32, and types.length narrows string; either may also narrow a constrained alias of one, which intersects the two constraints. Both bounds are inclusive whole numbers in ascending order, and both must lie inside what the base itself admits, so a declaration that admits nothing is reported where it is written rather than compiled into a test no value passes.",
+    rule = "types.range narrows integer, int32 or uint32, and types.len narrows string; either may also narrow a constrained alias of one, which intersects the two constraints. Both bounds are inclusive whole numbers in ascending order, and both must lie inside what the base itself admits, so a declaration that admits nothing is reported where it is written rather than compiled into a test no value passes.",
     wrong = "local type Empty = types.range(integer, 10, 0)\nlocal value: Empty = 5\nreturn value\n",
     right = "local type Small = types.range(integer, 0, 10)\nlocal value: Small = 5\nreturn value\n",
     related = {"NUPP2013", "NUPP2421"},

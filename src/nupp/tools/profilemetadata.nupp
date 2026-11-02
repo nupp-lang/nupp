@@ -1,0 +1,29 @@
+@!internal
+module nupp.tools.profilemetadata
+
+-- CLI and editor metadata retain their existing wire keys. Inputs come from
+-- the public trace profile or the separate private static compiler catalog.
+local function held(value: any, current: string, preceding: string): any
+    local result = value[current]
+    if result == nil then
+        result = value[preceding]
+    end
+
+    return result
+end
+
+export function capture(value: any): any
+    if type(value) ~= "table" then
+        return value
+    end
+    return {
+        id = value.id,
+        architecture = value.architecture,
+        supported = value.supported,
+        luajitRevision = held(value, "luajitrevision", "luajitRevision"),
+        luajitVersion = held(value, "luajitversion", "luajitVersion"),
+        operatingSystem = held(value, "operatingsystem", "operatingSystem"),
+        enabledRecorderFeatures = held(value, "enabledrecorderfeatures", "enabledRecorderFeatures"),
+        bytecodeSchema = held(value, "bytecodeschema", "bytecodeSchema"),
+    }
+end

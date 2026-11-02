@@ -4,7 +4,7 @@ module nupp.digest.internal.context
 --[[Owned public digest contexts over canonical provider state.
 
 A context retains its algorithm name, output size, and one affine State. It is an
-io.Writer: writes borrow input only for the duration of the call. Both digest overloads and hexDigest
+io.Writer: writes borrow input only for the duration of the call. Both digest overloads and hexdigest
 consume the context; finalization closes state exactly once on success or failure.
 An undersized destination is rejected before bytes are written, and the caller
 retains ownership of its destination. Dropping an unfinished context also closes
@@ -26,7 +26,7 @@ export interface Digest is Writer
     algorithm: function(self: Digest): string
 
     --- Returns the fixed output size in bytes.
-    digestSize: function(self: Digest): integer
+    digestsize: function(self: Digest): integer
 
     --- Absorbs raw bytes without retaining a borrowed input.
     --- @return true, since a digest takes every byte it is given
@@ -34,7 +34,7 @@ export interface Digest is Writer
 
     --- Absorbs a borrowed byte view without retaining it.
     --- @return how many bytes it absorbed, which is all of them
-    writeSpan: function(exclusive self: Digest, borrows bytes: span.ByteSpan): (integer?, string?)
+    writespan: function(exclusive self: Digest, borrows bytes: span.ByteSpan): (integer?, string?)
 
     --- Nothing is buffered behind a digest, so this only returns true.
     flush: function(self: Digest): (boolean, string?)
@@ -45,7 +45,7 @@ export interface Digest is Writer
         & function(takes self: Digest, exclusive destination: span.ByteWriteSpan): integer
 
     --- Consumes this context and returns lowercase hexadecimal, always closing state.
-    hexDigest: function(takes self: Digest): string
+    hexdigest: function(takes self: Digest): string
 end
 
 local record StateOwner is own.Closeable
@@ -68,7 +68,7 @@ local record Context is Digest
         return self.name
     end
 
-    function digestSize(self): integer
+    function digestsize(self): integer
         return self.size
     end
 
@@ -82,7 +82,7 @@ local record Context is Digest
         return true, nil
     end
 
-    function writeSpan(exclusive self, borrows bytes: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows bytes: span.ByteSpan): (integer?, string?)
         self.state:update(bytes)
 
         return #bytes, nil
@@ -117,7 +117,7 @@ local record Context is Digest
         end
     end
 
-    function hexDigest(takes self): string
+    function hexdigest(takes self): string
         local size = self.size
         with owner = new StateOwner(state = self.state) do
             local bytes = storage.allocateBytes(size)

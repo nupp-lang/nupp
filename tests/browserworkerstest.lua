@@ -193,7 +193,7 @@ const spi = package
 const contracts = require("coroutine.workers.spi")
 const provider: contracts.Provider = assert(spi.providers(contracts.Provider)())
 local function open(): contracts.Scope
-    return provider.openScope()
+    return provider.openscope()
 end
 return open
 ]],
@@ -258,7 +258,7 @@ function M.laneFailuresKeepTheirStackAndCancellationIdentity()
             return function()
             end
         end
-        workers.runScheduler()
+        workers.runscheduler()
     end)
     effects.request = previousRequest
     package.loaded[moduleName] = previousModule

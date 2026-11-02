@@ -10,7 +10,7 @@ warn("cannot read ", "settings.json")
 ]]
 
 local log = require("log")
-local output = log.forModule("warn")
+local output = log.formodule("warn")
 local enabled = true
 
 local function argument(value: any, index: integer): string

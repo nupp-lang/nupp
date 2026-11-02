@@ -109,7 +109,7 @@ export function install(__nupp: any, runtime: any): nil
             return result, nil
         end
 
-        function __nuppManagedAlias:withExclusive(callback)
+        function __nuppManagedAlias:withexclusive(callback)
             local cell, problem = __nuppAliasCell(self);
             if not cell then
                 return nil, problem
@@ -128,8 +128,6 @@ export function install(__nupp: any, runtime: any): nil
 
             return result, nil
         end
-
-        __nuppManagedAlias.withexclusive = __nuppManagedAlias.withExclusive
 
         function __nuppManagedAlias:take()
             local cell, problem = __nuppAliasCell(self);

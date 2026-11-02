@@ -19,10 +19,10 @@ local operations = {
     {'lessEqual', '(a <= b):select(1, 0)', 'left <= right and 1 or 0'},
     {'greater', '(a > b):select(1, 0)', 'left > right and 1 or 0'},
     {'greaterEqual', '(a >= b):select(1, 0)', 'left >= right and 1 or 0'},
-    {'propagatingMin', 'a:propagatingMin(b)', 'left < right and left or right'},
-    {'propagatingMax', 'a:propagatingMax(b)', 'left > right and left or right'},
-    {'numberMin', 'a:numberMin(b)', 'left < right and left or right'},
-    {'numberMax', 'a:numberMax(b)', 'left > right and left or right'},
+    {'propagatingMin', 'a:propagatingmin(b)', 'left < right and left or right'},
+    {'propagatingMax', 'a:propagatingmax(b)', 'left > right and left or right'},
+    {'numberMin', 'a:numbermin(b)', 'left < right and left or right'},
+    {'numberMax', 'a:numbermax(b)', 'left > right and left or right'},
     -- Lua's floor remainder and quotient, by two and by every shift count,
     -- which reaches negative, zero and wide divisors at every boundary value.
     {'modulo', 'a % b', 'floorMod(left, right)'},
@@ -33,13 +33,13 @@ local operations = {
     -- is also the largest value; the population count of every boundary
     -- bit pattern; and the high half of the product by a count and by the
     -- lane itself, where the squares of the extremes fill both halves.
-    {'saturatingAdd', 'a:saturatingAdd(b)', 'saturatingAdd(left, right)'},
-    {'saturatingSub', 'a:saturatingSub(b)', 'saturatingSub(left, right)'},
-    {'saturatingAddCount', 'a:saturatingAdd(shifts)', 'saturatingAdd(left, count)'},
-    {'saturatingSubCount', 'a:saturatingSub(shifts)', 'saturatingSub(left, count)'},
+    {'saturatingAdd', 'a:saturatingadd(b)', 'saturatingAdd(left, right)'},
+    {'saturatingSub', 'a:saturatingsub(b)', 'saturatingSub(left, right)'},
+    {'saturatingAddCount', 'a:saturatingadd(shifts)', 'saturatingAdd(left, count)'},
+    {'saturatingSubCount', 'a:saturatingsub(shifts)', 'saturatingSub(left, count)'},
     {'popcount', 'a:popcount()', 'bitsSet(left)'},
-    {'mulHighCount', 'a:mulHigh(shifts)', 'mulHigh(left, count)'},
-    {'mulHighSquare', 'a:mulHigh(a)', 'mulHigh(left, left)'},
+    {'mulHighCount', 'a:mulhigh(shifts)', 'mulHigh(left, count)'},
+    {'mulHighSquare', 'a:mulhigh(a)', 'mulHigh(left, left)'},
 }
 
 --- The scalar oracles of the lane arithmetic at one element. Division: a

@@ -52,7 +52,7 @@ local function operationFor(target)
             return codec:decode(binding, bytes)
         end,
         append = function(value: any, exclusive buffer: text.Buffer)
-            codec:encodeInto(binding, value, buffer)
+            codec:encodeinto(binding, value, buffer)
         end
     }
 end

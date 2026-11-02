@@ -56,11 +56,11 @@ local function answered(status: integer, output: any): (string?, string?)
     return native.bytes(output[0]), nil
 end
 
-function provider.separator(): string
+function provider.sep(): string
     return package.config:sub(1, 1)
 end
 
-function provider.currentDirectory(): (string?, string?)
+function provider.cwd(): (string?, string?)
     local output = ffi.new("uint64_t[1]")
 
     return answered(C.nuppNativeFilesCurrentDirectory(output), output)

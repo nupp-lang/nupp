@@ -80,7 +80,7 @@ suspension.suspend = provider.suspend
 suspension.handled = provider.handled
 
 --- Whether a suspension performed here would be permitted, handler barriers included.
-suspension.canSuspend = provider.canSuspend
+suspension.canSuspend = provider.cansuspend
 
 --- Creates a coroutine that inherits the handler installed where it was created.
 ---

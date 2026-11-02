@@ -1218,10 +1218,10 @@ local os: {
 local package: {
     --- Iterates implementations of a concrete exported interface lazily.
     --- Each iterator advance loads one module; require caching retains its identity.
-    --- @param Interface the exported interface whose implementations to discover
+    --- @param interface the exported interface whose implementations to discover
     --- @return a lazy iterator, returning nil at exhaustion
     --- @raises any when an implementation fails to initialize; the next call retries it
-    @readonly providers: function<I>(Interface: string): function(): I?,
+    @readonly providers: function<I>(interface: string): function(): I?,
 
     --- Chooses the implementation with the unique highest priority.
     --- An omitted priority is zero. Returns nil when no implementation is advertised.
@@ -1694,7 +1694,7 @@ record debug.ReloadPoll
     patch: string?
 
     --- What a `"prepared"` answer was prepared against.
-    baseGeneration: integer?
+    basegeneration: integer?
 
     --- Why the change was refused, on `"diagnostics"` and `"restart-required"`.
     diagnostics: {any}?
@@ -1789,8 +1789,8 @@ local debug: {
     --- @param f the function whose upvalue is replaced
     --- @param idx its 1-based upvalue index
     --- @param source the function providing the cell
-    --- @param sourceIdx its 1-based upvalue index
-    upvaluejoin: function(f: any, idx: number, source: any, sourceIdx: number),
+    --- @param sourceidx its 1-based upvalue index
+    upvaluejoin: function(f: any, idx: number, source: any, sourceidx: number),
 
     --- Returns the metatable of `v`, ignoring any `__metatable` field.
     ---

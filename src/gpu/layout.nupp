@@ -14,7 +14,7 @@ const layout = require("gpu.layout")
 const rows = layout.new({4, 4}, {4, 1})
 const column = layout.subview(rows, {0, 2}, {4, 1})
 
-print(column:offset(), column:isDense())
+print(column:offset(), column:isdense())
 ```
 
 Every operation is checked, so a layout that would read outside its extent is
@@ -66,7 +66,7 @@ record layout.Layout
     end
 
     --- Reports whether the elements occupy a dense row-major range.
-    function isDense(borrows self): boolean
+    function isdense(borrows self): boolean
         return self._dense
     end
 
@@ -74,7 +74,7 @@ record layout.Layout
     ---
     --- A false result also covers layouts for which the bounded stride proof is
     --- inconclusive.
-    function isInjective(borrows self): boolean
+    function isinjective(borrows self): boolean
         return self._injective
     end
 end
@@ -172,17 +172,17 @@ function layout.asstrided(
     borrows value: layout.Layout,
     shape: {integer},
     strides: {integer},
-    relativeOffset: integer
+    relativeoffset: integer
 ): layout.Layout
-    if type(relativeOffset) ~= "number"
-        or relativeOffset % 1 ~= 0
-        or relativeOffset < 0
-        or value._offset > 4294967295 - relativeOffset
+    if type(relativeoffset) ~= "number"
+        or relativeoffset % 1 ~= 0
+        or relativeoffset < 0
+        or value._offset > 4294967295 - relativeoffset
     then
         error("nupp: GPU strided layout offset exceeds uint32", 2)
     end
-    local result = layout.new(shape, strides, value._offset + relativeOffset)
-    if result._extent > value._extent or relativeOffset > value._extent - result._extent then
+    local result = layout.new(shape, strides, value._offset + relativeoffset)
+    if result._extent > value._extent or relativeoffset > value._extent - result._extent then
         error("nupp: GPU strided layout exceeds its source", 2)
     end
 

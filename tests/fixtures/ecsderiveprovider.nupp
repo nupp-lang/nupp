@@ -13,12 +13,12 @@ end
 
 @comptime
 export function Component(info: types.derive.Info): types.derive.Result<Value>
-    return derive.implement{data = {ecs = {name = info.qualifiedName}}, initializer = true}
+    return derive.implement{data = {ecs = {name = info.qualifiedname}}, initializer = true}
 end
 
 @comptime
 export function StorageColumn(T: type): type
-    if types2.describe(T).declarationKind == "struct" then
+    if types2.describe(T).declarationkind == "struct" then
         return types2.carray(T)
     end
     return types2.array(T)

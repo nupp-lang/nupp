@@ -6,7 +6,7 @@
 
 local type Percent = types.range(integer, 0, 100)
 local type Digit = types.range(Percent, 0, 9)
-local type Identifier = types.length(string, 1, 16)
+local type Identifier = types.len(string, 1, 16)
 
 local half: Percent = 50 -- decided here; nothing reaches the program
 local name: Identifier = "width"

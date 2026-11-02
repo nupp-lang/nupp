@@ -12,7 +12,7 @@ local type Provider = contract.Provider
 The workers module selects an implementation during initialization.
 A provider owns its lane scheduler, but uses the canonical Scope, Task, Status,
 and submitted-signature types declared here. A scope is reached only through a
-task scope's `fork`, which owns one privately. Generic spawn must
+task scope's `work`, which owns one privately. Generic spawn must
 preserve the exact argument and result packs of the sendable function.
 
 Arguments and results cross isolated Lua states as copies. Only explicitly
@@ -20,7 +20,7 @@ supported engine-backed affine owners move; arbitrary closures, pointers,
 coroutines, and Lua-owned affine resources cannot be copied as task arguments.
 Runtime validation must also reject unsupported value graphs that static types
 cannot exclude. A task's result count preserves embedded and trailing nil values.
-`await` returns that exact pack or raises failure/cancellation; `isDone` reports
+`await` returns that exact pack or raises failure/cancellation; `isdone` reports
 terminal settlement, `status` reports scheduler state, and `cancel` reports
 whether it made the first cancellation request.
 

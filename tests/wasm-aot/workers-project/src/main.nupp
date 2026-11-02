@@ -7,7 +7,7 @@ for index = 1, 100 do
     assert(counter.next() == index)
 end
 with scope = tasks.scope() do
-    local independent = scope:fork(jobs.nextCounter)
+    local independent = scope:work(jobs.nextCounter)
     assert(independent:await() == 1, "each lane loads its own implementation from the shared SPI index")
     assert(counter.next() == 101, "worker state is independent of the caller")
 end
@@ -52,7 +52,7 @@ local fanned: {integer} = {}
 -- together, so the jobs run on their lanes at the same time.
 local function checksumInto(index: integer): nil
     with lane = tasks.scope() do
-        fanned[index] = lane:fork("browser-worker", 64, jobs.checksum):await()
+        fanned[index] = lane:work("browser-worker", 64, jobs.checksum):await()
     end
 end
 
@@ -69,10 +69,10 @@ boolean("fannedOut", matched)
 
 with scope = tasks.scope() do
     local reading = new jobs.Reading(label = "left", value = 41)
-    local answer = scope:fork(reading, jobs.louder):await()
+    local answer = scope:work(reading, jobs.louder):await()
     boolean("recordCrossed", answer.label == "LEFT" and answer.value == 42)
 
-    scope:fork("done", jobs.acknowledge):await()
+    scope:work("done", jobs.acknowledge):await()
     boolean("emptyResultCrossed", true)
 end
 
@@ -82,7 +82,7 @@ end
 
 local cleanupStarted = os.monotonic()
 with scope = tasks.scope() do
-    scope:fork(150, jobs.patient)
+    scope:work(150, jobs.patient)
 end
 local cleanupElapsed = os.monotonic() - cleanupStarted
 boolean("scopeWaitedForUnawaited", cleanupElapsed >= 100)
@@ -95,7 +95,7 @@ number("scopeCleanupMs", cleanupElapsed)
 local failedStatus = "unknown"
 local scopeProblem = raised(function(): nil
     with scope = tasks.scope() do
-        local bad = scope:fork("beta", jobs.refuse)
+        local bad = scope:work("beta", jobs.refuse)
         local problem = raised(function(): nil
             bad:await()
         end)
@@ -110,7 +110,7 @@ boolean(
     "unobservedFailureRaised",
     raised(function(): nil
         with scope = tasks.scope() do
-            scope:fork("gamma", jobs.refuse)
+            scope:work("gamma", jobs.refuse)
         end
     end) ~= nil
 )
@@ -121,7 +121,7 @@ boolean(
 
 local resultProblem = raised(function(): nil
     with scope = tasks.scope() do
-        scope:fork("alpha", jobs.unsendableResult):await()
+        scope:work("alpha", jobs.unsendableResult):await()
     end
 end)
 boolean("unsendableResultRefused", resultProblem ~= nil and resultProblem:find("cannot be copied", 1, true) ~= nil)
@@ -131,7 +131,7 @@ with scope = tasks.scope() do
     local shared = {name = "a"}
 
     local function submitAnAlias(): nil
-        scope:fork({shared, shared}, jobs.count)
+        scope:work({shared, shared}, jobs.count)
     end
 
     local problem = raised(submitAnAlias)
@@ -147,7 +147,7 @@ end
 
 local nestedProblem = raised(function(): nil
     with scope = tasks.scope() do
-        scope:fork(4, jobs.nested):await()
+        scope:work(4, jobs.nested):await()
     end
 end)
 boolean("nestedScopeRefused", nestedProblem ~= nil and nestedProblem:find("another worker scope", 1, true) ~= nil)
@@ -158,7 +158,7 @@ boolean("nestedScopeRefused", nestedProblem ~= nil and nestedProblem:find("anoth
 
 local function occupyALane(): nil
     with lane = tasks.scope() do
-        lane:fork(60, jobs.patient):await()
+        lane:work(60, jobs.patient):await()
     end
 end
 
@@ -170,7 +170,7 @@ with scope = tasks.scope() do
         scope:spawn(occupyALane)
     end
     time.sleep(10)
-    local queued = scope:fork(60, jobs.patient)
+    local queued = scope:work(60, jobs.patient)
     boolean("cancelRequested", queued:cancel("the test asked"))
     boolean("cancelIsIdempotent", not queued:cancel("again"))
     local problem = raised(function(): nil
@@ -183,8 +183,8 @@ end
 with scope = tasks.scope() do
     -- A settled task leaves a lane booted and idle, so the next submission is
     -- running by the time anything else happens.
-    scope:fork("warm", 1, jobs.checksum):await()
-    local running = scope:fork(200, jobs.patient)
+    scope:work("warm", 1, jobs.checksum):await()
+    local running = scope:work(200, jobs.patient)
     time.sleep(50)
     running:cancel("too late")
 
@@ -201,7 +201,7 @@ with scope = tasks.scope() do
     local refused: string? = nil
 
     local function submit(): nil
-        scope:fork("x", 1, jobs.checksum)
+        scope:work("x", 1, jobs.checksum)
     end
 
     for _ = 1, 1100 do
@@ -222,8 +222,8 @@ end
 with scope = tasks.scope() do
     -- A settled task leaves a lane booted and idle, so the next submission is
     -- running by the time anything else happens.
-    scope:fork("warm", 1, jobs.checksum):await()
-    local cooperating = scope:fork(400, 25, jobs.cooperative)
+    scope:work("warm", 1, jobs.checksum):await()
+    local cooperating = scope:work(400, 25, jobs.cooperative)
     time.sleep(50)
     cooperating:cancel("the test asked")
     local problem = raised(function(): nil
@@ -254,7 +254,7 @@ boolean("coroutineChildrenRan", coroutineChildren == 3)
 
 local owned: integer = 0
 with scope = tasks.scope() do
-    owned = scope:fork("browser-worker", 1, jobs.checksum):await()
+    owned = scope:work("browser-worker", 1, jobs.checksum):await()
 end
 boolean("taskScopeOwnsWorkers", owned == jobs.checksum("browser-worker", 1))
 
@@ -262,8 +262,8 @@ boolean("taskScopeOwnsWorkers", owned == jobs.checksum("browser-worker", 1))
 local deadlineStarted = os.monotonic()
 
 local function bounded(): nil
-    with inner = tasks.scope(timeoutMs = 250) do
-        inner:fork(400, 25, jobs.cooperative):await()
+    with inner = tasks.scope(timeoutms = 250) do
+        inner:work(400, 25, jobs.cooperative):await()
     end
 end
 

@@ -95,6 +95,7 @@ function M.thePublicReloadNamespaceKeepsItsWatchContract()
 local generation: integer = debug.reload.generation()
 local outcome: debug.ReloadPoll = debug.reload.poll()
 local kind: string = outcome.kind
+local previous: integer? = outcome.basegeneration
 assert(generation >= 0 and kind ~= "")
 assert(debug.getinfo(1) ~= nil)
 ]]
@@ -1392,6 +1393,22 @@ function M.watchInstallsOnlyThePublicDebugReloadTable()
     assert(nupp.hotreload == nil, "watch does not install the retired public namespace")
     testAssert.eq(debug.reload.generation(), 1)
     testAssert.eq(debug.reload.poll().kind, "no-change")
+    session.close(true)
+end
+
+function M.publicPollDoesNotPublishPrivateTransactionFields()
+    local session, _, path = hostProject("local function update(): integer return 41 end\nreturn {update = update}\n")
+    local unchanged = debug.reload.poll()
+    testAssert.eq(unchanged.kind, "no-change")
+    testAssert.eq(unchanged.baseGeneration, nil)
+    testAssert.eq(unchanged.basegeneration, nil)
+
+    write(path, "local function update(): integer return 42 end\nreturn {update = update}\n")
+    local committed = debug.reload.poll()
+    testAssert.eq(committed.kind, "prepared")
+    testAssert.eq(committed.generation, 2)
+    testAssert.eq(committed.baseGeneration, nil, "the public result does not expose private transaction metadata")
+    testAssert.eq(committed.basegeneration, nil, "the optional field remains absent for the current producer")
     session.close(true)
 end
 

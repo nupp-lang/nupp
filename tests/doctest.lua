@@ -1368,9 +1368,7 @@ function M.standardIOApiHasCompleteDocumentation()
             },
             functions = {newBuffer = true, newStringReader = true,},
         },
-        [
-            "src/io/path/init.nupp"
-        ] = {types = {Path = true,}, functions = {newpath = true, currentdirectory = true, sep = true,},},
+        ["src/io/path/init.nupp"] = {types = {Path = true,}, functions = {newpath = true, cwd = true, sep = true,},},
         [
             "src/io/uri/init.nupp"
         ] = {types = {URI = true, Components = true,}, functions = {newuri = true, validate = true, isuri = true,},},
@@ -2372,8 +2370,8 @@ local function Handle(F: type): type
     end
     return types.shape({
         --- Returns the complete body result pack.
-        {name = "await", read = types.function_(types.pack({types.any}), types.results(F))},
-        {name = "done", read = types.function_(types.pack({types.any}), types.pack({types.boolean}))},
+        {name = "await", read = types.functiontype(types.pack({types.any}), types.results(F))},
+        {name = "done", read = types.functiontype(types.pack({types.any}), types.pack({types.bool}))},
         {name = "label", read = types.literal("types.Reader")},
     })
 end
@@ -2399,7 +2397,7 @@ export type Task<G> = Handle(G)
         source:gsub("return types.shape", "F = types.integer\n    return types.shape", 1),
         source:gsub("return types.shape", "local F = types.integer\n    return types.shape", 1),
         source:gsub("return types.shape", "types.shape = other\n    return types.shape", 1),
-        source:gsub("return types.shape", 'types["function_"] = other\n    return types.shape', 1),
+        source:gsub("return types.shape", 'types["functiontype"] = other\n    return types.shape', 1),
         source:gsub("@comptime\n", "types.shape = other\n@comptime\n", 1),
         (source:gsub("@comptime\n", "", 1)),
     }) do
@@ -2439,15 +2437,16 @@ function M.coroutineWorkerDocsRetainScopesAndTaskResultPacks()
     for _, member in ipairs(assert(items.Scope).members) do
         scope[member.name] = member
     end
-    assert(scope.fork and scope.spawn and scope.cancel and scope.close, "scope owns worker creation and settlement")
+    assert(scope.work and scope.spawn and scope.cancel and scope.close, "scope owns worker creation and settlement")
+    assert(not scope.fork, "the preceding public worker-creation name is absent")
     local task = {}
     for _, member in ipairs(assert(items.Task).members) do
         task[member.name] = member
     end
-    assert(task.await and task.isDone and task.status and task.cancel, "task methods come from the actual type builder")
+    assert(task.await and task.isdone and task.status and task.cancel, "task methods come from the actual type builder")
     assert(task.await.type:find("unpackof types.results(F)", 1, true), task.await.type)
     assert(task.status.type:find('"cancelled"', 1, true), task.status.type)
-    assert(modules["coroutine.workers"].text:find("coroutine.Scope.fork", 1, true))
+    assert(modules["coroutine.workers"].text:find("coroutine.Scope.work", 1, true))
     assert(modules["coroutine.workers"].text:find("coroutine.Task", 1, true))
     assert(not modules["nupp.tasks"] and not modules["nupp.workers.spi"], "implementation modules stay private")
     os.execute("rm -rf '" .. dir .. "'")
@@ -2499,8 +2498,8 @@ function M.aRotatedCallSurfaceIsPrintedInCallOrder()
         "and after the name in the named overload: " .. spawn.type
     )
     assert(spawn.params[#spawn.params].name == "body", "the parameter table follows the same order")
-    local fork = assert(members["nupp.tasks.Scope.fork"], "Scope:fork is documented")
-    assert(fork.type:find("Submitted(F), F)", 1, true), "fork takes its callable last: " .. fork.type)
+    local work = assert(members["nupp.tasks.Scope.work"], "Scope:work is documented")
+    assert(work.type:find("Submitted(F), F)", 1, true), "work takes its callable last: " .. work.type)
     local cancel = assert(members["nupp.tasks.Scope.cancel"], "Scope:cancel is documented")
     assert(
         cancel.type:find("(borrows self: nupp.tasks.Scope, reason: string?)", 1, true),
@@ -4348,7 +4347,7 @@ function M.userAnnotationDefinitionsHaveTheSameDeclarationKind()
                 "--- Retries a request.",
                 '@annotation(targets = {"function"})',
                 "record retry",
-                "    @annotationValue",
+                "    @annotationvalue",
                 "    attempts: integer",
                 "end",
                 "@jit",
@@ -5409,7 +5408,10 @@ function M.gpuDocumentsApplicationOperationsAndHidesGeneratedBindings()
             foundContext = true
             for _, member in ipairs(item.members) do
                 assert(
-                    member.name ~= "compileGenerated" and member.name ~= "bindKernel",
+                    member.name ~= "compileGenerated"
+                    and member.name ~= "bindKernel"
+                    and member.name ~= "compilegenerated"
+                    and member.name ~= "bindkernel",
                     "generated binding hooks are private Context fields"
                 )
             end
@@ -5447,10 +5449,41 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
         text:find("Allocates a typed resident device buffer", 1, true),
         "Context must document application operations"
     )
-    for _, hidden in ipairs({"compileGenerated", "bindKernel", "ArtifactSet", "# `nupp.gpu.internal`"}) do
+    for _, hidden in ipairs({
+        "compileGenerated",
+        "bindKernel",
+        "compilegenerated",
+        "bindkernel",
+        "ArtifactSet",
+        "# `nupp.gpu.internal`"
+    }) do
         assert(not text:find(hidden, 1, true), "public GPU documentation exposes " .. hidden)
     end
     assert(not text:find("implementation%.%w"), "public GPU signatures expose an implementation alias")
+    -- Private implementations must not create a second application-facing Binding.
+    for _, relative in ipairs({
+        "src/gpu/spi.nupp",
+        "src/nupp/runtime/provider/nativegpu.nupp",
+        "src/nupp/runtime/browser/webgpu/internal.nupp",
+    }) do
+        local destination = dir .. "/" .. relative
+        assert(os.execute("mkdir -p '" .. destination:match("^(.*)/[^/]+$") .. "'") == 0)
+        local file = assert(io.open(destination, "wb"))
+        file:write(readFile(HERE .. "/../" .. relative))
+        file:close()
+    end
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "json", output = "api.json"}) == 0)
+    local model = require("testjson").decode(readFile(dir .. "/api.json"))
+    local providerBinding
+    for _, module in ipairs(model.modules) do
+        for _, item in ipairs(module.items) do
+            assert(item.path ~= "gpu.Binding", "a private provider record leaked onto the application API")
+            if item.path == "gpu.spi.Binding" then
+                providerBinding = item
+            end
+        end
+    end
+    assert(providerBinding and #providerBinding.members > 0, "the real provider Binding contract disappeared")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -5469,11 +5502,11 @@ function M.ioPublicPageKeepsStorageAndScalarContracts()
     assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
     local text = readFile(dir .. "/api.md")
     for _, public in ipairs({
-        "readSpan",
-        "writeSpan",
-        "reserveWrite",
-        "readInto",
-        "readUint32",
+        "readspan",
+        "writespan",
+        "reservewrite",
+        "readinto",
+        "readuint32",
         "newscalarwriter",
         "newlines"
     }) do
@@ -5543,9 +5576,9 @@ local VERSION_SOURCES = {
     ["Documentation model"] = {"src/nupp/tools/doc/init.nupp", "schemaVersion = (%d+), modules = model"},
     ["Coverage report"] = {"src/nupp/tools/coverage.nupp", "coverage%.SCHEMA_VERSION = (%d+)"},
     ["Test report"] = {"src/nupp/tools/cli/test.nupp", "schemaVersion = {%s*type = \"integer\",%s*enum = {(%d+)}"},
-    ["Bench record"] = {"src/debug/bench.nupp", "bench%.SCHEMA = (%d+)"},
+    ["Bench record"] = {"src/debug/bench.nupp", "bench%.schema = (%d+)"},
     ["Optimizer remarks"] = {"src/nupp/tools/cli/compile.nupp", "local document = {%s*schema = (%d+),"},
-    ["Trace reason catalog"] = {"src/nupp/profile/trace.nupp", "trace%.CATALOG_VERSION = (%d+)"},
+    ["Trace reason catalog"] = {"src/nupp/profile/trace.nupp", "trace%.catalogversion = (%d+)"},
     ["GPU cost records"] = {"native/crates/gpu/src/costs.rs", "values%[\"schemaVersion\"%] = json!%((%d+)%)"},
 }
 

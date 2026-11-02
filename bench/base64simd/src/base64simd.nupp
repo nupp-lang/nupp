@@ -7,11 +7,11 @@ algebra: a byte species, interleaved loads and stores for the byte layout, and
 four of output per iteration -- forty-eight bytes to sixty-four on a
 sixteen-lane species.
 
-The shape is the one the literature describes. `loadTriples` reads `3 * lanes`
+The shape is the one the literature describes. `loadtriples` reads `3 * lanes`
 consecutive bytes and deals the three bytes of every triple into `b0`, `b1`,
 `b2`. Four six-bit indexes come out of shifts and masks, and each is looked up
 in the sixty-four-byte alphabet held as four table vectors -- one table
-instruction on NEON, whatever the lane count otherwise. `storeQuads` writes
+instruction on NEON, whatever the lane count otherwise. `storequads` writes
 the four symbol vectors back a quantum at a time. On NEON the load and the
 store are `ld3` and `st4`.
 
@@ -55,7 +55,7 @@ local function encode(
         local t2 = species:load(alphabet, 2 * lanes + 1)
         local t3 = species:load(alphabet, 3 * lanes + 1)
         while at + 3 * lanes <= #source and out + 4 * lanes <= #output do
-            local b0, b1, b2 = species:loadTriples(source, at + 1)
+            local b0, b1, b2 = species:loadtriples(source, at + 1)
 
             local d0 = b0 >> 2
             local d1 = ((b0 & 3) << 4) | (b1 >> 4)
@@ -67,7 +67,7 @@ local function encode(
             local e2 = t0:swizzle(d2 + 1, t1, t2, t3)
             local e3 = t0:swizzle(d3 + 1, t1, t2, t3)
 
-            species:storeQuads(output, out + 1, e0, e1, e2, e3)
+            species:storequads(output, out + 1, e0, e1, e2, e3)
 
             at = at + 3 * lanes
             out = out + 4 * lanes
@@ -137,13 +137,13 @@ end
 function base64simd.encode(value: string): string
     local bound = encodedLength(value)
     local buffer = io.newbuffer(bound)
-    local lease = buffer:reserveWrite(0, bound)
+    local lease = buffer:reservewrite(0, bound)
     local target = lease:span()
     local written = encode(target, span.fromstring(value), ALPHABET_BYTES)
     own.drop(target)
     lease:commit(written)
 
-    return buffer:getString(0, written)
+    return buffer:getstring(0, written)
 end
 
 --- Allocates the same output buffer and writes one byte.
@@ -158,13 +158,13 @@ end
 function base64simd.allocOnly(value: string): string
     local bound = encodedLength(value)
     local buffer = io.newbuffer(bound)
-    local lease = buffer:reserveWrite(0, math.max(bound, 1))
+    local lease = buffer:reservewrite(0, math.max(bound, 1))
     local target = lease:span()
     target[1] = #value % 256
     own.drop(target)
     lease:commit(1)
 
-    return buffer:getString(0, 1)
+    return buffer:getstring(0, 1)
 end
 
 export = base64simd

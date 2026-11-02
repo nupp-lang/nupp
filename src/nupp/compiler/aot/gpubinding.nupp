@@ -252,12 +252,12 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
         append(lines, "        spirv = " .. binaryLiteral(artifact.spirv) .. ",")
     end
     if artifact.sourceFile ~= nil then
-        append(lines, "        sourceFile = " .. string.format("%q", artifact.sourceFile) .. ",")
-        append(lines, "        sourceLine = " .. tostring(artifact.sourceLine) .. ",")
-        append(lines, "        artifactId = " .. string.format("%q", artifact.artifactId) .. ",")
+        append(lines, "        sourcefile = " .. string.format("%q", artifact.sourceFile) .. ",")
+        append(lines, "        sourceline = " .. tostring(artifact.sourceLine) .. ",")
+        append(lines, "        artifactid = " .. string.format("%q", artifact.artifactId) .. ",")
     end
-    append(lines, "        readonlyNames = " .. parameterNames(artifact.readonly) .. ",")
-    append(lines, "        writableNames = " .. parameterNames(artifact.writable) .. ",")
+    append(lines, "        readonlynames = " .. parameterNames(artifact.readonly) .. ",")
+    append(lines, "        writablenames = " .. parameterNames(artifact.writable) .. ",")
     append(lines, "        entrypoint = " .. string.format("%q", artifact.entrypoint))
     append(lines, "    )")
     -- The kernel is acquired inside the construction rather than bound to a
@@ -296,7 +296,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     for slot, param in ipairs(artifact.readonly) do
         append(
             lines,
-            "    " .. rawBinding .. ":setRead(" .. tostring(
+            "    " .. rawBinding .. ":setread(" .. tostring(
                 slot - 1
             ) .. ", " .. parameterName(
                 names,
@@ -307,7 +307,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
     for slot, param in ipairs(artifact.writable) do
         append(
             lines,
-            "    " .. rawBinding .. ":setWrite(" .. tostring(
+            "    " .. rawBinding .. ":setwrite(" .. tostring(
                 slot - 1
             ) .. ", " .. parameterName(
                 names,
@@ -335,7 +335,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
                 ) .. " as integer)"
             )
         end
-        append(lines, "    self._binding:dispatchWords(" .. scalarWords .. ")")
+        append(lines, "    self._binding:dispatchwords(" .. scalarWords .. ")")
     else
         append(lines, "    local " .. uniformBlock .. " = " .. native .. ".ffi.new(" .. uniformType .. ")")
         append(lines, "    " .. uniformBlock .. ".dispatch_count = self._binding.count")
@@ -347,7 +347,7 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
         end
         append(
             lines,
-            "    self._binding:dispatchPacked(" .. uniformBlock .. ", " .. tostring(artifact.uniformBytes) .. ")"
+            "    self._binding:dispatchpacked(" .. uniformBlock .. ", " .. tostring(artifact.uniformBytes) .. ")"
         )
     end
     append(lines, "end")

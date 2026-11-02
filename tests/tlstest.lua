@@ -78,12 +78,12 @@ end
 if os.getenv("NUPP_TLS_SYSTEM_ROOTS_CHILD") == "1" then
     function M.omittedAuthorityUsesTheConfiguredSystemRoots()
         local listener, clientSock, serverSock = sockets()
-        local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+        local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
         local client = assert(tls.client(clientSock, {hostname = "localhost"}))
         local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
         assert(clientDone, "the client trusts SSL_CERT_FILE: " .. tostring(clientWhy))
         assert(serverDone, "the server completes: " .. tostring(serverWhy))
-        assert(client:isVerified(), "the system-root handshake is verified")
+        assert(client:isverified(), "the system-root handshake is verified")
         client:close()
         server:close()
         serverSock:close()
@@ -91,7 +91,7 @@ if os.getenv("NUPP_TLS_SYSTEM_ROOTS_CHILD") == "1" then
         listener:close()
 
         listener, clientSock, serverSock = sockets()
-        server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+        server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
         client, clientWhy = tls.client(clientSock, {hostname = "localhost", authority = ""})
         if client ~= nil then
             clientDone, clientWhy = shake(client, server)
@@ -116,7 +116,7 @@ end
 -- then drains for a bounded time rather than waiting for room that never comes.
 function M.closeReturnsWhenThePeerHasStoppedReading()
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
     local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
     local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
     assert(clientDone and serverDone, tostring(clientWhy or serverWhy))
@@ -165,7 +165,7 @@ function M.aClientResumesAStoredSession()
     local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
 
     local firstSock, firstServed = connectTo(listener)
-    local firstServer = assert(tls.server(firstServed, {certificate = CERT, privateKey = KEY, protocols = {"h2"},}))
+    local firstServer = assert(tls.server(firstServed, {certificate = CERT, privatekey = KEY, protocols = {"h2"},}))
     local firstClient = assert(tls.client(firstSock, {hostname = "localhost", authority = CERT, protocols = {"h2"},}))
     assert((shake(firstClient, firstServer)), "the first handshake completes")
     assert(firstServer:write("ticket follows"), "the server writes after its ticket")
@@ -180,12 +180,12 @@ function M.aClientResumesAStoredSession()
     firstSock:close()
 
     local secondSock, secondServed = connectTo(listener)
-    local secondServer = assert(tls.server(secondServed, {certificate = CERT, privateKey = KEY, protocols = {"h2"},}))
+    local secondServer = assert(tls.server(secondServed, {certificate = CERT, privatekey = KEY, protocols = {"h2"},}))
     local secondClient = assert(tls.client(secondSock, {hostname = "localhost", authority = CERT, protocols = {"h2"},}))
     local clientDone, clientWhy, serverDone, serverWhy = shake(secondClient, secondServer)
     assert(clientDone, "the resumed client finishes: " .. tostring(clientWhy))
     assert(serverDone, "the resumed server finishes: " .. tostring(serverWhy))
-    assert(secondClient:isResumed(), "the client says cached key material was used")
+    assert(secondClient:isresumed(), "the client says cached key material was used")
     assert(secondClient:write("abbreviated"), "a resumed session carries bytes")
     testAssert.eq(assert(secondServer:read(64)), "abbreviated", "the server decrypts them")
 
@@ -203,7 +203,7 @@ function M.resumptionCacheSeparatesProtocolsAndTrustMaterial()
     local firstServer = assert(
         tls.server(firstServed, {
             certificate = CERT,
-            privateKey = KEY,
+            privatekey = KEY,
             protocols = {"h2", "http/1.1"},
         })
     )
@@ -220,7 +220,7 @@ function M.resumptionCacheSeparatesProtocolsAndTrustMaterial()
     local changedServer = assert(
         tls.server(changedServed, {
             certificate = CERT,
-            privateKey = KEY,
+            privatekey = KEY,
             protocols = {"h2", "http/1.1"},
         })
     )
@@ -233,7 +233,7 @@ function M.resumptionCacheSeparatesProtocolsAndTrustMaterial()
     )
     assert((shake(changedClient, changedServer)), "the changed ALPN handshake completes")
     testAssert.eq(changedClient:protocol(), "http/1.1", "the changed protocol is negotiated")
-    testAssert.eq(changedClient:isResumed(), false, "a ticket cached for another ALPN offer is not resumed")
+    testAssert.eq(changedClient:isresumed(), false, "a ticket cached for another ALPN offer is not resumed")
 
     changedClient:close()
     changedServer:close()
@@ -244,7 +244,7 @@ function M.resumptionCacheSeparatesProtocolsAndTrustMaterial()
     local trustServer = assert(
         tls.server(trustServed, {
             certificate = CERT,
-            privateKey = KEY,
+            privatekey = KEY,
             protocols = {"h2", "http/1.1"},
         })
     )
@@ -256,7 +256,7 @@ function M.resumptionCacheSeparatesProtocolsAndTrustMaterial()
         })
     )
     assert((shake(trustClient, trustServer)), "the changed trust handshake completes")
-    testAssert.eq(trustClient:isResumed(), false, "a ticket cached under another certificate set is not resumed")
+    testAssert.eq(trustClient:isresumed(), false, "a ticket cached under another certificate set is not resumed")
 
     trustClient:close()
     trustServer:close()
@@ -272,7 +272,7 @@ function M.aRejectedTicketFallsBackToAFullHandshake()
     local firstServer = assert(
         tls.server(firstServed, {
             certificate = CERT,
-            privateKey = KEY,
+            privatekey = KEY,
             protocols = {"h2", "http/1.1"},
         })
     )
@@ -292,13 +292,13 @@ function M.aRejectedTicketFallsBackToAFullHandshake()
     local fallbackServer = assert(
         tls.server(fallbackServed, {
             certificate = CERT,
-            privateKey = KEY,
+            privatekey = KEY,
             protocols = {"http/1.1", "h2"},
         })
     )
     local fallbackClient = assert(tls.client(fallbackSock, {verify = false, protocols = {"h2", "http/1.1"},}))
     assert((shake(fallbackClient, fallbackServer)), "the fallback handshake completes")
-    testAssert.eq(fallbackClient:isResumed(), false, "offering a rejected ticket is not reported as resumption")
+    testAssert.eq(fallbackClient:isresumed(), false, "offering a rejected ticket is not reported as resumption")
     testAssert.eq(
         fallbackClient:protocol(),
         "http/1.1",
@@ -314,14 +314,14 @@ end
 
 function M.aVerifiedHandshakeCarriesBytesBothWays()
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
     local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
 
     local clientDone, clientWhy, serverDone = shake(client, server)
     assert(clientDone, "the client finished the handshake: " .. tostring(clientWhy))
     assert(serverDone, "and so did the server")
-    assert(client:isVerified(), "the client verified the peer's certificate")
-    assert(client:isReady(), "and says the session is ready")
+    assert(client:isverified(), "the client verified the peer's certificate")
+    assert(client:isready(), "and says the session is ready")
 
     assert(client:write("secret over the wire"), "the client writes plaintext")
     testAssert.eq(assert(server:read(64)), "secret over the wire", "the server reads it decrypted")
@@ -339,7 +339,7 @@ function M.anUntrustedCertificateIsRefused()
     -- The property that makes verification worth having: the machine's ordinary
     -- roots must not trust this private self-signed fixture.
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
     local client = assert(tls.client(clientSock, {hostname = "localhost"}))
 
     local clientDone, clientWhy = shake(client, server)
@@ -355,7 +355,7 @@ end
 
 function M.verificationCanBeTurnedOffDeliberately()
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
     local client = assert(tls.client(clientSock, {verify = false}))
 
     local clientDone, clientWhy, serverDone = shake(client, server)
@@ -388,7 +388,7 @@ function M.closeNotifyReadsAsTheEnd()
     -- TLS's end, which is not the socket's: a session that ends with
     -- close_notify has said so, and a truncated one has not.
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
     local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
     local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
     assert(clientDone, "the client handshake completes: " .. tostring(clientWhy))
@@ -399,7 +399,7 @@ function M.closeNotifyReadsAsTheEnd()
         require("io.net").pump(2)
     end
     testAssert.eq(assert(server:read(64)), "", "the peer's close_notify reads as the end")
-    assert(server:isEnded(), "and the session says so")
+    assert(server:isended(), "and the session says so")
 
     server:close()
     serverSock:close()
@@ -424,15 +424,15 @@ end
 
 function M.closingDuringAHandshakeIsImmediateAndTerminal()
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
     local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
 
     local done, why = client:step()
     testAssert.eq(done, false, "one client pass leaves the handshake pending")
     testAssert.eq(why, nil, "a pending handshake has not failed")
     client:close()
-    testAssert.eq(client:isReleased(), true, "closing releases the pending session")
-    testAssert.eq(client:isConnected(), false, "the closed session is terminal")
+    testAssert.eq(client:isreleased(), true, "closing releases the pending session")
+    testAssert.eq(client:isconnected(), false, "the closed session is terminal")
     local after, closedWhy = client:step()
     testAssert.eq(after, nil, "a closed handshake cannot be driven again")
     assert(closedWhy ~= nil, "the terminal result says why")
@@ -473,8 +473,8 @@ function M.aReleasedSessionAnswersItsQuestionsRatherThanCrashing()
     local listener, clientSock, serverSock = sockets()
     local client = assert(tls.client(clientSock, {verify = false}))
     client:close()
-    testAssert.eq(client:isConnected(), false, "a released session is not connected")
-    testAssert.eq(client:isReleased(), true, "and says it was released")
+    testAssert.eq(client:isconnected(), false, "a released session is not connected")
+    testAssert.eq(client:isreleased(), true, "and says it was released")
     serverSock:close()
     clientSock:close()
     listener:close()
@@ -484,7 +484,7 @@ function M.aBadCertificateIsReportedRatherThanRaising()
     local listener, clientSock, serverSock = sockets()
     local session, why = tls.server(serverSock, {
         certificate = "-----BEGIN CERTIFICATE-----\nnot a certificate\n-----END CERTIFICATE-----\n",
-        privateKey = KEY,
+        privatekey = KEY,
     })
     testAssert.eq(session, nil, "an unreadable certificate answers nil")
     assert(why ~= nil, "and says why")
@@ -498,7 +498,7 @@ function M.alpnNegotiatesOneProtocol()
     local server = assert(
         tls.server(serverSock, {
             certificate = CERT,
-            privateKey = KEY,
+            privatekey = KEY,
             protocols = {"http/1.1", "h2"},
         })
     )
@@ -527,7 +527,7 @@ function M.alpnSharingNothingRefusesTheHandshake()
     -- Naming protocols is a commitment: a server that speaks only h2 does not
     -- quietly continue with a client that speaks only http/1.1.
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY, protocols = {"h2"},}))
+    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY, protocols = {"h2"},}))
     local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT, protocols = {"http/1.1"},}))
     local clientDone, clientWhy, serverDone, serverWhy = shake(client, server)
     assert(not clientDone or not serverDone, "a handshake with no protocol in common does not complete")
@@ -542,7 +542,7 @@ end
 
 function M.noProtocolsMeansNoNegotiation()
     local listener, clientSock, serverSock = sockets()
-    local server = assert(tls.server(serverSock, {certificate = CERT, privateKey = KEY}))
+    local server = assert(tls.server(serverSock, {certificate = CERT, privatekey = KEY}))
     local client = assert(tls.client(clientSock, {hostname = "localhost", authority = CERT}))
     assert((shake(client, server)), "the handshake completes without ALPN")
     testAssert.eq(client:protocol(), nil, "and nothing was negotiated")
@@ -587,7 +587,7 @@ function M.providerReadsCannotExceedTheRequestedCount()
         flushed = function()
             return true
         end,
-        closeNotify = function()
+        closenotify = function()
             return true
         end,
         destroy = function()
@@ -619,7 +619,7 @@ function M.providerWritesMustMakeValidProgress()
         flushed = function()
             return true
         end,
-        closeNotify = function()
+        closenotify = function()
             return true
         end,
         destroy = function()

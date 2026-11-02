@@ -28,14 +28,21 @@ local statistics = require("nupp.bench.internal.statistics")
 local system = os.info()
 
 local type Bench = {
-    SCHEMA: integer,
+    schema: integer,
     compare: function(any, any): ({string}, {string}),
     decodebaseline: function(string, string, integer?): (any, string?),
     format: function(any, any?): string
 }
 local bench = require("debug.bench") as Bench
-local compare = bench.compare
-local format = bench.format
+local recordio = require("nupp.bench.internal.record")
+
+local function compare(record: any, baseline: any): ({string}, {string})
+    return bench.compare(recordio.read(record), recordio.read(baseline))
+end
+
+local function format(record: any, options: any?): string
+    return bench.format(recordio.read(record), options)
+end
 
 --- The oldest runner document that still reads as a baseline. Three is the first
 --- that held one record per fork; it reads with its deterministic counters and no
@@ -154,7 +161,7 @@ end
 local function discover(): {string}
     local found: {string} = {}
     for _, path in ipairs(files.glob("bench/*.bench.nupp") or {}) do
-        found[#found + 1] = path:toString()
+        found[#found + 1] = path:tostring()
     end
     table.sort(found)
 
@@ -246,13 +253,13 @@ local function nuppRun(
     if not result then
         return false, tostring(communicateProblem or "could not collect child output")
     end
-    if result.errorOutput ~= "" then
-        io.stderr:write(result.errorOutput)
+    if result.erroroutput ~= "" then
+        io.stderr:write(result.erroroutput)
     end
     if not result:succeeded() and result.output ~= "" then
         io.stderr:write(result.output)
     end
-    if result.exit.timedOut then
+    if result.exit.timedout then
         return false, ("timed out after %.3fs"):format(timeoutMs / 1000.0)
     end
 
@@ -356,7 +363,7 @@ local function listingKey(): string?
     local sources: {string} = {}
     for _, pattern in ipairs({"bench/**/*.nupp", "bench/**/*.lua", "bench/*.nupp", "bench/*.lua"}) do
         for _, path in ipairs(files.glob(pattern) or {}) do
-            sources[#sources + 1] = path:toString()
+            sources[#sources + 1] = path:tostring()
         end
     end
     table.sort(sources)
@@ -408,7 +415,7 @@ local function rememberListings(key: string?, listings: {[string]: any}): nil
         return
     end
     pcall(function(): nil
-        files.createdirectory("build")
+        files.mkdir("build")
         writeFile(CASES_CACHE, json.encodevalue({key = key, files = listings}))
     end)
 end
@@ -449,7 +456,7 @@ local function casesFor(
     if #wanted == 0 then
         return answers, problems
     end
-    files.createdirectory(CASES_DIR)
+    files.mkdir(CASES_DIR)
 
     local function accept(path: string, listing: string, output: string, code: integer, timedOut: boolean): nil
         if output ~= "" then
@@ -996,7 +1003,7 @@ local function mergeForks(name: string, path: string, forks: {any}): (any, {stri
                 #notes + 1
             ] = (
                 "%s: scattered: only %.0f%% of samples lie within %.0f%% of the median, "
-                .. "so the score describes no rate this benchmark ran at; raise sampleIterations "
+                .. "so the score describes no rate this benchmark ran at; raise sampleiterations "
                 .. "until one sample spans whole collector cycles"
             ):format(name, typical * 100.0, statistics.CONCENTRATION_TOLERANCE * 100.0)
         end
@@ -1049,7 +1056,7 @@ end
 --- The record shape `bench.compare` reads, assembled from a merged benchmark.
 local function comparableRecord(entry: any): any
     return {
-        schema = bench.SCHEMA,
+        schema = bench.schema,
         cases = {entry.summary,},
         executionProfile = entry.executionProfile,
         remarks = entry.remarks,
@@ -1161,7 +1168,7 @@ local function machineKey(): string?
         built[#built + 1] = letters:sub(pick, pick)
     end
     local key = table.concat(built)
-    files.createdirectory(directory)
+    files.mkdir(directory)
     if not writeFile(path, key .. "\n") then
         -- Without somewhere to keep it there is no stable identity, and inventing a
         -- fresh one every run would make every comparison look cross-machine. Saying
@@ -1411,7 +1418,7 @@ function runner.run(options: runner.Options): integer
     local function refuse(code: string, message: string, file: string?): integer
         if asJson then
             return writeRunDocument(
-                {schema = (require("debug.bench") as any).SCHEMA, recordedAt = "", benchmarks = json.asarray({})},
+                {schema = (require("debug.bench") as any).schema, recordedAt = "", benchmarks = json.asarray({})},
                 1,
                 {problem(code, message, file)}
             )
@@ -1422,7 +1429,7 @@ function runner.run(options: runner.Options): integer
     end
 
     if profileDir then
-        local made, madeProblem = files.createdirectory(profileDir)
+        local made, madeProblem = files.mkdir(profileDir)
         if not made then
             return refuse(
                 "NUPP0001",
@@ -1525,7 +1532,7 @@ function runner.run(options: runner.Options): integer
                     return 1
                 end
             end
-            previous = document
+            previous = recordio.write(document)
         end
         -- A named baseline that is not there is not a pass. Exiting zero here is how a
         -- lost baseline comes to look exactly like a clean run.
@@ -1539,7 +1546,7 @@ function runner.run(options: runner.Options): integer
             return refuse("NUPP0001", "--gpu-costs needs an output directory")
         end
         gpuCostsDirectory = options.gpuCostsDir .. "/" .. os.uuid4()
-        local made, madeProblem = files.createdirectory(gpuCostsDirectory)
+        local made, madeProblem = files.mkdir(gpuCostsDirectory)
         if not made then
             return refuse("NUPP0001", "cannot create GPU cost directory: " .. tostring(madeProblem), gpuCostsDirectory)
         end
@@ -1702,7 +1709,7 @@ function runner.run(options: runner.Options): integer
     end
 
     local document = {
-        schema = bench.SCHEMA,
+        schema = bench.schema,
         recordedAt = os.date("!%Y-%m-%dT%H:%M:%SZ"),
         label = label,
         forks = forks,
@@ -1879,7 +1886,7 @@ function runner.run(options: runner.Options): integer
         for _, entry in ipairs(merged) do
             cases[#cases + 1] = entry.summary
         end
-        io.stdout:write(format({cases = cases,}, {geometricMean = options.geo == true, forks = forks,}))
+        io.stdout:write(format({cases = cases,}, {geometricmean = options.geo == true, forks = forks,}))
         for _, comparison in ipairs(document.comparisons) do
             if #comparison.verdicts > 0 then
                 io.stdout:write(

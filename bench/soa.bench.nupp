@@ -100,19 +100,19 @@ end
 bench.suite(
     {
         name = "soa",
-        baselineVariant = "handwritten-soa",
+        baselinevariant = "handwritten-soa",
         variants = {
             {name = "generated-soa", run = generatedSoA},
             {name = "handwritten-soa", run = handwrittenSoA},
             {name = "aos", run = ordinaryAoS},
         },
         cases = {{name = "particle-update", operations = COUNT * STEPS},},
-        warmupIterations = 1,
-        sampleIterations = 2,
-        minSamples = 5,
-        minDurationMs = 500,
-        maxSamples = 250,
-        maxDurationMs = 10000,
+        warmupiterations = 1,
+        sampleiterations = 2,
+        minsamples = 5,
+        mindurationms = 500,
+        maxsamples = 250,
+        maxdurationms = 10000,
     } as bench.SuiteOptions
 )
 bench.report()

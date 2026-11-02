@@ -74,13 +74,13 @@ local record Capture is core.UnknownConsumer<Builder>
     ): nil
         state.unknown[
             #state.unknown + 1
-        ] = new smithy.UnknownField(field = field, value = reader:captureValue(documents.adapter()))
+        ] = new smithy.UnknownField(field = field, value = reader:capturevalue(documents.adapter()))
     end
 end
 local record Additional is core.Members<smithy.Member, Request>
     function apply(self, borrows value: Request, exclusive writer: core.Writer<smithy.Member>): nil
         for _, entry in ipairs(value.unknown) do
-            writer:writeUnknown(entry.field, entry.value, documents.adapter())
+            writer:writeunknown(entry.field, entry.value, documents.adapter())
         end
     end
 end

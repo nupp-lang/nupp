@@ -24,7 +24,7 @@ local record Options
     files: {string} = {}
 end
 
-const options, problem = Options.fromCLI(arg)
+const options, problem = Options.fromcli(arg)
 
 assert(options ~= nil, problem and problem.message)
 ```
@@ -81,8 +81,8 @@ end
 record cliModule.CompletionRequest
     prefix: string
     argv: {string}
-    wordIndex: integer
-    commandPath: {string}
+    wordindex: integer
+    commandpath: {string}
     field: string
     cwd: string
     environment: {[string]: string}
@@ -100,16 +100,16 @@ cliModule.none = "none" as cliModule.ValueArity
 cliModule.required = "required" as cliModule.ValueArity
 
 --- An option whose value is optional and may only be attached with `=`.
-cliModule.optionalAttached = "optionalAttached" as cliModule.ValueArity
+cliModule.optionalattached = "optionalattached" as cliModule.ValueArity
 
 --- An option which requires an attached `=` value.
-cliModule.attachedOnly = "attachedOnly" as cliModule.ValueArity
+cliModule.attachedonly = "attachedonly" as cliModule.ValueArity
 
 --- A short option token.
-cliModule.shortOption = parser.shortOption
+cliModule.shortoption = parser.shortOption
 
 --- A long option token.
-cliModule.longOption = parser.longOption
+cliModule.longoption = parser.longOption
 
 --- A positional or literal argument token.
 cliModule.argument = parser.argument
@@ -130,53 +130,51 @@ end
 
 --- Builds an application from a command type and its `subcommands` tree.
 function cliModule.application<T is cliModule.Runnable>(
-    rootType: Type<T>,
+    roottype: Type<T>,
     options: cliModule.ApplicationOptions?
 ): cliModule.Application
-    return require("nupp.cli.internal.application").application(rootType, options)
+    return require("nupp.cli.internal.application").application(roottype, options)
 end
 
 --- @internal
-function cliModule.derivedFromCLI(argv: {string}, entry: Entry): table?, cliModule.DecodeError?
+function cliModule.derivedfromcli(argv: {string}, entry: Entry): table?, cliModule.DecodeError?
     return require("nupp.cli.internal.decode").fromCLI(argv, entry) as table?
 end
 
 --- @internal
-function cliModule.derivedText(value: string): string
+function cliModule.derivedtext(value: string): string
     return value
 end
 
 --- @internal
-function cliModule.derivedStrings<T>(takes value: T): T preserves value
+function cliModule.derivedstrings<T>(takes value: T): T preserves value
     return value
 end
 
 --- @internal
-function cliModule.derivedCompleter(subject: Type<cliModule.Completer>): Type<cliModule.Completer>
+function cliModule.derivedcompleter(subject: Type<cliModule.Completer>): Type<cliModule.Completer>
     return subject
 end
 
 --- @internal
-function cliModule.derivedGroupRun(self: table): integer
+function cliModule.derivedgrouprun(self: table): integer
     return 0
 end
 
 @comptime
 local function option(items, name: string): any
-    -- A0 seed transition: accept lower metadata while existing consumers keep
-    -- their current keys. Retire these mappings with seed4 source adoption.
-    local acceptedName = name == "constantAliases" and "constantaliases"
-        or name == "preserveUnknown" and "preserveunknown"
-        or name == "stopAtFirstArgument" and "stopatfirstargument"
+    local precedingName = name == "constantaliases" and "constantAliases"
+        or name == "preserveunknown" and "preserveUnknown"
+        or name == "stopatfirstargument" and "stopAtFirstArgument"
         or name
     for _, item in ipairs(items) do
         if item.name == "cli" then
             for _, argument in ipairs(item.arguments) do
-                if argument.name == name or argument.name == acceptedName then
-                    if name == "arity" and argument.value == "optionalattached" then
-                        return "optionalAttached"
-                    elseif name == "arity" and argument.value == "attachedonly" then
-                        return "attachedOnly"
+                if argument.name == name or argument.name == precedingName then
+                    if name == "arity" and argument.value == "optionalAttached" then
+                        return "optionalattached"
+                    elseif name == "arity" and argument.value == "attachedOnly" then
+                        return "attachedonly"
                     end
                     return argument.value
                 end
@@ -205,12 +203,12 @@ end
 @comptime
 local function detail(T: type): any
     local described = types.describe(T)
-    if described.sourceKind then
+    if described.sourcekind then
         local normalized = {}
         for key, value in pairs(described) do
             normalized[key] = value
         end
-        normalized.kind = described.sourceKind
+        normalized.kind = described.sourcekind
         return normalized
     end
 
@@ -256,13 +254,13 @@ local function valueSpec(T: type): any
         end
         return spec
     elseif described.kind == "map" then
-        local keyType = described.readKey
+        local keyType = described.readkey
         if keyType == nil then
-            keyType = described.writeKey
+            keyType = described.writekey
         end
-        local valueType = described.readValue
+        local valueType = described.readvalue
         if valueType == nil then
-            valueType = described.writeValue
+            valueType = described.writevalue
         end
         local key = detail(keyType)
         local value = detail(valueType)
@@ -398,7 +396,7 @@ end
 local function recipe(info: types.derive.Info, command: boolean): any
     if info.kind ~= "record" then
         return types.derive.error("CLI arguments can be derived only for records", info.reference)
-    elseif info.hasConstructor then
+    elseif info.hasconstructor then
         return types.derive.error("CLI argument records cannot declare a constructor", info.reference)
     end
 
@@ -407,7 +405,7 @@ local function recipe(info: types.derive.Info, command: boolean): any
     local remainderField: any = nil
     local usedNames: {string} = {}
     for index, field in ipairs(info.fields) do
-        local spec = valueSpec(field.readType)
+        local spec = valueSpec(field.readtype)
         if spec == nil then
             return types.derive.error("field type is not supported by CLI arguments", field.reference)
         end
@@ -432,7 +430,7 @@ local function recipe(info: types.derive.Info, command: boolean): any
         local names: {string} = {}
         local short = option(field.annotations, "short") as string?
         local aliases = option(field.annotations, "aliases") as {string}?
-        local constantAliases = option(field.annotations, "constantAliases") as {[string]: string}?
+        local constantAliases = option(field.annotations, "constantaliases") as {[string]: string}?
         local constants: {[string]: string} = {}
         local constantNames: {string} = {}
         local pattern = option(field.annotations, "pattern") as string?
@@ -521,7 +519,7 @@ local function recipe(info: types.derive.Info, command: boolean): any
         spec.pattern = pattern
         local configuredConstant = option(field.annotations, "constant") as string | integer | boolean | nil
         spec.constant = configuredConstant
-        spec.required = not field.hasDefault and spec.optional ~= true
+        spec.required = not field.hasdefault and spec.optional ~= true
         spec.arity = spec.conversion == "boolean" and "none" or "required"
         local configuredArity = option(field.annotations, "arity") as cliModule.ValueArity?
         if role ~= "option" and (configuredArity ~= nil or configuredConstant ~= nil) then
@@ -554,7 +552,7 @@ local function recipe(info: types.derive.Info, command: boolean): any
             return types.derive.error("a boolean CLI field cannot consume a value", field.reference)
         elseif spec.conversion ~= "boolean" and spec.arity == "none" and spec.constant == nil then
             return types.derive.error("a no-value CLI field needs a constant", field.reference)
-        elseif spec.arity == "optionalAttached" and spec.constant == nil then
+        elseif spec.arity == "optionalattached" and spec.constant == nil then
             return types.derive.error("an optional attached CLI value needs a bare constant", field.reference)
         elseif spec.constant ~= nil and not acceptsConstant(spec, spec.constant) then
             return types.derive.error("a CLI constant does not inhabit the field type", field.reference)
@@ -584,19 +582,19 @@ local function recipe(info: types.derive.Info, command: boolean): any
 
     local argv = types.array(types.string)
     local statics: any = {
-        fromCLI = types.derive.member{
-            signature = types.function_(
+        fromcli = types.derive.member{
+            signature = types.functiontype(
                 types.pack({
                     argv
                 }),
                 types.pack({
-                    types.optional(info.ownerType),
+                    types.optional(info.ownertype),
                     types.optional(DecodeErrorType())
                 })
             ),
             parameters = {"argv"},
             forward = types.derive.forward{
-                helper = types.derive.helper(cliModule, "derivedFromCLI"),
+                helper = types.derive.helper(cliModule, "derivedfromcli"),
                 arguments = {types.derive.argument("argv"), types.derive.entry()},
             },
         }
@@ -605,21 +603,21 @@ local function recipe(info: types.derive.Info, command: boolean): any
         statics[
             "__cliCompleter" .. index
         ] = types.derive.member{
-            signature = types.function_(
+            signature = types.functiontype(
                 types.pack({}),
                 types.pack({
                     types.any
                 })
             ),
             forward = types.derive.forward{
-                helper = types.derive.helper(cliModule, "derivedCompleter"),
+                helper = types.derive.helper(cliModule, "derivedcompleter"),
                 arguments = {types.derive.witness(provider)},
             },
         }
     end
     local group = command and option(info.annotations, "group") as boolean? == true
     local methods: any = nil
-    local preserveUnknown = option(info.annotations, "preserveUnknown") as boolean? == true
+    local preserveUnknown = option(info.annotations, "preserveunknown") as boolean? == true
     if preserveUnknown and remainderField == nil then
         return types.derive.error("preserveUnknown needs a final CLI remainder field", info.reference)
     end
@@ -629,7 +627,7 @@ local function recipe(info: types.derive.Info, command: boolean): any
         fieldCount = #fields,
         remainder = remainderField,
         preserveUnknown = preserveUnknown,
-        stopAtFirstArgument = option(info.annotations, "stopAtFirstArgument") as boolean? == true,
+        stopatfirstargument = option(info.annotations, "stopatfirstargument") as boolean? == true,
     }
     if command then
         local configuredName = option(info.annotations, "name") as string?
@@ -661,39 +659,39 @@ local function recipe(info: types.derive.Info, command: boolean): any
             commandNames[#commandNames + 1] = alias
         end
         local summary = firstParagraph(info.documentation)
-        statics.cliName = types.derive.member{
-            signature = types.function_(
+        statics.cliname = types.derive.member{
+            signature = types.functiontype(
                 types.pack({}),
                 types.pack({
                     types.string
                 })
             ),
             forward = types.derive.forward{
-                helper = types.derive.helper(cliModule, "derivedText"),
+                helper = types.derive.helper(cliModule, "derivedtext"),
                 arguments = {types.derive.constant(commandName)},
             },
         }
-        statics.cliAliases = types.derive.member{
-            signature = types.function_(
+        statics.clialiases = types.derive.member{
+            signature = types.functiontype(
                 types.pack({}),
                 types.pack({
                     argv
                 })
             ),
             forward = types.derive.forward{
-                helper = types.derive.helper(cliModule, "derivedStrings"),
+                helper = types.derive.helper(cliModule, "derivedstrings"),
                 arguments = {types.derive.constant(aliases)},
             },
         }
-        statics.cliSummary = types.derive.member{
-            signature = types.function_(
+        statics.clisummary = types.derive.member{
+            signature = types.functiontype(
                 types.pack({}),
                 types.pack({
                     types.string
                 })
             ),
             forward = types.derive.forward{
-                helper = types.derive.helper(cliModule, "derivedText"),
+                helper = types.derive.helper(cliModule, "derivedtext"),
                 arguments = {types.derive.constant(summary)},
             },
         }
@@ -708,7 +706,7 @@ local function recipe(info: types.derive.Info, command: boolean): any
         if data.command.group then
             methods = {
                 run = types.derive.forward{
-                    helper = types.derive.helper(cliModule, "derivedGroupRun"),
+                    helper = types.derive.helper(cliModule, "derivedgrouprun"),
                     arguments = {types.derive.receiver()},
                 }
             }

@@ -65,7 +65,7 @@ local record IndexField<T, S is own.Closeable, M is core.Member> is structure.Fi
         fallback: (function(): V)?
     ): nil
         if fallback ~= nil then
-            self.layout:addDefault(member, adapter, fallback)
+            self.layout:adddefault(member, adapter, fallback)
         else
             self.layout:add(member, adapter, self.required)
         end
@@ -147,13 +147,13 @@ local record Unknown is core.UnknownConsumer<Builder>
     ): nil
         state.unknown[
             #state.unknown + 1
-        ] = new Captured(field = syntax.identity(identity), value = reader:captureValue(documents.adapter()))
+        ] = new Captured(field = syntax.identity(identity), value = reader:capturevalue(documents.adapter()))
     end
 end
 local record Additional is core.Members<Member, Envelope>
     function apply(self, borrows value: Envelope, exclusive writer: core.Writer<Member>): nil
         for _, entry in ipairs(value.unknown) do
-            writer:writeUnknown(entry.field, entry.value, documents.adapter())
+            writer:writeunknown(entry.field, entry.value, documents.adapter())
         end
     end
 end
@@ -219,7 +219,7 @@ local record Skip is core.UnknownConsumer<Builder>
         field: F,
         exclusive reader: core.UnknownReader
     ): nil
-        reader:skipValue()
+        reader:skipvalue()
     end
 end
 local skipping = new core.Bound<Envelope, Member>(

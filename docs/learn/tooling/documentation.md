@@ -283,7 +283,7 @@ a caller to write it. Wherever a rendered signature applies `affine` to a
 cleanup the documentation hides, the argument prints as `_`:
 
 ```nupp:fragment
-newReader: function(self: ByteView): affine(Reader, _)
+newreader: function(self: ByteView): affine(Reader, _)
 ```
 
 The argument is replaced rather than dropped, because `affine(Reader)` is a

@@ -35,7 +35,7 @@ with sampling = profile.sample() do
 end
 with tracing = profile.trace() do
     local aborts: profile.TraceReport = finish(tracing)
-    print(aborts.totalAborts)
+    print(aborts.totalaborts)
 end
 ```
 
@@ -102,7 +102,7 @@ LuaJIT can inline several function calls into one trace. Those inlined calls
 have no separate stack frames, so the profile may show fewer calls than the
 source.
 
-`SampleReport.sourceSamples` retains Lua leaf source-line counts with full paths.
+`SampleReport.sourcesamples` retains Lua leaf source-line counts with full paths.
 Native VM states are excluded from those counts. Combine `run --profile` with
 `--remarks-out` to join these observations to optimizer decisions in
 `build/remarks.json`.
@@ -197,7 +197,7 @@ ordered by severity:
   affected code takes.
 - `info`: normal trace events, such as leaving a loop or encountering recursion.
   Included by `run --jit-aborts`; `profile.trace()` omits them unless
-  `includeBenign = true` is requested.
+  `includebenign = true` is requested.
 
 `NYI: bytecode FNEW` means LuaJIT encountered function construction while
 recording a trace. If the function is created inside a loop, move its declaration
@@ -254,7 +254,7 @@ request, or the work after warm-up:
 ```nupp:fragment
 local profile = nupp.profile
 
-with session = profile.sample({intervalMs = 2, zone = "frame/render"}) do
+with session = profile.sample({intervalms = 2, zone = "frame/render"}) do
     renderEverything()
     local report = session:stop("render.out")
 

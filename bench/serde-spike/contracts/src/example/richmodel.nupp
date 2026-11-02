@@ -25,13 +25,13 @@ local record Description is core.Description<Member>
     @readonly nullable: boolean
     @readonly width: integer?
     @readonly signed: boolean?
-    @readonly canRead: boolean
+    @readonly canread: boolean
     @readonly children: {core.Child<Member>}
 end
 local record Child is core.Child<Member>
     @readonly member: Member
     @readonly required: boolean
-    @readonly hasDefault: boolean
+    @readonly hasdefault: boolean
     @readonly target: core.Description<Member>
     function describe(self, direction: core.Direction): core.Description<Member>
         return self.target
@@ -364,9 +364,9 @@ local record EmitChoice is core.Members<Member, Choice>
     @readonly member: Member
     function apply(self, borrows value: Choice, exclusive writer: core.Writer<Member>): nil
         if value.text ~= nil then
-            writer:writeString(self.member, value.text)
+            writer:writestring(self.member, value.text)
         elseif value.field ~= nil and value.payload ~= nil then
-            writer:writeUnknown(value.field, value.payload, documents.adapter())
+            writer:writeunknown(value.field, value.payload, documents.adapter())
         else
             error("empty union carrier", 2)
         end
@@ -377,7 +377,7 @@ local record ChoiceState
 end
 local record ReadChoice is core.MemberConsumer<Member, ChoiceState>
     function apply(self, exclusive state: ChoiceState, member: Member, exclusive reader: core.Reader<Member>): nil
-        state.value = new Choice(text = reader:readString(member))
+        state.value = new Choice(text = reader:readstring(member))
     end
 end
 local record UnknownChoice is core.UnknownConsumer<ChoiceState>
@@ -387,7 +387,7 @@ local record UnknownChoice is core.UnknownConsumer<ChoiceState>
         field: F,
         exclusive reader: core.UnknownReader
     ): nil
-        state.value = new Choice(field = field, payload = reader:captureValue(documents.adapter()))
+        state.value = new Choice(field = field, payload = reader:capturevalue(documents.adapter()))
     end
 end
 local readChoice, unknownChoice = new ReadChoice(), new UnknownChoice()
@@ -398,23 +398,23 @@ local record Fields<T> is core.Members<Member, T>
     function apply(self, borrows source: T, exclusive writer: core.Writer<Member>): nil
         local model = self.model
         if writer:include(model.id) then
-            writer:writeString(model.id, self.storage:id(source))
+            writer:writestring(model.id, self.storage:id(source))
         end
         if writer:include(model.created) then
-            writer:writeTimestamp(model.created, self.storage:created(source))
+            writer:writetimestamp(model.created, self.storage:created(source))
         end
         if writer:include(model.note) then
             local presence = self.storage:noteState(source)
             if presence == "null" then
-                writer:writeNull(model.note)
+                writer:writenull(model.note)
             elseif presence == "value" then
-                writer:writeString(model.note, assert2(self.storage:note(source)))
+                writer:writestring(model.note, assert2(self.storage:note(source)))
             end
         end
         if writer:include(model.document) then
             local document = self.storage:document(source)
             if document ~= nil then
-                writer:writeDocument(model.document, document, documents.adapter())
+                writer:writedocument(model.document, document, documents.adapter())
             end
         end
         if writer:include(model.labels) then
@@ -426,13 +426,13 @@ local record Fields<T> is core.Members<Member, T>
         if writer:include(model.next) then
             local next = self.storage:next(source)
             if next ~= nil then
-                writer:writeStruct(model.next, next, self)
+                writer:writestruct(model.next, next, self)
             end
         end
         if writer:include(model.choice) then
             local choice = self.storage:choice(source)
             if choice ~= nil then
-                writer:writeUnion(model.choice, choice, self.emitChoice)
+                writer:writeunion(model.choice, choice, self.emitChoice)
             end
         end
     end
@@ -444,7 +444,7 @@ local record Unknown<T> is core.UnknownConsumer<State<T>>
         field: F,
         exclusive reader: core.UnknownReader
     ): nil
-        reader:skipValue()
+        reader:skipvalue()
     end
 end
 local record ReadFields<T> is core.MemberConsumer<Member, State<T>>
@@ -453,7 +453,7 @@ local record ReadFields<T> is core.MemberConsumer<Member, State<T>>
     @readonly unknown: Unknown<T>
     function read(self, member: Member, exclusive reader: core.Reader<Member>): T
         local state = new State<T>(sourceContext = reader:context())
-        reader:readStruct(member, state, self, self.unknown)
+        reader:readstruct(member, state, self, self.unknown)
         if state.id == nil or state.created == nil then
             error("missing required member", 2)
         end
@@ -464,17 +464,17 @@ local record ReadFields<T> is core.MemberConsumer<Member, State<T>>
     function apply(self, exclusive state: State<T>, member: Member, exclusive reader: core.Reader<Member>): nil
         local model = self.model
         if member == model.id then
-            state.id = reader:readString(member)
+            state.id = reader:readstring(member)
         elseif member == model.created then
-            state.created = reader:readTimestamp(member)
+            state.created = reader:readtimestamp(member)
         elseif member == model.document then
-            state.document = reader:readDocument(member, documents.adapter())
+            state.document = reader:readdocument(member, documents.adapter())
         elseif member == model.note then
-            if reader:isNull() then
-                reader:readNull(member)
+            if reader:isnull() then
+                reader:readnull(member)
                 state.notePresence = "null"
             else
-                state.note = reader:readString(member)
+                state.note = reader:readstring(member)
                 state.notePresence = "value"
             end
         elseif member == model.labels then
@@ -483,7 +483,7 @@ local record ReadFields<T> is core.MemberConsumer<Member, State<T>>
             state.next = self:read(member, reader)
         elseif member == model.choice then
             local choice = new ChoiceState()
-            reader:readUnion(member, choice, readChoice, unknownChoice)
+            reader:readunion(member, choice, readChoice, unknownChoice)
             state.choice = assert2(choice.value)
         else
             error("foreign member", 2)
@@ -499,7 +499,7 @@ local record Adapter<T> is core.Adapter<T, Member>
     end
 
     function write(self, borrows value: T, exclusive writer: core.Writer<Member>): nil
-        writer:writeStruct(self.model.root.member, value, self.fields)
+        writer:writestruct(self.model.root.member, value, self.fields)
     end
 
     function read(self, exclusive reader: core.Reader<Member>): T
@@ -508,11 +508,11 @@ local record Adapter<T> is core.Adapter<T, Member>
 end
 
 local function scalar(member: Member, kind: core.Kind): Description
-    return new Description(kind = kind, member = member, nullable = false, canRead = true, children = {})
+    return new Description(kind = kind, member = member, nullable = false, canread = true, children = {})
 end
 
 local function child(member: Member, target: core.Description<Member>, required: boolean?): Child
-    return new Child(member = member, required = required == true, hasDefault = false, target = target)
+    return new Child(member = member, required = required == true, hasdefault = false, target = target)
 end
 
 export function newModel(collision: boolean?): Model
@@ -531,7 +531,7 @@ export function newModel(collision: boolean?): Model
     } = {
         child(id, scalar(id, "string"), true),
         child(created, scalar(created, "timestamp"), true),
-        child(note, new Description(kind = "string", member = note, nullable = true, canRead = true, children = {})),
+        child(note, new Description(kind = "string", member = note, nullable = true, canread = true, children = {})),
         child(document, scalar(document, "document")),
         child(
             labels,
@@ -539,7 +539,7 @@ export function newModel(collision: boolean?): Model
                 kind = "map",
                 member = labels,
                 nullable = false,
-                canRead = true,
+                canread = true,
                 children = {
                     child(
                         key,
@@ -549,7 +549,7 @@ export function newModel(collision: boolean?): Model
                             nullable = false,
                             width = 32,
                             signed = true,
-                            canRead = true,
+                            canread = true,
                             children = {}
                         ),
                         true
@@ -564,7 +564,7 @@ export function newModel(collision: boolean?): Model
                 kind = "union",
                 member = choice,
                 nullable = false,
-                canRead = true,
+                canread = true,
                 children = {child(choiceValue, scalar(choiceValue, "string"))}
             )
         ),
@@ -573,7 +573,7 @@ export function newModel(collision: boolean?): Model
         kind = "structure",
         member = root,
         nullable = false,
-        canRead = true,
+        canread = true,
         children = children
     )
     table.insert(children, 6, child(next, description))
@@ -658,7 +658,7 @@ local record Policy<M is core.Member> is plans.Policy<M>
         return json.encoded(timestamps.formatdatetime(value))
     end
 
-    function parseTimestamp(self, member: M, value: string, kind: "string" | "number"): core.Timestamp
+    function parsetimestamp(self, member: M, value: string, kind: "string" | "number"): core.Timestamp
         if self.rename then
             assert2(kind == "number", "expected epoch seconds");
             return timestamps.parseepoch(value)

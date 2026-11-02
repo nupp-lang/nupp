@@ -181,7 +181,7 @@ function workerchannel.receive(channel: any, deadline: number): (string?, worker
             else
                 channel.head = channel.head .. chunk
             end
-        elseif ended or not child:isRunning() then
+        elseif ended or not child:isrunning() then
             -- A worker can exit right after writing its last bytes; take them first.
             local last = child.stdout:poll()
             if last == nil then
@@ -213,7 +213,7 @@ function workerchannel.close(channel: any?, force: boolean?): nil
     end
     local child = channel.child
     pcall(function(): nil
-        if force and child:isRunning() then
+        if force and child:isrunning() then
             child:kill(true)
         end
         child:close()

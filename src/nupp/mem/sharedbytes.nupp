@@ -13,7 +13,7 @@ const sharedbytes = nupp.mem.sharedbytes
 
 const region = sharedbytes.copy("hello, region")
 const hello = region:slice(0, 5)
-assert(hello:len() == 5 and hello:toString() == "hello")
+assert(hello:len() == 5 and hello:tostring() == "hello")
 ```
 
 A region is storage, so its positions are zero-based offsets and counts, as a
@@ -34,7 +34,7 @@ with writer = builder:reserve(5) do
 end
 builder:commit(5)
 builder:append("!")
-assert(builder:freeze():toString() == "ABCDE!")
+assert(builder:freeze():tostring() == "ABCDE!")
 ```
 ]]
 
@@ -79,7 +79,7 @@ local sharedbytes = {}
 
 --- An immutable extent of an engine-owned block. Crossing a worker boundary
 --- moves a reference, never the bytes; reading happens in place through a
---- borrowed byte view, and `toString` is the one explicit copy into a Lua state.
+--- borrowed byte view, and `tostring` is the one explicit copy into a Lua state.
 record sharedbytes.Region
     @private _handle: any
     @private _first: integer
@@ -96,10 +96,10 @@ record sharedbytes.Region
     view: function(borrows self: sharedbytes.Region, integer?, integer?): span.ByteSpan borrows (self)
 
     --- A checked zero-copy view of the complete region as physical elements.
-    viewAs: function<T>(borrows self: sharedbytes.Region, ctype<T>): span.Span<T> borrows (self)
+    viewas: function<T>(borrows self: sharedbytes.Region, ctype<T>): span.Span<T> borrows (self)
 
     --- The region's bytes copied and interned as an ordinary string.
-    toString: @nosuspend function(sharedbytes.Region): string
+    tostring: @nosuspend function(sharedbytes.Region): string
 end
 
 local RegionMT: metatable<sharedbytes.Region> = {__index = sharedbytes.Region}
@@ -148,7 +148,7 @@ function sharedbytes.Region:view(offset: integer?, count: integer?): span.ByteSp
 end
 
 --- @raises string when the region is not aligned or is not a whole number of elements
-function sharedbytes.Region:viewAs<T>(element: ctype<T>): span.Span<T>
+function sharedbytes.Region:viewas<T>(element: ctype<T>): span.Span<T>
     local width = ffi.sizeof(element) as integer
     local alignment = ffi.alignof(element) as integer
     local byteOffset = self._first - 1
@@ -169,7 +169,7 @@ function sharedbytes.Region:viewAs<T>(element: ctype<T>): span.Span<T>
 end
 
 --- @raises string when the region's engine storage has been released
-function sharedbytes.Region:toString(): string
+function sharedbytes.Region:tostring(): string
     local text = native.text(self._handle, self._first, self._first + self._length - 1)
     if text == nil then
         error("nupp: a region's storage has been released", 2)

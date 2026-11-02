@@ -123,7 +123,7 @@ function gpu.Phases.run(borrows self: gpu.Phases, scoped stage: function(uint32)
     end
 end
 
-function gpu.Phases.reduceSum(borrows self: gpu.Phases, exclusive valuesInput: api.Shared<float>): nil
+function gpu.Phases.reducesum(borrows self: gpu.Phases, exclusive valuesInput: api.Shared<float>): nil
     local values = valuesInput as gpu.Shared<float>
     if values.count ~= self._size or self._size < 1 or self._size & (self._size - 1) ~= 0 then
         error("nupp: fixed-tree reduction needs one power-of-two value per lane", 2)
@@ -141,7 +141,7 @@ function gpu.Phases.reduceSum(borrows self: gpu.Phases, exclusive valuesInput: a
     end
 end
 
-function gpu.Phases.inclusiveScan(
+function gpu.Phases.inclusivescan(
     borrows self: gpu.Phases,
     exclusive valuesInput: api.Shared<uint32>,
     exclusive temporaryInput: api.Shared<uint32>
@@ -255,13 +255,13 @@ function gpu.refuseReadWriteAlias(bound: {any}, state: any): nil
     end
 end
 
-function gpu.Buffer.isDense<T>(borrows buffer: gpu.Buffer<T>): boolean
+function gpu.Buffer.isdense<T>(borrows buffer: gpu.Buffer<T>): boolean
     liveBuffer(buffer._state)
     local _, _, dense = layoutFacts(buffer._shape, buffer._strides, 2)
     return dense
 end
 
-function gpu.Buffer.isInjective<T>(borrows buffer: gpu.Buffer<T>): boolean
+function gpu.Buffer.isinjective<T>(borrows buffer: gpu.Buffer<T>): boolean
     liveBuffer(buffer._state)
     local _, _, _, injective = layoutFacts(buffer._shape, buffer._strides, 2)
     return injective

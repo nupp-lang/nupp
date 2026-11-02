@@ -157,7 +157,7 @@ local function application(options)
                     table.insert(responses, 1, response)
                 end
             end
-            results = {coroutine.resume(co, json.encode({responses = json.asArray(responses)}))}
+            results = {coroutine.resume(co, json.encode({responses = json.asarray(responses)}))}
         end
 
         return unpack(results)
@@ -268,7 +268,7 @@ local function frameHandler(app)
                     app.suspension.poll()
                 end
             end,
-            canPark = function()
+            canpark = function()
                 return true
             end,
             shutdown = function()
@@ -333,7 +333,7 @@ function M.parallelismAnswersInsideATask()
             local lanes
             scoped(tasks, function(scope)
                 lanes = scope:spawn(function()
-                    return system.availableParallelism()
+                    return system.availableparallelism()
                 end):await()
             end)
 
@@ -350,7 +350,7 @@ end
 function M.aFullWorkerQueueSaysItIsFull()
     local app = application({owned = {"nupp.runtime.browser.workers"}, workers = true})
     local workers = app.load("nupp.runtime.browser.workers")
-    local echo = workers.describeSendable(
+    local echo = workers.describesendable(
         function(value)
             return value
         end,
@@ -359,7 +359,7 @@ function M.aFullWorkerQueueSaysItIsFull()
     )
     local ok, answer = app.run(
         function()
-            local scope = workers.openScope(nil, nil)
+            local scope = workers.openscope(nil, nil)
             for index = 1, 1025 do
                 local accepted, problem = pcall(scope.spawn, scope, echo, index)
                 if not accepted then
@@ -409,7 +409,7 @@ function M.aWorkerScopeListsOnlyWhatItStillOwes()
         },
     })
     local workers = app.load("nupp.runtime.browser.workers")
-    local echo = workers.describeSendable(
+    local echo = workers.describesendable(
         function(value)
             return value
         end,
@@ -418,7 +418,7 @@ function M.aWorkerScopeListsOnlyWhatItStillOwes()
     )
     local ok, answer = app.run(
         function()
-            local scope = workers.openScope(nil, nil)
+            local scope = workers.openscope(nil, nil)
             local first = scope:spawn(echo, 1)
             local most = 0
             for index = 2, 20 do
@@ -511,7 +511,7 @@ local function gpuContext()
     local browser = providerstate.browserGpu(host)
     local context = browser.open()
     local element = require("nupp.mem.array").uint32
-    local kernel = context:compileGenerated({wgsl = "shader", entrypoint = "main"}, 1, 1, 20, 1)
+    local kernel = context:compilegenerated({wgsl = "shader", entrypoint = "main"}, 1, 1, 20, 1)
 
     return context, element, kernel
 end
@@ -520,18 +520,18 @@ function M.aWritableViewThatRepeatsAnElementIsRefused()
     local context, element, kernel = gpuContext()
     local layout = require("gpu.layout")
     local output = context:buffer(element, 4)
-    local binding = context:bindKernel(kernel, 4)
+    local binding = context:bindkernel(kernel, 4)
     -- Every element of the view is the allocation's first: four threads would race to
     -- write it, which no dispatch result can make sense of.
     local repeated = output:view(layout.new({4}, {0}))
-    local ok, problem = pcall(binding.setWrite, binding, 0, repeated, false)
+    local ok, problem = pcall(binding.setwrite, binding, 0, repeated, false)
     check.eq(ok, false, "a repeating writable view was bound")
     check.matches(tostring(problem), "not a disjoint span")
     local overlapping = output:view(layout.new({2, 2}, {1, 1}))
-    ok, problem = pcall(binding.setWrite, binding, 0, overlapping, false)
+    ok, problem = pcall(binding.setwrite, binding, 0, overlapping, false)
     check.eq(ok, false, "an overlapping writable view was bound")
     check.matches(tostring(problem), "not a disjoint span")
-    binding:setWrite(0, output:view(layout.new({2, 2}, {2, 1})), false)
+    binding:setwrite(0, output:view(layout.new({2, 2}, {2, 1})), false)
 end
 
 function M.oneAllocationCannotBeBoundForReadingAndWriting()
@@ -540,25 +540,25 @@ function M.oneAllocationCannotBeBoundForReadingAndWriting()
     local shared = context:buffer(element, 8)
     local other = context:buffer(element, 8)
 
-    local binding = context:bindKernel(kernel, 4)
-    binding:setRead(0, shared, false)
-    local ok, problem = pcall(binding.setWrite, binding, 0, shared, false)
+    local binding = context:bindkernel(kernel, 4)
+    binding:setread(0, shared, false)
+    local ok, problem = pcall(binding.setwrite, binding, 0, shared, false)
     check.eq(ok, false, "a buffer bound for reading was bound for writing")
     check.matches(tostring(problem), "both reading and writing")
 
     -- Usage is tracked per allocation, so disjoint views of one root conflict too,
     -- whichever side is bound first.
-    local reversed = context:bindKernel(kernel, 4)
-    reversed:setWrite(0, shared:view(layout.new({4}, {1}, 4)), false)
-    ok, problem = pcall(reversed.setRead, reversed, 0, shared:view(layout.new({4}, {1})), false)
+    local reversed = context:bindkernel(kernel, 4)
+    reversed:setwrite(0, shared:view(layout.new({4}, {1}, 4)), false)
+    ok, problem = pcall(reversed.setread, reversed, 0, shared:view(layout.new({4}, {1})), false)
     check.eq(ok, false, "a view of a buffer bound for writing was bound for reading")
     check.matches(tostring(problem), "both reading and writing")
 
     -- Rebinding a slot replaces what it held.
-    local rebound = context:bindKernel(kernel, 4)
-    rebound:setRead(0, shared, false)
-    rebound:setRead(0, other, false)
-    rebound:setWrite(0, shared, false)
+    local rebound = context:bindkernel(kernel, 4)
+    rebound:setread(0, shared, false)
+    rebound:setread(0, other, false)
+    rebound:setwrite(0, shared, false)
 end
 
 ----------------------------------------------------------------------------
@@ -602,6 +602,33 @@ function M.aTaskCancelledInAFileOperationSettlesCancelled()
     check.eq(ok, true, tostring(status))
     check.eq(seen.returned, nil, "the cancelled read returned " .. tostring(seen.reason))
     check.eq(status, "cancelled", "a cancelled task finished as if nothing happened")
+end
+
+function M.canonicalProviderKeysRetireTheirPrecedingContractNames()
+    local app = application({owned = {"nupp.runtime.browser.workers"}, workers = true})
+    local workers = app.load("nupp.runtime.browser.workers")
+    for _, names in ipairs({
+        {"openScope", "openscope"},
+        {"runScheduler", "runscheduler"},
+        {"defineSendable", "definesendable"},
+        {"describeSendable", "describesendable"},
+    }) do
+        check.eq(type(workers[names[2]]), "function", names[2])
+        check.eq(workers[names[1]], nil, "the preceding Provider key is absent")
+    end
+    local suspension = app.load("nupp.runtime.browser.suspension")
+    for _, names in ipairs({
+        {"canSuspend", "cansuspend"},
+        {"installDriver", "installdriver"},
+        {"delegatedCanPark", "delegatedcanpark"},
+        {"delegatedPark", "delegatedpark"},
+        {"turnAvailable", "turnavailable"},
+        {"consumeTurn", "consumeturn"},
+        {"deferTurn", "deferturn"},
+    }) do
+        check.eq(type(suspension[names[2]]), "function", names[2])
+        check.eq(suspension[names[1]], nil, "the preceding Provider key is absent")
+    end
 end
 
 return M

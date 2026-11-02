@@ -359,7 +359,7 @@ function M.linksTypedAnnotationsAcrossProjectFiles()
             ] = [[
 @annotation(targets = {"record"})
 record documentation
-    @annotationValue
+    @annotationvalue
     text: string
 end
 ]],
@@ -775,7 +775,7 @@ const tasks = require("coroutine")
 export type Handle = tasks.Task<function(): integer>
 
 export function uses(value: Handle): nil
-    print(value:isDone())
+    print(value:isdone())
 end
 
 export function probe(): nil
@@ -878,7 +878,7 @@ const tasks = require("coroutine")
 
 export function good(contents: string): uint64
     with scope = tasks.scope() do
-        const task = scope:fork({name = "level1", bytes = contents}, jobs.hash)
+        const task = scope:work({name = "level1", bytes = contents}, jobs.hash)
 
         return task:await().hash
     end
@@ -909,19 +909,19 @@ const tasks = require("coroutine")
 
 export function misspelled(): nil
     with scope = tasks.scope() do
-        print(scope:fork(jobs.missing))
+        print(scope:work(jobs.missing))
     end
 end
 
 export function wrongArgument(): nil
     with scope = tasks.scope() do
-        print(scope:fork({name = "level1"}, jobs.hash))
+        print(scope:work({name = "level1"}, jobs.hash))
     end
 end
 
 export function wrongResult(): nil
     with scope = tasks.scope() do
-        const task = scope:fork({name = "a", bytes = "b"}, jobs.hash)
+        const task = scope:work({name = "a", bytes = "b"}, jobs.hash)
         print(task:await().nope)
     end
 end
@@ -957,7 +957,7 @@ const tasks = require("coroutine")
 
 export function good(contents: string): boolean
     with scope = tasks.scope() do
-        const task = scope:fork({name = "level1", bytes = contents}, 0, jobs.pair)
+        const task = scope:work({name = "level1", bytes = contents}, 0, jobs.pair)
         local answer, verified = task:await()
         local name: string = answer.name
         local ok: boolean = verified
@@ -1048,12 +1048,12 @@ const tasks = require("coroutine")
 
 export function run(): nil
     with scope = tasks.scope() do
-        print(scope:fork("a", 1, jobs.scalars):await())
-        print(scope:fork({name = "a", size = 1}, jobs.shaped):await())
-        print(scope:fork({x = 1, y = 2} as jobs.Point, jobs.record_):await())
-        print(scope:fork(1, jobs.gradual):await())
-        print(scope:fork({label = "a"} as jobs.Node, jobs.recursive):await())
-        print(scope:fork({value = 1, children = {}} as jobs.Tree, jobs.structural):await())
+        print(scope:work("a", 1, jobs.scalars):await())
+        print(scope:work({name = "a", size = 1}, jobs.shaped):await())
+        print(scope:work({x = 1, y = 2} as jobs.Point, jobs.record_):await())
+        print(scope:work(1, jobs.gradual):await())
+        print(scope:work({label = "a"} as jobs.Node, jobs.recursive):await())
+        print(scope:work({value = 1, children = {}} as jobs.Tree, jobs.structural):await())
     end
 end
 ]],
@@ -1080,19 +1080,19 @@ const tasks = require("coroutine")
 
 export function nested(): nil
     with scope = tasks.scope() do
-        print(scope:fork({name = "a", hook = || -> nil}, jobs.hooked))
+        print(scope:work({name = "a", hook = || -> nil}, jobs.hooked))
     end
 end
 
 export function thread_(): nil
     with scope = tasks.scope() do
-        print(scope:fork(coroutine.create(|| -> nil), jobs.threaded))
+        print(scope:work(coroutine.create(|| -> nil), jobs.threaded))
     end
 end
 
 export function result(): nil
     with scope = tasks.scope() do
-        print(scope:fork("a", jobs.returnsFunction))
+        print(scope:work("a", jobs.returnsFunction))
     end
 end
 ]],

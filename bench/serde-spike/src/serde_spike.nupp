@@ -28,10 +28,10 @@ end
 
 local interface Serializer
     beginStruct: function(self, schema: Schema): nil
-    writeString: function(self, member: Member, value: string): nil
-    writeInteger: function(self, member: Member, value: integer): nil
+    writestring: function(self, member: Member, value: string): nil
+    writeinteger: function(self, member: Member, value: integer): nil
     writeNumber: function(self, member: Member, value: number): nil
-    writeBoolean: function(self, member: Member, value: boolean): nil
+    writebool: function(self, member: Member, value: boolean): nil
     endStruct: function(self): nil
     finish: function(self): string
 end
@@ -43,14 +43,14 @@ local record JsonSerializer is Serializer
     writer: any
 
     function beginStruct(self, schema: Schema): nil
-        self.writer:startObject()
+        self.writer:startobject()
     end
 
-    function writeString(self, member: Member, value: string): nil
+    function writestring(self, member: Member, value: string): nil
         self.writer:key(member.jsonKey):write(value)
     end
 
-    function writeInteger(self, member: Member, value: integer): nil
+    function writeinteger(self, member: Member, value: integer): nil
         self.writer:key(member.jsonKey):write(value)
     end
 
@@ -58,12 +58,12 @@ local record JsonSerializer is Serializer
         self.writer:key(member.jsonKey):write(value)
     end
 
-    function writeBoolean(self, member: Member, value: boolean): nil
+    function writebool(self, member: Member, value: boolean): nil
         self.writer:key(member.jsonKey):write(value)
     end
 
     function endStruct(self): nil
-        self.writer:endObject()
+        self.writer:endobject()
     end
 
     function finish(self): string
@@ -101,13 +101,13 @@ local function genericEncode(value: any, description: Schema, slots: boolean): s
             field = rawget(value, item.name)
         end
         if item.kind == "string" then
-            target:writeString(item, field as string)
+            target:writestring(item, field as string)
         elseif item.kind == "integer" then
-            target:writeInteger(item, field as integer)
+            target:writeinteger(item, field as integer)
         elseif item.kind == "number" then
             target:writeNumber(item, field as number)
         else
-            target:writeBoolean(item, field as boolean)
+            target:writebool(item, field as boolean)
         end
     end
     target:endStruct()
@@ -140,7 +140,7 @@ legacyDebugValue = function(value: any, spec: any, state: any): string
     elseif spec.kind == "string" then
         return string.format("%q", value)
     elseif spec.kind == "nil"
-        or spec.kind == "boolean"
+        or spec.kind == "bool"
         or spec.kind == "number"
         or spec.kind == "integer"
         or spec.kind == "float"
@@ -202,9 +202,9 @@ local record Small
 
     function serializeSerde(self, target: Serializer): nil
         target:beginStruct(smallSchema)
-        target:writeInteger(smallMembers[1], self.id)
-        target:writeBoolean(smallMembers[2], self.active)
-        target:writeString(smallMembers[3], self.name)
+        target:writeinteger(smallMembers[1], self.id)
+        target:writebool(smallMembers[2], self.active)
+        target:writestring(smallMembers[3], self.name)
         target:endStruct()
     end
 end
@@ -242,18 +242,18 @@ local record Medium
 
     function serializeSerde(self, target: Serializer): nil
         target:beginStruct(mediumSchema)
-        target:writeInteger(mediumMembers[1], self.id)
-        target:writeBoolean(mediumMembers[2], self.active)
-        target:writeString(mediumMembers[3], self.name)
-        target:writeInteger(mediumMembers[4], self.count)
+        target:writeinteger(mediumMembers[1], self.id)
+        target:writebool(mediumMembers[2], self.active)
+        target:writestring(mediumMembers[3], self.name)
+        target:writeinteger(mediumMembers[4], self.count)
         target:writeNumber(mediumMembers[5], self.score)
-        target:writeString(mediumMembers[6], self.region)
-        target:writeBoolean(mediumMembers[7], self.enabled)
-        target:writeInteger(mediumMembers[8], self.version)
+        target:writestring(mediumMembers[6], self.region)
+        target:writebool(mediumMembers[7], self.enabled)
+        target:writeinteger(mediumMembers[8], self.version)
         target:writeNumber(mediumMembers[9], self.ratio)
-        target:writeString(mediumMembers[10], self.owner)
-        target:writeInteger(mediumMembers[11], self.retries)
-        target:writeBoolean(mediumMembers[12], self.cached)
+        target:writestring(mediumMembers[10], self.owner)
+        target:writeinteger(mediumMembers[11], self.retries)
+        target:writebool(mediumMembers[12], self.cached)
         target:endStruct()
     end
 end
@@ -308,9 +308,9 @@ local constantMediumValue = new ConstantMedium(
 )
 
 local productionCodec = typedJSON.codec()
-local preparedSmall = serde.binding(Small, new serde.Options(unknownMembers = "ignore"))
-local preparedMedium = serde.binding(Medium, new serde.Options(unknownMembers = "ignore"))
-local preparedConstantMedium = serde.binding(ConstantMedium, new serde.Options(unknownMembers = "ignore"))
+local preparedSmall = serde.binding(Small, new serde.Options(unknownmembers = "ignore"))
+local preparedMedium = serde.binding(Medium, new serde.Options(unknownmembers = "ignore"))
+local preparedConstantMedium = serde.binding(ConstantMedium, new serde.Options(unknownmembers = "ignore"))
 local preparedDebugSmall = rendering.binding(Small)
 local preparedDebugMedium = rendering.binding(Medium)
 local preparedOutput = text.newbuffer()
@@ -351,7 +351,7 @@ local record Payload
     data: string
 end
 
-local preparedPayload = serde.binding(Payload, new serde.Options(unknownMembers = "ignore"))
+local preparedPayload = serde.binding(Payload, new serde.Options(unknownmembers = "ignore"))
 local payload4KiB = new Payload(data = string.rep("x", 4 * 1024))
 local payload64KiB = new Payload(data = string.rep("x", 64 * 1024))
 
@@ -375,7 +375,7 @@ local nestedValue = new NestedEnvelope(
     children = {new NestedChild(label = "first", scores = {4, 5}), new NestedChild(label = "second", scores = {6, 7}),},
     labels = {region = "us-east-1", owner = "example"}
 )
-local preparedNested = serde.binding(NestedEnvelope, new serde.Options(unknownMembers = "ignore"))
+local preparedNested = serde.binding(NestedEnvelope, new serde.Options(unknownmembers = "ignore"))
 local preparedDebugNested = rendering.binding(NestedEnvelope)
 local nestedJson = productionCodec:encode(preparedNested, nestedValue)
 local legacyNestedChild: any = {
@@ -455,7 +455,7 @@ end
 local function embeddedEncode<T>(binding: serde.Binding<T>, value: T): string
     local out = text.newbuffer()
     local writer = json.newwriter(out)
-    productionCodec:writeValue(binding, value, writer)
+    productionCodec:writevalue(binding, value, writer)
     writer:close()
 
     return out:tostring()
@@ -471,11 +471,11 @@ end
 
 function m.directEncodeSmall(): string
     local target = serializer()
-    target.writer:startObject()
+    target.writer:startobject()
     target.writer:key(smallMembers[1].jsonKey):write(smallValue.id)
     target.writer:key(smallMembers[2].jsonKey):write(smallValue.active)
     target.writer:key(smallMembers[3].jsonKey):write(smallValue.name)
-    target.writer:endObject()
+    target.writer:endobject()
     target.writer:close()
 
     return target.out:tostring()
@@ -509,21 +509,21 @@ end
 
 function m.preparedWriteSmall(): integer
     preparedOutput:reset()
-    productionCodec:encodeInto(preparedSmall, smallValue, preparedOutput)
+    productionCodec:encodeinto(preparedSmall, smallValue, preparedOutput)
     return #preparedOutput
 end
 
 function m.preparedWriterSmall(): integer
     preparedOutput:reset()
     local writer = json.newwriter(preparedOutput)
-    productionCodec:writeValue(preparedSmall, smallValue, writer)
+    productionCodec:writevalue(preparedSmall, smallValue, writer)
     writer:close()
 
     return #preparedOutput
 end
 
 function m.coldPreparedEncodeSmall(): string
-    return typedJSON.codec():encode(serde.binding(Small, new serde.Options(unknownMembers = "ignore")), smallValue)
+    return typedJSON.codec():encode(serde.binding(Small, new serde.Options(unknownmembers = "ignore")), smallValue)
 end
 
 function m.preparedCopiedWriteSmall(): integer
@@ -572,7 +572,7 @@ end
 
 function m.preparedWriteMedium(): integer
     preparedOutput:reset()
-    productionCodec:encodeInto(preparedMedium, mediumValue, preparedOutput)
+    productionCodec:encodeinto(preparedMedium, mediumValue, preparedOutput)
     return #preparedOutput
 end
 
@@ -598,7 +598,7 @@ end
 
 function m.preparedWritePayload4KiB(): integer
     preparedOutput:reset()
-    productionCodec:encodeInto(preparedPayload, payload4KiB, preparedOutput)
+    productionCodec:encodeinto(preparedPayload, payload4KiB, preparedOutput)
     return #preparedOutput
 end
 
@@ -618,14 +618,14 @@ end
 
 function m.preparedWritePayload64KiB(): integer
     preparedOutput:reset()
-    productionCodec:encodeInto(preparedPayload, payload64KiB, preparedOutput)
+    productionCodec:encodeinto(preparedPayload, payload64KiB, preparedOutput)
     return #preparedOutput
 end
 
 function m.preparedWriterPayload64KiB(): integer
     preparedOutput:reset()
     local writer = json.newwriter(preparedOutput)
-    productionCodec:writeValue(preparedPayload, payload64KiB, writer)
+    productionCodec:writevalue(preparedPayload, payload64KiB, writer)
     writer:close()
 
     return #preparedOutput
@@ -641,14 +641,14 @@ end
 
 function m.preparedWriteNested(): integer
     preparedOutput:reset()
-    productionCodec:encodeInto(preparedNested, nestedValue, preparedOutput)
+    productionCodec:encodeinto(preparedNested, nestedValue, preparedOutput)
     return #preparedOutput
 end
 
 function m.preparedWriterNested(): integer
     preparedOutput:reset()
     local writer = json.newwriter(preparedOutput)
-    productionCodec:writeValue(preparedNested, nestedValue, writer)
+    productionCodec:writevalue(preparedNested, nestedValue, writer)
     writer:close()
 
     return #preparedOutput
@@ -656,7 +656,7 @@ end
 
 function m.currentDecodeNested(): NestedEnvelope
     return assert2(
-        typedJSON.decode(serde.binding(NestedEnvelope, new serde.Options(unknownMembers = "ignore")), nestedJson)
+        typedJSON.decode(serde.binding(NestedEnvelope, new serde.Options(unknownmembers = "ignore")), nestedJson)
     )
 end
 
@@ -679,7 +679,7 @@ local mediumReverseJson = [[{"cached":true,"retries":3,"owner":"example-owner","
 local mediumUnknownJson = [[{"ignored":{"nested":[1,2,3]},"id":41,"active":true,"name":"Ada","count":1701,"score":98.25,"region":"us-east-1","enabled":false,"version":7,"ratio":0.625,"owner":"example-owner","retries":3,"cached":true}]]
 
 function m.currentDecodeSmall(): Small
-    return assert2(typedJSON.decode(serde.binding(Small, new serde.Options(unknownMembers = "ignore")), smallJson))
+    return assert2(typedJSON.decode(serde.binding(Small, new serde.Options(unknownmembers = "ignore")), smallJson))
 end
 
 function m.documentDecodeSmall(): unknown
@@ -703,7 +703,7 @@ function m.preparedDecodeSmallBuffer(): Small
 end
 
 function m.currentDecodeMedium(): Medium
-    return assert2(typedJSON.decode(serde.binding(Medium, new serde.Options(unknownMembers = "ignore")), mediumJson))
+    return assert2(typedJSON.decode(serde.binding(Medium, new serde.Options(unknownmembers = "ignore")), mediumJson))
 end
 
 function m.documentDecodeMedium(): unknown
@@ -732,7 +732,7 @@ end
 
 function m.currentDecodePayload64KiB(): Payload
     return assert2(
-        typedJSON.decode(serde.binding(Payload, new serde.Options(unknownMembers = "ignore")), payload64KiBJson)
+        typedJSON.decode(serde.binding(Payload, new serde.Options(unknownmembers = "ignore")), payload64KiBJson)
     )
 end
 
@@ -762,13 +762,13 @@ end
 
 function m.currentDecodeMediumReverse(): Medium
     return assert2(
-        typedJSON.decode(serde.binding(Medium, new serde.Options(unknownMembers = "ignore")), mediumReverseJson)
+        typedJSON.decode(serde.binding(Medium, new serde.Options(unknownmembers = "ignore")), mediumReverseJson)
     )
 end
 
 function m.currentDecodeMediumUnknown(): Medium
     return assert2(
-        typedJSON.decode(serde.binding(Medium, new serde.Options(unknownMembers = "ignore")), mediumUnknownJson)
+        typedJSON.decode(serde.binding(Medium, new serde.Options(unknownmembers = "ignore")), mediumUnknownJson)
     )
 end
 

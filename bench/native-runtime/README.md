@@ -22,7 +22,7 @@ bench/native-runtime/resource.sh
 The resource script polls the benchmark process during a complete load run and
 reports its peak RSS, then samples each adversarial process after one, three,
 and five seconds. `net-slow-reader` repeatedly writes the same 64 KiB value
-through a public Nupp TCP stream whose `sendHighWater` is 64 KiB while its peer
+through a public Nupp TCP stream whose `sendhighwater` is 64 KiB while its peer
 reads nothing. Once the platform and provider queues fill, the write waits for
 room instead of retaining more copies. `net-slow-writer` reads through a public
 Nupp TCP reader while a Node peer emits 1 KiB every 100 milliseconds, keeping the

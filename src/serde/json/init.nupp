@@ -24,13 +24,13 @@ What a binding needs to be written is worked out on first use and kept, so the
 second call with a binding does none of that work again. Native AOT builds also
 select a compiled decoder for bindings whose carriers it supports.
 
-The module-level functions share one [](Codec) with [](defaultPolicy), which
+The module-level functions share one [](Codec) with [](defaultpolicy), which
 reads declaration bindings and documents. A model library passes a
-[](PolicyFactory) of its own to [](codec), or [](memberNamePolicy) when its
+[](PolicyFactory) of its own to [](codec), or [](membernamepolicy) when its
 member names are already the wire names.
 
 Decoding is strict: a declaration binding rejects unknown members unless its
-[](serde.Options) say `unknownMembers = "ignore"`, integers must fit their
+[](serde.Options) say `unknownmembers = "ignore"`, integers must fit their
 declared width, and nesting and token counts are bounded. Every failure is a
 [](serde.Error) naming the path and byte offset where it happened.
 
@@ -53,8 +53,8 @@ local emptyObject = assert(json.decodevalue("{}"))
 assert(not json.isarray(emptyObject))
 ```
 
-`asObject` is the corresponding mark for a table that must encode as an object.
-`isArray` reads the shape retained by decoded containers, including when they
+`asobject` is the corresponding mark for a table that must encode as an object.
+`isarray` reads the shape retained by decoded containers, including when they
 are empty.
 
 ## JSON null
@@ -75,7 +75,7 @@ assert(json.encodevalue(value) == [[{"items":[1,null,2]}]])
 
 `pull` validates the complete document while applying its selection. `true`
 selects a complete value, an object shape selects named fields, and
-`arrayOf(shape)` applies a shape to every member of an array. Missing and
+`arrayof(shape)` applies a shape to every member of an array. Missing and
 unselected fields are omitted:
 
 ```nupp
@@ -91,14 +91,14 @@ input but constructs only the Lua values the shape asks for.
 ## Streaming output
 
 The `own.Closeable` writer emits checked JSON into caller-owned storage without first
-building a Lua table or a complete result string. `endArray()` and
-`endObject()` end containers, `flush()` publishes a bounded staged batch while
+building a Lua table or a complete result string. `endarray()` and
+`endobject()` end containers, `flush()` publishes a bounded staged batch while
 leaving the document open, and consuming `close()` requires one complete root:
 
 ```nupp
 local out = nupp.text.newbuffer()
 local writer = serde.json.newwriter(out)
-writer:startObject():key("items"):startArray():write(1):write(2):endArray():endObject()
+writer:startobject():key("items"):startarray():write(1):write(2):endarray():endobject()
 writer:close()
 ```
 
@@ -114,7 +114,7 @@ the same threshold, so a large root does not need to exist as one staged string.
 `encoded(value)` performs ordinary encoding once. `verified(text)` instead
 validates an existing immutable JSON string without decoding or re-encoding it.
 Both return a value that `write` appends without another walk or validation.
-`encodedString(value)` and `verifiedString(text)` provide the corresponding
+`encodedstring(value)` and `verifiedstring(text)` provide the corresponding
 string-only form accepted by both `key` and `write`; these handles are interned,
 so repeated schema keys share their encoded representation.
 ]==]
@@ -265,7 +265,7 @@ local function decodeContents<D>(
     local cursor = syntax.reader(bytes)
     local source = contexts.builder(identity, factory as table, context):freeze()
     local reader = documents.contents(cursor, source)
-    local ok, result = pcall(adapter.readContents, adapter, reader)
+    local ok, result = pcall(adapter.readcontents, adapter, reader)
     reader:expire()
     if not ok then
         error(errors.wrap(result, cursor:path(), cursor:offset()), 0)
@@ -281,36 +281,36 @@ end
 --- A JSON codec with its own policy and its own cache of what it selected for
 --- each binding.
 ---
---- The module-level functions use one shared codec with [](defaultPolicy). Hold
+--- The module-level functions use one shared codec with [](defaultpolicy). Hold
 --- a codec of your own to use another policy, or to bound and clear what it
 --- retains.
 export interface Codec
-    --- Encodes a document's contents. See [](encodeDocument).
-    encodeDocument: function<D>(self, adapter: core.DocumentAdapter<D>, borrows value: D): string
+    --- Encodes a document's contents. See [](encodedocument).
+    encodedocument: function<D>(self, adapter: core.DocumentAdapter<D>, borrows value: D): string
 
-    --- Decodes document contents. See [](decodeDocument).
-    decodeDocument: function<D>(self, adapter: core.DocumentAdapter<D>, bytes: string, context: core.Context?): D
+    --- Decodes document contents. See [](decodedocument).
+    decodedocument: function<D>(self, adapter: core.DocumentAdapter<D>, bytes: string, context: core.Context?): D
 
-    --- Writes one value into a JSON writer. See [](writeValue).
-    writeValue: function<T>(self, binding: core.Binding<T>, borrows value: T, exclusive sink: json.Writer): nil
+    --- Writes one value into a JSON writer. See [](writevalue).
+    writevalue: function<T>(self, binding: core.Binding<T>, borrows value: T, exclusive sink: json.Writer): nil
 
     --- Encodes a value. See [](encode).
     encode: function<T>(self, binding: core.Binding<T>, borrows value: T): string
 
-    --- Appends a value to a buffer. See [](encodeInto).
-    encodeInto: function<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: Buffer): nil
+    --- Appends a value to a buffer. See [](encodeinto).
+    encodeinto: function<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: Buffer): nil
 
     --- Decodes a value. See [](decode).
     decode: function<T>(self, binding: core.Binding<T>, bytes: string, context: core.Context?): T
 
-    --- Decodes a value from a buffer. See [](decodeBuffer).
-    decodeBuffer: function<T>(self, binding: core.Binding<T>, exclusive input: Buffer, context: core.Context?): T
+    --- Decodes a value from a buffer. See [](decodebuffer).
+    decodebuffer: function<T>(self, binding: core.Binding<T>, exclusive input: Buffer, context: core.Context?): T
 
     --- Forgets every binding's selections.
     clear: function(self): nil
 
     --- Returns how many bindings have selections retained.
-    cachedBindings: function(self): integer
+    cachedbindings: function(self): integer
 end
 
 local record Cached is Codec
@@ -337,15 +337,15 @@ local record Cached is Codec
         return self.lastWrite as WriteOperation<T>
     end
 
-    function encodeDocument<D>(self, adapter: core.DocumentAdapter<D>, borrows value: D): string
+    function encodedocument<D>(self, adapter: core.DocumentAdapter<D>, borrows value: D): string
         return self:encode(adapter:contents(), value)
     end
 
-    function decodeDocument<D>(self, adapter: core.DocumentAdapter<D>, bytes: string, context: core.Context?): D
+    function decodedocument<D>(self, adapter: core.DocumentAdapter<D>, bytes: string, context: core.Context?): D
         return decodeContents(adapter, bytes, self.factory, context)
     end
 
-    function writeValue<T>(self, binding: core.Binding<T>, borrows value: T, exclusive sink: json.Writer): nil
+    function writevalue<T>(self, binding: core.Binding<T>, borrows value: T, exclusive sink: json.Writer): nil
         self:writing(binding):writeValue(value, sink)
     end
 
@@ -353,7 +353,7 @@ local record Cached is Codec
         return self:writing(binding):encode(value)
     end
 
-    function encodeInto<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: Buffer): nil
+    function encodeinto<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: Buffer): nil
         local selected = self:writing(binding)
         local mark = #buffer
         local ok, problem = pcall(selected.append, selected, value, buffer)
@@ -382,7 +382,7 @@ local record Cached is Codec
         return selected:read(bytes, context)
     end
 
-    function decodeBuffer<T>(self, binding: core.Binding<T>, exclusive input: Buffer, context: core.Context?): T
+    function decodebuffer<T>(self, binding: core.Binding<T>, exclusive input: Buffer, context: core.Context?): T
         self:observeBinding(binding)
         local selected: ReadOperation<T>
         if self.lastRead ~= nil then
@@ -404,7 +404,7 @@ local record Cached is Codec
         self.lastReadBinding, self.lastRead, self.lastWrite = nil, nil, nil
     end
 
-    function cachedBindings(self): integer
+    function cachedbindings(self): integer
         return self.cache:size()
     end
 end
@@ -425,12 +425,12 @@ export type Selection = plans.Selection
 --- The policy for declaration bindings and documents, which the module-level
 --- functions use. A model's own factory can delegate to it for members it does
 --- not own.
-export const defaultPolicy: plans.PolicyFactory = defaults.factory
+export const defaultpolicy: plans.PolicyFactory = defaults.factory
 
 --- The policy that writes every member under its own `name`, traverses every
 --- member, and writes timestamps as RFC 3339 strings.
 ---
---- [](defaultPolicy) refuses a model's own members rather than guess at the
+--- [](defaultpolicy) refuses a model's own members rather than guess at the
 --- traits they carry, so a model library has to say how its members are named.
 --- Use it for a model whose names are already the wire names.
 ---
@@ -446,22 +446,22 @@ export const defaultPolicy: plans.PolicyFactory = defaults.factory
 ---     adapter = adapters.text(new Member(name = "title"))
 --- )
 --- assert(not pcall(json.encode, title, "Dune"))
---- local plain = json.codec(json.memberNamePolicy)
+--- local plain = json.codec(json.membernamepolicy)
 --- assert(plain:encode(title, "Dune") == '"Dune"')
 --- ```
-export const memberNamePolicy: plans.PolicyFactory = documentValues.memberNames
+export const membernamepolicy: plans.PolicyFactory = documentValues.memberNames
 
 --- Returns the policy JSON applies inside a document-valued member, or nil when
 --- the member is not one of a document's own.
 ---
 --- A model's [](PolicyFactory) asks this first, so documents nested in its
---- values are read and written the way [](defaultPolicy) reads them.
+--- values are read and written the way [](defaultpolicy) reads them.
 ---
 --- @param member the member a codec asks about
---- @param epochTimestamps whether document timestamps are written as epoch seconds
+--- @param epochtimestamps whether document timestamps are written as epoch seconds
 --- @return the policy, or nil
-export function documentpolicy<M is core.Member>(member: M, epochTimestamps: boolean): plans.Policy<M>?
-    return documentValues.policy(member, epochTimestamps)
+export function documentpolicy<M is core.Member>(member: M, epochtimestamps: boolean): plans.Policy<M>?
+    return documentValues.policy(member, epochtimestamps)
 end
 
 --- The wire field a JSON decoder reports for a member the model does not
@@ -484,14 +484,14 @@ export const fieldname = documents.name
 --- local record Item
 ---     id: integer
 --- end
---- local codec = json.codec(json.defaultPolicy, 16)
+--- local codec = json.codec(json.defaultpolicy, 16)
 --- local items = serde.binding(Item)
 --- assert(codec:decode(items, codec:encode(items, new Item(id = 3))).id == 3)
---- assert(codec:cachedBindings() == 1)
+--- assert(codec:cachedbindings() == 1)
 --- codec:clear()
 --- ```
 ---
---- @param policy the policy; nil is [](defaultPolicy)
+--- @param policy the policy; nil is [](defaultpolicy)
 --- @param capacity the most bindings to retain selections for; nil is 256
 --- @return the codec
 export function codec(policy: plans.PolicyFactory?, capacity: integer?): Codec
@@ -530,7 +530,7 @@ end
 --- @param buffer the buffer to append to
 --- @raises serde.Error when a value cannot be represented, at its path
 export function encodeinto<T>(binding: core.Binding<T>, borrows value: T, exclusive buffer: Buffer): nil
-    shared:encodeInto(binding, value, buffer)
+    shared:encodeinto(binding, value, buffer)
 end
 
 --- Decodes JSON text into a value.
@@ -566,7 +566,7 @@ end
 --- @return the value
 --- @raises serde.Error with the path and byte offset of the failure
 export function decodebuffer<T>(binding: core.Binding<T>, exclusive input: Buffer, context: core.Context?): T
-    return shared:decodeBuffer(binding, input, context)
+    return shared:decodebuffer(binding, input, context)
 end
 
 --- Writes one value at the current position of a [](serde.json.Writer),
@@ -580,9 +580,9 @@ end
 --- end
 --- local buffer = nupp.text.newbuffer()
 --- local writer = json.newwriter(buffer)
---- writer:startArray()
+--- writer:startarray()
 --- json.writevalue(serde.binding(Tag), new Tag(name = "x"), writer)
---- writer:endArray()
+--- writer:endarray()
 --- writer:close()
 --- assert(buffer:tostring() == '[{"name":"x"}]')
 --- ```
@@ -592,7 +592,7 @@ end
 --- @param sink the writer, positioned where a value may go
 --- @raises serde.Error when a value cannot be represented, at its path
 export function writevalue<T>(binding: core.Binding<T>, borrows value: T, exclusive sink: json.Writer): nil
-    shared:writeValue(binding, value, sink)
+    shared:writevalue(binding, value, sink)
 end
 
 --- Encodes a document's contents as JSON text.
@@ -602,7 +602,7 @@ end
 --- @return the JSON text
 --- @raises serde.Error when a value has no JSON representation
 export function encodedocument<D>(adapter: core.DocumentAdapter<D>, borrows value: D): string
-    return shared:encodeDocument(adapter, value)
+    return shared:encodedocument(adapter, value)
 end
 
 --- Decodes JSON text as document contents, attaching the context it was read
@@ -614,7 +614,7 @@ end
 --- @return the document
 --- @raises serde.Error with the path and byte offset of the failure
 export function decodedocument<D>(adapter: core.DocumentAdapter<D>, bytes: string, context: core.Context?): D
-    return shared:decodeDocument(adapter, bytes, context)
+    return shared:decodedocument(adapter, bytes, context)
 end
 
 --- A complete JSON value whose immutable bytes have already been encoded or
@@ -629,32 +629,32 @@ export type EncodedValue = json.EncodedValue
 --- validated.
 ---
 --- `Writer:key` accepts this type without validating UTF-8 or escaping it again.
---- Values produced by `encodedString` and `verifiedString` are interned.
+--- Values produced by `encodedstring` and `verifiedstring` are interned.
 --- @export
 export type EncodedString = json.EncodedString
 
 --- Values that can write a complete JSON value through a checked writer.
 ---
---- A handwritten record satisfies it with a `writeJSON` member:
+--- A handwritten record satisfies it with a `writejson` member:
 ---
 --- ```nupp
 --- local record Money is serde.json.JSONEncodable
 ---     cents: integer
 ---
----     function writeJSON(self, exclusive out: serde.json.Writer): nil
----         out:startObject():key("cents"):write(self.cents):endObject()
+---     function writejson(self, exclusive out: serde.json.Writer): nil
+---         out:startobject():key("cents"):write(self.cents):endobject()
 ---     end
 --- end
 --- ```
 --- @export
 export type JSONEncodable = json.JSONEncodable
 
---- A checked incremental JSON writer, which `newWriter` returns.
+--- A checked incremental JSON writer, which `newwriter` returns.
 ---
 --- ```nupp
 --- local out = nupp.text.newbuffer()
 --- local writer = serde.json.newwriter(out)
---- writer:startObject():key("ok"):write(true):endObject()
+--- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
 --- assert(out:tostring() == [[{"ok":true}]])
 --- ```
@@ -834,7 +834,7 @@ export const verifiedstring = json.verifiedString
 --- ```nupp
 --- local out = nupp.text.newbuffer()
 --- local writer = serde.json.newwriter(out)
---- writer:startObject():key("id"):write(41):endObject()
+--- writer:startobject():key("id"):write(41):endobject()
 --- writer:close()
 --- assert(out:tostring() == [[{"id":41}]])
 --- ```

@@ -63,7 +63,7 @@ local function operations(ty)
             #ops + 1
         ] = {
             'scatterUnchecked' .. suffix,
-            's:scatterUnchecked(scratch, picks' .. suffix .. ', a, selected)',
+            's:scatterunchecked(scratch, picks' .. suffix .. ', a, selected)',
             'a[i]',
             'i+1<=n and i~=1 and chosen[i+1] and a[i+1] or b[i]',
             nil,

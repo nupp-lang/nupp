@@ -67,19 +67,19 @@ function fieldcodec.finalize(state: any, value: any): any, fieldcodec.Failure?
         end
         seen[name], fields[#fields + 1] = true, name
     end
-    if type(descriptor.name) ~= "string" or type(descriptor.qualifiedName) ~= "string" then
+    if type(descriptor.name) ~= "string" or type(descriptor.qualifiedname) ~= "string" then
         return nil, failure("NUPP2418", "keyed field codecs require a named reflected record type")
     end
     local payload = {
         fields = fields,
         typeFingerprint = descriptor.fingerprint,
         typeName = descriptor.name,
-        qualifiedName = descriptor.qualifiedName,
+        qualifiedName = descriptor.qualifiedname,
     }
     local canonical = table.concat(
         fields,
         "\0"
-    ) .. "\0" .. descriptor.fingerprint .. "\0" .. descriptor.name .. "\0" .. descriptor.qualifiedName
+    ) .. "\0" .. descriptor.fingerprint .. "\0" .. descriptor.name .. "\0" .. descriptor.qualifiedname
 
     return {
         kind = "materialized",

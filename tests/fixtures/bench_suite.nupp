@@ -23,18 +23,18 @@ end
 bench.suite(
     {
         name = "protocol",
-        baselineVariant = "base",
+        baselinevariant = "base",
         variants = {
             {name = "base", setup = setup, run = run, teardown = teardown,},
             {name = "other", setup = setup, run = run, teardown = teardown,},
         },
         cases = {{name = "work", parameters = {size = {1, 2}}, operations = 2,},},
-        warmupIterations = 1,
-        sampleIterations = 2,
-        minSamples = 3,
-        minDurationMs = 0.000001,
-        maxSamples = 5,
-        maxDurationMs = 100,
+        warmupiterations = 1,
+        sampleiterations = 2,
+        minsamples = 3,
+        mindurationms = 0.000001,
+        maxsamples = 5,
+        maxdurationms = 100,
     } as bench.SuiteOptions
 )
 bench.report()

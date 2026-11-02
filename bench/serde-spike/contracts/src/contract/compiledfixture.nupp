@@ -50,7 +50,7 @@ local record Policy<M is core.Member> is plans.Policy<M>
         error("unsupported")
     end
 
-    function parseTimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
+    function parsetimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
         error("unsupported")
     end
 end

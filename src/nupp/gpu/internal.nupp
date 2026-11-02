@@ -16,10 +16,10 @@ export function compileGenerated(
 ): api.Kernel borrows (context)
     return (
         context as api.KernelContext
-    ):compileGenerated(artifacts, readonlyBuffers, writableBuffers, uniformBytes, threads)
+    ):compilegenerated(artifacts, readonlyBuffers, writableBuffers, uniformBytes, threads)
 end
 
 --- Binds a kernel for `count` elements through the context that compiled it.
 export function bindKernel(borrows kernel: api.Kernel, count: integer): api.Binding borrows (kernel)
-    return ((kernel as any)._anchor as api.KernelContext):bindKernel(kernel, count)
+    return ((kernel as any)._anchor as api.KernelContext):bindkernel(kernel, count)
 end

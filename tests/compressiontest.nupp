@@ -6,11 +6,11 @@ local M = {}
 
 local function writerOptions(name: string, workspace: integer?): compression.WriterOptions
     if name == "gzip" then
-        return {workspaceBytes = workspace, gzip = {level = 6}}
+        return {workspacebytes = workspace, gzip = {level = 6}}
     elseif name == "zlib" then
-        return {workspaceBytes = workspace, zlib = {level = 6}}
+        return {workspacebytes = workspace, zlib = {level = 6}}
     else
-        return {workspaceBytes = workspace, deflateRaw = {level = 6}}
+        return {workspacebytes = workspace, deflateraw = {level = 6}}
     end
 end
 
@@ -29,7 +29,7 @@ function M.builtinFormatsRoundTripBinaryInput(): nil
         test(format.name == name)
         local compressed = format:compress(bytes, writerOptions(name, 17))
         test(#compressed < #bytes)
-        test(format:decompress(compressed, {workspaceBytes = 13}) == bytes)
+        test(format:decompress(compressed, {workspacebytes = 13}) == bytes)
     end
 end
 
@@ -37,7 +37,7 @@ function M.emptyStreamsRoundTripAtOneByteBoundaries(): nil
     for _, name in ipairs(compression.formats()) do
         local format = compression.format(name)
         local compressed = format:compress("", writerOptions(name, 1))
-        test(format:decompress(compressed, {workspaceBytes = 1}) == "")
+        test(format:decompress(compressed, {workspacebytes = 1}) == "")
     end
 end
 
@@ -59,20 +59,20 @@ end
 function M.writerAndReaderComposeWithByteIo(): nil
     local gzip = compression.format("gzip")
     local encoded = io.newbuffer()
-    local sink = encoded:newWriter()
-    local writer = gzip:newWriter(sink, {workspaceBytes = 2, gzip = {level = 6}})
+    local sink = encoded:newwriter()
+    local writer = gzip:newwriter(sink, {workspacebytes = 2, gzip = {level = 6}})
     test(writer:write("hello "))
     test(writer:write("world"))
     test(writer:finish())
 
-    local source = io.newstringreader(encoded:getString())
-    local reader = gzip:newReader(source, {workspaceBytes = 3})
+    local source = io.newstringreader(encoded:getstring())
+    local reader = gzip:newreader(source, {workspacebytes = 3})
     local decoded = io.newbuffer()
-    local destination = decoded:newWriter()
-    test(reader:transferTo(destination) == 11)
+    local destination = decoded:newwriter()
+    test(reader:transferto(destination) == 11)
     reader:close()
     destination:close()
-    test(decoded:getString() == "hello world")
+    test(decoded:getstring() == "hello world")
     decoded:close()
     encoded:close()
 end
@@ -83,13 +83,13 @@ function M.aFlushFinishesWithOneOrTwoWorkspaceBytes(): nil
     for workspace = 1, 2 do
         local gzip = compression.format("gzip")
         local encoded = io.newbuffer()
-        local sink = encoded:newWriter()
-        local writer = gzip:newWriter(sink, {workspaceBytes = workspace, gzip = {level = 6}})
+        local sink = encoded:newwriter()
+        local writer = gzip:newwriter(sink, {workspacebytes = workspace, gzip = {level = 6}})
         test(writer:write("hello"))
         test(writer:flush())
         test(writer:write(" world"))
         test(writer:finish())
-        test(gzip:decompress(encoded:getString()) == "hello world")
+        test(gzip:decompress(encoded:getstring()) == "hello world")
         encoded:close()
     end
 end
@@ -112,10 +112,10 @@ function M.spanAndDestinationOverloadsReuseStorage(): nil
     gzip:compress(input, encoded)
     local decoded = io.newbuffer()
     do
-        local compressed = encoded:readSpan()
+        local compressed = encoded:readspan()
         gzip:decompress(compressed, decoded)
     end
-    test(decoded:getString() == text)
+    test(decoded:getstring() == text)
     decoded:close()
     encoded:close()
 end
@@ -126,7 +126,7 @@ function M.gzipConcatenatedMembersAreExplicitlyConfigurable(): nil
     test(gzip:decompress(joined) == "hello world")
     test.raises(
         function(): nil
-            gzip:decompress(joined, {gzip = {concatenatedMembers = false}})
+            gzip:decompress(joined, {gzip = {concatenatedmembers = false}})
         end,
         "trailing bytes"
     )
@@ -143,19 +143,19 @@ function M.invalidStreamsLimitsAndParameterMismatchesFail(): nil
     )
     test.raises(
         function(): nil
-            gzip:decompress(compressed, {maxOutputBytes = 32})
+            gzip:decompress(compressed, {maxoutputbytes = 32})
         end,
-        "maxOutputBytes"
+        "maxoutputbytes"
     )
     test.raises(
         function(): nil
-            gzip:decompress(compressed, {maxExpansionRatio = 1})
+            gzip:decompress(compressed, {maxexpansionratio = 1})
         end,
-        "maxExpansionRatio"
+        "maxexpansionratio"
     )
     test.raises(
         function(): nil
-            gzip:decompress(compressed, {unbounded = true, maxOutputBytes = 4096})
+            gzip:decompress(compressed, {unbounded = true, maxoutputbytes = 4096})
         end,
         "cannot set both"
     )
@@ -194,8 +194,8 @@ function M.closingAnUnfinishedWriterFails(): nil
     test.raises(
         function(): nil
             local destination = io.newbuffer()
-            local sink = destination:newWriter()
-            local writer = gzip:newWriter(sink)
+            local sink = destination:newwriter()
+            local writer = gzip:newwriter(sink)
             writer:close()
         end,
         "closed without finish"

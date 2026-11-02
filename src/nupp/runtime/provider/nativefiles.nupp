@@ -19,7 +19,7 @@ uses, so a parser written against [byte I/O](io) works over a file without
 knowing one is there.
 
 A path argument is a string, a [](io.path.Path), or an application path
-returned by `configurationPath`, `dataPath`, or `cachePath`; a path result is a
+returned by `configurationpath`, `datapath`, or `cachepath`; a path result is a
 [](io.path.Path). An operation that fails because of the environment
 returns nil or false with a reason, and a malformed argument raises at the call
 site.
@@ -32,39 +32,39 @@ site.
 local info, reason = files.info("nupp.lua")
 assert(info, reason)
 assert(info.kind == "file")
-print(info.size, info.modified, info.readOnly)
+print(info.size, info.modified, info.readonly)
 ```
 
 `info` follows symbolic links, so it describes what a name refers to rather than
 the name itself. `size` is a byte count, `modified` is milliseconds since the
 Unix epoch, the unit [](os.walltime) returns in, with whatever fraction
-the platform records, and `readOnly` is the platform's write refusal rather than
+the platform records, and `readonly` is the platform's write refusal rather than
 a permission model. A size beyond Nupp's exact integer range returns a reason
 instead of a rounded count.
 
-`exists`, `isFile` and `isDirectory` answer the same question without the record
+`exists`, `isfile` and `isdirectory` answer the same question without the record
 and without a reason. Any failure is `false` rather than an error, a refused
 permission or an I/O error as much as a missing path, so ask `info` when the
 reason matters:
 
 ```nupp:fragment
-if files.isDirectory(candidate) then
+if files.isdirectory(candidate) then
     return files.list(candidate)
 end
 ```
 
-`isSymlink` is the one query that does not follow, because following is what
+`issymlink` is the one query that does not follow, because following is what
 would hide the answer. It returns a boolean like the other three, false on any
 failure:
 
 ```nupp:fragment
-assert(files.createSymlink("target.txt", "alias"))
-assert(files.isSymlink("alias"))
-assert(files.isFile("alias"))
-assert(assert(files.readLink("alias")):toString() == "target.txt")
+assert(files.symlink("target.txt", "alias"))
+assert(files.issymlink("alias"))
+assert(files.isfile("alias"))
+assert(assert(files.readlink("alias")):tostring() == "target.txt")
 ```
 
-`createSymlink` takes an optional third argument, `"file"` or `"directory"`.
+`symlink` takes an optional third argument, `"file"` or `"directory"`.
 Only Windows distinguishes the two; elsewhere it is ignored.
 
 ## Listing a directory
@@ -92,7 +92,7 @@ filesystem error returns a reason.
 
 ```nupp:fragment
 for _, path in ipairs(assert(files.glob("src/**/*.nupp"))) do
-    print(path:toString())
+    print(path:tostring())
 end
 ```
 
@@ -102,27 +102,27 @@ These three operations move names rather than bytes, so each returns
 immediately:
 
 ```nupp:fragment
-assert(files.createDirectory("out/lib/native"))
+assert(files.mkdir("out/lib/native"))
 assert(files.rename("out/report.tmp", "out/report.json"))
 assert(files.remove("out/stale", true))
 ```
 
-`createDirectory` creates every missing parent, and an existing directory
+`mkdir` creates every missing parent, and an existing directory
 succeeds, which is what a caller building a tree wants rather than a race with
 its own earlier call. `rename` replaces an existing destination. `remove` takes
 a file, a symbolic link, or an empty directory; the second argument removes a
 directory's contents with it, and without it a populated directory returns a
 reason.
 
-`setReadOnly` sets or clears the write refusal that `info` reports.
+`setreadonly` sets or clears the write refusal that `info` reports.
 
 ## Temporary names
 
-`createTemporaryFile` and `createTemporaryDirectory` both take options and
+`tmpfile` and `tmpdirectory` both take options and
 return a path:
 
 ```nupp:fragment
-local scratch, reason = files.createTemporaryDirectory(new files.TemporaryOptions(prefix = "build-"))
+local scratch, reason = files.tmpdirectory(new files.TemporaryOptions(prefix = "build-"))
 assert(scratch, reason)
 ```
 
@@ -138,7 +138,7 @@ whether the block falls through, returns early, or raises.
 
 ```nupp:fragment
 do
-    local scratch = assert(files.createTemporaryFile(new files.TemporaryOptions(suffix = ".json")))
+    local scratch = assert(files.tmpfile(new files.TemporaryOptions(suffix = ".json")))
     assert(files.write(scratch:path(), encoded))
     assert(scratch:persist("out/report.json"))
 end
@@ -160,7 +160,7 @@ assert(files.write("out/report.json", encoded))
 ```
 
 `append` adds to the end and creates a missing file. `copy` duplicates one path
-over another. `writeAtomic` writes through a temporary beside the destination
+over another. `writeatomic` writes through a temporary beside the destination
 and renames over it, so an interrupted write leaves the destination as it was
 rather than half replaced. A failed write removes the temporary rather than
 leaving it behind.
@@ -199,18 +199,18 @@ end
 ```
 
 A file is itself a `io.Reader` and a `io.Writer`, the same shape as a
-network stream or a TLS session, so `read`, `readSpan`, `readInto`,
-`transferTo`, `write`, `writeSpan` and `flush` mean what they mean over a
+network stream or a TLS session, so `read`, `readspan`, `readinto`,
+`transferto`, `write`, `writespan` and `flush` mean what they mean over a
 buffer, and all of them move the one cursor the file has. Native callers can
 read and write through checked spans without separating a pointer from its
-bound. `readInto` commits the destination buffer only after a successful read,
-and `transferTo` streams a file of any size through a fixed window:
+bound. `readinto` commits the destination buffer only after a successful read,
+and `transferto` streams a file of any size through a fixed window:
 
 ```nupp:fragment
 do
     local source = assert(files.open("input.bin"))
     local sink = assert(files.open("output.bin", "w"))
-    print(source:transferTo(sink))
+    print(source:transferto(sink))
 end
 ```
 
@@ -224,15 +224,15 @@ reported by `flush`, which is the call to make first when it matters.
 ## Platform directories
 
 Two queries return where the platform keeps a user's folders and where the
-running program lives; [](io.path.currentdirectory) returns where the
+running program lives; [](io.path.cwd) returns where the
 process is:
 
 ```nupp:fragment
-print(assert(files.userFolder("documents")))
-print(assert(files.executableDirectory()))
+print(assert(files.userfolder("documents")))
+print(assert(files.executabledirectory()))
 ```
 
-`userFolder` takes `home`, `documents`, `downloads`, `desktop`, `pictures`,
+`userfolder` takes `home`, `documents`, `downloads`, `desktop`, `pictures`,
 `music` or `videos`. It resolves from the environment: the `XDG_*` variables
 where they are set, and the platform's conventional names under the home
 directory otherwise. A desktop that records its folders somewhere else is not
@@ -241,7 +241,7 @@ that is not there.
 
 ## Waiting
 
-A whole-file `read`, `write`, `append`, `writeAtomic` or `copy` settles on a
+A whole-file `read`, `write`, `append`, `writeatomic` or `copy` settles on a
 worker thread rather than on yours, and the call waits for it by suspending.
 What that means depends on where the call runs, and on nothing the call says:
 
@@ -260,7 +260,7 @@ permits asking what a path is, listing a directory, or renaming one:
 
 ```nupp:fragment
 @nosuspend do
-    if files.isDirectory(candidate) then
+    if files.isdirectory(candidate) then
         print(#assert(files.list(candidate)))
     end
     print(files.read(candidate)) -- NUPP2701: `read` may suspend
@@ -281,7 +281,7 @@ The lane those workers run is bounded three ways: how many transfers may be
 live, how many bytes they may hold between them, and how large one may be. Past
 any of the three a submission returns a reason rather than queueing, because a
 queue that grows with its callers eventually takes the process with it.
-`pendingTransfers` returns what the lane is holding.
+`pendingtransfers` returns what the lane is holding.
 
 Metadata, listings and cursor reads through an open `File` do not use the lane.
 Scheduling a transfer costs more than those cost to run.
@@ -445,7 +445,7 @@ local SOURCE = "nupp-files"
 ----------------------------------------------------------------------------
 
 --- What a resolved path refers to. A `symlink` answer only ever comes from
---- `isSymlink`, since every other operation follows the link first.
+--- `issymlink`, since every other operation follows the link first.
 --- @export
 export type Kind = messages.Kind
 
@@ -493,10 +493,10 @@ local function named(value: any, what: string, level: integer): string
         return value as string
     end
     if appPaths.is(value) then
-        return (value as appPaths.ApplicationPath):toString()
+        return (value as appPaths.ApplicationPath):tostring()
     end
-    if type(value) == "table" and (value as any).toString ~= nil then
-        return (value as paths.Path):toString()
+    if type(value) == "table" and (value as any).tostring ~= nil then
+        return (value as paths.Path):tostring()
     end
     error("nupp: io.files " .. what .. " must be a path or a string", level)
 end
@@ -608,11 +608,11 @@ export record File is io.Reader, io.Writer
     --- @param destination the positive-sized range to fill
     --- @return how many bytes were read, or nil when the file is closed
     --- @return why it could not read, when unsuccessful
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the file is closed"
         end
-        local wanted = positive(#destination, "File:readSpan destination length", 2)
+        local wanted = positive(#destination, "File:readspan destination length", 2)
         local pointer = destination:ref()
         local output = ffi.new("size_t[1]")
         local status = fileRead(self._handle, pointer, wanted, output)
@@ -637,7 +637,7 @@ export record File is io.Reader, io.Writer
     --- @param count the most bytes to read
     --- @return how many bytes were read, or nil on failure
     --- @return why it could not read, when unsuccessful
-    function readInto(
+    function readinto(
         exclusive self,
         exclusive destination: io.Buffer,
         offset: integer?,
@@ -646,8 +646,8 @@ export record File is io.Reader, io.Writer
         if self._closed then
             return nil, "the file is closed"
         end
-        local from = counted(offset or 0, "File:readInto offset", 2)
-        local wanted = positive(count or READ_SIZE, "File:readInto count", 2)
+        local from = counted(offset or 0, "File:readinto offset", 2)
+        local wanted = positive(count or READ_SIZE, "File:readinto count", 2)
         local chunk, failure = self:read(wanted)
         if chunk == nil then
             return nil, failure
@@ -657,7 +657,7 @@ export record File is io.Reader, io.Writer
             return 0, nil
         end
         local input = span.fromstring(chunk as string)
-        local lease = destination:reserveWrite(from, wanted)
+        local lease = destination:reservewrite(from, wanted)
         do
             local output = lease:span()
             for index = 1, taking do
@@ -675,7 +675,7 @@ export record File is io.Reader, io.Writer
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    function transferTo(exclusive self, exclusive destination: io.Writer): (integer?, string?)
+    function transferto(exclusive self, exclusive destination: io.Writer): (integer?, string?)
         if self._closed then
             return nil, "the file is closed"
         end
@@ -728,7 +728,7 @@ export record File is io.Reader, io.Writer
     --- @param source bytes valid for the duration of the call
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
         if self._closed then
             return nil, "the file is closed"
         end
@@ -817,7 +817,7 @@ export record File is io.Reader, io.Writer
     --- Whether this file has been closed.
     --- @param self this file
     --- @return whether it is closed
-    function isReleased(borrows self): boolean
+    function isreleased(borrows self): boolean
         return self._closed
     end
 
@@ -862,7 +862,7 @@ export record TemporaryPath is own.Closeable
     --- Returns the created path's text.
     --- @param self this temporary path
     --- @return the path text
-    function toString(self): string
+    function tostring(self): string
         return self._text
     end
 
@@ -895,7 +895,7 @@ export record TemporaryPath is own.Closeable
     --- Whether this path has been removed or persisted.
     --- @param self this temporary path
     --- @return whether it is settled
-    function isReleased(self): boolean
+    function isreleased(self): boolean
         return self._closed
     end
 
@@ -925,7 +925,7 @@ end
 
     ;
 (TemporaryPath as {[string]: any}).__tostring = function(borrows self: TemporaryPath): string
-    return self:toString()
+    return self:tostring()
 end
 
 -- Grown by doubling with a floor at one read, so a caller that asks for one byte at a
@@ -1159,8 +1159,8 @@ local function payload(borrows value: string | io.ByteView, what: string, level:
     if type(value) == "string" then
         return tostring(value)
     end
-    if type(value) == "table" and (value as io.ByteView).getString ~= nil then
-        return (value as io.ByteView):getString()
+    if type(value) == "table" and (value as io.ByteView).getstring ~= nil then
+        return (value as io.ByteView):getstring()
     end
     error("nupp: io.files " .. what .. " must be bytes or a byte view", level)
 end
@@ -1195,7 +1195,7 @@ export function info(path: string | paths.Path): (Info?, string?)
         -- The library answers seconds; the facade answers the milliseconds the clock
         -- does.
         modified = (found.modified as number) * 1000,
-        readOnly = found.readOnly as boolean
+        readonly = found.readOnly as boolean
     ), nil
 end
 
@@ -1280,14 +1280,14 @@ end
 
 --- Sets or clears a path's read-only attribute.
 --- @param path the path to change
---- @param readOnly whether to refuse writes
+--- @param readonly whether to refuse writes
 --- @return whether the attribute was set
 --- @return a failure reason, when unsuccessful
 --- @export
 export function setReadOnly(path: string | paths.Path, readOnly: boolean): (boolean, string?)
     local text = named(path, "path", 2)
     if type(readOnly) ~= "boolean" then
-        error("nupp: io.files readOnly must be a boolean", 2)
+        error("nupp: io.files readonly must be a boolean", 2)
     end
 
     return done(C.nuppNativeFilesSetReadOnly(slice(text), readOnly and 1 or 0))
@@ -1385,7 +1385,7 @@ end
 --- ```nupp
 --- local matches = assert(io.files.glob("src/**/*.nupp"))
 --- for _, match in ipairs(matches) do
----     print(match:toString())
+---     print(match:tostring())
 --- end
 --- ```
 --- @param pattern the filesystem pattern to expand
@@ -1594,7 +1594,7 @@ end
 --- ```nupp:fragment
 --- do
 ---     local options = new io.files.TemporaryOptions(directory = "build")
----     local scratch = assert(io.files.createtemporaryfile(options))
+---     local scratch = assert(io.files.tmpfile(options))
 ---     assert(io.files.write(scratch:path(), bytes))
 ---     assert(scratch:persist("build/output.bin"))
 --- end
@@ -1653,18 +1653,18 @@ end
 export function capabilities(): messages.Capabilities
     return new messages.Capabilities(
         available = true,
-        arbitraryPaths = true,
-        symbolicLinks = true,
-        readOnlyAttributes = true,
+        arbitrarypaths = true,
+        symlinks = true,
+        readonlyattributes = true,
         glob = true,
         rename = true,
-        atomicWrite = true,
-        temporaryPaths = true,
-        concurrentOpenHandles = true,
-        currentDirectory = true,
-        userFolders = true,
-        executableDirectory = true,
-        persistentStorageRequest = true
+        atomicwrite = true,
+        tmppaths = true,
+        concurrentopenhandles = true,
+        cwd = true,
+        userfolders = true,
+        executabledirectory = true,
+        persistentstoragerequest = true
     )
 end
 
@@ -1686,7 +1686,7 @@ export function applicationPath(
         return nil, reason
     end
     local value = appPaths.native(base, organization, application)
-    local made, failure = done(C.nuppNativeFilesCreateDirectory(slice(value:toString())))
+    local made, failure = done(C.nuppNativeFilesCreateDirectory(slice(value:tostring())))
     if not made then
         return nil, failure
     end

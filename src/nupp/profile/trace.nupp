@@ -41,7 +41,7 @@ type trace.Reason = {
     explanation: string?,
     repair: string?,
     lint: string?,
-    contractSeverity: string?
+    contractseverity: string?
 }
 
 --- The recorder a trace event has to be interpreted under.
@@ -50,19 +50,19 @@ type trace.Reason = {
 --- builds, so an event is only comparable to another taken under the same `id`.
 type trace.Profile = {
     id: string,
-    luajitRevision: string,
-    luajitVersion: integer,
+    luajitrevision: string,
+    luajitversion: integer,
     architecture: string,
-    operatingSystem: string,
-    enabledRecorderFeatures: {string},
-    bytecodeSchema: string,
+    operatingsystem: string,
+    enabledrecorderfeatures: {string},
+    bytecodeschema: string,
     supported: boolean
 }
 
-trace.CATALOG_VERSION = 1
-trace.CATALOG_ID = "nupp-trace-reasons-v1"
-trace.PINNED_LUAJIT_REVISION = "1edc3e52b67eaf6ce5f809be8e17d6862594b8bc"
-trace.PINNED_LUAJIT_VERSION = 1785763465
+trace.catalogversion = 1
+trace.catalogid = "nupp-trace-reasons-v1"
+trace.pinnedluajitrevision = "1edc3e52b67eaf6ce5f809be8e17d6862594b8bc"
+trace.pinnedluajitversion = 1785763465
 
 local records: {
     trace.Reason
@@ -81,7 +81,7 @@ local records: {
         explanation = "LuaJIT has no recorder for constructing a function",
         repair = "declare one function outside the loop and pass what varies to it",
         lint = "NUPP2515",
-        contractSeverity = "error",
+        contractseverity = "error",
     },
     {
         id = "jit/loop-upvalue-close",
@@ -89,7 +89,7 @@ local records: {
         opcodes = {UCLO = true},
         explanation = "LuaJIT has no recorder for closing an upvalue",
         repair = "move the captured lifetime outside the repeated region",
-        contractSeverity = "error",
+        contractseverity = "error",
     },
     {
         id = "jit/ffi-vararg-policy",
@@ -98,7 +98,7 @@ local records: {
         explanation = "this variadic FFI form depends on argument types and the target ABI",
         repair = "move the call behind an explicit jit.off boundary when it is not a hot operation",
         lint = "NUPP2514",
-        contractSeverity = "error",
+        contractseverity = "error",
     },
     {
         id = "jit/ffi-callback",
@@ -107,14 +107,14 @@ local records: {
         explanation = "a C call that re-enters Lua through this callback cannot remain on a trace",
         repair = "disable the callback and its calling boundary with jit.off",
         lint = "NUPP2502",
-        contractSeverity = "error",
+        contractseverity = "error",
     },
     {
         id = "jit/disabled-callee",
         class = "blocker",
         explanation = "the resolved callee is explicitly disabled with jit.off",
         repair = "remove @jit from the caller or keep the disabled call outside its checked hot path",
-        contractSeverity = "error",
+        contractseverity = "error",
     },
     {
         id = "jit/dynamic-call",
@@ -188,20 +188,20 @@ function trace.profile(): trace.Profile
     -- snapshot). The pinned snapshot identity is the timestamp suffix exposed in the
     -- full version string.
     local version = math.floor(tonumber(jit.version:match("LuaJIT 2%.1%.(%d+)")) or jit.version_num) as integer
-    local revision = version == trace.PINNED_LUAJIT_VERSION and trace.PINNED_LUAJIT_REVISION
+    local revision = version == trace.pinnedluajitversion and trace.pinnedluajitrevision
         or "external:" .. tostring(version)
-    local bytecodeSchema = smallDigest(vmdef.bcnames)
-    local id = table.concat({revision, jit.arch, jit.os, table.concat(flags, ","), bytecodeSchema}, "|")
+    local bytecodeschema = smallDigest(vmdef.bcnames)
+    local id = table.concat({revision, jit.arch, jit.os, table.concat(flags, ","), bytecodeschema}, "|")
 
     return {
         id = id,
-        luajitRevision = revision,
-        luajitVersion = version,
+        luajitrevision = revision,
+        luajitversion = version,
         architecture = jit.arch,
-        operatingSystem = jit.os,
-        enabledRecorderFeatures = flags,
-        bytecodeSchema = bytecodeSchema,
-        supported = revision == trace.PINNED_LUAJIT_REVISION,
+        operatingsystem = jit.os,
+        enabledrecorderfeatures = flags,
+        bytecodeschema = bytecodeschema,
+        supported = revision == trace.pinnedluajitrevision,
     }
 end
 
@@ -248,27 +248,27 @@ end
 --- found. Anything unrecognized returns `jit/runtime-unknown` rather than
 --- nothing.
 ---
---- @param errorCode the VM's trace error number, or nil
---- @param errorArg whatever the VM passed beside it
+--- @param errorcode the VM's trace error number, or nil
+--- @param errorarg whatever the VM passed beside it
 --- @return the record it maps to
 --- @return the rendered text, for display
-function trace.runtime(errorCode: integer?, errorArg: number | string | nil): trace.Reason, string
-    if not errorCode then
+function trace.runtime(errorcode: integer?, errorarg: number | string | nil): trace.Reason, string
+    if not errorcode then
         return byId["jit/runtime-unknown"], "abort"
     end
-    local format = vmdef.traceerr[errorCode]
+    local format = vmdef.traceerr[errorcode]
     if not format then
-        return byId["jit/runtime-unknown"], "error " .. tostring(errorCode)
+        return byId["jit/runtime-unknown"], "error " .. tostring(errorcode)
     end
-    if format:find("NYI: bytecode", 1, true) and type(errorArg) == "number" then
-        local opcode = trace.opcodename(errorArg as integer)
+    if format:find("NYI: bytecode", 1, true) and type(errorarg) == "number" then
+        local opcode = trace.opcodename(errorarg as integer)
         return byOpcode[opcode] or byId["jit/runtime-unknown"], "NYI: bytecode " .. opcode
     end
     local record = byRuntime[format] or byId["jit/runtime-unknown"]
-    if errorArg == nil then
+    if errorarg == nil then
         return record, format
     end
-    local ok, detail = pcall(string.format, format, errorArg)
+    local ok, detail = pcall(string.format, format, errorarg)
 
     return record, ok and detail as string or format
 end

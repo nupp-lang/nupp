@@ -613,7 +613,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             interface = "nupp.workers.spi.Provider",
             native = "nupp.runtime.provider.workers",
             browser = "nupp.runtime.browser.workers",
-            member = "runScheduler",
+            member = "runscheduler",
             exported = "__runScheduler",
             cache = "nupp.runtime.workersprovider"
         },
@@ -622,7 +622,8 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             interface = "nupp.system.spi.Provider",
             native = "nupp.runtime.provider.nativesystem",
             browser = "nupp.runtime.browser.system",
-            member = "availableParallelism"
+            member = "availableparallelism",
+            exported = "availableParallelism"
         },
         {
             module = "nupp.io.path.provider",
@@ -654,7 +655,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             interface = "nupp.random.spi.Provider",
             native = "nupp.runtime.provider.nativecrypto",
             browser = "nupp.runtime.browser.crypto",
-            member = "randomBytes",
+            member = "randombytes",
             exported = "randombytes"
         },
         {
@@ -698,19 +699,19 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                         end
                     end
                     if case.module == "nupp.workers" then
-                        provider.openScope = function()
+                        provider.openscope = function()
                             return name
                         end
                         provider.settle = function()
                             return name
                         end
-                        provider.runScheduler = function()
+                        provider.runscheduler = function()
                             return name
                         end
-                        provider.defineSendable = function()
+                        provider.definesendable = function()
                             return name
                         end
-                        provider.describeSendable = function()
+                        provider.describesendable = function()
                             return name
                         end
                     elseif case.module == "nupp.suspension" then
@@ -720,13 +721,13 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                         provider.poll = function()
                             return name
                         end
-                        provider.installDriver = function()
+                        provider.installdriver = function()
                             return name
                         end
-                        provider.delegatedCanPark = function()
+                        provider.delegatedcanpark = function()
                             return name
                         end
-                        provider.delegatedPark = function()
+                        provider.delegatedpark = function()
                             return name
                         end
                         provider.derive = function()
@@ -734,12 +735,12 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                         end
                     elseif case.module == "nupp.runtime.system" then
                         provider.platform, provider.architecture = "fixture", "fixture"
-                        provider.pointerBits, provider.endianness = 32, "little"
+                        provider.pointerbits, provider.endianness = 32, "little"
                     elseif case.storage then
                         provider.representation = "native"
                         provider.layout, provider.reference = {}, function()
                         end
-                        provider.structs, provider.host = {referenceValued = true}, {}
+                        provider.structs, provider.host = {referencevalued = true}, {}
                     end
                     providers[name] = provider
                     preloads[name] = function()
@@ -811,7 +812,16 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                             "derive"
                         }) do
                             assert(
-                                host[member] == expected[member],
+                                host[
+                                    member
+                                ] == expected[
+                                    ({
+                                        installDriver = "installdriver",
+                                        delegatedCanPark = "delegatedcanpark",
+                                        delegatedPark = "delegatedpark"
+                                    })[member]
+                                    or member
+                                ],
                                 label .. ": " .. member .. " came from another provider"
                             )
                         end
@@ -819,11 +829,11 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                         assert(facade.poll == expected.poll, label .. ": poll stays beside source")
                     elseif case.module == "nupp.workers" then
                         local hooks = {
-                            __scope = "openScope",
+                            __scope = "openscope",
                             __settle = "settle",
-                            __runScheduler = "runScheduler",
-                            __defineSendable = "defineSendable",
-                            __sendable = "describeSendable",
+                            __runScheduler = "runscheduler",
+                            __defineSendable = "definesendable",
+                            __sendable = "describesendable",
                         }
                         for exported, provided in pairs(hooks) do
                             assert(
@@ -887,15 +897,15 @@ function M.suspensionProvidersPublishCompleteTurnBudgetsOrNone()
             ['fixture.suspension'] = function()
                 return {
                     priority = 1,
-                    installDriver = function()
+                    installdriver = function()
                     end,
-                    delegatedCanPark = function()
+                    delegatedcanpark = function()
                     end,
-                    delegatedPark = function()
+                    delegatedpark = function()
                     end,
                     derive = function()
                     end,
-                    turnAvailable = function()
+                    turnavailable = function()
                         return true
                     end,
                 }
@@ -918,9 +928,9 @@ function M.suspensionProvidersPublishTheirDriverSeam()
             ['fixture.suspension'] = function()
                 return {
                     priority = 1,
-                    installDriver = function()
+                    installdriver = function()
                     end,
-                    delegatedCanPark = function()
+                    delegatedcanpark = function()
                         return function()
                             return true
                         end
@@ -932,7 +942,7 @@ function M.suspensionProvidersPublishTheirDriverSeam()
     local ok, problem = pcall(load, "nupp.suspension")
     assert(not ok, "an implementation without delegatedPark or derive was accepted")
     assert(
-        tostring(problem):find("installDriver, delegatedCanPark, delegatedPark and derive", 1, true),
+        tostring(problem):find("installdriver, delegatedcanpark, delegatedpark and derive", 1, true),
         tostring(problem)
     )
 end

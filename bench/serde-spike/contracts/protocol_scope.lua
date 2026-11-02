@@ -7,14 +7,14 @@ local description = {
     member = root,
     kind = "structure",
     nullable = false,
-    canRead = true,
+    canread = true,
     children = {
         {
             member = member,
             required = true,
-            hasDefault = false,
+            hasdefault = false,
             describe = function()
-                return {member = member, kind = "string", nullable = false, canRead = true, children = {}}
+                return {member = member, kind = "string", nullable = false, canread = true, children = {}}
             end
         }
     },
@@ -69,15 +69,15 @@ for _, variant in ipairs(variants) do
                         error("consumer failed", 0)
                     end
                     if unknown then
-                        reader:skipValue()
+                        reader:skipvalue()
                     else
-                        assert(reader:readString(member) == "x")
+                        assert(reader:readstring(member) == "x")
                     end
                     if mode == "over" then
                         if unknown then
-                            reader:skipValue()
+                            reader:skipvalue()
                         else
-                            reader:readString(member)
+                            reader:readstring(member)
                         end
                     end
                 end
@@ -88,7 +88,7 @@ for _, variant in ipairs(variants) do
                 end,
                 read = function(_, reader)
                     retainedRoot = reader
-                    reader:readStruct(root, {}, consumer, consumer)
+                    reader:readstruct(root, {}, consumer, consumer)
                     return true
                 end,
             })
@@ -102,13 +102,13 @@ for _, variant in ipairs(variants) do
             assert(retained ~= nil)
             local alive, expired = pcall(function()
                 if unknown then
-                    retained:skipValue()
+                    retained:skipvalue()
                 else
-                    retained:isNull()
+                    retained:isnull()
                 end
             end)
             assert(not alive and tostring(expired):find("expired", 1, true), tostring(expired))
-            assert(not pcall(retainedRoot.isNull, retainedRoot))
+            assert(not pcall(retainedRoot.isnull, retainedRoot))
         end
     end
     local calls = 0

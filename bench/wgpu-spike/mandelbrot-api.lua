@@ -71,9 +71,9 @@ repeat
 until now() - started >= 1.0
 local elapsed = (now() - started) / passes
 
-context:enqueueDownload(escapeBuffer)
+context:enqueuedownload(escapeBuffer)
 context:synchronize()
-context:readDownloaded(escapeBuffer, span.writecarray(output, count))
+context:readdownloaded(escapeBuffer, span.writecarray(output, count))
 
 local expected = read(expectedPath)
 assert(#expected == ffi.sizeof("KsEscape") * count, "unexpected SIMD result size")

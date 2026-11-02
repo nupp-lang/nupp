@@ -15,7 +15,7 @@ local buffer = text.newbuffer()
 buffer:put("prefix")
 
 local function cyclic(): nil
-    codec:encodeInto(binding, value, buffer)
+    codec:encodeinto(binding, value, buffer)
 end
 
 local ok, problem = pcall(cyclic)

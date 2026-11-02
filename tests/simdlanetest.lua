@@ -35,6 +35,56 @@ local function compile(src)
     return chunk()
 end
 
+function M.speciesPublishesCanonicalMemoryMethodNames()
+    local simd = require("simd")
+    local array = require("nupp.mem.array")
+    local species = simd.species(array.uint32, 4)
+    for canonical, retired in pairs({
+        loadpairs = "loadPairs",
+        loadtriples = "loadTriples",
+        loadquads = "loadQuads",
+        storepairs = "storePairs",
+        storetriples = "storeTriples",
+        storequads = "storeQuads",
+        scatterunchecked = "scatterUnchecked"
+    }) do
+        assert(type(species[canonical]) == "function" and species[retired] == nil)
+    end
+end
+
+function M.vectorMethodsRejectRetiredMixedCaseNames()
+    for retired, arguments in pairs({
+        mulHigh = "value",
+        numberMax = "value",
+        numberMin = "value",
+        orderedPrefixSum = "",
+        prefixXor = "",
+        propagatingMax = "value",
+        propagatingMin = "value",
+        rotateLeft = "1",
+        rotateRight = "1",
+        saturatingAdd = "value",
+        saturatingSub = "value"
+    }) do
+        local source = PRELUDE
+            .. "local species = simd.species(array.uint32, 4)\n"
+            .. "local value = species:splat(1)\n"
+            .. "local retired = value:"
+            .. retired
+            .. "("
+            .. arguments
+            .. ")\n"
+        local parsed = parser.parse(source, "retired-vector-member.nupp")
+        testAssert.eq(#parsed.errors, 0)
+        local diagnostics = check.check(parsed, "retired-vector-member.nupp", env)
+        local found = false
+        for _, diagnostic in ipairs(diagnostics) do
+            found = found or (diagnostic.msg or ""):find(retired, 1, true) ~= nil
+        end
+        assert(found, "the retired vector member must be refused: " .. retired)
+    end
+end
+
 function M.theSpeciesIsOneLaneWideAndOverVisitsEveryElementOnce()
     local run = compile(
         PRELUDE
@@ -216,9 +266,9 @@ local function probe(borrows bytes: span.Span<uint8>, borrows reals: span.Span<f
     local r = f:load(reals, 1)
     return (v % 7):extract(1),
         (v // 3):extract(1),
-        v:saturatingAdd(250):extract(1),
+        v:saturatingadd(250):extract(1),
         v:popcount():extract(1),
-        v:mulHigh(200):extract(1),
+        v:mulhigh(200):extract(1),
         widened:extract(1),
         math.sqrt(r):extract(1),
         r:fma(2.0, 0.5):extract(1)

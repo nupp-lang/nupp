@@ -8,7 +8,7 @@ local suite = {}
 
 function suite.test(provider: any): (boolean, string?)
     local ok, problem = pcall(function()
-        assert(provider.referenceValued == true, "portable struct values must declare reference representation")
+        assert(provider.referencevalued == true, "portable struct values must declare reference representation")
         local methods = {__index = {}}
         local Point = provider.define(
             {name = "Point", fields = {{name = "x", kind = "float"}, {name = "bits", kind = "uint8"},},},

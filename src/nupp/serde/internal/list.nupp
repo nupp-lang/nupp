@@ -6,7 +6,7 @@ local core = require("nupp.serde.internal.value")
 local record Child<V is own.Copyable, M is core.Member> is core.Child<M>
     @readonly member: M
     @readonly required: boolean = true
-    @readonly hasDefault: boolean = false
+    @readonly hasdefault: boolean = false
     @readonly adapter: core.Adapter<V, M>
     function describe(self, direction: core.Direction): core.Description<M>
         return self.adapter:describe(direction)
@@ -18,7 +18,7 @@ local record Description<M is core.Member> is core.Description<M>
     @readonly nullable: boolean = false
     @readonly width: integer?
     @readonly signed: boolean?
-    @readonly canRead: boolean = true
+    @readonly canread: boolean = true
     @readonly children: {core.Child<M>}
 end
 local record Elements<V is own.Copyable, M is core.Member> is core.Members<M, {V}>
@@ -45,16 +45,16 @@ local record Adapter<V is own.Copyable, M is core.Member> is core.Adapter<{V}, M
     @readonly consume: Read<V, M>
     function describe(self, direction: core.Direction): core.Description<M>
         local selected = self.child:describe(direction)
-        return new Description<M>(member = self.member, children = {self.child}, canRead = selected.canRead)
+        return new Description<M>(member = self.member, children = {self.child}, canread = selected.canread)
     end
 
     function write(self, borrows value: {V}, exclusive writer: core.Writer<M>): nil
-        writer:writeList(self.member, #value, value, self.emit)
+        writer:writelist(self.member, #value, value, self.emit)
     end
 
     function read(self, exclusive reader: core.Reader<M>): {V}
         local values: {V} = {}
-        reader:readList(self.member, values, self.consume)
+        reader:readlist(self.member, values, self.consume)
         return values
     end
 end

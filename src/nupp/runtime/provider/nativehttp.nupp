@@ -57,11 +57,11 @@ type http.Capabilities = messages.Capabilities
 --- Reports the guarantees of the selected HTTP provider.
 function http.capabilities(): http.Capabilities
     return new messages.Capabilities(
-        streamingResponse = true,
-        streamingRequest = true,
-        transportPolicy = true,
-        connectionPolicy = true,
-        protocolVersion = true
+        streamingresponse = true,
+        streamingrequest = true,
+        transportpolicy = true,
+        connectionpolicy = true,
+        protocolversion = true
     )
 end
 
@@ -179,14 +179,14 @@ local function copiedOptions(options: http.Options?): any
         end
         headers[name] = value
     end
-    if given.userAgent ~= nil then
-        if type(given.userAgent) ~= "string" then
+    if given.useragent ~= nil then
+        if type(given.useragent) ~= "string" then
             error("nupp: HTTP userAgent must be a string", 3)
         end
-        headers["user-agent"] = given.userAgent
+        headers["user-agent"] = given.useragent
     end
     local insecure = {}
-    local insecureHosts = given.insecureHosts or {}
+    local insecureHosts = given.insecurehosts or {}
     if type(insecureHosts) ~= "table" then
         error("nupp: HTTP insecureHosts must be a dense list", 3)
     end
@@ -206,7 +206,7 @@ local function copiedOptions(options: http.Options?): any
         end
         insecure[canonicalHost(host, 3)] = true
     end
-    for _, name in ipairs({"proxy", "noProxy", "proxyCredentials"}) do
+    for _, name in ipairs({"proxy", "noproxy", "proxycredentials"}) do
         if given[name] ~= nil and type(given[name]) ~= "string" then
             error("nupp: HTTP " .. name .. " must be a string", 3)
         end
@@ -222,20 +222,20 @@ local function copiedOptions(options: http.Options?): any
     return {
         headers = headers,
         packedHeaders = packedHeaders,
-        timeoutMs = optionInteger(given, "timeoutMs", 30000, 1),
-        connectTimeoutMs = optionInteger(given, "connectTimeoutMs", 10000, 1),
-        stallTimeoutMs = optionInteger(given, "stallTimeoutMs", 0, 0),
-        maxRedirects = whole(given.maxRedirects or 5, "maxRedirects", 0, UINT32_MAX),
-        maxPendingRequests = whole(given.maxPendingRequests or 256, "maxPendingRequests", 1, UINT32_MAX),
-        maxConnections = whole(given.maxConnections or 16, "maxConnections", 1, UINT32_MAX),
-        maxConnectionsPerHost = whole(given.maxConnectionsPerHost or 16, "maxConnectionsPerHost", 1, UINT32_MAX),
-        maxBytes = optionInteger(given, "maxBytes", 0, 0),
+        timeoutMs = optionInteger(given, "timeoutms", 30000, 1),
+        connectTimeoutMs = optionInteger(given, "connecttimeoutms", 10000, 1),
+        stallTimeoutMs = optionInteger(given, "stalltimeoutms", 0, 0),
+        maxRedirects = whole(given.maxredirects or 5, "maxredirects", 0, UINT32_MAX),
+        maxPendingRequests = whole(given.maxpendingrequests or 256, "maxpendingrequests", 1, UINT32_MAX),
+        maxConnections = whole(given.maxconnections or 16, "maxconnections", 1, UINT32_MAX),
+        maxConnectionsPerHost = whole(given.maxconnectionsperhost or 16, "maxconnectionsperhost", 1, UINT32_MAX),
+        maxBytes = optionInteger(given, "maxbytes", 0, 0),
         compressed = given.compressed ~= false,
         insecureHosts = insecure,
         manualRedirects = manualRedirects,
         proxy = given.proxy,
-        noProxy = given.noProxy,
-        proxyCredentials = given.proxyCredentials,
+        noProxy = given.noproxy,
+        proxyCredentials = given.proxycredentials,
     }
 end
 
@@ -361,7 +361,7 @@ end
 --- raising.
 ---
 --- ```nupp:fragment
---- local total = assert(response.body:transferTo(destination))
+--- local total = assert(response.body:transferto(destination))
 --- ```
 record http.Body is io.Reader
     --- Releases the body and cancels whatever is still being produced for it.
@@ -389,7 +389,7 @@ record http.Body is io.Reader
         return self:_next(wanted)
     end
 
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         local wanted = whole(#destination, "body destination length", 1)
         local chunk, reason = self:_next(wanted)
         if chunk == nil then
@@ -416,7 +416,7 @@ record http.Body is io.Reader
     --- @raises string when an argument is not a whole number, or a second reader is on
     ---     the
     ---     body
-    function readInto(
+    function readinto(
         exclusive self,
         exclusive destination: io.Buffer,
         offset: integer?,
@@ -432,7 +432,7 @@ record http.Body is io.Reader
             return 0
         end
         local input = span.fromstring(chunk)
-        local lease = destination:reserveWrite(at, wanted)
+        local lease = destination:reservewrite(at, wanted)
         do
             local output = lease:span()
             for index = 1, #chunk do
@@ -453,7 +453,7 @@ record http.Body is io.Reader
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
     --- @raises string when a second reader is on the body
-    function transferTo(exclusive self, exclusive destination: io.Writer): (integer?, string?)
+    function transferto(exclusive self, exclusive destination: io.Writer): (integer?, string?)
         local total: integer = 0
         local turn: integer = 0
         while true do
@@ -467,7 +467,7 @@ record http.Body is io.Reader
             local at: integer = 1
             while at <= #source do
                 local remaining = source:slice(at)
-                local wrote, reason = destination:writeSpan(remaining)
+                local wrote, reason = destination:writespan(remaining)
                 if wrote == nil then
                     return nil, reason
                 elseif wrote < 1 then
@@ -650,7 +650,7 @@ record http.Response is contracts.Response
     ---
     --- Repeats are joined with `, `, which is what HTTP says they mean. The one
     --- exception is `set-cookie`, where joining would corrupt the values, so the
-    --- first is answered and `headerValues` reads the rest.
+    --- first is answered and `headervalues` reads the rest.
     --- @param self this response
     --- @param name the header to read
     --- @return the header's value, or nil when the response carries none
@@ -673,7 +673,7 @@ record http.Response is contracts.Response
     --- @param name the header to read
     --- @return the values, empty when the response carries none
     --- @raises string when name is not a string
-    function headerValues(self, name: string): {string}
+    function headervalues(self, name: string): {string}
         if type(name) ~= "string" then
             error("nupp: HTTP header name must be a string", 2)
         end
@@ -806,9 +806,9 @@ record http.Client is BodyClient, contracts.Client
     ---
     --- ```nupp:fragment
     --- do
-    ---     local client = http.newClient({
-    ---         userAgent = "nupp/1",
-    ---         timeoutMs = 5000,
+    ---     local client = http.newclient({
+    ---         useragent = "nupp/1",
+    ---         timeoutms = 5000,
     ---     })
     --- end
     --- ```
@@ -829,19 +829,19 @@ record http.Client is BodyClient, contracts.Client
         self._closed = false
     end
 
-    --- Drives the transfers in flight once, waiting up to `timeoutMs` for one of
+    --- Drives the transfers in flight once, waiting up to `timeoutms` for one of
     --- them to move.
     ---
     --- A wait inside `send` or a body read already does this, so a program that
     --- only ever waits there never calls it. A host that runs its own loop, and
     --- wants responses to make progress between its frames, calls it once a frame.
     --- @param self this client
-    --- @param timeoutMs how long to wait for progress, 0 by default
-    --- @raises string when timeoutMs is negative or not an integer
-    function pump(exclusive self, timeoutMs: integer?): nil
-        local waitMs = timeoutMs or 0
+    --- @param timeoutms how long to wait for progress, 0 by default
+    --- @raises string when timeoutms is negative or not an integer
+    function pump(exclusive self, timeoutms: integer?): nil
+        local waitMs = timeoutms or 0
         if waitMs < 0 or math.floor(waitMs) ~= waitMs then
-            error("nupp: HTTP pump timeoutMs must be a non-negative integer", 2)
+            error("nupp: HTTP pump timeoutms must be a non-negative integer", 2)
         end
         if not self._closed then
             -- Snapshot, drain, and sleep on the shared readiness generation only when
@@ -894,8 +894,8 @@ local function readUpload(
     -- The full byte-reader contract offers a direct buffer path. The portable
     -- request contract also accepts a string-only reader; guard the extension
     -- before using it and preserve capability tracking across either call.
-    if type((source as io.Reader).readInto) == "function" then
-        local got, reason = (source as io.Reader):readInto(destination, offset, count)
+    if type((source as io.Reader).readinto) == "function" then
+        local got, reason = (source as io.Reader):readinto(destination, offset, count)
         if got ~= nil and (type(got) ~= "number" or got ~= math.floor(got) or got < 0 or got > count) then
             error("nupp: HTTP request reader returned an invalid byte count", 3)
         end
@@ -909,7 +909,7 @@ local function readUpload(
     if type(chunk) ~= "string" or #chunk > count then
         error("nupp: HTTP request reader returned invalid bytes", 3)
     end
-    destination:setString(chunk, offset)
+    destination:setstring(chunk, offset)
 
     return #chunk
 end
@@ -917,7 +917,7 @@ end
 --- Sends a request and waits for its response headers.
 ---
 --- Suspends until the headers arrive, so the body is still being produced when
---- this returns. Redirects are followed up to the client's `maxRedirects`: a 303,
+--- this returns. Redirects are followed up to the client's `maxredirects`: a 303,
 --- and a 301 or 302 answering a POST, continue as a GET with no body, and a hop to
 --- a different origin drops the authorization, cookie and host headers. No hop adds
 --- a `referer`. A status is an answer; only a transport failure comes back as a
@@ -945,7 +945,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
     if self._closed then
         return nil, privateIo.toError("the HTTP client is closed")
     end
-    if given == nil or given.url == nil or type(given.url.toString) ~= "function" then
+    if given == nil or given.url == nil or type(given.url.tostring) ~= "function" then
         error("nupp: HTTP request url must be a URI", 2)
     end
     local scheme = given.url:scheme()
@@ -967,23 +967,23 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
         if concrete.reader ~= nil then
             reader = concrete.reader
             bodyKind = BODY_UPLOAD
-            bodyLength = concrete.length
-            contentType = concrete.contentType
+            bodyLength = concrete.len
+            contentType = concrete.contenttype
             if bodyLength ~= nil then
                 whole(bodyLength, "reader body length", 0)
             end
         elseif concrete.path ~= nil then
             bodyKind = BODY_FILE
-            body = type(concrete.path) == "string" and concrete.path or concrete.path:toString()
+            body = type(concrete.path) == "string" and concrete.path or concrete.path:tostring()
             bodyLength = -1
-            contentType = concrete.contentType
+            contentType = concrete.contenttype
         elseif type(body) == "string" then
             bodyKind = BODY_INLINE
             bodyLength = #(body as string)
-        elseif type(concrete.len) == "function" and type(concrete.getString) == "function" then
+        elseif type(concrete.len) == "function" and type(concrete.getstring) == "function" then
             bodyKind = BODY_INLINE
             bodyLength = concrete:len()
-            body = concrete:getString()
+            body = concrete:getstring()
         else
             error("nupp: HTTP request body is not bytes, a Buffer, ReaderBody, or FileBody", 2)
         end
@@ -1004,7 +1004,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
         local host = (given.url:host() or ""):lower()
         insecure = self._options.insecureHosts[host] == true
     end
-    local requestTimeout = given.timeoutMs ~= nil and whole(given.timeoutMs, "timeoutMs", 1) or self._options.timeoutMs
+    local requestTimeout = given.timeoutms ~= nil and whole(given.timeoutms, "timeoutms", 1) or self._options.timeoutMs
     local now = self._native:now()
     local deadline = state.deadline or (now + requestTimeout)
     local remaining = math.floor(deadline - now) as integer
@@ -1019,9 +1019,9 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
         bodyKind = bodyKind,
         bodyLength = bodyLength,
         timeoutMs = remaining,
-        stallTimeoutMs = given.stallTimeoutMs ~= nil and whole(given.stallTimeoutMs, "stallTimeoutMs", 0)
+        stallTimeoutMs = given.stalltimeoutms ~= nil and whole(given.stalltimeoutms, "stalltimeoutms", 0)
         or self._options.stallTimeoutMs,
-        maxBytes = given.maxBytes ~= nil and whole(given.maxBytes, "maxBytes", 0) or self._options.maxBytes,
+        maxBytes = given.maxbytes ~= nil and whole(given.maxbytes, "maxbytes", 0) or self._options.maxBytes,
         insecure = insecure,
     }
     if not suspension.cansuspend() then
@@ -1079,7 +1079,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
                 end
                 local offered = scratch:len()
                 if offered > 0 then
-                    local source = scratch:getString()
+                    local source = scratch:getstring()
                     while true do
                         local accepted = uploadTransfer:offer(source, offered)
                         if accepted == "accepted" then
@@ -1207,9 +1207,9 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
                 method = nextMethod,
                 headers = merged,
                 body = nextBody,
-                timeoutMs = given.timeoutMs,
-                stallTimeoutMs = given.stallTimeoutMs,
-                maxBytes = given.maxBytes
+                timeoutms = given.timeoutms,
+                stalltimeoutms = given.stalltimeoutms,
+                maxbytes = given.maxbytes
             )
             redirectState[redirected] = {redirected = true, redirects = followed + 1, deadline = deadline}
             return self:send(redirected)
@@ -1266,4 +1266,4 @@ local function openClient(options: messages.Options?): contracts.Client
     return new http.Client(options)
 end
 
-export = {newClient = openClient, capabilities = http.capabilities}
+export = {newclient = openClient, capabilities = http.capabilities}

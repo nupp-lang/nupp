@@ -138,11 +138,11 @@ record data.Bitset
     --- Creates an empty set.
     ---
     --- @param self the set being initialized
-    --- @param capacityBits how many bits to allocate initially; setting a later
+    --- @param capacitybits how many bits to allocate initially; setting a later
     ---     position grows the set
-    --- @raises string when capacityBits is more than 2^31
-    constructor(self, capacityBits: integer?)
-        local bits = capacityBits ?? DEFAULT_BITS
+    --- @raises string when capacitybits is more than 2^31
+    constructor(self, capacitybits: integer?)
+        local bits = capacitybits ?? DEFAULT_BITS
         if bits > MAX_INDEX + 1 then
             error("nupp: bitset cannot hold more than 2^31 bits", 2)
         end
@@ -259,7 +259,7 @@ record data.Bitset
     ---     empty range needs no guard at the call site.
     --- @raises string when low is negative, when high is past 2^31 - 1, or
     ---     when either is not an integer
-    function setRange(self, low: integer, high: integer): nil
+    function setrange(self, low: integer, high: integer): nil
         if high < low then
             return
         end
@@ -377,13 +377,13 @@ record data.Bitset
 
     --- Whether nothing is set. Says nothing about capacity.
     --- @return true when no bit is set
-    function isEmpty(self): boolean
+    function isempty(self): boolean
         return self:count() == 0
     end
 
     --- Removes every bit, keeping capacity so a set reused each frame stops
     --- allocating once it has reached its peak.
-    function clearAll(self): nil
+    function clearall(self): nil
         if self.used > 0 then
             physical.fill(self.words as any, self.used * 4, 0)
             self.used = 0
@@ -396,11 +396,11 @@ record data.Bitset
     --- @param index the one position left set, counting from 0
     --- @raises string when index is negative, past 2^31 - 1, or not an
     ---     integer; the set is left unchanged
-    function setOnly(self, index: integer): nil
+    function setonly(self, index: integer): nil
         if not isPosition(index) then
             error("nupp: bitset index cannot be negative, fractional or past 2^31 - 1", 2)
         end
-        self:clearAll()
+        self:clearall()
         self:set(index)
     end
 
@@ -408,16 +408,16 @@ record data.Bitset
     --- above it is zero, and it is not narrowed by `clear` or by intersection,
     --- so it may exceed the exact high-water mark.
     --- @return the number of words a word-at-a-time walk must visit
-    function wordCount(self): integer
+    function wordcount(self): integer
         return self.used
     end
 
     --- A stored 32-bit word. Word `w` holds positions `w * 32` through
     --- `w * 32 + 31`, lowest position first.
-    --- @param index a word index counting from 0, bounded by `wordCount`
+    --- @param index a word index counting from 0, bounded by `wordcount`
     --- @return the word as a signed value, so one with its top bit set reads
     ---     negative, and 0 for any index outside the bound
-    function wordAt(self, index: integer): integer
+    function wordat(self, index: integer): integer
         if not (index >= 0 and index < self.used) then
             return 0
         end
@@ -433,7 +433,7 @@ record data.Bitset
     --- cannot invalidate a walk in progress.
     --- @param from the lowest position that may be returned, counting from 0
     --- @return that position, or -1 when there is none
-    function nextSetBit(self, from: integer): integer
+    function nextsetbit(self, from: integer): integer
         local start = from < 0 ? 0 : from
         if not (start <= MAX_INDEX) then
             return -1
@@ -488,7 +488,7 @@ record data.Bitset
     --- @return how many positions were written, and the position to resume from
     ---     when `target` filled first, or -1 when the set is exhausted
     --- @raises string when capacity is negative
-    function positionsInto(self, target: int32[?], capacity: integer, from: integer): (integer, integer)
+    function positionsinto(self, target: int32[?], capacity: integer, from: integer): (integer, integer)
         if capacity < 0 then
             error("nupp: bitset target capacity cannot be negative", 2)
         end
@@ -545,7 +545,7 @@ record data.Bitset
     --- @param other read and not modified
     --- @return true when `other` is a subset. An empty `other` is contained by
     ---     anything.
-    function containsAll(self, other: Bitset): boolean
+    function containsall(self, other: Bitset): boolean
         local otherUsed = other.used
         if otherUsed == 0 then
             return true
@@ -602,7 +602,7 @@ record data.Bitset
     --- Replaces these bits with a copy of `other`'s. The two are independent
     --- afterwards, and this keeps its own capacity when that is the larger.
     --- @param other read and not modified
-    function copyFrom(self, other: Bitset): nil
+    function copyfrom(self, other: Bitset): nil
         local otherUsed = other.used
         if otherUsed > self.capacity then
             self:reserve(otherUsed * BITS_PER_WORD)
@@ -629,7 +629,7 @@ record data.Bitset
     --- rather than tracked, and there is no per-word test for whether the word
     --- changed, because that branch costs more than the write it saves.
     --- @param other read and not modified
-    function orWith(self, other: Bitset): nil
+    function orwith(self, other: Bitset): nil
         local otherUsed = other.used
         if otherUsed == 0 then
             return
@@ -655,7 +655,7 @@ record data.Bitset
     --- Keeps only the bits also set in `other`.
     --- @param other read and not modified. Words beyond the ones it uses are
     ---     cleared, so an empty `other` empties the receiver.
-    function andWith(self, other: Bitset): nil
+    function andwith(self, other: Bitset): nil
         local used = self.used
         if used == 0 then
             return
@@ -681,7 +681,7 @@ record data.Bitset
     --- Removes every bit set in `other`.
     --- @param other read and not modified. Words beyond the ones it uses keep
     ---     their bits, so an empty `other` changes nothing.
-    function andNotWith(self, other: Bitset): nil
+    function andnotwith(self, other: Bitset): nil
         local limit = self.used < other.used ? self.used : other.used
         if limit == 0 then
             return
@@ -699,7 +699,7 @@ record data.Bitset
 
     --- Keeps only the bits set in exactly one of the two.
     --- @param other read and not modified
-    function xorWith(self, other: Bitset): nil
+    function xorwith(self, other: Bitset): nil
         local otherUsed = other.used
         if otherUsed == 0 then
             return

@@ -583,7 +583,7 @@ local record Build
     remarksFor: string?
 
     --- Write the optimizer's account to a file, build/remarks.json by default.
-    @cli(arity = "optionalAttached", constant = "build/remarks.json", value = "PATH")
+    @cli(arity = "optionalattached", constant = "build/remarks.json", value = "PATH")
     remarksOut: string?
 
     --- Turn off one optimizer pass by stable code.
@@ -591,7 +591,7 @@ local record Build
         name = "Zno-opt",
         short = "Zno-opt",
         long = false,
-        arity = "attachedOnly",
+        arity = "attachedonly",
         display = "-Zno-opt=CODE",
         value = "CODE"
     )
@@ -599,16 +599,16 @@ local record Build
 
     --- When to report progress and timing.
     @cli(
-        arity = "optionalAttached",
+        arity = "optionalattached",
         constant = "always",
-        constantAliases = {q = "never", quiet = "never"},
+        constantaliases = {q = "never", quiet = "never"},
         choices = {"always", "never", "auto"},
         value = "WHEN"
     )
     progress: string?
 
     --- Select the report representation.
-    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", constantaliases = {json = "json", text = "text"})
     format: "text" | "json" = "text"
 
     --- Print the JSON Schema of JSON output and exit.

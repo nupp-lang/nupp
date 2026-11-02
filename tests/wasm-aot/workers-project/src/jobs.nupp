@@ -72,7 +72,7 @@ end
 export function nested(shards: integer): integer
     local answer: integer = 0
     with scope = tasks.scope() do
-        answer = scope:fork(|| -> shards):await()
+        answer = scope:work(|| -> shards):await()
     end
 
     return answer

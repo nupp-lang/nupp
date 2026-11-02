@@ -8,7 +8,7 @@ Shared interfaces for structured worker implementations.
 The workers module selects an implementation during initialization.
 A provider owns its lane scheduler, but uses the canonical Scope, Task, Status,
 and submitted-signature types declared here. A scope is reached only through a
-task scope's `fork`, which owns one privately. Generic spawn must
+task scope's `work`, which owns one privately. Generic spawn must
 preserve the exact argument and result packs of the sendable function.
 
 Arguments and results cross isolated Lua states as copies. Only explicitly
@@ -16,7 +16,7 @@ supported engine-backed affine owners move; arbitrary closures, pointers,
 coroutines, and Lua-owned affine resources cannot be copied as task arguments.
 Runtime validation must also reject unsupported value graphs that static types
 cannot exclude. A task's result count preserves embedded and trailing nil values.
-`await` returns that exact pack or raises failure/cancellation; `isDone` reports
+`await` returns that exact pack or raises failure/cancellation; `isdone` reports
 terminal settlement, `status` reports scheduler state, and `cancel` reports
 whether it made the first cancellation request.
 
@@ -36,7 +36,7 @@ const types = require("types")
 
 --- What may actually be submitted: a module member, or an outlined literal whose
 --- effectively-final captures can be copied to another lane. Exported so a task scope
---- can hold its `fork` to the same bound without linking this module.
+--- can hold its `work` to the same bound without linking this module.
 export type Submittable = @sendable function(...: any): any
 
 --- Whether a
@@ -153,11 +153,11 @@ end
 --- copyable. Reached only from `spawn`: naming `Task<F>` describes a handle rather than
 --- a crossing, so a signature is held to this where it is submitted and nowhere else.
 @comptime
-export function Submitted(F: type): typepack
-    if types.kind(F) ~= "function" then
+export function Submitted(f: type): typepack
+    if types.kind(f) ~= "function" then
         return types.error("a worker job must name a function type")
     end
-    local packs = {{of = types.parameters(F), what = "argument"}, {of = types.results(F), what = "result"},}
+    local packs = {{of = types.parameters(f), what = "argument"}, {of = types.results(f), what = "result"},}
     for _, one in ipairs(packs) do
         local described = types.describe(one.of)
         -- An ownership mode is a promise about one Lua heap: the caller's. Named before
@@ -191,7 +191,7 @@ export function Submitted(F: type): typepack
         end
     end
 
-    return types.parameters(F)
+    return types.parameters(f)
 end
 
 --- Where a task is: waiting to start, running, or settled one of three ways.
@@ -207,26 +207,15 @@ local function TaskType(F: type): type
     end
     return types.shape({
         --- Waits for settlement and returns the function's complete result pack.
-        {name = "await", read = types.function_(types.pack({types.any}), types.results(F)),},
+        {name = "await", read = types.functiontype(types.pack({types.any}), types.results(F)),},
 
         --- Reports whether the task has settled without waiting.
-        {
-            name = "isDone",
-            read = types.function_(
-                types.pack({
-                    types.any
-                }),
-                types.pack({
-                    types.boolean
-                })
-            ),
-        },
-        {name = "isdone", read = types.function_(types.pack({types.any}), types.pack({types.boolean})),},
+        {name = "isdone", read = types.functiontype(types.pack({types.any}), types.pack({types.bool})),},
 
         --- Returns the task's current scheduling state.
         {
             name = "status",
-            read = types.function_(
+            read = types.functiontype(
                 types.pack({
                     types.any
                 }),
@@ -245,13 +234,13 @@ local function TaskType(F: type): type
         --- Requests cancellation and reports whether this is the first request.
         {
             name = "cancel",
-            read = types.function_(
+            read = types.functiontype(
                 types.pack({
                     types.any,
                     types.optional(types.string)
                 }),
                 types.pack({
-                    types.boolean
+                    types.bool
                 })
             ),
         },
@@ -265,7 +254,7 @@ end
 --- [](coroutine.Status).
 export type Task<F> = TaskType(F)
 
---- A family of parallel child tasks, owned by the task scope whose `fork` opened it.
+--- A family of parallel child tasks, owned by the task scope whose `work` opened it.
 export record Scope
     _scheduler: any
     _first: any
@@ -297,7 +286,7 @@ export interface Provider
 
     --- Creates canonical scope state for task integration, with an optional
     --- monotonic deadline and observer.
-    @readonly openScope: function(deadline: number?, observer: any): Scope
+    @readonly openscope: function(deadline: number?, observer: any): Scope
 
     --- Waits for a task and returns status, packed values, exact count, and problem.
     --- Status is done, failed, or cancelled; cancellation preserves its shared
@@ -305,11 +294,11 @@ export interface Provider
     @readonly settle: function(task: any): (string, {any}?, integer, any)
 
     --- Runs provider scheduler progress using its retained lane state.
-    @readonly runScheduler: function(): nil
+    @readonly runscheduler: function(): nil
 
     --- Associates an executable function with its module/member identity.
-    @readonly defineSendable: function(moduleName: string, member: string, fn: any): nil
+    @readonly definesendable: function(modulename: string, member: string, fn: any): nil
 
     --- Describes a submitted function and captures for destination-lane execution.
-    @readonly describeSendable: function(fn: any, moduleName: string, member: string, ...: any): any
+    @readonly describesendable: function(fn: any, modulename: string, member: string, ...: any): any
 end

@@ -54,7 +54,7 @@ function M.derive(info: types.derive.Info): types.derive.Result<M.Inspect>
     local values = {}
     local documentation = {}
     for _, field in ipairs(info.fields) do
-        if field.readType == nil then
+        if field.readtype == nil then
             return derive.error("Inspect requires readable fields", field.reference)
         end
         local redact = false
@@ -67,14 +67,14 @@ function M.derive(info: types.derive.Info): types.derive.Result<M.Inspect>
                 end
             end
         end
-        local kind = types2.kind(field.readType)
+        local kind = types2.kind(field.readtype)
         local value
         if redact then
             value = derive.constant("<redacted>")
         elseif kind == "primitive" then
             value = derive.field(field)
         else
-            if not derive.claims(field.readType, info.interfaceType) then
+            if not derive.claims(field.readtype, info.interfacetype) then
                 return derive.error(
                     "Inspect requires primitive or recursively Inspect fields, got " .. tostring(kind),
                     field.reference

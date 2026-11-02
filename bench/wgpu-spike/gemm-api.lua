@@ -79,9 +79,9 @@ context:synchronize()
 
 local function verifyTransfer(buffer, source, count, name)
     local copied = ffi.new("float[?]", count)
-    context:enqueueDownload(buffer)
+    context:enqueuedownload(buffer)
     context:synchronize()
-    context:readDownloaded(buffer, span.writecarray(copied, count))
+    context:readdownloaded(buffer, span.writecarray(copied, count))
     for i = 0, count - 1 do
         assert(
             copied[i] == source[i],
@@ -95,9 +95,9 @@ verifyTransfer(bBuffer, b, k * n, "right input")
 
 local function readBuffer(buffer, count)
     local copied = ffi.new("float[?]", count)
-    context:enqueueDownload(buffer)
+    context:enqueuedownload(buffer)
     context:synchronize()
-    context:readDownloaded(buffer, span.writecarray(copied, count))
+    context:readdownloaded(buffer, span.writecarray(copied, count))
 
     return copied
 end
@@ -185,9 +185,9 @@ repeat
 until now() - started >= 1.0
 local gpuElapsed = (now() - started) / passes
 
-context:enqueueDownload(cBuffer)
+context:enqueuedownload(cBuffer)
 context:synchronize()
-context:readDownloaded(cBuffer, span.writecarray(output, m * n))
+context:readdownloaded(cBuffer, span.writecarray(output, m * n))
 
 assert(output[0] ~= 127.25, "GEMM dispatch left its output buffer unchanged")
 local maximumDifference = 0.0

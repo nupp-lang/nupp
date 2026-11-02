@@ -23,9 +23,9 @@ local function check(kernel, first, last, expected)
     else
         bound:dispatch(first, last)
     end
-    context:enqueueDownload(write)
+    context:enqueuedownload(write)
     context:synchronize()
-    context:readDownloaded(write, span.writecarray(output, size))
+    context:readdownloaded(write, span.writecarray(output, size))
     for index = 0, size - 1 do
         assert(
             output[index] == input[index] + expected,

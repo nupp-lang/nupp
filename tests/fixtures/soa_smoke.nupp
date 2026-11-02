@@ -34,5 +34,5 @@ end
 local layout = soa.layoutof(ffi.typeof<Particle>())
 assert(layout.fingerprint:match("^soa1|"))
 assert(#layout.fields == 4)
-assert(layout:forCount(4).segments[2].offset == 16)
+assert(layout:forcount(4).segments[2].offset == 16)
 print(run())

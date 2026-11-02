@@ -11,7 +11,7 @@ export record Name is core.WireField
     --- Returns the name, for messages such as an unknown member's.
     ---
     --- @return the member name
-    function diagnosticLabel(self): string
+    function diagnosticlabel(self): string
         return self.name
     end
 end
@@ -47,77 +47,79 @@ export record Contents is core.DocumentReader
         elseif token == "array" then
             return "list"
         elseif token == "number" then
-            return "numberToken"
+            return "numbertoken"
+        elseif token == "boolean" then
+            return "bool"
         else
             return token
         end
     end
 
-    function readNull(exclusive self): nil
+    function readnull(exclusive self): nil
         self:live()
         self.cursor:readNull()
     end
 
-    function readBoolean(exclusive self): boolean
+    function readbool(exclusive self): boolean
         self:live()
         return self.cursor:readBoolean()
     end
 
-    function readNumberToken(exclusive self): string
+    function readnumbertoken(exclusive self): string
         self:live()
         return self.cursor:readNumber()
     end
 
-    function readString(exclusive self): string
+    function readstring(exclusive self): string
         self:live()
         return self.cursor:readString()
     end
 
-    function readBytes(exclusive self): string
+    function readbytes(exclusive self): string
         error("JSON bytes require model context", 2)
     end
 
-    function readTimestamp(exclusive self): core.Timestamp
+    function readtimestamp(exclusive self): core.Timestamp
         error("JSON timestamps require model context", 2)
     end
 
-    function readInteger(exclusive self): core.Integer
+    function readinteger(exclusive self): core.Integer
         error("JSON integer width requires model context", 2)
     end
 
-    function readDecimal(exclusive self): core.Decimal
+    function readdecimal(exclusive self): core.Decimal
         error("JSON decimal interpretation requires model context", 2)
     end
 
-    function readFloat(exclusive self): core.Float
+    function readfloat(exclusive self): core.Float
         error("JSON float width requires model context", 2)
     end
 
-    function readBigInteger(exclusive self): string
+    function readbiginteger(exclusive self): string
         error("JSON big integer interpretation requires model context", 2)
     end
 
-    function readAtom(exclusive self): core.Atom
+    function readatom(exclusive self): core.Atom
         error("JSON atoms require model context", 2)
     end
 
-    function readDocument<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
+    function readdocument<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
         error("JSON document boundaries require model context", 2)
     end
 
-    function readTuple<S>(exclusive self, exclusive state: S, consume: core.DocumentElement<S>): nil
+    function readtuple<S>(exclusive self, exclusive state: S, consume: core.DocumentElement<S>): nil
         error("JSON tuples require model context", 2)
     end
 
-    function readUnion<S>(exclusive self, exclusive state: S, consume: core.DocumentMember<S>): nil
+    function readunion<S>(exclusive self, exclusive state: S, consume: core.DocumentMember<S>): nil
         error("JSON unions require model context", 2)
     end
 
-    function readMap<S>(exclusive self, exclusive state: S, consume: core.DocumentEntry<S>): nil
+    function readmap<S>(exclusive self, exclusive state: S, consume: core.DocumentEntry<S>): nil
         error("JSON typed maps require model context", 2)
     end
 
-    function readList<S>(exclusive self, exclusive state: S, consume: core.DocumentElement<S>): nil
+    function readlist<S>(exclusive self, exclusive state: S, consume: core.DocumentElement<S>): nil
         self:live()
         self.cursor:start("array")
         local index: integer = 0
@@ -134,7 +136,7 @@ export record Contents is core.DocumentReader
         end
     end
 
-    function readStruct<S>(exclusive self, exclusive state: S, consume: core.DocumentMember<S>): nil
+    function readstruct<S>(exclusive self, exclusive state: S, consume: core.DocumentMember<S>): nil
         self:live()
         self.cursor:start("object")
         while true do
@@ -174,16 +176,16 @@ export record Unknown is core.UnknownReader
         self.used = true
     end
 
-    function skipValue(exclusive self): nil
+    function skipvalue(exclusive self): nil
         self:live()
         self.cursor:skipValue()
     end
 
-    function captureValue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
+    function capturevalue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
         self:live()
         local mark = self.cursor:mark()
         local child = new Contents(cursor = self.cursor, sourceContext = self.sourceContext, expired = false)
-        local ok, result = pcall(adapter.readContents, adapter, child)
+        local ok, result = pcall(adapter.readcontents, adapter, child)
         child:expire()
         if not ok then
             error(result, 0)

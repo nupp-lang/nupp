@@ -82,44 +82,44 @@ local MESSY = "alpha/./beta/../file.tar.gz"
 
 function M.normalizingResolvesWhatItCanWithoutTheFilesystem()
     local module = ready()
-    test.eq(module.newpath(MESSY):normalize():toString(), "alpha/file.tar.gz")
+    test.eq(module.newpath(MESSY):normalize():tostring(), "alpha/file.tar.gz")
     -- Nothing left means the path described where it already was.
-    test.eq(module.newpath("a/.."):normalize():toString(), ".")
+    test.eq(module.newpath("a/.."):normalize():tostring(), ".")
     -- A relative path that starts by going up has nowhere to put the answer.
-    test.eq(module.newpath("../../a"):normalize():toString(), "../../a")
+    test.eq(module.newpath("../../a"):normalize():tostring(), "../../a")
     -- One at the root has nothing to cancel.
-    test.eq(module.newpath("/../a"):normalize():toString(), "/a")
+    test.eq(module.newpath("/../a"):normalize():tostring(), "/a")
 end
 
 function M.readingAPartSlicesRatherThanRebuilds()
     local module = ready()
     local messy = module.newpath(MESSY)
     -- The `./` survives, because this is a question about this path.
-    test.eq(messy:parent():toString(), "alpha/./beta/..")
-    test.eq(messy:fileName(), "file.tar.gz")
+    test.eq(messy:parent():tostring(), "alpha/./beta/..")
+    test.eq(messy:filename(), "file.tar.gz")
     test.eq(messy:stem(), "file.tar")
     test.eq(messy:extension(), "gz")
 
     test.eq(module.newpath("/"):parent(), nil, "a root has no parent")
-    test.eq(module.newpath("foo"):parent():toString(), "")
-    test.eq(module.newpath("/foo"):parent():toString(), "/")
+    test.eq(module.newpath("foo"):parent():tostring(), "")
+    test.eq(module.newpath("/foo"):parent():tostring(), "/")
     -- A leading dot is a name, not an extension.
     test.eq(module.newpath(".bashrc"):stem(), ".bashrc")
     test.eq(module.newpath(".bashrc"):extension(), nil)
     test.eq(module.newpath("a."):extension(), "")
     test.eq(module.newpath("noext"):extension(), nil)
     -- `..` is not something a caller could rename.
-    test.eq(module.newpath("a/.."):fileName(), nil)
+    test.eq(module.newpath("a/.."):filename(), nil)
 end
 
 function M.derivingReplacesTheNameOrTheExtension()
     local module = ready()
     local messy = module.newpath(MESSY)
-    test.eq(messy:withFileName("other.txt"):toString(), "alpha/./beta/../other.txt")
-    test.eq(messy:withExtension("bz2"):toString(), "alpha/./beta/../file.tar.bz2")
-    test.eq(messy:withExtension(""):toString(), "alpha/./beta/../file.tar")
+    test.eq(messy:withfilename("other.txt"):tostring(), "alpha/./beta/../other.txt")
+    test.eq(messy:withextension("bz2"):tostring(), "alpha/./beta/../file.tar.bz2")
+    test.eq(messy:withextension(""):tostring(), "alpha/./beta/../file.tar")
     -- With no file name there is nothing to drop, so the name is added.
-    test.eq(module.newpath("a/.."):withFileName("c"):toString(), "a/../c")
+    test.eq(module.newpath("a/.."):withfilename("c"):tostring(), "a/../c")
 end
 
 -- A replacement name or extension is one component. Text carrying a
@@ -172,13 +172,13 @@ function M.derivingRefusesTextThatIsNotOneComponent()
     local report = module.newpath("out", "report.tmp")
     test.raises(
         function()
-            report:withFileName("../../etc/passwd")
+            report:withfilename("../../etc/passwd")
         end,
         "file name"
     )
     test.raises(
         function()
-            report:withExtension("json/../../x")
+            report:withextension("json/../../x")
         end,
         "extension"
     )
@@ -189,40 +189,40 @@ end
 -- and a relative one against an absolute base is not.
 function M.relatingNeedsBothPathsAnchoredTheSameWay()
     local module = ready()
-    test.eq(module.newpath("/a/b/c"):relativeTo("/a/d"):toString(), "../b/c")
-    test.eq(module.newpath("/a/b"):relativeTo("a/b"):toString(), "/a/b")
-    test.eq(module.newpath("a/b"):relativeTo("/a/b"), nil)
+    test.eq(module.newpath("/a/b/c"):relativeto("/a/d"):tostring(), "../b/c")
+    test.eq(module.newpath("/a/b"):relativeto("a/b"):tostring(), "/a/b")
+    test.eq(module.newpath("a/b"):relativeto("/a/b"), nil)
 end
 
 -- A path expressed against itself is where the base already is, and `.` is
 -- how a path spells that: `""` names nothing a filesystem call accepts.
 function M.relatingAPathToItselfAnswersDot()
     local module = ready()
-    test.eq(module.newpath("/a/b"):relativeTo("/a/b"):toString(), ".")
-    test.eq(module.newpath("a/b"):relativeTo("a/b"):toString(), ".")
+    test.eq(module.newpath("/a/b"):relativeto("/a/b"):tostring(), ".")
+    test.eq(module.newpath("a/b"):relativeto("a/b"):tostring(), ".")
     -- Nor does a trailing separator or a `.` component move the answer.
-    test.eq(module.newpath("a/b/"):relativeTo("a/b"):toString(), ".")
-    test.eq(module.newpath("a/./b"):relativeTo("a/b"):toString(), ".")
+    test.eq(module.newpath("a/b/"):relativeto("a/b"):tostring(), ".")
+    test.eq(module.newpath("a/./b"):relativeto("a/b"):tostring(), ".")
 end
 
 function M.joiningLetsAnAbsolutePartReplaceWhatCameBefore()
     local module = ready()
-    test.eq(module.newpath("src", "main.nupp"):toString(), "src/main.nupp")
-    test.eq(module.newpath("/a", "/b"):toString(), "/b")
-    assert(module.newpath("/a"):isAbsolute())
-    assert(not module.newpath("a"):isAbsolute())
+    test.eq(module.newpath("src", "main.nupp"):tostring(), "src/main.nupp")
+    test.eq(module.newpath("/a", "/b"):tostring(), "/b")
+    assert(module.newpath("/a"):isabsolute())
+    assert(not module.newpath("a"):isabsolute())
 end
 
 function M.filesystemQuestionsUseTheGenericProvider()
     local module = ready()
-    local current = assert(module.currentdirectory())
-    assert(current:isAbsolute())
-    test.eq(assert(module.newpath("."):absolute()):toString(), current:toString())
-    test.eq(assert(module.newpath("alpha//./beta/.."):absolute()):toString(), current:join("alpha/beta/.."):toString())
+    local current = assert(module.cwd())
+    assert(current:isabsolute())
+    test.eq(assert(module.newpath("."):absolute()):tostring(), current:tostring())
+    test.eq(assert(module.newpath("alpha//./beta/.."):absolute()):tostring(), current:join("alpha/beta/.."):tostring())
 
     local canonical = assert(module.newpath(root):canonicalize())
-    assert(canonical:isAbsolute())
-    test.eq(assert(canonical:canonicalize()):toString(), canonical:toString())
+    assert(canonical:isabsolute())
+    test.eq(assert(canonical:canonicalize()):tostring(), canonical:tostring())
 end
 
 function M.pathStagesOnlyTheGenericFilesystemSlice()
@@ -259,9 +259,9 @@ end
 -- The scalar rules take the spelling convention as data, so both platforms are
 -- testable on one machine. These are Windows answers even on a POSIX runner.
 function M.windowsTextRulesArePlatformIndependent()
-    assert(pathtext.isAbsolute("C:\\alpha", true))
-    assert(not pathtext.isAbsolute("C:alpha", true))
-    assert(pathtext.isAbsolute("\\alpha", true))
+    assert(pathtext.isabsolute("C:\\alpha", true))
+    assert(not pathtext.isabsolute("C:alpha", true))
+    assert(pathtext.isabsolute("\\alpha", true))
     test.eq(pathtext.normalize("C:\\alpha\\.\\beta\\..\\file.txt", true), "C:/alpha/file.txt")
     test.eq(pathtext.normalize("C:alpha\\..\\beta", true), "C:beta")
     test.eq(pathtext.part("C:\\alpha\\.\\beta\\..\\file.tar.gz", 0, true), "C:/alpha/./beta/..")
@@ -300,10 +300,10 @@ function M.absolutizingADriveRelativePathRequiresTheCurrentDrive()
     local loadedProvider = package.loaded["nupp.io.path.provider"]
     package.loaded["io.path"] = nil
     package.loaded["nupp.io.path.provider"] = {
-        separator = function()
+        sep = function()
             return "\\"
         end,
-        currentDirectory = function()
+        cwd = function()
             return "C:\\base", nil
         end,
         canonicalize = function(value)
@@ -315,8 +315,8 @@ function M.absolutizingADriveRelativePathRequiresTheCurrentDrive()
     package.loaded["nupp.io.path.provider"] = loadedProvider
     assert(ok, windowsPath)
 
-    test.eq(assert(windowsPath.newpath("c:work"):absolute()):toString(), "C:/base/work")
-    test.eq(assert(windowsPath.newpath("C:"):absolute()):toString(), "C:/base")
+    test.eq(assert(windowsPath.newpath("c:work"):absolute()):tostring(), "C:/base/work")
+    test.eq(assert(windowsPath.newpath("C:"):absolute()):tostring(), "C:/base")
     local answer, reason = windowsPath.newpath("D:work"):absolute()
     test.eq(answer, nil)
     test.matches(reason, "another drive")

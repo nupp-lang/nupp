@@ -5,12 +5,12 @@ module nupp.runtime.provider.nativetime
 --[[
 Native implementation of [](coroutine.spi).
 
-`now` reports monotonic milliseconds and `wallTime` reports Unix milliseconds.
+`now` reports monotonic milliseconds and `walltime` reports Unix milliseconds.
 Relative sleeps and absolute deadlines must be finite and non-negative. Waiting
 uses the selected suspension implementation so an installed scheduler can park
 instead of blocking its Lua state.
 
-`wakeAt` registers a callback and returns a non-suspending cancellation function.
+`wakeat` registers a callback and returns a non-suspending cancellation function.
 The timer readiness source runs at order 20, ahead of I/O. At most 4,096 timer
 registrations may be pending; cancellation releases a registration without
 waiting for its deadline. State and callbacks are local to one Lua state.
@@ -75,7 +75,7 @@ end
 --- 1970-01-01T00:00:00Z.
 ---
 --- @return milliseconds since the Unix epoch
-function time.wallTime(): number
+function time.walltime(): number
     return assert(tonumber(C.nuppNativeWallMs()))
 end
 
@@ -224,7 +224,7 @@ end
 --- @param resume what to call when the deadline passes
 --- @return how to cancel it, which is idempotent
 --- @raises string when the deadline is invalid or too many timers are pending
-function time.wakeAt(deadline: number, resume: function(boolean)): function(): nil
+function time.wakeat(deadline: number, resume: function(boolean)): function(): nil
     deadline = duration(deadline, "deadline")
     -- A deadline only fires when the shared source is polled, and `sleep` is not
     -- the only way one gets here: a wake registered before anything has slept
@@ -242,7 +242,7 @@ end
 ---
 --- @param deadline an absolute monotonic reading
 --- @raises string when the deadline is invalid or too many timers are pending
-function time.sleepUntil(deadline: number): nil
+function time.sleepuntil(deadline: number): nil
     time.sleep(math.max(0, duration(deadline, "deadline") - time.now()))
 end
 

@@ -67,10 +67,10 @@ record gpu.Buffer<T> is api.Buffer<T>
     layout: function(borrows self: gpu.Buffer<T>): TensorLayout
 
     --- Reports whether this buffer or view occupies a dense element range.
-    isDense: function(borrows self: gpu.Buffer<T>): boolean
+    isdense: function(borrows self: gpu.Buffer<T>): boolean
 
     --- Reports whether every logical element maps to a distinct storage element.
-    isInjective: function(borrows self: gpu.Buffer<T>): boolean
+    isinjective: function(borrows self: gpu.Buffer<T>): boolean
 
     view: function(borrows self: gpu.Buffer<T>, layout: TensorLayout): affine(gpu.Buffer<T>) borrows (self)
 
@@ -140,15 +140,15 @@ record gpu.Phases is api.Phases
 
     --- Reduces one power-of-two f32 workgroup in a fixed left-before-right
     --- tree. The sum is left in element zero.
-    reduceSum: function(borrows self: gpu.Phases, exclusive values: api.Shared<float>): nil
+    reducesum: function(borrows self: gpu.Phases, exclusive values: api.Shared<float>): nil
 
-    --- Computes a deterministic inclusive u32 prefix sum. `temporary` is a
+    --- Computes a deterministic inclusive u32 prefix sum. `tmp` is a
     --- same-sized scratch array used for disjoint ping-pong stages; the result
     --- is left in `values`.
-    inclusiveScan: function(
+    inclusivescan: function(
         borrows self: gpu.Phases,
         exclusive values: api.Shared<uint32>,
-        exclusive temporary: api.Shared<uint32>
+        exclusive tmp: api.Shared<uint32>
     ): nil
 end
 

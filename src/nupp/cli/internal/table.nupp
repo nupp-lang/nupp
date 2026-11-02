@@ -41,7 +41,7 @@ export record Cell
     note: string?
 
     --- Paints the note. Defaults to the style's `faint`, which is what an aside is.
-    notePaint: (function(string): string)?
+    notepaint: (function(string): string)?
 end
 
 --- A column.
@@ -58,7 +58,7 @@ export record Column
 
     --- A floor on the width, for a column whose contents are shorter than what
     --- they will be once a row appears that fills it.
-    minimumWidth: integer?
+    minimumwidth: integer?
 end
 
 --- What to render.
@@ -74,7 +74,7 @@ export record Options
     style: Style?
 
     --- Paints the heading row. Defaults to the style's `heading` role.
-    headingPaint: (function(string): string)?
+    headingpaint: (function(string): string)?
 
     --- Printed between columns. Two spaces unless a caller says otherwise.
     gap: string?
@@ -83,7 +83,7 @@ export record Options
     indent: string?
 
     --- Whether to print the heading row at all.
-    showHeading: boolean?
+    showheading: boolean?
 
     --- Columns available on screen. The last column is cut to fit rather than left
     --- to wrap. Nil cuts nothing, which is what a pipe wants.
@@ -135,13 +135,13 @@ export function render(options: Options): string
     end
     const gap = options.gap or "  "
     const indent = options.indent or ""
-    const showHeading = options.showHeading ~= false
+    const showHeading = options.showheading ~= false
     const styles = options.style
-    const headingPaint = options.headingPaint or (styles ~= nil and styles.heading or identity)
+    const headingPaint = options.headingpaint or (styles ~= nil and styles.heading or identity)
 
     local widths: {integer} = {}
     for index, column in ipairs(columns) do
-        local width = column.minimumWidth or 0
+        local width = column.minimumwidth or 0
         if showHeading and #column.heading > width then
             width = #column.heading
         end
@@ -214,7 +214,7 @@ export function render(options: Options): string
                     value,
                     widths[index] - noteWidth,
                     paint
-                ) .. (cell ~= nil and cell.notePaint or notePaint)(note as string)
+                ) .. (cell ~= nil and cell.notepaint or notePaint)(note as string)
             end
 
             return cut(value, widths[index], paint)
@@ -225,7 +225,7 @@ export function render(options: Options): string
         end
         local body = paint(value)
         if note ~= nil then
-            body = body .. (cell ~= nil and cell.notePaint or notePaint)(note)
+            body = body .. (cell ~= nil and cell.notepaint or notePaint)(note)
         end
         if align == "right" then
             return padding .. body
@@ -274,10 +274,10 @@ export function write(stream: LuaFile, options: Options): nil
                 columns = options.columns,
                 rows = options.rows,
                 style = options.style,
-                headingPaint = options.headingPaint,
+                headingpaint = options.headingpaint,
                 gap = options.gap,
                 indent = options.indent,
-                showHeading = options.showHeading,
+                showheading = options.showheading,
                 width = available
             )
         end

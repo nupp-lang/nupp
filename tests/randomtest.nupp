@@ -44,7 +44,7 @@ function M.restoresStateAndReseedsInPlace(): nil
     end
     local checkpoint = generator:state()
     local expected = {generator:next(), generator:next(), generator:next()}
-    generator:setState(checkpoint)
+    generator:setstate(checkpoint)
     assertSame({generator:next(), generator:next(), generator:next()}, expected)
 
     generator:reseed(9)
@@ -61,11 +61,11 @@ function M.readsSeedsAndStateAsSigned32BitWords(): nil
 
     local generator = new random.Xoshiro128(1)
     local zeroOk, zeroReason = pcall(function(): nil
-        generator:setState({0, 0, 0, 0})
+        generator:setstate({0, 0, 0, 0})
     end)
     assert(not zeroOk and tostring(zeroReason):find("nupp: ", 1, true), "a refusal carries the library prefix")
     local shortOk, shortReason = pcall(function(): nil
-        generator:setState({1, 2, 3})
+        generator:setstate({1, 2, 3})
     end)
     assert(not shortOk and tostring(shortReason):find("nupp: ", 1, true), "a refusal carries the library prefix")
 end
@@ -160,5 +160,7 @@ function M.refusesBoundsWithoutAnExactRange(): nil
         end)
     )
 end
+
+assert((random.Xoshiro128 as any).setState == nil)
 
 return M

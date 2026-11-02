@@ -15,7 +15,7 @@ local running = mac.newmac("hmac-sha256", key)
 running:write("hel")
 running:write("lo")
 
-print(running:hexDigest())
+print(running:hexdigest())
 ```
 
 The key is raw bytes. A context is an [`io.Writer`](io.Writer), as a
@@ -52,15 +52,15 @@ export record Algorithm
     @readonly name: string
 
     --- Fixed authentication output size in bytes.
-    @readonly digestSize: integer
+    @readonly digestsize: integer
 
     @private implementation: provider.Algorithm
 
     --- Creates independent owned state initialized with the raw-byte key.
     --- @return the unfinished keyed context
     --- @raises string when provider initialization fails
-    function newMac(self, key: string): Mac
-        return context.wrap(self.implementation:create(key), self.name, self.digestSize)
+    function newmac(self, key: string): Mac
+        return context.wrap(self.implementation:create(key), self.name, self.digestsize)
     end
 end
 
@@ -72,16 +72,16 @@ local function validate(selected: provider.Provider): nil
             or name == ""
             or type(implementation) ~= "table"
             or implementation.name ~= name
-            or type(implementation.digestSize) ~= "number"
-            or implementation.digestSize <= 0
-            or implementation.digestSize % 1 ~= 0
+            or type(implementation.digestsize) ~= "number"
+            or implementation.digestsize <= 0
+            or implementation.digestsize % 1 ~= 0
             or type(implementation.create) ~= "function"
         then
             error("invalid mac algorithm descriptor " .. tostring(name), 2)
         end
         local expected = standard.algorithms[name]
-        if expected ~= nil and implementation.digestSize ~= expected.digestSize then
-            error("mac provider has the wrong digestSize for " .. name, 2)
+        if expected ~= nil and implementation.digestsize ~= expected.digestsize then
+            error("mac provider has the wrong digestsize for " .. name, 2)
         end
     end
 end
@@ -94,12 +94,12 @@ local available: {[string]: Algorithm} = {}
 for name, implementation in pairs(standard.algorithms) do
     available[
         name
-    ] = new Algorithm(name = name, digestSize = implementation.digestSize, implementation = implementation)
+    ] = new Algorithm(name = name, digestsize = implementation.digestsize, implementation = implementation)
 end
 for name, implementation in pairs(selected.algorithms) do
     available[
         name
-    ] = new Algorithm(name = name, digestSize = implementation.digestSize, implementation = implementation)
+    ] = new Algorithm(name = name, digestsize = implementation.digestsize, implementation = implementation)
 end
 local names: {string} = {}
 for name in pairs(available) do
@@ -133,7 +133,7 @@ end
 --- @return an unfinished keyed context
 --- @raises string when lookup or provider initialization fails
 export function newmac(name: string, key: string): Mac
-    return algorithm(name):newMac(key)
+    return algorithm(name):newmac(key)
 end
 
 --- Lists available canonical MAC names in ascending order.
@@ -168,5 +168,5 @@ end
 export function hexdigest(name: string, key: string, bytes: string): string
     local mac = newmac(name, key)
     mac:write(bytes)
-    return mac:hexDigest()
+    return mac:hexdigest()
 end

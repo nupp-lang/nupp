@@ -134,7 +134,7 @@ local function run(options: any): integer
             columns = {
                 {heading = "lint"},
                 {heading = "category"},
-                {heading = "level", minimumWidth = 7},
+                {heading = "level", minimumwidth = 7},
                 {heading = "summary"},
             },
             rows = cells,
@@ -157,7 +157,7 @@ end
 @derive(cliModule.command)
 local record Lints
     --- Select the report representation.
-    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", constantaliases = {json = "json", text = "text"})
     format: "text" | "json" = "text"
 
     --- Print the JSON Schema of JSON output and exit.

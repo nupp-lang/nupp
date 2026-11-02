@@ -5,13 +5,13 @@ module nupp.runtime.browser.time
 --[[
 Browser implementation of [](coroutine.spi).
 
-`now` returns monotonic milliseconds from the Worker time origin; `wallTime`
+`now` returns monotonic milliseconds from the Worker time origin; `walltime`
 returns Unix milliseconds. Clock reads and sleeps use the shared response channel
 and may suspend. Sleeps and deadlines reject non-finite or negative values.
 
-`wakeAt` submits an absolute monotonic deadline without suspending the subscriber.
+`wakeat` submits an absolute monotonic deadline without suspending the subscriber.
 Its callback receives whether the host completed without an error, and its
-returned cancellation function cancels the outstanding request. `sleepUntil`
+returned cancellation function cancels the outstanding request. `sleepuntil`
 computes the remaining interval using the same monotonic clock.
 
 [](coroutine) binds these operations at require-time. Timer handles and callbacks
@@ -53,7 +53,7 @@ function time.now(): number
 end
 
 --- Unix time in milliseconds.
-function time.wallTime(): number
+function time.walltime(): number
     return clock(response.await("time", {operation = "wall",}), "wall clock", false)
 end
 
@@ -63,7 +63,7 @@ function time.sleep(milliseconds: number): nil
 end
 
 --- Suspends until an absolute monotonic deadline.
-function time.sleepUntil(deadline: number): nil
+function time.sleepuntil(deadline: number): nil
     local remaining = duration(deadline, "deadline") - time.now()
     if remaining <= 0 then
         return
@@ -72,7 +72,7 @@ function time.sleepUntil(deadline: number): nil
 end
 
 --- Registers a cancellable timer without suspending its subscriber.
-function time.wakeAt(deadline: number, resume: function(boolean): nil): function(): nil
+function time.wakeat(deadline: number, resume: function(boolean): nil): function(): nil
     return effects.request(
         "time",
         {
@@ -86,11 +86,11 @@ function time.wakeAt(deadline: number, resume: function(boolean): nil): function
 end
 
 local checked: contracts.Provider = {
-    wakeAt = time.wakeAt,
+    wakeat = time.wakeat,
     now = time.now,
-    wallTime = time.wallTime,
+    walltime = time.walltime,
     sleep = time.sleep,
-    sleepUntil = time.sleepUntil,
+    sleepuntil = time.sleepuntil,
 }
 
 export = checked

@@ -427,8 +427,7 @@ function deriveProvider.materializeInfo(state: any, input: any, opaque: any, pro
     )
 end
 
--- A0 seed transition: accept new public keys without changing private payloads.
--- Remove the preceding public keys after the accepting seed is pinned.
+-- Canonical public metadata keys map to unchanged private payload fields.
 local INFO_KEYS: {
     [string]: string
 } = {
@@ -445,45 +444,37 @@ local FIELD_KEYS: {
 
 function deriveProvider.index(state: any, entry: any, key: any): any, any
     if entry.family == "Info" then
-        key = INFO_KEYS[key] or key
         local payload = entry.payload
+        local property = INFO_KEYS[key]
+        if property ~= nil then
+            return payload[property]
+        end
         if key == "reference" then
             return payload.referenceHandle
         elseif key == "fields" then
             return payload.fieldsHandle
-        elseif key == "ownerType" or key == "interfaceType" then
-            return payload[key]
         elseif key == "annotations" then
             return payload.annotationsHandle
         elseif key == "schema"
             or key == "kind"
             or key == "name"
             or key == "visibility"
-            or key == "providerIdentity"
-            or key == "ownerIdentity"
-            or key == "qualifiedName"
             or key == "documentation"
-            or key == "hasConstructor"
             or key == "fingerprint"
         then
             return payload[key]
         end
     elseif entry.family == "Field" then
-        key = FIELD_KEYS[key] or key
         local payload = entry.payload
+        local property = FIELD_KEYS[key]
+        if property ~= nil then
+            return payload[property]
+        end
         if key == "reference" then
             return payload.referenceHandle
         elseif key == "annotations" then
             return payload.annotationsHandle
-        elseif key == "readType"
-            or key == "writeType"
-            or key == "name"
-            or key == "documentation"
-            or key == "readable"
-            or key == "writable"
-            or key == "hasDefault"
-            or key == "defaultValue"
-        then
+        elseif key == "name" or key == "documentation" or key == "readable" or key == "writable" then
             return payload[key]
         end
     elseif entry.family == "View" then

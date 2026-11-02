@@ -532,7 +532,7 @@ local function stopService(force: boolean?): nil
 end
 
 local function startService(executable: string, host: any?): any, worker.Failure?
-    if service and serviceExecutable == executable and service.child:isRunning() then
+    if service and serviceExecutable == executable and service.child:isrunning() then
         service.pump = host and host.pump or nil
         service.cancelled = host and host.cancelled or nil
         return service, nil

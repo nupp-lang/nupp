@@ -91,11 +91,11 @@ local record Structure<T> is lowering.Encoding<T>
         if budget ~= nil then
             budget:step(self.path)
         end
-        sink:startObject()
+        sink:startobject()
         for _, field in ipairs(self.fields) do
             field:write(value, sink, budget)
         end
-        sink:endObject()
+        sink:endobject()
     end
 end
 local record SelectStructure<T, M is core.Member> is structures.Consumer<T, M, lowering.Encoding<T>?>

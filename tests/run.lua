@@ -1650,7 +1650,7 @@ local function resolveFixture(key, produce)
     end
 
     local files = require("io.files")
-    local made, makeProblem = files.createdirectory(fixtureRoot)
+    local made, makeProblem = files.mkdir(fixtureRoot)
     if not made then
         error("cannot create fixture store: " .. tostring(makeProblem), 2)
     end
@@ -1696,7 +1696,7 @@ local function resolveFixture(key, produce)
         end
         local temporary = fixtureRoot .. "/." .. slot .. ".tmp-" .. shardSalt .. "-" .. fixtureSerial
         files.remove(temporary, true)
-        local prepared, prepareProblem = files.createdirectory(temporary)
+        local prepared, prepareProblem = files.mkdir(temporary)
         if not prepared then
             os.remove(lock)
             error("cannot prepare fixture " .. key .. ": " .. tostring(prepareProblem), 2)

@@ -60,12 +60,12 @@ local supported: {
     [string]: boolean
 } = {
     null = true,
-    boolean = true,
+    bool = true,
     integer = true,
     float = true,
-    bigInteger = true,
+    biginteger = true,
     decimal = true,
-    numberToken = true,
+    numbertoken = true,
     string = true,
     bytes = true,
     timestamp = true,
@@ -101,7 +101,7 @@ local function validate<M is core.Member>(
     end
     seen[description] = true
     assert(supported[description.kind], "unsupported native persistence kind: " .. description.kind)
-    assert(direction ~= "read" or description.canRead, "binding has no construction operation")
+    assert(direction ~= "read" or description.canread, "binding has no construction operation")
     for _, child in ipairs(description.children) do
         validate(child:describe(direction), direction, seen)
     end
@@ -380,7 +380,7 @@ local function decodeContents<D>(adapter: core.DocumentAdapter<D>, bytes: string
         contexts.builder(identity, profile):freeze()
     )
     local reader = readers.reader(value)
-    local result = adapter:readContents(reader)
+    local result = adapter:readcontents(reader)
     local complete, problem = pcall(reader.finish, reader)
     if not complete then
         error(publication.failure(adapter, result, problem), 0)
@@ -397,17 +397,17 @@ export interface Codec
     --- Decodes a value. See [](decode).
     decode: function<T>(self, binding: core.Binding<T>, bytes: string): T
 
-    --- Encodes a document's contents. See [](encodeDocument).
-    encodeDocument: function<D>(self, adapter: core.DocumentAdapter<D>, borrows value: D): string
+    --- Encodes a document's contents. See [](encodedocument).
+    encodedocument: function<D>(self, adapter: core.DocumentAdapter<D>, borrows value: D): string
 
-    --- Decodes document contents. See [](decodeDocument).
-    decodeDocument: function<D>(self, adapter: core.DocumentAdapter<D>, bytes: string): D
+    --- Decodes document contents. See [](decodedocument).
+    decodedocument: function<D>(self, adapter: core.DocumentAdapter<D>, bytes: string): D
 
     --- Forgets every binding's selections.
     clear: function(self): nil
 
     --- Returns how many bindings have selections retained.
-    cachedBindings: function(self): integer
+    cachedbindings: function(self): integer
 end
 
 local record Cached is Codec
@@ -420,11 +420,11 @@ local record Cached is Codec
         return decodeValue(binding, bytes, self.scope)
     end
 
-    function encodeDocument<D>(self, adapter: core.DocumentAdapter<D>, borrows value: D): string
+    function encodedocument<D>(self, adapter: core.DocumentAdapter<D>, borrows value: D): string
         return encodeValue(adapter:contents(), value, self.scope)
     end
 
-    function decodeDocument<D>(self, adapter: core.DocumentAdapter<D>, bytes: string): D
+    function decodedocument<D>(self, adapter: core.DocumentAdapter<D>, bytes: string): D
         return decodeContents(adapter, bytes)
     end
 
@@ -432,7 +432,7 @@ local record Cached is Codec
         self.scope:clear()
     end
 
-    function cachedBindings(self): integer
+    function cachedbindings(self): integer
         return self.scope.memo:size()
     end
 end
@@ -478,14 +478,14 @@ end
 --- local native = require("serde.native")
 --- local value = document.list({document.numbertoken("1e400"), document.bytes("\0\1")})
 --- local restored = native.decodedocument(document.adapter(), native.encodedocument(document.adapter(), value))
---- assert(restored:at(1):numberToken() == "1e400" and restored:at(2):bytes() == "\0\1")
+--- assert(restored:at(1):numbertoken() == "1e400" and restored:at(2):bytes() == "\0\1")
 --- ```
 ---
 --- @param adapter the document adapter, such as [](serde.document.adapter)
 --- @param value the document
 --- @return the frame
 export function encodedocument<D>(adapter: core.DocumentAdapter<D>, borrows value: D): string
-    return defaultCodec:encodeDocument(adapter, value)
+    return defaultCodec:encodedocument(adapter, value)
 end
 
 --- Decodes a frame as document contents.
@@ -495,5 +495,5 @@ end
 --- @return the document
 --- @raises serde.Error when the frame is malformed or of an unknown version
 export function decodedocument<D>(adapter: core.DocumentAdapter<D>, bytes: string): D
-    return defaultCodec:decodeDocument(adapter, bytes)
+    return defaultCodec:decodedocument(adapter, bytes)
 end

@@ -21,7 +21,7 @@ without introducing competing nominal types.
 ]]
 
 local provider = {}
-provider.referenceValued = true
+provider.referencevalued = true
 
 local function wrapInteger(value: number, bits: integer, signed: boolean): number
     local modulus = 2 ^ bits

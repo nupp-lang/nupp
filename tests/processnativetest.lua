@@ -103,7 +103,7 @@ function M.communicateDrainsRealPipesWhileFeedingInput()
     child:close()
 
     test.eq(result.output, "out:joined")
-    test.eq(result.errorOutput, "err:joined")
+    test.eq(result.erroroutput, "err:joined")
     assert(result:succeeded(), "the real child succeeded")
 end
 
@@ -114,35 +114,35 @@ function M.stderrCanJoinTheActualStdoutDestination()
     child:close()
 
     assert(result.output:find("out", 1, true) and result.output:find("err", 1, true), result.output)
-    test.eq(result.errorOutput, "")
+    test.eq(result.erroroutput, "")
     assert(result:succeeded())
 end
 
 function M.deadlineEndsAQuietRealChild()
     ready()
-    local child = assert(startProcess({args = shell("sleep 10"), stdout = "null", stderr = "null", timeoutMs = 30,}))
+    local child = assert(startProcess({args = shell("sleep 10"), stdout = "null", stderr = "null", timeoutms = 30,}))
     local exit = child:wait()
     child:close()
 
     assert(exit.killed, "the quiet child was terminated")
-    assert(exit.timedOut, "and the deadline was the reason")
+    assert(exit.timedout, "and the deadline was the reason")
     assert(not exit:succeeded())
 end
 
 function M.sharedViewsUseTheRealStreamsAndDeliverEof()
     ready()
     local child = assert(startProcess({args = shell("cat"), stderr = "null"}))
-    local writer = assert(child.stdin):asWriter()
-    local reader = assert(child.stdout):asReader()
+    local writer = assert(child.stdin):aswriter()
+    local reader = assert(child.stdout):asreader()
     assert(writer:write("adapter"))
     writer:close()
 
     local destination = buffers.newbuffer()
-    local sink = destination:newWriter()
-    local copied = assert(reader:transferTo(sink))
+    local sink = destination:newwriter()
+    local copied = assert(reader:transferto(sink))
     sink:close()
     test.eq(copied, 7)
-    test.eq(destination:getString(), "adapter")
+    test.eq(destination:getstring(), "adapter")
     reader:close()
     local exit = child:wait()
     child:close()
@@ -171,7 +171,7 @@ function M.aMissingProgramAnswersAReasonRatherThanRaising()
     assert(ok, "spawn did not raise: " .. tostring(child))
     test.eq(child, nil)
     assert(reason ~= nil and #tostring(reason) > 0, "and said why")
-    test.eq(reason.kind, "notFound")
+    test.eq(reason.kind, "notfound")
 
     -- uv_spawn initializes its process handle before it can report that exec
     -- failed. The failed handle must be closed rather than freed in place, or
@@ -189,7 +189,7 @@ function M.aProcessWriterTakesCheckedSpans()
     ready()
     local child = assert(startProcess({args = shell("cat > /dev/null")}))
     local source = buffers.newbuffer("checked bytes")
-    local wrote, reason = child.stdin:writeSpan(source:readSpan())
+    local wrote, reason = child.stdin:writespan(source:readspan())
     assert(wrote, reason)
     test.eq(wrote, 13)
     child.stdin:close()
@@ -208,7 +208,7 @@ function M.communicateAcceptsBuffersAndEnforcesItsCombinedLimit()
     input:close()
 
     local noisy = assert(startProcess({args = shell("printf 12345; printf 67890 >&2"),}))
-    local limited, limitReason = noisy:communicate({maxOutputBytes = 6})
+    local limited, limitReason = noisy:communicate({maxoutputbytes = 6})
     test.eq(limited, nil)
     test.eq(tostring(limitReason), "process output exceeds the configured maximum")
     test.eq(limitReason.kind, "limit")
@@ -221,7 +221,7 @@ function M.environmentAndWorkingDirectoryKeepTheirTecsMeaning()
         startProcess({
             args = shell("printf '%s|%s' \"$PWD\" \"$NUPP_PROCESS_MARKER\""),
             cwd = require("io.path").newpath("/"),
-            clearEnv = true,
+            clearenv = true,
             env = {NUPP_PROCESS_MARKER = "present"},
             stderr = "null",
         })
@@ -244,7 +244,7 @@ function M.plainLuaReceivesTheSameArgumentAndTimeoutChecks()
     ok, reason = pcall(startProcess, {args = {SHELL, false}})
     assert(not ok and tostring(reason):find("must be a string", 1, true), tostring(reason))
 
-    ok, reason = pcall(startProcess, {args = {SHELL}, timeoutMs = 1.5})
+    ok, reason = pcall(startProcess, {args = {SHELL}, timeoutms = 1.5})
     assert(not ok and tostring(reason):find("timeout", 1, true), tostring(reason))
 
     local child = assert(startProcess({args = shell("cat"), stderr = "null"}))

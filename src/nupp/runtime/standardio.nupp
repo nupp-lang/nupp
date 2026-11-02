@@ -11,7 +11,7 @@ HTTP response body.
 
 ```nupp:playground
 local bytes = io.newbuffer("hello")
-local reader = bytes:newReader()
+local reader = bytes:newreader()
 assert(reader:read(5) == "hello")
 ```
 
@@ -36,7 +36,7 @@ against byte I/O therefore accepts all of them.
 Buffers, views, readers, writers, and their adapters are owners. A factory that
 takes a reader or writer transfers its close obligation to the adapter; a
 factory that borrows a buffer or byte queue leaves that value with its caller.
-`close` consumes an owner. Types that expose `isReleased` report their state
+`close` consumes an owner. Types that expose `isreleased` report their state
 without changing it.
 
 ## Buffers
@@ -46,8 +46,8 @@ bytes; an integer reserves capacity without changing the length.
 
 ```nupp
 local bytes = io.newbuffer("hello")
-bytes:setString("!", bytes:len())
-assert(bytes:getString() == "hello!")
+bytes:setstring("!", bytes:len())
+assert(bytes:getstring() == "hello!")
 ```
 
 Buffer offsets are zero-based, as they are wherever a count is an offset into
@@ -55,29 +55,29 @@ storage rather than a position in a Lua string. See [Byte
 positions](docs/learn/runtime/data/standard-library.md#byte-positions) for the
 rule and where the other convention applies.
 
-`getString(offset, count)` copies a range. `setString` overwrites from an
+`getstring(offset, count)` copies a range. `setstring` overwrites from an
 offset and grows the buffer as needed, filling any gap with zero bytes. `clear`
 sets the length to zero without discarding capacity, and `resize` truncates or
 zero-fills:
 
 ```nupp
 local bytes = io.newbuffer("hello")
-bytes:ensureCapacity(4096)
+bytes:ensurecapacity(4096)
 assert(bytes:capacity() >= 4096)
 bytes:resize(3)
-assert(bytes:getString() == "hel")
+assert(bytes:getstring() == "hel")
 ```
 
 Capacity is the allocation, not a recorded number. Growing at least doubles it,
 so appending through a writer costs amortized constant time per byte and
-`capacity()` reports bytes that are actually held. `ensureCapacity` reserves at
+`capacity()` reports bytes that are actually held. `ensurecapacity` reserves at
 least the minimum asked for.
 
 `close()` releases the buffer's storage and returns nothing, and an operation on
 a released buffer raises rather than answering a reason.
 
-`readSpan()` borrows the buffer's initialized bytes without separating its
-pointer from its length. Native producers write through `reserveWrite(offset,
+`readspan()` borrows the buffer's initialized bytes without separating its
+pointer from its length. Native producers write through `reservewrite(offset,
 count)`: the returned lease supplies a checked writable span, and
 `commit(written)` changes the logical length only after the producer succeeds.
 Dropping the lease aborts it and leaves the length unchanged.
@@ -91,12 +91,12 @@ the buffer. It remains valid if the source buffer changes or closes:
 local buffer = io.newbuffer("header-body")
 local header = buffer:view(0, 6)
 buffer:clear()
-assert(header:getString() == "header")
+assert(header:getstring() == "header")
 header:close()
 ```
 
 A view can make a smaller view, open its own snapshot reader, report its byte
-length, copy to a string, borrow a checked span with `readSpan()`, and be
+length, copy to a string, borrow a checked span with `readspan()`, and be
 closed. Its offsets are zero-based like a buffer's. The data and UTF-8 modules
 accept views, which is what keeps those APIs from being coupled to a mutable
 buffer.
@@ -104,7 +104,7 @@ buffer.
 ## Readers
 
 A `io.Reader` is a forward-only byte source. `newstringreader(text)` reads
-a string; `buffer:newReader()` reads a snapshot of the buffer's current
+a string; `buffer:newreader()` reads a snapshot of the buffer's current
 contents. A reader owns its close obligation and closes automatically at the
 end of its scope unless `close()` consumes it earlier.
 
@@ -113,18 +113,18 @@ local reader = io.newstringreader("abcdef")
 assert(reader:read(2) == "ab")
 
 local destination = io.newbuffer()
-assert(reader:readInto(destination, 0, 3) == 3)
-assert(destination:getString() == "cde")
+assert(reader:readinto(destination, 0, 3) == 3)
+assert(destination:getstring() == "cde")
 assert(reader:read(8) == "f")
 assert(reader:read(8) == "") -- EOF
 ```
 
 `read(count)` requires a positive count and returns at most that many bytes. It
 returns an empty string at EOF and nil with a reason after close.
-`readSpan(writable)` fills a positive-sized checked writable span.
-`readInto(buffer, offset, count)` returns zero at EOF and reads 64 KiB when
+`readspan(writable)` fills a positive-sized checked writable span.
+`readinto(buffer, offset, count)` returns zero at EOF and reads 64 KiB when
 given no count; an explicit count must be positive. A failed or EOF read does
-not extend the destination. `transferTo(writer)` copies the entire remaining
+not extend the destination. `transferto(writer)` copies the entire remaining
 source and returns the byte count.
 
 A read moves the reader's cursor as a write moves a writer's, so all four take
@@ -132,7 +132,7 @@ the reader exclusively. Two readers over one cursor, such as a stream and a
 borrowed view of it, cannot both be reading at once; the checker refuses the
 second while the first is live.
 
-`readall(reader, maxBytes)` takes a reader and returns everything left in it as
+`readall(reader, maxbytes)` takes a reader and returns everything left in it as
 one string, closing the reader on the way out. A limit is checked as the bytes
 arrive, so a source larger than it returns a reason rather than a string:
 
@@ -144,7 +144,7 @@ assert(text == nil and reason ~= nil)
 
 ## Writers
 
-`buffer:newWriter()` clears the buffer and returns a forward-only writer
+`buffer:newwriter()` clears the buffer and returns a forward-only writer
 targeting it. A writer likewise closes automatically; `flush()` publishes
 pending work without consuming that ownership. The writer holds its buffer
 exclusively for as long as it is live, so the buffer is read once the writer is
@@ -153,17 +153,17 @@ gone:
 ```nupp
 local destination = io.newbuffer()
 do
-    local writer = destination:newWriter()
+    local writer = destination:newwriter()
     assert(writer:write("prefix:"))
 
     local payload = io.newbuffer("body")
-    assert(writer:writeSpan(payload:readSpan()) == 4)
+    assert(writer:writespan(payload:readspan()) == 4)
     assert(writer:flush())
 end
-assert(destination:getString() == "prefix:body")
+assert(destination:getstring() == "prefix:body")
 ```
 
-`write` returns a boolean and `writeSpan` returns the byte count. Both return a
+`write` returns a boolean and `writespan` returns the byte count. Both return a
 reason when the writer is closed or the destination was released. The span is
 the common zero-copy input contract for buffers, views, files, processes, and
 HTTP transfers; there is no unchecked raw-pointer writer alongside it. `flush`
@@ -196,14 +196,14 @@ the missing piece, a sized integer or float landing on those bytes without an
 
 ```nupp
 local writer = io.newscalarwriter()
-writer:writeUint32(1447383632):writeFloat64(1.5)
+writer:writeuint32(1447383632):writefloat64(1.5)
 
 local stored = writer:buffer()
 assert(stored ~= nil)
 local reader = io.newscalarreader(stored)
-assert(reader:readUint32() == 1447383632)
-assert(reader:readFloat64() == 1.5)
-assert(reader:atEnd())
+assert(reader:readuint32() == 1447383632)
+assert(reader:readfloat64() == 1.5)
+assert(reader:atend())
 ```
 
 Every write returns the writer, so calls chain. A short read raises rather than
@@ -224,7 +224,7 @@ assert(reader:remaining() == 4)
 
 A `Reader` is consumed as it goes, which is what lets a file or an HTTP body be
 read a field at a time. It cannot say how much is left, so `remaining()` returns
-nil and `atEnd()` is the question to ask instead. The scalar adapter takes that
+nil and `atend()` is the question to ask instead. The scalar adapter takes that
 reader: closing the adapter, by hand or at the end of its scope, closes the
 reader exactly once.
 
@@ -238,9 +238,9 @@ own, which `buffer()` hands back:
 local destination = io.newbuffer("header:")
 do
     local scalars = io.newscalarwriter(destination)
-    scalars:writeUint8(33)
+    scalars:writeuint8(33)
 end
-assert(destination:getString() == "header:!")
+assert(destination:getstring() == "header:!")
 ```
 
 A writer pointed at somebody else's `Writer` returns nil from `buffer()`, since
@@ -254,13 +254,13 @@ borrows it for as long as the scalar writer remains live.
 The files, process, network, TLS and HTTP modules return a failure from the
 environment as `nil, err`, where `err` is a [](io.Error): a `kind` a
 program can branch on and a `message` a person can read. The kind is the same on
-every platform and provider, so a missing file is `"notFound"` whether the
+every platform and provider, so a missing file is `"notfound"` whether the
 operating system or the browser said so; the message is whatever the platform
 said and is not.
 
 ```nupp
 local text, err = io.files.read("settings.json")
-if text == nil and err ~= nil and err.kind == "notFound" then
+if text == nil and err ~= nil and err.kind == "notfound" then
     text = "{}"
 end
 ```
@@ -284,14 +284,14 @@ queue:put("header:")
 queue:put("!")
 
 local reader = io.newscalarreader(queue)
-assert(reader:readBytes(7) == "header:")
+assert(reader:readbytes(7) == "header:")
 assert(queue:tostring() == "!")
-assert(reader:readUint8() == 33)
+assert(reader:readuint8() == 33)
 ```
 
 Reading drains the queue, and `remaining()` reports what it still holds.
 `newqueuereader` is the same bridge one layer down: it returns an ordinary
-`Reader` over the queue, for `transferTo`, `readInto`, and everything else that
+`Reader` over the queue, for `transferto`, `readinto`, and everything else that
 contract already covers.
 
 ```nupp
@@ -300,9 +300,9 @@ local queue = nupp.text.newbuffer()
 queue:put("payload")
 do
     local reader = io.newqueuereader(queue)
-    assert(reader:transferTo(destination:newWriter()) == 7)
+    assert(reader:transferto(destination:newwriter()) == 7)
 end
-assert(destination:getString() == "payload")
+assert(destination:getstring() == "payload")
 ```
 
 Neither takes the queue over. Nothing here frees or closes it, and one read to

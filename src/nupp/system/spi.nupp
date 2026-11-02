@@ -29,8 +29,8 @@ export interface Provider
     @readonly endianness: string
 
     --- Pointer width in bits: 32 or 64.
-    @readonly pointerBits: integer
+    @readonly pointerbits: integer
 
     --- Estimates usable execution units, always at least one.
-    @readonly availableParallelism: function(): integer
+    @readonly availableparallelism: function(): integer
 end

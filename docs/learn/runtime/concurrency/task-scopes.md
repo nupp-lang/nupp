@@ -38,7 +38,7 @@ return a `Task<F>`.
 ```nupp:fragment
 const page = scope:spawn(function(): string return fetchPage() end)
 const size = scope:spawn(url, measure)                 -- measure(url: string): integer
-const thumbnail = scope:fork(bytes, jobs.thumbnail)    -- on a worker lane
+const thumbnail = scope:work(bytes, jobs.thumbnail)    -- on a worker lane
 ```
 
 A module function with arguments builds nothing per call, which is what a loop
@@ -52,7 +52,7 @@ provider says which values may cross: the native provider moves an engine-backed
 `nupp.mem.heap` buffer, the browser provider refuses every ownership mode.
 
 `await` returns the body's complete result pack, including nil positions, and
-may be called again after settlement. `isDone` checks settlement without
+may be called again after settlement. `isdone` checks settlement without
 waiting, and `status` returns `queued`, `running`, `done`, `failed`, or
 `cancelled`: a `coroutine.Status`, a closed union a `switch` covers without an
 `else`. Handles borrow the scope that created them: one cannot be returned from
@@ -84,7 +84,7 @@ child that awaits it, which is the child that occupies the slot:
 with scope = coroutine.scope(limit = os.info().parallelism) do
     for name, path in pairs(paths) do
         scope:spawn(function(): nil
-            const size = scope:fork(name, path, jobs.compress):await()
+            const size = scope:work(name, path, jobs.compress):await()
             total = total + size
         end)
     end
@@ -134,7 +134,7 @@ with scope = coroutine.scope(limit = 4) do
     for _, mirror in ipairs(mirrors) do
         if winner ~= nil then break end
         scope:spawn(function(): nil
-            const answer = scope:fork(mirror, jobs.probe):await()
+            const answer = scope:work(mirror, jobs.probe):await()
             if answer ~= nil and winner == nil then
                 winner = answer
                 scope:cancel("a mirror answered")
@@ -263,14 +263,14 @@ raises its cancellation rather than its branch outcomes where it passes.
 
 ## Deadlines
 
-`scope(timeoutMs = milliseconds)` bounds the scope on the monotonic clock. A
+`scope(timeoutms = milliseconds)` bounds the scope on the monotonic clock. A
 scope opened inside another takes the earlier of its own deadline and the
 enclosing scope's, so a child may bound itself more tightly than its parent did
 and may not extend what its parent already promised. `coroutine.deadline()`
 returns the current absolute deadline, or nil outside a bounded scope.
 
 ```nupp:fragment
-with scope = coroutine.scope(timeoutMs = 5000) do
+with scope = coroutine.scope(timeoutms = 5000) do
     index(scope:spawn(url, fetch):await())
 end
 ```
@@ -283,8 +283,8 @@ every parked child far enough to unwind through its cleanup, exactly as
 scope's promise broken, so unlike `scope:cancel()` it is raised where the block
 is left, once the children have settled.
 
-Both arguments are named: `scope()`, `scope(limit = 8)`, `scope(timeoutMs =
-500)`, or `scope(limit = 8, timeoutMs = 500)`.
+Both arguments are named: `scope()`, `scope(limit = 8)`, `scope(timeoutms =
+500)`, or `scope(limit = 8, timeoutms = 500)`.
 
 ## Settlement
 

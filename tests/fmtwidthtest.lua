@@ -240,15 +240,15 @@ end
 -- step lines up under it.
 function M.methodChainsBreakBetweenTheirSteps()
     check(
-        "local production = endpoint:withUserInfo(nil):withHost(\"api.example.com\")"
-        .. ":withPort(nil):withQuery(nil):withFragment(nil):withScheme(\"https\")\n",
+        "local production = endpoint:withuserinfo(nil):withhost(\"api.example.com\")"
+        .. ":withport(nil):withquery(nil):withfragment(nil):withscheme(\"https\")\n",
         lines(
-            "local production = endpoint:withUserInfo(nil)",
-            "    :withHost(\"api.example.com\")",
-            "    :withPort(nil)",
-            "    :withQuery(nil)",
-            "    :withFragment(nil)",
-            "    :withScheme(\"https\")"
+            "local production = endpoint:withuserinfo(nil)",
+            "    :withhost(\"api.example.com\")",
+            "    :withport(nil)",
+            "    :withquery(nil)",
+            "    :withfragment(nil)",
+            "    :withscheme(\"https\")"
         )
     )
 end
@@ -273,18 +273,18 @@ end
 -- would read as another element rather than the rest of one.
 function M.methodChainStepsInsideAGroupTakeAContinuationIndent()
     check(
-        "local wrapped = wrap(endpoint:withUserInfo(nil):withHost(\"api.example.com\")"
-        .. ":withPort(nil):withQuery(nil):withFragment(nil):withScheme(\"https\")"
-        .. ":withPath(\"/v1\"), fallbackValue)\n",
+        "local wrapped = wrap(endpoint:withuserinfo(nil):withhost(\"api.example.com\")"
+        .. ":withport(nil):withquery(nil):withfragment(nil):withscheme(\"https\")"
+        .. ":withpath(\"/v1\"), fallbackValue)\n",
         lines(
             "local wrapped = wrap(",
-            "    endpoint:withUserInfo(nil)",
-            "        :withHost(\"api.example.com\")",
-            "        :withPort(nil)",
-            "        :withQuery(nil)",
-            "        :withFragment(nil)",
-            "        :withScheme(\"https\")",
-            "        :withPath(\"/v1\"),",
+            "    endpoint:withuserinfo(nil)",
+            "        :withhost(\"api.example.com\")",
+            "        :withport(nil)",
+            "        :withquery(nil)",
+            "        :withfragment(nil)",
+            "        :withscheme(\"https\")",
+            "        :withpath(\"/v1\"),",
             "    fallbackValue",
             ")"
         )
@@ -295,11 +295,11 @@ end
 -- them, so it is where the line parts first.
 function M.operatorsOutrankTheChainTheyJoin()
     check(
-        "local resolved = endpoint:withUserInfo(nil):withHost(\"api.example.com\")"
-        .. " or fallback:withPort(nil):withQuery(nil):withFragment(nil)\n",
+        "local resolved = endpoint:withuserinfo(nil):withhost(\"api.example.com\")"
+        .. " or fallback:withport(nil):withquery(nil):withfragment(nil)\n",
         lines(
-            "local resolved = endpoint:withUserInfo(nil):withHost(\"api.example.com\")",
-            "    or fallback:withPort(nil):withQuery(nil):withFragment(nil)"
+            "local resolved = endpoint:withuserinfo(nil):withhost(\"api.example.com\")",
+            "    or fallback:withport(nil):withquery(nil):withfragment(nil)"
         )
     )
 end

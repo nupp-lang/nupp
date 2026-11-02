@@ -203,9 +203,7 @@ function Registry:definedBy(source)
 end
 
 function Registry:get(name)
-    -- A0 seed transition: one canonical definition until seed4 source adoption.
-    -- Keep this out of byname so enumeration does not publish duplicate entries.
-    return self.byname[name] or name == "annotationvalue" and self.byname.annotationValue or nil
+    return self.byname[name]
 end
 
 local function categories(node)
@@ -343,7 +341,7 @@ local BUILTINS = {
         docsPath = "docs/learn/language/annotations.md#defining-an-annotation",
     },
     {
-        name = "annotationValue",
+        name = "annotationvalue",
         arguments = "none",
         targets = {"field"},
         doc = "Marks one annotation-definition field as the single positional value, so `@name(value)` and `@name(field = value)` mean the same thing.",
@@ -515,14 +513,13 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
         return value
     end
 
-    local constantaliases = cliMember("constantAliases", typesApi.map(typesApi.string, typesApi.string))
-    local preserveunknown = cliMember("preserveUnknown", typesApi.boolean)
-    local stopatfirstargument = cliMember("stopAtFirstArgument", typesApi.boolean)
+    local constantaliases = cliMember("constantaliases", typesApi.map(typesApi.string, typesApi.string))
+    local preserveunknown = cliMember("preserveunknown", typesApi.boolean)
+    local stopatfirstargument = cliMember("stopatfirstargument", typesApi.boolean)
     cli.members = {
         name = cliMember("name", typesApi.string),
         long = cliMember("long", typesApi.boolean),
         aliases = cliMember("aliases", typesApi.array(typesApi.string)),
-        constantAliases = constantaliases,
         constantaliases = constantaliases,
         short = cliMember("short", typesApi.string),
         value = cliMember("value", typesApi.string),
@@ -533,8 +530,6 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
             typesApi.union({
                 typesApi.literal("none"),
                 typesApi.literal("required"),
-                typesApi.literal("optionalAttached"),
-                typesApi.literal("attachedOnly"),
                 typesApi.literal("optionalattached"),
                 typesApi.literal("attachedonly")
             })
@@ -543,9 +538,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
         remainder = cliMember("remainder", typesApi.boolean),
         hidden = cliMember("hidden", typesApi.boolean),
         group = cliMember("group", typesApi.boolean),
-        preserveUnknown = preserveunknown,
         preserveunknown = preserveunknown,
-        stopAtFirstArgument = stopatfirstargument,
         stopatfirstargument = stopatfirstargument,
         constant = cliMember("constant", typesApi.union({typesApi.string, typesApi.integer, typesApi.boolean})),
         pattern = cliMember("pattern", typesApi.string),
@@ -556,7 +549,7 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
         "name",
         "long",
         "aliases",
-        "constantAliases",
+        "constantaliases",
         "short",
         "value",
         "display",
@@ -566,8 +559,8 @@ function annotations.hydrateBuiltins(registry: annotations.Registry, typesApi: a
         "remainder",
         "hidden",
         "group",
-        "preserveUnknown",
-        "stopAtFirstArgument",
+        "preserveunknown",
+        "stopatfirstargument",
         "constant",
         "pattern",
         "choices",

@@ -58,7 +58,7 @@ end
 
 function M.newHoldsOnePageAndHonoursThePageSize(): nil
     local rows = arena.newarena(Row, 4)
-    test.eq(rows.pageSize, 4)
+    test.eq(rows.pagesize, 4)
     test.eq(rows:pages(), 1)
     test.eq(rows:used(), 0)
     test.eq(rows:live(), 0)
@@ -70,7 +70,7 @@ function M.newHoldsOnePageAndHonoursThePageSize(): nil
     test.eq(rows:pages(), 2, "the fifth row needs a second page")
     test.eq(rows:used(), 5)
     test.eq(rows:live(), 5)
-    test.eq(arena.newarena(Row).pageSize, 256)
+    test.eq(arena.newarena(Row).pagesize, 256)
     test.raises(
         function()
             arena.newarena(Row, 0)

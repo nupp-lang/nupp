@@ -193,7 +193,7 @@ function test.run(): nil
 
     local out = newBuffer()
     local writer = json.newwriter(out)
-    writer:startObject():key(json.encodedstring('a"b')):write(json.verified("42")):endObject()
+    writer:startobject():key(json.encodedstring('a"b')):write(json.verified("42")):endobject()
     writer:close()
     assert2(out:tostring() == [[{"a\"b":42}]])
 

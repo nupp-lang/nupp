@@ -56,7 +56,7 @@ local record Description is core.Description<Member>
     @readonly nullable: boolean = false
     @readonly width: integer?
     @readonly signed: boolean?
-    @readonly canRead: boolean = true
+    @readonly canread: boolean = true
     @readonly children: {core.Child<Member>} = {}
 end
 local record Text is core.Adapter<string, Member>
@@ -66,11 +66,11 @@ local record Text is core.Adapter<string, Member>
     end
 
     function write(self, borrows value: string, exclusive writer: core.Writer<Member>): nil
-        writer:writeString(self.member, tostring(value))
+        writer:writestring(self.member, tostring(value))
     end
 
     function read(self, exclusive reader: core.Reader<Member>): string
-        return reader:readString(self.member)
+        return reader:readstring(self.member)
     end
 end
 local record Callback is core.Adapter<Handler, Member>
@@ -100,7 +100,7 @@ local record Policy<M is core.Member> is plans.Policy<M>
         error("no timestamp mapping")
     end
 
-    function parseTimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
+    function parsetimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
         error("no timestamp mapping")
     end
 end
@@ -161,7 +161,7 @@ local record Inspect is structure.StructureConsumer<Value, Member, integer>
         unknown: core.UnknownConsumer<S>,
         additional: core.Members<Member, Value>?
     ): integer
-        assert2(member == root and described[1].member == textMember and described[2].hasDefault)
+        assert2(member == root and described[1].member == textMember and described[2].hasdefault)
         return #described
     end
 end

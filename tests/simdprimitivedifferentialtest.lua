@@ -260,7 +260,7 @@ function M.unsupportedPrimitiveDomainsHavePositionedRefusals()
         },
         {
             "floatPrefixXor",
-            "local s = assert(simd.species(array.float, 4)); return s:splat(1):prefixXor():extract(1)",
+            "local s = assert(simd.species(array.float, 4)); return s:splat(1):prefixxor():extract(1)",
             "integer"
         },
         {

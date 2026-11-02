@@ -22,7 +22,7 @@ export interface File is io.Reader, io.Writer
     flush: function(borrows self: File): (boolean, string?)
 
     --- Reports whether the file has already been closed.
-    isReleased: function(borrows self: File): boolean
+    isreleased: function(borrows self: File): boolean
 
     --- Closes the file and spends its ownership. Repeated calls are safe.
     close: @nosuspend function(takes self: File): nil
@@ -31,7 +31,7 @@ end
 --- A native temporary path removed on close unless persisted.
 export interface TemporaryPath is own.Closeable
     --- Returns the native path text.
-    toString: function(self: TemporaryPath): string
+    tostring: function(self: TemporaryPath): string
 
     --- Returns the created path as a path value.
     path: function(self: TemporaryPath): paths.Path
@@ -40,7 +40,7 @@ export interface TemporaryPath is own.Closeable
     persist: function(self: TemporaryPath, destination: any): (boolean, io.Error?)
 
     --- Reports whether the temporary owner has been closed or persisted.
-    isReleased: function(self: TemporaryPath): boolean
+    isreleased: function(self: TemporaryPath): boolean
 
     --- Removes the temporary path and spends its ownership. Repeated calls, and a
     --- call after `persist`, are safe and do nothing.

@@ -6,7 +6,7 @@ local function fixture()
     local calls = {}
     local load = providerstate.instance({warn = true}, {
         log = {
-            forModule = function(name)
+            formodule = function(name)
                 test.eq(name, "warn")
                 return {
                     emit = function(level, line, message)

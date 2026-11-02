@@ -32,7 +32,6 @@ local type CompilerSurface = {
     bodyMayBorrowScope: boolean?
 }
 
--- A0 seed transition: both names share one compiler call contract.
 local workerSurface: CompilerSurface = {effect = "runtime.workers", rotate = true, sendableLast = true}
 
 --- The call surfaces the compiler owns on the standard library's behalf, by public
@@ -48,7 +47,6 @@ local COMPILER_SURFACES: {
     ] = {
         Scope = {
             spawn = {rotate = true, overloadMembers = {[2] = "_spawnNamed"}, bodyMayBorrowScope = true,},
-            fork = workerSurface,
             work = workerSurface,
         },
     },

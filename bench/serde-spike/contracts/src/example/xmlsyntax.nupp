@@ -9,7 +9,7 @@ export record Field is core.WireField
     @readonly namespaceUri: string
     @readonly localName: string
     @readonly role: "attribute" | "element"
-    function diagnosticLabel(self): string
+    function diagnosticlabel(self): string
         return "XML field"
     end
 end

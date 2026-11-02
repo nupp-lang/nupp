@@ -52,7 +52,7 @@ export interface Policy<M is core.Member>
     --- @param text the string's contents, or the number's lexeme
     --- @param kind which of the two the input held
     --- @return the timestamp
-    parseTimestamp: function(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
+    parsetimestamp: function(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
 end
 
 export interface PolicyFactory
@@ -124,7 +124,7 @@ local function build<M is core.Member>(
     if prior ~= nil then
         return prior
     end
-    if direction == "read" and not description.canRead then
+    if direction == "read" and not description.canread then
         error(
             new errors.Error(
                 code = "unsupported",
@@ -161,7 +161,7 @@ local function build<M is core.Member>(
         local childPath = path .. "[" .. json.encode(member.name) .. "]"
         local action = policy:select(member, direction)
         result.actions[member] = action
-        if action ~= "traverse" and direction == "read" and child.required and not child.hasDefault then
+        if action ~= "traverse" and direction == "read" and child.required and not child.hasdefault then
             error(
                 new errors.Error(
                     code = "unsupported",

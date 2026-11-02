@@ -39,7 +39,7 @@ local type HoverResponse = {
 }
 
 local function diagnosticsOf(diags: {any}): {any}
-    local out = json.asArray({})
+    local out = json.asarray({})
     for index, diag in ipairs(diags) do
         out[
             index

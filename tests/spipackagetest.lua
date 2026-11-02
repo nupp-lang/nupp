@@ -377,10 +377,10 @@ return {
         ] = [[
 local mac = require("binary.hash.mac")
 local rolling = mac.newmac("hmac-sha256", "key")
-assert(rolling:digestSize() == 32)
+assert(rolling:digestsize() == 32)
 rolling:write("The quick brown fox ")
 rolling:write("jumps over the lazy dog")
-return rolling:hexDigest()
+return rolling:hexdigest()
 ]],
         [
             "vendor/crypto/acme-crypto-1.0-1.rockspec"
@@ -410,7 +410,7 @@ return provider
 local ffi = require("ffi")
 local expected = "f7bc83f430538424b13298e6aa6fb143ef4d59a14946175997479dbc2d1a3cd8"
 local raw = expected:gsub("..", function(byte) return string.char(tonumber(byte, 16)) end)
-return {algorithms = {["hmac-sha256"] = {name = "hmac-sha256", digestSize = 32, create = function(_, key)
+return {algorithms = {["hmac-sha256"] = {name = "hmac-sha256", digestsize = 32, create = function(_, key)
    assert(key == "key")
    local parts = {}
    return {

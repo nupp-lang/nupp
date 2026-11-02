@@ -36,6 +36,14 @@ end
 
 local M = {}
 
+function M.writableSpanExposesOnlyTheCanonicalSplitMethod()
+    local span = require("binary.span")
+    local ffi = require("ffi")
+    local values = span.writecarray(ffi.new("int32_t[2]"), 2)
+    assert(type(values.splitat) == "function" and values.splitAt == nil)
+    values:drop()
+end
+
 function M.levelZeroAndADisabledPassKeepCheckedAccess()
     local source = HEADER
         .. [[
@@ -900,7 +908,7 @@ function Probe.writeSlice(exclusive storage: int32[?], index: integer): nil
 end
 function Probe.split(exclusive storage: int32[?], index: integer): nil
     const values = span.writecarray(storage, 4)
-    const parts = values:splitAt(index)
+    const parts = values:splitat(index)
     parts.right[1] = 99
     own.drop(values)
 end

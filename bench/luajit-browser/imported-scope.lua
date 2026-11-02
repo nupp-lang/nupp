@@ -8,7 +8,7 @@ local input = assert(io.open(sourcePath, "rb"))
 local source = input:read("*a")
 input:close()
 local environment = browser:environment()
-local before = json.asArray({})
+local before = json.asarray({})
 for name, value in pairs(environment.bundled) do
     if type(value) == "table" then
         before[#before + 1] = name
@@ -16,7 +16,7 @@ for name, value in pairs(environment.bundled) do
 end
 table.sort(before)
 local response = browser:check(source, "imported-scoreboard.nupp", {strict = true})
-local modules = json.asArray({})
+local modules = json.asarray({})
 for name, value in pairs(environment.bundled) do
     if type(value) == "table" then
         modules[

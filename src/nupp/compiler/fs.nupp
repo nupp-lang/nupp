@@ -25,8 +25,8 @@ local workingDirectory: string? = nil
 
 local function currentDirectory(): string
     if workingDirectory == nil then
-        local cwd = path2.currentdirectory()
-        workingDirectory = cwd and cwd:toString() or "."
+        local cwd = path2.cwd()
+        workingDirectory = cwd and cwd:tostring() or "."
     end
 
     return workingDirectory as string
@@ -149,7 +149,7 @@ local function canonical(path: string): string
     local ok, resolved = pcall(function(): string?
         local real = path2.newpath(fallback):canonicalize()
 
-        return real and real:toString() or nil
+        return real and real:tostring() or nil
     end)
     if ok and resolved then
         local ordinary = unverbatim(resolved)
@@ -205,7 +205,7 @@ local function mkdir(path: string): boolean
         return true
     end
 
-    return (files2.createdirectory(path))
+    return (files2.mkdir(path))
 end
 
 --- What distinguishes this process's staging files from another's.

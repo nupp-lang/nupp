@@ -27,13 +27,13 @@ local operations = {
     {"lessEqual", "(a <= b):select(4, 2)", "a[i] <= 2 and 4 or 2"},
     {"greater", "(a > b):select(4, 2)", "a[i] > 2 and 4 or 2"},
     {"greaterEqual", "(a >= b):select(4, 2)", "a[i] >= 2 and 4 or 2"},
-    {"propagatingMin", "a:propagatingMin(b)", "extreme(a[i], 2, false, false)"},
-    {"propagatingMax", "a:propagatingMax(b)", "extreme(a[i], 2, true, false)"},
-    {"numberMin", "a:numberMin(b)", "extreme(a[i], 2, false, true)"},
-    {"numberMax", "a:numberMax(b)", "extreme(a[i], 2, true, true)"},
+    {"propagatingMin", "a:propagatingmin(b)", "extreme(a[i], 2, false, false)"},
+    {"propagatingMax", "a:propagatingmax(b)", "extreme(a[i], 2, true, false)"},
+    {"numberMin", "a:numbermin(b)", "extreme(a[i], 2, false, true)"},
+    {"numberMax", "a:numbermax(b)", "extreme(a[i], 2, true, true)"},
     {"reverse", "a:reverse()", "a[n - i + 1]"},
-    {"rotateLeft", "a:rotateLeft(3)", "a[(i + 2) % n + 1]"},
-    {"rotateRight", "a:rotateRight(3)", "a[(i - 4) % n + 1]"},
+    {"rotateLeft", "a:rotateleft(3)", "a[(i + 2) % n + 1]"},
+    {"rotateRight", "a:rotateright(3)", "a[(i - 4) % n + 1]"},
     {"align", "a:align(b, 1)", "i == 1 and 2 or a[i - 1]"},
     {"alignZero", "a:align(b, 0)", "a[i]"},
     {"alignWhole", "a:align(b, ALIGN_COUNT)", "2"},
@@ -55,7 +55,7 @@ local operations = {
     {"deinterleaveSecond", "deinterleaved2", "2 * i <= n and a[2 * i] or 2"},
     {"compress", "a:compress(selected)", "packed[i] or 0"},
     {"expand", "a:expand(selected)", "selectedLanes[i] and a[ranks[i]] or 0"},
-    {"prefixSum", "a:orderedPrefixSum()", "prefix[i]"},
+    {"prefixSum", "a:orderedprefixsum()", "prefix[i]"},
     {"maskAnd", "selected:select(a, b)", "selectedLanes[i] and a[i] or 2"},
     {"maskOr", "((a > 7) | tail):select(4, 2)", "(a[i] > 7 or i <= active) and 4 or 2"},
     {"maskXor", "((a > 7) ~ tail):select(4, 2)", "((a[i] > 7) ~= (i <= active)) and 4 or 2"},
@@ -76,7 +76,7 @@ local integerOperations = {
     -- floor remainder and quotient of the splat by the loaded lane.
     {"moduloByZero", "b % a", "a[i] == 0 and 0 or 2 % a[i]"},
     {"floorDivideByZero", "b // a", "a[i] == 0 and 0 or math.floor(2 / a[i])"},
-    {"prefixXor", "a:prefixXor()", "xorPrefix[i]"},
+    {"prefixXor", "a:prefixxor()", "xorPrefix[i]"},
     {"bitNot", "~a", "-a[i] - 1"},
     {"swizzle", "a:swizzle(indices)", "indicesRef[i] >= 1 and indicesRef[i] <= n and a[indicesRef[i]] or 0"},
     {"swizzleOutOfRange", "a:swizzle(~s:splat(0), b)", "0"},
@@ -166,12 +166,12 @@ local function moduleSource(ty, lanes)
         -- unsigned one, so the high half of the product by it is the sign
         -- of the lane, or the lane less one.
         local unsigned = ty:match("^uint") ~= nil
-        ops[#ops + 1] = {"saturatingAdd", "a:saturatingAdd(b)", "a[i] + 2"}
-        ops[#ops + 1] = {"saturatingSub", "a:saturatingSub(b)", unsigned and "math.max(a[i] - 2, 0)" or "a[i] - 2"}
+        ops[#ops + 1] = {"saturatingAdd", "a:saturatingadd(b)", "a[i] + 2"}
+        ops[#ops + 1] = {"saturatingSub", "a:saturatingsub(b)", unsigned and "math.max(a[i] - 2, 0)" or "a[i] - 2"}
         ops[#ops + 1] = {"popcount", "a:popcount()", "bitsSet(a[i])"}
         ops[
             #ops + 1
-        ] = {"mulHigh", "a:mulHigh(~s:splat(0))", unsigned and "a[i] > 0 and a[i] - 1 or 0" or "a[i] > 0 and -1 or 0"}
+        ] = {"mulHigh", "a:mulhigh(~s:splat(0))", unsigned and "a[i] > 0 and a[i] - 1 or 0" or "a[i] > 0 and -1 or 0"}
     end
     ops[#ops + 1] = {"mapHelper", "s:map(bump, a)", "a[i] + 2"}
     local carrier = ({float = "number", int8 = "int32", int16 = "int32", uint8 = "uint32", uint16 = "uint32"})[ty] or ty

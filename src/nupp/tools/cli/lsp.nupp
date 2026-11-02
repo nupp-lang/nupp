@@ -1319,7 +1319,7 @@ local record Inspect
     root: string?
 
     --- Select the report representation.
-    @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", choices = {"text", "json"}, constantaliases = {json = "json", text = "text"})
     format: string?
 
     --- Print the JSON Schema of JSON output and exit.
@@ -1356,7 +1356,7 @@ local record Definition
     root: string?
 
     --- Select the report representation.
-    @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", choices = {"text", "json"}, constantaliases = {json = "json", text = "text"})
     format: string?
 
     --- Print the JSON Schema of JSON output and exit.
@@ -1393,7 +1393,7 @@ local record Implementation
     root: string?
 
     --- Select the report representation.
-    @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", choices = {"text", "json"}, constantaliases = {json = "json", text = "text"})
     format: string?
 
     --- Print the JSON Schema of JSON output and exit.
@@ -1430,7 +1430,7 @@ local record References
     root: string?
 
     --- Select the report representation.
-    @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", choices = {"text", "json"}, constantaliases = {json = "json", text = "text"})
     format: string?
 
     --- Include the declaration among the references.
@@ -1471,7 +1471,7 @@ local record Symbols
     root: string?
 
     --- Select the report representation.
-    @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", choices = {"text", "json"}, constantaliases = {json = "json", text = "text"})
     format: string?
 
     --- Search a document instead of the workspace.
@@ -1504,7 +1504,7 @@ local record Rename
     root: string?
 
     --- Select the report representation.
-    @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", choices = {"text", "json"}, constantaliases = {json = "json", text = "text"})
     format: string?
 
     --- Apply the rename instead of previewing it.
@@ -1549,7 +1549,7 @@ local record Actions
     root: string?
 
     --- Select the report representation.
-    @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", choices = {"text", "json"}, constantaliases = {json = "json", text = "text"})
     format: string?
 
     --- Narrow the results to a kind of action.
@@ -1590,7 +1590,7 @@ local record TraceCheck
     root: string?
 
     --- Select the report representation.
-    @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", choices = {"text", "json"}, constantaliases = {json = "json", text = "text"})
     format: string?
 
     --- Print the JSON Schema of JSON output and exit.
@@ -1627,7 +1627,7 @@ local record Artifacts
     root: string?
 
     --- Select the report representation.
-    @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", choices = {"text", "json"}, constantaliases = {json = "json", text = "text"})
     format: string?
 
     --- Print the JSON Schema of JSON output and exit.
@@ -1664,7 +1664,7 @@ local record Artifact
     root: string?
 
     --- Select the report representation.
-    @cli(value = "FORMAT", choices = {"text", "json"}, constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", choices = {"text", "json"}, constantaliases = {json = "json", text = "text"})
     format: string?
 
     --- Which artifact to resolve.

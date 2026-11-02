@@ -248,7 +248,7 @@ local function run(options: any): integer
                 mustBlockers = analysis.mustBlockers,
                 risks = analysis.risks,
                 bytecodeFingerprint = analysis.bytecodeFingerprint,
-                traceProfile = analysis.profile,
+                traceProfile = require("nupp.tools.profilemetadata").capture(analysis.profile),
                 reasonCatalog = analysis.reasonCatalog,
             }) .. "\n"
         )
@@ -293,7 +293,7 @@ end
 @derive(cliModule.command)
 local record Bytecode
     --- Select the report representation.
-    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", constantaliases = {json = "json", text = "text"})
     format: "text" | "json" = "text"
 
     --- Optimization level, matching run and build (default -O0).

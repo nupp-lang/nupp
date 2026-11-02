@@ -10,7 +10,7 @@ local profile = model.policy(true)
 local profileJson = codec.codec(profile)
 local buffer = text.newbuffer()
 buffer:put("prefix:")
-profileJson:encodeInto(binding, documents.string("ok"), buffer)
+profileJson:encodeinto(binding, documents.string("ok"), buffer)
 assert(buffer:tostring() == 'prefix:"ok"')
 local record Unsupported is core.Atom
     @readonly family: table
@@ -21,24 +21,24 @@ end
 local value = documents.list({documents.string("already written"), documents.atom(new Unsupported(family = {}))})
 
 local function write(): nil
-    profileJson:encodeInto(binding, value, buffer)
+    profileJson:encodeinto(binding, value, buffer)
 end
 
 assert(not pcall(write))
 assert(buffer:tostring() == 'prefix:"ok"')
-profileJson:encodeInto(binding, documents.null(), buffer)
+profileJson:encodeinto(binding, documents.null(), buffer)
 assert(buffer:tostring() == 'prefix:"ok"null')
 print("direct Buffer output rolls back partial writes and remains reusable")
 
 local syntax = require("serde.json")
 local embedded = text.newbuffer()
 local sink = syntax.newwriter(embedded)
-sink:startObject()
+sink:startobject()
 sink:key("items")
-sink:startArray()
+sink:startarray()
 codec.writevalue(binding, documents.string("one"), sink)
-codec.codec():writeValue(binding, documents.null(), sink)
-sink:endArray()
-sink:endObject()
+codec.codec():writevalue(binding, documents.null(), sink)
+sink:endarray()
+sink:endobject()
 sink:close()
 assert(embedded:tostring() == '{"items":["one",null]}')

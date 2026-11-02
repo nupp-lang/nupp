@@ -200,7 +200,7 @@ function M.aSleepInsideAHandlerParksRatherThanBlocking()
                 suspension.poll()
             end
         end,
-        canPark = function()
+        canpark = function()
             return true
         end,
         shutdown = function()

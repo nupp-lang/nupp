@@ -20,9 +20,9 @@ function labels.derive(info: types.derive.Info): types.derive.Result<any>
     return derive2.implement{
         methods = {
             label = derive2.member{
-                signature = types2.function_(
+                signature = types2.functiontype(
                     types2.pack({
-                        info.ownerType
+                        info.ownertype
                     }),
                     types2.pack({
                         types2.string
