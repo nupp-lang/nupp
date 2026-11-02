@@ -50,10 +50,10 @@ local function recording(scope, failures)
         profile[key] = value
     end
 
-    local function event(ctx, name, value)
+    local function event(ctx, name, value, failed)
         local list = events[ctx.block.id] or {}
         events[ctx.block.id] = list
-        list[#list + 1] = {name = name, value = value}
+        list[#list + 1] = {name = name, value = value, failed = failed}
     end
 
     local function kind(t)
@@ -109,14 +109,16 @@ local function recording(scope, failures)
         return {owner = release, cleanup = chain[1]}
     end
     profile.cleanupStatus = function(ctx, node)
-        return profile.cleanupFlag(ctx, node, not failures.cleanup)
+        local value = profile.cleanupFlag(ctx, node, true)
+        event(ctx, "cleanup-status", value)
+        return value
     end
     profile.cleanupAllowed = function(ctx, node, plan)
         return profile.cleanupFlag(ctx, node, not failures.retained)
     end
     profile.cleanupRun = function(ctx, node, plan, value, reason)
         assert(plan.owner == scope.functions.release)
-        event(ctx, "cleanup", value)
+        event(ctx, "cleanup", value, failures.cleanup)
     end
     profile.failure = function(ctx)
         event(ctx, "failure")
@@ -211,7 +213,7 @@ end
 -- No source helper body, cleanup body, arithmetic, or machine code runs here.
 local function trace(g, events)
     local values, out, block = {}, {}, g.blocks[1]
-    local seen = {}
+    local seen, cleanupFailed = {}, false
     while block do
         assert(not seen[block.id], "shape trace reached a loop")
         seen[block.id] = true
@@ -220,7 +222,12 @@ local function trace(g, events)
             values[block.dst[at]] = tonumber(block.args[at][1])
         end
         for _, item in ipairs(events[block.id] or {}) do
-            out[#out + 1] = item.name .. (item.value and ":" .. tostring(assert(values[item.value])) or "")
+            if item.name == "cleanup-status" then
+                values[item.value] = cleanupFailed and 0 or 1
+            else
+                out[#out + 1] = item.name .. (item.value and ":" .. tostring(assert(values[item.value])) or "")
+                cleanupFailed = item.failed or cleanupFailed
+            end
         end
         local term = block.term
         if term.kind == "return" then
