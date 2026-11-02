@@ -237,7 +237,6 @@ input {
     padding: .45rem .65rem;
     color: var(--nuppdoc-text-muted);
     border-radius: 7px;
-    font-size: .76rem;
     text-decoration: none
 }
 
@@ -263,8 +262,7 @@ input {
     color: var(--nuppdoc-text-muted);
     border: 1px solid var(--nuppdoc-border);
     border-radius: 6px;
-    background: var(--nuppdoc-background-alt);
-    font-size: .75rem
+    background: var(--nuppdoc-background-alt)
 }
 
 .nuppdoc-theme {
@@ -313,7 +311,7 @@ input {
 .nuppdoc-outline h2 {
     margin: 0 0 .75rem;
     color: var(--nuppdoc-text-muted);
-    font-size: .68rem;
+    font-size: inherit;
     text-transform: uppercase;
     letter-spacing: .06em
 }
@@ -339,8 +337,13 @@ input {
 }
 
 .nuppdoc-sidebar a {
-    padding-left: var(--nuppdoc-sidebar-indent);
-    font-size: .88rem
+    padding-left: var(--nuppdoc-sidebar-indent)
+}
+
+/* Module names use code elements, whose browser default is smaller. */
+.nuppdoc-sidebar code {
+    font-family: var(--nuppdoc-font-mono);
+    font-size: inherit
 }
 
 .nuppdoc-sidebar a:hover {
@@ -364,8 +367,7 @@ input {
 }
 
 .nuppdoc-outline a {
-    padding: .16rem 0;
-    font-size: .66rem
+    padding: .16rem 0
 }
 
 .nuppdoc-content {
@@ -1111,7 +1113,6 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     margin: 0;
     padding: .24rem .55rem .24rem var(--nuppdoc-sidebar-indent);
     color: var(--nuppdoc-text-muted);
-    font-size: .88rem;
     font-weight: 500;
     cursor: pointer;
     list-style: none
@@ -1174,7 +1175,6 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-outline-title {
     margin: 0 0 .75rem;
     color: var(--nuppdoc-text-muted);
-    font-size: .66rem;
     font-weight: 600
 }
 
@@ -1554,7 +1554,6 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     border-radius: 6px;
     background: var(--nuppdoc-background-alt);
     box-shadow: none;
-    font-size: .76rem;
     cursor: pointer
 }
 
@@ -1835,14 +1834,6 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 
     .nuppdoc-page-nav-next {
         grid-column: 1
-    }
-}
-
-@media(max-width:760px) {
-
-    .nuppdoc-sidebar a,
-    .nuppdoc-sidebar-section summary {
-        font-size: 1rem
     }
 }
 
