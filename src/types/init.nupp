@@ -17,23 +17,24 @@ See [derives.md](docs/reference/derives.md) for [](Debug),
 
 local store = require("nupp.util.internal.store")
 local runtime = require("nupp.derive")
+local api = {}
 
 --- The interface implemented by the Debug provider.
-export type Debug = nupp.__Debug
+type api.Debug = nupp.__Debug
 
 --- A typed identity for a value in a [](Store).
-export type Key<T> = store.Key<T>
+type api.Key<T> = store.Key<T>
 
-export const Key = store.Key
+const api.Key = store.Key
 
 --- An independent typed bag indexed by keys.
-export type Store = store.Store
+type api.Store = store.Store
 
 --- Registers a new key, optionally under a name.
-export const newkey = store.newKey
+const api.newkey = store.newKey
 
 --- Creates an empty store.
-export const newstore = store.newStore
+const api.newstore = store.newStore
 
 @comptime
 local function option(items, annotationName: string, name: string): any
@@ -145,7 +146,7 @@ end
 --- @param info the declaration the provider inspects
 --- @return the checked forwarding recipe
 @comptime
-export function debug(info: types.derive.Info): types.derive.Result<types.Debug>
+function api.debug(info: types.derive.Info): types.derive.Result<types.Debug>
     if info.kind ~= "record" and info.kind ~= "struct" then
         return types.derive.error("Debug can be derived only for records or structs", info.reference, "NUPP2803")
     end
@@ -173,3 +174,5 @@ export function debug(info: types.derive.Info): types.derive.Result<types.Debug>
         },
     }
 end
+
+export = api
