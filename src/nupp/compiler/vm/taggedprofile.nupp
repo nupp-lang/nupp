@@ -475,19 +475,36 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
     -- Evaluate that callee before any argument, and retain its snapshot across
     -- every nested call. Runtime FunctionInfo authentication remains pending.
     local callee = ctx.hold(ctx.expression(node.obj, "tagged"))
-    -- A `...` last spreads its whole pack after the fixed arguments.
+    -- A `...` last spreads its whole pack after the fixed arguments, and so
+    -- does a call last that gives other than one result.
     local exprs = node.args.exprs
     local spreads = #exprs > 0 and exprs[#exprs].kind == "vararg"
+    local expands = #exprs > 0 and not spreads and graph.expandsResults(exprs[#exprs])
     local fixed, kinds = {}, {}
     for index, expr in ipairs(exprs) do
-        if index < #exprs or not spreads then
+        if index < #exprs or not spreads and not expands then
             fixed[#fixed + 1], kinds[#kinds + 1] = expr, "tagged"
         end
     end
     local args = ctx.operands(fixed, kinds)
+    local pack = spreads and ctx.varargPack() or nil
+    if expands and args ~= nil then
+        local held = {}
+        for index, arg in ipairs(args) do
+            held[index] = ctx.hold(arg)
+        end
+        pack = invoke(ctx, exprs[#exprs], true, true, nil, true)
+        for index, handle in ipairs(held) do
+            args[index] = ctx.readHeld(handle)
+            ctx.release(handle)
+        end
+        if pack == nil or ctx.block == nil then
+            ctx.release(callee)
+            return nil
+        end
+    end
     local value = ctx.readHeld(callee)
     ctx.release(callee)
-    local pack = spreads and ctx.varargPack() or nil
     if cleanupGraphs[ctx.g] and node.kind == "call" then
         ctx.beforeCall(node)
     end
@@ -1086,19 +1103,29 @@ function tagged.forVersion(version: integer): any
     if version >= 8 then
         profile.tableConstructor = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "table requires tagged destination")
-            -- `{...}` copies the pack; `...` anywhere else in a constructor would
-            -- spread too, which is not yet lowered.
+            -- `{...}` copies the pack; a positional `...` or call giving other
+            -- than one result last among the entries gives them all, appended.
             if #node.fields == 1 and node.fields[1].kind == "fieldItem" and node.fields[1].value.kind == "vararg" then
                 return ctx.emit(node, "LibCall", {21, ctx.varargPack()}, "tagged") as integer
             end
-            for _, field in ipairs(node.fields) do
-                need(field.value == nil or field.value.kind ~= "vararg", "`...` among other table entries")
+            local tail = node.fields[#node.fields]
+            local appends = tail ~= nil
+                and tail.kind == "fieldItem"
+                and (tail.value.kind == "vararg" or graph.expandsResults(tail.value))
+            for index, field in ipairs(node.fields) do
+                need(
+                    field.value == nil or field.value.kind ~= "vararg" or appends and index == #node.fields,
+                    "`...` among other table entries"
+                )
             end
             -- Entries are evaluated in order, keys before their values, then
             -- stored: positional ones at 1, 2, ..., named ones at their string.
             local nodes, kinds, keys = {}, {}, {}
             local position = 0
-            for _, field in ipairs(node.fields) do
+            for index, field in ipairs(node.fields) do
+                if appends and index == #node.fields then
+                    break
+                end
                 if field.kind == "fieldItem" then
                     position += 1
                     keys[#keys + 1] = {kind = "int64", text = tostring(position)}
@@ -1124,6 +1151,20 @@ function tagged.forVersion(version: integer): any
             for _, key in ipairs(keys) do
                 local k = key.at and values[key.at] or ctx.emit(node, "K", {pool(ctx, key.kind, key.text)}, "tagged")
                 ctx.emit(node, "SetIdx", {result, k, values[key.valueAt]}, nil)
+            end
+            if appends then
+                -- The tail's values go at the next positions, from its pack.
+                local held = ctx.hold(result)
+                local pack = tail.value.kind == "vararg" and ctx.varargPack()
+                    or invoke(ctx, tail.value, true, true, nil, true)
+                if pack == nil or ctx.block == nil then
+                    ctx.release(held)
+                    return nil as any
+                end
+                local start = ctx.emit(node, "K", {pool(ctx, "int64", tostring(position + 1))}, "tagged")
+                ctx.emit(node, "LibCall", {74, ctx.readHeld(held), pack, start}, "tagged")
+                result = ctx.readHeld(held)
+                ctx.release(held)
             end
 
             return result as integer

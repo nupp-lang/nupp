@@ -1455,7 +1455,7 @@ local function invokeContract(contract: any): nil
         assert(
             given == #called.params
             or called.vararg and given > #called.params
-            or given > 0 and call.args.exprs[#call.args.exprs].kind == "vararg",
+            or given > 0 and graph.spreadsLast(call),
             "invoke checked call arity differs"
         )
         for index, argument in ipairs(call.args.exprs) do
@@ -1564,7 +1564,7 @@ local function invokeContract(contract: any): nil
     assert(
         #call.args.exprs == #called.params
         or called.vararg and #call.args.exprs > #called.params
-        or #call.args.exprs > 0 and call.args.exprs[#call.args.exprs].kind == "vararg",
+        or #call.args.exprs > 0 and graph.spreadsLast(call),
         "invoke checked call arity differs"
     )
     for index, argument in ipairs(call.args.exprs) do
@@ -1740,6 +1740,31 @@ function graph.dynamicInvokeContract(call: any, count: integer?): any
     invokeContract(contract)
 
     return contract
+end
+
+-- Whether a call last in a list gives other than exactly one result, a fixed
+-- count or an open one: then the list takes them all, as a pack.
+function graph.expandsResults(expr: any): boolean
+    if expr == nil or expr.kind ~= "call" or expr.runtimeLoader ~= nil or graph.coreLibraryCall(expr) ~= nil then
+        return false
+    end
+    local called = expr.calleeType
+    if called == nil or called.tag ~= "func" then
+        -- Through `any`, as many as the callee gives.
+        return called ~= nil and called.tag == "any"
+    end
+    local pack = called.retPack
+
+    return pack ~= nil and (pack.tail ~= nil or #pack.head ~= 1)
+end
+
+-- Whether a call's last argument spreads a pack: `...`, or a call whose
+-- results it takes all of.
+function graph.spreadsLast(call: any): boolean
+    local exprs = call.args and call.args.exprs or {}
+    local last = exprs[#exprs]
+
+    return last ~= nil and (last.kind == "vararg" or graph.expandsResults(last))
 end
 
 -- The argument a library call calls back, by its index among the call's
