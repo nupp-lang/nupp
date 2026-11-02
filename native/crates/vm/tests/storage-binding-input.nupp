@@ -15,7 +15,9 @@ function probe.run(): integer
     assert(structs.referencevalued and structs.referenceValued == nil)
     local bytes = binding.allocbytes(8)
     binding.fill(bytes, 8, 17)
-    assert(binding.sizeof(bytes) == 8 and bytes[0] == 17 and bytes[7] == 17)
+    @unsafe do
+        assert(binding.sizeof(bytes) == 8 and bytes[0] == 17 and bytes[7] == 17)
+    end
     assert(not pcall(binding.allocbytes, -1))
     assert(not pcall(binding.allocbytes, 0.5))
 
