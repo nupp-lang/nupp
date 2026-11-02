@@ -392,7 +392,7 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
                 printed = table.concat(printed, ","),
                 nested = nested
             }
-            return c.lookupType("Layout") or T.any
+            return c.lookupType("types.Layout") or T.any
 
             -- cheader("path.h" [, "lib"]) types a pinned C header at compile time:
             -- LuaJIT parses it and reports back what it declares, so there is no
