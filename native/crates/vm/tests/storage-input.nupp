@@ -2,7 +2,7 @@ module nupp.tests.vmstorage
 
 const assert2 = require("assert")
 
-local provider: any = require("nupp.runtime.provider.nativestorage")
+local provider: any = require("nupp.vm.storagebinding")
 local contract = require("nupp.tests.providers.cstorage")
 local persist = require("nupp.vm.persist")
 local storage = {}

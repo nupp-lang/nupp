@@ -1,3 +1,4 @@
+local testAssert = require("assert")
 local fixtures = require("providerstate")
 local M = {}
 
@@ -41,6 +42,27 @@ function M.incompatibleStorageIsRejectedBeforeUse()
     local load = runtime({representation = 'linear32'})
     local ok, problem = pcall(load, 'nupp.mem.representation')
     assert(not ok and tostring(problem):find('target requires native pointer storage', 1, true))
+end
+
+function M.canonicalStorageBindingRetainsTheFrozenProviderAndOperations()
+    local raw = package.loaded["nupp.runtime.provider.nativestorage"]
+    local selected = require("nupp.mem.representation").storage
+    local binding = require("nupp.vm.storagebinding")
+    assert(raw == binding and selected == raw, "the provider table keeps its identity")
+    assert(binding.structs == package.loaded["nupp.runtime.structvalue"])
+    assert(binding.structs.referencevalued == true)
+    testAssert.eq(binding.structs.referenceValued, nil)
+    testAssert.eq(binding.allocateBytes, nil)
+    testAssert.eq(binding.allocateArray, nil)
+    local old = require("nupp.runtime.storage")
+    assert(old.allocateBytes == binding.allocbytes and old.sizeOf == binding.sizeof)
+    local bytes = binding.allocbytes(8)
+    testAssert.eq(binding.sizeof(bytes), 8)
+    binding.fill(bytes, 8, 17)
+    testAssert.eq(bytes[0], 17)
+    testAssert.eq(bytes[7], 17)
+    assert(not pcall(binding.allocbytes, -1))
+    assert(not pcall(binding.allocbytes, 0.5))
 end
 
 return M

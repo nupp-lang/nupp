@@ -1,0 +1,53 @@
+@!internal
+
+module nupp.vm.storagebinding
+
+const {type CstorageProvider} = require("nupp.mem.representation.spi")
+local binding: any = package.loaded["nupp.runtime.provider.nativestorage"]
+assert(type(binding) == "table", "the frozen VM storage provider is unavailable")
+
+-- Canonical contract keys retain the existing frozen operation handles.
+local aliases: {
+    {string}
+} = {
+    {"allocateBytes", "allocbytes"},
+    {"borrowString", "borrowstring"},
+    {"sizeOf", "sizeof"},
+    {"decodeUint8", "decodeuint8"},
+    {"encodeUint8", "encodeuint8"},
+    {"decodeInt8", "decodeint8"},
+    {"encodeInt8", "encodeint8"},
+    {"decodeUint16", "decodeuint16"},
+    {"encodeUint16", "encodeuint16"},
+    {"decodeInt16", "decodeint16"},
+    {"encodeInt16", "encodeint16"},
+    {"decodeUint32", "decodeuint32"},
+    {"encodeUint32", "encodeuint32"},
+    {"decodeInt32", "decodeint32"},
+    {"encodeInt32", "encodeint32"},
+    {"decodeUint64", "decodeuint64"},
+    {"encodeUint64", "encodeuint64"},
+    {"decodeInt64", "decodeint64"},
+    {"encodeInt64", "encodeint64"},
+    {"decodeFloat32", "decodefloat32"},
+    {"encodeFloat32", "encodefloat32"},
+    {"decodeFloat64", "decodefloat64"},
+    {"encodeFloat64", "encodefloat64"},
+    {"castBytes", "castbytes"},
+    {"castElements", "castelements"},
+    {"allocateArray", "allocarray"},
+    {"boundedCount", "boundedcount"},
+}
+for _, pair in ipairs(aliases) do
+    if binding[pair[2]] == nil then
+        binding[pair[2]] = binding[pair[1]]
+    end
+    binding[pair[1]] = nil
+end
+local structs: any = binding.structs
+if structs.referencevalued == nil then
+    structs.referencevalued = structs.referenceValued
+end
+structs.referenceValued = nil
+
+export = binding as CstorageProvider

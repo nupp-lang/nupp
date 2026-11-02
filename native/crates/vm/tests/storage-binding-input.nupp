@@ -1,0 +1,25 @@
+module nupp.tests.vmstoragebinding
+
+local probe = {}
+
+function probe.run(): integer
+    local raw: any = package.loaded["nupp.runtime.provider.nativestorage"]
+    local allocator: any = raw.allocateBytes
+    local size: any = raw.sizeOf
+    local structs: any = raw.structs
+    assert(type(allocator) == "function" and type(size) == "function")
+    local binding = require("nupp.vm.storagebinding")
+    assert((binding as any) == raw and binding.structs == structs)
+    assert(binding.allocbytes == allocator and binding.sizeof == size)
+    assert(raw.allocateBytes == nil and raw.sizeOf == nil)
+    assert(structs.referencevalued and structs.referenceValued == nil)
+    local bytes = binding.allocbytes(8)
+    binding.fill(bytes, 8, 17)
+    assert(binding.sizeof(bytes) == 8 and bytes[0] == 17 and bytes[7] == 17)
+    assert(not pcall(binding.allocbytes, -1))
+    assert(not pcall(binding.allocbytes, 0.5))
+
+    return 42
+end
+
+export = probe
