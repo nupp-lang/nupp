@@ -27,6 +27,38 @@ end
 
 local M = {}
 
+function M.theModuleExampleConnectsItsOwnPeer()
+    local path = HERE .. "/../src/io/net/init.nupp"
+    local file = assert(io.open(path, "rb"))
+    local source = file:read("*a")
+    file:close()
+    local example = assert(source:match("```nupp\n(.-)\n```"), "the module has an opening example")
+    local parser = require("nupp.compiler.syntax.parser")
+    local parsed = parser.parse(example, "net-doc-example.nupp")
+    test.eq(#parsed.errors, 0)
+    local env = require("nupp.compiler.project.env").new(HERE .. "/..")
+    for _, diagnostic in ipairs(require("fragment").check(parsed, "net-doc-example.nupp", env)) do
+        assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
+    end
+    local code, diagnostics = require("nupp.compiler.lua.gen").generate(parsed, "net-doc-example.nupp")
+    test.eq(#diagnostics, 0)
+    local output = {}
+    local chunk = assert(loadstring(code))
+    setfenv(
+        chunk,
+        setmetatable(
+            {
+                print = function(value)
+                    output[#output + 1] = value
+                end
+            },
+            {__index = _G}
+        )
+    )
+    chunk()
+    test.eq(table.concat(output, "\n"), "x")
+end
+
 function M.bytesCrossALoopbackConnection()
     local listener, client, served = pair()
     assert(client:write("hello sockets"), "the client writes")

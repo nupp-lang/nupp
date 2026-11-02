@@ -42,12 +42,20 @@ export type Waiting = source1.Waiting
 export const Handler = source1.Handler
 export const Installed = source1.Installed
 export const Waiting = source1.Waiting
+
+--- Records one coroutine activation against the current turn.
 export const consumeturn: selected.ConsumeTurn = source1.consumeTurn
+
 export const create: contract.Provider.["create"] = source1.create
+
+--- Parks until the host has had its turn.
 export const deferturn: selected.DeferTurn = source1.deferTurn
+
 export const delegatedcanpark: contract.Provider.["delegatedcanpark"] = source1.delegatedCanPark
 export const delegatedpark: contract.Provider.["delegatedpark"] = source1.delegatedPark
 export const derive: contract.Provider.["derive"] = source1.derive
 export const install: contract.Provider.["install"] = source1.install
 export const installdriver: contract.Provider.["installdriver"] = source1.installDriver
+
+--- Reports whether the current aggregate may run another activation this turn.
 export const turnavailable: selected.TurnAvailable = source1.turnAvailable

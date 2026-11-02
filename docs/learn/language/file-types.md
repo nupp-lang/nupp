@@ -60,7 +60,7 @@ initializer settles and an unannotated parameter is `any`, as
 The toolchain requires, builds, and runs a `.lua` file unchanged. Nupp syntax is
 refused there because the runtime file must remain Lua:
 
-```lua
+```lua:refused
 local function double(n: integer): integer
     return n * 2
 end

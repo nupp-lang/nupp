@@ -130,7 +130,7 @@ those rocks live in a tree the project owns rather than a global one. See
 task that sets `CHANNEL` still sees `HOME`, `PATH`, and everything else the
 shell that ran `nupp task` had:
 
-```lua
+```lua:fragment
 envcheck = {
    argv = { "sh", "-c", "echo home=$HOME channel=$CHANNEL" },
    env = { CHANNEL = "beta" },
@@ -150,7 +150,7 @@ quoted for the platform's shell, so spaces and quotes in a value are safe.
 `nupp.lua`. Without it, the command runs from that project root. This is useful
 for tools that are projects of their own:
 
-```lua
+```lua:fragment
 format = {
    description = "Format every source language",
    cwd = "tools",

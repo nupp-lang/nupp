@@ -102,19 +102,35 @@ local function headingBadge(heading: string): string, string?, boolean?
     return name, kind, lua
 end
 
+local function uniqueHeading(base: string, used: {[string]: boolean}): string
+    local id, ordinal = base, 1
+    while used[id] do
+        ordinal = ordinal + 1
+        id = base .. "-" .. tostring(ordinal)
+    end
+    used[id] = true
+
+    return id
+end
+
 local function markdownOutline(text: string?): {html.Heading}
     local out, fenced = {}, nil
+    local used: {[string]: boolean} = {}
     for _, line in ipairs(syntax.lines:match(tostring(text or "")) or {}) do
         local marker
         fenced, marker = syntax.fenceState(line, fenced, true)
         if not marker and not fenced then
             local hashes, heading = syntax.heading:match(line)
-            if hashes and heading and #hashes <= 3 then
-                local name = headingBadge(heading)
-                -- The slug still comes from the whole heading, badge and all: the page
-                -- has been anchoring its declarations that way, and the name alone
-                -- collides with the anchor a generated page writes above the heading.
-                out[#out + 1] = {path = headingId(heading), name = name:gsub("[`*_]", ""), level = #hashes}
+            if hashes and heading then
+                local id = uniqueHeading(headingId(heading), used)
+                if #hashes <= 3 then
+                    local name = headingBadge(heading)
+                    -- The slug still comes from the whole heading, badge and all: the
+                    -- page has been anchoring its declarations that way, and the name
+                    -- alone collides with the anchor a generated page writes above the
+                    -- heading.
+                    out[#out + 1] = {path = id, name = name:gsub("[`*_]", ""), level = #hashes}
+                end
             end
         end
     end
@@ -123,7 +139,7 @@ local function markdownOutline(text: string?): {html.Heading}
 end
 
 local codeGroupIndex = 0
-local markdownHtml: (function(text: string?, links: Links?, headingShift: integer?): string)
+local markdownHtml: (function(text: string?, links: Links?, headingShift: integer?, headingScope: string?): string)
 
 local ADMONITION_TITLES = {
     note = "Note",
@@ -392,15 +408,17 @@ end
 -- matched up by position. A badge is lifted for the same reason -- emphasis
 -- the grammar rendered would be part of the heading's text, and the writer puts it back
 -- as a pill once the name has been rendered without it.
-local function headingSlugs(text)
+local function headingSlugs(text, headingScope: string?)
     local slugs, out = {}, {}
+    local used: {[string]: boolean} = {}
     local namedAnchor, anchorAt = nil, nil
     for line in (text .. "\n"):gmatch("(.-)\n") do
         local hashes, heading = line:match("^(#+)%s+(.+)$")
         if hashes then
             local name, badge, lua = headingBadge(heading)
-            local id = headingId(heading)
-            if namedAnchor == id and anchorAt then
+            local base = headingId(heading)
+            local id = uniqueHeading(headingScope and headingScope .. "." .. base or base, used)
+            if namedAnchor == base and anchorAt then
                 -- The heading already owns this exact anchor. Keeping the empty
                 -- anchor before it would give the document two identical IDs.
                 out[anchorAt] = ""
@@ -408,7 +426,7 @@ local function headingSlugs(text)
             namedAnchor, anchorAt = nil, nil
             -- The label is read aloud by a screen reader following the anchor, so it is
             -- the heading as it reads rather than as it was written.
-            slugs[#slugs + 1] = {id = id, text = name:gsub("[`*_]", ""), badge = badge, lua = lua}
+            slugs[#slugs + 1] = {id = id, base = base, text = name:gsub("[`*_]", ""), badge = badge, lua = lua}
             out[#out + 1] = badge and hashes .. " " .. name or line
         else
             out[#out + 1] = line
@@ -448,7 +466,7 @@ local function rewriteHeadings(rendered: string, headings: {any}, shift: integer
     end))
 end
 
-markdownHtml = function(text: string?, links: Links?, headingShift: integer?): string
+markdownHtml = function(text: string?, links: Links?, headingShift: integer?, headingScope: string?): string
     -- A Windows checkout hands the page to us with CRLF endings. The fenced-block
     -- pass is line-oriented and rebuilds its input with LF, so normalize before it
     -- sees a stray carriage return.
@@ -466,12 +484,22 @@ markdownHtml = function(text: string?, links: Links?, headingShift: integer?): s
             return links[name]
         end)
     end
-    local slugs, withoutBadges = headingSlugs(prepared)
+    local slugs, withoutBadges = headingSlugs(prepared, headingScope)
     local document, problem = markdownhost.render(withoutBadges .. "\n")
     if document == nil then
         error("nupp doc cannot render Markdown: " .. tostring(problem), 0)
     end
     local out = rewriteHeadings(document, slugs, headingShift == nil and 1 or headingShift)
+    if headingScope then
+        local targets: {[string]: string} = {}
+        for _, slug in ipairs(slugs) do
+            targets[slug.base] = targets[slug.base] or slug.id
+        end
+        out = out:gsub('href="#([^"]+)"', function(target: string): string
+            local scoped = targets[target]
+            return 'href="#' .. (scoped and htmlEscape(scoped) or target) .. '"'
+        end)
+    end
     out = out:gsub("<!%-%-nuppdoc%-block%-(%d+)%-%->", function(index)
         -- A block's markup is returned by a function so that a `%` in it is never read
         -- as a capture reference.

@@ -2,8 +2,8 @@ module serde.json
 
 --[==[
 JSON encoding supports typed [](serde.Binding) values and ordinary tables.
-Use [](encode) and [](decode) for bindings, or [](encodeValue) and
-[](decodeValue) for schema-free values.
+Use [](encode) and [](decode) for bindings, or [](encodevalue) and
+[](decodevalue) for schema-free values.
 
 ```nupp
 local serde = require("serde")
@@ -685,7 +685,7 @@ export const decodevalue = json.decode
 ---
 --- The whole document is still validated. Text that is not one JSON document,
 --- or a value the shape cannot select from, returns nil and a reason, as
---- `decodeValue` does.
+--- `decodevalue` does.
 ---
 --- ```nupp
 --- local value = assert(serde.json.pull(

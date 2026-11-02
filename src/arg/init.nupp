@@ -58,7 +58,7 @@ type cliModule.ApplicationOptions = ApplicationOptions
 type cliModule.Application = Application
 type cliModule.Invocation = Invocation
 
---- Marker implemented by a record deriving `Arguments`.
+--- Marker implemented by a record deriving `arg.arguments`.
 interface cliModule.ArgumentRecord
 end
 
@@ -67,7 +67,7 @@ interface cliModule.Runnable
     run: function(self): integer
 end
 
---- A record type deriving `Command`.
+--- A record type deriving `arg.command`.
 type cliModule.CommandType = Type<cliModule.Runnable>
 
 --- A shell-neutral completion candidate.

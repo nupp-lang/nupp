@@ -11,6 +11,7 @@ dropped rather than guessed at.
 const {type Module} = require("nupp.tools.doc.extract")
 
 local filesMod = require("nupp.tools.doc.files")
+local syntax = require("nupp.compiler.syntax.docsyntax")
 
 local normalize, join, dirname = filesMod.normalize, filesMod.join, filesMod.dirname
 
@@ -51,30 +52,77 @@ local function addSymbolLink(links, ambiguous, name, url)
     end
 end
 
--- Apply a prose rewrite without treating examples as prose. Inline code and fenced
--- blocks use the same backtick delimiters, so one pass preserves both.
-local function rewriteOutsideBackticks(markdown: string, rewrite: function(string): string): string
-    local out, position = {}, 1
+-- Inline code closes only on a run of exactly the same length. A link label may
+-- contain code, but the containing link still needs its destination rewritten.
+local function rewriteOutsideInlineCode(markdown: string, rewrite: function(string): string): string
+    local out, position, start = {}, 1, 1
     while position <= #markdown do
-        local opening, closing = markdown:find("(`+).-%1", position)
-        if not opening or not closing then
-            out[#out + 1] = rewrite(markdown:sub(position))
+        local opening, openingEnd = markdown:find("`+", position)
+        if not opening or not openingEnd then
             break
         end
-        local linkOpening, linkClosing = markdown:find("%b[]%b()", position)
-        while linkClosing and linkClosing < opening do
-            linkOpening, linkClosing = markdown:find("%b[]%b()", linkClosing + 1)
+        local before = opening - 1
+        while before > 0 and markdown:sub(before, before) == "\\" do
+            before = before - 1
         end
-        if linkOpening and linkClosing and linkOpening < opening and closing < linkClosing then
-            -- Code in a link label remains part of that prose link. A link
-            -- inside a code span or fence starts after its opening delimiter.
-            out[#out + 1] = rewrite(markdown:sub(position, linkClosing))
-            position = linkClosing + 1
+        if (opening - before - 1) % 2 == 1 then
+            position = opening + 1
         else
-            out[#out + 1] = rewrite(markdown:sub(position, opening - 1))
-            out[#out + 1] = markdown:sub(opening, closing)
-            position = closing + 1
+            local width = openingEnd - opening + 1
+            local closing, closingEnd = markdown:find("`+", openingEnd + 1)
+            while closing and closingEnd and closingEnd - closing + 1 ~= width do
+                closing, closingEnd = markdown:find("`+", closingEnd + 1)
+            end
+            if not closing or not closingEnd then
+                -- An unmatched run is ordinary prose. A later run of another
+                -- length may still open a complete code span.
+                position = openingEnd + 1
+            else
+                local linkOpening, linkClosing = markdown:find("%b[]%b()", start)
+                while linkClosing and linkClosing < opening do
+                    linkOpening, linkClosing = markdown:find("%b[]%b()", linkClosing + 1)
+                end
+                if linkOpening and linkClosing and linkOpening < opening and closingEnd < linkClosing then
+                    position = linkClosing + 1
+                else
+                    out[#out + 1] = rewrite(markdown:sub(start, opening - 1))
+                    out[#out + 1] = markdown:sub(opening, closingEnd)
+                    start = closingEnd + 1
+                    position = start
+                end
+            end
         end
+    end
+    out[#out + 1] = rewrite(markdown:sub(start))
+
+    return table.concat(out)
+end
+
+-- Fences are line-oriented and may contain shorter fences literally. Use the
+-- renderer's delimiter rules before looking for inline code in the remaining prose.
+local function rewriteOutsideBackticks(markdown: string, rewrite: function(string): string): string
+    local out, position, start, protected = {}, 1, 1, 1
+    local fenced: string? = nil
+    while position <= #markdown do
+        local newline = markdown:find("\n", position, true)
+        local last = newline or #markdown
+        local line = markdown:sub(position, newline and newline - 1 or last)
+        local previous = fenced
+        local marker
+        fenced, marker = syntax.fenceState(line, fenced, true)
+        if marker and not previous then
+            out[#out + 1] = rewriteOutsideInlineCode(markdown:sub(start, position - 1), rewrite)
+            protected = position
+        elseif previous and not fenced then
+            out[#out + 1] = markdown:sub(protected, last)
+            start = last + 1
+        end
+        position = last + 1
+    end
+    if fenced then
+        out[#out + 1] = markdown:sub(protected)
+    else
+        out[#out + 1] = rewriteOutsideInlineCode(markdown:sub(start), rewrite)
     end
 
     return table.concat(out)

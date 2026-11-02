@@ -14,7 +14,7 @@ table and supplies it as the explicit receiver for every operation. Provider
 handles are opaque; shared Address values come from [](io.net.Address).
 
 Listener acceptance, connection completion, and stream I/O are readiness probes.
-They must not run a private blocking loop. `run(timeoutMs)` pumps the provider's
+They must not run a private blocking loop. `run(timeoutms)` pumps the provider's
 reactor, and the public facade exposes pumping as `io.net.pump`. Keep handle
 ownership separate for listeners, connect requests, streams, and datagrams.
 

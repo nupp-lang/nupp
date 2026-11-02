@@ -304,7 +304,7 @@ and supplies a closed argument list:
 - `entry()` passes the derived type's private runtime schema entry.
 - `field(fieldInfo)` directly reads one readable stored field.
 - `constant(value)` embeds a bounded quotable value.
-- `witness(annotationType(argument))` passes the `Type<T>` witness named by an
+- `witness(annotationtype(argument))` passes the `Type<T>` witness named by an
   `@ref` annotation argument from the owner or one of its fields.
 - `array(arguments)` constructs a fresh array from argument recipes.
 

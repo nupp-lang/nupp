@@ -1209,6 +1209,24 @@ end
 local function returnedNames(root, moduleLocal: string?): any, any
     local names, aliases = {}, {}
 
+    local function recordBinding(binding: any, member: string?): nil
+        if not binding or binding.kind ~= "name" or not binding.token then
+            return
+        end
+        local name = binding.token.text
+        names[name] = true
+        if member then
+            local held = aliases[name] or {}
+            for _, alias in ipairs(held) do
+                if alias == member then
+                    return
+                end
+            end
+            held[#held + 1] = member
+            aliases[name] = held
+        end
+    end
+
     local function recordTable(value: any): nil
         while value and (value.kind == "castExpr" or value.kind == "paren") do
             value = value.expr
@@ -1224,16 +1242,7 @@ local function returnedNames(root, moduleLocal: string?): any, any
                 and field.key.kind == "string"
                 and syntax(field.key):match("^[\"']([%a_][%w_]*)[\"']$")
                 or nil
-            local binding = field.value
-            if binding and binding.kind == "name" and binding.token then
-                local name = binding.token.text
-                names[name] = true
-                if member then
-                    local held = aliases[name] or {}
-                    held[#held + 1] = member
-                    aliases[name] = held
-                end
-            end
+            recordBinding(field.value, member)
         end
     end
 
@@ -1249,6 +1258,13 @@ local function returnedNames(root, moduleLocal: string?): any, any
                 for index, binding in ipairs(stat.names or {}) do
                     if binding.text == moduleLocal then
                         recordTable(stat.exprs and stat.exprs[index])
+                    end
+                end
+            elseif stat.kind == "assignStmt" and moduleLocal then
+                for index, target in ipairs(stat.targets or {}) do
+                    local owner, member = syntax(target):match("^([%w_]+)%.([%w_]+)$")
+                    if owner == moduleLocal then
+                        recordBinding(stat.exprs and stat.exprs[index], member)
                     end
                 end
             end

@@ -8,9 +8,13 @@ and connections this process opens itself.
 
 ```nupp
 local listener = assert(io.net.listen({host = "127.0.0.1", port = 0}))
+local sender = assert(io.net.connect({host = "127.0.0.1", port = listener:port()}))
+assert(sender:write("x"))
+assert(sender:flush())
 local stream = assert(listener:accept())
-print(assert(stream:read(5)))
+print(assert(stream:read(1))) -- x
 stream:close()
+sender:close()
 listener:close()
 ```
 

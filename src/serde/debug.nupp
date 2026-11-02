@@ -19,7 +19,7 @@ assert(debug.render(debug.binding(Login), new Login(user = "ada", password = "x"
 
 The text is for people, not for reading back: it has no decoder and its
 format may change. [](binding) honours the `Debug` derive's field annotations
-and a declaration's own `Debug` method; any other binding renders through its
+and a declaration's own `debug` method; any other binding renders through its
 adapter as written, so a model library's values render without a derive.
 ]]
 const assert2 = require("assert")

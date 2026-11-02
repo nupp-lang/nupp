@@ -67,7 +67,7 @@ assert(math.u32.shiftrightlogical(math.u32.wrap(-1), 24) == 255)
 ```
 
 `u32` and `u64` also carry rotations, `popcount`, `trailingzeros` and
-`leadingzeros`. `u64.prefixXor` computes inclusive prefix parity over all
+`leadingzeros`. `u64.prefixxor` computes inclusive prefix parity over all
 sixty-four bits.
 
 ### Binary32 namespace

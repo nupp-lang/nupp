@@ -384,7 +384,7 @@ the directory holding it rather than a route ending in `index`. `base` is the
 directory routes are named from, defaulting to the fixed part the pattern opens
 with, and `exclude` drops files the tree holds and the site does not publish.
 
-```lua
+```lua:fragment
 {
    glob = "docs/**.md",
    exclude = { "docs/drafts/**.md" }
@@ -420,7 +420,7 @@ by the file name without its extension, plus an index generated at `path`
 itself. A document is published by existing, so nothing has to be added to the
 manifest when one is written.
 
-```lua
+```lua:fragment
 {
    path = "adrs",
    title = "ADRs",

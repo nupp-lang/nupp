@@ -502,7 +502,7 @@ when no borrow or region loan is live on either side of the edge, because no
 loan can dangle across an edge that carries none:
 
 ```nupp:fragment
-local frame = heap.allocate(ffi.typeof<uint8>(), size)
+local frame = heap.alloc(ffi.typeof<uint8>(), size)
 do
     local scope = coroutine.scope()
     for generation = 1, 60 do
