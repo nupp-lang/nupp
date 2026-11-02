@@ -1337,6 +1337,14 @@ declarationItem = function(
             public = public or (published or {})[stat.names[1].text] == true
         end
         itemComptimeKind = comptimeKind(stat.types[1])
+    elseif stat.kind == "assignStmt" and stat.isConst and #stat.targets == 1 and #stat.exprs == 1 and moduleLocal then
+        local owner, member = syntax(stat.targets[1]):match("^([%w_]+)%.([%w_]+)$")
+        if owner ~= moduleLocal then
+            return nil
+        end
+        name, kind = moduleLocal .. "." .. member, "variable"
+        signature = "const " .. name
+        public = true
     else
         return nil
     end
@@ -1376,7 +1384,10 @@ declarationItem = function(
         kind = kind,
         signature = signature,
         aliasSource = stat.kind == "typeAlias" and syntax(stat.value)
-        or stat.kind == "localStmt" and stat.exprs and stat.exprs[1] and syntax(stat.exprs[1])
+        or (stat.kind == "localStmt" or stat.kind == "assignStmt")
+        and stat.exprs
+        and stat.exprs[1]
+        and syntax(stat.exprs[1])
         or nil,
         doc = info,
         path = itemPath,

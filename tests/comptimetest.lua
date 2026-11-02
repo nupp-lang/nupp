@@ -955,6 +955,10 @@ function M.thePublicTypeFacadeDoesNotReplaceTheHostDebugLibrary()
     testAssert.eq(type(originalDebug.getinfo), "function")
     testAssert.eq(exported.debug, nil, "the checked provider is erased from the runtime facade")
     testAssert.eq(type(exported.newstore), "function", "runtime facade members remain available")
+    local store = require("nupp.util.internal.store")
+    testAssert.eq(exported.Key, store.Key, "the public constructor keeps its original identity")
+    testAssert.eq(exported.newkey, store.newKey, "the public key factory keeps its original handle")
+    testAssert.eq(exported.newstore, store.newStore, "the public store factory keeps its original handle")
 end
 
 -- A helper's optional parameter may be left out, exactly as the checker admits it:

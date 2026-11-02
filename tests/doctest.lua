@@ -1128,6 +1128,51 @@ function M.standardTypesApiMarksItsCompilerOnlyValues()
     assert(foundFunction, "types.optional lost its @comptime function kind")
 end
 
+function M.constModuleMembersProjectTheirOriginalAliasContracts()
+    local dir = tempProject({
+        [
+            "src/facade.nupp"
+        ] = [[
+module facade
+local implementation = require("private.implementation")
+local api = {}
+const api.make = implementation.make
+const api._secret = implementation.make
+local hidden = {}
+const hidden.leak = implementation.make
+api.mutable = implementation.make
+export = api
+]],
+        [
+            "src/private/implementation.nupp"
+        ] = [[
+@!internal
+module private.implementation
+--- Keeps its generic value and returns a count.
+export function make<T>(value: T): (T, integer)
+    return value, 7
+end
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "json", output = "api.json"}) == 0)
+    local model = require("testjson").decode(readFile(dir .. "/api.json"))
+    local items = {}
+    for _, module in ipairs(model.modules) do
+        assert(module.name == "facade", "the private implementation became public")
+        for _, item in ipairs(module.items) do
+            items[item.path] = item
+        end
+    end
+    local maker = assert(items["facade.make"], "the const member is absent")
+    assert(maker.kind == "function", maker.kind)
+    assert(maker.signature:find("make<T>", 1, true), maker.signature)
+    assert(maker.params[1].name == "value" and #maker.returns == 2, "generic input and result pack were lost")
+    assert(maker.doc.text:find("Keeps its generic value", 1, true), "the original declaration prose was lost")
+    assert(not items["facade.api.make"] and not items["facade._secret"], "private or local table names leaked")
+    assert(not items["facade.hidden.leak"] and not items["facade.mutable"], "an unrelated assignment was projected")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 function M.standardTypesPageCombinesBuildersAndRuntimeExports()
     local dir = tempProject({
         ["src/prelude.d.nupp"] = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp"),
