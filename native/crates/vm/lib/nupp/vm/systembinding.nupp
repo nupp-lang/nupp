@@ -1,0 +1,19 @@
+@!internal
+module nupp.vm.systembinding
+
+const {type Provider} = require("nupp.system.spi")
+local binding: any = package.loaded["nupp.runtime.provider.nativesystem"]
+assert(type(binding) == "table", "the frozen VM nativesystem provider is unavailable")
+
+if binding.pointerbits == nil then
+    binding.pointerbits = binding.pointerBits
+end
+binding.pointerBits = nil
+if binding.availableparallelism == nil then
+    binding.availableparallelism = binding.availableParallelism
+end
+binding.availableParallelism = nil
+
+local provider: Provider = binding
+
+export = provider

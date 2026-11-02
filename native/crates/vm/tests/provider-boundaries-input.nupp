@@ -1,0 +1,55 @@
+module nupp.tests.vmproviderboundaries
+
+local probe = {}
+
+function probe.run(): integer
+    local standard = require("nupp.runtime.standardos")
+    local info = standard.info()
+    local raw: any = package.loaded["nupp.runtime.provider.nativesystem"]
+    assert(info.platform == raw.platform and info.arch == raw.architecture)
+    assert(info.pointerbits == raw.pointerbits and info.parallelism >= 1)
+    assert(info.endianness == raw.endianness and #standard.randombytes(3) == 3)
+    assert(standard.value == rawget(_G, "os"))
+    local digest = require("binary.hash.digest")
+    local algorithm = digest.algorithm("sha256")
+    assert(algorithm.digestsize == 32 and (algorithm as any).digestSize == nil)
+    local context = algorithm:newdigest()
+    assert(context:digestsize() == 32)
+    context:write("abc")
+    assert(context:hexdigest() == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    local rawfiles = require("nupp.vm.files")
+    local nativefiles = require("nupp.runtime.provider.nativefiles")
+    local before = assert(rawfiles.info(".", true))
+    local after = assert(nativefiles.info("."))
+    assert(type(before.readOnly) == "boolean" and after.readonly == before.readOnly)
+    assert(after.kind == before.kind and after.size == before.size and (after as any).readOnly == nil)
+    local process = require("nupp.runtime.provider.nativeprocess")
+    local child = assert(
+        process.spawn(nil, {
+            args = {"/bin/sh", "-c", "exit 7"},
+            stdin = "null",
+            stdout = "null",
+            stderr = "null",
+            clearenv = true
+        })
+    )
+    local result = process.poll(nil, child)
+    for _ = 1, 1000 do
+        if result ~= nil then
+            break
+        end
+        require("nupp.vm.clock").sleep(1)
+        result = process.poll(nil, child)
+    end
+    if result == nil then
+        process.kill(nil, child, true)
+        error("the child did not exit within the probe deadline")
+    end
+    assert(result.exitcode == 7 and not result.killed and not result.timedout)
+    assert((result as any).exitCode == nil and (result as any).timedOut == nil)
+    assert(process.reap(nil, child))
+
+    return 42
+end
+
+export = probe

@@ -1,0 +1,15 @@
+@!internal
+module nupp.vm.cryptobinding
+
+const {type Provider} = require("nupp.random.spi")
+local binding: any = package.loaded["nupp.runtime.provider.nativecrypto"]
+assert(type(binding) == "table", "the frozen VM nativecrypto provider is unavailable")
+
+if binding.randombytes == nil then
+    binding.randombytes = binding.randomBytes
+end
+binding.randomBytes = nil
+
+local provider: Provider = binding
+
+export = provider

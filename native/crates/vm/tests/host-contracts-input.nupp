@@ -1,0 +1,202 @@
+module nupp.tests.vmhostcontracts
+
+local probe = {}
+
+function probe.run(): integer
+    local expected: {
+        [string]: {string}
+    } = {
+        ["nupp.cli.internal.terminalhost"] = {"isTerminal", "columns"},
+        ["nupp.compiler.hostpid"] = {"get"},
+        ["nupp.compiler.nativecdecl"] = {"request"},
+        ["nupp.compiler.nativehash"] = {"digest"},
+        ["nupp.digest.internal.sha256"] = {"sha256"},
+        ["nupp.runtime.provider.nativecrypto"] = {"randomBytes"},
+        [
+            "nupp.runtime.provider.nativestorage"
+        ] = {
+            "allocateBytes",
+            "borrowString",
+            "copy",
+            "fill",
+            "sizeOf",
+            "string",
+            "decodeUint8",
+            "encodeUint8",
+            "decodeInt8",
+            "encodeInt8",
+            "decodeUint16",
+            "encodeUint16",
+            "decodeInt16",
+            "encodeInt16",
+            "decodeUint32",
+            "encodeUint32",
+            "decodeInt32",
+            "encodeInt32",
+            "decodeUint64",
+            "encodeUint64",
+            "decodeInt64",
+            "encodeInt64",
+            "decodeFloat32",
+            "encodeFloat32",
+            "decodeFloat64",
+            "encodeFloat64",
+            "castBytes",
+            "castElements",
+            "scalar",
+            "descriptor",
+            "allocateArray",
+            "boundedCount",
+            "layout",
+            "castWritableElements",
+            "isBorrowed",
+            "structs",
+            "representation"
+        },
+        [
+            "nupp.runtime.provider.nativesystem"
+        ] = {"platform", "architecture", "endianness", "pointerBits", "availableParallelism"},
+        ["nupp.runtime.provider.nativeuuid"] = {"uuid4", "uuid7"},
+        ["nupp.simd"] = {"horizontal", "reducer"},
+        ["nupp.tools.build.clockhost"] = {"now"},
+        ["nupp.vm.clock"] = {"now", "wallTime", "sleep"},
+        [
+            "nupp.vm.compression"
+        ] = {
+            "encoderCreate",
+            "encoderWrite",
+            "encoderFlush",
+            "encoderFinish",
+            "encoderRelease",
+            "decoderCreate",
+            "decoderRead",
+            "decoderFinishInput",
+            "decoderRelease"
+        },
+        ["nupp.vm.coroutine"] = {"create", "wrap", "isyieldable", "resume", "yield", "status", "running", "close"},
+        ["nupp.vm.crc"] = {"update"},
+        [
+            "nupp.vm.files"
+        ] = {
+            "info",
+            "readLink",
+            "createSymlink",
+            "setReadOnly",
+            "createDirectory",
+            "remove",
+            "rename",
+            "list",
+            "glob",
+            "read",
+            "write",
+            "append",
+            "writeAtomic",
+            "copy",
+            "open",
+            "fileRead",
+            "fileWrite",
+            "fileSeek",
+            "filePosition",
+            "fileSize",
+            "fileFlush",
+            "fileClose",
+            "currentDirectory",
+            "canonicalize",
+            "userFolder",
+            "applicationBase",
+            "executablePath",
+            "createTemporary"
+        },
+        [
+            "nupp.vm.http"
+        ] = {
+            "clientCreate",
+            "clientRelease",
+            "clientPending",
+            "clientSend",
+            "clientPoll",
+            "transferCancel",
+            "transferRelease",
+            "transferOffer",
+            "transferHead",
+            "transferTakeBody",
+            "bodyArm",
+            "bodyRead"
+        },
+        ["nupp.vm.markdown"] = {"render"},
+        [
+            "nupp.vm.net"
+        ] = {
+            "snapshot",
+            "sleep",
+            "listen",
+            "listenPath",
+            "listenerPort",
+            "accept",
+            "closeListener",
+            "connect",
+            "connectPath",
+            "connectPoll",
+            "closeConnect",
+            "read",
+            "write",
+            "pending",
+            "ended",
+            "writeFailed",
+            "shuttingDown",
+            "shutdownWrite",
+            "address",
+            "noDelay",
+            "keepAlive",
+            "closeStream",
+            "bindDatagram",
+            "datagramPort",
+            "receive",
+            "sendTo",
+            "broadcast",
+            "multicastTtl",
+            "multicastLoop",
+            "membership",
+            "closeDatagram",
+            "tlsWrap",
+            "tlsHandshake",
+            "tlsRead",
+            "tlsWrite",
+            "tlsFlushed",
+            "tlsCloseNotify",
+            "tlsConnected",
+            "tlsVerified",
+            "tlsResumed",
+            "tlsProtocol",
+            "tlsDestroy"
+        },
+        ["nupp.vm.process"] = {"spawn", "poll", "kill", "read", "write", "closeStream", "reap", "waitReady"},
+        ["nupp.vm.regex"] = {"compile", "isMatch", "find", "captures", "groups", "replace", "escape", "findAll"},
+        [
+            "nupp.vm.tasks"
+        ] = {
+            "open",
+            "checkpoint",
+            "deadline",
+            "isCancelled",
+            "familyOpen",
+            "familyAwait",
+            "channel",
+            "pollWorkers",
+            "workerOpen",
+            "release"
+        },
+        ["nupp.vm.uri"] = {"parse"},
+    }
+    for name, keys in pairs(expected) do
+        local host: any = package.loaded[name]
+        assert(type(host) == "table", name)
+        for _, key in ipairs(keys) do
+            assert(host[key] ~= nil, name .. "." .. key)
+        end
+    end
+
+    return 42
+end
+
+export = probe

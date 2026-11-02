@@ -1,0 +1,3 @@
+const {type Provider} = require("nupp.system.spi")
+
+return Provider

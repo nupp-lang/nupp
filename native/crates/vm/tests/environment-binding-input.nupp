@@ -1,0 +1,32 @@
+module nupp.tests.vmenvironmentbinding
+
+local probe = {}
+
+function probe.run(): integer
+    local crypto: any = package.loaded["nupp.runtime.provider.nativecrypto"]
+    local random: any = crypto.randomBytes
+    local system: any = package.loaded["nupp.runtime.provider.nativesystem"]
+    local parallel: any = system.availableParallelism
+    local bits: any = system.pointerBits
+    assert(type(random) == "function" and type(parallel) == "function")
+    local cryptoBinding = require("nupp.vm.cryptobinding")
+    local systemBinding = require("nupp.vm.systembinding")
+    assert((cryptoBinding as any) == crypto and (systemBinding as any) == system)
+    assert(cryptoBinding.randombytes == random and systemBinding.availableparallelism == parallel)
+    assert(systemBinding.pointerbits == bits and (bits == 32 or bits == 64))
+    assert(crypto.randomBytes == nil and system.availableParallelism == nil and system.pointerBits == nil)
+    assert(cryptoBinding.randombytes(0) == "" and #cryptoBinding.randombytes(17) == 17)
+    assert(not pcall(cryptoBinding.randombytes, -1))
+    assert(not pcall(cryptoBinding.randombytes, 1048577))
+    assert(not pcall(crypto.randombytes, 0.5))
+    assert(systemBinding.availableparallelism() >= 1)
+    local entropy = require("nupp.runtime.entropy")
+    local facts = require("nupp.runtime.system")
+    assert(entropy.randombytes == random and facts.availableParallelism == parallel)
+    assert(facts.pointerBits == bits and facts.platform == system.platform)
+    assert(facts.architecture == system.architecture and facts.endianness == system.endianness)
+
+    return 42
+end
+
+export = probe

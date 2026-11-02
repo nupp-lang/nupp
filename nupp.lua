@@ -473,6 +473,8 @@ for _, relative in ipairs({
     "nupp/vm/persist.d.nupp",
     "nupp/vm/process.d.nupp",
     "nupp/vm/storagebinding.d.nupp",
+    "nupp/vm/cryptobinding.d.nupp",
+    "nupp/vm/systembinding.d.nupp",
     "nupp/vm/regex.d.nupp",
     "nupp/vm/snapshot.d.nupp",
     "nupp/vm/taskScope.d.nupp",

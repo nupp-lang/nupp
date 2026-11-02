@@ -101,6 +101,48 @@ return type(store)
     test.eq(chunk(), "table", "ordinary runtime namespace remains available")
 end
 
+function M.coldExternalProjectsRetainDeclaredStandardLibraryTypes()
+    local fs = require("nupp.compiler.fs")
+    local project = require("nupp.tools.vm.project")
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
+    assert(fs.writeFile(dir .. "/nupp.lua", 'return {include = {"src"}}\n'))
+    assert(
+        fs.writeFile(
+            dir .. "/src/coldlibraries.nupp",
+            [[
+module coldlibraries
+const digest = require("binary.hash.digest")
+const compression = require("binary.compress")
+local main = {}
+function main.run(): integer
+    local facts = os.info()
+    assert(facts.pointerbits == 32 or facts.pointerbits == 64)
+    assert(facts.parallelism >= 1)
+    local bytes = io.newbuffer("abc")
+    local reader: io.Reader = bytes:newreader()
+    assert(reader:read(3) == "abc")
+    local algorithm = digest.algorithm("sha256")
+    assert(algorithm.digestsize == 32)
+    local context = algorithm:newdigest()
+    context:write("abc")
+    assert(context:hexdigest() == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
+    return 42
+end
+export = main
+]]
+        )
+    )
+    local ok, problem = pcall(function()
+        local image = project.emit(dir, "coldlibraries", "")
+        local chunk = assert(assert(rawget(_G, "__nupp_load_image"))(image))
+        test.eq(chunk().run(), 42, "a cold external image retains IO ownership and descriptor contracts")
+    end)
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(ok, problem)
+end
+
 local function coroutineContext()
     local project = require("nupp.tools.vm.project")
     local env = environment.new(ROOT, {
@@ -224,7 +266,7 @@ with scope = coroutine.scope() do
     local child = scope:spawn(7, work)
     local n: integer, text: string?, tail: nil = inspect(child)
     assert(n == 7 and text == "kept" and tail == nil)
-    local forked = scope:fork(9, worker.run)
+    local forked = scope:work(9, worker.run)
     local m: integer, other: string?, last: nil = inspect(forked)
     assert(m == 9 and other == "forked" and last == nil)
 end
@@ -279,7 +321,7 @@ with scope = coroutine.scope() do
     local n, text, tail = inspect(child)
     assert(n == 7 and text == "kept" and tail == nil, "spawn preserves heterogeneous result positions")
     assert(select("#", inspect(child)) == 3, "spawn preserves the trailing nil result count")
-    local forked = scope:fork(9, work)
+    local forked = scope:work(9, work)
     local m, other, last = inspect(forked)
     assert(m == 9 and other == "kept" and last == nil, "fork preserves heterogeneous result positions")
     assert(select("#", inspect(forked)) == 3, "fork preserves the trailing nil result count")

@@ -161,8 +161,10 @@ local function emitProject(
         triviaarena.installDefault(tableProvider)
     end
     chunks.install()
+    local compilerRoot = assert(envMod.compilerRoot(), "compiler source root unavailable")
     local env = envMod.new(root, {
         cache = false,
+        runtimeSourceRoots = {compilerRoot .. "/src"},
         nativeCompilerServices = false,
         compilerServices = not hostBootstrap and require("nupp.compiler.hostservices") or nil,
         config = config,
@@ -170,7 +172,6 @@ local function emitProject(
 
     -- These declare the modules this VM host supplies, and hold the VM's own
     -- implementations the tree does not.
-    local compilerRoot = assert(envMod.compilerRoot(), "compiler source root unavailable")
     table.insert(assert(env.roots), 1, compilerRoot .. "/native/crates/vm/lib")
     table.insert(assert(env.roots), 1, compilerRoot .. "/native/crates/vm/decls")
     -- A separate project still executes the compiler-carried library sources.
