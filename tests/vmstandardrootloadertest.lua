@@ -101,4 +101,181 @@ return type(store)
     test.eq(chunk(), "table", "ordinary runtime namespace remains available")
 end
 
+local function coroutineContext()
+    local project = require("nupp.tools.vm.project")
+    local env = environment.new(ROOT, {
+        cache = false,
+        nativeCompilerServices = false,
+        compilerServices = require("nupp.compiler.hostservices"),
+        config = project.manifest(ROOT .. "/nupp.lua"),
+    })
+    table.insert(env.roots, 1, ROOT .. "/native/crates/vm/lib")
+    table.insert(env.roots, 1, ROOT .. "/native/crates/vm/decls")
+    env.managedCoroutines = true
+    env.globals.coroutine.t = assert(environment.resolveModule(env, "nupp.vm.ownedCoroutine"))
+
+    return env
+end
+
+local function checkedCoroutine(source, env)
+    local parser = require("nupp.compiler.syntax.parser")
+    local checker = require("fragment")
+    local parsed = parser.parse(source, "native-coroutine-contract.nupp")
+    test.eq(#parsed.errors, 0)
+    local codes, messages = {}, {}
+    for _, diagnostic in ipairs(
+        checker.check(parsed, "native-coroutine-contract.nupp", env, {
+            moduleName = "nupp.tests.nativecoroutine",
+        })
+    ) do
+        if not diagnostic.severity or diagnostic.severity == "error" then
+            codes[#codes + 1] = diagnostic.code
+            messages[#messages + 1] = diagnostic.msg
+        end
+    end
+
+    return parsed, table.concat(codes, ","), table.concat(messages, "\n")
+end
+
+function M.managedCoroutineNamespacesRetainOwnedFunctionsAndExtendFinalMembers()
+    local members = require("nupp.compiler.types.members")
+    local env = coroutineContext()
+    local namespace = env.globals.coroutine.t
+    test.eq(namespace.tag, "shape")
+    local path = ROOT .. "/native/crates/vm/decls/nupp/vm/ownedCoroutine.d.nupp"
+    local parsed = assert(env.loadedPaths[path].result)
+    local original
+
+    local function find(node)
+        if type(node) ~= "table" then
+            return
+        end
+        if node.kind == "recordDecl" and node.name.text == "Coroutines" then
+            original = assert(node.resolvedType)
+        end
+        for _, child in ipairs(node) do
+            find(child)
+        end
+    end
+
+    find(parsed.root)
+    local projected = members.view(namespace)
+    local count = 0
+    for _, member in ipairs(members.view(assert(original)).ordered) do
+        count = count + 1
+        test.eq(projected.byname[member.name].readType, member.readType, member.name .. " read contract")
+        test.eq(projected.byname[member.name].writeType, member.writeType, member.name .. " write contract")
+    end
+    test.eq(count, 8)
+    local _, codes, messages = checkedCoroutine(
+        [[
+local tasks = require("coroutine")
+local cancelled = tasks.iscancelled
+local scope = tasks.scope
+with child = coroutine.create(function(): nil end) do
+    coroutine.resume(child)
+end
+return cancelled("ordinary reason"), scope
+]],
+        env
+    )
+    test.eq(codes, "", messages)
+    _, codes, messages = checkedCoroutine(
+        [[
+local coroutine = {iscancelled = function(value: integer): integer return value + 1 end}
+return coroutine.iscancelled(2)
+]],
+        env
+    )
+    test.eq(codes, "", messages)
+    _, codes = checkedCoroutine(
+        [[
+local child = coroutine.create(function(): nil end)
+coroutine.close(child)
+return coroutine.status(child)
+]],
+        env
+    )
+    test.eq(codes, "NUPP2601", "namespace shape retains owned take/close refusals")
+end
+
+function M.nativeTaskDeclarationsKeepCanonicalFunctionResultsAndScopeBorrows()
+    local env = coroutineContext()
+    local _, codes, messages = checkedCoroutine(
+        [[
+local type Work = function(integer): (integer, string?, nil)
+local states: {coroutine.Status} = {"queued", "running", "done", "failed", "cancelled"}
+local function inspect(borrows task: coroutine.Task<Work>): (integer, string?, nil)
+    local status: coroutine.Status = task:status()
+    return task:await()
+end
+local function work(n: integer): (integer, string?, nil)
+    return n, "kept", nil
+end
+local worker = {}
+function worker.run(n: integer): (integer, string?, nil)
+    return n, "forked", nil
+end
+with scope = coroutine.scope() do
+    local child = scope:spawn(7, work)
+    local n: integer, text: string?, tail: nil = inspect(child)
+    assert(n == 7 and text == "kept" and tail == nil)
+    local forked = scope:fork(9, worker.run)
+    local m: integer, other: string?, last: nil = inspect(forked)
+    assert(m == 9 and other == "forked" and last == nil)
+end
+]],
+        env
+    )
+    test.eq(codes, "", messages)
+    _, codes = checkedCoroutine("local type Invalid = coroutine.Task<integer>", env)
+    test.eq(codes, "NUPP2130", "Task takes a function type, not the native result pack")
+    _, codes = checkedCoroutine('local bad: coroutine.Status = "other"', env)
+    test.eq(codes, "NUPP2001", "Status keeps its five scheduler states")
+    _, codes = checkedCoroutine(
+        [[
+local function escape(): coroutine.Task<function(): integer>
+    with scope = coroutine.scope() do
+        return scope:spawn(function(): integer return 7 end)
+    end
+end
+]],
+        env
+    )
+    assert(codes:find("NUPP2608", 1, true), "a task cannot escape its owning scope: " .. codes)
+end
+
+function M.nativeCoroutineFacadeReusesTaskConstructorsAndCompleteResults()
+    local env = coroutineContext()
+    local parsed, codes, messages = checkedCoroutine(
+        [[
+local private = require("nupp.tasks")
+local public = require("coroutine")
+assert(public.Scope == private.Scope)
+assert(public.Cancellation == private.Cancellation)
+local type Work = function(integer): (integer, string?, nil)
+local function inspect(borrows task: coroutine.Task<Work>): (integer, string?, nil)
+    return task:await()
+end
+local function work(n: integer): (integer, string?, nil)
+    return n, "kept", nil
+end
+with scope = coroutine.scope() do
+    local child = scope:spawn(7, work)
+    local n, text, tail = inspect(child)
+    assert(n == 7 and text == "kept" and tail == nil)
+    assert(select("#", inspect(child)) == 3)
+    local forked = scope:fork(9, work)
+    local m, other, last = inspect(forked)
+    assert(m == 9 and other == "kept" and last == nil)
+    assert(select("#", inspect(forked)) == 3)
+end
+return true
+]],
+        env
+    )
+    test.eq(codes, "", messages)
+    test.eq(require("program").run(parsed, "nativecoroutineconstructors"), true)
+end
+
 return M

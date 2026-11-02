@@ -14,4 +14,13 @@ local record Coroutines
     running: function(): (thread?, boolean)
     isyieldable: function(): boolean
 end
-return Coroutines
+return {
+    create = Coroutines.create,
+    resume = Coroutines.resume,
+    yield = Coroutines.yield,
+    status = Coroutines.status,
+    close = Coroutines.close,
+    wrap = Coroutines.wrap,
+    running = Coroutines.running,
+    isyieldable = Coroutines.isyieldable,
+}
