@@ -63,8 +63,9 @@ function frontend.compile(fn: any, options: any, profile: any): any
     -- An anonymous `...` has no name; its node keys the hidden pack parameter.
     local varargKey: any = nil
     for index, parameter in ipairs(moduleOwner and {} or graph.parameters(body)) do
-        local key = parameter.name and (parameter.name.definition or parameter.name) or parameter
-        if parameter.vararg and not parameter.name then
+        local key = parameter.name and not parameter.vararg and (parameter.name.definition or parameter.name)
+            or parameter
+        if parameter.vararg then
             varargKey = key
         end
         bindings[key] = index
@@ -320,6 +321,8 @@ function frontend.compile(fn: any, options: any, profile: any): any
             context()
 
             return done.result
+        elseif node.kind == "istring" and profile.interpolation then
+            return invoke("interpolation", node, expected)
         elseif node.kind == "binop" then
             local operator = node.op.text
             if operator ~= "and" and operator ~= "or" then
@@ -1472,10 +1475,20 @@ function frontend.compile(fn: any, options: any, profile: any): any
     if profile.entryBindings then
         context()
         for index, parameter in ipairs(moduleOwner and {} or graph.parameters(body)) do
-            local key = parameter.name and (parameter.name.definition or parameter.name) or parameter
+            local key = parameter.name and not parameter.vararg and (parameter.name.definition or parameter.name)
+                or parameter
             bindings[key] = initializeBinding(parameter, key, index)
         end
         invoke("entryBindings", fn.node, nil)
+    end
+    -- A named vararg is bound on entry, a table of the extra arguments.
+    local parameters = moduleOwner and {} or graph.parameters(body)
+    local named = parameters[#parameters]
+    if named and named.vararg and named.name and profile.namedVararg then
+        context()
+        local key = named.name.definition or named.name
+        local value = invoke("namedVararg", named, nil)
+        ctx.bind(key, initializeBinding(named.name, key, value))
     end
     if moduleOwner then
         for _, sourceBlock in ipairs(body.blocks) do

@@ -112,7 +112,8 @@ local CASES = {
     {"numbersRandom", 0x7FFF00003A3E66EE},
     {"errorsLibrary", 0x7FFF000000000FFF},
     {"callsAny", 0x7FFF00000001B05A},
-    {"recordsMetamethods", 0x7FFF0000043EE3C6}
+    {"recordsMetamethods", 0x7FFF0000043EE3C6},
+    {"callsPacks", 0x7FFF0000002F5D00}
 }
 -- What the cases that print write to the host's output, as Lua 5.5 writes it.
 local OUTPUT = {
@@ -182,7 +183,8 @@ local NUMERIC = {
     numbersRandom = "catalog-numbers-random",
     errorsLibrary = "catalog-errors-library",
     callsAny = "catalog-calls-any",
-    recordsMetamethods = "catalog-records-metamethods"
+    recordsMetamethods = "catalog-records-metamethods",
+    callsPacks = "catalog-calls-packs"
 }
 local FIXTURES = {
     "catalog-boolean",

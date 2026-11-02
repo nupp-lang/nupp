@@ -104,6 +104,8 @@ export const MATH_RANDOM: uint64 = 69ULL
 export const MATH_RANDOMSEED: uint64 = 70ULL
 export const MATH_RANDOM_FLOAT: uint64 = 71ULL
 export const MATH_RANDOMSEED_HOST: uint64 = 72ULL
+-- A named vararg: the pack of extra arguments as a table with `n`.
+export const NAMED_PACK: uint64 = 73ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -2334,7 +2336,8 @@ local function select(ctx: voidptr, packValue: uint64, index: uint64): uint64
 end
 
 -- {...}: a fresh table holding a variadic pack's values at 1..n.
-local function packCopy(ctx: voidptr, packValue: uint64): uint64
+local function packCopy(ctx: voidptr, packValue: uint64, named: boolean): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
         local pack = packValue & values.PAYLOAD
@@ -2351,6 +2354,19 @@ local function packCopy(ctx: voidptr, packValue: uint64): uint64
                 error("not enough memory")
             end
             i = i + 1ULL
+        end
+        -- A named vararg carries its count as `n`, as table.pack does.
+        if named then
+            local builder = state as strings.Builder*
+            if strings.appendWord(h, builder, 0x6eULL, 1ULL) ~= 0ULL then
+                strings.release(builder)
+                error("not enough memory")
+            end
+            local key = values.TAG_OBJ | strings.finish(h, builder)
+            if tables.set(h, t, key, values.TAG_INTEGER | n) == tables.NO_MEMORY then
+                error("not enough memory")
+            end
+            tables.drain(h)
         end
         return values.TAG_OBJ | t
     end
@@ -2711,7 +2727,9 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == SELECT then
         return select(ctx, a, b)
     elseif id == PACK_COPY then
-        return packCopy(ctx, a)
+        return packCopy(ctx, a, false)
+    elseif id == NAMED_PACK then
+        return packCopy(ctx, a, true)
     end
     error("unknown core library call")
 

@@ -3,6 +3,7 @@ module nupp.compiler.vm.taggedprofile
 local graph = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local cst = require("nupp.compiler.syntax.cst")
+local lexer = require("nupp.compiler.syntax.lexer")
 local tagged = {booleanKind = "tagged"}
 
 -- The graphs built with the cleanup protocol (a graph carries no extra
@@ -74,10 +75,7 @@ function tagged.initialize(fn: any, options: any): any
         "unsupported function declaration form"
     )
     local body = fn.body
-    need(
-        not body.varargParam and not body.yieldPack and not body.resumePack,
-        "named variadic and suspended functions are unsupported"
-    )
+    need(not body.yieldPack and not body.resumePack, "suspended functions are unsupported")
     -- Plain type parameters erase; packs and const parameters do not.
     need(
         not body.generics or next(fn.signature.packParams or {}) == nil and next(fn.signature.constParams or {}) == nil,
@@ -92,8 +90,8 @@ function tagged.initialize(fn: any, options: any): any
     ordinaryCaptures(fn)
     local params = graph.parameters(body)
     for index, parameter in ipairs(params) do
-        -- An anonymous `...` last is the hidden pack parameter.
-        local pack = parameter.vararg and not parameter.name and index == #params
+        -- A `...` last is the hidden pack parameter, named or not.
+        local pack = parameter.vararg and index == #params
         need(
             -- `takes` moves ownership, a fact the checker settled: the core passes
             -- the value.
@@ -1417,6 +1415,57 @@ function tagged.forVersion(version: integer): any
             ctx.release(held)
 
             return value as integer
+        end
+        -- `text ${value} text`: each literal piece as written and each value
+        -- through tostring, joined left to right.
+        profile.interpolation = function(ctx: any, node: any, expected: string?): integer
+            need(expected == nil or expected == "tagged", "interpolation requires tagged destination")
+            local held: any = nil
+
+            local function join(value: integer): nil
+                if held == nil then
+                    held = ctx.hold(value)
+                    return
+                end
+                local joined = ctx.emit(node, "LibCall", {5, ctx.readHeld(held), value}, "tagged")
+                ctx.release(held)
+                held = ctx.hold(joined)
+            end
+
+            for _, child in ipairs(node) do
+                local piece = nil
+                if child.kind == "istringOpen" or child.kind == "istringMid" then
+                    piece = child.text:sub(2, -3)
+                elseif child.kind == "istringClose" then
+                    piece = child.text:sub(2, -2)
+                end
+                if piece ~= nil then
+                    if #piece > 0 then
+                        local text = need(lexer.stringValue("`" .. piece .. "`"), "interpolated text")
+                        join(ctx.emit(child, "K", {pool(ctx, "str", text)}, "tagged") as integer)
+                    end
+                elseif type(child) == "table" and child.kind then
+                    local value = ctx.expression(child, "tagged")
+                    if value == nil then
+                        if held then
+                            ctx.release(held)
+                        end
+                        return nil as any
+                    end
+                    join(ctx.emit(child, "LibCall", {1, value}, "tagged") as integer)
+                end
+            end
+            if held == nil then
+                return ctx.emit(node, "K", {pool(ctx, "str", "")}, "tagged") as integer
+            end
+            local value = ctx.readHeld(held)
+            ctx.release(held)
+
+            return value
+        end
+        -- `...items`: the pack as a table with its count as `n`.
+        profile.namedVararg = function(ctx: any, parameter: any): integer
+            return ctx.emit(parameter, "LibCall", {73, ctx.varargPack()}, "tagged") as integer
         end
         profile.functionStatement = function(ctx: any, stat: any): nil
             local name = stat.name

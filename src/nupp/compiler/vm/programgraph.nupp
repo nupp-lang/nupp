@@ -316,9 +316,10 @@ function program.describe(modules: {any}, entryModule: string): any
             end
             local params = program.parameters(body)
             for index, parameter in ipairs(params) do
-                -- An anonymous `...` last is a hidden parameter holding the pack
-                -- of extra arguments (a table with its count at key 0).
-                if parameter.vararg and not parameter.name and index == #params then
+                -- A `...` last is a hidden parameter holding the pack of extra
+                -- arguments (a table with its count at key 0). A named one is a
+                -- local the function binds from it on entry.
+                if parameter.vararg and index == #params then
                     child.variadic = true
                     child.paramKinds[index] = "value"
                     -- It binds like a value parameter, keyed by its node.

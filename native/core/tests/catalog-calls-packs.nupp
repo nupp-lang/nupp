@@ -1,0 +1,27 @@
+module nupp.core.catalogcallspacks
+
+-- A named vararg collects a call's extra arguments with their count as
+-- `n`; interpolated strings and numeral forms.
+
+local function count(...items: any): integer
+    return items.n as integer
+end
+
+local function total(...values: integer): integer
+    local sum: integer = 0
+    for i = 1, values.n as integer do
+        sum = sum + (values[i] as integer)
+    end
+
+    return sum
+end
+
+local score: integer = count(1, nil, "a", nil) * 1000 + total(1, 2, 3, 4) * 10000
+local user = "ada"
+if `hello ${user}, ${1 + 1}` == "hello ada, 2" then
+    score = score + 1000000
+end
+if 1_000 == 1000 then
+    score = score + 2000000
+end
+export = score
