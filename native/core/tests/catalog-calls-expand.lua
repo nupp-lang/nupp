@@ -24,4 +24,7 @@ local t = {two()}
 local u = {0, two()}
 local v = {pass(two)}
 local m = count(9, pass(two))
-return s * 100000 + n * 10000 + #t * 1000 + #u * 100 + #v * 10 + m
+local k = select("#", two()) * 10 + (select(2, two()))
+print(two())
+print("x", pass(two))
+return s * 100000 + n * 10000 + #t * 1000 + #u * 100 + #v * 10 + m + k * 10000000

@@ -695,14 +695,18 @@ end
 -- print(...): its values in a pack, the count at key 0, written as one line.
 local function printValues(ctx: any, node: any): integer
     local exprs = node.args.exprs or {}
-    need(#exprs == 0 or exprs[#exprs].kind ~= "vararg", "print cannot spread `...` yet")
-    local operands = {}
-    if #exprs > 0 then
-        local kinds = {}
-        for index = 1, #exprs do
-            kinds[index] = "tagged"
+    -- A `...` or a call giving other than one result last gives them all.
+    local last = exprs[#exprs]
+    local tail = last ~= nil and (last.kind == "vararg" or graph.expandsResults(last))
+    local fixed, kinds = {}, {}
+    for index, expr in ipairs(exprs) do
+        if index < #exprs or not tail then
+            fixed[#fixed + 1], kinds[#kinds + 1] = expr, "tagged"
         end
-        operands = ctx.operands(exprs, kinds)
+    end
+    local operands = {}
+    if #fixed > 0 then
+        operands = ctx.operands(fixed, kinds)
         if operands == nil then
             return nil as any
         end
@@ -712,9 +716,23 @@ local function printValues(ctx: any, node: any): integer
         local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(index))}, "tagged")
         ctx.emit(node, "SetIdx", {pack, key, operand}, nil)
     end
-    local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
-    local count = ctx.emit(node, "K", {pool(ctx, "int64", tostring(#operands))}, "tagged")
-    ctx.emit(node, "SetIdx", {pack, zero, count}, nil)
+    if tail then
+        local held = ctx.hold(pack)
+        local values = last.kind == "vararg" and ctx.varargPack() or invoke(ctx, last, true, true, nil, true)
+        if values == nil or ctx.block == nil then
+            ctx.release(held)
+            return nil as any
+        end
+        local start = ctx.emit(node, "K", {pool(ctx, "int64", tostring(#operands + 1))}, "tagged")
+        local counted = ctx.emit(node, "K", {pool(ctx, "true", "")}, "tagged")
+        ctx.emit(node, "LibCall", {74, ctx.readHeld(held), values, start, counted}, "tagged")
+        pack = ctx.readHeld(held)
+        ctx.release(held)
+    else
+        local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
+        local count = ctx.emit(node, "K", {pool(ctx, "int64", tostring(#operands))}, "tagged")
+        ctx.emit(node, "SetIdx", {pack, zero, count}, nil)
+    end
 
     return ctx.emit(node, "LibCall", {55, pack}, "tagged") as integer
 end
@@ -1728,19 +1746,43 @@ function tagged.forVersion(version: integer): any
                 return libraryCall(ctx, node, 22, node.args.exprs)
             elseif library == "select" then
                 -- select over the pack: "#" reads its count at key 0.
+                -- So is a call's results, last, as an open call's pack.
                 local args = node.args.exprs or {}
-                need(#args == 2 and args[2].kind == "vararg", "select takes an index and `...`")
+                need(
+                    #args == 2 and (args[2].kind == "vararg" or graph.expandsResults(args[2])),
+                    "select takes an index and `...` or a call"
+                )
+
+                local function values(): integer?
+                    if args[2].kind == "vararg" then
+                        return ctx.varargPack()
+                    end
+                    return invoke(ctx, args[2], true, true, nil, true)
+                end
+
                 local first = args[1]
                 local constant = catalog(ctx).byNode[first]
                 if constant and constant.kind == "str" and constant.bytes == "#" then
+                    local pack = values()
+                    if pack == nil or ctx.block == nil then
+                        return nil as any
+                    end
                     local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
-                    return ctx.emit(node, "GetIdx", {ctx.varargPack(), zero}, "tagged") as integer
+                    return ctx.emit(node, "GetIdx", {pack, zero}, "tagged") as integer
                 end
                 local index = ctx.expression(first, "tagged")
                 if index == nil then
                     return nil as any
                 end
-                return ctx.emit(node, "LibCall", {20, ctx.varargPack(), index}, "tagged") as integer
+                local held = ctx.hold(index)
+                local pack = values()
+                if pack == nil or ctx.block == nil then
+                    ctx.release(held)
+                    return nil as any
+                end
+                local value = ctx.emit(node, "LibCall", {20, pack, ctx.readHeld(held)}, "tagged")
+                ctx.release(held)
+                return value as integer
             elseif library == "setmetatable"
                 or library == "getmetatable"
                 or library == "rawget"

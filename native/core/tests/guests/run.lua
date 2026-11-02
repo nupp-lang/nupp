@@ -115,12 +115,13 @@ local CASES = {
     {"recordsMetamethods", 0x7FFF0000043EE3C6},
     {"callsPacks", 0x7FFF0000002F5D00},
     {"callsOpen", 0x7FFF000000000461},
-    {"callsExpand", 0x7FFF000001486793}
+    {"callsExpand", 0x7FFF00000E655693}
 }
 -- What the cases that print write to the host's output, as Lua 5.5 writes it.
 local OUTPUT = {
     outputPrint = "hello\t42\t1.5\ttrue\tnil\tfalse\n\nxxx\t3\t-0.0\t1e+100\t9007199254740992.0\n"
-        .. "line\t1\nline\t2\nline\t3\n"
+        .. "line\t1\nline\t2\nline\t3\n",
+    callsExpand = "1\t2\nx\t1\t2\n"
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their

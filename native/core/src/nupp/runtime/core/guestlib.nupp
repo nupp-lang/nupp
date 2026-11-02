@@ -2751,6 +2751,12 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
                 end
                 i = i + 1ULL
             end
+            -- A pack being built (print's) also takes the count at key 0.
+            if d == values.TRUE
+                and tables.set(h, t, values.TAG_INTEGER, values.TAG_INTEGER | (first - 1ULL + n)) == tables.NO_MEMORY
+            then
+                error("not enough memory")
+            end
             tables.drain(h)
         end
         return a
