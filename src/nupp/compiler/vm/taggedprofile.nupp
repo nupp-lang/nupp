@@ -91,9 +91,7 @@ end
 
 -- The string library calls guestlib implements: id and the argument counts
 -- admitted, the string itself included.
-local stringLibrary: {
-    [string]: {integer}
-} = {
+local stringLibrary: {[string]: {integer}} = {
     ["string.sub"] = {11, 2, 3},
     ["string.byte"] = {12, 1, 3},
     ["string.char"] = {13, 1, 1},
@@ -103,7 +101,11 @@ local stringLibrary: {
     ["string.len"] = {17, 1, 1},
     ["string.find"] = {18, 2, 4},
     ["string.match"] = {19, 2, 3},
-    ["string.gsub"] = {26, 3, 4}
+    ["string.gsub"] = {26, 3, 4},
+    -- The table library calls guestlib implements, by the same shape.
+    ["table.insert"] = {34, 2, 3},
+    ["table.remove"] = {35, 1, 2},
+    ["table.unpack"] = {36, 1, 3}
 }
 
 local function stringSpec(library: string?): {integer}?
@@ -118,7 +120,7 @@ end
 -- answers every result as a pack.
 local packLibrary: {
     [string]: integer
-} = {["string.find"] = 23, ["string.match"] = 24, ["string.byte"] = 25, ["string.gsub"] = 27}
+} = {["string.find"] = 23, ["string.match"] = 24, ["string.byte"] = 25, ["string.gsub"] = 27, ["table.unpack"] = 37}
 
 local function packSpec(library: string?): integer?
     if library == nil then
@@ -429,6 +431,9 @@ end
 
 -- pcall(f, ...): f called as a protected call, its results after true, or
 -- false and the error. With `count`, it keeps that many results.
+-- xpcall(f, handler, ...) is the same call with its handler, evaluated
+-- second and carried last among the arguments, answering in the error's
+-- place.
 local function invokeProtected(ctx: any, node: any, keepResult: boolean, count: integer?): any
     local p = catalog(ctx)
     local site = need(p.callByNode[node], "pcall lacks checked callsite")
@@ -441,16 +446,26 @@ local function invokeProtected(ctx: any, node: any, keepResult: boolean, count: 
         return nil
     end
     local held = ctx.hold(callee)
+    local handled = graph.coreLibraryCall(node) == "xpcall"
+    need(not handled or #exprs >= 2, "xpcall takes a function and a message handler")
     local rest, kinds = {}, {}
     for index = 2, #exprs do
         need(exprs[index].kind ~= "vararg", "pcall cannot spread `...` yet")
         rest[#rest + 1], kinds[#kinds + 1] = exprs[index], "tagged"
     end
-    local args = ctx.operands(rest, kinds)
+    local operands = ctx.operands(rest, kinds)
     local value = ctx.readHeld(held)
     ctx.release(held)
-    if args == nil then
+    if operands == nil then
         return nil
+    end
+    local args = operands
+    if handled then
+        args = {}
+        for index = 2, #operands do
+            args[#args + 1] = operands[index]
+        end
+        args[#args + 1] = operands[1]
     end
     if count then
         return ctx.invokeMany(node, value, args, contract, count)
@@ -1014,7 +1029,7 @@ function tagged.forVersion(version: integer): any
             if node.kind == "methodCall" and site and site.method then
                 return invokeMethod(ctx, node, true, count)
             end
-            if graph.coreLibraryCall(node) == "pcall" then
+            if graph.coreLibraryCall(node) == "pcall" or graph.coreLibraryCall(node) == "xpcall" then
                 return invokeProtected(ctx, node, true, count)
             end
             -- A string library call with several results answers a pack,
@@ -1143,7 +1158,7 @@ function tagged.forVersion(version: integer): any
             elseif library == "tonumber" then
                 need(#(node.args.exprs or {}) == 1, "tonumber takes one value; a base is not yet admitted")
                 return libraryCall(ctx, node, 9, node.args.exprs)
-            elseif library == "pcall" then
+            elseif library == "pcall" or library == "xpcall" then
                 return invokeProtected(ctx, node, true) as integer
             elseif library == "error" then
                 -- error(value [, level]): a string value gets the position the
@@ -1179,6 +1194,11 @@ function tagged.forVersion(version: integer): any
                 local form: {integer} = need(spec[library as string], "metatable library call")
                 need(#(node.args.exprs or {}) == form[2], tostring(library) .. " argument count is not admitted")
                 return libraryCall(ctx, node, form[1], node.args.exprs)
+            elseif library == "string.format" then
+                return libraryCall(ctx, node, 2, node.args.exprs or {})
+            elseif library == "type" then
+                need(#(node.args.exprs or {}) == 1, "type takes one value")
+                return libraryCall(ctx, node, 32, node.args.exprs)
             elseif library == "os.getenv" then
                 need(#(node.args.exprs or {}) == 1, "os.getenv takes one name")
                 return libraryCall(ctx, node, 10, node.args.exprs)
@@ -1232,7 +1252,7 @@ function tagged.forVersion(version: integer): any
                 tagged.statementCall(ctx, node)
             elseif node.kind == "methodCall" and site and site.method then
                 invokeMethod(ctx, node, false)
-            elseif graph.coreLibraryCall(node) == "pcall" then
+            elseif graph.coreLibraryCall(node) == "pcall" or graph.coreLibraryCall(node) == "xpcall" then
                 invokeProtected(ctx, node, false)
             elseif node.kind == "call" and graph.coreLibraryCall(node) ~= nil then
                 -- error, setmetatable and the other library calls made for
@@ -1266,6 +1286,12 @@ function tagged.forVersion(version: integer): any
                 local operand = ctx.expression(node.operand, "tagged")
                 if operand == nil then
                     return nil as any
+                end
+                -- An operand not known to be a number may be a table with
+                -- __unm, which the library call tries first.
+                local kind = typeKind(node.operand.inferredType)
+                if kind ~= "number" and kind ~= "float64" and kind ~= "int64" then
+                    return ctx.emit(node, "LibCall", {33, operand}, "tagged") as integer
                 end
                 local held = ctx.hold(operand)
                 local minusOne = ctx.emit(node, "K", {pool(ctx, "int64", "-1")}, "tagged")

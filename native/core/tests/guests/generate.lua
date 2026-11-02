@@ -201,7 +201,12 @@ function generate.program(seed, size)
         elseif roll == 9 and pick(3) == 1 and depth < 3 then
             -- A protected call that raises for some inputs.
             local a, b = target(), target()
-            emit("if pcall(guard, " .. expression(1) .. ") then")
+            if pick(2) == 1 then
+                emit("if pcall(guard, " .. expression(1) .. ") then")
+            else
+                -- xpcall: its handler runs on the failures, counting them.
+                emit("if xpcall(guard, onError, " .. expression(1) .. ") then")
+            end
             emit("    " .. a .. " = (" .. a .. " + 3) % 1000003")
             emit("else")
             emit("    " .. b .. " = (" .. b .. " + 5) % 1000003")
@@ -383,6 +388,10 @@ function generate.program(seed, size)
     emit("        error(\"guarded\")")
     emit("    end")
     emit("    return n")
+    emit("end")
+    emit("local function onError(message: string): integer", "local function onError(message)")
+    emit("    c = (c + 1) % 1000003")
+    emit("    return 0")
     emit("end")
     emit("local function fwd(...: integer): integer", "local function fwd(...)")
     emit("    return many(1, ...)")

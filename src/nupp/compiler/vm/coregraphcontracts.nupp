@@ -373,7 +373,9 @@ function contracts.normalize(compiled: any, version: integer?): any
                     signature = target.signature,
                     effect = 1,
                     -- pcall(f, ...): the callee runs as a protected call.
-                    protected = source.protected == true or nil
+                    protected = source.protected == true or nil,
+                    -- xpcall(f, handler, ...): its handler is staged apart.
+                    handled = source.handled == true or nil
                 }
                 block.term.contract = id
                 record.effect = 1

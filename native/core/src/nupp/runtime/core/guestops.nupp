@@ -547,28 +547,25 @@ export function resume(ctx: voidptr, frame: voidptr, pc: voidptr): uint64
     return (native.address(pc) - native.load64(frame, native.fieldOffset<frames.Frame>("code"))) // 16ULL + 1ULL
 end
 
--- A metamethod call from the handler at `pc`: the callee is staged at the
--- top of the frame's call window (slot valueCount - 4) and `nargs`
--- arguments after it; its result lands in `resultSlot`, and the frame
--- resumes after `pc`, as if the handler had finished. Answers 1 once the
--- callee's frame is published, 0 after recording the failure. A callee
--- that takes fewer arguments gets the first of them, as Lua drops extras.
--- With `truth` the caller takes its result as a boolean.
-export function metaCall(
+-- A call the handler at `pc` makes itself: the callee staged at `base` in
+-- the frame's window and `nargs` arguments after it, its first result
+-- landing in `resultSlot`. Answers the prepared, unpublished child, or 0
+-- after recording the failure; the caller publishes it to resume after
+-- `pc`. A callee that takes fewer arguments gets the first of them.
+export function metaPrepare(
     ctx: voidptr,
     frame: voidptr,
     pc: voidptr,
+    base: uint64,
     nargs: uint64,
-    resultSlot: uint64,
-    truth: uint64
+    resultSlot: uint64
 ): uint64
     local found = current(ctx, frame, pc)
     local nv = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if found == 0ULL or nv < 5ULL or nargs > 3ULL or resultSlot >= nv then
+    if found == 0ULL or base >= nv or nargs > nv - base - 1ULL or nargs > 63ULL or resultSlot >= nv then
         fail(ctx, frame, pc, INVALID)
         return 0ULL
     end
-    local base = nv - 4ULL
     local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
     local callee = native.load64(window, native.index(base * 8ULL))
     local resolved = heapTarget(callee)
@@ -623,18 +620,46 @@ export function metaCall(
         native.index(actual * native.sizeOf<frames.WindowPlan>())
     )
     local s = native.loadPointer(ctx, context.STATE)
-    local resumePC = resume(ctx, frame, pc)
     checkpoint(ctx, frame, pc)
     local child = frames.prepareFixed(s, frame, info, callee, base, taken, resultSlot, plan)
     if child == 0ULL then
         failure(ctx, RESOURCE)
         return 0ULL
     end
+
+    return child
+end
+
+-- A metamethod call from the handler at `pc`: the callee is staged at the
+-- top of the frame's call window (slot valueCount - 4) and `nargs`
+-- arguments after it; its result lands in `resultSlot`, and the frame
+-- resumes after `pc`, as if the handler had finished. Answers 1 once the
+-- callee's frame is published, 0 after recording the failure. A callee
+-- that takes fewer arguments gets the first of them, as Lua drops extras.
+-- With `truth` the caller takes its result as a boolean.
+export function metaCall(
+    ctx: voidptr,
+    frame: voidptr,
+    pc: voidptr,
+    nargs: uint64,
+    resultSlot: uint64,
+    truth: uint64
+): uint64
+    local nv = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if nv < 5ULL or nargs > 3ULL then
+        fail(ctx, frame, pc, INVALID)
+        return 0ULL
+    end
+    local child = metaPrepare(ctx, frame, pc, nv - 4ULL, nargs, resultSlot)
+    if child == 0ULL then
+        return 0ULL
+    end
+    local s = native.loadPointer(ctx, context.STATE)
     if truth == 1ULL and frames.truth(s, native.pointer(child)) ~= 1ULL then
         failure(ctx, INVALID)
         return 0ULL
     end
-    if frames.publish(s, frame, native.pointer(child), resumePC) ~= 1ULL then
+    if frames.publish(s, frame, native.pointer(child), resume(ctx, frame, pc)) ~= 1ULL then
         failure(ctx, INVALID)
         return 0ULL
     end

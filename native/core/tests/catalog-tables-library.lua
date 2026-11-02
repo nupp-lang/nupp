@@ -1,0 +1,19 @@
+-- Lua twin of catalog-tables-library.nupp.
+
+-- table.insert appends or shifts up, and table.remove takes the last or
+-- shifts down, answering what it removed (nil from an empty table).
+local t = {1, 2, 3}
+table.insert(t, 4)
+table.insert(t, 1, 0)
+table.insert(t, 3, 9)
+local last = table.remove(t) or 0
+local first = table.remove(t, 1) or 0
+local middle = table.remove(t, 2) or 0
+local empty = {}
+local none = table.remove(empty)
+local score = #t * 1000000 + last * 100000 + first * 10000
+score = score + middle * 1000 + t[1] * 100 + t[2] * 10 + t[3]
+if none == nil then
+    score = score + 10000000
+end
+return score

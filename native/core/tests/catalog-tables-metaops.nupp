@@ -1,0 +1,57 @@
+module nupp.core.catalogtablesmetaops
+
+-- type(), and the metamethods of .., /, //, unary minus, tostring and calls,
+-- each answering for a table that has one.
+local P = {
+    __concat = function(a: {[string]: integer}, b: string): string
+        return "P" .. (a.x or 0) .. b
+    end,
+    __div = function(a: {[string]: integer}, b: integer): integer
+        return (a.x or 0) * 100 + b
+    end,
+    __idiv = function(a: {[string]: integer}, b: integer): integer
+        return (a.x or 0) * 1000 + b
+    end,
+    __unm = function(a: {[string]: integer}): integer
+        return 0 - (a.x or 0)
+    end,
+    __tostring = function(a: {[string]: integer}): string
+        return "point" .. (a.x or 0)
+    end,
+    __call = function(self: {[string]: integer}, n: integer): integer
+        return (self.x or 0) + n * 2
+    end
+}
+
+local function helper(n: integer): integer
+    return n
+end
+
+local p: {[string]: integer} = setmetatable({x = 7}, P)
+local score: integer = 0
+if (p as any) .. "!" == "P7!" then
+    score = score + 1
+end
+if (p as any) / 3 == 703 then
+    score = score + 10
+end
+if (p as any) // 4 == 7004 then
+    score = score + 100
+end
+if -(p as any) == -7 then
+    score = score + 1000
+end
+if tostring(p) == "point7" then
+    score = score + 10000
+end
+local callable = (p as any) as function(n: integer): integer
+if callable(5) == 17 then
+    score = score + 100000
+end
+if type(p) == "table" and type(1) == "number" and type("a") == "string" and type(nil) == "nil" then
+    score = score + 1000000
+end
+if type(true) == "boolean" and type(helper) == "function" and type(1.5) == "number" then
+    score = score + 10000000
+end
+export = score + helper(0)

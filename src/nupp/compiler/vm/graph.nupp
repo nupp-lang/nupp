@@ -1373,12 +1373,20 @@ end
 
 local function invokeContract(contract: any): nil
     if contract.dynamic then
-        nativeContract(contract, {dynamic = true, call = true, callSignature = true, effects = true, protected = true})
+        nativeContract(contract, {
+            dynamic = true,
+            call = true,
+            callSignature = true,
+            effects = true,
+            protected = true,
+            handled = true
+        })
         local call, called = contract.call, contract.callSignature
         -- pcall(f, ...): the callee is the first argument, and the rest are its
         -- arguments.
         local protected = contract.protected == true
-        local offset = protected and 1 or 0
+        -- xpcall's second argument is its message handler.
+        local offset = protected and (contract.handled == true and 2 or 1) or 0
         assert(
             type(call) == "table"
             and call.kind == "call"
@@ -1532,12 +1540,17 @@ local coreLibrary: {
     select = true,
     ["os.getenv"] = true,
     pcall = true,
+    xpcall = true,
     error = true,
     setmetatable = true,
     getmetatable = true,
+    type = true,
     rawget = true,
     rawset = true,
     ["table.concat"] = true,
+    ["table.insert"] = true,
+    ["table.remove"] = true,
+    ["table.unpack"] = true,
     ["string.format"] = true,
     ["string.gmatch"] = true,
     ["string.sub"] = true,
@@ -1595,12 +1608,14 @@ function graph.dynamicInvokeContract(call: any): any
     return contract
 end
 
--- The contract of `pcall(f, ...)`'s call of f, through f's checked type.
+-- The contract of `pcall(f, ...)`'s call of f, through f's checked type;
+-- for `xpcall(f, handler, ...)` too, handled.
 function graph.protectedInvokeContract(call: any): any
     local callee = call.args and call.args.exprs and call.args.exprs[1]
     local contract = {
         dynamic = true,
         protected = true,
+        handled = graph.coreLibraryCall(call) == "xpcall" or nil,
         call = call,
         callSignature = callee and callee.inferredType,
         effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}

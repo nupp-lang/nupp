@@ -545,10 +545,9 @@ function verify.resultKind(g: any, signature: any, output: any): string
             )
             -- A variadic callee takes its fixed arguments and any number more.
             local fixed = target.variadic and #target.params - 1 or #target.params
-            need(
-                #term.args == fixed or target.variadic and #term.args > fixed or term.spread ~= nil,
-                "call arity differs"
-            )
+            -- xpcall's handler rides last among the term's arguments.
+            local given = contract.handled and #term.args - 1 or #term.args
+            need(given == fixed or target.variadic and given > fixed or term.spread ~= nil, "call arity differs")
             need(term.spread == nil or kinds[term.spread] ~= nil, "unresolved spread pack")
             for at, id in ipairs(term.args) do
                 need(at > fixed or fits(kinds[id], target.params[at]), "call scalar argument differs")
@@ -743,8 +742,10 @@ function verify.catalog(p: any): any
                 end
                 local called = reference(contract.signature, p.signatures)
                 local fixed = called.variadic and #called.params - 1 or #called.params
+                -- xpcall's handler rides last among the term's arguments.
+                local given = contract.handled and #term.args - 1 or #term.args
                 need(
-                    #term.args == fixed or called.variadic and #term.args > fixed or term.spread ~= nil,
+                    given == fixed or called.variadic and given > fixed or term.spread ~= nil,
                     "invoke operand count differs"
                 )
                 arities[index][bi] = #term.args
@@ -755,10 +756,14 @@ function verify.catalog(p: any): any
         need(signatures[index - 1], "unused signature record")
     end
     for index, contract in ipairs(p.contracts) do
-        fields(contract, "id owner block callsite target signature effect protected")
+        fields(contract, "id owner block callsite target signature effect protected handled")
         need(
             contract.protected == nil or contract.protected == true and p.schema.version >= 8,
             "protected call outside its profile"
+        )
+        need(
+            contract.handled == nil or contract.handled == true and contract.protected == true,
+            "handled call is not protected"
         )
         need(contract.id == index - 1 and used[index - 1], "unused or unordered contract")
         integer(contract.callsite, 1048575)

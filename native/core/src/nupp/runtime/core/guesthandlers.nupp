@@ -1420,6 +1420,45 @@ export function LibCall(
     if count >= 4 then
         d = slots.readValue(frame, regs, base + 4)
     end
+    -- .., /, //, tostring and unary minus on a table with the metamethod
+    -- call it, its answer landing in dst.
+    local which: uint64 = 0ULL
+    local word = native.word(id)
+    if word == guestlib.CONCAT2 then
+        which = guestscope.META_CONCAT
+    elseif word == guestlib.DIVIDE then
+        which = guestscope.META_DIV
+    elseif word == guestlib.FLOOR_DIVIDE then
+        which = guestscope.META_IDIV
+    elseif word == guestlib.TOSTRING then
+        which = guestscope.META_TOSTRING
+    elseif word == guestlib.UNM then
+        which = guestscope.META_UNM
+    end
+    if which ~= 0ULL then
+        local second = b
+        if word == guestlib.TOSTRING or word == guestlib.UNM then
+            second = a
+        end
+        local callee = guestscope.binaryMeta(ctx, which, a, second)
+        if callee ~= 0ULL then
+            local top = native.index(valueCount - 4ULL)
+            slots.writeValue(frame, regs, top, callee)
+            slots.writeValue(frame, regs, top + 1, a)
+            slots.writeValue(frame, regs, top + 2, second)
+            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst), 0ULL) ~= 1ULL then
+                return native.fail()
+            end
+            local s = native.pointer(ops.state(ctx))
+            local current = native.pointer(access.active(s))
+            local currentValues = native.pointer(access.values(s, current))
+            local currentIntegers = native.pointer(access.integers(s, current))
+            local currentFloats = native.pointer(access.floats(s, current))
+            local currentPC = native.pointer(access.pc(s, current))
+            access.refresh(s, current, ctx)
+            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        end
+    end
     -- error(value [, level]) fails the entry here, so the failure records
     -- the pc the message's position names.
     if native.word(id) == guestlib.ERROR then
@@ -1500,6 +1539,46 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     end
     local callee = slots.readValue(frame, regs, calleeSlot)
     if ops.uncallable(ctx, callee) == 1ULL then
+        -- A table with __call is called through it, the table first: the
+        -- arguments move up a slot and __call takes the callee's place.
+        local handler = guestscope.binaryMeta(ctx, guestscope.META_CALL, callee, values.NIL)
+        local first = native.word(base)
+        if handler ~= 0ULL
+            and first + native.word(nargs) + 1ULL < native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+        then
+            local i = native.word(nargs)
+            while i > 0ULL do
+                slots.writeValue(
+                    frame,
+                    regs,
+                    native.index(first + i + 1ULL),
+                    slots.readValue(frame, regs, native.index(first + i))
+                )
+                i = i - 1ULL
+            end
+            slots.writeValue(frame, regs, native.index(first + 1ULL), callee)
+            slots.writeValue(frame, regs, native.index(first), handler)
+            local child = ops.metaPrepare(ctx, frame, pc, first, native.word(nargs) + 1ULL, first + 1ULL)
+            if child == 0ULL then
+                return native.fail()
+            end
+            local s = native.pointer(ops.state(ctx))
+            if wanted > 1 and frames.wantResults(s, native.pointer(child), native.word(wanted)) ~= 1ULL then
+                ops.failure(ctx, ops.INVALID)
+                return native.fail()
+            end
+            if frames.publish(s, frame, native.pointer(child), ops.resume(ctx, frame, pc)) ~= 1ULL then
+                ops.failure(ctx, ops.INVALID)
+                return native.fail()
+            end
+            local current = native.pointer(access.active(s))
+            local currentValues = native.pointer(access.values(s, current))
+            local currentIntegers = native.pointer(access.integers(s, current))
+            local currentFloats = native.pointer(access.floats(s, current))
+            local currentPC = native.pointer(access.pc(s, current))
+            access.refresh(s, current, ctx)
+            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        end
         guestscope.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
@@ -1864,6 +1943,56 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     access.refresh(s, current, ctx)
 
     return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+end
+
+-- After xpcall's protected call: when it failed (false in the status
+-- slot), its message handler is called with the error, its answer landing
+-- where the error would, or nowhere when only the status is wanted.
+export function XPHandle(
+    pc: voidptr,
+    regs: voidptr,
+    ints: voidptr,
+    floats: voidptr,
+    ctx: voidptr,
+    frame: voidptr
+): uint64
+    if ops.current(ctx, frame, pc) == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    local status, handlerSlot, wanted = program.readByte(pc, 1), program.readByte(pc, 2), program.readByte(pc, 3)
+    local count = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
+    if native.word(status) + 1ULL >= count or native.word(handlerSlot) >= count or count < 5ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+    if slots.readValue(frame, regs, status) == values.FALSE then
+        local top = native.index(count - 4ULL)
+        slots.writeValue(frame, regs, top, slots.readValue(frame, regs, handlerSlot))
+        slots.writeValue(frame, regs, top + 1, guestscope.lastError(ctx))
+        local resultSlot = count - 1ULL
+        if wanted >= 2 then
+            resultSlot = native.word(status) + 1ULL
+        end
+        if ops.metaCall(ctx, frame, pc, 1ULL, resultSlot, 0ULL) ~= 1ULL then
+            return native.fail()
+        end
+        local s = native.pointer(ops.state(ctx))
+        local current = native.pointer(access.active(s))
+        local currentValues = native.pointer(access.values(s, current))
+        local currentIntegers = native.pointer(access.integers(s, current))
+        local currentFloats = native.pointer(access.floats(s, current))
+        local currentPC = native.pointer(access.pc(s, current))
+        access.refresh(s, current, ctx)
+        return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+    end
+    local nextPC = ops.branch(ctx, frame, pc, 0)
+    if nextPC == 0ULL then
+        ops.fail(ctx, frame, pc, ops.INVALID)
+        return native.fail()
+    end
+
+    return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
 
 export function Jmp(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
