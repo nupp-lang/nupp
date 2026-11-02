@@ -31,7 +31,20 @@ export struct Services
     -- function's caller, 0 nothing.
     raised: uint64
     raisedLevel: uint64
+    -- What a handler's guest error was (a FAULT_ kind, 0 for none) and the
+    -- operands its message names.
+    fault: uint64
+    culprit: uint64
+    other: uint64
 end
+
+export const FAULT_ARITH: uint64 = 1ULL
+export const FAULT_MODZERO: uint64 = 2ULL
+export const FAULT_COMPARE: uint64 = 3ULL
+export const FAULT_LENGTH: uint64 = 4ULL
+export const FAULT_INDEX: uint64 = 5ULL
+export const FAULT_CALL: uint64 = 6ULL
+export const FAULT_KEY: uint64 = 7ULL
 
 const LEDGER: uint64 = 256ULL
 const RECORDS: uint64 = 256ULL
@@ -102,6 +115,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("arena"), native.address(a))
         native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("raisedLevel"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("fault"), 0ULL)
     end
 
     return 1ULL
@@ -510,15 +524,187 @@ local function positioned(ctx: voidptr, message: uint64, level: uint64): uint64
     end
 end
 
--- The message an error carries when nothing named one: "runtime error".
+-- A handler's guest error, before it fails the entry: what went wrong, for
+-- the message Lua words (`runtimeError`), and the operands it names.
+export function fault(ctx: voidptr, kind: uint64, culprit: uint64, other: uint64): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        native.store64(services, native.fieldOffset<Services>("fault"), kind)
+        native.store64(services, native.fieldOffset<Services>("culprit"), culprit)
+        native.store64(services, native.fieldOffset<Services>("other"), other)
+    end
+end
+
+-- Phrases runtime error messages are built from, by id.
+const PHRASE_ARITH: uint64 = 1ULL
+const PHRASE_MODZERO: uint64 = 2ULL
+const PHRASE_COMPARETWO: uint64 = 3ULL
+const PHRASE_VALUES: uint64 = 4ULL
+const PHRASE_COMPARE: uint64 = 5ULL
+const PHRASE_WITH: uint64 = 6ULL
+const PHRASE_LENGTH: uint64 = 7ULL
+const PHRASE_INDEX: uint64 = 8ULL
+const PHRASE_CALL: uint64 = 9ULL
+const PHRASE_VALUE: uint64 = 10ULL
+const PHRASE_NIL: uint64 = 11ULL
+const PHRASE_BOOLEAN: uint64 = 12ULL
+const PHRASE_NUMBER: uint64 = 13ULL
+const PHRASE_STRING: uint64 = 14ULL
+const PHRASE_TABLE: uint64 = 15ULL
+const PHRASE_FUNCTION: uint64 = 16ULL
+const PHRASE_USERDATA: uint64 = 17ULL
+const PHRASE_KEYNIL: uint64 = 18ULL
+const PHRASE_KEYNAN: uint64 = 19ULL
+
+-- Appends phrase `id`; answers 1 when backing is refused.
+local function appendPhrase(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
+    if id == PHRASE_ARITH then
+        return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6f66726570206f74ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6874697261206d72ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6e6f20636974656dULL, 8ULL)
+            | strings.appendWord(h, b, 0x206120ULL, 3ULL)
+    elseif id == PHRASE_MODZERO then
+        return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6f66726570206f74ULL, 8ULL)
+            | strings.appendWord(h, b, 0x2730256e27206d72ULL, 8ULL)
+    elseif id == PHRASE_COMPARETWO then
+        return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
+            | strings.appendWord(h, b, 0x61706d6f63206f74ULL, 8ULL)
+            | strings.appendWord(h, b, 0x206f7774206572ULL, 7ULL)
+    elseif id == PHRASE_VALUES then
+        return strings.appendWord(h, b, 0x7365756c617620ULL, 7ULL)
+    elseif id == PHRASE_COMPARE then
+        return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
+            | strings.appendWord(h, b, 0x61706d6f63206f74ULL, 8ULL)
+            | strings.appendWord(h, b, 0x206572ULL, 3ULL)
+    elseif id == PHRASE_WITH then
+        return strings.appendWord(h, b, 0x206874697720ULL, 6ULL)
+    elseif id == PHRASE_LENGTH then
+        return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6c20746567206f74ULL, 8ULL)
+            | strings.appendWord(h, b, 0x666f206874676e65ULL, 8ULL)
+            | strings.appendWord(h, b, 0x206120ULL, 3ULL)
+    elseif id == PHRASE_INDEX then
+        return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
+            | strings.appendWord(h, b, 0x7865646e69206f74ULL, 8ULL)
+            | strings.appendWord(h, b, 0x206120ULL, 3ULL)
+    elseif id == PHRASE_CALL then
+        return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
+            | strings.appendWord(h, b, 0x206c6c6163206f74ULL, 8ULL)
+            | strings.appendWord(h, b, 0x2061ULL, 2ULL)
+    elseif id == PHRASE_VALUE then
+        return strings.appendWord(h, b, 0x65756c617620ULL, 6ULL)
+    elseif id == PHRASE_NIL then
+        return strings.appendWord(h, b, 0x6c696eULL, 3ULL)
+    elseif id == PHRASE_BOOLEAN then
+        return strings.appendWord(h, b, 0x6e61656c6f6f62ULL, 7ULL)
+    elseif id == PHRASE_NUMBER then
+        return strings.appendWord(h, b, 0x7265626d756eULL, 6ULL)
+    elseif id == PHRASE_STRING then
+        return strings.appendWord(h, b, 0x676e69727473ULL, 6ULL)
+    elseif id == PHRASE_TABLE then
+        return strings.appendWord(h, b, 0x656c626174ULL, 5ULL)
+    elseif id == PHRASE_FUNCTION then
+        return strings.appendWord(h, b, 0x6e6f6974636e7566ULL, 8ULL)
+    elseif id == PHRASE_USERDATA then
+        return strings.appendWord(h, b, 0x6174616472657375ULL, 8ULL)
+    elseif id == PHRASE_KEYNIL then
+        return strings.appendWord(h, b, 0x6e6920656c626174ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6e20736920786564ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6c69ULL, 2ULL)
+    elseif id == PHRASE_KEYNAN then
+        return strings.appendWord(h, b, 0x6e6920656c626174ULL, 8ULL)
+            | strings.appendWord(h, b, 0x4e20736920786564ULL, 8ULL)
+            | strings.appendWord(h, b, 0x4e61ULL, 2ULL)
+    end
+
+    return 0ULL
+end
+
+-- The phrase naming a value's type, as Lua's type() does.
+local function typePhrase(value: uint64): uint64
+    if value == values.NIL then
+        return PHRASE_NIL
+    elseif value == values.TRUE or value == values.FALSE then
+        return PHRASE_BOOLEAN
+    elseif ints.isInteger(value) or value & values.QNAN ~= values.QNAN or value == values.QNAN then
+        return PHRASE_NUMBER
+    elseif strings.header(value) ~= 0ULL then
+        return PHRASE_STRING
+    end
+    @unsafe do
+        local kind = native.word(
+            native.load8(native.pointer(value & values.PAYLOAD), native.fieldOffset<heap.Header>("kind"))
+        )
+        if kind == heap.KIND_TABLE then
+            return PHRASE_TABLE
+        elseif kind == heap.KIND_CLOSURE then
+            return PHRASE_FUNCTION
+        end
+    end
+
+    return PHRASE_USERDATA
+end
+
+local function isNumber(value: uint64): boolean
+    return typePhrase(value) == PHRASE_NUMBER
+end
+
+-- The message a handler's guest error carries, as Lua words it (without the
+-- variable Lua names after it), or "runtime error" when no fault was noted.
 local function runtimeError(ctx: voidptr): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local kind = native.load64(services, native.fieldOffset<Services>("fault"))
+        local culprit = native.load64(services, native.fieldOffset<Services>("culprit"))
+        local other = native.load64(services, native.fieldOffset<Services>("other"))
         local h = native.pointer(guestHeap(ctx)) as heap.Heap*
         local builder = state as strings.Builder*
-        if strings.appendWord(h, builder, 0x20656d69746e7572ULL, 8ULL) ~= 0ULL
-            or strings.appendWord(h, builder, 0x726f727265ULL, 5ULL) ~= 0ULL
-        then
+        local refused: uint64 = 0ULL
+        if kind == FAULT_ARITH then
+            local wrong = culprit
+            if isNumber(culprit) then
+                wrong = other
+            end
+            refused = appendPhrase(h, builder, PHRASE_ARITH)
+                | appendPhrase(h, builder, typePhrase(wrong))
+                | appendPhrase(h, builder, PHRASE_VALUE)
+        elseif kind == FAULT_MODZERO then
+            refused = appendPhrase(h, builder, PHRASE_MODZERO)
+        elseif kind == FAULT_COMPARE then
+            if typePhrase(culprit) == typePhrase(other) then
+                refused = appendPhrase(h, builder, PHRASE_COMPARETWO)
+                    | appendPhrase(h, builder, typePhrase(culprit))
+                    | appendPhrase(h, builder, PHRASE_VALUES)
+            else
+                refused = appendPhrase(h, builder, PHRASE_COMPARE)
+                    | appendPhrase(h, builder, typePhrase(culprit))
+                    | appendPhrase(h, builder, PHRASE_WITH)
+                    | appendPhrase(h, builder, typePhrase(other))
+            end
+        elseif kind == FAULT_LENGTH or kind == FAULT_INDEX or kind == FAULT_CALL then
+            local lead = PHRASE_LENGTH
+            if kind == FAULT_INDEX then
+                lead = PHRASE_INDEX
+            elseif kind == FAULT_CALL then
+                lead = PHRASE_CALL
+            end
+            refused = appendPhrase(h, builder, lead)
+                | appendPhrase(h, builder, typePhrase(culprit))
+                | appendPhrase(h, builder, PHRASE_VALUE)
+        elseif kind == FAULT_KEY then
+            if culprit == values.NIL then
+                refused = appendPhrase(h, builder, PHRASE_KEYNIL)
+            else
+                refused = appendPhrase(h, builder, PHRASE_KEYNAN)
+            end
+        else
+            refused = strings.appendWord(h, builder, 0x20656d69746e7572ULL, 8ULL)
+                | strings.appendWord(h, builder, 0x726f727265ULL, 5ULL)
+        end
+        if refused ~= 0ULL then
             strings.release(builder)
             return values.NIL
         end
@@ -564,6 +750,7 @@ export function recoverEntry(ctx: voidptr): uint64
         native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("raisedLevel"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("fault"), 0ULL)
         access.refresh(state, native.pointer(parent), ctx)
         return access.pc(state, native.pointer(parent))
     end

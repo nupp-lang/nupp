@@ -67,7 +67,8 @@ local CASES: {[string]: {
     callsProtected = {fixture = "catalog-calls-protected", version = 8},
     recordsInline = {fixture = "catalog-records-inline", version = 8},
     errorsPositions = {fixture = "catalog-errors-positions", version = 8},
-    tablesMeta = {fixture = "catalog-tables-meta", version = 8}
+    tablesMeta = {fixture = "catalog-tables-meta", version = 8},
+    errorsTexts = {fixture = "catalog-errors-texts", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.
