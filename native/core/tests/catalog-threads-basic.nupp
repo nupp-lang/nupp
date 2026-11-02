@@ -79,24 +79,24 @@ local w2 = gen(5)
 if w1 == 2 and w2 == 10 then
     score = score + 32
 end
-local dead, deadMessage = pcall(function(): number
+local dead, deadmessage = pcall(function(): number
     return gen(0)
 end)
-if not dead and string.sub(tostring(deadMessage), -33) == ":83: cannot resume dead coroutine" then
+if not dead and string.sub(tostring(deadmessage), -33) == ":83: cannot resume dead coroutine" then
     score = score + 64
 end
 local raising = coroutine.wrap(function(): nil
     error("inside", 0)
 end)
-local raised, raisedMessage = pcall(function(): nil
+local raised, raisedmessage = pcall(function(): nil
     raising()
 end)
-if not raised and string.sub(tostring(raisedMessage), -11) == ":92: inside" then
+if not raised and string.sub(tostring(raisedmessage), -11) == ":92: inside" then
     score = score + 128
 end
 
 -- Yielding outside a coroutine is an error; inside, it is allowed.
-local outside, outsideMessage = pcall(function(): any
+local outside, outsidemessage = pcall(function(): any
     return coroutine.yield(1)
 end)
 local probe = coroutine.create(function(): boolean
@@ -104,14 +104,14 @@ local probe = coroutine.create(function(): boolean
 end)
 local _, yieldable = coroutine.resume(probe)
 if not outside
-    and outsideMessage == "attempt to yield from outside a coroutine"
+    and outsidemessage == "attempt to yield from outside a coroutine"
     and yieldable
     and not coroutine.isyieldable()
 then
     score = score + 256
 end
-local _, isMain = coroutine.running()
-if isMain and type(co) == "thread" then
+local _, ismain = coroutine.running()
+if ismain and type(co) == "thread" then
     score = score + 512
 end
 

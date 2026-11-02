@@ -650,7 +650,7 @@ function program.describe(modules: {any}, entryModule: string): any
         end
         -- A generic `for` over anything but ipairs, pairs or gmatch calls its
         -- iterator each step: the statement is that call's callsite.
-        if node.kind == "forinStmt" and graph.genericIterator(node) then
+        if node.kind == "forinStmt" and graph.genericiterator(node) then
             local item = {id = #p.calls, owner = owner.id, node = node, iterator = true}
             p.calls[#p.calls + 1], p.callByNode[node] = item, item
         end
@@ -955,7 +955,7 @@ function program.verify(p: any): boolean
         elseif item.iterator then
             need(
                 node.kind == "forinStmt"
-                and graph.genericIterator(node)
+                and graph.genericiterator(node)
                 and p.callByNode[node] == item
                 and item.definition == nil,
                 "iterator callsite identity mismatch"

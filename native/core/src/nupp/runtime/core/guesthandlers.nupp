@@ -1530,7 +1530,7 @@ export function LibCall(
     -- The coroutine library. Resume and yield switch threads: the context
     -- then runs the other thread, from its active frame.
     if libraryId >= threads.LIB_CREATE and libraryId <= threads.LIB_CLOSE then
-        guestscope.nameLibrary(ctx, threads.libraryName(libraryId))
+        guestscope.nameLibrary(ctx, threads.libraryname(libraryId))
         local switched = true
         if libraryId == threads.LIB_CLOSE then
             -- Closing a suspended thread with cleanups runs it to unwind.

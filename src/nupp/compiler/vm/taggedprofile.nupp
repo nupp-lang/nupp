@@ -186,8 +186,8 @@ local packLibrary: {
     ["coroutine.close"] = 82
 }
 
--- The coroutine calls answering a pack, which coroutinePack makes.
-local coroutinePacked: {
+-- The coroutine calls answering a pack, which coroutinepack makes.
+local coroutinepacked: {
     [string]: boolean
 } = {["coroutine.resume"] = true, ["coroutine.yield"] = true, ["coroutine.running"] = true, ["coroutine.close"] = true}
 
@@ -201,7 +201,7 @@ end
 
 local gsubWith: function(any, any, any, boolean): integer
 local packedCall: function(any, any, any, integer): integer
-local libraryPack: function(any, any): integer?
+local librarypack: function(any, any): integer?
 
 -- A core library call (guestlib): its arguments staged as values.
 local function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
@@ -476,8 +476,8 @@ end
 -- With `open`, it keeps every result as one pack.
 local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean?, count: integer?, open: boolean?): any
     -- A library call with several results is open already: its pack.
-    if open and graph.packedLibraryCall(node) then
-        return libraryPack(ctx, node)
+    if open and graph.packedcall(node) then
+        return librarypack(ctx, node)
     end
     local p = catalog(ctx)
     local site = need(p.callByNode[node], "ordinary call lacks checked callsite")
@@ -721,7 +721,7 @@ end
 
 -- The values of `exprs` as one pack, the count at key 0: a `...` or a call
 -- giving other than one result last gives them all.
-local function valuesPack(ctx: any, node: any, exprs: any): integer
+local function valuespack(ctx: any, node: any, exprs: any): integer
     local last = exprs[#exprs]
     local tail = last ~= nil and (last.kind == "vararg" or graph.expandsResults(last))
     local fixed, kinds = {}, {}
@@ -765,7 +765,7 @@ end
 
 -- print(...): its values in a pack, written as one line.
 local function printValues(ctx: any, node: any): integer
-    local pack = valuesPack(ctx, node, node.args.exprs or {})
+    local pack = valuespack(ctx, node, node.args.exprs or {})
     if pack == nil then
         return nil as any
     end
@@ -776,7 +776,7 @@ end
 -- coroutine.resume(co, ...), coroutine.yield(...) and coroutine.running():
 -- each answers its results as one pack, and resume and yield take their
 -- values as one.
-local function coroutinePack(ctx: any, node: any): integer
+local function coroutinepack(ctx: any, node: any): integer
     local library = graph.coreLibraryCall(node)
     local exprs = node.args.exprs or {}
     if library == "coroutine.running" then
@@ -784,7 +784,7 @@ local function coroutinePack(ctx: any, node: any): integer
         local none = ctx.emit(node, "Nil", {}, "tagged")
         return ctx.emit(node, "LibCall", {80, none}, "tagged") as integer
     elseif library == "coroutine.yield" then
-        local pack = valuesPack(ctx, node, exprs)
+        local pack = valuespack(ctx, node, exprs)
         if pack == nil then
             return nil as any
         end
@@ -815,7 +815,7 @@ local function coroutinePack(ctx: any, node: any): integer
     for index = 2, #exprs do
         rest[#rest + 1] = exprs[index]
     end
-    local pack = valuesPack(ctx, node, rest)
+    local pack = valuespack(ctx, node, rest)
     if pack == nil then
         ctx.release(held)
         return nil as any
@@ -828,10 +828,10 @@ end
 
 -- A library call with several results, as the pack of them: a string
 -- library call's or table.unpack's pack form, or a coroutine call.
-libraryPack = function(ctx: any, node: any): integer?
+librarypack = function(ctx: any, node: any): integer?
     local library = graph.coreLibraryCall(node)
-    if coroutinePacked[library or ""] then
-        return coroutinePack(ctx, node)
+    if coroutinepacked[library or ""] then
+        return coroutinepack(ctx, node)
     end
     local spec: {integer} = need(stringSpec(library), "string library call")
     local arguments = {}
@@ -1567,7 +1567,7 @@ function tagged.forVersion(version: integer): any
             -- `for names in f, s, c`: f(s, c) each step, as Lua runs any
             -- iterator, a wrapped coroutine's included; the loop leaves at a
             -- nil first result.
-            if graph.genericIterator(stat) then
+            if graph.genericiterator(stat) then
                 need(#stat.names >= 1 and #stat.names <= 16, "a generic for names one to sixteen values")
                 local values: any = nil
                 if #stat.exprs == 1 and graph.expandsResults(source) then
@@ -1591,7 +1591,7 @@ function tagged.forVersion(version: integer): any
                 return {
                     values = controls,
                     iterate = function(c: any, node: any, v: any): {integer}?
-                        local contract = graph.iteratorInvokeContract(stat, #stat.names)
+                        local contract = graph.iteratorcontract(stat, #stat.names)
                         return landed(c, node, c.invokeMany(node, v[1], {v[2], v[3]}, contract, #stat.names))
                     end,
                     ended = function(c: any, node: any, first: integer): integer
@@ -1792,8 +1792,8 @@ function tagged.forVersion(version: integer): any
             end
             -- A library call with several results answers a pack, read in
             -- order; past its end is nil.
-            if graph.packedLibraryCall(node) then
-                local pack = libraryPack(ctx, node)
+            if graph.packedcall(node) then
+                local pack = librarypack(ctx, node)
                 if pack == nil then
                     return nil
                 end
@@ -2038,9 +2038,9 @@ function tagged.forVersion(version: integer): any
             elseif library == "os.getenv" then
                 need(#(node.args.exprs or {}) == 1, "os.getenv takes one name")
                 return libraryCall(ctx, node, 10, node.args.exprs)
-            elseif coroutinePacked[library or ""] then
+            elseif coroutinepacked[library or ""] then
                 -- Kept as one value: its pack's first.
-                local pack = coroutinePack(ctx, node)
+                local pack = coroutinepack(ctx, node)
                 if pack == nil then
                     return nil as any
                 end
@@ -2104,7 +2104,7 @@ function tagged.forVersion(version: integer): any
                 invokeProtected(ctx, node, false)
             elseif graph.coreLibraryCall(node) == "io.write" then
                 -- io.write(...): its values in a pack, written as they are.
-                local pack = valuesPack(ctx, node, node.args.exprs or {})
+                local pack = valuespack(ctx, node, node.args.exprs or {})
                 if pack ~= nil then
                     ctx.emit(node, "LibCall", {83, pack}, "tagged")
                 end

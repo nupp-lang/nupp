@@ -251,16 +251,16 @@ function contracts.normalize(compiled: any, version: integer?): any
     local requireSite
     -- From v8 every require is a site of its own, each naming one of the
     -- program's modules.
-    local requireSites: {any} = {}
+    local requiresites: {any} = {}
     need(type(p.imports) == "table" and type(p.requires) == "table", "checked import tables required")
     if v >= 8 and (#p.imports ~= 0 or #p.requires ~= 0) then
-        local byName, byChunk = {}, {}
+        local byname, bychunk = {}, {}
         for _, module in ipairs(p.modules) do
-            byName[module.name], byChunk[module.chunk] = module, module
+            byname[module.name], bychunk[module.chunk] = module, module
         end
         need(type(p.requireByNode) == "table", "checked require source required")
         for _, site in ipairs(p.requires) do
-            local target = type(site) == "table" and byName[site.module] or nil
+            local target = type(site) == "table" and byname[site.module] or nil
             need(
                 target ~= nil
                 and type(site.node) == "table"
@@ -270,14 +270,14 @@ function contracts.normalize(compiled: any, version: integer?): any
                 and p.requireByNode[site.node] == site,
                 "checked require target or source identity differs"
             )
-            requireSites[#requireSites + 1] = site
+            requiresites[#requiresites + 1] = site
         end
         for _, imported in ipairs(p.imports) do
             local binding = type(imported) == "table"
                 and type(imported.binding) == "number"
                 and p.bindings[imported.binding + 1]
                 or nil
-            local target = type(imported) == "table" and byChunk[imported.target] or nil
+            local target = type(imported) == "table" and bychunk[imported.target] or nil
             need(
                 type(binding) == "table"
                 and type(binding.definition) == "table"
@@ -312,7 +312,7 @@ function contracts.normalize(compiled: any, version: integer?): any
             and binding.definition.requiredModule == first.name,
             "checked import target or source identity differs"
         )
-        requireSites = {requireSite}
+        requiresites = {requireSite}
     end
     local definition = schema.describe(v)
     local output: any = {
@@ -380,7 +380,7 @@ function contracts.normalize(compiled: any, version: integer?): any
                     -- The site of this owner's require of this module at this
                     -- position.
                     local matched = nil
-                    for _, site in ipairs(requireSites) do
+                    for _, site in ipairs(requiresites) do
                         local token = site.owner == record.id and cst.firstToken(site.node) or nil
                         if token
                             and constant.kind == "str"
@@ -448,7 +448,7 @@ function contracts.normalize(compiled: any, version: integer?): any
             end
         end
     end
-    need(foundRequires == #requireSites, "checked require graph is incomplete")
+    need(foundRequires == #requiresites, "checked require graph is incomplete")
     -- v7 admits recursion; its depth is bounded by the entry's frame pool.
     if v < 7 then
         semantic.topological(output.catalog, callEdges, nil)

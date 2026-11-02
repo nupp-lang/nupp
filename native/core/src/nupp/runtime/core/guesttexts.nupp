@@ -525,7 +525,7 @@ local function raiseText(ctx: voidptr, h: heap.Heap*, b: strings.Builder*, refus
 end
 
 -- One of the library's texts as a string value.
-export function textValue(ctx: voidptr, id: uint64): uint64
+export function textvalue(ctx: voidptr, id: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)

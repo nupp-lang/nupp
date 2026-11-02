@@ -4,7 +4,7 @@ module nupp.core.catalogthreadsiterate
 -- body that declares what it yields and what it is resumed with.
 local score = 0
 
-local function upTo(n: integer): any
+local function upto(n: integer): any
     return coroutine.wrap(function(): nil
         for i = 1, n do
             coroutine.yield(i)
@@ -13,7 +13,7 @@ local function upTo(n: integer): any
 end
 
 local sum = 0
-for value in upTo(4) do
+for value in upto(4) do
     sum = sum + value
 end
 if sum == 10 then
@@ -21,13 +21,13 @@ if sum == 10 then
 end
 
 -- Several values per step, the loop ending at the first nil.
-local pairsOf = coroutine.wrap(function(): nil
+local pairsof = coroutine.wrap(function(): nil
     coroutine.yield(1, "a")
     coroutine.yield(2, "bb")
 end)
 local joined = ""
 local total = 0
-for index, text in pairsOf do
+for index, text in pairsof do
     joined = joined .. text
     total = total + index
 end
@@ -59,7 +59,7 @@ end
 -- Nested generators: an outer one draws from an inner one.
 local function evens(limit: integer): any
     return coroutine.wrap(function(): nil
-        for value in upTo(limit) do
+        for value in upto(limit) do
             if value % 2 == 0 then
                 coroutine.yield(value)
             end
@@ -93,7 +93,7 @@ for n in counter(3) do
     counted = counted + n
 end
 
-local function nextOf(t: {integer}, i: integer): (integer?, integer?)
+local function nextof(t: {integer}, i: integer): (integer?, integer?)
     local j = i + 1
     local v = t[j]
     if v == nil then
@@ -104,7 +104,7 @@ local function nextOf(t: {integer}, i: integer): (integer?, integer?)
 end
 
 local weighted = 0
-for i, v in nextOf, {5, 6, 7}, 0 do
+for i, v in nextof, {5, 6, 7}, 0 do
     weighted = weighted + i * (v or 0)
 end
 if counted == 6 and weighted == 38 then

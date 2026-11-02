@@ -32,18 +32,18 @@ local function flush(b: strings.Builder*): nil
     end
 end
 
--- io.write(...) with the values of the pack `packValue`. A value neither a
+-- io.write(...) with the values of the pack `items`. A value neither a
 -- string nor a number raises once the values before it are written, as
 -- Lua's does.
-export function write(ctx: voidptr, packValue: uint64): uint64
+export function write(ctx: voidptr, items: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     guestscope.nameLibrary(ctx, texts.NAME_WRITE)
     @unsafe do
         local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
         local h = native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
-        local pack = packValue & values.PAYLOAD
+        local pack = items & values.PAYLOAD
         local n = ints.bitsOf(tables.get(pack, values.TAG_INTEGER))
-        guestscope.countLibrary(ctx, n)
+        guestscope.countlibrary(ctx, n)
         local builder = state as strings.Builder*
         local i: uint64 = 1ULL
         while i <= n do

@@ -1126,7 +1126,7 @@ end
 -- which the thread keeps outside the segment: it calls `closure` and answers
 -- to `owner`, the thread. Its parameters are nil until the caller fills
 -- them. Answers the frame, active, or 0 on refusal.
-export function beginThread(
+export function beginthread(
     state: voidptr,
     mark: voidptr,
     info: voidptr,
@@ -1168,7 +1168,7 @@ end
 -- Retires a coroutine's frames, deepest first, its bottom frame last: the
 -- thread is done, by returning or by an error nothing in it caught.
 -- Answers 1, or 0 when the frames are not as expected.
-export function endThread(state: voidptr, mark: voidptr): uint64
+export function endthread(state: voidptr, mark: voidptr): uint64
     if validState(state) == 0ULL then
         return 0ULL
     end
@@ -1579,7 +1579,7 @@ export function truth(state: voidptr, child: voidptr): uint64
 end
 
 -- Marks a prepared child as a required module's chunk.
-export function moduleResult(state: voidptr, child: voidptr): uint64
+export function moduleresult(state: voidptr, child: voidptr): uint64
     if validState(state) == 0ULL
         or validFrame(state, child) == 0ULL
         or native.load64(child, native.fieldOffset<Frame>("phase")) ~= PREPARED

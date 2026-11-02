@@ -532,7 +532,7 @@ end
 
 -- t[index] as the table library reads it, through `__index` tables as
 -- Lua 5.5's does. A function `__index` it cannot call yet, and says so.
-export function indexAt(ctx: voidptr, t: uint64, index: int64): uint64
+export function geti(ctx: voidptr, t: uint64, index: int64): uint64
     local key = values.TAG_INTEGER | native.word(index)
     if tables.meta(t) == values.NIL then
         return tables.get(t, key)
@@ -547,7 +547,7 @@ end
 
 -- t[index] = value as the table library stores it, through `__newindex`
 -- tables; a function `__newindex` likewise is not called yet.
-export function storeIndex(ctx: voidptr, t: uint64, index: int64, value: uint64): nil
+export function seti(ctx: voidptr, t: uint64, index: int64, value: uint64): nil
     local status = tableSet(ctx, t, values.TAG_INTEGER | native.word(index), value)
     if status == META_PENDING then
         takeMeta(ctx)
@@ -724,7 +724,7 @@ end
 
 -- The argument count a library call taking its values as one pack has: its
 -- errors count them, not the pack.
-export function countLibrary(ctx: voidptr, count: uint64): nil
+export function countlibrary(ctx: voidptr, count: uint64): nil
     @unsafe do
         native.store64(
             native.loadPointer(ctx, context.SERVICE_SCOPE),
@@ -1083,7 +1083,7 @@ local function lands(ctx: voidptr, frame: uint64): boolean
 end
 
 -- 1 when `frame`'s function owns affine values: an error lands at it.
-export function ownsAffine(ctx: voidptr, frame: uint64): uint64
+export function ownsaffine(ctx: voidptr, frame: uint64): uint64
     if lands(ctx, frame) then
         return 1ULL
     end

@@ -278,7 +278,7 @@ export function drain(h: heap.Heap*): nil
             elseif o.aux as uint64 == heap.KIND_THREAD then
                 local thread = native.pointer(address + heap.HEADER_BYTES) as heap.ThreadBody*
                 if thread.pages ~= 0ULL then
-                    os.unmapPages(native.pointer(thread.pages), thread.pageBytes)
+                    os.unmapPages(native.pointer(thread.pages), thread.pagebytes)
                     thread.pages = 0ULL
                 end
             end

@@ -126,7 +126,7 @@ end
 --- first three are traced values, and `segment` addresses the descriptor of
 --- its frame segment, whose first and third words are the base and cursor
 --- bounding the frame words the walk reads as root candidates, or is zero.
---- `pages` and `pageBytes` are the mapping that segment lives in, which a
+--- `pages` and `pagebytes` are the mapping that segment lives in, which a
 --- released thread gives back.
 export struct ThreadBody
     body: uint64
@@ -134,7 +134,7 @@ export struct ThreadBody
     transfer: uint64
     segment: uint64
     pages: uint64
-    pageBytes: uint64
+    pagebytes: uint64
 end
 
 --- A chunk's first bytes: class, slot size, slot count and its index in

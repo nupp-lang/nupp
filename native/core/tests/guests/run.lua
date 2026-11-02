@@ -118,23 +118,23 @@ local CASES = {
     {"callsExpand", 0x7FFF00000E655693},
     {"errorsMethods", 0x7FFF00000000000F},
     {"recordsAffineReturns", 0x7FFF001A27644F86},
-    {"threadsBasic", 0x7FFF000000000FFF},
-    {"threadsCalls", 0x7FFF00000000003F},
-    {"threadsClose", 0x7FFF00000000007F},
-    {"threadsIterate", 0x7FFF00000000001F},
-    {"outputWrite", 0x7FFF000000000001},
-    {"librarySpread", 0x7FFF000000000C8D},
-    {"tablesLibraryMeta", 0x7FFF000000000007},
-    {"modulesLazy", 0x7FFF000000000520}
+    {"threadsbasic", 0x7FFF000000000FFF},
+    {"threadscalls", 0x7FFF00000000003F},
+    {"threadsclose", 0x7FFF00000000007F},
+    {"threadsiterate", 0x7FFF00000000001F},
+    {"outputwrite", 0x7FFF000000000001},
+    {"libraryspread", 0x7FFF000000000C8D},
+    {"tableslibrarymeta", 0x7FFF000000000007},
+    {"moduleslazy", 0x7FFF000000000520}
 }
 -- What the cases that print write to the host's output, as Lua 5.5 writes it.
 local OUTPUT = {
     outputPrint = "hello\t42\t1.5\ttrue\tnil\tfalse\n\nxxx\t3\t-0.0\t1e+100\t9007199254740992.0\n"
         .. "line\t1\nline\t2\nline\t3\n",
     callsExpand = "1\t2\nx\t1\t2\n",
-    outputWrite = "hello 42 1.5\n3.0 -0.0 9.2233720368547758e+18\nab\nx7\np\n",
-    librarySpread = "1\t2\t3\n3\t3\n97\t98\t99\n2\t3\ntrue\t1\t2\n",
-    modulesLazy = "main start\nshapes loading\ncounter loading\nmain required\n"
+    outputwrite = "hello 42 1.5\n3.0 -0.0 9.2233720368547758e+18\nab\nx7\np\n",
+    libraryspread = "1\t2\t3\n3\t3\n97\t98\t99\n2\t3\ntrue\t1\t2\n",
+    moduleslazy = "main start\nshapes loading\ncounter loading\nmain required\n"
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their
@@ -147,10 +147,10 @@ local STRESS = {
     workloadTables = true,
     stringsBasic = true,
     integersWide = true,
-    threadsBasic = true,
-    threadsCalls = true,
-    threadsClose = true,
-    threadsIterate = true
+    threadsbasic = true,
+    threadscalls = true,
+    threadsclose = true,
+    threadsiterate = true
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
@@ -209,14 +209,14 @@ local NUMERIC = {
     callsExpand = "catalog-calls-expand",
     errorsMethods = "catalog-errors-methods",
     recordsAffineReturns = "catalog-records-affine-returns",
-    threadsBasic = "catalog-threads-basic",
-    threadsCalls = "catalog-threads-calls",
-    threadsClose = "catalog-threads-close",
-    threadsIterate = "catalog-threads-iterate",
-    outputWrite = "catalog-output-write",
-    librarySpread = "catalog-library-spread",
-    tablesLibraryMeta = "catalog-tables-library-meta",
-    modulesLazy = "catalog-modules-main"
+    threadsbasic = "catalog-threads-basic",
+    threadscalls = "catalog-threads-calls",
+    threadsclose = "catalog-threads-close",
+    threadsiterate = "catalog-threads-iterate",
+    outputwrite = "catalog-output-write",
+    libraryspread = "catalog-library-spread",
+    tableslibrarymeta = "catalog-tables-library-meta",
+    moduleslazy = "catalog-modules-main"
 }
 local FIXTURES = {
     "catalog-boolean",

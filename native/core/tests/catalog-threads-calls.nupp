@@ -34,9 +34,9 @@ local outer = coroutine.create(function(): string
     coroutine.yield(fine)
     return message
 end)
-local _, innerFine = coroutine.resume(outer)
-local _, innerMessage = coroutine.resume(outer)
-if innerFine == false and innerMessage == "deep" and coroutine.status(outer) == "dead" then
+local _, innerfine = coroutine.resume(outer)
+local _, innermessage = coroutine.resume(outer)
+if innerfine == false and innermessage == "deep" and coroutine.status(outer) == "dead" then
     score = score + 4
 end
 

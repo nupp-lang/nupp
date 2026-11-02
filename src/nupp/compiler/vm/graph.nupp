@@ -1415,7 +1415,7 @@ local function invokeContract(contract: any): nil
             assert(
                 type(call) == "table"
                 and call.kind == "forinStmt"
-                and graph.genericIterator(call)
+                and graph.genericiterator(call)
                 and anySignatures[call] == called
                 and contract.given == 2,
                 "iterator invoke identity differs"
@@ -1726,7 +1726,7 @@ function graph.coreLibraryCall(call: any): string?
 end
 
 -- The library calls with several results, which answer them as a pack.
-local packedLibrary: {
+local packedlibrary: {
     [string]: boolean
 } = {
     ["string.find"] = true,
@@ -1741,13 +1741,13 @@ local packedLibrary: {
 }
 
 --- Whether `expr` is a library call with several results.
-function graph.packedLibraryCall(expr: any): boolean
+function graph.packedcall(expr: any): boolean
     if expr == nil or expr.kind ~= "call" and expr.kind ~= "methodCall" then
         return false
     end
     local library = graph.coreLibraryCall(expr)
 
-    return library ~= nil and packedLibrary[library] == true
+    return library ~= nil and packedlibrary[library] == true
 end
 
 -- The signature a call through an `any` value is checked against: its
@@ -1781,13 +1781,13 @@ end
 -- Whether a function type's results are one of several packs, as a wrapped
 -- coroutine's are (what it yields, or what it returns): its calls are
 -- checked as calls through `any` are.
-local function alternativeResults(called: any): boolean
+local function alternativeresults(called: any): boolean
     return called.tag == "func" and called.retPack ~= nil and called.retPack.alternatives ~= nil
 end
 
 -- Whether a generic `for` calls its iterator: any but the forms the profile
 -- lowers itself, `ipairs(t)`, `pairs(t)` and `s:gmatch(p)`.
-function graph.genericIterator(stat: any): boolean
+function graph.genericiterator(stat: any): boolean
     local source = stat.exprs and stat.exprs[1]
     if source == nil then
         return false
@@ -1804,7 +1804,7 @@ end
 
 -- The contract of a generic `for`'s call of its iterator, keeping `count`
 -- results: two values in, all `any`.
-function graph.iteratorInvokeContract(stat: any, count: integer): any
+function graph.iteratorcontract(stat: any, count: integer): any
     local held = anySignatures[stat]
     if held == nil or #held.rets ~= count then
         local params, modes = {{tag = "any"}, {tag = "any"}}, {"plain", "plain"}
@@ -1839,7 +1839,7 @@ function graph.dynamicInvokeContract(call: any, count: integer?): any
     -- A call through `any`, or through a value its metatable's __call makes
     -- callable, is checked against the call itself.
     local called = call.calleeType
-    if called and (called.tag ~= "func" or alternativeResults(called)) then
+    if called and (called.tag ~= "func" or alternativeresults(called)) then
         called = anySignature(call, count or 1)
     end
     local contract = {
@@ -1857,14 +1857,14 @@ end
 -- count or an open one: then the list takes them all, as a pack.
 function graph.expandsResults(expr: any): boolean
     -- A library call with several results gives them all, as Lua's do.
-    if graph.packedLibraryCall(expr) then
+    if graph.packedcall(expr) then
         return true
     end
     if expr == nil or expr.kind ~= "call" or expr.runtimeLoader ~= nil or graph.coreLibraryCall(expr) ~= nil then
         return false
     end
     local called = expr.calleeType
-    if called ~= nil and alternativeResults(called) then
+    if called ~= nil and alternativeresults(called) then
         return true
     end
     if called == nil or called.tag ~= "func" then
@@ -1933,7 +1933,7 @@ function graph.protectedInvokeContract(call: any): any
     -- A callee through `any`, or one whose results are alternatives (a
     -- wrapped coroutine's), is checked against the call itself.
     local called = callee and callee.inferredType
-    if called and (called.tag ~= "func" or alternativeResults(called)) then
+    if called and (called.tag ~= "func" or alternativeresults(called)) then
         called = anySignature(call, 1, handled and 2 or 1)
     end
     local contract = {

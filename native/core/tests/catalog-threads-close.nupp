@@ -53,8 +53,8 @@ local guarded = coroutine.create(function(): nil
     order = order * 10 + 9
 end)
 coroutine.resume(guarded)
-local guardedOk = coroutine.close(guarded)
-if guardedOk and order == 3 then
+local guardedok = coroutine.close(guarded)
+if guardedok and order == 3 then
     score = score + 4
 end
 
@@ -70,8 +70,8 @@ local waiting = coroutine.create(function(): nil
     plain()
 end)
 coroutine.resume(waiting)
-local waitingOk = coroutine.close(waiting)
-if waitingOk and order == 4 then
+local waitingok = coroutine.close(waiting)
+if waitingok and order == 4 then
     score = score + 8
 end
 
@@ -94,9 +94,9 @@ local failed = coroutine.create(function(): nil
     error("boom", 0)
 end)
 coroutine.resume(failed)
-local first, firstError = coroutine.close(failed)
+local first, firsterror = coroutine.close(failed)
 local second = coroutine.close(failed)
-if not first and firstError == "boom" and second then
+if not first and firsterror == "boom" and second then
     score = score + 32
 end
 
@@ -110,19 +110,19 @@ local inner = coroutine.create(function(): boolean
     return fine
 end)
 outer = coroutine.create(function(): boolean
-    local _, innerFine = coroutine.resume(inner)
-    return innerFine
+    local _, innerfine = coroutine.resume(inner)
+    return innerfine
 end)
-local _, innerFine = coroutine.resume(outer)
+local _, innerfine = coroutine.resume(outer)
 local main = coroutine.running()
-local mainFine = pcall(function(): nil
+local mainfine = pcall(function(): nil
     if main then
         coroutine.close(main)
     end
 end)
 order = 0
 
-local function closeSelf(): nil
+local function closeself(): nil
     local me = coroutine.running()
     if me then
         coroutine.close(me)
@@ -132,14 +132,14 @@ end
 
 local selfish = coroutine.create(function(): integer
     local f = new File(5)
-    closeSelf()
+    closeself()
     return 7
 end)
-local selfOk, selfValue = coroutine.resume(selfish)
-if innerFine == false
-    and not mainFine
-    and selfOk
-    and selfValue == nil
+local selfok, selfvalue = coroutine.resume(selfish)
+if innerfine == false
+    and not mainfine
+    and selfok
+    and selfvalue == nil
     and order == 5
     and coroutine.status(selfish) == "dead"
 then

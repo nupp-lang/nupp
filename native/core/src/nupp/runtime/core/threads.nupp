@@ -33,17 +33,17 @@ export struct Thread
     transfer: uint64
     segment: uint64
     pages: uint64
-    pageBytes: uint64
+    pagebytes: uint64
     status: uint64
     -- How the resumer takes what the thread yields or returns (a MODE_), the
     -- state and frame it waits in, and the slot and count it wants them in.
     mode: uint64
-    resumerState: uint64
-    resumerFrame: uint64
-    resumerSlot: uint64
-    resumerWanted: uint64
+    resumerstate: uint64
+    resumerframe: uint64
+    resumerslot: uint64
+    resumerwanted: uint64
     -- The slot the pending yield's results land in when it is resumed.
-    yieldSlot: uint64
+    yieldslot: uint64
     mark: arena.Mark
     stack: arena.Segment
     state: frames.State
@@ -95,7 +95,7 @@ local function services(ctx: voidptr): voidptr
     return native.loadPointer(ctx, context.SERVICE_SCOPE)
 end
 
-local function heapOf(ctx: voidptr): uint64
+local function heapof(ctx: voidptr): uint64
     return native.load64(services(ctx), native.fieldOffset<guestscope.Services>("heap"))
 end
 
@@ -104,7 +104,7 @@ local function running(ctx: voidptr): uint64
 end
 
 -- The body of a thread value, or 0 for anything else.
-local function bodyOf(value: uint64): uint64
+local function bodyof(value: uint64): uint64
     if value & values.TAG_MASK ~= values.TAG_OBJ or value & values.PAYLOAD == 0ULL then
         return 0ULL
     end
@@ -139,9 +139,9 @@ local function target(value: uint64): uint64
 end
 
 -- A fresh thread object, `initial` its status, calling `fn`; answers its value.
-local function newThread(ctx: voidptr, fn: uint64, initial: uint64): uint64
+local function newthread(ctx: voidptr, fn: uint64, initial: uint64): uint64
     @unsafe do
-        local h = native.pointer(heapOf(ctx)) as heap.Heap*
+        local h = native.pointer(heapof(ctx)) as heap.Heap*
         tables.drain(h)
         local o = collector.allocate(h, heap.KIND_THREAD, native.sizeOf<Thread>())
         local t = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
@@ -166,7 +166,7 @@ export function create(ctx: voidptr, fn: uint64): uint64
         texts.argumentError(ctx, 1ULL, texts.TEXT_FUNCTION, 0ULL, fn)
     end
 
-    return newThread(ctx, fn, FRESH)
+    return newthread(ctx, fn, FRESH)
 end
 
 -- coroutine.wrap(f): a closure whose first word marks it as a thread's and
@@ -176,8 +176,8 @@ export function wrap(ctx: voidptr, fn: uint64): uint64
         texts.argumentError(ctx, 1ULL, texts.TEXT_FUNCTION, 0ULL, fn)
     end
     @unsafe do
-        local h = native.pointer(heapOf(ctx)) as heap.Heap*
-        local thread = newThread(ctx, fn, FRESH)
+        local h = native.pointer(heapof(ctx)) as heap.Heap*
+        local thread = newthread(ctx, fn, FRESH)
         local mark = collector.scopeOpen(h)
         collector.scopePush(h, thread)
         local header = guestscope.allocate(ctx, heap.KIND_CLOSURE, 2ULL)
@@ -214,7 +214,7 @@ end
 -- the pack `rest` (0 for none). Every value it takes must be rooted.
 local function packed(ctx: voidptr, lead: uint64, a: uint64, b: uint64, rest: uint64): uint64
     @unsafe do
-        local h = native.pointer(heapOf(ctx)) as heap.Heap*
+        local h = native.pointer(heapof(ctx)) as heap.Heap*
         tables.drain(h)
         local t = tables.create(h)
         local n: uint64 = 0ULL
@@ -258,7 +258,7 @@ end
 -- The pack {false, value}, `value` rooted while it is made.
 local function failure(ctx: voidptr, value: uint64): uint64
     @unsafe do
-        local h = native.pointer(heapOf(ctx)) as heap.Heap*
+        local h = native.pointer(heapof(ctx)) as heap.Heap*
         local mark = collector.scopeOpen(h)
         collector.scopePush(h, value)
         local pack = packed(ctx, 2ULL, values.FALSE, value, 0ULL)
@@ -270,7 +270,7 @@ end
 
 -- coroutine.status(co).
 export function status(ctx: voidptr, value: uint64): uint64
-    local t = bodyOf(value)
+    local t = bodyof(value)
     if t == 0ULL then
         texts.argumentError(ctx, 1ULL, texts.TEXT_COROUTINE, 0ULL, value)
     end
@@ -289,7 +289,7 @@ export function status(ctx: voidptr, value: uint64): uint64
         end
     end
 
-    return texts.textValue(ctx, text)
+    return texts.textvalue(ctx, text)
 end
 
 -- coroutine.running(): the pack {thread, whether it is the main one}.
@@ -300,7 +300,7 @@ export function current(ctx: voidptr): uint64
     end
     local main = native.load64(services(ctx), native.fieldOffset<guestscope.Services>("main"))
     if main == 0ULL then
-        main = newThread(ctx, values.NIL, MAIN)
+        main = newthread(ctx, values.NIL, MAIN)
         native.store64(services(ctx), native.fieldOffset<guestscope.Services>("main"), main)
     end
 
@@ -317,18 +317,18 @@ export function yieldable(ctx: voidptr): uint64
 end
 
 -- The context runs `thread` (body `t`), which `frame` resumed at `pc`.
-local function switchIn(ctx: voidptr, frame: voidptr, pc: voidptr, thread: uint64, t: voidptr): nil
+local function switchin(ctx: voidptr, frame: voidptr, pc: voidptr, thread: uint64, t: voidptr): nil
     @unsafe do
-        local h = native.pointer(heapOf(ctx)) as heap.Heap*
+        local h = native.pointer(heapof(ctx)) as heap.Heap*
         local outer = running(ctx)
-        local resumer = bodyOf(outer)
+        local resumer = bodyof(outer)
         if resumer ~= 0ULL then
             native.store64(native.pointer(resumer), native.fieldOffset<Thread>("status"), NORMAL)
         end
         native.store64(t, native.fieldOffset<Thread>("resumer"), native.chooseWord(outer == 0ULL, values.NIL, outer))
         native.store64(t, native.fieldOffset<Thread>("status"), RUNNING)
-        native.store64(t, native.fieldOffset<Thread>("resumerState"), native.load64(ctx, context.STATE))
-        native.store64(t, native.fieldOffset<Thread>("resumerFrame"), native.address(frame))
+        native.store64(t, native.fieldOffset<Thread>("resumerstate"), native.load64(ctx, context.STATE))
+        native.store64(t, native.fieldOffset<Thread>("resumerframe"), native.address(frame))
         local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
         native.store64(frame, native.fieldOffset<frames.Frame>("resumePC"), (native.address(pc) - code) // 16ULL + 1ULL)
         native.store64(services(ctx), native.fieldOffset<guestscope.Services>("running"), thread)
@@ -342,9 +342,9 @@ end
 
 -- The context runs the thread that resumed `thread` (body `t`), which is
 -- now `after`.
-local function switchOut(ctx: voidptr, thread: uint64, t: voidptr, after: uint64): nil
+local function switchout(ctx: voidptr, thread: uint64, t: voidptr, after: uint64): nil
     @unsafe do
-        local h = native.pointer(heapOf(ctx)) as heap.Heap*
+        local h = native.pointer(heapof(ctx)) as heap.Heap*
         -- Its frame range was the last registered: the threads running nest.
         heap.wordsPop(h.ranges)
         heap.wordsPop(h.ranges)
@@ -356,10 +356,10 @@ local function switchOut(ctx: voidptr, thread: uint64, t: voidptr, after: uint64
         if resumer == values.NIL then
             resumer = 0ULL
         else
-            native.store64(native.pointer(bodyOf(resumer)), native.fieldOffset<Thread>("status"), RUNNING)
+            native.store64(native.pointer(bodyof(resumer)), native.fieldOffset<Thread>("status"), RUNNING)
         end
         native.store64(services(ctx), native.fieldOffset<guestscope.Services>("running"), resumer)
-        native.store64(ctx, context.STATE, native.load64(t, native.fieldOffset<Thread>("resumerState")))
+        native.store64(ctx, context.STATE, native.load64(t, native.fieldOffset<Thread>("resumerstate")))
     end
 end
 
@@ -388,10 +388,10 @@ end
 -- a pack, as its mode takes it.
 local function deliver(t: voidptr, result: uint64): nil
     place(
-        native.pointer(native.load64(t, native.fieldOffset<Thread>("resumerFrame"))),
+        native.pointer(native.load64(t, native.fieldOffset<Thread>("resumerframe"))),
         native.load64(t, native.fieldOffset<Thread>("mode")),
-        native.load64(t, native.fieldOffset<Thread>("resumerSlot")),
-        native.load64(t, native.fieldOffset<Thread>("resumerWanted")),
+        native.load64(t, native.fieldOffset<Thread>("resumerslot")),
+        native.load64(t, native.fieldOffset<Thread>("resumerwanted")),
         result
     )
 end
@@ -402,11 +402,11 @@ end
 local function start(ctx: voidptr, thread: uint64, t: voidptr, args: uint64): uint64
     @unsafe do
         local outer = native.pointer(native.load64(ctx, context.STATE))
-        local outerStack = native.loadPointer(outer, native.fieldOffset<frames.State>("segment"))
+        local outerstack = native.loadPointer(outer, native.fieldOffset<frames.State>("segment"))
         local bytes = native.load64(
-            outerStack,
+            outerstack,
             native.fieldOffset<arena.Segment>("limit")
-        ) - native.load64(outerStack, native.fieldOffset<arena.Segment>("base"))
+        ) - native.load64(outerstack, native.fieldOffset<arena.Segment>("base"))
         local page = os.pageSize()
         local mapped = (bytes + page - 1ULL) // page * page
         local fn = native.load64(t, native.fieldOffset<Thread>("body"))
@@ -443,7 +443,7 @@ local function start(ctx: voidptr, thread: uint64, t: voidptr, args: uint64): ui
         local extra = values.NIL
         if variadic then
             @unsafe do
-                local h = native.pointer(heapOf(ctx)) as heap.Heap*
+                local h = native.pointer(heapof(ctx)) as heap.Heap*
                 local t2 = tables.create(h)
                 local k: uint64 = 0ULL
                 while fixed + k < given do
@@ -469,7 +469,7 @@ local function start(ctx: voidptr, thread: uint64, t: voidptr, args: uint64): ui
             error("not enough memory")
         end
         native.store64(t, native.fieldOffset<Thread>("pages"), native.address(base as voidptr))
-        native.store64(t, native.fieldOffset<Thread>("pageBytes"), mapped)
+        native.store64(t, native.fieldOffset<Thread>("pagebytes"), mapped)
         local stack = native.offset(t, native.fieldOffset<Thread>("stack"))
         if arena.initialize(stack, native.address(base as voidptr), mapped) == 0ULL then
             return 0ULL
@@ -501,7 +501,7 @@ local function start(ctx: voidptr, thread: uint64, t: voidptr, args: uint64): ui
             native.index(id * native.sizeOf<frames.WindowPlan>())
         )
         local mark = native.offset(t, native.fieldOffset<Thread>("mark"))
-        local frame = frames.beginThread(state, mark, info, plan, fn, thread & values.PAYLOAD)
+        local frame = frames.beginthread(state, mark, info, plan, fn, thread & values.PAYLOAD)
         if frame == 0ULL then
             return 0ULL
         end
@@ -548,7 +548,7 @@ export function resume(
 ): uint64
     local slot = where & 0xffffffffULL
     local wanted = where >> 32ULL
-    local t = bodyOf(value)
+    local t = bodyof(value)
     if t == 0ULL then
         texts.argumentError(ctx, 1ULL, texts.TEXT_COROUTINE, 0ULL, value)
     end
@@ -559,7 +559,7 @@ export function resume(
         if state == DEAD then
             text = texts.TEXT_RESUME_DEAD
         end
-        local reason = texts.textValue(ctx, text)
+        local reason = texts.textvalue(ctx, text)
         if mode ~= MODE_CALL then
             place(frame, mode, slot, wanted, failure(ctx, reason))
             return REFUSED
@@ -569,8 +569,8 @@ export function resume(
         return RAISED
     end
     native.store64(body, native.fieldOffset<Thread>("mode"), mode)
-    native.store64(body, native.fieldOffset<Thread>("resumerSlot"), slot)
-    native.store64(body, native.fieldOffset<Thread>("resumerWanted"), wanted)
+    native.store64(body, native.fieldOffset<Thread>("resumerslot"), slot)
+    native.store64(body, native.fieldOffset<Thread>("resumerwanted"), wanted)
     if state == FRESH then
         if start(ctx, value, body, args) ~= 1ULL then
             return BROKEN
@@ -581,9 +581,9 @@ export function resume(
             native.load64(body, native.fieldOffset<Thread>("state") + native.fieldOffset<frames.State>("active"))
         )
         local window = native.pointer(native.load64(yielding, native.fieldOffset<frames.Frame>("values")))
-        native.store64(window, native.index(native.load64(body, native.fieldOffset<Thread>("yieldSlot")) * 8ULL), args)
+        native.store64(window, native.index(native.load64(body, native.fieldOffset<Thread>("yieldslot")) * 8ULL), args)
     end
-    switchIn(ctx, frame, pc, value, body)
+    switchin(ctx, frame, pc, value, body)
 
     return SWITCHED
 end
@@ -595,18 +595,18 @@ end
 export function yield(ctx: voidptr, frame: voidptr, pc: voidptr, slot: uint64, args: uint64): uint64
     local thread = running(ctx)
     if thread == 0ULL then
-        guestscope.raise(ctx, texts.textValue(ctx, texts.TEXT_YIELD_OUTSIDE), 0ULL)
+        guestscope.raise(ctx, texts.textvalue(ctx, texts.TEXT_YIELD_OUTSIDE), 0ULL)
         return 0ULL
     end
-    local t = native.pointer(bodyOf(thread))
-    native.store64(t, native.fieldOffset<Thread>("yieldSlot"), slot)
+    local t = native.pointer(bodyof(thread))
+    native.store64(t, native.fieldOffset<Thread>("yieldslot"), slot)
     local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
     native.store64(frame, native.fieldOffset<frames.Frame>("resumePC"), (native.address(pc) - code) // 16ULL + 1ULL)
     local result = args
     if native.load64(t, native.fieldOffset<Thread>("mode")) ~= MODE_CALL then
         result = packed(ctx, 1ULL, values.TRUE, 0ULL, args & values.PAYLOAD)
     end
-    switchOut(ctx, thread, t, SUSPENDED)
+    switchout(ctx, thread, t, SUSPENDED)
     deliver(t, result)
 
     return 1ULL
@@ -614,17 +614,17 @@ end
 
 -- Retires a finished thread's frames and gives its pages back.
 local function retire(ctx: voidptr, thread: uint64, t: voidptr): uint64
-    if frames.endThread(
+    if frames.endthread(
         native.offset(t, native.fieldOffset<Thread>("state")),
         native.offset(t, native.fieldOffset<Thread>("mark"))
     ) ~= 1ULL then
         return 0ULL
     end
-    switchOut(ctx, thread, t, DEAD)
+    switchout(ctx, thread, t, DEAD)
     native.store64(t, native.fieldOffset<Thread>("segment"), 0ULL)
     local pages = native.load64(t, native.fieldOffset<Thread>("pages"))
     if pages ~= 0ULL then
-        os.unmapPages(native.pointer(pages), native.load64(t, native.fieldOffset<Thread>("pageBytes")))
+        os.unmapPages(native.pointer(pages), native.load64(t, native.fieldOffset<Thread>("pagebytes")))
         native.store64(t, native.fieldOffset<Thread>("pages"), 0ULL)
     end
 
@@ -636,14 +636,14 @@ end
 -- not as expected.
 export function finish(ctx: voidptr, frame: voidptr, results: uint64): uint64
     local thread = values.TAG_OBJ | native.load64(frame, native.fieldOffset<frames.Frame>("resultOwner"))
-    if bodyOf(thread) == 0ULL or thread ~= running(ctx) then
+    if bodyof(thread) == 0ULL or thread ~= running(ctx) then
         return 0ULL
     end
-    local t = native.pointer(bodyOf(thread))
+    local t = native.pointer(bodyof(thread))
     local result = results
     if native.load64(t, native.fieldOffset<Thread>("mode")) ~= MODE_CALL then
         @unsafe do
-            local h = native.pointer(heapOf(ctx)) as heap.Heap*
+            local h = native.pointer(heapof(ctx)) as heap.Heap*
             local mark = collector.scopeOpen(h)
             collector.scopePush(h, results)
             result = packed(ctx, 1ULL, values.TRUE, 0ULL, results & values.PAYLOAD)
@@ -664,7 +664,7 @@ end
 -- wrapped thread's call); or 0 when the frames are not as expected.
 export function fail(ctx: voidptr, value: uint64): uint64
     local thread = running(ctx)
-    local t = native.pointer(bodyOf(thread))
+    local t = native.pointer(bodyof(thread))
     local mode = native.load64(t, native.fieldOffset<Thread>("mode"))
     local result: uint64 = 0ULL
     native.store64(services(ctx), native.fieldOffset<guestscope.Services>("closing"), 0ULL)
@@ -694,14 +694,14 @@ export function fail(ctx: voidptr, value: uint64): uint64
         return 1ULL
     end
     deliver(t, result)
-    local frame = native.pointer(native.load64(t, native.fieldOffset<Thread>("resumerFrame")))
+    local frame = native.pointer(native.load64(t, native.fieldOffset<Thread>("resumerframe")))
     local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
 
     return code + native.load64(frame, native.fieldOffset<frames.Frame>("resumePC")) * 16ULL
 end
 
 -- Whether a thread runs (not the main one).
-export function inThread(ctx: voidptr): uint64
+export function inthread(ctx: voidptr): uint64
     if running(ctx) ~= 0ULL then
         return 1ULL
     end
@@ -713,7 +713,7 @@ end
 -- thread takes the error, the thread dies and its resumer takes it, as
 -- resume's false and the error or raised again for a wrapped thread's call.
 -- Answers the pc to continue at, or 0 when the error ends the entry.
-export function recoverEntry(ctx: voidptr): uint64
+export function recover(ctx: voidptr): uint64
     local at = guestscope.recoverEntry(ctx)
     while at == 0ULL and running(ctx) ~= 0ULL and guestscope.failing(ctx) == 1ULL do
         local value = guestscope.lastError(ctx)
@@ -743,7 +743,7 @@ export function recoverEntry(ctx: voidptr): uint64
 end
 
 -- The name a coroutine library call's errors give it.
-export function libraryName(id: uint64): uint64
+export function libraryname(id: uint64): uint64
     if id == LIB_CREATE then
         return texts.NAME_CREATE
     elseif id == LIB_RESUME then
@@ -786,7 +786,7 @@ end
 -- closing itself unwinds from where it is, as Lua 5.5 has it, and its
 -- resumer gets true and no values.
 export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, slot: uint64): uint64
-    local t = bodyOf(value)
+    local t = bodyof(value)
     if t == 0ULL then
         texts.argumentError(ctx, 1ULL, texts.TEXT_COROUTINE, 0ULL, value)
     end
@@ -804,13 +804,13 @@ export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, 
         return UNWIND
     end
     local window = native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("values")))
-    local threadState = native.offset(body, native.fieldOffset<Thread>("state"))
-    local active = native.load64(threadState, native.fieldOffset<frames.State>("active"))
+    local threadstate = native.offset(body, native.fieldOffset<Thread>("state"))
+    local active = native.load64(threadstate, native.fieldOffset<frames.State>("active"))
     -- Nothing to unwind unless a frame owns affine values.
     local owners: uint64 = 0ULL
     local at = active
     while state == SUSPENDED and at ~= 0ULL do
-        owners = owners | guestscope.ownsAffine(ctx, at)
+        owners = owners | guestscope.ownsaffine(ctx, at)
         at = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
     end
     if state ~= SUSPENDED or owners == 0ULL then
@@ -823,13 +823,13 @@ export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, 
             result = packed(ctx, 1ULL, values.TRUE, 0ULL, 0ULL)
         end
         if state == SUSPENDED then
-            if frames.endThread(threadState, native.offset(body, native.fieldOffset<Thread>("mark"))) ~= 1ULL then
+            if frames.endthread(threadstate, native.offset(body, native.fieldOffset<Thread>("mark"))) ~= 1ULL then
                 return BROKEN
             end
             native.store64(body, native.fieldOffset<Thread>("segment"), 0ULL)
             local pages = native.load64(body, native.fieldOffset<Thread>("pages"))
             if pages ~= 0ULL then
-                os.unmapPages(native.pointer(pages), native.load64(body, native.fieldOffset<Thread>("pageBytes")))
+                os.unmapPages(native.pointer(pages), native.load64(body, native.fieldOffset<Thread>("pagebytes")))
                 native.store64(body, native.fieldOffset<Thread>("pages"), 0ULL)
             end
         end
@@ -841,21 +841,21 @@ export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, 
     -- that owns affine values, whose cleanups run, and protected calls let
     -- it pass (`closing`), until it ends the thread.
     native.store64(body, native.fieldOffset<Thread>("mode"), MODE_CLOSE)
-    native.store64(body, native.fieldOffset<Thread>("resumerSlot"), slot)
-    native.store64(body, native.fieldOffset<Thread>("resumerWanted"), 1ULL)
+    native.store64(body, native.fieldOffset<Thread>("resumerslot"), slot)
+    native.store64(body, native.fieldOffset<Thread>("resumerwanted"), 1ULL)
     local yielding = native.pointer(active)
     native.store64(
         native.pointer(native.load64(yielding, native.fieldOffset<frames.Frame>("values"))),
-        native.index(native.load64(body, native.fieldOffset<Thread>("yieldSlot")) * 8ULL),
+        native.index(native.load64(body, native.fieldOffset<Thread>("yieldslot")) * 8ULL),
         values.NIL
     )
-    switchIn(ctx, frame, pc, value, body)
+    switchin(ctx, frame, pc, value, body)
     local scope = services(ctx)
     native.store64(scope, native.fieldOffset<guestscope.Services>("closing"), 1ULL)
     native.store64(scope, native.fieldOffset<guestscope.Services>("lastError"), value)
     -- A yield in a function that owns affine values checks for a landed
     -- error after it: there the unwinding starts.
-    if guestscope.ownsAffine(ctx, active) == 1ULL then
+    if guestscope.ownsaffine(ctx, active) == 1ULL then
         native.store64(scope, native.fieldOffset<guestscope.Services>("landed"), 1ULL)
         return SWITCHED
     end

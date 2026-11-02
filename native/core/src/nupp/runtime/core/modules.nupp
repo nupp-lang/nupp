@@ -90,11 +90,11 @@ export function begin(ctx: voidptr, frame: voidptr, pc: voidptr, target: uint64,
     )
     local state = native.loadPointer(ctx, context.STATE)
     local child = frames.prepareFixed(state, frame, info, values.NIL, slot, 0ULL, slot, plan)
-    if child == 0ULL or frames.moduleResult(state, native.pointer(child)) ~= 1ULL then
+    if child == 0ULL or frames.moduleresult(state, native.pointer(child)) ~= 1ULL then
         return 0ULL
     end
     local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
-    local resumePC = (native.address(pc) - code) // 16ULL + 1ULL
+    local resumepc = (native.address(pc) - code) // 16ULL + 1ULL
 
-    return frames.publish(state, frame, native.pointer(child), resumePC)
+    return frames.publish(state, frame, native.pointer(child), resumepc)
 end
