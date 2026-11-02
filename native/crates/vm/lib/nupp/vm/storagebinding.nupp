@@ -50,4 +50,6 @@ if structs.referencevalued == nil then
 end
 structs.referenceValued = nil
 
-export = binding as CstorageProvider
+local provider: CstorageProvider = binding
+
+export = provider

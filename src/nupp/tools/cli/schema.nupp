@@ -29,14 +29,14 @@ function schema.requests(subject: any, argv: {string}): boolean
     local stream = cliModule.optparser(argv, {
         arity = arity,
         patterns = patterns,
-        stopAtFirstArgument = schema.stopAtFirstArgument,
+        stopatfirstargument = schema.stopatfirstargument,
     })
     while true do
         local kind = stream:next()
         if kind == nil then
             return false
         end
-        local option = kind == cliModule.shortOption or kind == cliModule.longOption
+        local option = kind == cliModule.shortoption or kind == cliModule.longoption
         local field = option and not stream:pattern() and fields[stream:key()] or nil
         if field ~= nil and field.field == "schema" and stream:value() == nil then
             return true
