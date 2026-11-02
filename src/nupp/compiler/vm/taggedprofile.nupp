@@ -533,8 +533,9 @@ local function construct(ctx: any, node: any, origin: any): any
     local name = "\0new" .. tostring(call.constructorEntry.index)
     local key = ctx.emit(node, "K", {pool(ctx, "str", name)}, "tagged")
     local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldClass), key}, "tagged"))
-    ctx.release(heldClass)
     local instance = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+    ctx.emit(node, "LibCall", {28, ctx.readHeld(instance), ctx.readHeld(heldClass)}, "tagged")
+    ctx.release(heldClass)
     for _, field in ipairs(origin.fieldOrder or {}) do
         local default = origin.fieldDefaults and origin.fieldDefaults[field]
         if default then
@@ -769,7 +770,8 @@ local function invokeMethod(ctx: any, node: any, keepResult: boolean, count: int
         return nil
     end
     local heldClass = ctx.hold(class)
-    local key = ctx.emit(node, "K", {pool(ctx, "str", node.name.text)}, "tagged")
+    -- The overload the checker selected has a member of its own.
+    local key = ctx.emit(node, "K", {pool(ctx, "str", node.overloadMember or node.name.text)}, "tagged")
     local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldClass), key}, "tagged"))
     ctx.release(heldClass)
     local exprs, kinds = {node.obj}, {"tagged"}
@@ -826,10 +828,11 @@ function tagged.erasedStatement(ctx: any, stat: any): nil
         need(stat.declKind == "record" and not stat.generics, "only plain record declarations are admitted")
         for _, entry in ipairs(stat.entries or {}) do
             need(
-                entry.kind == "fieldDecl"
-                or entry.kind == "inlineMethod" and entry.overloadMember == nil
-                or entry.kind == "constructorDecl",
-                "record metamethods and overloaded methods are unsupported"
+                entry.kind == "fieldDecl" or entry.kind == "inlineMethod" or entry.kind == "constructorDecl"
+                -- A metamethod declaration is a contract; the record's table
+                -- holds whatever fulfills it.
+                or entry.kind == "metamethodDecl",
+                "unsupported record entry"
             )
         end
         return
@@ -1176,6 +1179,16 @@ function tagged.forVersion(version: integer): any
                 local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(slots[index]))}, "tagged")
                 ctx.emit(node, "SetIdx", {record, key, value}, nil)
             end
+            -- The record's table is the instance's metatable.
+            local held = ctx.hold(record)
+            local class = ctx.expression(call.obj, "tagged")
+            if class == nil then
+                ctx.release(held)
+                return nil as any
+            end
+            ctx.emit(node, "LibCall", {28, ctx.readHeld(held), class}, "tagged")
+            record = ctx.readHeld(held)
+            ctx.release(held)
 
             return record as integer
         end
@@ -1213,8 +1226,9 @@ function tagged.forVersion(version: integer): any
             if node.kind == "dotIndex" then
                 local slot = recordSlot(recordOrigin(node.obj.inferredType), node.name and node.name.text)
                 local tag = typeKind(node.obj.inferredType)
+                -- `R.f = ...` writes the table a record's name holds.
                 local plain = slot == nil
-                    and (tag == "table" or tag == "map" or tag == "array" or tag == "shape")
+                    and (tag == "table" or tag == "map" or tag == "array" or tag == "shape" or tag == "typeobject")
                     and node.name ~= nil
                 need(slot ~= nil or plain, "only record and table field assignment is admitted")
                 local object = ctx.expression(node.obj, "tagged")
@@ -1376,15 +1390,20 @@ function tagged.forVersion(version: integer): any
             return false, nil
         end
         -- The table a record's name holds, with every method its body
-        -- declares stored by name, as `function R:m` stores one.
+        -- declares stored by name, as `function R:m` stores one. It is its
+        -- instances' metatable, its own __index, so metamethods written on it
+        -- apply to them.
         profile.recordValue = function(ctx: any, stat: any): integer?
             if catalog(ctx).byDefinition[stat.name.definition] == nil then
                 return nil
             end
             local held = ctx.hold(ctx.emit(stat, "NewTable", {}, "tagged"))
+            local indexKey = ctx.emit(stat, "K", {pool(ctx, "str", "__index")}, "tagged")
+            ctx.emit(stat, "SetIdx", {ctx.readHeld(held), indexKey, ctx.readHeld(held)}, nil)
             for _, entry in ipairs(stat.entries or {}) do
-                -- A constructor is stored under a key no field name can be.
-                local name = entry.kind == "inlineMethod" and entry.name.text
+                -- A constructor is stored under a key no field name can be;
+                -- each body of an overloaded method under its own member.
+                local name = entry.kind == "inlineMethod" and (entry.overloadMember or entry.name.text)
                     or entry.kind == "constructorDecl" and "\0new" .. tostring(entry.constructorIndex)
                     or nil
                 if name then

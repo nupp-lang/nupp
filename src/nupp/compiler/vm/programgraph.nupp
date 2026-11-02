@@ -63,7 +63,10 @@ local function storagePlan(p: any): any
     for _, owner in ipairs(p.owners) do
         for _, item in ipairs(owner.captures) do
             local b = need(p.bindings[item.binding + 1], "capture binding is missing")
-            if b.mode == "cell" or item.recursive then
+            -- A record's methods may name the record, whose table holds them:
+            -- its binding is a cell made before them, as a local function's is.
+            local ownRecord = p.recordMembers[owner.node] == b.definition
+            if b.mode == "cell" or item.recursive or ownRecord then
                 storage[b.definition] = "cell"
             end
         end
@@ -206,6 +209,9 @@ function program.describe(modules: {any}, entryModule: string): any
         cleanupTokens = {},
         -- The owners (by id) with any such site.
         cleanupOwners = {},
+        -- The definition of the record each method or constructor written in
+        -- a record body belongs to, by its node.
+        recordMembers = {},
         byDefinition = {},
         functionsByDefinition = {},
         byBody = {},
@@ -278,6 +284,7 @@ function program.describe(modules: {any}, entryModule: string): any
             for _, entry in ipairs(node.entries or {}) do
                 if entry.kind == "inlineMethod" or entry.kind == "constructorDecl" then
                     inlineRecords[entry] = node.name
+                    p.recordMembers[entry] = node.name.definition
                 end
             end
         end
@@ -548,6 +555,10 @@ function program.describe(modules: {any}, entryModule: string): any
         -- record's name is a type use there, not a read of its runtime value.
         if node.kind == "newExpr" and node.call and node.call.recordFields and not node.call.constructorEntry then
             loopForms[node.call] = true
+            -- Construction reads the record's table, its instances' metatable.
+            if node.call.obj and node.call.obj.kind == "name" then
+                reference(node.call.obj.token, owner)
+            end
         end
         -- `new R(...)` with a constructor calls it, the fresh instance first,
         -- through the table R's name holds.

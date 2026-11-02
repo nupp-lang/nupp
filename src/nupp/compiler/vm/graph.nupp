@@ -1716,8 +1716,10 @@ end
 
 -- `count`: the results the call keeps, which a call through `any` declares.
 function graph.dynamicInvokeContract(call: any, count: integer?): any
+    -- A call through `any`, or through a value its metatable's __call makes
+    -- callable, is checked against the call itself.
     local called = call.calleeType
-    if called and called.tag == "any" then
+    if called and called.tag ~= "func" then
         called = anySignature(call, count or 1)
     end
     local contract = {

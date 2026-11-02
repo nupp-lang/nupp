@@ -1,0 +1,73 @@
+module nupp.core.catalogrecordsmetamethods
+
+-- A record's table is its instances' metatable, with __index naming itself:
+-- metamethods written on it apply to every instance beside its methods.
+local record Vec
+    x: integer
+    y: integer
+    metamethod __add: function(self, other: Vec): Vec
+    metamethod __eq: function(self, other: Vec): boolean
+    metamethod __lt: function(self, other: Vec): boolean
+    metamethod __len: function(self): integer
+    metamethod __tostring: function(self): string
+    metamethod __call: function(self, k: integer): integer
+
+    function sum(self): integer
+        return self.x + self.y
+    end
+end
+
+Vec.__add = function(a: Vec, b: Vec): Vec
+    return new Vec(x = a.x + b.x, y = a.y + b.y)
+end
+Vec.__eq = function(a: Vec, b: Vec): boolean
+    return a.x == b.x and a.y == b.y
+end
+Vec.__lt = function(a: Vec, b: Vec): boolean
+    return a:sum() < b:sum()
+end
+Vec.__len = function(v: Vec): integer
+    return v.x * v.y
+end
+Vec.__tostring = function(v: Vec): string
+    return "(" .. tostring(v.x) .. "," .. tostring(v.y) .. ")"
+end
+Vec.__call = function(v: Vec, k: integer): integer
+    return v.x * k + v.y
+end
+
+local a = new Vec(x = 1, y = 2)
+local b = new Vec(x = 3, y = 4)
+local c = a + b
+local score: integer = c.x * 100 + c.y
+if c == new Vec(x = 4, y = 6) and not (a == b) then
+    score = score + 10000
+end
+if a < b and not (b < a) then
+    score = score + 20000
+end
+score = score + #b * 100000
+if tostring(c) == "(4,6)" and a(10) == 12 then
+    score = score + 10000000
+end
+if getmetatable(a) == Vec and c:sum() == 10 then
+    score = score + 20000000
+end
+-- Overloaded methods: each body under its own member, the call naming the
+-- one the checker selected.
+local record Scale
+    factor: integer
+
+    function apply(self, n: integer): integer
+        return n * self.factor
+    end
+
+    function apply(self, s: string): string
+        return string.rep(s, self.factor)
+    end
+end
+local twice = new Scale(factor = 2)
+if twice:apply(21) == 42 and twice:apply("ab") == "abab" then
+    score = score + 40000000
+end
+export = score

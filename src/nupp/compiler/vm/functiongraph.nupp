@@ -1439,9 +1439,19 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 -- A record's name can hold a table of its methods.
                 invoke("erasedStatement", stat, nil)
                 local key = stat.name and stat.name.definition
+                -- Its methods may name it: then a cell holds it from before
+                -- they are made, as a local function's does.
+                local initial = key and invoke("recursiveBinding", stat, key)
+                if initial then
+                    ctx.bind(key, initial)
+                end
                 local value = key and invoke("recordValue", stat, nil)
                 if value and block then
-                    ctx.bind(key, initializeBinding(stat, key, value))
+                    if initial then
+                        writeBinding(stat, key, value)
+                    else
+                        ctx.bind(key, initializeBinding(stat, key, value))
+                    end
                 end
             elseif stat.kind == "moduleStmt" or stat.kind == "typeAlias" or stat.kind == "recordDecl" then
                 invoke("erasedStatement", stat, nil)
