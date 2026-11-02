@@ -15,7 +15,16 @@ local function node(value: unknown): Value
 end
 
 local function nodeKind(value: Value): core.Kind
-    return value[1] as core.Kind
+    local kind = value[1]
+    if kind == "boolean" then
+        return "bool"
+    elseif kind == "bigInteger" then
+        return "biginteger"
+    elseif kind == "numberToken" then
+        return "numbertoken"
+    end
+
+    return kind as core.Kind
 end
 
 local function nodeSize(value: Value): integer
@@ -38,7 +47,7 @@ local function plan<M is core.Member>(description: core.Description<M>, seen: {[
     if prior ~= nil then
         return prior
     end
-    assert2(description.canRead, "binding has no construction operation")
+    assert2(description.canread, "binding has no construction operation")
     local result = new Plan<M>(description = description)
     seen[description] = result
     for _, child in ipairs(description.children) do
@@ -64,12 +73,12 @@ local record Unknown is core.UnknownReader, own.Closeable
         assert2(not self.expired and not self.used, "unknown document reader is no longer usable")
     end
 
-    function skipValue(exclusive self): nil
+    function skipvalue(exclusive self): nil
         self:live()
         self.used = true
     end
 
-    function captureValue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
+    function capturevalue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
         self:live()
         self.used = true
         local value = self.materialize(self.value)
@@ -77,7 +86,7 @@ local record Unknown is core.UnknownReader, own.Closeable
             value = documents.withContext(value, self.source)
         end
         local reader = readers.reader(value)
-        local result = adapter:readContents(reader)
+        local result = adapter:readcontents(reader)
         local complete, problem = pcall(reader.finish, reader)
         if not complete then
             error(publication.failure(adapter, result, problem), 0)
@@ -111,7 +120,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         return self.source
     end
 
-    function isNull(self): boolean
+    function isnull(self): boolean
         self:live()
         return nodeKind(self.value) == "null"
     end
@@ -122,62 +131,62 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         self.used = true
     end
 
-    function readNull(exclusive self, member: M): nil
+    function readnull(exclusive self, member: M): nil
         assert2(self.plan.description.nullable or self.plan.description.kind == "null", "binding does not admit null")
         self:consume("null")
     end
 
-    function readBoolean(exclusive self, member: M): boolean
-        self:consume("boolean")
+    function readbool(exclusive self, member: M): boolean
+        self:consume("bool")
         return self.value[2] as boolean
     end
 
-    function readInteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
+    function readinteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
         self:consume("integer")
         return numbers.integer(self.value[2] as string, width, signed)
     end
 
-    function readFloat(exclusive self, member: M, width: 32 | 64): number
+    function readfloat(exclusive self, member: M, width: 32 | 64): number
         self:consume("float")
         return numbers.floating(self.value[2] as number, width, true)
     end
 
-    function readBigInteger(exclusive self, member: M): string
-        self:consume("bigInteger")
+    function readbiginteger(exclusive self, member: M): string
+        self:consume("biginteger")
         return self.value[2] as string
     end
 
-    function readDecimal(exclusive self, member: M): core.Decimal
+    function readdecimal(exclusive self, member: M): core.Decimal
         self:consume("decimal")
         return new core.Decimal(coefficient = self.value[2] as string, exponent = self.value[3] as integer)
     end
 
-    function readNumberToken(exclusive self, member: M): string
-        self:consume("numberToken")
+    function readnumbertoken(exclusive self, member: M): string
+        self:consume("numbertoken")
         return self.value[2] as string
     end
 
-    function readString(exclusive self, member: M): string
+    function readstring(exclusive self, member: M): string
         self:consume("string")
         return self.value[2] as string
     end
 
-    function readBytes(exclusive self, member: M): string
+    function readbytes(exclusive self, member: M): string
         self:consume("bytes")
         return self.value[2] as string
     end
 
-    function readTimestamp(exclusive self, member: M): core.Timestamp
+    function readtimestamp(exclusive self, member: M): core.Timestamp
         self:consume("timestamp")
         return new core.Timestamp(seconds = self.value[2] as string, nanos = self.value[3] as integer)
     end
 
-    function readAtom(exclusive self, member: M): core.Atom
+    function readatom(exclusive self, member: M): core.Atom
         self:consume("atom")
         error("native persistence does not represent atoms", 2)
     end
 
-    function readDocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
+    function readdocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
         self:consume("document")
         local contents = self.materialize(self.value[2])
         local context = self.source
@@ -185,7 +194,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
             contents = documents.withContext(contents, context)
         end
         local reader = readers.reader(contents)
-        local result = adapter:readContents(reader)
+        local result = adapter:readcontents(reader)
         local complete, problem = pcall(reader.finish, reader)
         if not complete then
             error(publication.failure(adapter, result, problem), 0)
@@ -207,7 +216,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         return nil
     end
 
-    function containerSize(self): integer?
+    function containersize(self): integer?
         self:live()
         return self:size()
     end
@@ -248,7 +257,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         end
     end
 
-    function readStruct<S>(
+    function readstruct<S>(
         exclusive self,
         member: M,
         exclusive state: S,
@@ -258,7 +267,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         self:object("structure", state, consume, unknown)
     end
 
-    function readUnion<S>(
+    function readunion<S>(
         exclusive self,
         member: M,
         exclusive state: S,
@@ -284,11 +293,11 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         end
     end
 
-    function readList<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
+    function readlist<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
         self:array("list", nil, state, consume)
     end
 
-    function readTuple<S>(
+    function readtuple<S>(
         exclusive self,
         member: M,
         size: integer,
@@ -298,7 +307,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         self:array("tuple", size, state, consume)
     end
 
-    function readMap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
+    function readmap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
         self:consume("map")
         for index = 1, nodeSize(self.value) do
             local keyDocument = node(self.value[index * 2])

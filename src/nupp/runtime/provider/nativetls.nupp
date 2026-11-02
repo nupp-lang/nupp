@@ -23,7 +23,7 @@ local provider: contract.Provider = {
         server: boolean,
         hostname: string,
         certificate: string,
-        privateKey: string,
+        privatekey: string,
         authority: string?,
         protocols: string,
         verify: boolean
@@ -33,7 +33,7 @@ local provider: contract.Provider = {
             server,
             hostname,
             certificate,
-            privateKey,
+            privatekey,
             authority,
             protocols,
             verify
@@ -89,7 +89,7 @@ local provider: contract.Provider = {
         return done
     end,
 
-    closeNotify = function(self: contract.Provider, session: any): (boolean, string?)
+    closenotify = function(self: contract.Provider, session: any): (boolean, string?)
         local done, problem = host.tlsCloseNotify(session as integer)
         if problem ~= nil then
             return false, reason("nupp: could not send close_notify", problem)

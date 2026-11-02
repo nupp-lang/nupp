@@ -20,7 +20,7 @@ local function scripted(chunks, said)
     return {
         stdout = stream,
         stderr = errors,
-        isRunning = function()
+        isrunning = function()
             return #chunks > 0
         end,
     }

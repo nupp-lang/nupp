@@ -17,9 +17,9 @@ export const platform: string = "browser"
 local vm: any = rawget(_G, "jit")
 export const architecture: string = vm and vm.arch or "wasm32"
 export const endianness: string = "little"
-export const pointerBits: integer = 32
+export const pointerbits: integer = 32
 
-export function availableParallelism(): integer
+export function availableparallelism(): integer
     local answer = response.await("system", {})
     local count = type(answer) == "table" and answer.availableParallelism or nil
     if type(count) ~= "number" or count ~= math.floor(count) or count < 1 or count > 9007199254740991 then

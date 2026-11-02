@@ -70,7 +70,7 @@ record soa.FieldLayout
     @readonly ordinal: integer
 
     --- Bytes per element.
-    @readonly elementSize: integer
+    @readonly elementsize: integer
 
     --- The alignment the column starts on.
     @readonly alignment: integer
@@ -88,7 +88,7 @@ record soa.SegmentLayout
     @readonly offset: integer
 
     --- How many bytes it occupies.
-    @readonly byteCount: integer
+    @readonly bytecount: integer
 end
 
 --- The count-dependent layout of a complete SoA slab.
@@ -98,7 +98,7 @@ record soa.InstanceLayout
     @readonly count: integer
 
     --- The slab's size in bytes, before alignment padding.
-    @readonly byteSize: integer
+    @readonly bytesize: integer
 
     --- One segment per field, in declaration order.
     @readonly segments: {soa.SegmentLayout}
@@ -123,7 +123,7 @@ record soa.Layout
     --- Computes checked segment offsets for `count` rows without allocating storage.
     --- @raises string when count is not a nonnegative integer or the slab size
     ---     overflows
-    function forCount(self, count: integer): soa.InstanceLayout
+    function forcount(self, count: integer): soa.InstanceLayout
         if count < 0 or count ~= math.floor(count) then
             error("nupp: SoA row count must be a nonnegative integer", 2)
         end
@@ -131,22 +131,22 @@ record soa.Layout
         local segments: {soa.SegmentLayout} = {}
         local cursor: integer = 0
         for ordinal, field in ipairs(self.fields) do
-            if count > 0 and count > MAX_EXACT_INTEGER // field.elementSize then
+            if count > 0 and count > MAX_EXACT_INTEGER // field.elementsize then
                 error("nupp: SoA field byte size is too large", 2)
             end
-            local byteCount = (field.elementSize * count) as integer
+            local bytecount = (field.elementsize * count) as integer
             local remainder = cursor % field.alignment
             if remainder ~= 0 then
                 cursor = (cursor + field.alignment - remainder) as integer
             end
-            if cursor > MAX_EXACT_INTEGER - byteCount then
+            if cursor > MAX_EXACT_INTEGER - bytecount then
                 error("nupp: SoA slab byte size is too large", 2)
             end
-            segments[ordinal] = new soa.SegmentLayout(field = field, offset = cursor, byteCount = byteCount)
-            cursor = (cursor + byteCount) as integer
+            segments[ordinal] = new soa.SegmentLayout(field = field, offset = cursor, bytecount = bytecount)
+            cursor = (cursor + bytecount) as integer
         end
 
-        return new soa.InstanceLayout(count = count, byteSize = cursor, segments = segments)
+        return new soa.InstanceLayout(count = count, bytesize = cursor, segments = segments)
     end
 end
 
@@ -195,14 +195,14 @@ function soa._layout(raw: table, element: any): soa.Layout
             identity = (raw.name as string) .. "." .. fieldName,
             ctype = ctype:sub(1, 1) == "$" and ctype:sub(2) or ctype,
             ordinal = ordinal,
-            elementSize = fieldType.size as integer,
+            elementsize = fieldType.size as integer,
             alignment = fieldAlignment,
             storageType = fieldType
         )
         fields[ordinal] = field
         fingerprint[
             #fingerprint + 1
-        ] = string.format("%s:%s@%d/%d", field.identity, field.ctype, field.elementSize, field.alignment)
+        ] = string.format("%s:%s@%d/%d", field.identity, field.ctype, field.elementsize, field.alignment)
     end
 
     local layout = new soa.Layout(
@@ -352,14 +352,14 @@ sealed interface soa.WriteSpan<T>
     ---
     --- ```nupp:fragment
     --- with rows = target:write() do
-    ---     rows:copyFrom(3, source:read(), 1, 2)
+    ---     rows:copyfrom(3, source:read(), 1, 2)
     --- end
     --- ```
-    copyFrom: function(
+    copyfrom: function(
         exclusive self: WriteSpan<T>,
-        targetFirst: integer,
+        targetfirst: integer,
         borrows source: soa.Span<T>,
-        sourceFirst: integer,
+        sourcefirst: integer,
         count: integer
     ): nil
 
@@ -435,21 +435,21 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
     --- Copies complete rows field-by-field. Every range is checked before the first
     --- byte moves, and the implementation performs one contiguous copy per column.
     --- @raises string when either requested row range is outside its view
-    function copyFrom(
+    function copyfrom(
         exclusive self,
-        targetFirst: integer,
+        targetfirst: integer,
         borrows source: soa.Span<T>,
-        sourceFirst: integer,
+        sourcefirst: integer,
         count: integer
     ): nil
         if count % 1 ~= 0
-            or targetFirst % 1 ~= 0
-            or sourceFirst % 1 ~= 0
+            or targetfirst % 1 ~= 0
+            or sourcefirst % 1 ~= 0
             or count < 0
-            or targetFirst < 1
-            or sourceFirst < 1
-            or targetFirst - 1 > self.count - count
-            or sourceFirst - 1 > #source - count
+            or targetfirst < 1
+            or sourcefirst < 1
+            or targetfirst - 1 > self.count - count
+            or sourcefirst - 1 > #source - count
         then
             error("nupp: SoA copy range is out of bounds", 2)
         end
@@ -458,9 +458,9 @@ local record WriteSpanImpl<T> is soa.WriteToken, soa.WriteSpan<T>
         end
         local other = source as any
         for ordinal, field in ipairs(self.layout.fields) do
-            local destination = advance(self.columns[ordinal], self.offset + targetFirst - 1)
-            local input = advance(other.columns[ordinal], other.offset + sourceFirst - 1)
-            storage.copy(destination, input, count * field.elementSize)
+            local destination = advance(self.columns[ordinal], self.offset + targetfirst - 1)
+            local input = advance(other.columns[ordinal], other.offset + sourcefirst - 1)
+            storage.copy(destination, input, count * field.elementsize)
         end
     end
 
@@ -570,8 +570,8 @@ end
 --- @internal
 function soa._allocate<T>(element: ctype<T>, count: integer, rawLayout: table): affine(soa.Array<T>, soa.destroyarray)
     local layout = soa._layout(rawLayout, element)
-    local instance = layout:forCount(count)
-    local words = (instance.byteSize + SLAB_WORD - 1) // SLAB_WORD
+    local instance = layout:forcount(count)
+    local words = (instance.bytesize + SLAB_WORD - 1) // SLAB_WORD
     if words == 0 then
         words = 1
     end

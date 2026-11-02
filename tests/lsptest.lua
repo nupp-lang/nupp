@@ -2350,7 +2350,7 @@ function M.annotationTypeReferencesHaveDefinitions()
         {
             '@annotation(targets = {"record"})',
             "record relatesTo",
-            "   @annotationValue",
+            "   @annotationvalue",
             "   @ref",
             "   target: any",
             "end",

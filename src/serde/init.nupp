@@ -87,7 +87,7 @@ export const binding = declarations.binding
 
 --- Field mapping for [](binding).
 ---
---- `naming` and `unknownMembers` apply to every record the binding reaches.
+--- `naming` and `unknownmembers` apply to every record the binding reaches.
 --- `fields` maps the root declaration's fields one by one, and when it is present
 --- it is a whitelist, so a field it does not mention is neither written nor read.
 ---
@@ -99,9 +99,9 @@ export const binding = declarations.binding
 ---     passwordHash: string?
 --- end
 --- local public = serde.binding(Account, new serde.Options(
----     naming = "snakeCase",
+---     naming = "snakecase",
 ---     fields = {displayName = new serde.FieldOptions()},
----     unknownMembers = "ignore"
+---     unknownmembers = "ignore"
 --- ))
 --- assert(json.encode(public, new Account(displayName = "Ada", passwordHash = "x")) == '{"display_name":"Ada"}')
 --- assert(json.decode(public, '{"display_name":"Ada","admin":true}').passwordHash == nil)
@@ -115,10 +115,10 @@ export const Options = declarations.Options
 
 --- Mapping for one field of a declaration binding.
 ---
---- `name` replaces the wire name, overriding [](Options)'s naming. `omitEmpty`
+--- `name` replaces the wire name, overriding [](Options)'s naming. `omitempty`
 --- leaves an empty field out instead of writing it: nil, `false`, `""`, or an
 --- empty table. `representation` reinterprets the field's carrier;
---- [](iso8601Seconds) is the one supplied.
+--- [](iso8601seconds) is the one supplied.
 export type FieldOptions = declarations.FieldOptions
 
 export const FieldOptions = declarations.FieldOptions
@@ -133,12 +133,12 @@ export const FieldOptions = declarations.FieldOptions
 ---     at: integer
 --- end
 --- local events = serde.binding(Event, new serde.Options(
----     fields = {at = new serde.FieldOptions(representation = serde.iso8601Seconds)}
+---     fields = {at = new serde.FieldOptions(representation = serde.iso8601seconds)}
 --- ))
 --- assert(json.encode(events, new Event(at = 0)) == '{"at":"1970-01-01T00:00:00Z"}')
 --- assert(json.decode(events, '{"at":"1970-01-01T00:01:00Z"}').at == 60)
 --- ```
-export const iso8601Seconds = declarations.iso8601Seconds
+export const iso8601seconds = declarations.iso8601seconds
 
 --- Chooses an adapter in place of the one a declared type implies.
 ---
@@ -167,7 +167,7 @@ export const Access = accessors.Access
 ---     y: number = 0
 --- end
 --- local point = serde.access(Point)
---- assert(#point.fields == 2 and point.fields[2].hasDefault)
+--- assert(#point.fields == 2 and point.fields[2].hasdefault)
 --- ```
 ---
 --- @param target the record or struct declaration
@@ -191,7 +191,7 @@ export type Adapter<T, M is core.Member> = core.Adapter<T, M>
 --- Erases an [](Adapter)'s member type into a [](Binding) for a Copyable value.
 ---
 --- A codec still has to be told how the model's members are named: see
---- [](serde.json.memberNamePolicy).
+--- [](serde.json.membernamepolicy).
 ---
 --- ```nupp
 --- local serde = require("serde")
@@ -204,7 +204,7 @@ export type Adapter<T, M is core.Member> = core.Adapter<T, M>
 --- local title: serde.Binding<string> = new serde.Bound<string, Member>(
 ---     adapter = adapters.text(new Member(name = "title"))
 --- )
---- assert(json.codec(json.memberNamePolicy):encode(title, "Dune") == '"Dune"')
+--- assert(json.codec(json.membernamepolicy):encode(title, "Dune") == '"Dune"')
 --- ```
 export type Bound<T is own.Copyable, M is core.Member> = core.Bound<T, M>
 

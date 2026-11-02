@@ -10,12 +10,12 @@ one.
 const path = io.path
 
 local source = path.newpath("src", "app", "..", "main.nupp"):normalize()
-assert(source:toString() == "src" .. path.sep() .. "main.nupp")
-assert(source:fileName() == "main.nupp")
+assert(source:tostring() == "src" .. path.sep() .. "main.nupp")
+assert(source:filename() == "main.nupp")
 ```
 
 Every operation returns a new path, and two paths are equal when their native
-text is. `tostring(path)` and `path:toString()` return that same text.
+text is. `tostring(path)` and `path:tostring()` return that same text.
 
 ## Building a path
 
@@ -28,18 +28,18 @@ which interns recent paths in a bounded LRU cache.
 const path = require("io.path")
 
 local native = path.newpath("out"):join("lib", "native")
-assert(native:fileName() == "native")
+assert(native:filename() == "native")
 ```
 
-`currentdirectory` and `sep` are functions on the module beside the
+`cwd` and `sep` are functions on the module beside the
 record, because neither builds a path out of components:
 
 ```nupp
 const path = require("io.path")
 
-local current, reason = path.currentdirectory()
+local current, reason = path.cwd()
 assert(current, reason)
-local log = current:join("var", "app.log"):withExtension("jsonl")
+local log = current:join("var", "app.log"):withextension("jsonl")
 assert(log:extension() == "jsonl")
 ```
 
@@ -63,7 +63,7 @@ with a reason when it does.
 - `resolve(parts...)` makes it absolute, appends the parts, and normalizes.
 - `canonicalize()` asks the filesystem for the real path, following every
   symbolic link, which requires the path to exist.
-- `relativeTo(base)` expresses the path against another one, when both share a
+- `relativeto(base)` expresses the path against another one, when both share a
   coordinate system. A path expressed against itself returns `.`, the path
   that stays where the base already is.
 
@@ -72,12 +72,12 @@ const path = require("io.path")
 
 local real, reason = path.newpath("."):canonicalize()
 assert(real, reason)
-assert(real:isAbsolute())
+assert(real:isabsolute())
 ```
 
 ## Path components
 
-`parent` returns another path or nil. `fileName`, `stem` and `extension` return
+`parent` returns another path or nil. `filename`, `stem` and `extension` return
 the final component, that component without its extension, and the extension
 without its dot:
 
@@ -85,25 +85,25 @@ without its dot:
 const path = require("io.path")
 
 local source = path.newpath("src", "main.nupp")
-assert(source:fileName() == "main.nupp")
+assert(source:filename() == "main.nupp")
 assert(source:stem() == "main")
 assert(source:extension() == "nupp")
-assert(assert(source:parent()):toString() == "src")
+assert(assert(source:parent()):tostring() == "src")
 ```
 
-`withFileName` and `withExtension` replace one component. Each takes one path
-component and raises when handed text that is not one, so a separator smuggled
+`withfilename` and `withextension` replace one component. Each takes one path
+component and raises when handed text that is not one, so a sep smuggled
 into a file name is reported where it was written rather than carried into the
 path it would have produced:
 
 ```nupp
 const path = require("io.path")
 
-local report = path.newpath("out", "report.tmp"):withExtension("json")
-assert(report:fileName() == "report.json")
+local report = path.newpath("out", "report.tmp"):withextension("json")
+assert(report:filename() == "report.json")
 ```
 
-`isAbsolute` and `isRelative` classify a path without accessing the filesystem.
+`isabsolute` and `isrelative` classify a path without accessing the filesystem.
 
 ::: seealso
 - [](io.files) for reading, writing and listing what a path names
@@ -121,7 +121,7 @@ const pathtext = require("nupp.io.path.pathtext")
 -- it as an argument rather than choosing at compile time, so a machine of either
 -- kind can test both; here it is a constant, which is what lets LuaJIT fold the
 -- branch away.
-local SEPARATOR = environment.separator()
+local SEPARATOR = environment.sep()
 local WINDOWS = SEPARATOR == "\\"
 
 -- Declared ahead of the record because its constructor and methods call them, and
@@ -145,7 +145,7 @@ export record Path
     --- Returns the native UTF-8 path text.
     --- @param self this path
     --- @return the path text
-    function toString(self): string
+    function tostring(self): string
         return self._text
     end
 
@@ -177,7 +177,7 @@ export record Path
         end
         local text = self._text
         if not pathtext.isAbsolute(text, WINDOWS) then
-            local current, reason = environment.currentDirectory()
+            local current, reason = environment.cwd()
             if current == nil then
                 return nil, reason
             end
@@ -233,7 +233,7 @@ export record Path
     --- @param base the path to express this one against
     --- @return the relative path, or nil when there is no relative form
     --- @return a failure reason, when unsuccessful
-    function relativeTo(self, base: string | Path): (Path?, string?)
+    function relativeto(self, base: string | Path): (Path?, string?)
         local text, reason = pathtext.relative(self._text, textOf(base), WINDOWS)
         if text == nil then
             return nil, reason
@@ -257,7 +257,7 @@ export record Path
     --- The final component, extension included.
     --- @param self this path
     --- @return the file name, or nil when the path ends in a directory component
-    function fileName(self): string?
+    function filename(self): string?
         return pathtext.part(self._text, 1, WINDOWS)
     end
 
@@ -280,8 +280,8 @@ export record Path
     --- @param name the file name to use
     --- @return the new path
     --- @raises string when name is not one component: empty, `.`, `..`, or
-    ---     holding a separator or NUL byte (or, on Windows, a colon)
-    function withFileName(self, name: string): Path
+    ---     holding a sep or NUL byte (or, on Windows, a colon)
+    function withfilename(self, name: string): Path
         return raw(pathtext.with(self._text, name, false, WINDOWS))
     end
 
@@ -289,24 +289,24 @@ export record Path
     --- @param self this path
     --- @param extension the extension to use, without the dot
     --- @return the new path
-    --- @raises string when extension holds a separator or NUL byte (or, on
+    --- @raises string when extension holds a sep or NUL byte (or, on
     ---     Windows, a colon)
-    function withExtension(self, extension: string): Path
+    function withextension(self, extension: string): Path
         return raw(pathtext.with(self._text, extension, true, WINDOWS))
     end
 
     --- Whether the path is anchored at a root.
     --- @param self this path
     --- @return whether the path is absolute
-    function isAbsolute(self): boolean
+    function isabsolute(self): boolean
         return pathtext.isAbsolute(self._text, WINDOWS)
     end
 
     --- Whether the path is interpreted against a working directory.
     --- @param self this path
     --- @return whether the path is relative
-    function isRelative(self): boolean
-        return not self:isAbsolute()
+    function isrelative(self): boolean
+        return not self:isabsolute()
     end
 
     metamethod __tostring: function(self): string
@@ -353,7 +353,7 @@ raw = function(text: string): Path
         local evicted = pathCacheOldest
         pathCacheOldest = evicted.newer
         pathCacheOldest.older = nil
-        pathCache[evicted.value:toString()] = nil
+        pathCache[evicted.value:tostring()] = nil
         pathCacheSize = pathCacheSize - 1
     end
 
@@ -382,12 +382,12 @@ end
 
     ;
 (Path as {[string]: any}).__tostring = function(self: Path): string
-    return self:toString()
+    return self:tostring()
 end
 
     ;
 (Path as {[string]: any}).__eq = function(left: Path, right: Path): boolean
-    return left:toString() == right:toString()
+    return left:tostring() == right:tostring()
 end
 
 --- Builds a path by joining one or more components using the platform's rules.
@@ -412,8 +412,8 @@ end
 --- @return the current directory, or nil on failure
 --- @return a failure reason, when unsuccessful
 --- @export
-export function currentdirectory(): (Path?, string?)
-    local text, reason = environment.currentDirectory()
+export function cwd(): (Path?, string?)
+    local text, reason = environment.cwd()
     if text == nil then
         return nil, reason
     end
@@ -421,8 +421,8 @@ export function currentdirectory(): (Path?, string?)
     return raw(pathtext.finish(text as string, WINDOWS)), nil
 end
 
---- Returns the current platform's primary path separator.
---- @return the path separator
+--- Returns the current platform's primary path sep.
+--- @return the path sep
 --- @export
 export function sep(): string
     return SEPARATOR

@@ -5,11 +5,11 @@ local files = require("io.files")
 local api = {}
 
 function api.run(): integer
-    local directory = assert(files.createtemporarydirectory())
-    local output = directory:toString() .. "/result"
+    local directory = assert(files.tmpdirectory())
+    local output = directory:tostring() .. "/result"
     local child, spawnError = process.spawn({
         args = {"/bin/sh", "-c", "cat; printf problem >&2; exit 7"},
-        timeoutMs = 5000,
+        timeoutms = 5000,
     })
     if not child then
         error(spawnError and spawnError.message or "spawn failed")
@@ -17,8 +17,8 @@ function api.run(): integer
     local result, communicateError = child:communicate({input = "binary\0input\n"})
     assert(result, communicateError and communicateError.message)
     assert(result.output == "binary\0input\n")
-    assert(result.errorOutput == "problem")
-    assert(result.exit.exitCode == 7 and not result:succeeded())
+    assert(result.erroroutput == "problem")
+    assert(result.exit.exitcode == 7 and not result:succeeded())
     child:close()
     local file = assert(io.open(output, "wb"))
     file:write("written")

@@ -41,11 +41,11 @@ local exactElapsed = measure(exact)
 local nativeElapsed = measure(native)
 local expected = ffi.new("float[?]", count)
 local actual = ffi.new("float[?]", count)
-context:enqueueDownload(exactBuffer)
-context:enqueueDownload(nativeBuffer)
+context:enqueuedownload(exactBuffer)
+context:enqueuedownload(nativeBuffer)
 context:synchronize()
-context:readDownloaded(exactBuffer, span.writecarray(expected, count))
-context:readDownloaded(nativeBuffer, span.writecarray(actual, count))
+context:readdownloaded(exactBuffer, span.writecarray(expected, count))
+context:readdownloaded(nativeBuffer, span.writecarray(actual, count))
 local maximumRelative = 0.0
 for index = 0, count - 1 do
     local relative = math.abs(

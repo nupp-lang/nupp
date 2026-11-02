@@ -79,7 +79,7 @@ end
 local record Field<V is own.Copyable, M is core.Member> is structures.Field<Value, Builder, M>
     @readonly member: M
     @readonly required: boolean
-    @readonly hasDefault: boolean
+    @readonly hasdefault: boolean
     @readonly slot: Slot<V>
     @readonly adapter: core.Adapter<V, M>
     @readonly default: (function(): V)?
@@ -91,7 +91,7 @@ local record Field<V is own.Copyable, M is core.Member> is structures.Field<Valu
         assert2(source.owner == self.slot.owner, "value belongs to another layout")
         if source:has(self.slot) then
             self.adapter:write(source.values[self.slot.position] as V, writer)
-        elseif self.hasDefault then
+        elseif self.hasdefault then
             self.adapter:write(assert2(self.default)(), writer)
         else
             assert2(not self.required, "missing required indexed member: " .. self.member.name)
@@ -138,10 +138,10 @@ local record Construction<M is core.Member> is structures.Construction<Value, Bu
         for index, field in ipairs(self.fields) do
             if not value.present[index] then
                 assert2(
-                    not field.required or field.hasDefault,
+                    not field.required or field.hasdefault,
                     "missing required indexed member: " .. field.member.name
                 )
-                if field.hasDefault then
+                if field.hasdefault then
                     value.values[index] = assert2(self.defaults[index])()
                     value.present[index] = true
                 end
@@ -182,7 +182,7 @@ export interface Layout<M is core.Member>
     --- @return the field's slot
     --- @raises string when the layout is sealed, the adapter describes another
     ---     member, or the member is already a field
-    addDefault: function<V is own.Copyable>(
+    adddefault: function<V is own.Copyable>(
         self,
         member: M,
         adapter: core.Adapter<V, M>,
@@ -231,7 +231,7 @@ local record Mapping<M is core.Member> is Layout<M>
         ] = new Field<V, M>(
             member = member,
             required = required,
-            hasDefault = hasDefault,
+            hasdefault = hasDefault,
             slot = slot,
             adapter = adapter,
             default = default
@@ -247,7 +247,7 @@ local record Mapping<M is core.Member> is Layout<M>
         return self:define<V>(member, adapter, required, nil, false)
     end
 
-    function addDefault<V is own.Copyable>(
+    function adddefault<V is own.Copyable>(
         self,
         member: M,
         adapter: core.Adapter<V, M>,

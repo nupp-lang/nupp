@@ -13,7 +13,7 @@ const sharedbytes = nupp.mem.sharedbytes
 
 const region = sharedbytes.copy("hello, region")
 const hello = region:slice(0, 5)
-assert(hello:len() == 5 and hello:toString() == "hello")
+assert(hello:len() == 5 and hello:tostring() == "hello")
 ```
 
 A region is storage, so its positions are zero-based offsets and counts, as a
@@ -34,7 +34,7 @@ with writer = builder:reserve(5) do
 end
 builder:commit(5)
 builder:append("!")
-assert(builder:freeze():toString() == "ABCDE!")
+assert(builder:freeze():tostring() == "ABCDE!")
 ```
 
 On the VM a region's block is an immutable allocation the runtime shares by
@@ -90,7 +90,7 @@ local function bytesAt(block: Block, offset: integer): any
 end
 
 --- An immutable extent of an engine-owned block. Reading happens in place
---- through a borrowed byte view, and `toString` is the one explicit copy into a
+--- through a borrowed byte view, and `tostring` is the one explicit copy into a
 --- Lua string. On the VM a worker receives the same block by reference.
 record sharedbytes.Region
     @private _handle: any
@@ -108,10 +108,10 @@ record sharedbytes.Region
     view: function(borrows self: sharedbytes.Region, integer?, integer?): span.ByteSpan borrows (self)
 
     --- A checked zero-copy view of the complete region as physical elements.
-    viewAs: function<T>(borrows self: sharedbytes.Region, ctype<T>): span.Span<T> borrows (self)
+    viewas: function<T>(borrows self: sharedbytes.Region, ctype<T>): span.Span<T> borrows (self)
 
     --- The region's bytes copied and interned as an ordinary string.
-    toString: @nosuspend function(sharedbytes.Region): string
+    tostring: @nosuspend function(sharedbytes.Region): string
 end
 
 -- Two regions are equal when they name the same engine block, offset, and
@@ -162,7 +162,7 @@ function sharedbytes.Region:view(offset: integer?, count: integer?): span.ByteSp
 end
 
 --- @raises string when the region is not aligned or is not a whole number of elements
-function sharedbytes.Region:viewAs<T>(element: ctype<T>): span.Span<T>
+function sharedbytes.Region:viewas<T>(element: ctype<T>): span.Span<T>
     local width = storage.sizeOf(element) as integer
     local alignment = (element as any).alignment as integer
     local byteOffset = self._first - 1
@@ -181,7 +181,7 @@ function sharedbytes.Region:viewAs<T>(element: ctype<T>): span.Span<T>
     end
 end
 
-function sharedbytes.Region:toString(): string
+function sharedbytes.Region:tostring(): string
     local data = (self._handle as Block).data
     if type(data) == "string" then
         return (data as string):sub(self._first, self._first + self._length - 1)

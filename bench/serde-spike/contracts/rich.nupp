@@ -55,7 +55,7 @@ local documentBytes = first:encode(binding, withDocument)
 local documentValue = first:decode(binding, documentBytes)
 local items = assert(assert(documentValue.document):get("items"))
 assert(items:size() == 3 and items:at(1).kind == "null")
-assert(items:at(2):numberToken() == "123456789012345678901234567890")
+assert(items:at(2):numbertoken() == "123456789012345678901234567890")
 assert(first:encode(binding, documentValue) == documentBytes)
 
 local timestamps = require("serde.codec")
@@ -87,7 +87,7 @@ end
 local unknownBytes = [[{"identifier":"unknown","created":0,"choice":{"future":{"exact":999999999999999999999999}}}]]
 local unknownValue = first:decode(binding, unknownBytes)
 assert(unknownValue.choice ~= nil and unknownValue.choice:unknownField() ~= nil)
-assert(assert(assert(unknownValue.choice:unknownValue()):get("exact")):numberToken() == "999999999999999999999999")
+assert(assert(assert(unknownValue.choice:unknownValue()):get("exact")):numbertoken() == "999999999999999999999999")
 assert(first:encode(binding, unknownValue) == unknownBytes)
 assert(
     not pcall(function()

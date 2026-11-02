@@ -28,9 +28,9 @@ local provider: contract.Provider = {
         address: string,
         port: integer,
         backlog: integer,
-        reusePort: boolean
+        reuseport: boolean
     ): (any?, string?)
-        local handle, problem = host.listen(address, port, backlog, reusePort)
+        local handle, problem = host.listen(address, port, backlog, reuseport)
         if handle == nil then
             return nil, reason("nupp: could not listen", problem)
         end
@@ -38,7 +38,7 @@ local provider: contract.Provider = {
         return handle
     end,
 
-    listenPath = function(self: contract.Provider, path: string, backlog: integer): (any?, string?)
+    listenpath = function(self: contract.Provider, path: string, backlog: integer): (any?, string?)
         local handle, problem = host.listenPath(path, backlog)
         if handle == nil then
             return nil, reason("nupp: could not listen", problem)
@@ -47,7 +47,7 @@ local provider: contract.Provider = {
         return handle
     end,
 
-    listenerPort = function(self: contract.Provider, listener: any): integer
+    listenerport = function(self: contract.Provider, listener: any): integer
         return host.listenerPort(listener as integer)
     end,
 
@@ -60,12 +60,12 @@ local provider: contract.Provider = {
         return handle
     end,
 
-    closeListener = function(self: contract.Provider, listener: any): nil
+    closelistener = function(self: contract.Provider, listener: any): nil
         host.closeListener(listener as integer)
     end,
 
-    connect = function(self: contract.Provider, address: string, port: integer, timeoutMs: integer): (any?, string?)
-        local handle, problem = host.connect(address, port, timeoutMs)
+    connect = function(self: contract.Provider, address: string, port: integer, timeoutms: integer): (any?, string?)
+        local handle, problem = host.connect(address, port, timeoutms)
         if handle == nil then
             return nil, reason("nupp: could not connect", problem)
         end
@@ -73,8 +73,8 @@ local provider: contract.Provider = {
         return handle
     end,
 
-    connectPath = function(self: contract.Provider, path: string, timeoutMs: integer): (any?, string?)
-        local handle, problem = host.connectPath(path, timeoutMs)
+    connectpath = function(self: contract.Provider, path: string, timeoutms: integer): (any?, string?)
+        local handle, problem = host.connectPath(path, timeoutms)
         if handle == nil then
             return nil, reason("nupp: could not connect", problem)
         end
@@ -82,7 +82,7 @@ local provider: contract.Provider = {
         return handle
     end,
 
-    connectPoll = function(self: contract.Provider, request: any): (any?, string?)
+    connectpoll = function(self: contract.Provider, request: any): (any?, string?)
         local handle, problem = host.connectPoll(request as integer)
         if problem ~= nil then
             return nil, reason("nupp: could not connect", problem)
@@ -91,7 +91,7 @@ local provider: contract.Provider = {
         return handle
     end,
 
-    closeConnect = function(self: contract.Provider, request: any): nil
+    closeconnect = function(self: contract.Provider, request: any): nil
         host.closeConnect(request as integer)
     end,
 
@@ -121,15 +121,15 @@ local provider: contract.Provider = {
         return host.pending(stream as integer)
     end,
 
-    writeFailed = function(self: contract.Provider, stream: any): boolean
+    writefailed = function(self: contract.Provider, stream: any): boolean
         return host.writeFailed(stream as integer)
     end,
 
-    shuttingDown = function(self: contract.Provider, stream: any): boolean
+    shuttingdown = function(self: contract.Provider, stream: any): boolean
         return host.shuttingDown(stream as integer)
     end,
 
-    shutdownWrite = function(self: contract.Provider, stream: any): (boolean, string?)
+    shutdownwrite = function(self: contract.Provider, stream: any): (boolean, string?)
         local done, problem = host.shutdownWrite(stream as integer)
         if not done then
             return false, reason("nupp: could not end the sending half", problem)
@@ -147,7 +147,7 @@ local provider: contract.Provider = {
         return {host = address, port = port} as shared.Address
     end,
 
-    noDelay = function(self: contract.Provider, stream: any, enable: boolean): (boolean, string?)
+    nodelay = function(self: contract.Provider, stream: any, enable: boolean): (boolean, string?)
         local done, problem = host.noDelay(stream as integer, enable)
         if not done then
             return false, reason("nupp: could not set the delay option", problem)
@@ -156,8 +156,8 @@ local provider: contract.Provider = {
         return true
     end,
 
-    keepAlive = function(self: contract.Provider, stream: any, enable: boolean, delayMs: integer): (boolean, string?)
-        local done, problem = host.keepAlive(stream as integer, enable, delayMs)
+    keepalive = function(self: contract.Provider, stream: any, enable: boolean, delayms: integer): (boolean, string?)
+        local done, problem = host.keepAlive(stream as integer, enable, delayms)
         if not done then
             return false, reason("nupp: could not set the keepalive option", problem)
         end
@@ -174,7 +174,7 @@ local provider: contract.Provider = {
         return true
     end,
 
-    multicastTtl = function(self: contract.Provider, socket: any, ttl: integer): (boolean, string?)
+    multicastttl = function(self: contract.Provider, socket: any, ttl: integer): (boolean, string?)
         local done, problem = host.multicastTtl(socket as integer, ttl)
         if not done then
             return false, reason("nupp: could not set the multicast hop limit", problem)
@@ -183,7 +183,7 @@ local provider: contract.Provider = {
         return true
     end,
 
-    multicastLoop = function(self: contract.Provider, socket: any, enable: boolean): (boolean, string?)
+    multicastloop = function(self: contract.Provider, socket: any, enable: boolean): (boolean, string?)
         local done, problem = host.multicastLoop(socket as integer, enable)
         if not done then
             return false, reason("nupp: could not set the multicast loop option", problem)
@@ -196,10 +196,10 @@ local provider: contract.Provider = {
         self: contract.Provider,
         socket: any,
         group: string,
-        interfaceAddress: string,
+        interfaceaddress: string,
         join: boolean
     ): (boolean, string?)
-        local done, problem = host.membership(socket as integer, group, interfaceAddress, join)
+        local done, problem = host.membership(socket as integer, group, interfaceaddress, join)
         if not done then
             return false, reason("nupp: could not change the multicast group", problem)
         end
@@ -207,17 +207,17 @@ local provider: contract.Provider = {
         return true
     end,
 
-    closeStream = function(self: contract.Provider, stream: any): nil
+    closestream = function(self: contract.Provider, stream: any): nil
         host.closeStream(stream as integer)
     end,
 
-    bindDatagram = function(
+    binddatagram = function(
         self: contract.Provider,
         address: string,
         port: integer,
-        reusePort: boolean
+        reuseport: boolean
     ): (any?, string?)
-        local handle, problem = host.bindDatagram(address, port, reusePort)
+        local handle, problem = host.bindDatagram(address, port, reuseport)
         if handle == nil then
             return nil, reason("nupp: could not bind", problem)
         end
@@ -225,7 +225,7 @@ local provider: contract.Provider = {
         return handle
     end,
 
-    datagramPort = function(self: contract.Provider, socket: any): integer
+    datagramport = function(self: contract.Provider, socket: any): integer
         return host.datagramPort(socket as integer)
     end,
 
@@ -242,7 +242,7 @@ local provider: contract.Provider = {
         return bytes, address, port, truncated
     end,
 
-    sendTo = function(
+    sendto = function(
         self: contract.Provider,
         socket: any,
         address: string,
@@ -252,20 +252,20 @@ local provider: contract.Provider = {
         return host.sendTo(socket as integer, address, port, bytes)
     end,
 
-    closeDatagram = function(self: contract.Provider, socket: any): nil
+    closedatagram = function(self: contract.Provider, socket: any): nil
         host.closeDatagram(socket as integer)
     end,
 
-    run = function(self: contract.Provider, timeoutMs: integer): nil
+    run = function(self: contract.Provider, timeoutms: integer): nil
         -- A zero timeout is the check's half: the snapshot a later sleep waits
         -- from. Any native family's change since then ends the sleep, so a
         -- program waiting on a socket and a transfer at once wakes for either.
-        if timeoutMs == 0 then
+        if timeoutms == 0 then
             host.snapshot()
 
             return
         end
-        host.sleep(timeoutMs)
+        host.sleep(timeoutms)
     end,
 }
 

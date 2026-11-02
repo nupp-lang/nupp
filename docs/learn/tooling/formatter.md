@@ -167,15 +167,15 @@ the call that heads the chain and every later step lines up under it:
 
 ::: code-group
 ```nupp:fragment [Written]
-local production = endpoint:withUserInfo(nil):withHost("api.example.com"):withPort(nil):withQuery(nil):withFragment(nil)
+local production = endpoint:withuserinfo(nil):withhost("api.example.com"):withport(nil):withquery(nil):withfragment(nil)
 ```
 
 ```nupp:fragment [Formatted]
-local production = endpoint:withUserInfo(nil)
-    :withHost("api.example.com")
-    :withPort(nil)
-    :withQuery(nil)
-    :withFragment(nil)
+local production = endpoint:withuserinfo(nil)
+    :withhost("api.example.com")
+    :withport(nil)
+    :withquery(nil)
+    :withfragment(nil)
 ```
 :::
 

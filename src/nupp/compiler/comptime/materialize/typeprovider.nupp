@@ -172,7 +172,9 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     end
 
     for name in pairs(PRIMITIVES) do
-        library[name == "nil" and "nil_" or name == "table" and "table_" or name] = primitive(name)
+        library[
+            name == "nil" and "niltype" or name == "table" and "tabletype" or name == "boolean" and "bool" or name
+        ] = primitive(name)
     end
 
     library.integer = library.int64
@@ -211,7 +213,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             return nil, failure("NUPP2415", "types.literal needs a string, boolean, or exact integer")
         end
         local base = valueKind == "string" and library.string
-            or valueKind == "boolean" and library.boolean
+            or valueKind == "boolean" and library.bool
             or library.integer
         local encoded = composeKey("literal", {valueKind, tostring(value)})
 
@@ -228,19 +230,22 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     -- a constraint is written in are the two the blueprint transports, and rebuilding
     -- the refinement on the far side is what keeps one account of what a bound means.
     local function bounded(name, lengthwise)
+        local publicName = name == "length" and "len" or name
         return function(at, args)
             local base = entry(state, args[1], "Type")
             local low, high = args[2], args[3]
             if not base or type(low) ~= "number" or type(high) ~= "number" then
-                return nil, failure("NUPP2415", "types." .. name .. " needs a type handle and two bounds")
+                return nil, failure("NUPP2415", "types." .. publicName .. " needs a type handle and two bounds")
             end
             if low ~= math.floor(low) or high ~= math.floor(high) then
-                return nil, failure("NUPP2415", "types." .. name .. " needs whole-number bounds")
+                return nil, failure("NUPP2415", "types." .. publicName .. " needs whole-number bounds")
             end
             if low > high then
                 return nil, failure(
                     "NUPP2420",
-                    ("types.%s was given the bounds %d..%d, which are in descending order"):format(name, low, high)
+                    (
+                        "types.%s was given the bounds %d..%d, which are in descending order"
+                    ):format(publicName, low, high)
                 )
             end
 
@@ -262,7 +267,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
     end
 
     installIntrinsic(state, library, "range", bounded("range", false))
-    installIntrinsic(state, library, "length", bounded("length", true))
+    installIntrinsic(state, library, "len", bounded("length", true))
 
     installIntrinsic(state, library, "array", function(at, args)
         local element = entry(state, args[1], "Type")
@@ -363,7 +368,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             return nil, failure("NUPP2415", "types.optional needs one type handle")
         end
 
-        return setLikeHandle(at, "union", "optional", {args[1], library.nil_})
+        return setLikeHandle(at, "union", "optional", {args[1], library.niltype})
     end)
 
     -- The parameters a declaration is constructed with, as a pack whose slots are
@@ -394,7 +399,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
                 return nil, failure("NUPP2415", "types.construction found a parameter without a type")
             end
             if parameter.optional then
-                member = setLikeHandle(at, "union", "optional", {member, library.nil_})
+                member = setLikeHandle(at, "union", "optional", {member, library.niltype})
             end
             local mode = parameter.mode == "borrows" and "borrowed" or parameter.mode or "plain"
             head[position], names[position], modes[position] = member, parameter.name or "", mode
@@ -654,10 +659,10 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         )
     end)
 
-    installIntrinsic(state, library, "function_", function(at, args)
+    installIntrinsic(state, library, "functiontype", function(at, args)
         local parameters, results = entry(state, args[1], "Pack"), entry(state, args[2], "Pack")
         if not parameters or not results then
-            return nil, failure("NUPP2415", "types.function_ needs parameter and result type packs")
+            return nil, failure("NUPP2415", "types.functiontype needs parameter and result type packs")
         end
 
         return make(
@@ -713,9 +718,7 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
 
         return {
             kind = payload.kind,
-            sourceKind = payload.sourceKind,
             sourcekind = payload.sourceKind,
-            declarationKind = payload.nominal and payload.nominal.kind,
             declarationkind = payload.nominal and payload.nominal.kind,
             name = payload.name,
             value = payload.value,
@@ -723,13 +726,9 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
             members = payload.members,
             fields = payload.fields,
             indexer = payload.indexer,
-            readKey = payload.readKey,
             readkey = payload.readKey,
-            readValue = payload.readValue,
             readvalue = payload.readValue,
-            writeKey = payload.writeKey,
             writekey = payload.writeKey,
-            writeValue = payload.writeValue,
             writevalue = payload.writeValue,
             nominal = payload.nominal,
             head = payload.head,
@@ -911,14 +910,6 @@ function typeprovider.installEvaluator(state, env, opaque, provenance)
         end
         return nil, failure("NUPP2420", args[1])
     end)
-
-    -- A0 seed transition: both public keys must denote the existing handle.
-    -- Remove the preceding keys after the accepting seed is pinned.
-    library.bool = library.boolean
-    library.niltype = library.nil_
-    library.tabletype = library.table_
-    library.functiontype = library.function_
-    library.len = library.length
 
     env.nupp = env.nupp or {}
     env.types = library

@@ -127,8 +127,8 @@ local function checkValue(info: types.reflect.Info, index: integer, value: any, 
         end
     elseif kind == "map" then
         for key, item in pairs(value) do
-            if not checkValue(info, node.readKey, key, path, seen)
-                or not checkValue(info, node.readValue, item, path, seen)
+            if not checkValue(info, node.readkey, key, path, seen)
+                or not checkValue(info, node.readvalue, item, path, seen)
             then
                 valid = false
                 break
@@ -192,14 +192,14 @@ local function checkable(info: types.reflect.Info, index: integer, seen: {[integ
     then
         return true
     elseif kind == "record" or kind == "struct" then
-        return #(node.typeParameters or {}) == 0
+        return #(node.typeparameters or {}) == 0
     elseif kind == "const" or kind == "array" then
         return checkable(info, node.element, seen)
     elseif kind == "map" then
-        return node.readKey ~= nil
-            and node.readValue ~= nil
-            and checkable(info, node.readKey, seen)
-            and checkable(info, node.readValue, seen)
+        return node.readkey ~= nil
+            and node.readvalue ~= nil
+            and checkable(info, node.readkey, seen)
+            and checkable(info, node.readvalue, seen)
     elseif kind == "tuple" or kind == "union" or kind == "intersection" then
         for _, member in ipairs(node.members) do
             if not checkable(info, member, seen) then
@@ -236,10 +236,10 @@ export record Field
     @readonly index: integer
 
     --- The position of the field's read type in the access's `info.types`.
-    @readonly typeIndex: integer
+    @readonly typeindex: integer
 
     --- Whether the declaration gives the field a default.
-    @readonly hasDefault: boolean
+    @readonly hasdefault: boolean
 
     @private @readonly owner: table
 end
@@ -257,7 +257,7 @@ export record Parameter
     @readonly index: integer
 
     --- The position of the parameter's type in the access's `info.types`.
-    @readonly typeIndex: integer
+    @readonly typeindex: integer
 
     --- Whether construction may finish with the parameter unset.
     @readonly optional: boolean
@@ -291,8 +291,8 @@ export record Builder<T is own.Copyable> is own.Closeable
         assert2(not self.closed, "construction is closed")
         assert2(parameter.owner == self.owner, "foreign construction parameter")
         assert2(not self.present[parameter.index], "duplicate construction parameter")
-        if not checkValue(self.info, parameter.typeIndex, value, parameter.name, {}) then
-            fail(parameter.name, self.info.types[parameter.typeIndex].kind)
+        if not checkValue(self.info, parameter.typeindex, value, parameter.name, {}) then
+            fail(parameter.name, self.info.types[parameter.typeindex].kind)
         end
         self.values[parameter.index] = value
         self.present[parameter.index] = true
@@ -313,7 +313,7 @@ export record Access<T is own.Copyable>
     @readonly info: types.reflect.Info
 
     --- The position of the declaration in `info.types`.
-    @readonly typeIndex: integer
+    @readonly typeindex: integer
 
     --- The declaration's stored, readable fields, in declaration order.
     @readonly fields: const{Field}
@@ -321,7 +321,7 @@ export record Access<T is own.Copyable>
     --- The constructor's parameters, in call order.
     ---
     --- The list is empty when the declaration owns resources, is generic, or
-    --- needs a factory; `constructionError` then says why.
+    --- needs a factory; `constructionerror` then says why.
     @readonly parameters: const{Parameter}
 
     @private @readonly owner: table
@@ -351,7 +351,7 @@ export record Access<T is own.Copyable>
     ---
     --- @return the builder
     --- @raises string when the declaration cannot be constructed; the message
-    ---     is the one `constructionError` returns
+    ---     is the one `constructionerror` returns
     function begin(self): Builder<T>
         assert2(self.constructionProblem == nil, self.constructionProblem)
         return new Builder<T>(owner = self.owner, info = self.info, values = {}, present = {})
@@ -367,7 +367,7 @@ export record Access<T is own.Copyable>
     --- rebuild.
     ---
     --- @return the problem, or nil when `begin` succeeds
-    function constructionError(self): string?
+    function constructionerror(self): string?
         return self.constructionProblem
     end
 
@@ -419,8 +419,8 @@ export record Access<T is own.Copyable>
             if not state.present[parameter.index] and self.constructor == nil then
                 value = copyDefault(self.defaults[parameter.name])
             end
-            if not checkValue(self.info, parameter.typeIndex, value, parameter.name, {}) then
-                fail(parameter.name, self.info.types[parameter.typeIndex].kind)
+            if not checkValue(self.info, parameter.typeindex, value, parameter.name, {}) then
+                fail(parameter.name, self.info.types[parameter.typeindex].kind)
             end
             arguments[parameter.index] = value
         end
@@ -430,13 +430,13 @@ export record Access<T is own.Copyable>
             local construct = target["__nuppCtor" .. tostring(self.constructor)]
             value = construct(unpack(arguments, 1, #self.parameters))
         else
-            value = self.info.types[self.typeIndex].kind == "struct" and target() or setmetatable({}, target)
+            value = self.info.types[self.typeindex].kind == "struct" and target() or setmetatable({}, target)
             for _, parameter in ipairs(self.parameters) do
                 value[parameter.name] = arguments[parameter.index]
             end
         end
-        if not checkValue(self.info, self.typeIndex, value, self.info.name, {}) then
-            fail(self.info.name, "a constructed " .. self.info.types[self.typeIndex].kind)
+        if not checkValue(self.info, self.typeindex, value, self.info.name, {}) then
+            fail(self.info.name, "a constructed " .. self.info.types[self.typeindex].kind)
         end
         state:close()
 
@@ -459,12 +459,12 @@ create = function<T is own.Copyable>(target: Type<T>, info: types.reflect.Info, 
                 name = entry.name,
                 annotations = entry.annotations or {},
                 index = #fields + 1,
-                typeIndex = entry.read as integer,
-                hasDefault = entry.hasDefault == true,
+                typeindex = entry.read as integer,
+                hasdefault = entry.hasdefault == true,
                 owner = owner
             )
-            if entry.hasDefault then
-                defaults[entry.name] = entry.defaultValue
+            if entry.hasdefault then
+                defaults[entry.name] = entry.defaultvalue
             end
         end
     end
@@ -474,9 +474,9 @@ create = function<T is own.Copyable>(target: Type<T>, info: types.reflect.Info, 
         problem = "declaration metadata has no ownership attestation; rebuild it with this compiler"
     elseif not root.copyable then
         problem = "an owning declaration requires an explicit construction and disposal adapter"
-    elseif construction == nil or construction.requiresFactory then
+    elseif construction == nil or construction.requiresfactory then
         problem = "this declaration requires an explicit construction adapter"
-    elseif #(root.typeParameters or {}) > 0 then
+    elseif #(root.typeparameters or {}) > 0 then
         problem = "a generic declaration requires a concrete construction adapter"
     else
         for index, entry in ipairs(construction.params) do
@@ -488,7 +488,7 @@ create = function<T is own.Copyable>(target: Type<T>, info: types.reflect.Info, 
             ] = new Parameter(
                 name = entry.name,
                 index = index,
-                typeIndex = entry.type,
+                typeindex = entry.type,
                 optional = entry.optional == true,
                 owner = owner
             )
@@ -515,11 +515,11 @@ create = function<T is own.Copyable>(target: Type<T>, info: types.reflect.Info, 
                 visit(member)
             end
         elseif node.kind == "map" then
-            if node.readKey then
-                visit(node.readKey)
+            if node.readkey then
+                visit(node.readkey)
             end
-            if node.readValue then
-                visit(node.readValue)
+            if node.readvalue then
+                visit(node.readvalue)
             end
         end
     end
@@ -527,7 +527,7 @@ create = function<T is own.Copyable>(target: Type<T>, info: types.reflect.Info, 
     visit(index)
     local result = new Access<T>(
         info = info,
-        typeIndex = index,
+        typeindex = index,
         fields = fields,
         parameters = parameters,
         owner = owner,

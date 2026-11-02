@@ -250,7 +250,7 @@ Continue to use `coroutine.resume`; no resume wrapper is required. A coroutine
 made with `coroutine.create` inherits no handler. Natively a wait there drives
 the readiness sources on the current thread; in a browser application, whose
 only wait is a return to the page from its root coroutine, it raises "cannot
-suspend here" and `suspension.canSuspend()` returns false.
+suspend here" and `suspension.cansuspend()` returns false.
 
 A nested handler installation temporarily replaces the current handler and
 restores the outer one when its region ends, so different coroutines may use
@@ -346,7 +346,7 @@ completes during the registration itself, so a task can be queued and have moved
 on by the time its turn comes; the status check is what makes that harmless.
 
 The handler itself is three members. `park` registers a waker that enqueues the
-current coroutine, then yields until the wait is ready. `canPark` returns false
+current coroutine, then yields until the wait is ready. `canpark` returns false
 inside a host barrier where yielding would violate a runtime invariant.
 `shutdown` drains work queued while the handled extent is ending.
 
@@ -354,14 +354,14 @@ inside a host barrier where yielding would violate a runtime invariant.
 local scheduler = new host.Handler(
     park = function(_: host.Handler, waiting: host.Waiting, _: function(): nil): nil
         local task = assert(coroutine.running())
-        waiting:onResume(function(): nil
+        waiting:onresume(function(): nil
             enqueue(task)
         end)
         while not waiting:ready() do
             coroutine.yield()
         end
     end,
-    canPark = function(_: host.Handler): boolean
+    canpark = function(_: host.Handler): boolean
         return true
     end,
     shutdown = function(_: host.Handler): nil
@@ -372,11 +372,11 @@ local scheduler = new host.Handler(
 )
 ```
 
-`waiting:onResume(wake)` is a notification, not value delivery. The readiness
+`waiting:onresume(wake)` is a notification, not value delivery. The readiness
 source supplies the value through `resume`, and the waker makes the coroutine
 runnable after that value exists. Arming once above the loop is enough because
-`onResume` is settle-safe: a wait that completed during the subscription itself
-runs the waker before `onResume` returns, so there is no window between arming
+`onresume` is settle-safe: a wait that completed during the subscription itself
+runs the waker before `onresume` returns, so there is no window between arming
 and the first `ready` check to guard against. The loop remains because a
 scheduler may resume a coroutine for its own reasons, and a park ends only when
 its wait is ready.

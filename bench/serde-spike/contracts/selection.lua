@@ -4,14 +4,14 @@ local root, visible, skipped, redacted = {name = "Root"}, {name = "visible"}, {n
 local gets, describes, constructs = 0, 0, 0
 
 local function scalar(member, kind)
-    return {member = member, kind = kind, nullable = false, canRead = true, children = {}}
+    return {member = member, kind = kind, nullable = false, canread = true, children = {}}
 end
 
 local function child(member, kind, required, default)
     return {
         member = member,
         required = required,
-        hasDefault = default,
+        hasdefault = default,
         describe = function()
             describes = describes + 1
             return scalar(member, kind)
@@ -30,7 +30,7 @@ local members = {
         for _, member in ipairs({visible, skipped, redacted}) do
             if writer:include(member) then
                 gets = gets + 1
-                writer:writeString(member, value[member.name])
+                writer:writestring(member, value[member.name])
             end
         end
     end
@@ -40,17 +40,17 @@ local adapter = {
         return description
     end,
     write = function(_, value, writer)
-        writer:writeStruct(root, value, members)
+        writer:writestruct(root, value, members)
     end,
     read = function(_, reader)
         local state = {}
-        reader:readStruct(
+        reader:readstruct(
             root,
             state,
             {
                 apply = function(_, state, member, input)
                     assert(member == visible)
-                    state.visible = input:readString(member)
+                    state.visible = input:readstring(member)
                 end
             },
             {

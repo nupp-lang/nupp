@@ -61,8 +61,8 @@ assert(plain:port() == nil)
 assert(plain:path() == "someone@example.com")
 ```
 
-The remaining accessors are `authority`, `password`, `userInfo`, `query` and
-`fragment`. `toString` returns the normalized complete URI, and `tostring(uri)`
+The remaining accessors are `authority`, `password`, `userinfo`, `query` and
+`fragment`. `tostring` returns the normalized complete URI, and `tostring(uri)`
 is the same call.
 
 ## Validating untrusted text
@@ -89,29 +89,29 @@ itself rather than reparsing:
 const uri = require("io.uri")
 
 local endpoint = assert(uri.newuri("https://user:pass@example.com:8443/api?q=1"))
-local production = endpoint:withUserInfo(nil):withHost("api.example.com")
-assert(production:userInfo() == nil)
+local production = endpoint:withuserinfo(nil):withhost("api.example.com")
+assert(production:userinfo() == nil)
 assert(production:host() == "api.example.com")
 assert(endpoint:host() == "example.com")
 ```
 
-The operations are `withScheme`, `withUserInfo`, `withHost`, `withPort`,
-`withPath`, `withQuery` and `withFragment`. Passing nil removes an optional
+The operations are `withscheme`, `withuserinfo`, `withhost`, `withport`,
+`withpath`, `withquery` and `withfragment`. Passing nil removes an optional
 component. A port must be an integer from 0 through 65535, and anything else
 raises. So does text that is more than the component: a scheme holding anything
 but a scheme, a host holding a `:` outside IPv6 brackets, or a scheme change
 that would make the rest of the URI parse with a different host.
 
-`concatPath` appends path text without interpreting it as a reference:
+`concatpath` appends path text without interpreting it as a reference:
 
 ```nupp
 const uri = require("io.uri")
 
 local api = assert(uri.newuri("https://api.example.com/v1"))
-assert(api:concatPath("users"):path() == "/v1/users")
+assert(api:concatpath("users"):path() == "/v1/users")
 ```
 
-`withEndpoint(endpoint)` takes another URI's scheme and authority and keeps the
+`withendpoint(endpoint)` takes another URI's scheme and authority and keeps the
 receiver's path, query and fragment, which is what reroutes a request URI
 through a configured service address.
 
@@ -143,15 +143,15 @@ const uri = require("io.uri")
 
 local status = assert(uri.newuri(new uri.Components(
     scheme = "https",
-    userInfo = "reader:secret",
+    userinfo = "reader:secret",
     host = "example.com",
     path = "/status",
     query = "full=1"
 )))
-assert(status:userInfo() == "reader:secret")
+assert(status:userinfo() == "reader:secret")
 ```
 
-`scheme` is required and may not be empty. `userInfo`, `host`, `path`, `query`
+`scheme` is required and may not be empty. `userinfo`, `host`, `path`, `query`
 and `fragment` are optional strings, and `port` is an optional integer from 0
 through 65535. Every field is URI text rather than a filesystem name.
 
@@ -174,7 +174,7 @@ export record Components
     scheme: string
 
     --- The user information before `@`, when there is any.
-    userInfo: string?
+    userinfo: string?
 
     --- The host, when there is an authority.
     host: string?
@@ -209,7 +209,7 @@ export record URI
     --- The whole URI as text.
     --- @param self this URI
     --- @return the URI text
-    function toString(self): string
+    function tostring(self): string
         return self._text
     end
 
@@ -279,7 +279,7 @@ export record URI
     --- The user information as written, user name and password together.
     --- @param self this URI
     --- @return the user information, or nil when there is none
-    function userInfo(self): string?
+    function userinfo(self): string?
         if self._username == "" and self._password == nil then
             return nil
         end
@@ -292,7 +292,7 @@ export record URI
     --- @return the new URI, or this one when nothing changes
     --- @raises string when value is not a scheme, or when the rest of this URI
     ---     would not keep its authority under the new scheme
-    function withScheme(self, value: string): URI
+    function withscheme(self, value: string): URI
         -- Checked before splicing: text beyond a scheme would otherwise be
         -- reparsed as an authority, so `http://evil/` would become the host.
         if not value:match("^[A-Za-z][A-Za-z0-9+.-]*$") then
@@ -317,13 +317,13 @@ export record URI
     --- @param value the user information, or nil to remove it
     --- @return the new URI, or this one when nothing changes
     --- @raises string when the user information cannot be used here
-    function withUserInfo(self, value: string?): URI
+    function withuserinfo(self, value: string?): URI
         return (
             assert(
                 newuri(
                     new Components(
                         scheme = self._scheme,
-                        userInfo = value,
+                        userinfo = value,
                         host = self._host,
                         port = self._port,
                         path = self._path,
@@ -340,13 +340,13 @@ export record URI
     --- @param value the host, or nil to remove the authority
     --- @return the new URI, or this one when nothing changes
     --- @raises string when the host cannot be used here
-    function withHost(self, value: string?): URI
+    function withhost(self, value: string?): URI
         return (
             assert(
                 newuri(
                     new Components(
                         scheme = self._scheme,
-                        userInfo = value ~= nil and self:userInfo() or nil,
+                        userinfo = value ~= nil and self:userinfo() or nil,
                         host = value,
                         port = value ~= nil and self._port or nil,
                         path = self._path,
@@ -363,13 +363,13 @@ export record URI
     --- @param value the port, 0 through 65535, or nil to remove it
     --- @return the new URI, or this one when nothing changes
     --- @raises string when port is not a port number
-    function withPort(self, value: integer?): URI
+    function withport(self, value: integer?): URI
         return (
             assert(
                 newuri(
                     new Components(
                         scheme = self._scheme,
-                        userInfo = self:userInfo(),
+                        userinfo = self:userinfo(),
                         host = self._host,
                         port = value,
                         path = self._path,
@@ -386,7 +386,7 @@ export record URI
     --- @param value the path
     --- @return the new URI, or this one when nothing changes
     --- @raises string when the path cannot be used here
-    function withPath(self, value: string): URI
+    function withpath(self, value: string): URI
         if self._authority ~= nil and value ~= "" and value:sub(1, 1) ~= "/" then
             value = "/" .. value
         end
@@ -395,7 +395,7 @@ export record URI
                 newuri(
                     new Components(
                         scheme = self._scheme,
-                        userInfo = self:userInfo(),
+                        userinfo = self:userinfo(),
                         host = self._host,
                         port = self._port,
                         path = value,
@@ -412,13 +412,13 @@ export record URI
     --- @param value the query, without the `?`, or nil to remove it
     --- @return the new URI, or this one when nothing changes
     --- @raises string when the query cannot be used here
-    function withQuery(self, value: string?): URI
+    function withquery(self, value: string?): URI
         return (
             assert(
                 newuri(
                     new Components(
                         scheme = self._scheme,
-                        userInfo = self:userInfo(),
+                        userinfo = self:userinfo(),
                         host = self._host,
                         port = self._port,
                         path = self._path,
@@ -435,13 +435,13 @@ export record URI
     --- @param value the fragment, without the `#`, or nil to remove it
     --- @return the new URI, or this one when nothing changes
     --- @raises string when the fragment cannot be used here
-    function withFragment(self, value: string?): URI
+    function withfragment(self, value: string?): URI
         return (
             assert(
                 newuri(
                     new Components(
                         scheme = self._scheme,
-                        userInfo = self:userInfo(),
+                        userinfo = self:userinfo(),
                         host = self._host,
                         port = self._port,
                         path = self._path,
@@ -458,12 +458,12 @@ export record URI
     --- @param value the path to append
     --- @return the new URI, or this one when path is empty
     --- @raises string when the path cannot be appended
-    function concatPath(self, value: string): URI
+    function concatpath(self, value: string): URI
         if value == "" then
             return self
         end
 
-        return self:withPath(self._path:gsub("/$", "") .. "/" .. value:gsub("^/", ""))
+        return self:withpath(self._path:gsub("/$", "") .. "/" .. value:gsub("^/", ""))
     end
 
     --- Resolves a reference against this URI, as a browser resolves a link.
@@ -478,7 +478,7 @@ export record URI
     ---
     --- ```nupp:fragment
     --- local page = assert(newuri("https://example.com/docs/a.html"))
-    --- assert(assert(page:resolve("b.html")):toString()
+    --- assert(assert(page:resolve("b.html")):tostring()
     ---     == "https://example.com/docs/b.html")
     --- ```
     --- @param self this URI
@@ -514,8 +514,8 @@ export record URI
     --- @param endpoint the URI to take the endpoint from
     --- @return the new URI
     --- @raises string when endpoint is not a URI
-    function withEndpoint(self, endpoint: URI): URI
-        return endpoint:concatPath(self._path):withQuery(self._query):withFragment(self._fragment)
+    function withendpoint(self, endpoint: URI): URI
+        return endpoint:concatpath(self._path):withquery(self._query):withfragment(self._fragment)
     end
 
     metamethod __tostring: function(self): string
@@ -524,10 +524,10 @@ end
 
     ;
 (URI as {[string]: any}).__tostring = function(self: URI): string
-    return self:toString()
+    return self:tostring()
 end;
 (URI as {[string]: any}).__eq = function(left: URI, right: URI): boolean
-    return left:toString() == right:toString()
+    return left:tostring() == right:tostring()
 end
 
 local function fromComponents(components: any): (string?, string?)
@@ -538,7 +538,7 @@ local function fromComponents(components: any): (string?, string?)
     if type(scheme) ~= "string" or not (scheme as string):match("^[A-Za-z][A-Za-z0-9+.-]*$") then
         return nil, "nupp: URI components need a non-empty scheme"
     end
-    for _, name in ipairs({"userInfo", "host", "path", "query", "fragment",}) do
+    for _, name in ipairs({"userinfo", "host", "path", "query", "fragment",}) do
         local value = components[name]
         if value ~= nil and type(value) ~= "string" then
             return nil, "nupp: URI component " .. name .. " must be a string or nil"
@@ -551,7 +551,7 @@ local function fromComponents(components: any): (string?, string?)
     -- A delimiter that would end the component early. `#` always starts the
     -- fragment, `?` starts the query anywhere before one, and inside the
     -- authority `/`, `?` and `#` end it while `@` moves the host boundary.
-    for name, delimiters in pairs({userInfo = "[/?#]", host = "[/?#@]", path = "[?#]", query = "#",}) do
+    for name, delimiters in pairs({userinfo = "[/?#]", host = "[/?#@]", path = "[?#]", query = "#",}) do
         local value = components[name]
         if value ~= nil and (value as string):find(delimiters) ~= nil then
             return nil, "nupp: URI component " .. name .. " cannot contain a component delimiter"
@@ -566,7 +566,7 @@ local function fromComponents(components: any): (string?, string?)
     -- RFC 3986 section 3.3: beside an authority a path is empty or rooted, and
     -- without one it must not begin with `//`, which would reparse as one.
     local path = components.path
-    if components.host or components.userInfo or port then
+    if components.host or components.userinfo or port then
         if path ~= nil and path ~= "" and (path as string):sub(1, 1) ~= "/" then
             return nil, "nupp: URI component path must be empty or begin with \"/\" beside an authority"
         end
@@ -574,10 +574,10 @@ local function fromComponents(components: any): (string?, string?)
         return nil, "nupp: URI component path cannot begin with \"//\" when there is no authority"
     end
     local out = scheme .. ":"
-    if components.host or components.userInfo or port then
+    if components.host or components.userinfo or port then
         out = out .. "//"
-        if components.userInfo then
-            out = out .. components.userInfo .. "@"
+        if components.userinfo then
+            out = out .. components.userinfo .. "@"
         end
         out = out .. (components.host or "")
         if port then
@@ -602,7 +602,7 @@ local uriCacheNewest: any = nil
 local uriCacheOldest: any = nil
 
 local function adopt(value: URI): URI
-    local text = value:toString()
+    local text = value:tostring()
     local found = uriCache[text]
     if found ~= nil then
         if found ~= uriCacheNewest then
@@ -637,7 +637,7 @@ local function adopt(value: URI): URI
         local evicted = uriCacheOldest
         uriCacheOldest = evicted.newer
         uriCacheOldest.older = nil
-        uriCache[evicted.value:toString()] = nil
+        uriCache[evicted.value:tostring()] = nil
         uriCacheSize = uriCacheSize - 1
     end
 

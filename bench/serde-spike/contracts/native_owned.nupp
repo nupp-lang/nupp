@@ -25,7 +25,7 @@ local record Description is core.Description<Member>
     @readonly nullable: boolean = false
     @readonly width: integer?
     @readonly signed: boolean?
-    @readonly canRead: boolean = true
+    @readonly canread: boolean = true
     @readonly children: {core.Child<Member>} = {}
 end
 local record Adapter is core.Adapter<Resource, Member>
@@ -38,14 +38,14 @@ local record Adapter is core.Adapter<Resource, Member>
     end
 
     function write(self, borrows value: Resource, exclusive writer: core.Writer<Member>): nil
-        writer:writeString(self.description.member, value.text)
+        writer:writestring(self.description.member, value.text)
     end
 
     function read(self, exclusive reader: core.Reader<Member>): Resource
         self.counts.created += 1
         local result = new Resource(counts = self.counts, text = "")
         if self.consume then
-            result.text = reader:readString(self.description.member)
+            result.text = reader:readstring(self.description.member)
         end
         assert2(not self.fail, "model rejected the value")
 
@@ -111,7 +111,7 @@ local record ResourceDocument is core.DocumentAdapter<Resource>
         return self.binding
     end
 
-    function readContents(self, exclusive reader: core.DocumentReader): Resource
+    function readcontents(self, exclusive reader: core.DocumentReader): Resource
         self.counts.created += 1
         return new Resource(counts = self.counts, text = "unconsumed document")
     end

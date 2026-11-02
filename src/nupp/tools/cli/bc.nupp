@@ -167,7 +167,7 @@ end
 @derive(cliModule.command)
 local record Bytecode
     --- Select the report representation.
-    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", constantaliases = {json = "json", text = "text"})
     format: "text" | "json" = "text"
 
     --- Columns the listing may use. Defaults to the terminal's width.

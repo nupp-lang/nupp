@@ -87,11 +87,11 @@ local elapsed4 = measure(int4)
 
 local output8 = ffi.new("float[?]", rows)
 local output4 = ffi.new("float[?]", rows)
-context:enqueueDownload(output8Buffer)
-context:enqueueDownload(output4Buffer)
+context:enqueuedownload(output8Buffer)
+context:enqueuedownload(output4Buffer)
 context:synchronize()
-context:readDownloaded(output8Buffer, span.writecarray(output8, rows))
-context:readDownloaded(output4Buffer, span.writecarray(output4, rows))
+context:readdownloaded(output8Buffer, span.writecarray(output8, rows))
+context:readdownloaded(output4Buffer, span.writecarray(output4, rows))
 for index = 0, rows - 1 do
     assert(
         output8[index] == expected8[index],

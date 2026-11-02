@@ -12,7 +12,7 @@ local record Wide
 end
 local text = declarations.binding(Text)
 local wide = declarations.binding(Wide)
-local codec = json.codec(__serdeJson.defaultPolicy)
+local codec = json.codec(__serdeJson.defaultpolicy)
 local original: any = _G.require
 -- Where the exact carrier is the FFI, a target without it refuses 64-bit
 -- declarations before reading. The VM carries them natively.

@@ -74,10 +74,6 @@ record own.Alias<T>
         self: own.Alias<T>,
         scoped callback: function(borrows value: T): R
     ): ((R, nil) | (nil, own.AliasError))
-    withExclusive: function<R>(
-        self: own.Alias<T>,
-        scoped callback: function(exclusive value: T): R
-    ): ((R, nil) | (nil, own.AliasError))
     withexclusive: function<R>(
         self: own.Alias<T>,
         scoped callback: function(exclusive value: T): R
@@ -113,21 +109,18 @@ local nupp: {
     admit: function<T>(value: any): T,
 
     --- Size in bytes under the build target's declared C ABI.
-    sizeof: function(typeName: any): integer,
+    sizeof: function(typename: any): integer,
 
     --- Alignment in bytes under the build target's declared C ABI.
-    alignof: function(typeName: any): integer,
+    alignof: function(typename: any): integer,
 
     --- Byte offset of a field under the build target's declared C ABI.
-    offsetof: function(typeName: any, fieldName: string): integer,
+    offsetof: function(typename: any, fieldname: string): integer,
 
     --- Compiler-internal materialization conformance surface.
     --- @internal
     __materializationTest: nupp.__MaterializationTestAPI
 }
-
--- A0 seed transition: remove preceding intrinsic and metadata keys after the accepting
--- seed is pinned.
 
 --- Compiler-only type inspection and construction, with shared runtime types.
 --- @namespace types
@@ -141,12 +134,10 @@ local types: {
     --- The bottom type; fits everything, nothing fits it.
     @readonly never: @comptime type,
 
-    --- The nil singleton, spelled `nil_` because `nil` is a keyword.
-    @readonly nil_: @comptime type,
+    --- The nil singleton.
     @readonly niltype: @comptime type,
 
     --- `true` or `false`.
-    @readonly boolean: @comptime type,
     @readonly bool: @comptime type,
 
     --- A Lua string.
@@ -159,8 +150,7 @@ local types: {
     @readonly integer: @comptime type,
 
     --- Any table shape, compatible with every table type in both directions,
-    --- spelled `table_` because `table` names the standard library namespace.
-    @readonly table_: @comptime type,
+    --- named separately from the standard library namespace.
     @readonly tabletype: @comptime type,
 
     --- A coroutine.
@@ -252,7 +242,6 @@ local types: {
     --- @param max the longest admitted length in bytes
     --- @return the constrained type
     --- @raises string when the base is not a string or the bounds are empty
-    @readonly length: @comptime function(base: type, min: integer, max: integer): type,
     @readonly len: @comptime function(base: type, min: integer, max: integer): type,
 
     --- The Lua array `{element}`, with integer keys and no fixed length.
@@ -334,27 +323,27 @@ local types: {
     --- least one capability is required, and a read-only or write-only indexer is
     --- the point of taking them separately. `map` is the shorthand for the common
     --- case where both sides agree.
-    --- @param readKey the key type reads accept
-    --- @param readValue the value type reads answer
-    --- @param writeKey the key type writes accept
-    --- @param writeValue the value type writes accept
+    --- @param readkey the key type reads accept
+    --- @param readvalue the value type reads answer
+    --- @param writekey the key type writes accept
+    --- @param writevalue the value type writes accept
     --- @return the indexer type
     --- @raises string when a capability is missing half of its pair, or when
     ---     neither
     ---     capability is supplied
-    @readonly indexer: @comptime function(readKey: type?, readValue: type?, writeKey: type?, writeValue: type?): type,
+    @readonly indexer: @comptime function(readkey: type?, readvalue: type?, writekey: type?, writevalue: type?): type,
 
     --- An indexer whose write side mirrors its read side unless stated otherwise.
     ---
-    --- Equivalent to `indexer(readKey, readValue, writeKey or readKey,
-    --- writeValue or readValue)`, and it returns a handle of kind
+    --- Equivalent to `indexer(readkey, readvalue, writekey or readkey,
+    --- writevalue or readvalue)`, and it returns a handle of kind
     --- `"indexer"`.
-    --- @param readKey the key type reads accept
-    --- @param readValue the value type reads answer
-    --- @param writeKey the key type writes accept, defaulting to `readKey`
-    --- @param writeValue the value type writes accept, defaulting to `readValue`
+    --- @param readkey the key type reads accept
+    --- @param readvalue the value type reads answer
+    --- @param writekey the key type writes accept, defaulting to `readkey`
+    --- @param writevalue the value type writes accept, defaulting to `readvalue`
     --- @return the indexer type
-    @readonly map: @comptime function(readKey: type, readValue: type, writeKey: type?, writeValue: type?): type,
+    @readonly map: @comptime function(readkey: type, readvalue: type, writekey: type?, writevalue: type?): type,
 
     --- A structural type with named fields, and optionally an indexer for the keys
     --- the names do not cover.
@@ -399,12 +388,10 @@ local types: {
     --- @return the argument pack consumed by its directives
     @readonly formatarguments: @comptime function(format: type): typepack,
 
-    --- A function type from its parameter and result packs. Spelled with a
-    --- trailing underscore because `function` is a keyword.
+    --- A function type from its parameter and result packs.
     --- @param parameters the parameter pack
     --- @param results the result pack
     --- @return the function type
-    @readonly function_: @comptime function(parameters: typepack, results: typepack): type,
     @readonly functiontype: @comptime function(parameters: typepack, results: typepack): type,
 
     --- The parameter pack of a function type.
@@ -424,7 +411,7 @@ local types: {
     --- The answer is the handle's own kind, not the builder that made it:
     --- `map` returns `"indexer"`, `optional` returns `"union"`, `pointer`
     --- returns `"ptr"`, and `constof` returns `"const"`. A nominal
-    --- declaration returns `"reference"`, and `describe(T).declarationKind`
+    --- declaration returns `"reference"`, and `describe(T).declarationkind`
     --- says which category it declares.
     --- @param value the type or type pack to inspect
     --- @return the kind, such as `"literal"`, `"array"`, `"shape"`, or `"pack"`
@@ -440,11 +427,9 @@ local types: {
     --- @return its descriptor
     @readonly describe: @comptime function(value: type | typepack): {
         @readonly kind: string,
-        @readonly sourceKind: string?,
         @readonly sourcekind: string?,
 
         --- Reports the nominal declaration category without expanding a reference.
-        @readonly declarationKind: string?,
         @readonly declarationkind: string?,
         @readonly name: string?,
         @readonly value: (string | boolean | integer)?,
@@ -456,13 +441,9 @@ local types: {
             @readonly write: type?
         }}?,
         @readonly indexer: type?,
-        @readonly readKey: type?,
         @readonly readkey: type?,
-        @readonly readValue: type?,
         @readonly readvalue: type?,
-        @readonly writeKey: type?,
         @readonly writekey: type?,
-        @readonly writeValue: type?,
         @readonly writevalue: type?,
         @readonly nominal: boolean?,
         @readonly head: {type}?,
@@ -849,22 +830,18 @@ record types.derive
         @readonly writable: boolean
 
         --- A transported handle for the read type, or nil for a write-only field.
-        @readonly readType: any?
 
         @readonly readtype: any?
 
         --- A transported handle for the write type, or nil for a read-only field.
-        @readonly writeType: any?
 
         @readonly writetype: any?
 
         --- Whether omission during construction supplies a declaration-owned default.
-        @readonly hasDefault: boolean
 
         @readonly hasdefault: boolean
 
         --- The source-free constant default value. Read only when `hasDefault` is true.
-        @readonly defaultValue: any
 
         @readonly defaultvalue: any
 
@@ -894,7 +871,6 @@ record types.derive
         @readonly name: string
 
         --- The declaration's module-qualified name, independent of filesystem paths.
-        @readonly qualifiedName: string
 
         @readonly qualifiedname: string
 
@@ -905,22 +881,18 @@ record types.derive
         @readonly documentation: string?
 
         --- The stable identity of the provider being run.
-        @readonly providerIdentity: string
 
         @readonly provideridentity: string
 
         --- The stable identity of the owning declaration.
-        @readonly ownerIdentity: string
 
         @readonly owneridentity: string
 
         --- A transported handle for the owner's type, accepted by `claims`.
-        @readonly ownerType: any
 
         @readonly ownertype: any
 
         --- A transported handle for the one interface this provider implements.
-        @readonly interfaceType: any
 
         @readonly interfacetype: any
 
@@ -931,7 +903,6 @@ record types.derive
         @readonly annotations: {types.reflect.Annotation}
 
         --- Whether the declaration writes a constructor.
-        @readonly hasConstructor: boolean
 
         @readonly hasconstructor: boolean
 
@@ -1105,8 +1076,8 @@ record types.derive
     --- The answer does not depend on whether that type's own providers have run, so
     --- mutually recursive derives can plan against one another.
     ---
-    --- @param subject a type handle, such as a `Field.readType`
-    --- @param interface a type handle, such as `Info.interfaceType`
+    --- @param subject a type handle, such as a `Field.readtype`
+    --- @param interface a type handle, such as `Info.interfacetype`
     --- @return whether `subject` claims `interface`
     claims: function(subject: any, interface: any): boolean
 end
@@ -1133,7 +1104,7 @@ end
 --- const UserSummary: string = comptime do
 ---     local info = types.reflect(User)
 ---     assert(info.kind == "record")
----     assert(info.fields[2].hasDefault)
+---     assert(info.fields[2].hasdefault)
 ---     return info.fields[1].name .. ":" .. info.fields[1].kind
 --- end
 ---
@@ -1231,9 +1202,9 @@ record types.reflect
     ---
     --- const DefaultFormat: string = comptime do
     ---     local field = types.reflect(Options).fields[1]
-    ---     assert(field.name == "format" and field.hasDefault)
+    ---     assert(field.name == "format" and field.hasdefault)
     ---     assert(field.readable and field.writable)
-    ---     return field.defaultValue as string
+    ---     return field.defaultvalue as string
     --- end
     ---
     --- assert(DefaultFormat == "compact")
@@ -1241,15 +1212,12 @@ record types.reflect
     record Field
         @readonly name: string
         @readonly kind: string
-        @readonly typeName: string?
         @readonly typename: string?
         @readonly type: integer?
         @readonly stored: boolean
         @readonly readable: boolean
         @readonly writable: boolean
-        @readonly hasDefault: boolean
         @readonly hasdefault: boolean
-        @readonly defaultValue: any
         @readonly defaultvalue: any
         @readonly annotations: {Annotation}
     end
@@ -1263,9 +1231,7 @@ record types.reflect
         @readonly stored: boolean?
         @readonly readable: boolean?
         @readonly writable: boolean?
-        @readonly hasDefault: boolean?
         @readonly hasdefault: boolean?
-        @readonly defaultValue: any
         @readonly defaultvalue: any
         @readonly mode: string?
         @readonly bound: integer?
@@ -1302,61 +1268,36 @@ record types.reflect
 
         @readonly kind: string
         -- Public descriptor aliases accepted before canonical source adoption.
-        @readonly moduleName: string?
         @readonly modulename: string?
-        @readonly deriveKey: string?
         @readonly derivekey: string?
-        @readonly arrayOf: integer?
         @readonly arrayof: integer?
-        @readonly varargType: integer?
         @readonly varargtype: integer?
-        @readonly borrowedFrom: integer?
         @readonly borrowedfrom: integer?
-        @readonly borrowedFromMany: {integer}?
         @readonly borrowedfrommany: {integer}?
-        @readonly borrowedResult: integer?
         @readonly borrowedresult: integer?
-        @readonly parameterPack: integer?
         @readonly parameterpack: integer?
-        @readonly returnPack: integer?
         @readonly returnpack: integer?
-        @readonly yieldPack: integer?
         @readonly yieldpack: integer?
-        @readonly resumePack: integer?
         @readonly resumepack: integer?
-        @readonly startPack: integer?
         @readonly startpack: integer?
-        @readonly resultKind: string?
         @readonly resultkind: string?
-        @readonly transferOnly: boolean?
         @readonly transferonly: boolean?
-        @readonly countTerm: integer?
         @readonly countterm: integer?
-        @readonly readKey: integer?
         @readonly readkey: integer?
-        @readonly readValue: integer?
         @readonly readvalue: integer?
-        @readonly writeKey: integer?
         @readonly writekey: integer?
-        @readonly writeValue: integer?
         @readonly writevalue: integer?
         @readonly index: const{
-            @readonly readKey: integer?,
             @readonly readkey: integer?,
-            @readonly readValue: integer?,
             @readonly readvalue: integer?,
-            @readonly writeKey: integer?,
             @readonly writekey: integer?,
-            @readonly writeValue: integer?,
             @readonly writevalue: integer?
         }?
         @readonly construction: const{
-            @readonly requiresFactory: boolean?,
             @readonly requiresfactory: boolean?,
             @readonly [string]: any
         }?
         @readonly cleanups: {const{
-            @readonly functionType: integer?,
             @readonly functiontype: integer?,
             @readonly [string]: any
         }}?
@@ -1364,40 +1305,27 @@ record types.reflect
         @readonly nominal: boolean?
         @readonly annotations: {Annotation}?
         @readonly fields: {Entry}?
-        @readonly staticFields: {Entry}?
         @readonly staticfields: {Entry}?
         @readonly metamethods: {Entry}?
-        @readonly nestedTypes: {Entry}?
         @readonly nestedtypes: {Entry}?
-        @readonly associatedTypes: {Entry}?
         @readonly associatedtypes: {Entry}?
         @readonly members: {integer}?
         @readonly parameters: {Entry}?
         @readonly returns: {integer}?
-        @readonly typeParameters: {integer}?
         @readonly typeparameters: {integer}?
-        @readonly typeBounds: {integer}?
         @readonly typebounds: {integer}?
-        @readonly packParameters: {integer}?
         @readonly packparameters: {integer}?
-        @readonly constParameters: {integer}?
         @readonly constparameters: {integer}?
-        @readonly parameterKinds: {string}?
         @readonly parameterkinds: {string}?
-        @readonly typeArguments: {integer}?
         @readonly typearguments: {integer}?
-        @readonly packArguments: {integer}?
         @readonly packarguments: {integer}?
-        @readonly constArguments: {integer}?
         @readonly constarguments: {integer}?
         @readonly supertypes: {integer}?
         @readonly element: integer?
         @readonly body: integer?
         @readonly of: integer?
         @readonly origin: integer?
-        @readonly noReturn: boolean?
         @readonly noreturn: boolean?
-        @readonly noYield: boolean?
         @readonly noyield: boolean?
         @readonly [string]: any
     end
@@ -1468,7 +1396,6 @@ record types.reflect
         @readonly types: const{Node}
         @readonly kind: string
         @readonly name: string
-        @readonly qualifiedName: string
         @readonly qualifiedname: string
         @readonly fields: const{Field}
         @readonly annotations: const{Annotation}
@@ -1516,7 +1443,7 @@ record types.reflect
 
     --- Reads the semantic description carried by a first-class type witness.
     --- Generic consumers use the same descriptor as concrete callers.
-    runtime: function<T>(typeObject: Type<T>): Info
+    runtime: function<T>(typeobject: Type<T>): Info
 
     --- Reads an available nominal witness reachable through stored fields or
     --- constructor parameters. An unresolved forward declaration returns nil.
@@ -1539,7 +1466,7 @@ record types.reflect
     --- end
     --- assert(PointFieldCount == 2)
     --- ```
-    metamethod __call: @comptime function(self, typeName: any): Info
+    metamethod __call: @comptime function(self, typename: any): Info
 
     --- Builds a keyed field-codec recipe from a reflected record.
     ---

@@ -115,9 +115,9 @@ until now() - started >= 1.0
 local elapsed = (now() - started) / passes
 
 local output = ffi.new("float[1]")
-context:enqueueDownload(result)
+context:enqueuedownload(result)
 context:synchronize()
-context:readDownloaded(result, span.writecarray(output, 1))
+context:readdownloaded(result, span.writecarray(output, 1))
 assert(output[0] == expected, ("reduction mismatch: got %.9g, want %.9g"):format(output[0], expected))
 
 io.write(("Fixed 256-lane exp-sum tree: GPU and CPU agree at %.9g\n"):format(expected))

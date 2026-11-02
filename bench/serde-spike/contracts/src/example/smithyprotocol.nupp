@@ -61,8 +61,8 @@ local record Body<M is core.Member> is plans.Policy<M>
         return self.base:timestamp(member, value)
     end
 
-    function parseTimestamp(self, member: M, value: string, kind: "string" | "number"): core.Timestamp
-        return self.base:parseTimestamp(member, value, kind)
+    function parsetimestamp(self, member: M, value: string, kind: "string" | "number"): core.Timestamp
+        return self.base:parsetimestamp(member, value, kind)
     end
 end
 local record BodyFactory is plans.PolicyFactory

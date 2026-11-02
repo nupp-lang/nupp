@@ -99,7 +99,7 @@ local separated, missingAttached = cli.parse(Forwarded, {"--output", "out"})
 assert(separated == nil and missingAttached ~= nil)
 local schema = assert(cli.schema(Forwarded))
 assert(schema.preserveUnknown == true)
-assert(schema.fields[1].arity == "optionalAttached" and schema.fields[3].arity == "attachedOnly")
+assert(schema.fields[1].arity == "optionalattached" and schema.fields[3].arity == "attachedonly")
 
 @cli(stopatfirstargument = true)
 @derive(cli.arguments)

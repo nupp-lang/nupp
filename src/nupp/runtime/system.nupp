@@ -23,7 +23,7 @@ end
 if provider.endianness ~= "little" and provider.endianness ~= "big" then
     error("system provider endianness must be little or big", 2)
 end
-if provider.pointerBits ~= 32 and provider.pointerBits ~= 64 then
+if provider.pointerbits ~= 32 and provider.pointerbits ~= 64 then
     error("system provider pointerBits must be 32 or 64", 2)
 end
 
@@ -47,7 +47,7 @@ export const endianness: "little" | "big" = provider.endianness as "little" | "b
 ---
 --- The browser ABI is 32-bit even when its guest instruction set is not
 --- `wasm32`.
-export const pointerBits = provider.pointerBits
+export const pointerBits = provider.pointerbits
 
 --- Estimates how many execution units this process may actually use.
 ---
@@ -58,10 +58,10 @@ export const pointerBits = provider.pointerBits
 --- ```nupp:fragment
 --- with scope = coroutine.scope(limit = os.info().parallelism) do
 ---     for _, shard in ipairs(shards) do
----         scope:fork(shard, jobs.shard)
+---         scope:work(shard, jobs.shard)
 ---     end
 --- end
 --- ```
 ---
 --- @return the estimate, never below one
-export const availableParallelism = provider.availableParallelism
+export const availableParallelism = provider.availableparallelism

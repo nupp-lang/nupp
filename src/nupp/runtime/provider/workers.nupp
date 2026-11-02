@@ -90,12 +90,10 @@ local function readiness(): any
     return workerState.source
 end
 
-function Task.isDone(self: any): boolean
+function Task.isdone(self: any): boolean
     poll()
     return self.done
 end
-
-Task.isdone = Task.isDone
 
 function Task.status(self: any): string
     poll()
@@ -107,7 +105,7 @@ function Task.cancel(self: any, reason: string?): boolean
 end
 
 function workers.settle(task: any): (string, {any}?, integer, any)
-    if not task:isDone() then
+    if not task:isdone() then
         suspension.suspend("worker task", function(resume: function(boolean), context: suspension.Context): function()
             context:uses(readiness())
             local waiter = {resume = resume, active = true}
@@ -121,7 +119,7 @@ function workers.settle(task: any): (string, {any}?, integer, any)
     return task.state, task.values, task.count, task.problem
 end
 
-function workers.openScope(deadline: number?, observer: any): any
+function workers.openscope(deadline: number?, observer: any): any
     local scope: any = {raw = core.workerOpen(), registered = 0, observer = observer, closed = false, tasks = {}}
     function scope.spawn(self: any, body: any, ...: any): any
         local task = setmetatable({raw = self.raw:fork(body, ...), owner = self, done = false, waiters = {}}, Task)

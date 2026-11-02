@@ -6,16 +6,16 @@ local function bind(adapter)
 end
 
 local member = {name = "amount"}
-local description = {kind = "decimal", member = member, nullable = false, canRead = true, children = {}}
+local description = {kind = "decimal", member = member, nullable = false, canread = true, children = {}}
 local adapter = {
     describe = function()
         return description
     end,
     read = function(_, reader)
-        return reader:readDecimal(member)
+        return reader:readdecimal(member)
     end,
     write = function(_, value, writer)
-        writer:writeDecimal(member, value)
+        writer:writedecimal(member, value)
     end,
 }
 local binding = bind(adapter)

@@ -10,13 +10,13 @@ local value = json.decodedocument(documents.documentAdapter(), '{"child":[null,1
 local child = assert(value:get("child"))
 assert(value:context():get(key) == "schema context")
 assert(child:at(2):context():get(key) == "schema context")
-assert(child:at(2):numberToken() == "18446744073709551615")
+assert(child:at(2):numbertoken() == "18446744073709551615")
 assert(json.encodedocument(documents.documentAdapter(), value) == '{"child":[null,18446744073709551615]}')
 
 local result, retained = {}, nil
 local disposed = 0
 local adapter = {
-    readContents = function(_, reader)
+    readcontents = function(_, reader)
         retained = reader;
         return result
     end,
@@ -32,7 +32,7 @@ for _, bytes in ipairs({"", "null", "true"}) do
 end
 assert(disposed == 3, "a rejected owned document was not disposed exactly once")
 local original = {}
-adapter.readContents = function(_, reader)
+adapter.readcontents = function(_, reader)
     retained = reader;
     error(original, 0)
 end

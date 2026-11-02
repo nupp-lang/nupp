@@ -44,7 +44,7 @@ const native = {
 
 --- Allocates an empty native entity column with a fixed row capacity.
 export function new(capacity: integer): DoubleArray
-    return setmetatable({data = storage.allocateArray(element, capacity + 1)}, native) as DoubleArray
+    return setmetatable({data = storage.allocarray(element, capacity + 1)}, native) as DoubleArray
 end
 
 --- Copies the live prefix into a new allocation at a publication boundary.

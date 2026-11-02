@@ -33,5 +33,5 @@ export function fnv1a64(borrows value: string | ByteView): string
         return hashString(value as string)
     end
 
-    return hashString((value as ByteView):getString())
+    return hashString((value as ByteView):getstring())
 end

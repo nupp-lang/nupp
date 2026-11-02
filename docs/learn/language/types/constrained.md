@@ -5,12 +5,12 @@ order: 275
 # Constrained types
 
 A constrained type is a scalar narrowed to some of the values its base admits.
-`types.range` narrows a number by value and `types.length` narrows a
+`types.range` narrows a number by value and `types.len` narrows a
 string by byte length. Both bounds are inclusive.
 
 ```nupp
 local type Percent = types.range(integer, 0, 100)
-local type Identifier = types.length(string, 1, 64)
+local type Identifier = types.len(string, 1, 64)
 
 local ratio: Percent = 50
 local name: Identifier = "width"
@@ -88,7 +88,7 @@ type without either a proof or a written admission.
 from a value that may not qualify.
 
 ```nupp
-local type Identifier = types.length(string, 1, 64)
+local type Identifier = types.len(string, 1, 64)
 
 local function named(text: string): Identifier?
     if text is Identifier then
@@ -130,7 +130,7 @@ mind it.
 
 ## Computed constraints
 
-`types.range` and `types.length` are ordinary comptime type functions,
+`types.range` and `types.len` are ordinary comptime type functions,
 so a constraint can be built rather than written.
 
 ```nupp

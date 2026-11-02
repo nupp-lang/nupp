@@ -208,7 +208,7 @@ previous provider output. `types.derive.claims(T, I)` asks whether a nominal typ
 writes or requests contract `I`, which lets mutually recursive derives plan
 without depending on provider execution order.
 
-`Info.name` names the declaration. `Info.qualifiedName` combines its module and
+`Info.name` names the declaration. `Info.qualifiedname` combines its module and
 declaration path, giving providers a default identity without a source filename.
 Packages that persist this identity should offer an explicit override: renaming
 a declaration or moving it to another module changes its qualified name.

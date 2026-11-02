@@ -24,8 +24,8 @@ export type Late = function(...: any): nil
 
 --- What a full stream does with one more message: suspend the sender until
 --- the stream ships (`block`, outbound only), keep only the newest (`latest`),
---- or drop the oldest past the limit (`dropOldest`).
-export type Policy = "block" | "latest" | "dropOldest"
+--- or drop the oldest past the limit (`dropoldest`).
+export type Policy = "block" | "latest" | "dropoldest"
 
 export interface Provider
     --- Ranks a discovered implementation; the highest unique priority wins.

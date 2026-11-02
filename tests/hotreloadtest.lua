@@ -12,6 +12,25 @@ local hotPatch = rawget(_G, "__nupp_hot_patch")
 
 local M = {}
 
+function M.thePublicReloadNamespaceKeepsItsCanonicalTypedPollResult()
+    local parser = require("nupp.compiler.syntax.parser")
+    local checker = require("fragment")
+    local environment = require("nupp.compiler.project.env").new(".")
+    local parsed = parser.parse(
+        [[
+local generation: integer = debug.reload.generation()
+local outcome: debug.ReloadPoll = debug.reload.poll()
+local kind: string = outcome.kind
+local previous: integer? = outcome.basegeneration
+assert(generation >= 0 and kind ~= "")
+]],
+        "canonicalreload.nupp"
+    )
+    testAssert.eq(#parsed.errors, 0)
+    local diagnostics = checker.check(parsed, "canonicalreload.nupp", environment)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+end
+
 local function temporaryProject(files)
     local dir = os.tmpname()
     os.remove(dir)

@@ -56,11 +56,11 @@ function harness.absolute(path: string): string
         error(reason or "cannot make path absolute: " .. path, 2)
     end
 
-    return answer:normalize():toString()
+    return answer:normalize():tostring()
 end
 
 function harness.join(first: string, ...: string): string
-    return paths.newpath(first):join(...):toString()
+    return paths.newpath(first):join(...):tostring()
 end
 
 function harness.parent(path: string): string
@@ -69,11 +69,11 @@ function harness.parent(path: string): string
         return "."
     end
 
-    return parent:toString()
+    return parent:tostring()
 end
 
 function harness.write(path: string, text: string): nil
-    local made, makeErr = files.createdirectory(harness.parent(path))
+    local made, makeErr = files.mkdir(harness.parent(path))
     if not made then
         error("cannot create " .. harness.parent(path) .. ": " .. tostring(makeErr), 2)
     end
@@ -104,11 +104,11 @@ end
 --- Creates a unique directory which the caller removes explicitly.
 --- @raises string when the platform cannot create or retain the directory
 function harness.temporaryDirectory(prefix: string): string
-    local temporary, reason = files.createtemporarydirectory(new files.TemporaryOptions(prefix = prefix))
+    local temporary, reason = files.tmpdirectory(new files.TemporaryOptions(prefix = prefix))
     if temporary == nil then
         error("cannot create a temporary directory: " .. tostring(reason), 2)
     end
-    local original = temporary:toString()
+    local original = temporary:tostring()
     local persistent = original .. "-work"
     local kept, keepErr = temporary:persist(persistent)
     if not kept then
@@ -119,7 +119,7 @@ function harness.temporaryDirectory(prefix: string): string
 end
 
 function harness.copyTree(from: string, to: string): nil
-    local made, makeErr = files.createdirectory(to)
+    local made, makeErr = files.mkdir(to)
     if not made then
         error("cannot create " .. to .. ": " .. tostring(makeErr), 2)
     end
@@ -137,7 +137,7 @@ function harness.copyTree(from: string, to: string): nil
             if target == nil then
                 error("cannot read link " .. source .. ": " .. tostring(readErr), 2)
             end
-            local linked, linkErr = files.createsymlink(target, destination)
+            local linked, linkErr = files.symlink(target, destination)
             if not linked then
                 error("cannot create link " .. destination .. ": " .. tostring(linkErr), 2)
             end

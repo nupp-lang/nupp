@@ -153,7 +153,7 @@ export function fromCLI(argv: {string}, entry: Entry): any, DecodeError?
     local stream = parser.optParser(argv, {
         arity = plan.arity,
         patterns = plan.patterns,
-        stopAtFirstArgument = schema.stopAtFirstArgument,
+        stopatfirstargument = schema.stopatfirstargument,
     })
 
     while true do

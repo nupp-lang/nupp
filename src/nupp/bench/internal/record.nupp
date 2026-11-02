@@ -1,0 +1,146 @@
+@!internal
+
+module nupp.bench.internal.record
+
+--[[
+The schema4 wire names and public benchmark names describe the same measurements.
+Only measurement slots are translated; parameter maps and compiler payloads stay intact.
+
+read consumes a wire document; write consumes a public document. Neither operation is
+an idempotent normalizer. The runner retains wire records and crosses this boundary
+once at each public library call. User payloads are never recursively traversed.
+]]
+
+local recordio = {}
+local names: {
+    {string}
+} = {
+    {"abortSites", "abortsites"},
+    {"allocatedKb", "allocatedkb"},
+    {"baselineVariant", "baselinevariant"},
+    {"caseName", "casename"},
+    {"forkCount", "forkcount"},
+    {"forkSummariesMs", "forksummariesms"},
+    {"intervalCoverage", "intervalcoverage"},
+    {"intervalHighMs", "intervalhighms"},
+    {"intervalLowMs", "intervallowms"},
+    {"intervalWithheld", "intervalwithheld"},
+    {"iqrMs", "iqrms"},
+    {"maxDurationMs", "maxdurationms"},
+    {"maxSamples", "maxsamples"},
+    {"meanMs", "meanms"},
+    {"medianMs", "medianms"},
+    {"minDurationMs", "mindurationms"},
+    {"minMs", "minms"},
+    {"minSamples", "minsamples"},
+    {"operationsPerInvocation", "operationsperinvocation"},
+    {"outlierCount", "outliercount"},
+    {"outlierMaxRatio", "outliermaxratio"},
+    {"overBudget", "overbudget"},
+    {"p25Ms", "p25ms"},
+    {"p50Ms", "p50ms"},
+    {"p75Ms", "p75ms"},
+    {"p90Ms", "p90ms"},
+    {"p999Ms", "p999ms"},
+    {"p99Ms", "p99ms"},
+    {"profilePath", "profilepath"},
+    {"retainedKb", "retainedkb"},
+    {"sampleIterations", "sampleiterations"},
+    {"samplesMs", "samplesms"},
+    {"stdevMs", "stdevms"},
+    {"totalAborts", "totalaborts"},
+    {"trendDrift", "trenddrift"},
+    {"trendPValue", "trendpvalue"},
+    {"trendTau", "trendtau"},
+    {"warmupIterations", "warmupiterations"},
+}
+
+local function copy(value: any): any
+    local result = {}
+    for key, item in pairs(value) do
+        result[key] = item
+    end
+    local marker = getmetatable(value)
+    if type(marker) == "table" then
+        setmetatable(result, marker)
+    end
+
+    return result
+end
+
+local function measurement(value: any, reading: boolean): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local result = copy(value)
+    for _, pair in ipairs(names) do
+        local source = reading and pair[1] or pair[2]
+        local target = reading and pair[2] or pair[1]
+        result[target] = value[source]
+        result[source] = nil
+    end
+
+    return result
+end
+
+local function document(value: any, reading: boolean): any
+    if type(value) ~= "table" then
+        return value
+    end
+    local result = copy(value)
+    if type(value.cases) == "table" then
+        result.cases = copy(value.cases)
+        for index, item in ipairs(value.cases) do
+            result.cases[index] = measurement(item, reading)
+        end
+    end
+    if type(value.benchmarks) == "table" then
+        result.benchmarks = copy(value.benchmarks)
+        for index, item in ipairs(value.benchmarks) do
+            if type(item) ~= "table" then
+                result.benchmarks[index] = item
+            else
+                local entry = copy(item)
+                entry.summary = measurement(item.summary, reading)
+                if type(item.forks) == "table" then
+                    entry.forks = copy(item.forks)
+                    for forkIndex, fork in ipairs(item.forks) do
+                        entry.forks[forkIndex] = document(fork, reading)
+                        if type(fork) == "table" and type(fork.measurement) == "table" then
+                            entry.forks[forkIndex].measurement = measurement(fork.measurement, reading)
+                        end
+                    end
+                end
+                result.benchmarks[index] = entry
+            end
+        end
+    end
+    if type(value.comparisons) == "table" then
+        result.comparisons = copy(value.comparisons)
+        for index, item in ipairs(value.comparisons) do
+            if type(item) ~= "table" then
+                result.comparisons[index] = item
+            else
+                local entry = copy(item)
+                entry.baseline = document(item.baseline, reading)
+                result.comparisons[index] = entry
+            end
+        end
+    end
+
+    return result
+end
+
+function recordio.read(value: any): any
+    return document(value, true)
+end
+
+function recordio.write(value: any): any
+    return document(value, false)
+end
+
+function recordio.writemeasurement(value: any): any
+    return measurement(value, false)
+end
+
+export = recordio

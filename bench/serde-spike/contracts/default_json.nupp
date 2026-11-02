@@ -27,6 +27,6 @@ assert(json.codec(model.policy(true)):decode(external, '{"identifier":"selected"
 print("ordinary bindings and documents select default JSON without replacing external models")
 
 local restoredDocument = json.decodedocument(documents.adapter(), '{"exact":18446744073709551615}')
-assert(assert(restoredDocument:get("exact")):numberToken() == "18446744073709551615")
+assert(assert(restoredDocument:get("exact")):numbertoken() == "18446744073709551615")
 assert(restoredDocument:context() ~= nil and assert(restoredDocument:context()).codec == json.identity)
 assert(json.encodedocument(documents.adapter(), restoredDocument) == '{"exact":18446744073709551615}')

@@ -18,13 +18,13 @@ provider.
 local {type ByteSpan, type ByteWriteSpan} = require("binary.span")
 
 --- The step needs another input chunk.
-export const NEED_INPUT = 1
+export const needinput = 1
 
 --- The step filled its output and must be called with more space.
-export const NEED_OUTPUT = 2
+export const needoutput = 2
 
 --- The complete stream and its wrapper trailer have been processed.
-export const FINISHED = 3
+export const finished = 3
 
 --- The selected format's structural option block.
 export type FormatOptions = {@readonly [string]: any}
@@ -34,19 +34,19 @@ export interface Encoder is own.Closeable
     --- Releases encoder state without producing a trailer.
     close: @nosuspend function(takes self: Encoder): nil
 
-    --- Consumes input and produces output. `NEED_INPUT` consumes the whole
-    --- input; `NEED_OUTPUT` fills the whole output span.
+    --- Consumes input and produces output. `needinput` consumes the whole
+    --- input; `needoutput` fills the whole output span.
     write: function(
         exclusive self: Encoder,
         borrows input: ByteSpan,
         exclusive output: ByteWriteSpan
     ): (integer?, integer?, integer?, string?)
 
-    --- Flushes pending output. `NEED_INPUT` completes the flush; `NEED_OUTPUT`
+    --- Flushes pending output. `needinput` completes the flush; `needoutput`
     --- fills the whole output span.
     flush: function(exclusive self: Encoder, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
 
-    --- Produces the trailer. `FINISHED` completes the stream; `NEED_OUTPUT`
+    --- Produces the trailer. `finished` completes the stream; `needoutput`
     --- fills the whole output span and requires another call.
     finish: function(exclusive self: Encoder, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
 end
@@ -56,17 +56,17 @@ export interface Decoder is own.Closeable
     --- Releases decoder state.
     close: @nosuspend function(takes self: Decoder): nil
 
-    --- Consumes input and produces output. `NEED_INPUT` consumes the whole
-    --- input; `NEED_OUTPUT` fills the output; `FINISHED` completes the stream.
+    --- Consumes input and produces output. `needinput` consumes the whole
+    --- input; `needoutput` fills the output; `finished` completes the stream.
     read: function(
         exclusive self: Decoder,
         borrows input: ByteSpan,
         exclusive output: ByteWriteSpan
     ): (integer?, integer?, integer?, string?)
 
-    --- Reports source EOF. `FINISHED` completes the stream, `NEED_OUTPUT` fills
-    --- the output and `NEED_INPUT` reports a truncated stream.
-    finishInput: function(exclusive self: Decoder, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
+    --- Reports source EOF. `finished` completes the stream, `needoutput` fills
+    --- the output and `needinput` reports a truncated stream.
+    finishinput: function(exclusive self: Decoder, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
 end
 
 --- Immutable format identity and state factories.
@@ -75,10 +75,10 @@ export interface Format
     @readonly name: string
 
     --- Creates independent encoder state for checked format options.
-    createEncoder: function(self: Format, options: FormatOptions?): Encoder
+    createencoder: function(self: Format, options: FormatOptions?): Encoder
 
     --- Creates independent decoder state for checked format options.
-    createDecoder: function(self: Format, options: FormatOptions?): Decoder
+    createdecoder: function(self: Format, options: FormatOptions?): Decoder
 end
 
 --- A selectable implementation catalog.

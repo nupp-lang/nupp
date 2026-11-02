@@ -13,5 +13,5 @@ export interface Provider
 
     --- Returns exactly count random bytes. Accepts integers from zero through
     --- 1048576; zero returns an empty string. Raises on invalid counts or failure.
-    @readonly randomBytes: function(count: integer): string
+    @readonly randombytes: function(count: integer): string
 end

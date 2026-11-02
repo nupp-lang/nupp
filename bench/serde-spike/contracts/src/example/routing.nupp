@@ -50,89 +50,89 @@ local record Output<M is core.Member> is core.Writer<M>
         )
     end
 
-    function writeNull(exclusive self, member: M): nil
+    function writenull(exclusive self, member: M): nil
         error("null has no parameter representation in this protocol", 2)
     end
 
-    function writeString(exclusive self, member: M, value: string): nil
+    function writestring(exclusive self, member: M, value: string): nil
         self:token(member, value)
     end
 
-    function writeBoolean(exclusive self, member: M, value: boolean): nil
+    function writebool(exclusive self, member: M, value: boolean): nil
         self:token(member, value and "true" or "false")
     end
 
-    function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
+    function writeinteger(exclusive self, member: M, borrows value: core.Integer): nil
         self:token(member, value.decimal)
     end
 
-    function writeFloat(exclusive self, member: M, value: number, width: 32 | 64): nil
+    function writefloat(exclusive self, member: M, value: number, width: 32 | 64): nil
         assert(value == value and value ~= math.huge and value ~= -math.huge, "nonfinite parameter")
         self:token(member, ("%.17g"):format(value))
     end
 
-    function writeNumberToken(exclusive self, member: M, value: string): nil
+    function writenumbertoken(exclusive self, member: M, value: string): nil
         self:token(member, value)
     end
 
-    function writeBigInteger(exclusive self, member: M, value: string): nil
+    function writebiginteger(exclusive self, member: M, value: string): nil
         self:token(member, value)
     end
 
-    function writeDecimal(exclusive self, member: M, borrows value: core.Decimal): nil
+    function writedecimal(exclusive self, member: M, borrows value: core.Decimal): nil
         self:token(member, value.coefficient .. "e" .. tostring(value.exponent))
     end
 
-    function writeTimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
+    function writetimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
         error("timestamp parameters require an explicit protocol conversion", 2)
     end
 
-    function writeBytes(exclusive self, member: M, value: string): nil
+    function writebytes(exclusive self, member: M, value: string): nil
         error("blob parameters require an explicit protocol conversion", 2)
     end
 
-    function writeAtom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
+    function writeatom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
         error("atom parameters require an explicit protocol conversion", 2)
     end
 
-    function writeDocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
+    function writedocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
         error("documents have no parameter representation in this protocol", 2)
     end
 
-    function writeStruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+    function writestruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
         assert(self.depth == 0, "nested parameter structure")
         self.depth = 1
         emit:apply(source, self)
         self.depth = 0
     end
 
-    function writeUnion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+    function writeunion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
         error("unions have no parameter representation in this protocol", 2)
     end
 
-    function writeList<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+    function writelist<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
         error("lists require an explicit protocol parameter style", 2)
     end
 
-    function writeTuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
+    function writetuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
         error("tuples have no parameter representation in this protocol", 2)
     end
 
-    function writeMap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+    function writemap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
         error("maps require an explicit protocol parameter style", 2)
     end
 
-    function writeEntry<K, V>(
+    function writeentry<K, V>(
         exclusive self,
         borrows key: K,
-        keyEmit: core.Members<M, K>,
+        keyemit: core.Members<M, K>,
         borrows value: V,
-        valueEmit: core.Members<M, V>
+        valueemit: core.Members<M, V>
     ): nil
         error("map entry outside a parameter map", 2)
     end
 
-    function writeUnknown<F is core.WireField, D>(
+    function writeunknown<F is core.WireField, D>(
         exclusive self,
         field: F,
         borrows value: D,
@@ -191,11 +191,11 @@ local record Scope
                     local field = child:describe("write")
                     assert(
                         field.kind == "string"
-                        or field.kind == "boolean"
+                        or field.kind == "bool"
                         or field.kind == "integer"
                         or field.kind == "float"
-                        or field.kind == "numberToken"
-                        or field.kind == "bigInteger"
+                        or field.kind == "numbertoken"
+                        or field.kind == "biginteger"
                         or field.kind == "decimal",
                         "unsupported parameter representation"
                     )

@@ -110,14 +110,14 @@ local function releaseOwned(context: contract.Context): nil
 end
 
 -- Not a context member: whether a park is permitted belongs to the handler in force,
--- which `canSuspend` answers.
+-- which `cansuspend` answers.
 local function contextcanPark(self: contract.Context): boolean
     const handler = (self as any)._handler
     if handler == nil then
         return effects.canPark()
     end
 
-    return handler.canPark == nil or handler:canPark() ~= false
+    return handler.canpark == nil or handler:canpark() ~= false
 end
 
 type suspension.Waiting = contract.Waiting
@@ -243,7 +243,7 @@ local function currentTurnHost(): any
 end
 
 --- Whether the aggregate here may spend another activation before it owes a turn.
-function suspension.turnAvailable(): boolean
+function suspension.turnavailable(): boolean
     if currentTurnHost() == nil then
         return true
     end
@@ -252,7 +252,7 @@ function suspension.turnAvailable(): boolean
 end
 
 --- Records one coroutine activation against the current turn.
-function suspension.consumeTurn(): nil
+function suspension.consumeturn(): nil
     if currentTurnHost() == nil then
         return
     end
@@ -331,7 +331,7 @@ local function turnDeferralSource(): suspension.Source
 end
 
 --- Parks until the page has answered a park, which is what a turn is here.
-function suspension.deferTurn(): nil
+function suspension.deferturn(): nil
     suspension.suspend("nupp coroutine turn budget", function(
         resume: function(boolean): nil,
         context: suspension.Context
@@ -409,7 +409,7 @@ end
 --- Captured where it is asked rather than where it is answered, so an installation
 --- that wants to defer to the one it replaced keeps asking the outer handler after
 --- it has taken the slot.
-function suspension.delegatedCanPark(): function(): boolean
+function suspension.delegatedcanpark(): function(): boolean
     local captured = installation()
     -- Where there is no outer handler, the question is whether the frame asking to
     -- displace it could reach the page, not whichever child asks later.
@@ -424,16 +424,16 @@ function suspension.delegatedCanPark(): function(): boolean
         if outer == nil then
             return effects.canParkFrom(capturedThread)
         end
-        if outer.canPark == nil then
+        if outer.canpark == nil then
             return true
         end
 
-        return outer.canPark(outer) ~= false
+        return outer.canpark(outer) ~= false
     end
 end
 
 --- Captures how a wait is parked here, for a driver about to displace the handler.
-function suspension.delegatedPark(): function(suspension.Waiting, function(): nil): nil
+function suspension.delegatedpark(): function(suspension.Waiting, function(): nil): nil
     local captured = installation()
 
     return function(waiting: suspension.Waiting, cancel: function(): nil): nil
@@ -473,7 +473,7 @@ function suspension.derive(
         ready = function(_: contract.Waiting): boolean
             return base:ready() or ready()
         end,
-        onResume = function(_: contract.Waiting, wake: function(): nil): nil
+        onresume = function(_: contract.Waiting, wake: function(): nil): nil
             -- Once per registration: both halves can settle in the same turn, and a
             -- scheduler queued twice for one park would run the second activation
             -- against a wait that is already over.
@@ -487,7 +487,7 @@ function suspension.derive(
                 wake()
             end
 
-            base:onResume(wakeOnce)
+            base:onresume(wakeOnce)
             arm(wakeOnce)
         end,
         operation = base.operation
@@ -496,13 +496,13 @@ function suspension.derive(
     return derived
 end
 
-function suspension.canSuspend(): boolean
+function suspension.cansuspend(): boolean
     local current = handler()
     if current == nil then
         return effects.canPark()
     end
 
-    return current.canPark == nil or current:canPark() ~= false
+    return current.canpark == nil or current:canpark() ~= false
 end
 
 function suspension.suspend<T>(
@@ -547,7 +547,7 @@ function suspension.suspend<T>(
         releaseOwned(context)
         error("nupp: " .. operation .. " cannot suspend here", 0)
     end
-    local waiting = new contract.Waiting(ready = waitingready, onResume = waitingonResume, operation = operation)
+    local waiting = new contract.Waiting(ready = waitingready, onresume = waitingonResume, operation = operation)
     const settlement = waiting as any
     settlement._state = state
     local parked: boolean, problem: any
@@ -575,7 +575,7 @@ function suspension.suspend<T>(
     return state.value as T
 end
 
--- What `install` and `installDriver` share. A driver differs only in not bounding a
+-- What `install` and `installdriver` share. A driver differs only in not bounding a
 -- host turn, which is one flag in the extent's own state rather than a parameter
 -- either entry point asks its caller about.
 local function installHandler(value: suspension.Handler, transparent: boolean): affine(contract.Installed)
@@ -607,7 +607,7 @@ function suspension.install(value: suspension.Handler): affine(contract.Installe
 end
 
 --- Installs a driver's handler, which stands in front of a host rather than being one.
-function suspension.installDriver(value: suspension.Handler): affine(contract.Installed)
+function suspension.installdriver(value: suspension.Handler): affine(contract.Installed)
     return installHandler(value, true)
 end
 

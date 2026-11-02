@@ -8,7 +8,7 @@ local suite = {}
 function suite.test(provider: any): (boolean, string?)
     local ok, problem = pcall(function()
         assert(not provider.handled(), "the isolated provider must begin without an installed handler")
-        assert(provider.canSuspend(), "the unhandled blocking driver must permit suspension")
+        assert(provider.cansuspend(), "the unhandled blocking driver must permit suspension")
 
         local ready = provider.suspend("contract.ready", function(resume: function(string)): nil
             resume("ready")
@@ -69,7 +69,7 @@ function suite.test(provider: any): (boolean, string?)
                 inheritedResume(7)
                 assert(waiting:ready(), "the resumed subscription must report itself ready")
             end,
-            canPark = function(): boolean
+            canpark = function(): boolean
                 return true
             end,
             shutdown = function(): nil
@@ -99,11 +99,11 @@ function suite.test(provider: any): (boolean, string?)
             park = function(_: any, waiting: any): nil
                 settledResume("settled")
                 assert(waiting:ready(), "a resumed wait must report itself ready")
-                waiting:onResume(function(): nil
+                waiting:onresume(function(): nil
                     wokeImmediately = true
                 end)
             end,
-            canPark = function(): boolean
+            canpark = function(): boolean
                 return true
             end,
             shutdown = function(): nil
@@ -127,18 +127,18 @@ function suite.test(provider: any): (boolean, string?)
                 parkedOutward = true
                 resumed("delegated")
             end,
-            canPark = function(): boolean
+            canpark = function(): boolean
                 return true
             end,
             shutdown = function(): nil
             end,
         })
-        local parkOutward = provider.delegatedPark()
-        local driver = provider.installDriver({
+        local parkOutward = provider.delegatedpark()
+        local driver = provider.installdriver({
             park = function(_: any, waiting: any, cancel: any): nil
                 parkOutward(waiting, cancel)
             end,
-            canPark = provider.delegatedCanPark(),
+            canpark = provider.delegatedcanpark(),
             shutdown = function(): nil
             end,
         })
@@ -153,18 +153,18 @@ function suite.test(provider: any): (boolean, string?)
         driver:close()
         outer:close()
 
-        local standalone = provider.installDriver({
+        local standalone = provider.installdriver({
             park = function(): nil
             end,
-            canPark = function(): boolean
+            canpark = function(): boolean
                 return true
             end,
             shutdown = function(): nil
             end,
         })
         for _ = 1, 65 do
-            assert(provider.turnAvailable(), "a driver without a host must have an unbounded turn")
-            provider.consumeTurn()
+            assert(provider.turnavailable(), "a driver without a host must have an unbounded turn")
+            provider.consumeturn()
         end
         standalone:close()
 
@@ -178,7 +178,7 @@ function suite.test(provider: any): (boolean, string?)
                 ready = function(): boolean
                     return false
                 end,
-                onResume = function(): nil
+                onresume = function(): nil
                 end,
             },
             function(): boolean
@@ -200,7 +200,7 @@ function suite.test(provider: any): (boolean, string?)
                 ready = function(): boolean
                     return false
                 end,
-                onResume = function(_: any, wake: function(): nil): nil
+                onresume = function(_: any, wake: function(): nil): nil
                     baseWake = wake
                 end,
             },
@@ -212,7 +212,7 @@ function suite.test(provider: any): (boolean, string?)
                 baseWake = wake
             end
         )
-        pair:onResume(function(): nil
+        pair:onresume(function(): nil
             woke = woke + 1
         end)
         assert(armed == 1, "deriving must arm the driver's own wakers")

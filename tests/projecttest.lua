@@ -1085,7 +1085,7 @@ function M.browserHostsCannotSelectNativeDistributionPlatforms()
         "a check rejects the resolved host before applying a native layout"
     )
 
-    local root = assert(require("io.path").currentdirectory()):toString()
+    local root = assert(require("io.path").cwd()):tostring()
     local status, output = process.capture({root .. "/bin/nupp", "build", "--host", "browser"}, {cwd = dir})
     testAssert.eq(status, 1, "the command-line host override is also rejected\n" .. output)
     assert(output:find('platforms selects native binary hosts', 1, true), output)

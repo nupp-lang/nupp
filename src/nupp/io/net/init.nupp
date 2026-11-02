@@ -93,7 +93,7 @@ type net.ListenOptions = {
     --- shares one port. Refused where the platform's semantics are not load
     --- balancing rather than quietly degraded, so a program depending on it
     --- learns at bind.
-    reusePort: boolean?
+    reuseport: boolean?
 }
 
 --- How a connection is opened.
@@ -112,7 +112,7 @@ type net.ConnectOptions = {
 
     --- The most bytes this connection may hold unsent before `write` waits.
     --- Defaults to one mebibyte.
-    sendHighWater: integer?,
+    sendhighwater: integer?,
 
     --- How long the connect may take, resolution included, before it gives up.
     --- Defaults to thirty seconds.
@@ -121,7 +121,7 @@ type net.ConnectOptions = {
     --- forever is a hang somebody eventually reports as a bug, and a peer that
     --- accepts a packet and then says nothing is a normal thing on a network
     --- rather than an unusual one.
-    timeoutMs: integer?
+    timeoutms: integer?
 }
 
 --- How a datagram socket is opened.
@@ -135,7 +135,7 @@ type net.DatagramOptions = {
     --- Whether to ask for load-balancing port reuse, so that a socket per lane
     --- shares one port. Refused where the platform's semantics are not load
     --- balancing rather than quietly degraded.
-    reusePort: boolean?
+    reuseport: boolean?
 }
 
 --- Where a datagram came from, and where one may be sent.
@@ -149,7 +149,7 @@ type net.Address = shared.Address
 --- @export
 record net.Message
     --- How many bytes landed in the storage offered.
-    length: integer
+    len: integer
 
     --- The peer that sent them.
     address: net.Address
@@ -195,8 +195,8 @@ local function pathText(value: Path, what: string, level: integer): string
     if type(given) == "string" then
         return given as string
     end
-    if type(given) == "table" and type(given.toString) == "function" then
-        return given:toString()
+    if type(given) == "table" and type(given.tostring) == "function" then
+        return given:tostring()
     end
     error("nupp: " .. what .. " must be a string or a path", level + 1)
 end
@@ -345,9 +345,9 @@ end
 --- sees success at the moment its bytes were lost.
 local function drain(chosen: contract.Provider, handle: any): (boolean, string?)
     await("nupp.io.net flush", function(): boolean
-        return (chosen:pending(handle) == 0 and not chosen:shuttingDown(handle)) or chosen:writeFailed(handle)
+        return (chosen:pending(handle) == 0 and not chosen:shuttingdown(handle)) or chosen:writefailed(handle)
     end)
-    if chosen:writeFailed(handle) then
+    if chosen:writefailed(handle) then
         return false, "a write did not reach the platform"
     end
 
@@ -387,7 +387,7 @@ record net.DirectionView is Reader, Writer
     end
 
     --- @raises string when the destination is empty
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         const wanted = positive(#destination, "net.DirectionView readSpan destination length", 2)
         const chunk, why = self:read(wanted)
         if chunk == nil then
@@ -402,7 +402,7 @@ record net.DirectionView is Reader, Writer
     end
 
     --- @raises string when count is not a positive integer
-    function readInto(
+    function readinto(
         exclusive self,
         exclusive destination: Buffer,
         offset: integer?,
@@ -416,7 +416,7 @@ record net.DirectionView is Reader, Writer
         const landed = #chunk as integer
         if landed > 0 then
             const input = span.fromstring(chunk)
-            const lease = destination:reserveWrite(offset or 0, landed)
+            const lease = destination:reservewrite(offset or 0, landed)
             do
                 const output = lease:span()
                 for index = 1, landed do
@@ -430,7 +430,7 @@ record net.DirectionView is Reader, Writer
         return landed
     end
 
-    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
+    function transferto(exclusive self, exclusive destination: Writer): (integer?, string?)
         local moved: integer = 0
         while true do
             const chunk, why = self:read(READ_SIZE)
@@ -459,7 +459,7 @@ record net.DirectionView is Reader, Writer
         return writeAll(self._provider, self._handle, self._highWater, bytes)
     end
 
-    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
         const bytes = spanString(source)
         const wrote, why = self:write(bytes)
         if not wrote then
@@ -505,7 +505,7 @@ record net.DirectionView is Reader, Writer
             -- would return the moment the writes landed and leave the alert
             -- exactly as cancellable as before.
             local _, _drained = drain(self._provider, self._handle)
-            local _, _why = self._provider:shutdownWrite(self._handle)
+            local _, _why = self._provider:shutdownwrite(self._handle)
             local _, _sent = drain(self._provider, self._handle)
         end
     end
@@ -524,7 +524,7 @@ record net.Stream is Reader, Writer
     @private _highWater: integer
 
     --- Whether this side has released the connection.
-    function isReleased(self): boolean
+    function isreleased(self): boolean
         return self._closed
     end
 
@@ -532,7 +532,7 @@ record net.Stream is Reader, Writer
     ---
     --- A read returns empty exactly when this is true, which is what keeps a
     --- quiet connection and a finished one apart.
-    function isEnded(self): boolean
+    function isended(self): boolean
         if self._closed then
             return true
         end
@@ -557,7 +557,7 @@ record net.Stream is Reader, Writer
     ---
     --- A Unix socket has a filesystem name and no peer address, and returns nil
     --- rather than something that looks like one.
-    function peerAddress(self): net.Address?
+    function peeraddress(self): net.Address?
         if self._closed then
             return nil
         end
@@ -567,7 +567,7 @@ record net.Stream is Reader, Writer
 
     --- Which of this machine's addresses the connection is on, or nil where
     --- there is none.
-    function localAddress(self): net.Address?
+    function localaddress(self): net.Address?
         if self._closed then
             return nil
         end
@@ -585,12 +585,12 @@ record net.Stream is Reader, Writer
     --- @param enable whether to send small writes immediately
     --- @return whether the option was set
     --- @return why it was not, when unsuccessful
-    function setNoDelay(self, enable: boolean): (boolean, io.Error?)
+    function setnodelay(self, enable: boolean): (boolean, io.Error?)
         if self._closed then
             return false, io.toError("the connection is closed")
         end
 
-        return answered(self._provider:noDelay(self._handle, enable))
+        return answered(self._provider:nodelay(self._handle, enable))
     end
 
     --- Asks the kernel to probe an idle connection.
@@ -601,21 +601,21 @@ record net.Stream is Reader, Writer
     --- it to its own granularity, which is whole seconds on most.
     --- @param self this connection
     --- @param enable whether to probe
-    --- @param delayMs idle milliseconds before the first probe
+    --- @param delayms idle milliseconds before the first probe
     --- @return whether the option was set
     --- @return why it was not, when unsuccessful
     --- @raises string when the delay is not a positive integer no greater than
     ---     4,294,967,295
-    function setKeepAlive(self, enable: boolean, delayMs: integer): (boolean, io.Error?)
+    function setkeepalive(self, enable: boolean, delayms: integer): (boolean, io.Error?)
         if self._closed then
             return false, io.toError("the connection is closed")
         end
-        const delay = positive(delayMs, "net.Stream setKeepAlive delayMs", 2)
+        const delay = positive(delayms, "net.Stream setKeepAlive delayMs", 2)
         if delay > MAX_UINT32 then
             error("nupp: net.Stream setKeepAlive delayMs is too large", 2)
         end
 
-        return answered(self._provider:keepAlive(self._handle, enable, delay))
+        return answered(self._provider:keepalive(self._handle, enable, delay))
     end
 
     --- Reads up to `count` bytes, suspending while none have arrived.
@@ -641,7 +641,7 @@ record net.Stream is Reader, Writer
     --- @return how many bytes were read, or nil when the connection is closed
     --- @return why it could not read, when unsuccessful
     --- @raises string when the destination is empty
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         const wanted = positive(#destination, "net.Stream readSpan destination length", 2)
         const chunk, why = self:read(wanted)
         if chunk == nil then
@@ -663,7 +663,7 @@ record net.Stream is Reader, Writer
     --- @return how many bytes were read, or nil when the connection is closed
     --- @return why it could not read, when unsuccessful
     --- @raises string when count is not a positive integer
-    function readInto(
+    function readinto(
         exclusive self,
         exclusive destination: Buffer,
         offset: integer?,
@@ -677,7 +677,7 @@ record net.Stream is Reader, Writer
         const landed = #chunk as integer
         if landed > 0 then
             const input = span.fromstring(chunk)
-            const lease = destination:reserveWrite(offset or 0, landed)
+            const lease = destination:reservewrite(offset or 0, landed)
             do
                 const output = lease:span()
                 for index = 1, landed do
@@ -696,7 +696,7 @@ record net.Stream is Reader, Writer
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
+    function transferto(exclusive self, exclusive destination: Writer): (integer?, string?)
         local moved: integer = 0
         while true do
             const chunk, why = self:read(READ_SIZE)
@@ -717,7 +717,7 @@ record net.Stream is Reader, Writer
     --- Appends bytes, waiting where the send queue is already at its maximum.
     ---
     --- The whole value is written, as the contract promises. An input larger than
-    --- `sendHighWater` is submitted in pieces that fit beneath it, so the bound
+    --- `sendhighwater` is submitted in pieces that fit beneath it, so the bound
     --- governs how much is queued at one time rather than how much may be sent.
     --- @param self this connection
     --- @param bytes the bytes to append
@@ -739,7 +739,7 @@ record net.Stream is Reader, Writer
     --- @param source bytes valid for the duration of the call
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
         const bytes = spanString(source)
         const wrote, why = self:write(bytes)
         if not wrote then
@@ -777,7 +777,7 @@ record net.Stream is Reader, Writer
     --- @param self this connection
     --- @return whether the sending half was ended
     --- @return why it was not, when unsuccessful
-    function shutdownWrite(self): (boolean, io.Error?)
+    function shutdownwrite(self): (boolean, io.Error?)
         if self._closed then
             return false, io.toError("the connection is closed")
         end
@@ -792,7 +792,7 @@ record net.Stream is Reader, Writer
         if not drained then
             return false, io.toError(drainWhy)
         end
-        const done, why = self._provider:shutdownWrite(self._handle)
+        const done, why = self._provider:shutdownwrite(self._handle)
         if not done then
             return false, io.toError(why)
         end
@@ -806,7 +806,7 @@ record net.Stream is Reader, Writer
     --- Closing the view stops this side reading and leaves the connection open.
     --- @param self the connection to view
     --- @return the view, which may not outlive it
-    function asReader(borrows self): affine(Reader) borrows (self)
+    function asreader(borrows self): affine(Reader) borrows (self)
         return new net.DirectionView(
             _provider = self._provider,
             _handle = self._handle,
@@ -822,7 +822,7 @@ record net.Stream is Reader, Writer
     --- the stream, and leaves the connection open for reading.
     --- @param self the connection to view
     --- @return the view, which may not outlive it
-    function asWriter(borrows self): affine(Writer) borrows (self)
+    function aswriter(borrows self): affine(Writer) borrows (self)
         return new net.DirectionView(
             _provider = self._provider,
             _handle = self._handle,
@@ -840,7 +840,7 @@ record net.Stream is Reader, Writer
             return
         end
         self._closed = true
-        self._provider:closeStream(self._handle)
+        self._provider:closestream(self._handle)
     end
 end
 
@@ -863,11 +863,11 @@ record net.Listener is own.Closeable
             return -1
         end
 
-        return self._provider:listenerPort(self._handle)
+        return self._provider:listenerport(self._handle)
     end
 
     --- Whether this listener has been released.
-    function isReleased(self): boolean
+    function isreleased(self): boolean
         return self._closed
     end
 
@@ -922,7 +922,7 @@ record net.Listener is own.Closeable
             return
         end
         self._closed = true
-        self._provider:closeListener(self._handle)
+        self._provider:closelistener(self._handle)
     end
 end
 
@@ -942,11 +942,11 @@ record net.Datagram is own.Closeable
             return -1
         end
 
-        return self._provider:datagramPort(self._handle)
+        return self._provider:datagramport(self._handle)
     end
 
     --- Whether this socket has been released.
-    function isReleased(self): boolean
+    function isreleased(self): boolean
         return self._closed
     end
 
@@ -962,7 +962,7 @@ record net.Datagram is own.Closeable
     --- @return what the message was, or nil when the socket failed
     --- @return why there is none, when unsuccessful
     --- @raises string when maximum is not a positive integer
-    function receiveFrom(self, exclusive destination: Buffer, maximum: integer): (net.Message?, io.Error?)
+    function receivefrom(self, exclusive destination: Buffer, maximum: integer): (net.Message?, io.Error?)
         if self._closed then
             return nil, io.toError("the datagram socket is closed")
         end
@@ -1011,7 +1011,7 @@ record net.Datagram is own.Closeable
         const landed = #(bytes or "") as integer
         if landed > 0 then
             const input = span.fromstring(bytes or "")
-            const lease = destination:reserveWrite(0, landed)
+            const lease = destination:reservewrite(0, landed)
             do
                 const output = lease:span()
                 for index = 1, landed do
@@ -1023,7 +1023,7 @@ record net.Datagram is own.Closeable
         end
 
         return new net.Message(
-            length = landed,
+            len = landed,
             address = {host = host or "", port = peerPort or 0} as net.Address,
             truncated = cut or false
         )
@@ -1039,13 +1039,13 @@ record net.Datagram is own.Closeable
     --- @param bytes what to send
     --- @return whether the platform took it
     --- @return why it did not, when unsuccessful
-    function sendTo(self, address: net.Address, bytes: string): (boolean, io.Error?)
+    function sendto(self, address: net.Address, bytes: string): (boolean, io.Error?)
         if self._closed then
             return false, io.toError("the datagram socket is closed")
         end
 
         return answered(
-            self._provider:sendTo(
+            self._provider:sendto(
                 self._handle,
                 address.host,
                 checkedPort(address.port, "net.Datagram sendTo port", 2),
@@ -1058,7 +1058,7 @@ record net.Datagram is own.Closeable
     ---
     --- Refused by default by the platform, so a program that means to broadcast
     --- has to say so rather than discover it works.
-    function setBroadcast(self, enable: boolean): (boolean, io.Error?)
+    function setbroadcast(self, enable: boolean): (boolean, io.Error?)
         if self._closed then
             return false, io.toError("the datagram socket is closed")
         end
@@ -1071,7 +1071,7 @@ record net.Datagram is own.Closeable
     --- One keeps it on the local segment, which is what discovery on a LAN
     --- wants and what the platform starts at.
     --- @raises string when the hop limit is not 1 through 255
-    function setMulticastTTL(self, ttl: integer): (boolean, io.Error?)
+    function setmulticastttl(self, ttl: integer): (boolean, io.Error?)
         if self._closed then
             return false, io.toError("the datagram socket is closed")
         end
@@ -1079,19 +1079,19 @@ record net.Datagram is own.Closeable
             error("nupp: a multicast hop limit must be 1 through 255", 2)
         end
 
-        return answered(self._provider:multicastTtl(self._handle, ttl))
+        return answered(self._provider:multicastttl(self._handle, ttl))
     end
 
     --- Whether this socket also receives what it sends to a group it joined.
     ---
     --- Off is usually what is wanted: a discovery protocol that answers its own
     --- announcements is the first bug somebody writes with one.
-    function setMulticastLoop(self, enable: boolean): (boolean, io.Error?)
+    function setmulticastloop(self, enable: boolean): (boolean, io.Error?)
         if self._closed then
             return false, io.toError("the datagram socket is closed")
         end
 
-        return answered(self._provider:multicastLoop(self._handle, enable))
+        return answered(self._provider:multicastloop(self._handle, enable))
     end
 
     --- Joins a multicast group.
@@ -1099,21 +1099,21 @@ record net.Datagram is own.Closeable
     --- `interfaceAddress` names which of this machine's addresses to join on.
     --- On a machine with more than one, the platform's own choice is rarely the
     --- one wanted, which is why it is asked for rather than assumed.
-    function joinMulticast(self, group: string, interfaceAddress: string?): (boolean, io.Error?)
+    function joinmulticast(self, group: string, interfaceaddress: string?): (boolean, io.Error?)
         if self._closed then
             return false, io.toError("the datagram socket is closed")
         end
 
-        return answered(self._provider:membership(self._handle, group, interfaceAddress or "", true))
+        return answered(self._provider:membership(self._handle, group, interfaceaddress or "", true))
     end
 
     --- Leaves a multicast group.
-    function leaveMulticast(self, group: string, interfaceAddress: string?): (boolean, io.Error?)
+    function leavemulticast(self, group: string, interfaceaddress: string?): (boolean, io.Error?)
         if self._closed then
             return false, io.toError("the datagram socket is closed")
         end
 
-        return answered(self._provider:membership(self._handle, group, interfaceAddress or "", false))
+        return answered(self._provider:membership(self._handle, group, interfaceaddress or "", false))
     end
 
     --- Releases the socket. Idempotent, and terminal.
@@ -1122,7 +1122,7 @@ record net.Datagram is own.Closeable
             return
         end
         self._closed = true
-        self._provider:closeDatagram(self._handle)
+        self._provider:closedatagram(self._handle)
     end
 end
 
@@ -1139,7 +1139,7 @@ end
 function net.bind(options: net.DatagramOptions): (affine(net.Datagram)?, io.Error?)
     const chosen = provider
     const bound = checkedPort(options.port, "net.bind port", 2)
-    const handle, why = chosen:bindDatagram(options.host, bound, options.reusePort or false)
+    const handle, why = chosen:binddatagram(options.host, bound, options.reuseport or false)
     if handle == nil then
         return nil, io.toError(why)
     end
@@ -1165,7 +1165,7 @@ function net.listen(options: net.ListenOptions): (affine(net.Listener)?, io.Erro
         if options.host ~= nil or options.port ~= nil then
             error("nupp: net.listen takes a path or a host and port, not both", 2)
         end
-        handle, why = chosen:listenPath(pathText(options.path or "", "net.listen path", 2), backlog)
+        handle, why = chosen:listenpath(pathText(options.path or "", "net.listen path", 2), backlog)
     else
         if options.host == nil or options.port == nil then
             error("nupp: net.listen needs a path, or a host and a port", 2)
@@ -1174,7 +1174,7 @@ function net.listen(options: net.ListenOptions): (affine(net.Listener)?, io.Erro
             options.host or "",
             checkedPort(options.port or 0, "net.listen port", 2),
             backlog,
-            options.reusePort or false
+            options.reuseport or false
         )
     end
     if handle == nil then
@@ -1192,18 +1192,18 @@ end
 --- @export
 function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, io.Error?)
     const chosen = provider
-    const deadline = positive(options.timeoutMs or DEFAULT_CONNECT_MS, "net.connect timeoutMs", 2)
+    const deadline = positive(options.timeoutms or DEFAULT_CONNECT_MS, "net.connect timeoutMs", 2)
     -- Checked here rather than where the stream is built, because that is after
     -- the connect: a bad bound with an unreachable peer would otherwise be
     -- reported as the peer's fault and never as the caller's.
-    const highWater = positive(options.sendHighWater or DEFAULT_HIGH_WATER, "net.connect sendHighWater", 2)
+    const highWater = positive(options.sendhighwater or DEFAULT_HIGH_WATER, "net.connect sendHighWater", 2)
     local request: any = nil
     local why: string? = nil
     if options.path ~= nil then
         if options.host ~= nil or options.port ~= nil then
             error("nupp: net.connect takes a path or a host and port, not both", 2)
         end
-        request, why = chosen:connectPath(pathText(options.path or "", "net.connect path", 2), deadline)
+        request, why = chosen:connectpath(pathText(options.path or "", "net.connect path", 2), deadline)
     else
         if options.host == nil or options.port == nil then
             error("nupp: net.connect needs a path, or a host and a port", 2)
@@ -1222,7 +1222,7 @@ function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, io.Erro
     local function closeRequest(): nil
         if requestOpen then
             requestOpen = false
-            chosen:closeConnect(request)
+            chosen:closeconnect(request)
         end
     end
 
@@ -1232,7 +1232,7 @@ function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, io.Erro
         await(
             "nupp.io.net connect",
             function(): boolean
-                const ready, reason = chosen:connectPoll(request)
+                const ready, reason = chosen:connectpoll(request)
                 if ready ~= nil then
                     handle = ready
 
@@ -1294,12 +1294,12 @@ end
 layering.takeStreamHandle = takeStreamHandle
 
 --- Advances the selected network reactor.
---- @raises string when timeoutMs is not a non-negative integer
-function net.pump(timeoutMs: integer): nil
-    if timeoutMs < 0 or math.floor(timeoutMs) ~= timeoutMs then
+--- @raises string when timeoutms is not a non-negative integer
+function net.pump(timeoutms: integer): nil
+    if timeoutms < 0 or math.floor(timeoutms) ~= timeoutms then
         error("nupp: net.pump timeoutMs must be a non-negative integer", 2)
     end
-    provider:run(timeoutMs)
+    provider:run(timeoutms)
 end
 
 export = net

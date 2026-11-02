@@ -5,7 +5,17 @@ local shared = require("nupp.io.process.types")
 local provider = {}
 
 function provider.spawn(_: any, options: shared.Options): (any?, any?, any?, any?, integer, string?)
-    return host.spawn(options)
+    -- Public option names stop here; the frozen host consumes this private descriptor.
+    return host.spawn({
+        args = options.args,
+        cwd = options.cwd,
+        env = options.env,
+        clearEnv = options.clearenv,
+        stdin = options.stdin,
+        stdout = options.stdout,
+        stderr = options.stderr,
+        timeoutMs = options.timeoutms,
+    })
 end
 
 function provider.poll(_: any, child: any): shared.Exit?
@@ -27,7 +37,7 @@ function provider.write(_: any, stream: any, bytes: string): (integer, boolean)
     return host.write(stream, bytes)
 end
 
-function provider.closeStream(_: any, stream: any): (boolean, string?)
+function provider.closestream(_: any, stream: any): (boolean, string?)
     return host.closeStream(stream)
 end
 
@@ -39,7 +49,7 @@ function provider.now(_: any): number
     return require("nupp.vm.clock").now()
 end
 
-function provider.waitReady(_: any, interest: shared.Interest, milliseconds: number): integer
+function provider.waitready(_: any, interest: shared.Interest, milliseconds: number): integer
     return host.waitReady(interest, milliseconds)
 end
 

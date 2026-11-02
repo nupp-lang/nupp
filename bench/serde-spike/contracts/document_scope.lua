@@ -3,10 +3,10 @@ local readers = require("nupp.serde.internal.documentreader")
 local map = documents.map({{key = documents.string("key"), value = documents.null()}})
 local retainedKey, retainedValue
 local input = readers.reader(map)
-local ok, problem = pcall(input.readMap, input, {}, {
+local ok, problem = pcall(input.readmap, input, {}, {
     apply = function(_, _, key, value)
         retainedKey, retainedValue = key, value
-        key:readString()
+        key:readstring()
     end,
 })
 assert(not ok and tostring(problem):find("consume both", 1, true), tostring(problem))
@@ -18,14 +18,14 @@ input:close()
 
 local child
 local root = readers.reader(documents.list({documents.string("one")}))
-local ok = pcall(root.readList, root, {}, {
+local ok = pcall(root.readlist, root, {}, {
     apply = function(_, _, _, value)
         child = value
         error("stop", 0)
     end,
 })
 assert(not ok)
-local live, expired = pcall(child.readString, child)
+local live, expired = pcall(child.readstring, child)
 assert(not live and tostring(expired):find("expired", 1, true), tostring(expired))
 root:close()
 print("in-memory document readers expire on partial consumption and callback failure")

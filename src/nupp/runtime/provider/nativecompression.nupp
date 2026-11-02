@@ -78,7 +78,7 @@ local record Decoder is contract.Decoder
         return consumed, written, status
     end
 
-    function finishInput(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
+    function finishinput(exclusive self, exclusive output: span.ByteWriteSpan): (integer?, integer?, string?)
         local written, status, problem = host.decoderFinishInput(self.handle, output)
         if written == nil then
             return nil, nil, reason("compression decode failed", problem)
@@ -92,7 +92,7 @@ local record Format is contract.Format
     @readonly name: string
     @private id: integer
 
-    function createEncoder(self, options: contract.FormatOptions?): contract.Encoder
+    function createencoder(self, options: contract.FormatOptions?): contract.Encoder
         local level = options ~= nil and options.level or 6
         local handle, problem = host.encoderCreate(self.id, level)
         if handle == nil then
@@ -102,8 +102,8 @@ local record Format is contract.Format
         return new Encoder(handle = handle)
     end
 
-    function createDecoder(self, options: contract.FormatOptions?): contract.Decoder
-        local concatenatedMembers = self.name == "gzip" and (options == nil or options.concatenatedMembers ~= false)
+    function createdecoder(self, options: contract.FormatOptions?): contract.Decoder
+        local concatenatedMembers = self.name == "gzip" and (options == nil or options.concatenatedmembers ~= false)
         local handle, problem = host.decoderCreate(self.id, concatenatedMembers)
         if handle == nil then
             error("nupp: " .. (problem or "could not create a compression decoder"), 2)

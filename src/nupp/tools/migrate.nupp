@@ -333,7 +333,7 @@ local function serdePlan(source: string, path: string, given: table?): (migrate.
                                 arguments[#arguments + 1] = "name = " .. string.format("%q", fieldOptions.name)
                             end
                             if fieldOptions.omitEmpty then
-                                arguments[#arguments + 1] = "omitEmpty = true"
+                                arguments[#arguments + 1] = "omitempty = true"
                             end
                             fields[
                                 #fields + 1
@@ -349,7 +349,7 @@ local function serdePlan(source: string, path: string, given: table?): (migrate.
                     local cached = fresh(node.name.text .. "JSONBinding")
                     local arguments = "fields = {" .. table.concat(fields, ", ") .. "}"
                     if recordOptions.unknown ~= nil then
-                        arguments = arguments .. ", unknownMembers = " .. string.format("%q", recordOptions.unknown)
+                        arguments = arguments .. ", unknownmembers = " .. string.format("%q", recordOptions.unknown)
                     end
                     local last = assert(cst.lastToken(node))
                     addEdit(

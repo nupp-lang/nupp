@@ -13,9 +13,9 @@ local fields = {
     userId = new declarations.FieldOptions(name = "id"),
     displayName = new declarations.FieldOptions(name = "display_name"),
 }
-local public = declarations.binding(User, new declarations.Options(fields = fields, unknownMembers = "ignore"))
+local public = declarations.binding(User, new declarations.Options(fields = fields, unknownmembers = "ignore"))
 fields.userId = new declarations.FieldOptions(name = "changed")
-local codec = json.codec(__serdeJson.defaultPolicy)
+local codec = json.codec(__serdeJson.defaultpolicy)
 assert(codec:encode(public, source) == '{"id":42,"display_name":"Ada"}')
 local first = codec:decode(public, '{"display_name":"A","id":1,"extra":{"nested":[true,null]}}')
 local second = codec:decode(public, '{"id":2,"display_name":"B"}')
@@ -23,7 +23,7 @@ assert(first.sessionToken == "fresh" and #first.tags == 0)
 first.tags[1] = "isolated"
 assert(#second.tags == 0 and second.sessionToken == "fresh")
 assert(not pcall(codec.decode, codec, public, '{"id":1,"display_name":"A","extra":[bad]}'))
-local snake = declarations.binding(User, new declarations.Options(naming = "snakeCase"))
+local snake = declarations.binding(User, new declarations.Options(naming = "snakecase"))
 local bytes = codec:encode(snake, source)
 assert(bytes:find('"user_id"', 1, true) and bytes:find('"display_name"', 1, true))
 assert(codec:decode(snake, bytes).userId == 42)
@@ -61,8 +61,8 @@ local events = declarations.binding(
     Event,
     new declarations.Options(
         fields = {
-            createdAt = new declarations.FieldOptions(representation = declarations.iso8601Seconds),
-            optionalAt = new declarations.FieldOptions(representation = declarations.iso8601Seconds),
+            createdAt = new declarations.FieldOptions(representation = declarations.iso8601seconds),
+            optionalAt = new declarations.FieldOptions(representation = declarations.iso8601seconds),
         }
     )
 )
@@ -76,7 +76,7 @@ assert(
         declarations.binding(
             User,
             new declarations.Options(
-                fields = {tags = new declarations.FieldOptions(representation = declarations.iso8601Seconds),}
+                fields = {tags = new declarations.FieldOptions(representation = declarations.iso8601seconds),}
             )
         )
     end)
@@ -93,11 +93,11 @@ local empty = declarations.binding(
     Empty,
     new declarations.Options(
         fields = {
-            blank = new declarations.FieldOptions(omitEmpty = true),
-            disabled = new declarations.FieldOptions(omitEmpty = true),
-            items = new declarations.FieldOptions(omitEmpty = true),
-            missing = new declarations.FieldOptions(omitEmpty = true),
-            zero = new declarations.FieldOptions(omitEmpty = true),
+            blank = new declarations.FieldOptions(omitempty = true),
+            disabled = new declarations.FieldOptions(omitempty = true),
+            items = new declarations.FieldOptions(omitempty = true),
+            missing = new declarations.FieldOptions(omitempty = true),
+            zero = new declarations.FieldOptions(omitempty = true),
         }
     )
 )

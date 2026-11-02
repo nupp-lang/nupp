@@ -74,21 +74,21 @@ local function rowAt(borrows rows: soa.Span<Body>, index: integer): Body
 end
 
 local function copyPast(exclusive rows: soa.WriteSpan<Body>, borrows source: soa.Span<Body>): nil
-    rows:copyFrom(2, source, 1, 2)
+    rows:copyfrom(2, source, 1, 2)
 end
 
 local function soaSlabs(): nil
     local layout = soa.layoutof(ffi.typeof<Body>())
     assert2(layout.name == "Body" and #layout.fields == 4)
-    assert2(layout.fields[1].name == "position" and layout.fields[1].elementSize == 16)
-    assert2(layout.fields[2].ctype == "float" and layout.fields[2].elementSize == 4)
+    assert2(layout.fields[1].name == "position" and layout.fields[1].elementsize == 16)
+    assert2(layout.fields[2].ctype == "float" and layout.fields[2].elementsize == 4)
     assert2(layout.fields[4].ctype == "uint8_t" and layout.fields[4].alignment == 1)
     assert2(layout.alignment == 8)
     assert2(layout.fingerprint:find("Body.mass:float@4/4", 1, true), layout.fingerprint)
-    local instance = layout:forCount(3)
+    local instance = layout:forcount(3)
     assert2(instance.segments[1].offset == 0 and instance.segments[2].offset == 48)
     assert2(instance.segments[3].offset == 60 and instance.segments[4].offset == 72)
-    assert2(instance.byteSize == 75)
+    assert2(instance.bytesize == 75)
 
     local bodies = soa.alloc(ffi.typeof<Body>(), 4)
     assert2(bodies.count == 4 and bodies.fingerprint == layout.fingerprint)
@@ -122,7 +122,7 @@ local function soaSlabs(): nil
 
     local copies = soa.alloc(ffi.typeof<Body>(), 2)
     with rows = copies:write() do
-        rows:copyFrom(1, bodies:read(), 3, 2)
+        rows:copyfrom(1, bodies:read(), 3, 2)
     end
     with rows = copies:write() do
         local copiedPast, why = pcall(copyPast, rows, bodies:read())
@@ -134,9 +134,9 @@ end
 
 local function sharedRegions(): nil
     local region = sharedbytes.copy("hello, region")
-    assert2(region:length() == 13)
+    assert2(region:len() == 13)
     local hello = region:slice(0, 5)
-    assert2(hello:length() == 5 and hello:toString() == "hello")
+    assert2(hello:len() == 5 and hello:tostring() == "hello")
     local bytes = region:view(7)
     assert2(#bytes == 6 and bytes[1] == string.byte("r"))
     assert2(region == region:slice(0, 13) and region ~= sharedbytes.copy("hello, region"))
@@ -158,15 +158,15 @@ local function sharedRegions(): nil
     builder:append("!")
     builder:append(string.rep("z", 100))
     local frozen = builder:freeze()
-    assert2(frozen:length() == 106 and frozen:slice(0, 6):toString() == "ABCDE!")
+    assert2(frozen:len() == 106 and frozen:slice(0, 6):tostring() == "ABCDE!")
     assert2(frozen:view(5, 2)[1] == string.byte("!"))
 
     local words = sharedbytes.copy(string.rep("\0", 28)):slice(4, 24)
-    local triples = words:viewAs(ffi.typeof<int32>())
+    local triples = words:viewas(ffi.typeof<int32>())
     assert2(#triples == 6 and triples[1] == 0)
     raises(
         function(): nil
-            words:slice(1, 8):viewAs(ffi.typeof<int32>())
+            words:slice(1, 8):viewas(ffi.typeof<int32>())
         end,
         "not suitably aligned"
     )
@@ -204,12 +204,12 @@ end
 
 --- What a worker reads of a region it was handed.
 function test.regionPrefix(region: sharedbytes.Region): string
-    return region:slice(0, 5):toString()
+    return region:slice(0, 5):tostring()
 end
 
 --- What a worker reads of a region, and where the block it reads lives.
 function test.regionBlock(region: sharedbytes.Region): (string, number)
-    return region:slice(0, 5):toString(), regionAddress(region)
+    return region:slice(0, 5):tostring(), regionAddress(region)
 end
 
 --- A region a worker makes and hands back.
@@ -252,14 +252,14 @@ local function workerRegions(): nil
     local built = builder:freeze()
     local large = sharedbytes.copy(string.rep("large", 200000))
     with scope = tasks.scope() do
-        const one = scope:fork(region, test.regionPrefix)
-        const two = scope:fork(built, test.regionPrefix)
+        const one = scope:work(region, test.regionPrefix)
+        const two = scope:work(built, test.regionPrefix)
         assert2(one:await() == "hello")
         assert2(two:await() == "built")
         -- By reference: the worker reads the block the caller holds.
-        const three = scope:fork(region:slice(7, 6), test.regionBlock)
-        const four = scope:fork(built, test.regionBlock)
-        const five = scope:fork(large, test.regionBlock)
+        const three = scope:work(region:slice(7, 6), test.regionBlock)
+        const four = scope:work(built, test.regionBlock)
+        const five = scope:work(large, test.regionBlock)
         local text, address = three:await()
         assert2(text == "worke" and address == regionAddress(region), "a region crosses by reference")
         text, address = four:await()
@@ -267,22 +267,22 @@ local function workerRegions(): nil
         text, address = five:await()
         assert2(text == "large" and address == regionAddress(large), "a large region crosses by reference")
         -- A region a worker made comes back as the same block.
-        local made, madeAt = scope:fork("made in a worker", test.makeRegion):await()
-        assert2(made:toString() == "made in a worker" and regionAddress(made) == madeAt)
+        local made, madeAt = scope:work("made in a worker", test.makeRegion):await()
+        assert2(made:tostring() == "made in a worker" and regionAddress(made) == madeAt)
     end
     collectgarbage()
-    assert2(large:slice(0, 5):toString() == "large" and region:toString() == "hello, worker")
+    assert2(large:slice(0, 5):tostring() == "large" and region:tostring() == "hello, worker")
 end
 
 local function workerMoves(): nil
     local frame = heap.alloc(ffi.typeof<int32>(), 1024)
     const before = arrayAddress(frame)
     with scope = tasks.scope() do
-        frame = scope:fork(frame, 5, test.fillMoved):await()
+        frame = scope:work(frame, 5, test.fillMoved):await()
         -- Moved there and back: the same allocation, not a copy.
         assert2(arrayAddress(frame) == before, "a heap array moves rather than copies")
         assert2(frame:read()[1] == 6 and frame:read()[1024] == 1029)
-        local sum, address = scope:fork(frame, test.totalMoved):await()
+        local sum, address = scope:work(frame, test.totalMoved):await()
         assert2(sum == (6 + 1029) * 1024 // 2 and address == before, "the worker owns the moved allocation")
     end
 end

@@ -54,7 +54,7 @@ local document = documents.tuple({
     documents.biginteger("123456789012345678901234567890"),
     documents.timestamp(new core.Timestamp(seconds = "-1", nanos = 123456789)),
     documents.boundary(documents.null()),
-    documents.union("choice", documents.boolean(false)),
+    documents.union("choice", documents.bool(false)),
     documents.map({
         new documents.MapEntry(key = documents.integer(numbers.integer("7", 8, false)), value = documents.null())
     })
@@ -64,9 +64,9 @@ local dynamic = native.decodedocument(adapter, native.encodedocument(adapter, do
 assert(dynamic.kind == "tuple" and dynamic:size() == 10 and dynamic:at(1).kind == "null")
 assert(dynamic:at(2):integer().decimal == "-9223372036854775808" and dynamic:at(3):bytes() == "\0\255blob")
 assert(dynamic:at(4):decimal().coefficient == "-0" and dynamic:at(4):decimal().exponent == -5)
-assert(dynamic:at(5):float().width == 32 and dynamic:at(6):bigInteger() == document:at(6):bigInteger())
+assert(dynamic:at(5):float().width == 32 and dynamic:at(6):biginteger() == document:at(6):biginteger())
 assert(dynamic:at(7):timestamp().nanos == 123456789 and dynamic:at(8):document().kind == "null")
-assert(dynamic:at(9).kind == "union" and not assert(dynamic:at(9):get("choice")):boolean())
+assert(dynamic:at(9).kind == "union" and not assert(dynamic:at(9):get("choice")):bool())
 assert(dynamic:at(10):entry(1).key:integer().decimal == "7" and dynamic:at(10):entry(1).value.kind == "null")
 local record Atom is core.Atom
     @readonly family: table = {}
@@ -139,9 +139,9 @@ assert(preserved:at(3):float().value ~= preserved:at(3):float().value)
 assert(assert(dynamic:context()).codec == native.identity)
 local hot = native.codec()
 assert(hot:decode(binding, hot:encode(binding, saved)).score == saved.score)
-assert(hot:cachedBindings() == 1)
+assert(hot:cachedbindings() == 1)
 hot:clear()
-assert(hot:cachedBindings() == 0)
+assert(hot:cachedbindings() == 0)
 local json = require("serde.json")
 local model = require("example.richmodel")
 assert(

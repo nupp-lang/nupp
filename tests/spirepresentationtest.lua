@@ -24,16 +24,17 @@ function M.facadesRetainSelectedRepresentationMembers()
         return 'allocated'
     end
     local structs = {}
-    local storage = {representation = 'native', structs = structs, allocateBytes = allocateBytes}
+    local storage = {representation = 'native', structs = structs, allocbytes = allocateBytes}
     local load = runtime(storage)
 
     assert(load('nupp.runtime.storage').allocateBytes == allocateBytes)
+    assert(storage.allocateBytes == nil, 'the SPI has no preceding public allocation key')
     assert(load('nupp.runtime.structvalue') == structs)
 end
 
 function M.missingStorageStructsUseTheTableFallback()
     local load = runtime({representation = 'native'})
-    assert(load('nupp.runtime.structvalue').referenceValued)
+    assert(load('nupp.runtime.structvalue').referencevalued)
 end
 
 function M.incompatibleStorageIsRejectedBeforeUse()

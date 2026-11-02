@@ -20,4 +20,4 @@ end
 --- @param count the requested byte count, from zero through 1048576
 --- @return the generated raw bytes
 --- @raises string when the count is invalid or the host cannot supply randomness
-export const randombytes = provider.randomBytes
+export const randombytes = provider.randombytes

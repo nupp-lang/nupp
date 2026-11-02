@@ -40,10 +40,10 @@ local function named(value: any, what: string, level: integer): string
         return value as string
     end
     if appPaths.is(value) then
-        return (value as appPaths.ApplicationPath):toString()
+        return (value as appPaths.ApplicationPath):tostring()
     end
-    if type(value) == "table" and (value as any).toString ~= nil then
-        return (value as paths.Path):toString()
+    if type(value) == "table" and (value as any).tostring ~= nil then
+        return (value as paths.Path):tostring()
     end
     error("nupp: io.files " .. what .. " must be a path or a string", level)
 end
@@ -84,8 +84,8 @@ local function payload(borrows value: string | io.ByteView, what: string, level:
     if type(value) == "string" then
         return tostring(value)
     end
-    if type(value) == "table" and (value as io.ByteView).getString ~= nil then
-        return (value as io.ByteView):getString()
+    if type(value) == "table" and (value as io.ByteView).getstring ~= nil then
+        return (value as io.ByteView):getstring()
     end
     error("nupp: io.files " .. what .. " must be bytes or a byte view", level)
 end
@@ -106,11 +106,11 @@ export record File is io.Reader, io.Writer
 
     --- Reads into a writable byte span, answering how many bytes landed.
     --- @raises string when the destination is empty
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the file is closed"
         end
-        local wanted = positive(#destination, "File:readSpan destination length", 2)
+        local wanted = positive(#destination, "File:readspan destination length", 2)
         local chunk, failure = host.fileRead(self._handle, wanted)
         if chunk == nil then
             return nil, failure
@@ -124,7 +124,7 @@ export record File is io.Reader, io.Writer
 
     --- Reads into a buffer at an offset, answering how many bytes landed.
     --- @raises string when the offset or count is malformed
-    function readInto(
+    function readinto(
         exclusive self,
         exclusive destination: io.Buffer,
         offset: integer?,
@@ -133,8 +133,8 @@ export record File is io.Reader, io.Writer
         if self._closed then
             return nil, "the file is closed"
         end
-        local from = counted(offset or 0, "File:readInto offset", 2)
-        local wanted = positive(count or READ_SIZE, "File:readInto count", 2)
+        local from = counted(offset or 0, "File:readinto offset", 2)
+        local wanted = positive(count or READ_SIZE, "File:readinto count", 2)
         local chunk, failure = self:read(wanted)
         if chunk == nil then
             return nil, failure
@@ -144,7 +144,7 @@ export record File is io.Reader, io.Writer
             return 0, nil
         end
         local input = span.fromstring(chunk as string)
-        local lease = destination:reserveWrite(from, wanted)
+        local lease = destination:reservewrite(from, wanted)
         do
             local output = lease:span()
             for index = 1, taking do
@@ -158,7 +158,7 @@ export record File is io.Reader, io.Writer
     end
 
     --- Copies the rest of the file to a writer, answering the bytes moved.
-    function transferTo(exclusive self, exclusive destination: io.Writer): (integer?, string?)
+    function transferto(exclusive self, exclusive destination: io.Writer): (integer?, string?)
         if self._closed then
             return nil, "the file is closed"
         end
@@ -200,7 +200,7 @@ export record File is io.Reader, io.Writer
     end
 
     --- Writes a byte span at the cursor, answering how many bytes landed.
-    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
         if self._closed then
             return nil, "the file is closed"
         end
@@ -263,7 +263,7 @@ export record File is io.Reader, io.Writer
     end
 
     --- Reports whether the file has already been closed.
-    function isReleased(borrows self): boolean
+    function isreleased(borrows self): boolean
         return self._closed
     end
 
@@ -285,7 +285,7 @@ export record TemporaryPath is own.Closeable
     @private _closed: boolean
 
     --- Returns the native path text.
-    function toString(self): string
+    function tostring(self): string
         return self._text
     end
 
@@ -309,7 +309,7 @@ export record TemporaryPath is own.Closeable
     end
 
     --- Reports whether the temporary owner has been closed or persisted.
-    function isReleased(self): boolean
+    function isreleased(self): boolean
         return self._closed
     end
 
@@ -329,7 +329,7 @@ end
 
     ;
 (TemporaryPath as {[string]: any}).__tostring = function(borrows self: TemporaryPath): string
-    return self:toString()
+    return self:tostring()
 end
 
 local function informed(path: string | paths.Path, follow: boolean): (Info?, string?)
@@ -342,7 +342,7 @@ local function informed(path: string | paths.Path, follow: boolean): (Info?, str
         kind = found.kind as Kind,
         size = found.size,
         modified = found.modified,
-        readOnly = found.readOnly
+        readonly = found.readOnly
     ), nil
 end
 
@@ -400,13 +400,13 @@ export function createSymlink(
 end
 
 --- Sets or clears the platform's read-only attribute.
-export function setReadOnly(path: string | paths.Path, readOnly: boolean): (boolean, string?)
+export function setReadOnly(path: string | paths.Path, readonly: boolean): (boolean, string?)
     local at = named(path, "path", 2)
-    if type(readOnly) ~= "boolean" then
-        error("nupp: io.files readOnly must be a boolean", 2)
+    if type(readonly) ~= "boolean" then
+        error("nupp: io.files readonly must be a boolean", 2)
     end
 
-    return host.setReadOnly(at, readOnly)
+    return host.setReadOnly(at, readonly)
 end
 
 --- Creates a directory and every missing parent.
@@ -568,18 +568,18 @@ end
 export function capabilities(): messages.Capabilities
     return new messages.Capabilities(
         available = true,
-        arbitraryPaths = true,
-        symbolicLinks = true,
-        readOnlyAttributes = true,
+        arbitrarypaths = true,
+        symlinks = true,
+        readonlyattributes = true,
         glob = true,
         rename = true,
-        atomicWrite = true,
-        temporaryPaths = true,
-        concurrentOpenHandles = true,
-        currentDirectory = true,
-        userFolders = true,
-        executableDirectory = true,
-        persistentStorageRequest = true
+        atomicwrite = true,
+        tmppaths = true,
+        concurrentopenhandles = true,
+        cwd = true,
+        userfolders = true,
+        executabledirectory = true,
+        persistentstoragerequest = true
     )
 end
 
@@ -598,7 +598,7 @@ export function applicationPath(
         return nil, reason
     end
     local value = appPaths.native(base, organization, application)
-    local made, failure = host.createDirectory(value:toString())
+    local made, failure = host.createDirectory(value:tostring())
     if not made then
         return nil, failure
     end

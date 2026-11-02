@@ -35,7 +35,7 @@ local record EmailConversion is scalar.Conversion<Email, string>
 end
 local emailAdapter = scalar.convert(scalar.text(email), new EmailConversion())
 local layout = indexed.layout(root)
-local emailSlot = layout:addDefault(email, emailAdapter, function(): Email
+local emailSlot = layout:adddefault(email, emailAdapter, function(): Email
     return new Email(text = "default@example.com")
 end)
 local countSlot = layout:add(count, scalar.integer(count, 64, true), false)

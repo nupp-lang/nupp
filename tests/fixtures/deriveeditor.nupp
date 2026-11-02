@@ -13,7 +13,7 @@ end
 
 @comptime
 function provider.derive(info: types.derive.Info): types.derive.Result<provider.Inspect>
-    local signature = types2.function_(types2.pack({}), types2.pack({types2.string}))
+    local signature = types2.functiontype(types2.pack({}), types2.pack({types2.string}))
 
     return derive.implement{
         methods = {

@@ -1535,7 +1535,7 @@ record simd.PropagatingMin<T is float32 | float64> is simd.Reducer<T>
     end
 end
 
---- Constructs a propagatingMin reducer.
+--- Constructs a propagatingmin reducer.
 ---
 --- `(propagatingMin(initial))` accumulates in `float64`; `(propagatingMin(element,
 --- initial))` in the `float32` or `float64` the witness names, with the initial value
@@ -1635,7 +1635,7 @@ record simd.PropagatingMax<T is float32 | float64> is simd.Reducer<T>
     end
 end
 
---- Constructs a propagatingMax reducer.
+--- Constructs a propagatingmax reducer.
 ---
 --- `(propagatingMax(initial))` accumulates in `float64`; `(propagatingMax(element,
 --- initial))` in the `float32` or `float64` the witness names, with the initial value
@@ -1735,7 +1735,7 @@ record simd.NumberMin<T is float32 | float64> is simd.Reducer<T>
     end
 end
 
---- Constructs a numberMin reducer.
+--- Constructs a numbermin reducer.
 ---
 --- `(numberMin(initial))` accumulates in `float64`; `(numberMin(element, initial))`
 --- in the `float32` or `float64` the witness names, with the initial value
@@ -1835,7 +1835,7 @@ record simd.NumberMax<T is float32 | float64> is simd.Reducer<T>
     end
 end
 
---- Constructs a numberMax reducer.
+--- Constructs a numbermax reducer.
 ---
 --- `(numberMax(initial))` accumulates in `float64`; `(numberMax(element, initial))`
 --- in the `float32` or `float64` the witness names, with the initial value
@@ -1919,8 +1919,8 @@ sealed interface simd.Mask<T, S>
 
     select: function(
         borrows self: simd.Mask<T, S>,
-        whenTrue: simd.Vector<T, S> | T,
-        whenFalse: simd.Vector<T, S> | T
+        whentrue: simd.Vector<T, S> | T,
+        whenfalse: simd.Vector<T, S> | T
     ): simd.Vector<T, S>
     any: function(borrows self: simd.Mask<T, S>): boolean
     all: function(borrows self: simd.Mask<T, S>): boolean
@@ -1964,9 +1964,9 @@ sealed interface simd.Vector<T, S>
     --- lanes the target chose. `-0` is the smaller zero and `+0` the larger, so
     --- an equal pair of zeros is ordered by sign rather than by position.
     --- `-inf` and `+inf` are ordinary values at the ends of the order.
-    propagatingMin: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
+    propagatingmin: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
-    propagatingMax: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
+    propagatingmax: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
     --- `numbermin` returns the operand that is not NaN, and the canonical NaN
     --- only when both are, which is IEEE-754's `minNum`. It is the contract for
@@ -1978,9 +1978,9 @@ sealed interface simd.Vector<T, S>
     ---
     --- An integer element has no NaN, so the two contracts coincide there and
     --- either spelling returns the same value.
-    numberMin: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
+    numbermin: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
-    numberMax: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
+    numbermax: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
     --- `self * multiplier + addend` with one rounding per lane: the product is
     --- exact and only the sum rounds, so the two-step form's second rounding,
@@ -1998,9 +1998,9 @@ sealed interface simd.Vector<T, S>
     --- `self + other` and `self - other` clamped to the element's range rather
     --- than wrapped: a byte that would reach 300 returns 255, and an unsigned
     --- lane taken below zero returns zero. An integer species only.
-    saturatingAdd: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
+    saturatingadd: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
-    saturatingSub: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
+    saturatingsub: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
     --- The number of one bits in each lane's two's complement representation at
     --- the element's width, so `-1` on a signed byte returns 8. An integer
@@ -2013,7 +2013,7 @@ sealed interface simd.Vector<T, S>
     --- together are the whole product; alone, this is the fixed-point multiply,
     --- `(a * b) >> bits`, that a scaled reciprocal turns a division into. An
     --- integer species only.
-    mulHigh: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
+    mulhigh: function(borrows self: simd.Vector<T, S>, other: simd.Vector<T, S> | T): simd.Vector<T, S>
 
     --- Lane indices are one-based and decided when the function is lowered:
     --- a literal, the species' `lanes`, or `+`, `-` and `*` over those, so
@@ -2042,9 +2042,9 @@ sealed interface simd.Vector<T, S>
     ): (simd.Vector<T, S>, simd.Vector<T, S>)
 
     --- Rotates logical lanes. Counts are reduced modulo the species width.
-    rotateLeft: function(borrows self: simd.Vector<T, S>, count: integer): simd.Vector<T, S>
+    rotateleft: function(borrows self: simd.Vector<T, S>, count: integer): simd.Vector<T, S>
 
-    rotateRight: function(borrows self: simd.Vector<T, S>, count: integer): simd.Vector<T, S>
+    rotateright: function(borrows self: simd.Vector<T, S>, count: integer): simd.Vector<T, S>
 
     --- Selects a species-width window from `previous .. self`. Offset zero
     --- returns `self`; positive offsets bring trailing lanes of `previous` into
@@ -2092,9 +2092,9 @@ sealed interface simd.Vector<T, S>
 
     --- Inclusive, logical-lane-order prefix operations. The ordered sum adds lanes
     --- from the first, the way `orderedsum` does.
-    orderedPrefixSum: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
+    orderedprefixsum: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
 
-    prefixXor: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
+    prefixxor: function(borrows self: simd.Vector<T, S>): simd.Vector<T, S>
 end
 
 --- Operations whose lane count is selected from `T` and `S` at AOT lowering.
@@ -2255,12 +2255,12 @@ sealed interface simd.Species<T, S>
     --- time: the first vector holds the elements at odd positions of the run
     --- and the second those at even ones, so interleaved pairs arrive as two
     --- vectors of their halves. Elements past the span read zero. The
-    --- results initialize locals, `local re, im = s:loadPairs(zs, at + 1)`.
+    --- results initialize locals, `local re, im = s:loadpairs(zs, at + 1)`.
     ---
-    --- On NEON this is one `ld2`; `loadTriples` and `loadQuads` are `ld3` and
+    --- On NEON this is one `ld2`; `loadtriples` and `loadquads` are `ld3` and
     --- `ld4`, which is what a three-byte or four-byte record costs to
     --- de-interleave there.
-    loadPairs: function(
+    loadpairs: function(
         borrows self: simd.Species<T, S>,
         borrows source: Span<T>,
         offset: integer
@@ -2273,7 +2273,7 @@ sealed interface simd.Species<T, S>
 
     --- The next `3 * lanes` elements, lane `i` of the `j`th vector reading
     --- element `3 * (i - 1) + j` of the run.
-    loadTriples: function(
+    loadtriples: function(
         borrows self: simd.Species<T, S>,
         borrows source: Span<T>,
         offset: integer
@@ -2286,7 +2286,7 @@ sealed interface simd.Species<T, S>
 
     --- The next `4 * lanes` elements, lane `i` of the `j`th vector reading
     --- element `4 * (i - 1) + j` of the run.
-    loadQuads: function(
+    loadquads: function(
         borrows self: simd.Species<T, S>,
         borrows source: Span<T>,
         offset: integer
@@ -2297,10 +2297,10 @@ sealed interface simd.Species<T, S>
             offset: integer
         ): (simd.Vector<T, S>, simd.Vector<T, S>, simd.Vector<T, S>, simd.Vector<T, S>)
 
-    --- The inverse of `loadPairs`: `2 * lanes` elements from `offset`,
+    --- The inverse of `loadpairs`: `2 * lanes` elements from `offset`,
     --- alternating a lane of `first` with the same lane of `second`. Elements
     --- past the span are not written.
-    storePairs: function(
+    storepairs: function(
         borrows self: simd.Species<T, S>,
         exclusive destination: WriteSpan<T>,
         offset: integer,
@@ -2308,8 +2308,8 @@ sealed interface simd.Species<T, S>
         second: simd.Vector<T, S>
     ): nil
 
-    --- The inverse of `loadTriples`.
-    storeTriples: function(
+    --- The inverse of `loadtriples`.
+    storetriples: function(
         borrows self: simd.Species<T, S>,
         exclusive destination: WriteSpan<T>,
         offset: integer,
@@ -2318,8 +2318,8 @@ sealed interface simd.Species<T, S>
         third: simd.Vector<T, S>
     ): nil
 
-    --- The inverse of `loadQuads`.
-    storeQuads: function(
+    --- The inverse of `loadquads`.
+    storequads: function(
         borrows self: simd.Species<T, S>,
         exclusive destination: WriteSpan<T>,
         offset: integer,
@@ -2356,7 +2356,7 @@ sealed interface simd.Species<T, S>
     --- agree. This promises no winning lane or accumulation order and does
     --- not authorize collisions between separate scatter operations.
     --- Bounds and inactive lanes behave as in scatter.
-    scatterUnchecked: function<I>(
+    scatterunchecked: function<I>(
         borrows self: simd.Species<T, S>,
         exclusive destination: WriteSpan<T>,
         indices: simd.Vector<I, S>,
@@ -3102,9 +3102,26 @@ local WIDE: {[string]: function(string, integer, any, ...: any): any} = {
     end,
 }
 
+local METHOD_OPERATIONS: {
+    [string]: string
+} = {
+    mulhigh = "mulHigh",
+    numbermax = "numberMax",
+    numbermin = "numberMin",
+    orderedprefixsum = "orderedPrefixSum",
+    prefixxor = "prefixXor",
+    propagatingmax = "propagatingMax",
+    propagatingmin = "propagatingMin",
+    rotateleft = "rotateLeft",
+    rotateright = "rotateRight",
+    saturatingadd = "saturatingAdd",
+    saturatingsub = "saturatingSub",
+}
+
 --- @raises string when the method is not one the lanes have
 --- @export
 function lane.method(name: string, element: string, receiver: any, ...: any): any
+    name = METHOD_OPERATIONS[name] or name
     local method = METHODS[name]
     if method == nil then
         error("method :" .. name .. " is not a SIMD lane operation", 2)
@@ -3278,7 +3295,7 @@ local record LuaSpecies
         end
     end
 
-    function scatterUnchecked(self, destination: any, index: any, value: any, active: any): nil
+    function scatterunchecked(self, destination: any, index: any, value: any, active: any): nil
         self:scatter(destination, index, value, active)
     end
 
@@ -3412,33 +3429,33 @@ local record LuaSpecies
         end
     end
 
-    function loadPairs(self, source: any, offset: any): (any, any)
+    function loadpairs(self, source: any, offset: any): (any, any)
         local run = self:loadRun(source, offset, 2)
 
         return run[1], run[2]
     end
 
-    function loadTriples(self, source: any, offset: any): (any, any, any)
+    function loadtriples(self, source: any, offset: any): (any, any, any)
         local run = self:loadRun(source, offset, 3)
 
         return run[1], run[2], run[3]
     end
 
-    function loadQuads(self, source: any, offset: any): (any, any, any, any)
+    function loadquads(self, source: any, offset: any): (any, any, any, any)
         local run = self:loadRun(source, offset, 4)
 
         return run[1], run[2], run[3], run[4]
     end
 
-    function storePairs(self, destination: any, offset: any, first: any, second: any): nil
+    function storepairs(self, destination: any, offset: any, first: any, second: any): nil
         self:storeRun(destination, offset, {first, second})
     end
 
-    function storeTriples(self, destination: any, offset: any, first: any, second: any, third: any): nil
+    function storetriples(self, destination: any, offset: any, first: any, second: any, third: any): nil
         self:storeRun(destination, offset, {first, second, third})
     end
 
-    function storeQuads(self, destination: any, offset: any, first: any, second: any, third: any, fourth: any): nil
+    function storequads(self, destination: any, offset: any, first: any, second: any, third: any, fourth: any): nil
         self:storeRun(destination, offset, {first, second, third, fourth})
     end
 end
@@ -3804,7 +3821,7 @@ end
 --- These take no order where the sums and products above take three: min and
 --- max round nothing, so every association of them returns the same value and
 --- three names would have named one answer. What they do take is the NaN
---- contract, for the same reason `Vector.propagatingMin` and `Vector.numberMin`
+--- contract, for the same reason `Vector.propagatingmin` and `Vector.numbermin`
 --- are separate names -- and each is the elementwise operation of that name,
 --- folded over the lanes.
 ---

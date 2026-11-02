@@ -18,7 +18,7 @@ end
 
 function perf.worker(): number
     with scope = tasks.scope() do
-        local child = scope:fork(2000000, sum)
+        local child = scope:work(2000000, sum)
         return child:await()
     end
 end

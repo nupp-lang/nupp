@@ -52,7 +52,7 @@ local record User
 end
 local publicUser = serde.binding(User, new serde.Options(
     fields = {name = new serde.FieldOptions(name = "displayName")},
-    unknownMembers = "ignore"
+    unknownmembers = "ignore"
 ))
 assert(json.encode(publicUser, new User(name = "Ada")) == '{"displayName":"Ada"}')
 assert(json.decode(publicUser, '{"displayName":"Ada"}').token == nil)
@@ -60,7 +60,7 @@ assert(json.decode(publicUser, '{"displayName":"Ada"}').token == nil)
 
 Omitted fields must have a default or compatible construction mapping before
 decoding is selected. An encode-only mapping can omit required fields.
-`serde.iso8601Seconds` maps an integer epoch-seconds field to a timestamp;
+`serde.iso8601seconds` maps an integer epoch-seconds field to a timestamp;
 other conversions use an explicit adapter.
 
 `json.encodeinto(binding, value, buffer)` appends to a caller-owned Buffer and
@@ -111,7 +111,7 @@ local function textBinding(member: Member): serde.Binding<string>
     return new serde.Bound<string, Member>(adapter = adapters.text(member))
 end
 local binding = textBinding(new Member(name = "title", shapeId = "example#Title"))
-assert(json.codec(json.memberNamePolicy):encode(binding, "Dune") == '"Dune"')
+assert(json.codec(json.membernamepolicy):encode(binding, "Dune") == '"Dune"')
 ```
 
 A new codec implements `serde.Writer` and `serde.Reader`;
@@ -121,7 +121,7 @@ rules the built-in codecs follow.
 The model's JSON policy interprets those handles. Callers pass that policy to
 `json.codec(policy)`; the default JSON policy only selects standard declaration
 and document conventions, and refuses other members rather than guess at their
-traits. `json.memberNamePolicy` writes a model's members under their own names.
+traits. `json.membernamepolicy` writes a model's members under their own names.
 
 Operation routing remains with the model library. A Smithy request can select
 separate header, query, and body writers, with streaming members handled by
@@ -264,14 +264,14 @@ It removes JSON annotations, creates explicit field mappings, and preserves
 Generic declarations, imported callers, record unions, and nested declarations
 with distinct JSON policies need explicit binding selection. Migration refuses
 ambiguous rewrites instead of dropping their policies. Handwritten methods named
-`writeJSON` or `fromJSON` remain ordinary methods.
+`writejson` or `fromJSON` remain ordinary methods.
 
 | Previous API | Explicit binding API |
 | --- | --- |
 | `serde.of(User)` | `serde.binding(User)` |
 | `codec:prepare(binding):encode(value)` | `codec:encode(binding, value)` |
 | `User.fromJSON(bytes)` | `json.decode(binding, bytes)` |
-| `value:writeJSON(writer)` | `json.writevalue(binding, value, writer)` |
+| `value:writejson(writer)` | `json.writevalue(binding, value, writer)` |
 | `@json(name = "id")` | `new serde.FieldOptions(name = "id")` |
 | `@json(omit = true)` | Leave the field out of the mapping whitelist |
 

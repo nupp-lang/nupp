@@ -45,7 +45,7 @@ end
 
 local record Algorithm is provider.Algorithm
     @readonly name: string
-    @readonly digestSize: integer
+    @readonly digestsize: integer
 
     function create(self): provider.State
         if self.name == "sha256" then
@@ -58,10 +58,10 @@ end
 const ALGORITHMS: {
     [string]: provider.Algorithm
 } = {
-    md5 = new Algorithm(name = "md5", digestSize = 16),
-    sha1 = new Algorithm(name = "sha1", digestSize = 20),
-    sha256 = new Algorithm(name = "sha256", digestSize = 32),
-    sha512 = new Algorithm(name = "sha512", digestSize = 64),
+    md5 = new Algorithm(name = "md5", digestsize = 16),
+    sha1 = new Algorithm(name = "sha1", digestsize = 20),
+    sha256 = new Algorithm(name = "sha256", digestsize = 32),
+    sha512 = new Algorithm(name = "sha512", digestsize = 64),
 }
 
 export function lookup(name: string): provider.Algorithm?

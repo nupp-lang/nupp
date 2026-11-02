@@ -29,7 +29,7 @@ local binding = {
 }
 local payload = documents.string(string.rep("payload", 64))
 local bytes = codec:encode(binding, payload)
-assert(not pcall(escaped.writeString, escaped, member, "expired"))
+assert(not pcall(escaped.writestring, escaped, member, "expired"))
 local published, parked, unwound = {}, false, false
 local attempted = 0
 
@@ -58,7 +58,7 @@ tasks.run(function(scope)
     assert(parked and attempted == 1 and #table.concat(published) == 32)
     codec:clear()
     assert(codec:encode(original, documents.string("another request")) == '"another request"')
-    assert(not pcall(escaped.writeString, escaped, member, "still expired"))
+    assert(not pcall(escaped.writestring, escaped, member, "still expired"))
     assert(child:cancel("transport cancelled"))
     local ok, problem = pcall(child.await, child)
     assert(not ok and tasks.iscancelled(problem))
@@ -77,5 +77,5 @@ tasks.run(function(scope)
     end):await()
 end)
 assert(table.concat(completed) == bytes)
-assert(codec:decodeDocument(documents.documentAdapter(), bytes):string() == string.rep("payload", 64))
+assert(codec:decodedocument(documents.documentAdapter(), bytes):string() == string.rep("payload", 64))
 print("owned publication survives backpressure, cancellation, cache reuse, and partial output")

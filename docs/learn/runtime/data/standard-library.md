@@ -149,7 +149,7 @@ string or [](utf8), use 1-based positions, as a Lua array and
 An operation that can fail because of the environment returns `nil, reason`. The
 files, process, network, TLS and HTTP modules give that reason as a
 [](io.Error), whose `kind` names the failure the same way on every
-platform, so a program branches on `err.kind == "notFound"` rather than on the
+platform, so a program branches on `err.kind == "notfound"` rather than on the
 message. An invalid argument or a malformed programmer-owned value raises at the
 call site. Every owner the library hands out, from a buffer to an open file, is
 an `own.Closeable`: `close` consumes it and returns nothing, `own.drop` closes

@@ -15,11 +15,11 @@ local running = digest.newdigest("sha256")
 running:write("hel")
 running:write("lo")
 
-print(running:hexDigest())
+print(running:hexdigest())
 ```
 
 A context is an [`io.Writer`](io.Writer), so anything that fills a writer
-fills a digest: `reader:transferTo(running)` hashes a whole file or response
+fills a digest: `reader:transferto(running)` hashes a whole file or response
 body without holding it.
 
 Finalizing consumes the context, so a digest is taken once and the binding is
@@ -53,16 +53,16 @@ export record Algorithm
     @readonly name: string
 
     --- Number of output bytes, available before creating mutable state.
-    @readonly digestSize: integer
+    @readonly digestsize: integer
 
     @private implementation: provider.Algorithm
 
     --- Creates independent owned state for this algorithm.
     --- @return the unfinished digest context
     --- @raises string when provider initialization fails
-    function newDigest(self): Digest
+    function newdigest(self): Digest
         local state = self.implementation:create()
-        return contexts.wrap(state, self.name, self.digestSize)
+        return contexts.wrap(state, self.name, self.digestsize)
     end
 end
 
@@ -74,16 +74,16 @@ local function validate(selected: provider.Provider): nil
             or name == ""
             or type(implementation) ~= "table"
             or implementation.name ~= name
-            or type(implementation.digestSize) ~= "number"
-            or implementation.digestSize <= 0
-            or implementation.digestSize % 1 ~= 0
+            or type(implementation.digestsize) ~= "number"
+            or implementation.digestsize <= 0
+            or implementation.digestsize % 1 ~= 0
             or type(implementation.create) ~= "function"
         then
             error("invalid digest algorithm descriptor " .. tostring(name), 2)
         end
         local expected = standard.algorithms[name]
-        if expected ~= nil and implementation.digestSize ~= expected.digestSize then
-            error("digest provider has the wrong digestSize for " .. name, 2)
+        if expected ~= nil and implementation.digestsize ~= expected.digestsize then
+            error("digest provider has the wrong digestsize for " .. name, 2)
         end
     end
 end
@@ -96,12 +96,12 @@ local available: {[string]: Algorithm} = {}
 for name, implementation in pairs(standard.algorithms) do
     available[
         name
-    ] = new Algorithm(name = name, digestSize = implementation.digestSize, implementation = implementation)
+    ] = new Algorithm(name = name, digestsize = implementation.digestsize, implementation = implementation)
 end
 for name, implementation in pairs(selected.algorithms) do
     available[
         name
-    ] = new Algorithm(name = name, digestSize = implementation.digestSize, implementation = implementation)
+    ] = new Algorithm(name = name, digestsize = implementation.digestsize, implementation = implementation)
 end
 local names: {string} = {}
 for name in pairs(available) do
@@ -134,7 +134,7 @@ end
 --- @return an owned unfinished digest
 --- @raises string when the algorithm is unavailable or cannot be initialized
 export function newdigest(name: string): Digest
-    return algorithm(name):newDigest()
+    return algorithm(name):newdigest()
 end
 
 --- Lists canonical available names in ascending order.
@@ -167,5 +167,5 @@ end
 export function hexdigest(name: string, bytes: string): string
     local context = newdigest(name)
     context:write(bytes)
-    return context:hexDigest()
+    return context:hexdigest()
 end

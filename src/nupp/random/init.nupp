@@ -20,7 +20,7 @@ reading a clock. Use `os.randombytes` when bytes must be unpredictable.
 A seed is one 32-bit word. A generator is mutable and is not safe to share
 between workers; give each lane its own.
 
-`state` and `setState` copy the four signed 32-bit state words. That is the
+`state` and `setstate` copy the four signed 32-bit state words. That is the
 portable checkpoint format: keep them and the next draw is exactly the one that
 was coming.
 ]]
@@ -180,16 +180,16 @@ export record Xoshiro128
 
     --- Restores exactly four state words.
     --- @raises string when there are not four words or all four are zero
-    function setState(self, words: {integer}): nil
+    function setstate(self, words: {integer}): nil
         if #words ~= 4 then
-            error("nupp: random.Xoshiro128:setState needs four state words", 2)
+            error("nupp: random.Xoshiro128:setstate needs four state words", 2)
         end
         local s0 = math.i32.wrap(words[1])
         local s1 = math.i32.wrap(words[2])
         local s2 = math.i32.wrap(words[3])
         local s3 = math.i32.wrap(words[4])
         if s0 == ZERO and s1 == ZERO and s2 == ZERO and s3 == ZERO then
-            error("nupp: random.Xoshiro128:setState refused the all-zero state, the one xoshiro cannot leave", 2)
+            error("nupp: random.Xoshiro128:setstate refused the all-zero state, the one xoshiro cannot leave", 2)
         end
         self.s0, self.s1, self.s2, self.s3 = s0, s1, s2, s3
     end

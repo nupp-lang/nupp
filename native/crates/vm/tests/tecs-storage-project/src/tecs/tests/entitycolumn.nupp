@@ -16,9 +16,9 @@ function test.run(): number
     column[10000] = 9007199254740991
     assert(column[10000] == 9007199254740991)
     const pointer: any = columns.pointer(column)
-    assert(storage.sizeOf((column as any).data) == 80008)
+    assert(storage.sizeof((column as any).data) == 80008)
     assert(pointer[0] == 1 and pointer[9999] == 9007199254740991)
-    assert(storage.string(pointer, 8) == storage.encodeFloat64(1))
+    assert(storage.string(pointer, 8) == storage.encodefloat64(1))
     pointer[0] = 17
     assert(column[1] == 17)
     column[5000] = nil

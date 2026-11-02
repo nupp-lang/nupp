@@ -62,14 +62,14 @@ function test.run(library: string): number
     const copy = bind("ffi_test_copy", {result = "void", params = {"pointer", readonlyPointer, "uint64"},})
     const strlen = bind("ffi_test_strlen", {result = "uint64", params = {readonlyPointer}})
     assert(not pcall(asPointer, "immutable"))
-    const bytes = storage.allocateBytes(8)
+    const bytes = storage.allocbytes(8)
     copy(bytes, "nupp\0ffi", 8ULL)
     assert(storage.string(bytes, 8) == "nupp\0ffi")
     assert(strlen("nupp") == 4ULL)
     assert(strlen("nupp\0ffi") == 4ULL)
-    const origin = storage.allocateArray(storage.scalar("uint64"), 1)
+    const origin = storage.allocarray(storage.scalar("uint64"), 1)
     origin[0] = 18446744073709551615ULL
-    const destination = storage.allocateArray(storage.scalar("uint64"), 1)
+    const destination = storage.allocarray(storage.scalar("uint64"), 1)
     copy(destination, origin, 8ULL)
     assert(destination[0] == 18446744073709551615ULL)
 
@@ -110,8 +110,8 @@ function test.run(library: string): number
     assert(large.a == 18446744073709551615ULL)
     const errorCall = bind("ffi_test_errno", {result = "int32", params = {"int32"}})
     assert(errorCall(31) == -1)
-    const allocated = storage.allocateBytes(16)
-    assert(storage.sizeOf(allocated) == 16 and foreign.errno() == 31)
+    const allocated = storage.allocbytes(16)
+    assert(storage.sizeof(allocated) == 16 and foreign.errno() == 31)
     assert(foreign.errno(17) == 31)
     const readError = bind("ffi_test_read_errno", {result = "int32", params = {}})
     assert(readError() == 17)
@@ -145,15 +145,15 @@ function test.callbacks(library: string): number
         },
         function(a: number, b: number): number
             calls = calls + 1
-            const buffer = storage.allocateBytes(64)
-            assert(storage.sizeOf(buffer) == 64)
+            const buffer = storage.allocbytes(64)
+            assert(storage.sizeof(buffer) == 64)
             return inner(a + b)
         end
     )
     assert(invoke(callback, 19, 23) == 42 and calls == 1)
     save(callback)
-    const allocation = storage.allocateBytes(128)
-    assert(storage.sizeOf(allocation) == 128)
+    const allocation = storage.allocbytes(128)
+    assert(storage.sizeof(allocation) == 128)
     assert(saved(20, 22) == 42 and calls == 2)
     foreign.setCallback(callback, function(a: number, b: number): number
         return a * b
@@ -192,7 +192,7 @@ function test.callbacks(library: string): number
     foreign.close(double)
 
     const pointerCall = bind("ffi_test_pointer", {result = "pointer", params = {"pointer"}})
-    local backing: any = storage.allocateArray(storage.scalar("uint8"), 1)
+    local backing: any = storage.allocarray(storage.scalar("uint8"), 1)
     backing[0] = 42
     local parentPointer: any = pointerCall(backing)
     local activePointer: any = pointerCall(parentPointer)

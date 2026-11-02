@@ -92,7 +92,7 @@ end
 function Probe.split(exclusive storage: array.Array<int32>, index: integer): nil
     const values = storage:write()
     do
-        const parts = values:splitAt(index)
+        const parts = values:splitat(index)
         parts.right[1] = 99
     end
     own.drop(values)

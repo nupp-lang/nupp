@@ -430,13 +430,13 @@ local function sent(): nil
     -- another VM cannot keep.
     const ok, problem = pcall(function(): any
         with scope = tasks.scope() do
-            return scope:fork(first, test.nodeValue):await()
+            return scope:work(first, test.nodeValue):await()
         end
     end)
     assert2(not ok and tostring(problem):find("holds process addresses", 1, true) ~= nil, tostring(problem))
     first.next = nil
     with scope = tasks.scope() do
-        equal(scope:fork(first, test.nodeValue):await(), 1, "a cleared one is copied")
+        equal(scope:work(first, test.nodeValue):await(), 1, "a cleared one is copied")
     end
 end
 

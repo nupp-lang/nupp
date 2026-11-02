@@ -10,15 +10,15 @@ nothing about commands, field types, help, terminal policy, or process exits.
 ]]
 
 --- The kind of a classified argv word.
-export type TokenKind = "shortOption" | "longOption" | "argument" | "terminator"
+export type TokenKind = "shortoption" | "longoption" | "argument" | "terminator"
 
-export const shortOption: TokenKind = "shortOption"
-export const longOption: TokenKind = "longOption"
+export const shortOption: TokenKind = "shortoption"
+export const longOption: TokenKind = "longoption"
 export const argument: TokenKind = "argument"
 export const terminator: TokenKind = "terminator"
 
 --- How an option obtains a value.
-export type ValueArity = "none" | "required" | "optionalAttached" | "attachedOnly"
+export type ValueArity = "none" | "required" | "optionalattached" | "attachedonly"
 
 --- A whole-word option form, such as `-O2`.
 export type Pattern = {
@@ -38,15 +38,15 @@ export type OptParserConfig = {
     patterns: {Pattern}?,
 
     --- Once the first argument is seen, expose every later word as an argument.
-    stopAtFirstArgument: boolean?,
+    stopatfirstargument: boolean?,
 
     --- Whether `--` itself is returned before its following arguments.
-    exposeTerminator: boolean?
+    exposeterminator: boolean?
 }
 
 --- A syntax failure found while consuming argv.
 export record SyntaxError
-    kind: "missingValue" | "needsAttachedValue"
+    kind: "missingvalue" | "needsattachedvalue"
     index: integer
     raw: string
     key: string
@@ -96,7 +96,7 @@ export record OptParser
 
         if raw == "--" then
             self.literal = true
-            if self.config.exposeTerminator == false then
+            if self.config.exposeterminator == false then
                 return self:next()
             end
             self.currentKind = terminator
@@ -135,7 +135,7 @@ export record OptParser
                 local following = self.argv[self.nextIndex]
                 if following == nil then
                     return nil, new SyntaxError(
-                        kind = "missingValue",
+                        kind = "missingvalue",
                         index = index,
                         raw = raw,
                         key = key,
@@ -144,9 +144,9 @@ export record OptParser
                 end
                 self.nextIndex = self.nextIndex + 1
                 value = following
-            elseif not attached and arity == "attachedOnly" then
+            elseif not attached and arity == "attachedonly" then
                 return nil, new SyntaxError(
-                    kind = "needsAttachedValue",
+                    kind = "needsattachedvalue",
                     index = index,
                     raw = raw,
                     key = key,
@@ -164,7 +164,7 @@ export record OptParser
             return kind, nil
         end
 
-        if self.config.stopAtFirstArgument then
+        if self.config.stopatfirstargument then
             self.literal = true
         end
 

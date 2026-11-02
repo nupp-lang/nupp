@@ -102,7 +102,7 @@ export interface Writer is own.Closeable
     --- @param source bytes valid for the duration of the call
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    writeSpan: function(exclusive self: Writer, borrows source: span.ByteSpan): (integer?, string?)
+    writespan: function(exclusive self: Writer, borrows source: span.ByteSpan): (integer?, string?)
 
     --- Nothing is buffered behind this writer, so this only reports whether it is open.
     --- @param self this writer
@@ -136,7 +136,7 @@ export interface Reader is own.Closeable
     --- @param destination the positive-sized range to fill
     --- @return how many bytes were read, or nil when the reader is closed
     --- @return why it could not read, when unsuccessful
-    readSpan: function(exclusive self: Reader, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    readspan: function(exclusive self: Reader, exclusive destination: span.Writable<uint8>): (integer?, string?)
 
     --- Reads into a buffer.
     ---
@@ -147,7 +147,7 @@ export interface Reader is own.Closeable
     --- @param count the most bytes to read
     --- @return how many bytes were read, or nil when the reader is closed
     --- @return why it could not read, when unsuccessful
-    readInto: function(
+    readinto: function(
         exclusive self: Reader,
         exclusive destination: Buffer,
         offset: integer?,
@@ -159,7 +159,7 @@ export interface Reader is own.Closeable
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    transferTo: function(exclusive self: Reader, exclusive destination: Writer): (integer?, string?)
+    transferto: function(exclusive self: Reader, exclusive destination: Writer): (integer?, string?)
 
 end
 
@@ -241,11 +241,11 @@ end
 --- @export
 export sealed interface ByteView is own.Closeable
     len: function(borrows self: ByteView): integer
-    getString: function(borrows self: ByteView): string
-    readSpan: function(borrows self: ByteView): span.ByteSpan borrows (self)
-    newReader: function(self: ByteView): Reader
+    getstring: function(borrows self: ByteView): string
+    readspan: function(borrows self: ByteView): span.ByteSpan borrows (self)
+    newreader: function(self: ByteView): Reader
     view: function(self: ByteView, offset: integer?, count: integer?): affine(ByteView)
-    isReleased: function(self: ByteView): boolean
+    isreleased: function(self: ByteView): boolean
     close: @nosuspend function(takes self: ByteView): nil
 end
 
@@ -268,17 +268,17 @@ local record Snapshot is ByteView
         return #self._bytes
     end
 
-    function getString(borrows self): string
+    function getstring(borrows self): string
         opened(self._closed, "io.ByteView", 2)
         return self._bytes
     end
 
-    function readSpan(borrows self): span.ByteSpan borrows (self)
+    function readspan(borrows self): span.ByteSpan borrows (self)
         opened(self._closed, "io.ByteView", 2)
         return span.fromstring(self._bytes)
     end
 
-    function newReader(self): Reader
+    function newreader(self): Reader
         opened(self._closed, "io.ByteView", 2)
         return newReaderOver(self._bytes)
     end
@@ -289,7 +289,7 @@ local record Snapshot is ByteView
         return newView(self._bytes:sub(from + 1, from + taking))
     end
 
-    function isReleased(self): boolean
+    function isreleased(self): boolean
         return self._closed
     end
 end
@@ -310,20 +310,20 @@ export sealed interface Buffer is own.Closeable
     len: function(borrows self: Buffer): integer
     capacity: function(borrows self: Buffer): integer
     clear: function(exclusive self: Buffer): nil
-    ensureCapacity: function(exclusive self: Buffer, minimum: integer): nil
-    resize: function(exclusive self: Buffer, length: integer): nil
-    getString: function(borrows self: Buffer, offset: integer?, count: integer?): string
-    setString: function(exclusive self: Buffer, bytes: string, offset: integer?): nil
-    readSpan: function(borrows self: Buffer): span.ByteSpan borrows (self)
-    reserveWrite: function(
+    ensurecapacity: function(exclusive self: Buffer, minimum: integer): nil
+    resize: function(exclusive self: Buffer, len: integer): nil
+    getstring: function(borrows self: Buffer, offset: integer?, count: integer?): string
+    setstring: function(exclusive self: Buffer, bytes: string, offset: integer?): nil
+    readspan: function(borrows self: Buffer): span.ByteSpan borrows (self)
+    reservewrite: function(
         exclusive self: Buffer,
         offset: integer,
         count: integer
     ): affine(BufferWriteLease, destroyLease) borrows (self)
     view: function(self: Buffer, offset: integer?, count: integer?): affine(ByteView)
-    newReader: function(self: Buffer): Reader
-    newWriter: function(exclusive self: Buffer): affine(Writer) borrows (self)
-    isReleased: function(borrows self: Buffer): boolean
+    newreader: function(self: Buffer): Reader
+    newwriter: function(exclusive self: Buffer): affine(Writer) borrows (self)
+    isreleased: function(borrows self: Buffer): boolean
     close: @nosuspend function(takes self: Buffer): nil
 end
 
@@ -356,14 +356,14 @@ local record HeapBuffer is Buffer
         self._length = 0
     end
 
-    function ensureCapacity(exclusive self, minimum: integer): nil
+    function ensurecapacity(exclusive self, minimum: integer): nil
         opened(self._closed, "io.Buffer", 2)
         reserve(self, integer_(minimum, "io.Buffer capacity", 2))
     end
 
-    function resize(exclusive self, length: integer): nil
+    function resize(exclusive self, len: integer): nil
         opened(self._closed, "io.Buffer", 2)
-        local wanted = integer_(length, "io.Buffer length", 2)
+        local wanted = integer_(len, "io.Buffer length", 2)
         if wanted > self._length then
             reserve(self, wanted)
             @unsafe do
@@ -374,13 +374,13 @@ local record HeapBuffer is Buffer
         self._length = wanted
     end
 
-    function getString(borrows self, offset: integer?, count: integer?): string
+    function getstring(borrows self, offset: integer?, count: integer?): string
         opened(self._closed, "io.Buffer", 2)
         local from, taking = range(self._length, offset, count, "io.Buffer", 2)
         return bytesAt(self, from, taking)
     end
 
-    function setString(exclusive self, bytes: string, offset: integer?): nil
+    function setstring(exclusive self, bytes: string, offset: integer?): nil
         opened(self._closed, "io.Buffer", 2)
         if type(bytes) ~= "string" then
             error("nupp: io.Buffer bytes must be a string", 2)
@@ -405,12 +405,12 @@ local record HeapBuffer is Buffer
         end
     end
 
-    function readSpan(borrows self): span.ByteSpan borrows (self)
+    function readspan(borrows self): span.ByteSpan borrows (self)
         opened(self._closed, "io.Buffer", 2)
         return span.fromcarray(self._data, self._length)
     end
 
-    function reserveWrite(
+    function reservewrite(
         exclusive self,
         offset: integer,
         count: integer
@@ -429,18 +429,18 @@ local record HeapBuffer is Buffer
         return newView(bytesAt(self, from, taking))
     end
 
-    function newReader(self): Reader
+    function newreader(self): Reader
         opened(self._closed, "io.Buffer", 2)
         return newReaderOver(bytesAt(self, 0, self._length))
     end
 
-    function newWriter(exclusive self): affine(Writer) borrows (self)
+    function newwriter(exclusive self): affine(Writer) borrows (self)
         opened(self._closed, "io.Buffer", 2)
         self:clear()
         return newWriterOver(self)
     end
 
-    function isReleased(borrows self): boolean
+    function isreleased(borrows self): boolean
         return self._closed
     end
 end
@@ -529,13 +529,13 @@ local record BufferWriter is Writer
         end
         -- The writer already owns the exclusive buffer borrow. A string can use
         -- its bulk overwrite path directly without building temporary views.
-        (state as Buffer):setString(bytes, self._at)
+        (state as Buffer):setstring(bytes, self._at)
         self._at = sizeSum(self._at, #bytes, "Writer position", 2)
 
         return true, nil
     end
 
-    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
         if self._closed then
             return nil, "the writer is closed"
         end
@@ -638,14 +638,14 @@ local record StringReader is Reader
         return out, nil
     end
 
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
         local wanted: integer
         do
             local output = destination as span.WriteSpan<uint8>
-            wanted = positive(#output, "Reader:readSpan destination length", 2)
+            wanted = positive(#output, "Reader:readspan destination length", 2)
         end
         local bytes = self._bytes
         local at = self._at
@@ -659,7 +659,7 @@ local record StringReader is Reader
         return taking, nil
     end
 
-    function readInto(
+    function readinto(
         exclusive self,
         exclusive destination: Buffer,
         offset: integer?,
@@ -668,15 +668,15 @@ local record StringReader is Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        local from = integer_(offset == nil and 0 or offset, "Reader:readInto offset", 2)
-        local wanted = positive(count == nil and DEFAULT_READ or count, "Reader:readInto count", 2)
+        local from = integer_(offset == nil and 0 or offset, "Reader:readinto offset", 2)
+        local wanted = positive(count == nil and DEFAULT_READ or count, "Reader:readinto count", 2)
         local bytes = self._bytes
         local at = self._at
         if at > #bytes then
             return 0, nil
         end
         local taking = math.min(wanted, #bytes - at + 1) as integer
-        local lease = destination:reserveWrite(from, wanted)
+        local lease = destination:reservewrite(from, wanted)
         do
             local output = lease:span()
             copyString(output, bytes, at - 1, taking)
@@ -693,7 +693,7 @@ local record StringReader is Reader
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
+    function transferto(exclusive self, exclusive destination: Writer): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -740,14 +740,14 @@ local record QueueReader is Reader
         return takeQueue(source, math.min(wanted, have) as integer), nil
     end
 
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
         local wanted: integer
         do
             local output = destination as span.WriteSpan<uint8>
-            wanted = positive(#output, "Reader:readSpan destination length", 2)
+            wanted = positive(#output, "Reader:readspan destination length", 2)
         end
         local source = self._source as ByteQueue
         local have = queueLength(source)
@@ -761,7 +761,7 @@ local record QueueReader is Reader
         return taking, nil
     end
 
-    function readInto(
+    function readinto(
         exclusive self,
         exclusive destination: Buffer,
         offset: integer?,
@@ -770,8 +770,8 @@ local record QueueReader is Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        local from = integer_(offset == nil and 0 or offset, "Reader:readInto offset", 2)
-        local wanted = positive(count == nil and DEFAULT_READ or count, "Reader:readInto count", 2)
+        local from = integer_(offset == nil and 0 or offset, "Reader:readinto offset", 2)
+        local wanted = positive(count == nil and DEFAULT_READ or count, "Reader:readinto count", 2)
         local source = self._source as ByteQueue
         local have = queueLength(source)
         if have == 0 then
@@ -779,7 +779,7 @@ local record QueueReader is Reader
         end
         local taking = math.min(wanted, have) as integer
         local chunk = takeQueue(source, taking)
-        local lease = destination:reserveWrite(from, wanted)
+        local lease = destination:reservewrite(from, wanted)
         do
             local output = lease:span()
             copyString(output, chunk, 0, taking)
@@ -795,7 +795,7 @@ local record QueueReader is Reader
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
+    function transferto(exclusive self, exclusive destination: Writer): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -1011,15 +1011,15 @@ end
 --- bytes arrive, so a source larger than it returns a reason having read at
 --- most one window past the limit rather than holding the whole of it.
 --- @param reader the reader to drain
---- @param maxBytes the most bytes to accept, or no limit
+--- @param maxbytes the most bytes to accept, or no limit
 --- @return the bytes, or nil when the reader failed or held more than the limit
 --- @return why it could not, when unsuccessful
---- @raises string when maxBytes is not a positive integer
+--- @raises string when maxbytes is not a positive integer
 --- @export
-export function readAll(takes reader: Reader, maxBytes: integer?): (string?, string?)
+export function readAll(takes reader: Reader, maxbytes: integer?): (string?, string?)
     local limit: integer? = nil
-    if maxBytes ~= nil then
-        limit = positive(maxBytes, "io.readAll maxBytes", 2)
+    if maxbytes ~= nil then
+        limit = positive(maxbytes, "io.readAll maxBytes", 2)
     end
     local parts: {string} = {}
     local total: integer = 0

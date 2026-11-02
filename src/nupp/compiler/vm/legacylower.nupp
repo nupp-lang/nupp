@@ -63,6 +63,28 @@ const SIMD_NAMESPACE_OPERATIONS = {
     numberargmin = "numberArgMin",
     numberargmax = "numberArgMax"
 }
+const SIMD_METHOD_OPERATIONS: {
+    [string]: string
+} = {
+    loadpairs = "loadPairs",
+    loadquads = "loadQuads",
+    loadtriples = "loadTriples",
+    mulhigh = "mulHigh",
+    numbermax = "numberMax",
+    numbermin = "numberMin",
+    orderedprefixsum = "orderedPrefixSum",
+    prefixxor = "prefixXor",
+    propagatingmax = "propagatingMax",
+    propagatingmin = "propagatingMin",
+    rotateleft = "rotateLeft",
+    rotateright = "rotateRight",
+    saturatingadd = "saturatingAdd",
+    saturatingsub = "saturatingSub",
+    scatterunchecked = "scatterUnchecked",
+    storepairs = "storePairs",
+    storequads = "storeQuads",
+    storetriples = "storeTriples",
+}
 const nodeLine = lowerstate.nodeLine
 const SPILL_AT = lowerstate.SPILL_AT
 
@@ -1549,6 +1571,7 @@ function lower.emit(
         local operands = {}
         if ty then
             operation = tokText(node.name)
+            operation = SIMD_METHOD_OPERATIONS[operation] or operation
             if operation == "over" then
                 assert(#args == 1, "SIMD over requires one count")
                 simdIterator(f, node, ty, dst)

@@ -20,7 +20,7 @@ session result. Do not report a verified peer merely because a handshake
 completed with verification disabled. ALPN protocol text describes the negotiated
 result; resumed is an optional observation.
 
-closeNotify sends the TLS shutdown notification and may need further progress.
+closenotify sends the TLS shutdown notification and may need further progress.
 destroy releases session state and the transport it owns. No method may resolve
 or switch providers.
 ]]

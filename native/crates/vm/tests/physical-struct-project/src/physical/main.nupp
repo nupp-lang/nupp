@@ -120,7 +120,7 @@ function test.run(): number
     assert(overlay.bytes[0] == 4 and overlay.bytes[3] == 1)
     overlay.bytes[1] = 9
     assert(overlay.word == 0x01020904)
-    assert(storage.sizeOf(overlay) == 4)
+    assert(storage.sizeof(overlay) == 4)
     local overlays = carray(Overlay, 2)
     overlays[0] = overlay
     overlay.word = 0
@@ -196,8 +196,8 @@ function test.run(): number
     rawset(erased, "x", nil)
     assert(readX(vector) == 4)
     local descriptor = storage.descriptor(vector)
-    assert(storage.sizeOf(vector) == 16)
-    assert(storage.sizeOf(descriptor) == 16)
+    assert(storage.sizeof(vector) == 16)
+    assert(storage.sizeof(descriptor) == 16)
     assert(#storage.string(vector, 16) == 16)
     assert(rawequal(storage.layout(vector), storage.layout(Vector)))
     assert(layoutof(Vector).size == 16)
@@ -218,7 +218,7 @@ function test.run(): number
         end)
     )
     descriptor.fields[1].offset = originalOffset
-    local readonlyRows: any = storage.castElements(descriptor, storage.string(vector, 16))
+    local readonlyRows: any = storage.castelements(descriptor, storage.string(vector, 16))
     local readonly = readonlyRows[0] as Vector
     assert(readX(readonly) == 4)
     assert(

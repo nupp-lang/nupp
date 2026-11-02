@@ -133,7 +133,7 @@ function tier2.prepare(repo: string, commit: string, at: string): tier2.Prepared
     local rocks = harness.join(repo, ".rocks")
     local stagedRocks = harness.join(at, ".rocks")
     if files.exists(rocks) and not files.exists(stagedRocks) then
-        local linked, linkErr = files.createsymlink(rocks, stagedRocks, "directory")
+        local linked, linkErr = files.symlink(rocks, stagedRocks, "directory")
         if not linked then
             error("cannot link the dependency tree: " .. tostring(linkErr), 2)
         end
@@ -239,8 +239,8 @@ function tier2.repairDiff(repo: string, commit: string, at: string, reverted: {s
     local ok, answer = pcall(function(): string
         local before = harness.join(root, "before")
         local after = harness.join(root, "after")
-        assert2(files.createdirectory(before))
-        assert2(files.createdirectory(after))
+        assert2(files.mkdir(before))
+        assert2(files.mkdir(after))
         for _, path in ipairs(reverted) do
             local prior = harness.run({"git", "-C", repo, "show", commit .. "^:" .. path})
             if prior.returncode == 0 then

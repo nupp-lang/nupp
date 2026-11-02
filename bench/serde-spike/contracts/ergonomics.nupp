@@ -9,7 +9,7 @@ local record Config
     volume: integer = 50
     muted: boolean = false
 end
-local configFile = assert2(files.createtemporaryfile())
+local configFile = assert2(files.tmpfile())
 local configPath = configFile:path()
 assert2(files.write(configPath, '{"volume":20}'))
 local configBinding = serde.binding(Config)
@@ -39,7 +39,7 @@ local record Save
     level: integer
     inventory: {string}
 end
-local saveFile = assert2(files.createtemporaryfile())
+local saveFile = assert2(files.tmpfile())
 local savePath = saveFile:path()
 local saveBinding = serde.binding(Save)
 local save = new Save(level = 12, inventory = {"key", "map"})

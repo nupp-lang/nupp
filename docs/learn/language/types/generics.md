@@ -89,7 +89,7 @@ local function Arguments(Kind: type): typepack
     if info.kind == "literal" and info.value == "pair" then
         return types.pack({types.string, types.number})
     elseif info.kind == "literal" and info.value == "flag" then
-        return types.pack({types.boolean})
+        return types.pack({types.bool})
     end
     return types.pack({}, types.any)
 end

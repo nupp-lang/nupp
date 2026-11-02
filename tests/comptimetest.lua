@@ -161,8 +161,8 @@ end
 function M.internsStructurallyDistinctTypesApart()
     local value = evaluateTypeBlueprint(
         [[
-      const a = types.indexer(types.union({types.nil_, types.number}), types.integer)
-      const b = types.union({types.nil_, types.indexer(types.number, types.integer)})
+      const a = types.indexer(types.union({types.niltype, types.number}), types.integer)
+      const b = types.union({types.niltype, types.indexer(types.number, types.integer)})
       if a == b or types.kind(a) ~= "indexer" or types.kind(b) ~= "union" then
          return types.error("distinct types interned as one")
       end
@@ -180,7 +180,7 @@ end
 function M.flattensOptionalIntoTheUnionItNames()
     local value = evaluateTypeBlueprint(
         [[
-      const direct = types.union({types.string, types.number, types.nil_})
+      const direct = types.union({types.string, types.number, types.niltype})
       const viaOptional = types.optional(types.union({types.string, types.number}))
       if direct ~= viaOptional then
          return types.error("optional of a union is not the flat union")
@@ -278,8 +278,8 @@ function M.reconstructsWrappersCArrayIntersectionsAndFunctions()
     local callable = evaluateTypeBlueprint(
         [[
       const parameters = types.pack({types.string}, types.any)
-      const results = types.pack({types.boolean})
-      return types.function_(parameters, results)
+      const results = types.pack({types.bool})
+      return types.functiontype(parameters, results)
    ]]
     )
     testAssert.eq(callable.tag, "func", "function blueprint interns as an ordinary function")

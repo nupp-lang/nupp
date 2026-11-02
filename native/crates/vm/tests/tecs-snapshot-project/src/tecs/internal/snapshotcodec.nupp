@@ -162,7 +162,7 @@ export function write(
         if plan.rows == nil then
             ids = native.string(entitycolumn.pointer(plan.source.entities), plan.count * 8) as string
         else
-            const selected = native.allocateArray(native.scalar("number"), plan.count)
+            const selected = native.allocarray(native.scalar("number"), plan.count)
             for row = 1, plan.count do
                 selected[row - 1] = plan.source.entities[assert2(plan.rows)[row]]
             end
@@ -435,7 +435,7 @@ export function read(bytes: string, maximum: integer): Decoded
         if type(frame.ids) ~= "string" or #frame.ids ~= count * 8 then
             error("snapshot has invalid entity byte span", 2)
         end
-        const ids = native.allocateArray(native.scalar("number"), count)
+        const ids = native.allocarray(native.scalar("number"), count)
         native.copy(ids, frame.ids, count * 8)
         const savedColumns = array(frame.columns, "frame columns", #entries)
         const columns: {Column} = {}
@@ -457,8 +457,8 @@ export function read(bytes: string, maximum: integer): Decoded
                 if type(item.bytes) ~= "string" or #item.bytes ~= count * storage.width or item.values ~= nil then
                     error("snapshot has invalid native column byte span", 2)
                 end
-                pointer = native.castElements(storage.element, item.bytes)
-                native.boundedCount(pointer, count)
+                pointer = native.castelements(storage.element, item.bytes)
+                native.boundedcount(pointer, count)
             else
                 if type(item.values) ~= "table" or item.bytes ~= nil then
                     error("snapshot has invalid value column", 2)
@@ -514,7 +514,7 @@ export function value(column: Column, row: integer): any
         return column.values[row]
     end
     const layout = assert2(column.storage)
-    native.boundedCount(column.pointer, row)
+    native.boundedcount(column.pointer, row)
 
     return ffistorage.serialize(layout, column.pointer[row - 1])
 end
@@ -532,6 +532,6 @@ export function copy(column: Column, target: archetype.Archetype, first: integer
     then
         error("snapshot native copy has incompatible layout or bounds", 2)
     end
-    native.boundedCount(column.pointer, count)
+    native.boundedcount(column.pointer, count)
     native.copy(destination + first, column.pointer, count * storage.width)
 end

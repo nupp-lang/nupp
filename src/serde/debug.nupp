@@ -46,7 +46,7 @@ local record CustomDescription<M is core.Member> is core.Description<M>
     @readonly nullable: boolean = false
     @readonly width: integer?
     @readonly signed: boolean?
-    @readonly canRead: boolean = false
+    @readonly canread: boolean = false
     @readonly children: const{core.Child<M>} = {}
 end
 local record Custom<M is core.Member> is core.Adapter<unknown, M>
@@ -58,7 +58,7 @@ local record Custom<M is core.Member> is core.Adapter<unknown, M>
 
     function write(self, borrows value: unknown, exclusive writer: core.Writer<M>): nil
         local printable = value as types.Debug
-        writer:writeAtom(self.description.member, new CustomText(family = customFamily, text = printable:debug()))
+        writer:writeatom(self.description.member, new CustomText(family = customFamily, text = printable:debug()))
     end
 
     function read(self, exclusive reader: core.Reader<M>): unknown
@@ -74,7 +74,7 @@ local function customDebug(info: types.reflect.Info, index: integer, seen: {[int
     local node: any = info.types[index]
     -- A declaration that derives Debug renders structurally; its `debug` is this
     -- renderer, and reading it as a custom method would call itself forever.
-    if (node.kind == "record" or node.kind == "struct") and node.deriveKey ~= nil then
+    if (node.kind == "record" or node.kind == "struct") and node.derivekey ~= nil then
         return false
     end
     for _, field in ipairs(node.fields or {}) do
@@ -292,47 +292,47 @@ local record Output<M is core.Member> is core.Writer<M>
         end
     end
 
-    function writeNull(exclusive self, member: M): nil
+    function writenull(exclusive self, member: M): nil
         self:token(member, "nil")
     end
 
-    function writeBoolean(exclusive self, member: M, value: boolean): nil
+    function writebool(exclusive self, member: M, value: boolean): nil
         self:token(member, value and "true" or "false")
     end
 
-    function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
+    function writeinteger(exclusive self, member: M, borrows value: core.Integer): nil
         self:token(member, value.decimal .. (value.width == 64 and (value.signed and "LL" or "ULL") or ""))
     end
 
-    function writeFloat(exclusive self, member: M, value: number, width: 32 | 64): nil
+    function writefloat(exclusive self, member: M, value: number, width: 32 | 64): nil
         self:token(member, tostring(value))
     end
 
-    function writeNumberToken(exclusive self, member: M, value: string): nil
+    function writenumbertoken(exclusive self, member: M, value: string): nil
         self:token(member, value)
     end
 
-    function writeString(exclusive self, member: M, value: string): nil
+    function writestring(exclusive self, member: M, value: string): nil
         self:token(member, ("%q"):format(value))
     end
 
-    function writeBytes(exclusive self, member: M, value: string): nil
+    function writebytes(exclusive self, member: M, value: string): nil
         self:token(member, "bytes(" .. #value .. ")")
     end
 
-    function writeBigInteger(exclusive self, member: M, value: string): nil
+    function writebiginteger(exclusive self, member: M, value: string): nil
         self:token(member, value)
     end
 
-    function writeDecimal(exclusive self, member: M, borrows value: core.Decimal): nil
+    function writedecimal(exclusive self, member: M, borrows value: core.Decimal): nil
         self:token(member, value.coefficient .. "e" .. value.exponent)
     end
 
-    function writeTimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
+    function writetimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
         self:token(member, "timestamp(" .. value.seconds .. ", " .. value.nanos .. ")")
     end
 
-    function writeAtom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
+    function writeatom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
         if value.family == customFamily then
             self:token(member, (value as CustomText).text:sub(1))
         else
@@ -340,7 +340,7 @@ local record Output<M is core.Member> is core.Writer<M>
         end
     end
 
-    function writeDocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
+    function writedocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
         self:position(member)
         contents(adapter, value, self.state, self.depth + #self.frames + 1)
     end
@@ -380,32 +380,32 @@ local record Output<M is core.Member> is core.Writer<M>
         end
     end
 
-    function writeStruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+    function writestruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
         self:aggregate(member, "structure", source, emit)
     end
 
-    function writeUnion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+    function writeunion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
         self:aggregate(member, "union", source, emit)
     end
 
-    function writeList<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+    function writelist<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
         self:aggregate(member, "list", source, emit)
     end
 
-    function writeTuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
+    function writetuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
         self:aggregate(member, "tuple", source, emit)
     end
 
-    function writeMap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+    function writemap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
         self:aggregate(member, "map", source, emit)
     end
 
-    function writeEntry<K, V>(
+    function writeentry<K, V>(
         exclusive self,
         borrows key: K,
-        keyEmit: core.Members<M, K>,
+        keyemit: core.Members<M, K>,
         borrows value: V,
-        valueEmit: core.Members<M, V>
+        valueemit: core.Members<M, V>
     ): nil
         self:live()
         local frame = assert2(self.frames[#self.frames], "debug entry outside map")
@@ -414,9 +414,9 @@ local record Output<M is core.Member> is core.Writer<M>
         frame.count += 1
         frame.entry = true
         self:add("[")
-        keyEmit:apply(key, self)
+        keyemit:apply(key, self)
         self:add("] = ")
-        valueEmit:apply(value, self)
+        valueemit:apply(value, self)
         frame.entry = false
         local parts: {string} = {}
         for index = start, #self.state.parts do
@@ -428,7 +428,7 @@ local record Output<M is core.Member> is core.Writer<M>
         frame.entries[#frame.entries + 1] = new MapEntry(key = tostring(key), parts = parts)
     end
 
-    function writeUnknown<F is core.WireField, D>(
+    function writeunknown<F is core.WireField, D>(
         exclusive self,
         field: F,
         borrows value: D,
@@ -440,7 +440,7 @@ local record Output<M is core.Member> is core.Writer<M>
             self:add(", ")
         end
         frame.count += 1
-        self:add("unknown(" .. field:diagnosticLabel() .. ") = ")
+        self:add("unknown(" .. field:diagnosticlabel() .. ") = ")
         contents(adapter, value, self.state, self.depth + #self.frames)
     end
 
@@ -474,29 +474,29 @@ end
 --- or clear what it retains.
 export interface Renderer
     --- Renders a value. See [](render).
-    render: function<T>(self, selectedBinding: core.Binding<T>, borrows value: T): string
+    render: function<T>(self, selectedbinding: core.Binding<T>, borrows value: T): string
 
     --- Appends a rendered value. See [](write).
-    write: function<T>(self, selectedBinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+    write: function<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
 
     --- Forgets every binding's selections.
     clear: function(self): nil
 
     --- Returns how many bindings have selections retained.
-    cachedBindings: function(self): integer
+    cachedbindings: function(self): integer
 end
 
 local record Implementation is Renderer
     @readonly cache: Cache
-    function render<T>(self, selectedBinding: core.Binding<T>, borrows value: T): string
+    function render<T>(self, selectedbinding: core.Binding<T>, borrows value: T): string
         local state = new State(cache = self.cache)
-        selectedBinding:accept(new Render<T>(state = state), value)
+        selectedbinding:accept(new Render<T>(state = state), value)
         return table.concat(state.parts)
     end
 
-    function write<T>(self, selectedBinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+    function write<T>(self, selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
         local state = new State(cache = self.cache)
-        selectedBinding:accept(new Render<T>(state = state), value)
+        selectedbinding:accept(new Render<T>(state = state), value)
         for _, part in ipairs(state.parts) do
             buffer:put(part)
         end
@@ -506,7 +506,7 @@ local record Implementation is Renderer
         self.cache:clear()
     end
 
-    function cachedBindings(self): integer
+    function cachedbindings(self): integer
         return self.cache.memo:size()
     end
 end
@@ -524,11 +524,11 @@ local defaultRenderer = renderer()
 
 --- Renders a value as text.
 ---
---- @param selectedBinding the value's binding
+--- @param selectedbinding the value's binding
 --- @param value the value
 --- @return the text
-export function render<T>(selectedBinding: core.Binding<T>, borrows value: T): string
-    return defaultRenderer:render(selectedBinding, value)
+export function render<T>(selectedbinding: core.Binding<T>, borrows value: T): string
+    return defaultRenderer:render(selectedbinding, value)
 end
 
 --- Appends a value's text to a Buffer.
@@ -545,11 +545,11 @@ end
 --- assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
 --- ```
 ---
---- @param selectedBinding the value's binding
+--- @param selectedbinding the value's binding
 --- @param value the value
 --- @param buffer the buffer to append to
-export function write<T>(selectedBinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
-    defaultRenderer:write(selectedBinding, value, buffer)
+export function write<T>(selectedbinding: core.Binding<T>, borrows value: T, exclusive buffer: text.Buffer): nil
+    defaultRenderer:write(selectedbinding, value, buffer)
 end
 
 -- The derive forwarding method supplies its own declaration witness. Generic

@@ -83,13 +83,13 @@ and every application are erased from generated Lua.
 
 ## Single-value applications
 
-Apply `@annotationValue` to one field to designate it as the annotation's
+Apply `@annotationvalue` to one field to designate it as the annotation's
 single-value member:
 
 ```nupp
 @annotation(targets = {"record", "field"})
 record documentation
-    @annotationValue text: string
+    @annotationvalue text: string
 end
 ```
 
@@ -104,7 +104,7 @@ end
 ```
 
 That is the same metadata as writing `@documentation(text = "A user")`. There
-may be at most one `@annotationValue` field, and an annotation without one
+may be at most one `@annotationvalue` field, and an annotation without one
 requires named members.
 
 The formatter treats the positional form as canonical: whenever an application
@@ -121,7 +121,7 @@ rather than an ordinary compile-time constant:
 ```nupp
 @annotation(targets = {"record"})
 record relatesTo
-    @annotationValue @ref target: any
+    @annotationvalue @ref target: any
 end
 ```
 

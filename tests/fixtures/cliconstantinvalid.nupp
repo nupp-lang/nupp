@@ -4,6 +4,6 @@ local cli = require("arg")
 
 @derive(cli.arguments)
 local record InvalidConstant
-    @cli(arity = "optionalAttached", constant = true)
+    @cli(arity = "optionalattached", constant = true)
     profile: string?
 end

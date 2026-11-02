@@ -61,7 +61,7 @@ local function readBytes(api: any, pointer: any, count: uint64): string
     if pointer == nil then
         error("Tecs asset returned a null data pointer", 2)
     end
-    local bytes = storage.allocateBytes(size)
+    local bytes = storage.allocbytes(size)
     api.copy(bytes, pointer, count)
 
     return storage.string(bytes, size) as string

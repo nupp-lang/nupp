@@ -58,7 +58,7 @@ type process.IsolatedProcess = {
     stdin: any,
     stdout: any,
     stderr: any,
-    isRunning: function(any): boolean,
+    isrunning: function(any): boolean,
     kill: function(any, boolean?): (boolean, string?),
     close: function(any): nil
 }
@@ -286,7 +286,7 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
         stdin = "null",
         stdout = "pipe",
         stderr = "stdout",
-        timeoutMs = opts.timeoutMs,
+        timeoutms = opts.timeoutMs,
     }
     local child, problem = native.spawn(nativeOptions)
     if child == nil then
@@ -315,11 +315,11 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
             cancelled = true
             child:kill(true)
         end
-        local running = child:isRunning()
-        if not running and reader:isEnded() then
+        local running = child:isrunning()
+        if not running and reader:isended() then
             break
         end
-        if not moved and not reader:isEnded() then
+        if not moved and not reader:isended() then
             -- A short wait rather than none, so a quiet child costs a sleep in the
             -- platform instead of a spin, and the host is served again soon.
             local chunk = reader:poll(65536, 5)
@@ -333,11 +333,11 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
     if cancelled then
         return 125, table.concat(chunks)
     end
-    if exit.timedOut then
+    if exit.timedout then
         return 124, table.concat(chunks)
     end
 
-    return exit.exitCode, table.concat(chunks)
+    return exit.exitcode, table.concat(chunks)
 end
 
 --- Starts the same bounded child used by `captureIsolated`, but leaves its framed

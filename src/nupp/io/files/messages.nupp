@@ -23,7 +23,7 @@ export record Info
     modified: number
 
     --- Whether the native platform refuses writes.
-    readOnly: boolean
+    readonly: boolean
 end
 
 --- An immediate child of a listed directory.
@@ -40,10 +40,10 @@ export record TemporaryOptions
     --- The native directory to create the path in.
     directory: (string | paths.Path)?
 
-    --- A separator-free fragment placed before the random portion of the name.
+    --- A sep-free fragment placed before the random portion of the name.
     prefix: string?
 
-    --- A separator-free fragment placed after the random portion of the name.
+    --- A sep-free fragment placed after the random portion of the name.
     suffix: string?
 end
 
@@ -53,13 +53,13 @@ export record Capabilities
     available: boolean
 
     --- Whether ordinary native paths are accepted.
-    arbitraryPaths: boolean
+    arbitrarypaths: boolean
 
     --- Whether symbolic links can be queried and created.
-    symbolicLinks: boolean
+    symlinks: boolean
 
     --- Whether read-only attributes can be changed.
-    readOnlyAttributes: boolean
+    readonlyattributes: boolean
 
     --- Whether filesystem globbing is supported.
     glob: boolean
@@ -68,23 +68,23 @@ export record Capabilities
     rename: boolean
 
     --- Whether atomic replacement writes are supported.
-    atomicWrite: boolean
+    atomicwrite: boolean
 
     --- Whether temporary path owners can be created.
-    temporaryPaths: boolean
+    tmppaths: boolean
 
     --- Whether a
-    concurrentOpenHandles: boolean
+    concurrentopenhandles: boolean
 
     --- Whether a process working directory exists.
-    currentDirectory: boolean
+    cwd: boolean
 
     --- Whether conventional user folders can be resolved.
-    userFolders: boolean
+    userfolders: boolean
 
     --- Whether the running executable's directory can be resolved.
-    executableDirectory: boolean
+    executabledirectory: boolean
 
     --- Whether persistent browser storage can be requested.
-    persistentStorageRequest: boolean
+    persistentstoragerequest: boolean
 end

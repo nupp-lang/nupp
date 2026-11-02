@@ -149,6 +149,7 @@ local RESOURCES = {
     {source = "src/nupp/derive.nupp", output = "nupp/compiler/nupp/derive.nupp"},
     {source = "src/debug/bench.nupp", output = "nupp/compiler/debug/bench.nupp"},
     {source = "src/nupp/bench/internal/statistics.nupp", output = "nupp/compiler/nupp/bench/internal/statistics.nupp"},
+    {source = "src/nupp/bench/internal/record.nupp", output = "nupp/compiler/nupp/bench/internal/record.nupp"},
     {source = "src/nupp/mem/indexed.nupp", output = "nupp/compiler/nupp/mem/indexed.nupp"},
     {source = "src/nupp/mem/span.nupp", output = "nupp/compiler/nupp/mem/span.nupp"},
     {source = "src/gpu/init.nupp", output = "nupp/compiler/gpu/init.nupp"},

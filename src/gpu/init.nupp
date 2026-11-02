@@ -23,9 +23,9 @@ with context = gpu.open() do
                 scale:dispatch(2.0)
             end
         end
-        context:enqueueDownload(output)
+        context:enqueuedownload(output)
         context:synchronize()
-        context:readDownloaded(output, result:write())
+        context:readdownloaded(output, result:write())
     end
 end
 ```
@@ -67,8 +67,8 @@ export type Buffer<T> = api.Buffer<T>
 export type Shared<T> = api.Shared<T>
 export type Phases = api.Phases
 export type Context = api.Context
-export const PORTABLE_WORKGROUP_THREADS = implementation.PORTABLE_WORKGROUP_THREADS
-export const PORTABLE_SCRATCH_BYTES = implementation.PORTABLE_SCRATCH_BYTES
+export const portableworkgroupthreads = implementation.PORTABLE_WORKGROUP_THREADS
+export const portablescratchbytes = implementation.PORTABLE_SCRATCH_BYTES
 export const workgroups: function(
     groups: uint32,
     size: uint32,

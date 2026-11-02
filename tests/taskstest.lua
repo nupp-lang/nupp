@@ -615,7 +615,7 @@ function M.aScopeNestsInsideAHostHandlerWithoutAnsweringItsOwnWaits()
                 suspension.poll()
             end
         end,
-        canPark = function()
+        canpark = function()
             return true
         end,
         shutdown = function()
@@ -646,7 +646,7 @@ function M.aNamedChildIsTheOperationAStuckHostSees()
                 suspension.poll()
             end
         end,
-        canPark = function()
+        canpark = function()
             return true
         end,
         shutdown = function()
@@ -684,7 +684,7 @@ function M.oneTurnBudgetIsSharedByNestedAndSequentialScopes()
                 suspension.poll()
             end
         end,
-        canPark = function()
+        canpark = function()
             return true
         end,
         shutdown = function()
@@ -738,7 +738,7 @@ function M.aHostBarrierStaysVisibleThroughAScope()
         park = function()
             error("the barrier should have refused before parking", 0)
         end,
-        canPark = function()
+        canpark = function()
             return false
         end,
         shutdown = function()
@@ -1055,7 +1055,7 @@ function M.aFamilyCallNestsInsideAnInstalledHandler()
                 suspension.poll()
             end
         end,
-        canPark = function()
+        canpark = function()
             return true
         end,
         shutdown = function()
@@ -1086,7 +1086,7 @@ function M.nestedFamilyCallsPreserveAnOuterBarrier()
         park = function()
             error("the refused wait reached the outer park", 0)
         end,
-        canPark = function()
+        canpark = function()
             return false
         end,
         shutdown = function()
@@ -1226,7 +1226,7 @@ function M.aCancelledTaskCanParkWhileItDrainsItsOwnScope()
                 suspension.poll()
             end
         end,
-        canPark = function()
+        canpark = function()
             return true
         end,
         shutdown = function()
@@ -1488,23 +1488,23 @@ function M.runRefusesABadLimit()
     assert(tostring(problem):find("limit must be a positive integer", 1, true) ~= nil, tostring(problem))
 end
 
-function M.acceptingTaskCompletionNameSharesTheExistingMethod()
+function M.canonicalTaskCompletionRetiresThePrecedingMethod()
     scoped(nil, function(scope)
         local child = scope:spawn(function()
             return 17, nil, "tail"
         end)
-        testAssert.eq(child.isdone, child.isDone, "completion aliases share one method handle")
+        testAssert.eq(child.isDone, nil, "the preceding public method is absent")
         testAssert.eq(child:isdone(), false)
         local first, middle, last = child:await()
         testAssert.eq(first, 17)
         testAssert.eq(middle, nil)
         testAssert.eq(last, "tail")
         testAssert.eq(child:isdone(), true)
-        testAssert.eq(child:isdone(), child:isDone())
+        testAssert.eq(child.isDone, nil)
     end)
 end
 
-function M.acceptingWorkNameRunsTheExistingWorkerSubmission()
+function M.canonicalWorkRunsTheExistingWorkerSubmission()
     local parser = require("nupp.compiler.syntax.parser")
     local checker = require("fragment")
     local program = require("program")
@@ -1514,13 +1514,13 @@ module acceptingworkernames
 
 export function run(): (integer, nil, string, boolean, boolean, integer)
 return coroutine.run(function(borrows scope: coroutine.Scope): (integer, nil, string, boolean, boolean, integer)
-    assert(scope.work == scope.fork)
+    assert((scope as any).fork == nil)
     local handle = scope:work(6, function(value: integer): (integer, nil, string)
         return value + 1, nil, "tail"
     end)
-    assert(handle.isdone == handle.isDone)
+    assert((handle as any).isDone == nil)
     local first, middle, last = handle:await()
-    return first, middle, last, handle:isdone(), handle:isDone(), select("#", handle:await())
+    return first, middle, last, handle:isdone(), (handle as any).isDone == nil, select("#", handle:await())
 end)
 end
 ]]
@@ -1535,7 +1535,7 @@ end
     testAssert.eq(last, "tail")
     testAssert.eq(done, true)
     testAssert.eq(precedingDone, true)
-    testAssert.eq(count, 3, "the complete result pack survives the alias")
+    testAssert.eq(count, 3, "the complete result pack survives canonical worker submission")
 end
 
 return M

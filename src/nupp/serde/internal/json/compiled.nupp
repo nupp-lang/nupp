@@ -218,7 +218,7 @@ export function select<T, M is core.Member>(
     if selected == nil then
         return nil
     end
-    local compile, decode = selected.compileSerde, selected.decodeSerde
+    local compile, decode = selected.compileserde, selected.decodeserde
     if compile == nil or decode == nil then
         return nil
     end
@@ -236,7 +236,7 @@ export function select<T, M is core.Member>(
         schema = schema,
         syntax = recipe.syntax,
         invoke = decode,
-        invokeBuffer = selected.decodeSerdeBuffer
+        invokeBuffer = selected.decodeserdebuffer
     )
 end
 

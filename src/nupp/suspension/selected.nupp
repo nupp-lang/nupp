@@ -35,20 +35,20 @@ end
 -- interface declares them, which catches a typed implementation while compiling;
 -- this catches the rest.
 assert(
-    chosenProvider.installDriver ~= nil
-    and chosenProvider.delegatedCanPark ~= nil
-    and chosenProvider.delegatedPark ~= nil
+    chosenProvider.installdriver ~= nil
+    and chosenProvider.delegatedcanpark ~= nil
+    and chosenProvider.delegatedpark ~= nil
     and chosenProvider.derive ~= nil,
-    "nupp.suspension: an implementation must provide installDriver, delegatedCanPark, delegatedPark and derive"
+    "nupp.suspension: an implementation must provide installdriver, delegatedcanpark, delegatedpark and derive"
 )
 
 -- Turn budgeting is an implementation's to offer. A replacement without it remains
 -- correct, with an unbounded aggregate turn, which is what these stand in for; all
 -- three or none, because an aggregate that spends a budget it cannot defer against
 -- would stall rather than return control.
-local available = chosenProvider.turnAvailable
-local consume = chosenProvider.consumeTurn
-local defer = chosenProvider.deferTurn
+local available = chosenProvider.turnavailable
+local consume = chosenProvider.consumeturn
+local defer = chosenProvider.deferturn
 if available == nil and consume == nil and defer == nil then
     available = function(): boolean
         return true

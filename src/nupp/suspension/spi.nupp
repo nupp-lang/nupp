@@ -17,14 +17,14 @@ neither has to reproduce the other's layout.
 
 A subscription may resume synchronously or later. It must settle a Waiting only
 once and run returned cleanup when the wait ends, including cancellation.
-`Waiting.onResume` is settle-safe: registering a waker on a wait that has already
+`Waiting.onresume` is settle-safe: registering a waker on a wait that has already
 settled runs it immediately. Source release and Installed close must not suspend.
 Nested installation restores the captured handler, and a driver installation
 preserves delegation to the outer scheduler. `create` propagates the suspension
 context into a new coroutine.
 
 Sources report readiness in `order`, lowest first. Context.uses identifies
-sources needed by a wait. Whether a park is permitted here is `canSuspend`,
+sources needed by a wait. Whether a park is permitted here is `cansuspend`,
 which returns for the handler in force. Cancellation values must come from
 [](coroutine.suspension.cancellation), which preserves recognition by tasks and
 worker providers. State belongs to one Lua state; registrations and handlers are
@@ -70,7 +70,7 @@ export record Context
 end
 
 --- A single pending operation observed by a suspension handler.
---- ready is monotonic once resumed; onResume installs the handler's wake callback.
+--- ready is monotonic once resumed; onresume installs the handler's wake callback.
 export record Waiting
     --- Reports whether the subscription has settled.
     ready: function(self: Waiting): boolean
@@ -81,7 +81,7 @@ export record Waiting
     --- this returns rather than stored. A handler may therefore arm once and
     --- then yield until `ready` returns true, without a recheck loop around the
     --- arming.
-    onResume: function(self: Waiting, wake: function(): nil): nil
+    onresume: function(self: Waiting, wake: function(): nil): nil
 
     --- Diagnostic operation name supplied to suspend.
     operation: string
@@ -94,7 +94,7 @@ export record Handler
     park: function(self: Handler, waiting: Waiting, cleanup: function(): nil): nil
 
     --- Reports whether this handler can park the current execution.
-    canPark: function(self: Handler): boolean
+    canpark: function(self: Handler): boolean
 
     --- Releases scheduling state owned by this handler.
     shutdown: function(self: Handler): nil
@@ -145,7 +145,7 @@ export interface Provider
     --- one: a task scope opened in a frame installs one so the frame's own waits keep
     --- its children running, and it does not bound a host turn where no host is
     --- beneath it.
-    @readonly installDriver: function(handler: Handler): affine(Installed)
+    @readonly installdriver: function(handler: Handler): affine(Installed)
 
     --- Creates a coroutine preserving the active suspension context and result pack.
     @readonly create: Create
@@ -154,23 +154,23 @@ export interface Provider
     @readonly handled: function(): boolean
 
     --- Reports whether this execution context can perform a suspension.
-    @readonly canSuspend: function(): boolean
+    @readonly cansuspend: function(): boolean
 
     --- Captures the barrier in force here, for a driver about to displace it.
     ---
     --- A driver's handler changes where a branch yields and must not quietly
     --- grant permission the handler it displaced refused, so a driver takes
-    --- this before it installs and delegates `canPark` to it. Resolved when
+    --- this before it installs and delegates `canpark` to it. Resolved when
     --- called rather than where captured, because a host enters and leaves
     --- barriers while a driver is live.
-    @readonly delegatedCanPark: function(): function(): boolean
+    @readonly delegatedcanpark: function(): function(): boolean
 
     --- Captures how a wait is parked here, for a driver about to displace it.
     ---
     --- A driver runs its own work while a frame waits and hands what it cannot
     --- satisfy to the handler it displaced, or to the blocking park where there is
-    --- none. Captured like `delegatedCanPark`, and resolved when called.
-    @readonly delegatedPark: function(): function(Waiting, function(): nil): nil
+    --- none. Captured like `delegatedcanpark`, and resolved when called.
+    @readonly delegatedpark: function(): function(Waiting, function(): nil): nil
 
     --- Builds a Waiting that settles when `base` does or when `ready` returns
     --- true.
@@ -193,11 +193,11 @@ export interface Provider
     --- Turn budgeting is an implementation's to offer: absent, the three leave the
     --- aggregate turn unbounded, and the facade supplies that reading. An
     --- implementation publishes all three or none.
-    @readonly turnAvailable: (function(): boolean)?
+    @readonly turnavailable: (function(): boolean)?
 
     --- Records one coroutine activation against the current turn.
-    @readonly consumeTurn: (function(): nil)?
+    @readonly consumeturn: (function(): nil)?
 
     --- Parks until the host has had its turn.
-    @readonly deferTurn: (function(): nil)?
+    @readonly deferturn: (function(): nil)?
 end

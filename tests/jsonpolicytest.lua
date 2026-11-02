@@ -8,8 +8,8 @@ local M = {}
 
 function M.emptyContainersAreExplicit()
     assert(json.encodevalue({}) == "{}", "a plain empty table is an object")
-    assert(json.encodevalue(json.asarray({})) == "[]", "asArray marks an empty array")
-    assert(json.encodevalue(json.asobject({})) == "{}", "asObject marks an empty object")
+    assert(json.encodevalue(json.asarray({})) == "[]", "asarray marks an empty array")
+    assert(json.encodevalue(json.asobject({})) == "{}", "asobject marks an empty object")
     assert(json.encodevalue(json.EMPTY_ARRAY) == "[]", "EMPTY_ARRAY is serializable")
     assert(json.encodevalue(json.EMPTY_OBJECT) == "{}", "EMPTY_OBJECT is serializable")
 end
@@ -36,15 +36,15 @@ function M.abortingWritersDiscardsOnlyUnpublishedBytes()
     for _, provider in ipairs({json, require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
         local output = require("nupp.text").newbuffer()
         output:put("prefix")
-        local writer = (provider == json and provider.newwriter or provider.newWriter)(output)
-        writer:startArray():write(1)
+        local writer = (provider == json and provider.newwriter or provider.newwriter)(output)
+        writer:startarray():write(1)
         writer:abort()
         writer:abort()
         writer:close()
         assert(output:tostring() == "prefix")
         assert(not pcall(writer.write, writer, 2))
-        writer = (provider == json and provider.newwriter or provider.newWriter)(output)
-        writer:startArray():write(1)
+        writer = (provider == json and provider.newwriter or provider.newwriter)(output)
+        writer:startarray():write(1)
         writer:flush()
         writer:write(2)
         writer:abort()
@@ -84,12 +84,12 @@ end
 function M.exactNumberFragmentsPreserveTokensAcrossProviders()
     for _, provider in ipairs({json, require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
         for _, token in ipairs({"0", "-0", "1.00", "123456789012345678901234567890", "1e4000", "-2.1E-9000"}) do
-            local fragment = (provider == json and provider.numbertoken or provider.numberToken)(token)
+            local fragment = (provider == json and provider.numbertoken or provider.numbertoken)(token)
             local encode = provider == json and provider.encodevalue or provider.encode
             assert(encode(fragment) == token)
             local output = require("nupp.text").newbuffer()
-            local writer = (provider == json and provider.newwriter or provider.newWriter)(output)
-            writer:startArray():write(fragment):endArray()
+            local writer = (provider == json and provider.newwriter or provider.newwriter)(output)
+            writer:startarray():write(fragment):endarray()
             writer:close()
             assert(output:tostring() == "[" .. token .. "]")
         end
@@ -111,7 +111,7 @@ function M.exactNumberFragmentsPreserveTokensAcrossProviders()
             "true"
         }) do
             assert(
-                not pcall(provider == json and provider.numbertoken or provider.numberToken, token),
+                not pcall(provider == json and provider.numbertoken or provider.numbertoken, token),
                 "accepted invalid token: " .. token
             )
         end
@@ -171,14 +171,14 @@ end
 function M.failedWritesLeaveTheWriterAtItsPriorPosition()
     for _, provider in ipairs({require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot"),}) do
         local output = require("nupp.text").newbuffer()
-        local writer = provider.newWriter(output)
-        writer:startArray():write(1)
+        local writer = provider.newwriter(output)
+        writer:startarray():write(1)
         assert(
             not pcall(writer.write, writer, function()
             end),
             "the writer accepted a function"
         )
-        writer:write(2):endArray()
+        writer:write(2):endarray()
         writer:close()
         assert(output:tostring() == "[1,2]", "a rejected value changed the writer")
     end
@@ -188,13 +188,13 @@ function M.portableEncodingRejectsInvalidUtf8Everywhere()
     for _, value in ipairs({"\255", "\192\128", "\237\160\128"}) do
         assert(not pcall(json.encodevalue, value), "the encoder accepted an invalid UTF-8 value")
         assert(not pcall(json.encodevalue, {[value] = 1}), "the encoder accepted an invalid UTF-8 key")
-        assert(not pcall(json.encodedstring, value), "encodedString accepted invalid UTF-8")
+        assert(not pcall(json.encodedstring, value), "encodedstring accepted invalid UTF-8")
     end
     local output = require("nupp.text").newbuffer()
     local writer = json.newwriter(output)
-    writer:startObject()
+    writer:startobject()
     assert(not pcall(writer.key, writer, "\255"), "the writer accepted an invalid UTF-8 key")
-    writer:key("valid"):write(1):endObject()
+    writer:key("valid"):write(1):endobject()
     writer:close()
     assert(output:tostring() == [[{"valid":1}]], "a rejected key changed the writer")
 end
@@ -202,12 +202,12 @@ end
 function M.arrayMarkersRequireEveryConsecutiveIndex()
     local sparse = {}
     sparse[2] = "second"
-    assert(not pcall(json.asarray, sparse), "asArray accepted an array starting at index two")
+    assert(not pcall(json.asarray, sparse), "asarray accepted an array starting at index two")
 
     local aotSparse = {}
     aotSparse[2] = "second"
     assert(
-        not pcall(require("nupp.codec.json.aot").asArray, aotSparse),
+        not pcall(require("nupp.codec.json.aot").asarray, aotSparse),
         "the AOT provider accepted an array starting at index two"
     )
 end

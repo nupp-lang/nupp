@@ -70,14 +70,14 @@ local contracts = require("io.http.spi")
 local io = require("io")
 local function copy(borrows response: contracts.Response): nil
 local destination = io.newbuffer()
-response.body:readInto(destination, 0, 8)
-local lease = destination:reserveWrite(0, 8)
+response.body:readinto(destination, 0, 8)
+local lease = destination:reservewrite(0, 8)
 local output = lease:span()
-response.body:readSpan(output)
+response.body:readspan(output)
 own.drop(output)
 lease:commit(8)
-local writer = destination:newWriter()
-response.body:transferTo(writer)
+local writer = destination:newwriter()
+response.body:transferto(writer)
 writer:close()
 end
 return true
@@ -108,8 +108,8 @@ local function writer(exclusive out: nupp.text.Buffer, nullValue: any?): any
     return nil
 end
 local checked: function(exclusive out: Buffer, nullValue: any?): any = writer
-local provider: contracts.Provider = {newWriter = writer} as any
-local canonical: function(exclusive out: Buffer, nullValue: any?): any = provider.newWriter
+local provider: contracts.Provider = {newwriter = writer} as any
+local canonical: function(exclusive out: Buffer, nullvalue: any?): any = provider.newwriter
 print(checked, canonical)
 ]]
         )

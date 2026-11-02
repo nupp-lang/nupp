@@ -77,7 +77,7 @@ local implementation = require("nupp.serde.internal.valuebuilder")
 ---     local builder = valuebuilder.new(nullValue)
 ---
 ---     valuebuilder.openarray(builder, u32.wrap(2))
----     valuebuilder.boolean(builder, true)
+---     valuebuilder.bool(builder, true)
 ---     valuebuilder.null(builder)
 ---     valuebuilder.close(builder)
 ---
@@ -85,7 +85,7 @@ local implementation = require("nupp.serde.internal.valuebuilder")
 --- end
 --- ```
 ---
---- @param nullValue what [](serde.valuebuilder.null) adds
+--- @param nullvalue what [](serde.valuebuilder.null) adds
 --- @return the stream handle, which under AOT is local construction state and
 ---     cannot be returned, reassigned, stored, or passed to an ordinary call
 export const new = implementation.new
@@ -104,9 +104,9 @@ export const new = implementation.new
 --- Reach for this over [](serde.valuebuilder.new) when the document may nest
 --- deeper than 1,024 containers, or when the parser already knows the longest
 --- string it can produce and would rather not grow into it.
---- @param nullValue what [](serde.valuebuilder.null) adds
---- @param maxDepth the most containers that may be open at once
---- @param stringCapacity the most bytes one transformed string may need
+--- @param nullvalue what [](serde.valuebuilder.null) adds
+--- @param maxdepth the most containers that may be open at once
+--- @param stringcapacity the most bytes one transformed string may need
 --- @return the stream handle, on the same terms as [](serde.valuebuilder.new)
 export const newsized = implementation.newSized
 
@@ -241,7 +241,7 @@ export const scratchword = implementation.scratchWord
 --- Returns the initialized word count of a local work buffer.
 --- @param scratch a buffer from [](serde.valuebuilder.newwordscratch)
 --- @return the number of initialized words
-export const scratchlength = implementation.scratchLength
+export const scratchlen = implementation.scratchLength
 
 --- Writes an existing word or appends the next contiguous word.
 ---
@@ -355,7 +355,7 @@ export const resetbytescratch = implementation.resetByteScratch
 --- @param builder the stream
 --- @param scratch a buffer from [](serde.valuebuilder.newbytescratch)
 --- @param start the range's zero-based first byte
---- @param length the range's length in bytes
+--- @param len the range's length in bytes
 --- @raises string when the range is not initialized
 --- @raises string when the value would be a second root, or an object value with no key
 export const stringscratch = implementation.stringScratch
@@ -367,7 +367,7 @@ export const stringscratch = implementation.stringScratch
 --- @param builder the stream
 --- @param scratch a buffer from [](serde.valuebuilder.newbytescratch)
 --- @param start the range's zero-based first byte
---- @param length the range's length in bytes
+--- @param len the range's length in bytes
 --- @raises string when outside an object, when a key is already pending, or when the
 ---     range is not initialized
 export const keyscratch = implementation.keyScratch
@@ -439,7 +439,7 @@ export const state = implementation.state
 --- @param builder the stream
 --- @param source the rooted string the range indexes
 --- @param start the range's zero-based first byte
---- @param length the range's length in bytes
+--- @param len the range's length in bytes
 --- @param escaped whether the range may hold backslash escapes
 --- @raises string when outside an object, or when a key is already pending
 --- @raises string when the source range is out of bounds
@@ -454,7 +454,7 @@ export const key = implementation.key
 --- @param builder the stream
 --- @param source the rooted string the range indexes
 --- @param start the range's zero-based first byte
---- @param length the range's length in bytes
+--- @param len the range's length in bytes
 --- @param escaped whether the range may hold backslash escapes
 --- @raises string when the source range is out of bounds
 --- @raises string when an escape in the range is malformed
@@ -479,7 +479,7 @@ export const number = implementation.number
 --- @param builder the stream
 --- @param source the rooted string the range indexes
 --- @param start the range's zero-based first byte
---- @param length the range's length in bytes
+--- @param len the range's length in bytes
 --- @raises string when the source range is out of bounds
 --- @raises string when the source range is not a number token
 --- @raises string when the value would be a second root, or an object value with no key
@@ -494,7 +494,7 @@ export const numberslice = implementation.numberSlice
 --- @param builder the stream
 --- @param source the rooted string the range indexes
 --- @param start the range's zero-based first byte
---- @param length the range's length in bytes
+--- @param len the range's length in bytes
 --- @raises string when the source range is out of bounds
 --- @raises string when the source range is not an integer token
 --- @raises string when the value would be a second root, or an object value with no key
@@ -504,7 +504,7 @@ export const integerslice = implementation.integerSlice
 --- @param builder the stream
 --- @param value the boolean to add
 --- @raises string when the value would be a second root, or an object value with no key
-export const boolean = implementation.boolean
+export const bool = implementation.boolean
 
 --- Adds the null replacement the stream was started with by
 --- [](serde.valuebuilder.new) or [](serde.valuebuilder.newsized).

@@ -80,7 +80,7 @@ local function ready()
     if unavailable then
         test.suite.skip("the HTTP provider is unavailable: " .. unavailable)
     end
-    return newHttpClient({timeoutMs = 10000, maxConnections = 8, maxConnectionsPerHost = 8,})
+    return newHttpClient({timeoutms = 10000, maxconnections = 8, maxconnectionsperhost = 8,})
 end
 
 local function endpoint(path)
@@ -90,7 +90,7 @@ end
 local function readAll(body, chunkSize)
     local destination = buffers.newbuffer()
     while true do
-        local count, reason = body:readInto(destination, destination:len(), chunkSize)
+        local count, reason = body:readinto(destination, destination:len(), chunkSize)
         assert(count, reason)
         if count == 0 then
             break
@@ -106,7 +106,7 @@ function M.smallInlineRequestsUseThePooledPublicPath()
     local response, reason = client:send({url = endpoint("/echo"), method = "POST", body = payload,})
     assert(response, reason)
     local output = readAll(response.body, #payload)
-    test.eq(output:getString(), payload)
+    test.eq(output:getstring(), payload)
     test.eq(response.body:read(1), "")
     response:close()
     output:close()
@@ -131,7 +131,7 @@ function M.buffersViewsAndFilesKeepTheirConcreteUploadPaths()
         local response, reason = client:send({url = endpoint("/echo"), method = "POST", body = body,})
         assert(response, reason)
         local echoed = readAll(response.body, 32768)
-        test.eq(echoed:getString(), payload)
+        test.eq(echoed:getstring(), payload)
         echoed:close()
         response:close()
     end
@@ -148,7 +148,7 @@ function M.buffersViewsAndFilesKeepTheirConcreteUploadPaths()
     })
     assert(response, reason)
     local echoed = readAll(response.body, 32768)
-    test.eq(echoed:getString(), payload)
+    test.eq(echoed:getstring(), payload)
     echoed:close()
     response:close()
     client:close()
@@ -158,7 +158,7 @@ function M.selectivelyInsecureClientsRerouteEveryRedirect()
     if unavailable then
         test.suite.skip("the HTTP provider is unavailable: " .. unavailable)
     end
-    local client = newHttpClient({insecureHosts = {"127.0.0.1"}, headers = {Authorization = "secret"},})
+    local client = newHttpClient({insecurehosts = {"127.0.0.1"}, headers = {Authorization = "secret"},})
     local response, reason = client:send({url = endpoint("/redirect")})
     assert(response, reason)
     test.eq(response.url:host(), "localhost")
@@ -170,7 +170,7 @@ function M.selectivelyInsecureClientsRerouteEveryRedirect()
     -- closed. The hop re-enters send through `self`, and a lowering that parked
     -- the first caller's receiver in a module-wide cache would dispatch this
     -- client's hop through the closed one.
-    local second = newHttpClient({insecureHosts = {"127.0.0.1"}, headers = {Authorization = "secret"},})
+    local second = newHttpClient({insecurehosts = {"127.0.0.1"}, headers = {Authorization = "secret"},})
     local followed, why = second:send({url = endpoint("/redirect")})
     assert(followed, why)
     test.eq(followed.url:host(), "localhost")
@@ -186,7 +186,7 @@ function M.selectivelyInsecureClientsStripCookiesAcrossOrigins()
     if unavailable then
         test.suite.skip("the HTTP provider is unavailable: " .. unavailable)
     end
-    local client = newHttpClient({insecureHosts = {"127.0.0.1"}, headers = {Cookie = "session=secret"},})
+    local client = newHttpClient({insecurehosts = {"127.0.0.1"}, headers = {Cookie = "session=secret"},})
     local response, reason = client:send({url = endpoint("/redirect-cookie")})
     assert(response, reason)
     test.eq(response.url:host(), "localhost")
@@ -218,7 +218,7 @@ function M.aRequestPastItsDeadlineIsATimeout()
     if unavailable then
         test.suite.skip("the HTTP provider is unavailable: " .. unavailable)
     end
-    local client = newHttpClient({timeoutMs = 200})
+    local client = newHttpClient({timeoutms = 200})
     local response, reason = client:send({url = endpoint("/slow")})
     test.eq(response, nil)
     assert(reason ~= nil, "the request failed")
@@ -233,7 +233,7 @@ function M.selectivelyInsecureClientsEnforceMaxRedirectsThemselves()
     if unavailable then
         test.suite.skip("the HTTP provider is unavailable: " .. unavailable)
     end
-    local client = newHttpClient({insecureHosts = {"127.0.0.1"}, maxRedirects = 2,})
+    local client = newHttpClient({insecurehosts = {"127.0.0.1"}, maxredirects = 2,})
     local response, reason = client:send({url = endpoint("/loop")})
     test.eq(response, nil)
     test.eq(tostring(reason), "HTTP request exceeded maxRedirects")
@@ -272,10 +272,10 @@ function M.aCancelledStreamingUploadReleasesItsReaderAndTransfer()
     local calls = 0
     local total = 64 * 1024 * 1024
     local reader = {
-        readInto = function(_self, destination, offset, count)
+        readinto = function(_self, destination, offset, count)
             calls = calls + 1
             local length = math.min(count, 64 * 1024)
-            destination:setString(string.rep("u", length), offset)
+            destination:setstring(string.rep("u", length), offset)
             return length
         end,
         read = function()
@@ -328,26 +328,26 @@ function M.genericReadersAndLargeDownloadsStayProgressive()
     })
     assert(response, reason)
     local echoed = readAll(response.body, 32768)
-    test.eq(echoed:getString(), payload)
+    test.eq(echoed:getstring(), payload)
     response:close()
     echoed:close()
 
     response, reason = client:send({url = endpoint("/large")})
     assert(response, reason)
     test.eq(response:header("x-repeated"), "one, two")
-    local repeated = response:headerValues("X-Repeated")
+    local repeated = response:headervalues("X-Repeated")
     test.eq(#repeated, 2)
     test.eq(repeated[1], "one")
     test.eq(repeated[2], "two")
     local downloaded = buffers.newbuffer(4 * 1024 * 1024)
-    local writer = downloaded:newWriter()
-    local copied, copyReason = response.body:transferTo(writer)
+    local writer = downloaded:newwriter()
+    local copied, copyReason = response.body:transferto(writer)
     assert(copied, copyReason)
     test.eq(copied, 4 * 1024 * 1024)
     writer:close()
     test.eq(downloaded:len(), 4 * 1024 * 1024)
-    test.eq(downloaded:getString(0, 16), "0123456789abcdef")
-    test.eq(downloaded:getString(downloaded:len() - 16, 16), "0123456789abcdef")
+    test.eq(downloaded:getstring(0, 16), "0123456789abcdef")
+    test.eq(downloaded:getstring(downloaded:len() - 16, 16), "0123456789abcdef")
     response:close()
     downloaded:close()
     test.eq(client:pending(), 0)
@@ -363,7 +363,7 @@ function M.aBodyTransfersIntoAFileThroughCheckedSpans()
     local target = root .. "/downloaded.bin"
     local file, openReason = files.open(target, "w")
     assert(file, openReason)
-    local copied, copyReason = response.body:transferTo(file)
+    local copied, copyReason = response.body:transferto(file)
     assert(copied, copyReason)
     test.eq(copied, 4 * 1024 * 1024)
     file:close()
@@ -384,11 +384,11 @@ function M.shortReaderChunksUseTheWholeByteBoundedUploadWindow()
     local payload = string.rep("x", 20000)
     local at = 1
     local reader = {
-        readInto = function(_self, destination, offset)
+        readinto = function(_self, destination, offset)
             if at > #payload then
                 return 0
             end
-            destination:setString(payload:sub(at, at), offset)
+            destination:setstring(payload:sub(at, at), offset)
             at = at + 1
 
             return 1
@@ -413,7 +413,7 @@ function M.shortReaderChunksUseTheWholeByteBoundedUploadWindow()
     })
     assert(response, reason)
     local echoed = readAll(response.body, 32768)
-    test.eq(echoed:getString(), payload)
+    test.eq(echoed:getstring(), payload)
     echoed:close()
     response:close()
     client:close()
@@ -478,13 +478,13 @@ function M.anEarlyResponseStopsReadingTheRequestBody()
     -- transport ignored the response, not because it was quick.
     local total, calls = 1024 * 1024 * 1024, 0
     local reader = {
-        readInto = function(_self, destination, offset, count)
+        readinto = function(_self, destination, offset, count)
             calls = calls + 1
             local length = math.min(count, 4096, total - (calls - 1) * 4096)
             if length <= 0 then
                 return 0
             end
-            destination:setString(string.rep("x", length), offset)
+            destination:setstring(string.rep("x", length), offset)
 
             return length
         end,
@@ -511,7 +511,7 @@ end
 function M.aTecsStyleHandlerOnlyNeedsNonblockingHostPolls()
     local client = ready()
     local handler = {
-        canPark = function()
+        canpark = function()
             return true
         end,
         shutdown = function()
@@ -544,12 +544,12 @@ function M.admissionParksUntilAnUnreadBodyReleasesItsSlot()
     if unavailable then
         test.suite.skip("the HTTP provider is unavailable: " .. unavailable)
     end
-    local client = newHttpClient({maxPendingRequests = 1, timeoutMs = 10000})
+    local client = newHttpClient({maxpendingrequests = 1, timeoutms = 10000})
     local first = assert(client:send({url = endpoint("/large")}))
     test.eq(client:pending(), 1)
     local released = false
     local handler = {
-        canPark = function()
+        canpark = function()
             return true
         end,
         shutdown = function()

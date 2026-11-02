@@ -17,15 +17,15 @@ export type ApplicationOptions = {
     environment: {[string]: string}?,
     width: integer?,
     indent: string?,
-    labelLimit: integer?
+    labellimit: integer?
 }
 
 --- A command type resolved and decoded without executing it.
 export record Invocation
-    commandType: any
+    commandtype: any
     options: any
     argv: {string}
-    commandPath: {string}
+    commandpath: {string}
 end
 
 local type Descriptor = {
@@ -66,7 +66,7 @@ export record Application
 
     --- Resolves and decodes argv, without writing output or invoking `run`.
     function resolve(self, argv: {string}): Invocation?, any?
-        local command, rest, path, problem = self:resolvePath(argv)
+        local command, rest, path, problem = self:resolvepath(argv)
         if problem ~= nil then
             return nil, problem
         end
@@ -75,36 +75,36 @@ export record Application
             return nil, decoded
         end
 
-        return new Invocation(commandType = command.subject, options = value, argv = argv, commandPath = path), nil
+        return new Invocation(commandtype = command.subject, options = value, argv = argv, commandpath = path), nil
     end
 
     --- Renders the application's top-level help.
     function help(self): string
         local children = self:children(self.root.subject)
         if not self.root.group then
-            return self:renderCommandHelp(self.root, {})
+            return self:rendercommandhelp(self.root, {})
         end
         local out = {
             self.root.documentation ~= "" and self.root.documentation or self.options.name or self.root.name,
             ""
         }
         out[#out + 1] = "Usage:"
-        out[#out + 1] = self:indent() .. self:programName() .. " <command> [options]"
-        out[#out + 1] = self:indent() .. self:programName() .. " help [command ...]"
+        out[#out + 1] = self:indent() .. self:programname() .. " <command> [options]"
+        out[#out + 1] = self:indent() .. self:programname() .. " help [command ...]"
         if self.options.version ~= nil then
-            out[#out + 1] = self:indent() .. self:programName() .. " --version"
+            out[#out + 1] = self:indent() .. self:programname() .. " --version"
         end
         out[#out + 1] = ""
         out[#out + 1] = "Commands:"
-        self:addCommandRows(out, children)
+        self:addcommandrows(out, children)
         out[#out + 1] = ""
-        out[#out + 1] = "Run '" .. self:programName() .. " help <command>' for command-specific help."
+        out[#out + 1] = "Run '" .. self:programname() .. " help <command>' for command-specific help."
 
         return table.concat(out, "\n") .. "\n"
     end
 
     --- Renders help for a command path, or returns nil when it is unknown.
-    function commandHelp(self, path: {string}): string?
+    function commandhelp(self, path: {string}): string?
         local command = self.root
         local resolved: {string} = {}
         for _, word in ipairs(path) do
@@ -119,20 +119,20 @@ export record Application
             return self:help()
         end
 
-        return self:renderCommandHelp(command, resolved)
+        return self:rendercommandhelp(command, resolved)
     end
 
     --- @internal
-    function renderCommandHelp(self, command: Descriptor, resolved: {string}): string
+    function rendercommandhelp(self, command: Descriptor, resolved: {string}): string
         local schema = command.schema
         local out = {command.documentation ~= "" and command.documentation or command.summary, "", "Usage:"}
         local path = #resolved > 0 and " " .. table.concat(resolved, " ") or ""
-        out[#out + 1] = self:indent() .. self:programName() .. path .. self:usageSuffix(schema)
+        out[#out + 1] = self:indent() .. self:programname() .. path .. self:usagesuffix(schema)
         local children = self:children(command.subject)
         if #children > 0 then
             out[#out + 1] = ""
             out[#out + 1] = "Commands:"
-            self:addCommandRows(out, children)
+            self:addcommandrows(out, children)
         end
         local positionals: {any} = {}
         for _, field in ipairs(schema.positionals) do
@@ -164,7 +164,7 @@ export record Application
         if #visible > 0 or true then
             out[#out + 1] = ""
             out[#out + 1] = "Options:"
-            self:addOptionRows(out, visible)
+            self:addoptionrows(out, visible)
         end
 
         return table.concat(out, "\n") .. "\n"
@@ -179,7 +179,7 @@ export record Application
         local command = self.root
         local path: {string} = {}
         local index: integer = 1
-        while index < request.wordIndex do
+        while index < request.wordindex do
             local word = argv[index]
             local framework = word == "-h"
                 or word == "--help"
@@ -200,22 +200,22 @@ export record Application
                 index = index + 1
             end
         end
-        local prefix = request.prefix or argv[request.wordIndex] or ""
+        local prefix = request.prefix or argv[request.wordindex] or ""
         local children = self:children(command.subject)
-        if index == request.wordIndex and #children > 0 and prefix:sub(1, 1) ~= "-" then
+        if index == request.wordindex and #children > 0 and prefix:sub(1, 1) ~= "-" then
             local candidates: {any} = {}
             for _, child in ipairs(children) do
                 if not child.hidden then
-                    self:addCandidate(candidates, child.name, child.summary, "value", prefix)
+                    self:addcandidate(candidates, child.name, child.summary, "value", prefix)
                     for _, alias in ipairs(child.aliases) do
-                        self:addCandidate(candidates, alias, child.summary, "value", prefix)
+                        self:addcandidate(candidates, alias, child.summary, "value", prefix)
                     end
                 end
             end
             return candidates
         end
 
-        return self:completeField(command, argv, index, request.wordIndex as integer, prefix, path, request)
+        return self:completefield(command, argv, index, request.wordindex as integer, prefix, path, request)
     end
 
     --- Renders a Bash, Zsh, or Fish completion script from this schema.
@@ -226,7 +226,7 @@ export record Application
     --- knows. A reply whose first line is `:files` or `:dirs` hands the word to the
     --- shell's own path completion.
     function completion(self, shell: "bash" | "zsh" | "fish"): string
-        local program = self:programName()
+        local program = self:programname()
         local generated = "# Completion for " .. program .. "; generated from arg.\n"
         if shell == "bash" then
             return generated .. "_" .. program .. "() {\n" .. "  local cur=\"${COMP_WORDS[COMP_CWORD]}\"\n"
@@ -307,54 +307,54 @@ export record Application
                     path[#path + 1] = argv[index]
                 end
             end
-            local rendered = self:commandHelp(path)
+            local rendered = self:commandhelp(path)
             if rendered == nil then
-                return self:usageError("unknown command " .. table.concat(path, " "))
+                return self:usageerror("unknown command " .. table.concat(path, " "))
             end
             local output = self:stdout()
             output:write(self:styled(rendered, output))
             return 0
         elseif argv[1] == "__complete" then
-            return self:completionQuery(argv)
+            return self:completionquery(argv)
         end
 
-        local preliminary, _, preliminaryPath = self:resolvePath(argv)
+        local preliminary, _, preliminaryPath = self:resolvepath(argv)
         local preserveFramework = preliminary ~= nil and preliminary.schema.preserveUnknown == true
-        local filtered, wantsHelp, color, frameworkProblem = self:frameworkOptions(
+        local filtered, wantsHelp, color, frameworkProblem = self:frameworkoptions(
             argv,
             preserveFramework,
             #preliminaryPath,
-            preliminary ~= nil and preliminary.schema.stopAtFirstArgument == true,
+            preliminary ~= nil and preliminary.schema.stopatfirstargument == true,
             preliminary
         )
         if frameworkProblem ~= nil then
-            return self:usageError(frameworkProblem, preliminaryPath)
+            return self:usageerror(frameworkProblem, preliminaryPath)
         end
         if color ~= nil then
             terminal.setColorMode(color)
         end
-        local command, _, path, pathProblem = self:resolvePath(filtered)
+        local command, _, path, pathProblem = self:resolvepath(filtered)
         if pathProblem ~= nil then
-            return self:usageError(pathProblem.message)
+            return self:usageerror(pathProblem.message)
         elseif wantsHelp then
             local output = self:stdout()
-            output:write(self:styled(assert(self:commandHelp(path)), output))
+            output:write(self:styled(assert(self:commandhelp(path)), output))
             return 0
         elseif command.group and #self:children(command.subject) > 0 and #filtered == #path then
             local output = self:stdout()
-            output:write(self:styled(assert(self:commandHelp(path)), output))
+            output:write(self:styled(assert(self:commandhelp(path)), output))
             return 0
         end
         local invocation, problem = self:resolve(filtered)
         if invocation == nil then
-            return self:usageError(problem.message, path)
+            return self:usageerror(problem.message, path)
         end
 
         return invocation.options:run()
     end
 
     --- @internal
-    function programName(self): string
+    function programname(self): string
         return self.options.name or self.root.name
     end
 
@@ -392,7 +392,7 @@ export record Application
     end
 
     --- @internal
-    function resolvePath(self, argv: {string}): Descriptor, {string}, {string}, any?
+    function resolvepath(self, argv: {string}): Descriptor, {string}, {string}, any?
         local command = self.root
         local path: {string} = {}
         local index: integer = 1
@@ -422,7 +422,7 @@ export record Application
     end
 
     --- @internal
-    function frameworkOptions(
+    function frameworkoptions(
         self,
         argv: {string},
         preserve: boolean,
@@ -499,18 +499,18 @@ export record Application
     end
 
     --- @internal
-    function usageError(self, message: string, path: {string}?): integer
+    function usageerror(self, message: string, path: {string}?): integer
         local output = self:stderr()
         local style = terminal.style(output)
-        output:write(style.red(self:programName() .. ":") .. " " .. message .. "\n")
+        output:write(style.red(self:programname() .. ":") .. " " .. message .. "\n")
         local suffix = path ~= nil and #path > 0 and " " .. table.concat(path, " ") or ""
-        output:write("Try '" .. self:programName() .. " help" .. suffix .. "' for usage.\n")
+        output:write("Try '" .. self:programname() .. " help" .. suffix .. "' for usage.\n")
 
         return 2
     end
 
     --- @internal
-    function usageSuffix(self, schema: any): string
+    function usagesuffix(self, schema: any): string
         local out = ""
         local hasOptions = false
         for _, field in ipairs(schema.fields) do
@@ -532,11 +532,11 @@ export record Application
     end
 
     --- @internal
-    function optionLabel(self, field: any): string
+    function optionlabel(self, field: any): string
         if field.displayOverride ~= nil then
             return field.displayOverride
         end
-        local names = self:optionSpellings(field)
+        local names = self:optionspellings(field)
         for index, rendered in ipairs(names) do
             local name = field.names[index]
             if field.constants[name] == nil and field.conversion ~= "boolean" then
@@ -553,7 +553,7 @@ export record Application
     end
 
     --- @internal
-    function optionSpellings(self, field: any): {string}
+    function optionspellings(self, field: any): {string}
         local names: {string} = {}
         if field.pattern ~= nil then
             for spelling in tostring(field.displayOverride):gmatch("[^,]+") do
@@ -571,7 +571,7 @@ export record Application
     end
 
     --- @internal
-    function addCommandRows(self, out: {string}, commands: {Descriptor}): nil
+    function addcommandrows(self, out: {string}, commands: {Descriptor}): nil
         local width = 0
         for _, command in ipairs(commands) do
             if #command.name > width then
@@ -590,7 +590,7 @@ export record Application
     end
 
     --- @internal
-    function addOptionRows(self, out: {string}, fields: {any}): nil
+    function addoptionrows(self, out: {string}, fields: {any}): nil
         local rows: {any} = {}
         for _, field in ipairs(fields) do
             rows[#rows + 1] = field
@@ -602,9 +602,9 @@ export record Application
         rows[#rows + 1] = {documentation = "Never color output", universalLabel = "--no-color"}
         local labels: {string} = {}
         local width = 0
-        local limit = self.options.labelLimit or 20
+        local limit = self.options.labellimit or 20
         for index, field in ipairs(rows) do
-            local label = field.universalLabel or self:optionLabel(field)
+            local label = field.universalLabel or self:optionlabel(field)
             labels[index] = label
             if #label <= limit and #label > width then
                 width = #label
@@ -672,7 +672,7 @@ export record Application
                 local command: Descriptor? = self.root
                 line = line:gsub("%S+", function(token: string): string
                     position = position + 1
-                    if token == self:programName() then
+                    if token == self:programname() then
                         return style.cyan(token)
                     elseif token:sub(1, 1) == "-" then
                         return style.green(token)
@@ -707,7 +707,7 @@ export record Application
     end
 
     --- @internal
-    function addCandidate(self, out: {any}, value: string, description: string?, kind: string?, prefix: string): nil
+    function addcandidate(self, out: {any}, value: string, description: string?, kind: string?, prefix: string): nil
         if value:sub(1, #prefix) ~= prefix then
             return
         end
@@ -720,7 +720,7 @@ export record Application
     end
 
     --- @internal
-    function completeField(
+    function completefield(
         self,
         command: Descriptor,
         argv: {string},
@@ -773,20 +773,20 @@ export record Application
         if field == nil and not literal and prefix:sub(1, 1) == "-" then
             for _, candidate in ipairs(schema.fields) do
                 if candidate.role == "option" and not candidate.hidden then
-                    for _, shown in ipairs(self:optionSpellings(candidate)) do
+                    for _, shown in ipairs(self:optionspellings(candidate)) do
                         if candidate.arity == "attachedOnly" then
                             shown = shown .. "="
                         end
-                        self:addCandidate(out, shown, candidate.documentation, "value", prefix)
+                        self:addcandidate(out, shown, candidate.documentation, "value", prefix)
                     end
                 end
             end
-            self:addCandidate(out, "--help", "Show this help", "value", prefix)
-            self:addCandidate(out, "--color", "Set color policy", "value", prefix)
-            self:addCandidate(out, "--color=always", "Always color output", "value", prefix)
-            self:addCandidate(out, "--color=never", "Never color output", "value", prefix)
-            self:addCandidate(out, "--color=auto", "Color terminal output", "value", prefix)
-            self:addCandidate(out, "--no-color", "Never color output", "value", prefix)
+            self:addcandidate(out, "--help", "Show this help", "value", prefix)
+            self:addcandidate(out, "--color", "Set color policy", "value", prefix)
+            self:addcandidate(out, "--color=always", "Always color output", "value", prefix)
+            self:addcandidate(out, "--color=never", "Never color output", "value", prefix)
+            self:addcandidate(out, "--color=auto", "Color terminal output", "value", prefix)
+            self:addcandidate(out, "--no-color", "Never color output", "value", prefix)
             return out
         elseif field == nil then
             field = schema.positionals[positional]
@@ -796,7 +796,7 @@ export record Application
         end
         for _, choice in ipairs(field.choices or {}) do
             local shown = attachedStem and attachedStem .. choice or choice
-            self:addCandidate(out, shown, nil, "value", prefix)
+            self:addcandidate(out, shown, nil, "value", prefix)
         end
         local providerType = command.completers[field.index]
         if providerType then
@@ -804,8 +804,8 @@ export record Application
             local dynamicRequest = {
                 prefix = valuePrefix,
                 argv = argv,
-                wordIndex = cursor,
-                commandPath = path,
+                wordindex = cursor,
+                commandpath = path,
                 field = field.field,
                 cwd = request.cwd or self.options.cwd or ".",
                 environment = request.environment or self.options.environment or {},
@@ -816,7 +816,7 @@ export record Application
             if ok and type(dynamic) == "table" then
                 for _, candidate in ipairs(dynamic) do
                     local shown = attachedStem and attachedStem .. candidate.value or candidate.value
-                    self:addCandidate(out, shown, candidate.description, candidate.kind, prefix)
+                    self:addcandidate(out, shown, candidate.description, candidate.kind, prefix)
                 end
             end
         end
@@ -831,14 +831,14 @@ export record Application
     end
 
     --- @internal
-    function completionQuery(self, argv: {string}): integer
+    function completionquery(self, argv: {string}): integer
         local cursor: integer = (tonumber(argv[3]) or 1) as integer
         local words: {string} = {}
         for index = 4, #argv do
             words[#words + 1] = argv[index]
         end
         local prefix = words[cursor] or ""
-        local candidates, directive = self:complete({argv = words, wordIndex = cursor, prefix = prefix})
+        local candidates, directive = self:complete({argv = words, wordindex = cursor, prefix = prefix})
         local output = self:stdout()
         if directive ~= nil then
             output:write(":" .. directive .. "\n")

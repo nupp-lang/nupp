@@ -67,7 +67,7 @@ local refusingHandler = new suspensionContract.Handler(
     park = function(_: any, _: any, _: any): nil
         error("nupp: a host late handler cannot suspend; release with host.post", 0)
     end,
-    canPark = function(_: any): boolean
+    canpark = function(_: any): boolean
         return false
     end,
     shutdown = function(_: any): nil
@@ -777,7 +777,7 @@ function provider.send(kind: string, policy: string, limit: integer, ...: any): 
     end
     -- `latest` keeps one message whatever the limit says.
     if held >= (policy == "latest" and 1 or limit) then
-        if policy == "latest" or policy == "dropOldest" then
+        if policy == "latest" or policy == "dropoldest" then
             table.remove(pending, oldest as integer)
         else
             -- `block`: wait for the waiting messages to ship, then send.
@@ -807,10 +807,10 @@ end
 local function routesRecord(): any
     local policies: any = {}
     for kind, route in pairs(routes) do
-        policies[kind] = {p = route.policy, l = route.limit}
+        policies[kind] = {p = route.policy == "dropoldest" and "dropOldest" or route.policy, l = route.limit}
     end
     local record = newRecord(wire.ROUTES)
-    record.text = json.encode(json.asObject(policies))
+    record.text = json.encode(json.asobject(policies))
     record.size = 64 + #record.text
 
     return record

@@ -10,7 +10,7 @@ the application's verified payload. The host pool exchanges copied messages;
 parallel work requires neither Wasm threads nor shared memory. Sendable function
 metadata, scopes, and task results follow [](coroutine.workers.spi).
 
-Replies become visible when the current state parks. `isDone` reflects the last
+Replies become visible when the current state parks. `isdone` reflects the last
 received reply, queued cancellation settles at a park, and a running task observes
 cancellation at a checkpoint that gives its event loop a turn. Scope cleanup
 settles every child and preserves the shared cancellation identity.
@@ -71,8 +71,8 @@ local function describeSendable(fn: any, moduleName: string, member: string, ...
     return fn
 end
 
-workers.defineSendable = defineSendable
-workers.describeSendable = describeSendable
+workers.definesendable = defineSendable
+workers.describesendable = describeSendable
 
 -- A function with no compiler descriptor is located by scanning every loaded module
 -- once; the answer is a property of the function value, so it is kept. Failures are
@@ -134,8 +134,6 @@ local record TaskImpl
     await: function(TaskImpl): ...any
 
     --- Whether the child has settled and its reply has reached this Lua state.
-    isDone: @nosuspend function(TaskImpl): boolean
-
     isdone: @nosuspend function(TaskImpl): boolean
 
     status: @nosuspend function(TaskImpl): string
@@ -359,19 +357,18 @@ local function submit(entry: Submission): nil
     tasks[#tasks + 1] = entry
 end
 
-function TaskImpl:isDone(): boolean
+function TaskImpl:isdone(): boolean
     return self._state == "done" or self._state == "failed" or self._state == "cancelled"
 end
 
--- A0 seed transition: retain the private provider method and share its exact handle.
-TaskImpl.isdone = TaskImpl.isDone as any
+TaskImpl.isdone = TaskImpl.isdone as any
 
 function TaskImpl:status(): string
     return self._state
 end
 
 function TaskImpl:cancel(reason: string?): boolean
-    if self:isDone() or self._requested then
+    if self:isdone() or self._requested then
         return false
     end
     self._requested = true
@@ -390,7 +387,7 @@ end
 --- native scheduler drains every lane in one poll pass rather than locking each
 --- lane again for every awaiter.
 local function ensureAwait(task: any): nil
-    if task._awaiting or task:isDone() then
+    if task._awaiting or task:isdone() then
         return
     end
     task._awaiting = true
@@ -417,7 +414,7 @@ end
 --- Waits for a task through the installed suspension handler, or on the host
 --- boundary where there is none, exactly as an ordinary browser effect does.
 local function awaitSettlement(task: any): nil
-    if task:isDone() then
+    if task:isdone() then
         return
     end
     ensureAwait(task)
@@ -444,12 +441,12 @@ local function awaitSettlement(task: any): nil
     end
     -- Whichever awaiter runs first consumes the reply; later ones find the task
     -- already settled.
-    if not task:isDone() then
+    if not task:isdone() then
         consume(task)
     end
 end
 
---- Settles a task for a task scope's `fork`, answering rather than raising. The
+--- Settles a task for a task scope's `work`, answering rather than raising. The
 --- same answer the native provider gives, so the task scope's failure rule holds on
 --- either.
 local function settleForScope(task: any): (string, {any}?, integer, any)
@@ -611,7 +608,7 @@ end
 -- unsettled.
 local function settleOldestScope(self: workers.Scope): boolean
     local task = self._first
-    while task ~= nil and task:isDone() do
+    while task ~= nil and task:isdone() do
         task = task._after
     end
     if task == nil then
@@ -645,7 +642,7 @@ local function openScope(deadline: number?, observer: any): workers.Scope
     ) as workers.Scope
 end
 
-workers.openScope = openScope
+workers.openscope = openScope
 
 -- How many tasks a scope still lists, for the task scope's lifecycle hook.
 rawset(workers, "__registered", function(scope: any): integer
@@ -740,7 +737,7 @@ end
 --- The generated bundle calls this when the page's lane entry point boots the payload
 --- with this module named as its worker entry, so a lane never runs the application's
 --- own entry module.
-function workers.runScheduler(): nil
+function workers.runscheduler(): nil
     laneActive = true
     rawset(_G.nupp, "__workerCheckpoint", laneCheckpoint)
     local reply: any = {operation = "next"}

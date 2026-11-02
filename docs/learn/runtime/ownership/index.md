@@ -184,7 +184,7 @@ end)
 ```
 
 `managed(T)` is the cell's unique affine owner. `alias(T)` is copyable and does
-not keep custody alive. `with` and `withExclusive` acquire checked callback
+not keep custody alive. `with` and `withexclusive` acquire checked callback
 borrows, `take` restores the exact original owner once, and `close` closes
 through an alias. After close or take, every alias observes the same permanent
 tombstone. `own.recoveralias(value)` validates the brand of an alias that

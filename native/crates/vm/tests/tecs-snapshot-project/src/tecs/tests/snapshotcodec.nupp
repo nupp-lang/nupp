@@ -77,7 +77,7 @@ function suite.run(): number
         oldValue.extra[0], oldValue.extra[1] = 7, 8
     end
     const old = ffistorage.new(oldValue)
-    const rows = native.allocateArray(old.element, 2)
+    const rows = native.allocarray(old.element, 2)
     rows[0] = oldValue
     rows[1] = oldValue
     saved.entries[1].fingerprint = old.fingerprint

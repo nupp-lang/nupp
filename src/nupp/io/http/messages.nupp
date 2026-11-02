@@ -17,19 +17,19 @@ end
 --- from a provider name or the presence of unrelated methods.
 record http.Capabilities
     --- Response bytes become available before the whole response arrives.
-    streamingResponse: boolean
+    streamingresponse: boolean
 
     --- Request bodies may be read incrementally from a reader or file.
-    streamingRequest: boolean
+    streamingrequest: boolean
 
     --- Proxy and per-host certificate policy can be configured by the caller.
-    transportPolicy: boolean
+    transportpolicy: boolean
 
     --- Redirect and connection limits can be enforced by the caller.
-    connectionPolicy: boolean
+    connectionpolicy: boolean
 
     --- The negotiated HTTP version is observable.
-    protocolVersion: boolean
+    protocolversion: boolean
 end
 
 --- The protocol version a response arrived over.
@@ -38,43 +38,43 @@ type http.Version = "1.0" | "1.1" | "2"
 --- What a client applies to every request it sends.
 ---
 --- A plain table, like every other option bag in the io facades. Every field is
---- optional, so `http.newClient()` with nothing is a client with the defaults
+--- optional, so `http.newclient()` with nothing is a client with the defaults
 --- below. A request may override the three limits it also names.
 type http.Options = {
     --- The `user-agent` header sent with every request.
-    userAgent: string?,
+    useragent: string?,
 
     --- Headers sent with every request, which a request's own headers replace by
     --- name.
     headers: {[string]: string}?,
 
     --- How long a request may take end to end, 30000 by default.
-    timeoutMs: integer?,
+    timeoutms: integer?,
 
     --- How long establishing a connection may take, 10000 by default.
-    connectTimeoutMs: integer?,
+    connecttimeoutms: integer?,
 
     --- How long a response body may make no progress before the transfer fails,
     --- 0 to allow any pause and the default. The wait for the response headers
-    --- and a streamed upload are bounded by `timeoutMs` alone.
-    stallTimeoutMs: integer?,
+    --- and a streamed upload are bounded by `timeoutms` alone.
+    stalltimeoutms: integer?,
 
     --- How many redirects a request may follow, 5 by default.
-    maxRedirects: integer?,
+    maxredirects: integer?,
 
     --- How many requests may be in flight at once, 256 by default. A request past
     --- the bound waits for admission rather than failing.
-    maxPendingRequests: integer?,
+    maxpendingrequests: integer?,
 
     --- How many connections the pool may hold, 16 by default.
-    maxConnections: integer?,
+    maxconnections: integer?,
 
     --- How many connections the pool may hold to one host, 16 by default.
-    maxConnectionsPerHost: integer?,
+    maxconnectionsperhost: integer?,
 
     --- How many response bytes a request may take, 0 for no bound and the
     --- default.
-    maxBytes: integer?,
+    maxbytes: integer?,
 
     --- Whether to offer and decode compressed responses, true by default.
     compressed: boolean?,
@@ -82,7 +82,7 @@ type http.Options = {
     --- Hosts whose certificates are not verified, each an exact host name or IP
     --- literal. Redirects are followed one hop at a time, so the exemption is
     --- applied per hop rather than to the whole chain.
-    insecureHosts: {string}?,
+    insecurehosts: {string}?,
 
     --- The proxy to reach every host through. Omitted takes the environment's,
     --- and an empty string deliberately uses none. Under CGI, where
@@ -91,10 +91,10 @@ type http.Options = {
     proxy: string?,
 
     --- Hosts to reach directly rather than through the proxy.
-    noProxy: string?,
+    noproxy: string?,
 
     --- Credentials for the proxy, as `user:password`.
-    proxyCredentials: string?
+    proxycredentials: string?
 }
 
 --- A request body streamed from a reader rather than held in memory.
@@ -107,10 +107,10 @@ record http.ReaderBody is own.Closeable
 
     --- How many bytes the reader will produce, when that is known ahead of time.
     --- The native transport fails a request whose reader produces more or fewer.
-    length: integer?
+    len: integer?
 
     --- The `content-type` to send, unless the request names one itself.
-    contentType: string?
+    contenttype: string?
 
     function close(takes self): nil
         self.reader:close()
@@ -127,11 +127,11 @@ record http.FileBody
     path: Path
 
     --- The `content-type` to send, unless the request names one itself.
-    contentType: string?
+    contenttype: string?
 end
 
 --- Everything a typed request body may own: immutable bytes, a reader stream, or a
---- file path. Convert a Buffer or ByteView with `getString()` so the request owns an
+--- file path. Convert a Buffer or ByteView with `getstring()` so the request owns an
 --- immutable snapshot rather than borrowing mutable storage.
 type http.RequestBody = string | http.ReaderBody | http.FileBody
 
@@ -166,14 +166,14 @@ record http.Request is own.Closeable
     body: http.RequestBody?
 
     --- How long this request may take end to end, or the client's limit.
-    timeoutMs: integer?
+    timeoutms: integer?
 
     --- How long this request's response body may make no progress, or the
     --- client's limit.
-    stallTimeoutMs: integer?
+    stalltimeoutms: integer?
 
     --- How many response bytes this request may take, or the client's limit.
-    maxBytes: integer?
+    maxbytes: integer?
 
     --- Closes the request and any streaming reader it owns.
     --- @param self this request, spent by the call

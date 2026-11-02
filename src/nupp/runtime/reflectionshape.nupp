@@ -61,10 +61,12 @@ local function copy(value: any, names: {[string]: string}): any
     end
     local result: any = {}
     for key, held in pairs(value) do
-        result[key] = held
+        if names[key] == nil then
+            result[key] = held
+        end
     end
     for old, name in pairs(names) do
-        if value[old] ~= nil then
+        if result[name] == nil and value[old] ~= nil then
             result[name] = value[old]
         end
     end
@@ -72,8 +74,30 @@ local function copy(value: any, names: {[string]: string}): any
     return result
 end
 
+-- Private checker tags are normalized only at published descriptor positions.
+local kindnames: {
+    [string]: string
+} = {
+    ["protocolThread"] = "protocolthread",
+    ["genericAlias"] = "genericalias",
+    ["typeHandle"] = "typehandle",
+    ["packResult"] = "packresult",
+    ["constLiteral"] = "constliteral",
+    ["constVar"] = "constvar",
+    ["constOp"] = "constop",
+}
+
+local function kind(value: any): any
+    return kindnames[value] or value
+end
+
 local function field(value: any): any
-    return copy(value, fieldnames)
+    local result = copy(value, fieldnames)
+    if type(value) == "table" then
+        result.kind = kind(value.kind)
+    end
+
+    return result
 end
 
 local function entry(value: any): any
@@ -103,27 +127,30 @@ local function node(value: any): any
     if type(value) ~= "table" then
         return result
     end
+    result.kind = kind(value.kind)
+    result.operation = value.operation == "comptimeTypeCall" and "comptimetypecall" or value.operation
     result.index = copy(value.index, indexnames)
     result.construction = copy(value.construction, constructionnames)
     result.cleanups = list(value.cleanups, cleanup)
     for _, name in ipairs(entrylists) do
-        if value[name] ~= nil then
-            local entries = list(value[name], entry)
-            result[name] = entries
-            local alias = nodenames[name]
-            if alias ~= nil then
-                result[alias] = entries
-            end
+        local canonical = nodenames[name] or name
+        local held = value[canonical]
+        if held == nil then
+            held = value[name]
+        end
+        if held ~= nil then
+            result[canonical] = list(held, entry)
         end
     end
 
     return result
 end
 
--- Both key sets are needed until the accepting seed can build renamed sources.
+-- Private descriptors and accepting-seed descriptors share this canonical boundary.
 export function accept(value: any): any
     local result = copy(value, infonames)
     if type(value) == "table" then
+        result.kind = kind(value.kind)
         result.fields = list(value.fields, field)
         result.types = list(value.types, node)
     end

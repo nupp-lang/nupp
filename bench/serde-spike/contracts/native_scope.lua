@@ -68,7 +68,7 @@ for i = 1, 2 do
         "selection failed"
     )
 end
-assert(calls == 1 and cached:cachedBindings() == 1)
+assert(calls == 1 and cached:cachedbindings() == 1)
 cached:clear()
 refused(
     function()
@@ -103,13 +103,13 @@ local function textBinding()
     local selected = {
         describe = function()
             descriptions = descriptions + 1
-            return {kind = "string", member = member, children = {}, canRead = true}
+            return {kind = "string", member = member, children = {}, canread = true}
         end,
         write = function(_, value, writer)
-            writer:writeString(member, value)
+            writer:writestring(member, value)
         end,
         read = function(_, reader)
-            return reader:readString(member)
+            return reader:readstring(member)
         end,
     }
     weak[selected] = true
@@ -120,11 +120,11 @@ end
 local one = textBinding()
 local bytes = lru:encode(one, "hello")
 assert(lru:decode(one, bytes) == "hello")
-assert(descriptions == 2 and lru:cachedBindings() == 1)
+assert(descriptions == 2 and lru:cachedbindings() == 1)
 lru:encode(one, "again")
 assert(descriptions == 2)
 lru:encode(textBinding(), "other")
-assert(lru:cachedBindings() == 1)
+assert(lru:cachedbindings() == 1)
 lru:encode(one, "evicted")
 assert(descriptions == 4)
 one = nil
@@ -139,7 +139,7 @@ for _, mode in ipairs({"consume", "under", "raise"}) do
     local member = {name = "text"}
     local model = {
         describe = function()
-            return {kind = "string", member = member, children = {}, canRead = true}
+            return {kind = "string", member = member, children = {}, canread = true}
         end,
         read = function(_, reader)
             retained = reader
@@ -147,7 +147,7 @@ for _, mode in ipairs({"consume", "under", "raise"}) do
                 error("native adapter failed", 0)
             end
             if mode == "consume" then
-                return reader:readString(member)
+                return reader:readstring(member)
             end
 
             return "unconsumed"
@@ -165,7 +165,7 @@ for _, mode in ipairs({"consume", "under", "raise"}) do
     local ok, result = pcall(native.decode, selected, bytes)
     assert(ok == (mode == "consume"), tostring(result))
     assert(discarded == (mode == "under" and 1 or 0))
-    assert(not pcall(retained.isNull, retained), "native reader escaped its scope")
+    assert(not pcall(retained.isnull, retained), "native reader escaped its scope")
 end
 
 local cleanupFailure = {}
@@ -173,7 +173,7 @@ local returned = {}
 local calls = 0
 local invalidAdapter = {
     describe = function()
-        return {kind = "string", member = {name = "root"}, children = {}, canRead = true}
+        return {kind = "string", member = {name = "root"}, children = {}, canread = true}
     end,
     read = function()
         return returned
@@ -223,3 +223,13 @@ for _, value in ipairs({
 end
 assert(reads == 0)
 print("typed native decoding avoids semantic documents and validates before hooks")
+
+-- Public scalar vocabulary changes without changing native version-1 frames.
+local publicDocument = require("serde.document")
+local legacy = {"tuple", {"boolean", true}, {"numberToken", "1e400"}, {"bigInteger", "123456789012345678901234567890"}}
+local legacyBytes = frame(legacy)
+local canonical = native.decodedocument(publicDocument.adapter(), legacyBytes)
+assert(canonical:at(1).kind == "bool" and canonical:at(1):bool())
+assert(canonical:at(2).kind == "numbertoken" and canonical:at(2):numbertoken() == "1e400")
+assert(canonical:at(3).kind == "biginteger" and canonical:at(3):biginteger() == "123456789012345678901234567890")
+assert(native.encodedocument(publicDocument.adapter(), canonical) == legacyBytes, "native scalar tag bytes changed")

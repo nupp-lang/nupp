@@ -19,7 +19,7 @@ end
 --- validated.
 ---
 --- `Writer:key` accepts this type without validating UTF-8 or escaping it again.
---- Values produced by `encodedString` and `verifiedString` are interned.
+--- Values produced by `encodedstring` and `verifiedstring` are interned.
 export record EncodedString
     @private _token: any
 end
@@ -28,14 +28,14 @@ end
 ---
 --- `serde.json` names it for callers; it is declared here so the modules
 --- the facade reads, serde and types.derive among them, can name it without
---- reading the facade. `Writer` below names the encoder `newWriter()` returns.
+--- reading the facade. `Writer` below names the encoder `newwriter()` returns.
 ---
 --- ```nupp
 --- local record Money is serde.json.JSONEncodable
 ---     cents: integer
 ---
----     function writeJSON(self, exclusive out: serde.json.Writer): nil
----         out:startObject():key("cents"):write(self.cents):endObject()
+---     function writejson(self, exclusive out: serde.json.Writer): nil
+---         out:startobject():key("cents"):write(self.cents):endobject()
 ---     end
 --- end
 --- ```
@@ -43,7 +43,7 @@ export interface JSONEncodable
     --- Writes this value at the writer's current value position.
     --- @param self the value being encoded
     --- @param out the checked destination
-    writeJSON: function(self, exclusive out: Writer): nil
+    writejson: function(self, exclusive out: Writer): nil
 end
 
 --- A checked incremental JSON writer.
@@ -51,7 +51,7 @@ end
 --- ```nupp
 --- local out = nupp.text.newbuffer()
 --- local writer = serde.json.newwriter(out)
---- writer:startObject():key("ok"):write(true):endObject()
+--- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
 --- assert(out:tostring() == [[{"ok":true}]])
 --- ```
@@ -62,33 +62,33 @@ export interface Writer is own.Closeable
     --- ```nupp
     --- local out = nupp.text.newbuffer()
     --- local writer = serde.json.newwriter(out)
-    --- writer:startArray():write("first"):endArray()
+    --- writer:startarray():write("first"):endarray()
     --- writer:close()
     --- assert(out:tostring() == "[\"first\"]")
     --- ```
     --- @param self the writer
     --- @return this writer
-    startArray: function(exclusive self: Writer): Writer borrows (self)
+    startarray: function(exclusive self: Writer): Writer borrows (self)
 
     --- Starts an object value.
     ---
     --- ```nupp
     --- local out = nupp.text.newbuffer()
     --- local writer = serde.json.newwriter(out)
-    --- writer:startObject():endObject()
+    --- writer:startobject():endobject()
     --- writer:close()
     --- assert(out:tostring() == "{}")
     --- ```
     --- @param self the writer
     --- @return this writer
-    startObject: function(exclusive self: Writer): Writer borrows (self)
+    startobject: function(exclusive self: Writer): Writer borrows (self)
 
     --- Selects the next object member.
     ---
     --- ```nupp
     --- local out = nupp.text.newbuffer()
     --- local writer = serde.json.newwriter(out)
-    --- writer:startObject():key("answer"):write(42):endObject()
+    --- writer:startobject():key("answer"):write(42):endobject()
     --- writer:close()
     --- assert(out:tostring() == [[{"answer":42}]])
     --- ```
@@ -103,7 +103,7 @@ export interface Writer is own.Closeable
     --- ```nupp
     --- local out = nupp.text.newbuffer()
     --- local writer = serde.json.newwriter(out)
-    --- writer:startArray():write({id = 41}):endArray()
+    --- writer:startarray():write({id = 41}):endarray()
     --- writer:close()
     --- assert(out:tostring() == "[{\"id\":41}]")
     --- ```
@@ -124,7 +124,7 @@ export interface Writer is own.Closeable
     --- ```nupp
     --- local out = nupp.text.newbuffer()
     --- local writer = serde.json.newwriter(out)
-    --- writer:startArray():null():endArray()
+    --- writer:startarray():null():endarray()
     --- writer:close()
     --- assert(out:tostring() == "[null]")
     --- ```
@@ -137,36 +137,36 @@ export interface Writer is own.Closeable
     --- ```nupp
     --- local out = nupp.text.newbuffer()
     --- local writer = serde.json.newwriter(out)
-    --- writer:startArray():startObject():endObject():endArray()
+    --- writer:startarray():startobject():endobject():endarray()
     --- writer:close()
     --- assert(out:tostring() == "[{}]")
     --- ```
     --- @param self the writer
     --- @return this writer
-    endArray: function(exclusive self: Writer): Writer borrows (self)
+    endarray: function(exclusive self: Writer): Writer borrows (self)
 
     --- Ends the current object.
     ---
     --- ```nupp
     --- local out = nupp.text.newbuffer()
     --- local writer = serde.json.newwriter(out)
-    --- writer:startObject():key("items"):startArray():endArray():endObject()
+    --- writer:startobject():key("items"):startarray():endarray():endobject()
     --- writer:close()
     --- assert(out:tostring() == [[{"items":[]}]])
     --- ```
     --- @param self the writer
     --- @return this writer
-    endObject: function(exclusive self: Writer): Writer borrows (self)
+    endobject: function(exclusive self: Writer): Writer borrows (self)
 
     --- Publishes staged bytes without ending the document.
     ---
     --- ```nupp
     --- local out = nupp.text.newbuffer()
     --- local writer = serde.json.newwriter(out)
-    --- writer:startArray():write(1)
+    --- writer:startarray():write(1)
     --- writer:flush()
     --- assert(out:tostring() == "[1")
-    --- writer:endArray()
+    --- writer:endarray()
     --- writer:close()
     --- assert(out:tostring() == "[1]")
     --- ```
@@ -181,7 +181,7 @@ export interface Writer is own.Closeable
     --- ```nupp
     --- local out = nupp.text.newbuffer()
     --- local writer = serde.json.newwriter(out)
-    --- writer:startArray():write(1)
+    --- writer:startarray():write(1)
     --- writer:abort()
     --- writer:close()
     --- assert(out:tostring() == "")
@@ -212,7 +212,7 @@ export type MarkContainer = function<T is table>(takes value: T): T preserves va
 ---
 --- Arrays, objects, null sentinels, and verified fragments must agree across every
 --- member of this table. Keep marker identities stable for the loaded provider.
---- The caller's nullValue controls null conversion; omission follows the public
+--- The caller's nullvalue controls null conversion; omission follows the public
 --- JSON API's nil behavior. Reject malformed syntax, invalid UTF-8, unsupported
 --- container shapes, and invalid raw fragments according to that API.
 ---
@@ -224,43 +224,43 @@ export interface Provider
     @readonly priority: integer?
 
     --- Builds an array projection shape with the supplied element shape.
-    @readonly arrayOf: function(shape: any?): any
+    @readonly arrayof: function(shape: any?): any
 
     --- Marks and returns the same table as an array, preserving its ownership.
-    @readonly asArray: MarkContainer
+    @readonly asarray: MarkContainer
 
     --- Marks and returns the same table as an object, preserving its ownership.
-    @readonly asObject: MarkContainer
+    @readonly asobject: MarkContainer
 
     --- Reports whether a value has JSON array semantics.
-    @readonly isArray: function(value: any): boolean
+    @readonly isarray: function(value: any): boolean
 
     --- Parses JSON, applying the caller-selected representation of null.
-    @readonly decode: function(text: string, nullValue: any?): any
+    @readonly decode: function(text: string, nullvalue: any?): any
 
     --- Serializes a value with this provider's markers and null convention.
-    @readonly encode: function(value: any, nullValue: any?): string
+    @readonly encode: function(value: any, nullvalue: any?): string
 
     --- Creates a validated encoded-value fragment for subsequent composition.
-    @readonly encoded: function(value: any, nullValue: any?): any
+    @readonly encoded: function(value: any, nullvalue: any?): any
 
     --- Validates a numeric lexeme without conversion and retains its exact bytes.
-    @readonly numberToken: function(text: string): any
+    @readonly numbertoken: function(text: string): any
 
     --- Creates a fragment containing one escaped JSON string.
-    @readonly encodedString: function(value: string): any
+    @readonly encodedstring: function(value: string): any
 
     --- Parses only the value projection described by shape.
-    @readonly pull: function(text: string, shape: any, nullValue: any?): any
+    @readonly pull: function(text: string, shape: any, nullvalue: any?): any
 
     --- Validates raw JSON and retains a fragment suitable for composition.
     @readonly verified: function(text: string): any
 
     --- Validates a raw encoded JSON string fragment.
-    @readonly verifiedString: function(text: string): any
+    @readonly verifiedstring: function(text: string): any
 
     --- Creates a JSON writer over exclusive access to the canonical buffer.
-    @readonly newWriter: function(exclusive out: SharedBuffer, nullValue: any?): any
+    @readonly newwriter: function(exclusive out: SharedBuffer, nullvalue: any?): any
 
     --- Stable explicit null marker owned by this loaded implementation.
     @readonly NULL: any
@@ -272,11 +272,11 @@ export interface Provider
     @readonly EMPTY_OBJECT: table
 
     --- Optionally prepares a schema plan with its unknown-member policy.
-    @readonly compileSerde: (function(plan: any, unknownMembers: string): any)?
+    @readonly compileserde: (function(plan: any, unknownmembers: string): any)?
 
     --- Optionally decodes a prepared schema, returning value or diagnostic.
-    @readonly decodeSerde: (function(schema: any, text: string): (any?, string?))?
+    @readonly decodeserde: (function(schema: any, text: string): (any?, string?))?
 
     --- Optionally decodes from exclusive access to the canonical buffer.
-    @readonly decodeSerdeBuffer: (function(schema: any, exclusive input: SharedBuffer): (any?, string?))?
+    @readonly decodeserdebuffer: (function(schema: any, exclusive input: SharedBuffer): (any?, string?))?
 end

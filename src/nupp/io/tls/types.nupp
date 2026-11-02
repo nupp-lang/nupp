@@ -34,7 +34,7 @@ type tls.ServerOptions = {
     certificate: string,
 
     --- The private key for it, as PEM.
-    privateKey: string,
+    privatekey: string,
 
     --- Application protocols this server speaks, in decreasing preference
     --- order. The server picks, so this order is the one that decides.

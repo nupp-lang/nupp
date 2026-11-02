@@ -7,7 +7,7 @@ local core = require("serde")
 export record Field is core.WireField
     @readonly number: integer
     @readonly wire: integer
-    function diagnosticLabel(self): string
+    function diagnosticlabel(self): string
         return "binary field"
     end
 end

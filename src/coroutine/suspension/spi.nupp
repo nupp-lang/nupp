@@ -21,14 +21,14 @@ neither has to reproduce the other's layout.
 
 A subscription may resume synchronously or later. It must settle a Waiting only
 once and run returned cleanup when the wait ends, including cancellation.
-`Waiting.onResume` is settle-safe: registering a waker on a wait that has already
+`Waiting.onresume` is settle-safe: registering a waker on a wait that has already
 settled runs it immediately. Source release and Installed close must not suspend.
 Nested installation restores the captured handler, and a driver installation
 preserves delegation to the outer scheduler. `create` propagates the suspension
 context into a new coroutine.
 
 Sources report readiness in `order`, lowest first. Context.uses identifies
-sources needed by a wait. Whether a park is permitted here is `canSuspend`,
+sources needed by a wait. Whether a park is permitted here is `cansuspend`,
 which returns for the handler in force. Cancellation values must come from
 [](coroutine.suspension.cancellation), which preserves recognition by tasks and
 worker providers. State belongs to one Lua state; registrations and handlers are

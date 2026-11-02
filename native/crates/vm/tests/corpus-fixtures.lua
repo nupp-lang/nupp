@@ -6,9 +6,9 @@ local json = require("serde.json")
 local fixtures = {}
 
 function fixtures.new()
-    local owner, reason = files.createtemporarydirectory({prefix = "nupp-vm-fixtures-"})
+    local owner, reason = files.tmpdirectory({prefix = "nupp-vm-fixtures-"})
     assert(owner, reason)
-    local base = owner:toString()
+    local base = owner:tostring()
     local published, failures = {}, {}
 
     local function manifest(root)
@@ -53,7 +53,7 @@ function fixtures.new()
             return previous.path, json.decodevalue(previous.value), true
         end
         local path = base .. "/" .. digest("nupp-test-fixture\0" .. key)
-        assert(files.createdirectory(path))
+        assert(files.mkdir(path))
         local ok, value = pcall(function()
             local value = produce(path)
             return {path = path, value = json.encodevalue(value), manifest = manifest(path)}

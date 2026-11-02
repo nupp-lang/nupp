@@ -103,7 +103,7 @@ export function new(sample: any, opaque: boolean?): Storage
     if element.kind ~= "struct" then
         error("newFFIComponent: default must return a Nupp struct", 2)
     end
-    const width = native.sizeOf(element) as integer
+    const width = native.sizeof(element) as integer
     if width <= 0 then
         error("newFFIComponent: struct must have a nonempty fixed layout", 2)
     end
@@ -157,10 +157,10 @@ export function allocate(storage: Storage, capacity: integer): any
             error("FFI column allocator must return a pointer and its owning backing", 2)
         end
         column = native.castWritableElements(storage.element, pointer)
-        native.boundedCount(column, capacity + 1)
+        native.boundedcount(column, capacity + 1)
         native.fill(column, bytes, 0)
     else
-        column = native.allocateArray(storage.element, capacity + 1)
+        column = native.allocarray(storage.element, capacity + 1)
     end
     backing[column] = new Backing(owner = owner, capacity = capacity, storage = storage)
 

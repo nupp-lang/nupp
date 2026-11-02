@@ -22,11 +22,11 @@ type process.Options = {
     cwd: Path?,
 
     --- Variables overlaid on the inherited environment, or the whole environment
-    --- when `clearEnv` is set. A name must be non-empty and contain no `=`.
+    --- when `clearenv` is set. A name must be non-empty and contain no `=`.
     env: {[string]: string}?,
 
     --- Whether to start from an empty environment rather than this process's.
-    clearEnv: boolean?,
+    clearenv: boolean?,
 
     --- Where the child's standard input comes from, `"pipe"` by default.
     stdin: process.StreamMode?,
@@ -39,7 +39,7 @@ type process.Options = {
 
     --- Kill the child after this many milliseconds. The clock starts when it is
     --- created, not when it is first waited on.
-    timeoutMs: integer?
+    timeoutms: integer?
 }
 
 type process.CommunicateOptions = {
@@ -51,19 +51,19 @@ type process.CommunicateOptions = {
     --- Maximum stdout and stderr bytes together.
     ---
     --- Defaults to 256 MiB.
-    maxOutputBytes: integer?
+    maxoutputbytes: integer?
 }
 
 record process.Exit
     --- The platform status code. A Unix signal is reported as 128 plus its number.
     --- Zero conventionally means success; use `succeeded` to account for termination.
-    exitCode: integer
+    exitcode: integer
 
     --- Whether it was terminated rather than exiting on its own.
     killed: boolean
 
     --- Whether it was terminated because its deadline passed.
-    timedOut: boolean
+    timedout: boolean
 
     --- Exited on its own with status zero. A killed child never succeeded, whatever
     --- status the platform reported for it.
@@ -78,7 +78,7 @@ record process.Result
     output: string
 
     --- Captured standard error.
-    errorOutput: string
+    erroroutput: string
 
     --- Whether the child exited normally with status zero.
     function succeeded(self): boolean
@@ -100,12 +100,12 @@ end
 
 function process.exited(exitCode: integer, killed: boolean, timedOut: boolean): process.Exit
     return {
-        exitCode = exitCode,
+        exitcode = exitCode,
         killed = killed,
-        timedOut = timedOut,
+        timedout = timedOut,
         succeeded = function(self: process.Exit): boolean
             -- A killed child never succeeded, whatever status the platform reported.
-            return not self.killed and not self.timedOut and self.exitCode == 0
+            return not self.killed and not self.timedout and self.exitcode == 0
         end,
     } as process.Exit
 end

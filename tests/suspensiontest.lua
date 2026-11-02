@@ -229,7 +229,7 @@ function M.refusesToParkWhereTheHandlerForbidsIt()
     local handler = {
         park = function()
         end,
-        canPark = function()
+        canpark = function()
             return false
         end,
     }
@@ -267,7 +267,7 @@ function M.givesTheSubscriptionTheContextBeforeItSubscribes()
     local handler = {
         park = function()
         end,
-        canPark = function()
+        canpark = function()
             return true
         end
     }
@@ -736,7 +736,7 @@ function M.releasingUnwindsAGenuinelyParkedCoroutine()
         park = function(_self, waiting)
             -- Register the waker, then suspend this coroutine. Control leaves `suspend`
             -- entirely and only comes back when somebody wakes it.
-            waiting:onResume(function()
+            waiting:onresume(function()
                 coroutine.resume(parked)
             end)
             coroutine.yield()
@@ -776,7 +776,7 @@ function M.aNestedExtentDoesNotCancelTheEnclosingOnesParks()
     local parked = nil
     local handler = {
         park = function(_self, waiting)
-            waiting:onResume(function()
+            waiting:onresume(function()
                 coroutine.resume(parked)
             end)
             coroutine.yield()
@@ -824,7 +824,7 @@ function M.releaseRefusesToSucceedWithAParkStillUnfinished()
         park = function(_self, waiting)
             -- Registers a waker that does nothing: the wake is "delivered" and the park
             -- never finishes, which is exactly the enqueue-without-draining case.
-            waiting:onResume(function()
+            waiting:onresume(function()
             end)
             coroutine.yield()
         end,
@@ -849,7 +849,7 @@ function M.releaseAttemptsEveryCleanupBeforeReporting()
     local cancelled = 0
     local handler = {
         park = function(_self, waiting)
-            waiting:onResume(function()
+            waiting:onresume(function()
             end)
         end,
         shutdown = function()
@@ -921,7 +921,7 @@ function M.aFailedReleaseCanBeRetriedAndCancelsOnlyOnce()
     local parked
     local handler = {
         park = function(_self, waiting)
-            waiting:onResume(function()
+            waiting:onresume(function()
                 wakes = wakes + 1
                 if failWake then
                     error("wake blew up", 0)

@@ -1963,7 +1963,7 @@ function World.batchSpawnAtRaw(
     inputs: {components.Input},
     callback: BatchCallback?
 ): nil
-    if count < 0 or count % 1 ~= 0 or count == math.huge or count * 8 > nativeStorage.sizeOf(ids) then
+    if count < 0 or count % 1 ~= 0 or count == math.huge or count * 8 > nativeStorage.sizeof(ids) then
         error("batchSpawnAtRaw: count exceeds the native identity array", 2)
     end
     if count == 0 then
@@ -2082,7 +2082,7 @@ local function tryStageBulk(
             if not archetype.bulkSafe(target) then
                 return false
             end
-            const ids = nativeStorage.allocateArray(nativeStorage.structs.scalar("number"), count) as number[?]
+            const ids = nativeStorage.allocarray(nativeStorage.structs.scalar("number"), count) as number[?]
             @unsafe do
                 for row = 1, count do
                     ids[row - 1] = selected.entities[row]
@@ -2543,7 +2543,7 @@ function World.observeOnce<E is Emittable>(
     callback: Observer<E>,
     id: string?
 ): nil
-    nuppevents.observeonce(self, address, event, callback, id)
+    nuppevents.once(self, address, event, callback, id)
     if address ~= 0 then
         self.observedEntities[address] = true
     end
@@ -2565,7 +2565,7 @@ function World.stopObserving<E is Emittable>(
     event: Type<E>,
     callbackOrId: Observer<E> | string
 ): boolean
-    return nuppevents.stopobserving(self, address, event, callbackOrId)
+    return nuppevents.stop(self, address, event, callbackOrId)
 end
 
 --- Reports whether an address has an observer for an event.
@@ -2574,7 +2574,7 @@ end
 --- @param event the event declaration
 --- @return whether at least one observer is registered
 function World.hasObservers<E is Emittable>(borrows self: World, address: integer, event: Type<E>): boolean
-    return nuppevents.hasobservers(self, address, event)
+    return nuppevents.contains(self, address, event)
 end
 
 --- Constructs an event into the world's storage and delivers it to one address.
@@ -2614,7 +2614,7 @@ end
 --- @param self the world to modify
 --- @param address the world or entity address to clear
 function World.clearObservers(exclusive self: World, address: integer): nil
-    nuppevents.clearaddress(self, address)
+    nuppevents.clear(self, address)
     if address ~= 0 then
         self.observedEntities[address] = nil
     end
@@ -3419,7 +3419,7 @@ function World.clearEntities(exclusive self: World): nil
     -- own observers at address zero stay, which is what keeps a subsystem's
     -- lifecycle observers and a game's global ones across a clear.
     for address in pairs(self.observedEntities) do
-        nuppevents.clearaddress(self, address)
+        nuppevents.clear(self, address)
     end
     self.observedEntities = {}
     self.liveCount = 0

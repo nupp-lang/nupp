@@ -4,6 +4,13 @@ const terminal = require("io.terminal")
 
 local cliModule = require("arg")
 
+-- Runtime-facing aliases are retired, while the real token values stay canonical.
+assert((cliModule as any).shortOption == nil)
+assert((cliModule as any).longOption == nil)
+assert((cliModule as any).optionalAttached == nil)
+assert((cliModule as any).attachedOnly == nil)
+assert(cliModule.shortoption == "shortoption" and cliModule.longoption == "longoption")
+
 local function assertRaises(body: function(): nil): nil
     local ok = pcall(body)
     assert(not ok)
@@ -16,10 +23,10 @@ assertRaises(function(): nil
     parser:kind()
 end)
 local first = assert(parser:next())
-assert(first == cliModule.shortOption and parser:kind() == first)
+assert(first == cliModule.shortoption and parser:kind() == first)
 assert(parser:key() == "v" and parser:index() == 1)
 local second = assert(parser:next())
-assert(second == cliModule.longOption and parser:key() == "output")
+assert(second == cliModule.longoption and parser:key() == "output")
 assert(parser:value() == "result.txt" and parser:attached())
 local third = assert(parser:next())
 assert(third == cliModule.argument and parser:raw() == "main.nupp")
@@ -47,7 +54,7 @@ end)
 assert(parser:original()[1] == "-v")
 assert(#parser:remaining() == 0)
 
-local hiddenTerminator = cliModule.optparser({"first", "--", "--second"}, {exposeTerminator = false})
+local hiddenTerminator = cliModule.optparser({"first", "--", "--second"}, {exposeterminator = false})
 assert(hiddenTerminator:next() == cliModule.argument and hiddenTerminator:raw() == "first")
 assert(hiddenTerminator:next() == cliModule.argument and hiddenTerminator:raw() == "--second")
 
@@ -60,16 +67,16 @@ assert(#iterated == 2 and iterated[2] == "value")
 
 local values = cliModule.optparser({"--unknown", "file", "--output", "next"}, {arity = {output = cliModule.required},})
 local unknown = assert(values:next())
-assert(unknown == cliModule.longOption and values:key() == "unknown" and values:value() == nil)
+assert(unknown == cliModule.longoption and values:key() == "unknown" and values:value() == nil)
 assert(values:next() == cliModule.argument and values:raw() == "file")
 local output = assert(values:next())
-assert(output == cliModule.longOption and values:key() == "output")
+assert(output == cliModule.longoption and values:key() == "output")
 assert(values:value() == "next" and not values:attached())
 
 local missing = cliModule.optparser({"--output"}, {arity = {output = cliModule.required}})
 local missingToken, problem = missing:next()
 assert(missingToken == nil)
-assert(problem ~= nil and problem.kind == "missingValue")
+assert(problem ~= nil and problem.kind == "missingvalue")
 assert(problem.index == 1 and problem.key == "output")
 assertRaises(function(): nil
     missing:raw()
@@ -80,17 +87,17 @@ assertRaises(function(): nil
     iterMissing()
 end)
 
-local attached = cliModule.optparser({"-Zno-opt"}, {arity = {['Zno-opt'] = cliModule.attachedOnly}})
+local attached = cliModule.optparser({"-Zno-opt"}, {arity = {['Zno-opt'] = cliModule.attachedonly}})
 local attachedToken, attachedProblem = attached:next()
 assert(attachedToken == nil)
-assert(attachedProblem ~= nil and attachedProblem.kind == "needsAttachedValue")
+assert(attachedProblem ~= nil and attachedProblem.kind == "needsattachedvalue")
 
 local stopped = cliModule.optparser({"-O2", "program.nupp", "--flag"}, {
     patterns = {{pattern = "^%-O(%d)$", key = "O"}},
-    stopAtFirstArgument = true,
+    stopatfirstargument = true,
 })
 local level = assert(stopped:next())
-assert(level == cliModule.shortOption and stopped:key() == "O" and stopped:value() == "2")
+assert(level == cliModule.shortoption and stopped:key() == "O" and stopped:value() == "2")
 assert(stopped:pattern())
 assert(stopped:next() == cliModule.argument and stopped:raw() == "program.nupp")
 local literal = assert(stopped:next())
@@ -104,7 +111,7 @@ local record CheckArgs
     verbose: boolean = false
 
     --- Select the report representation.
-    @cli(value = "FORMAT", constantAliases = {json = "json", text = "text"})
+    @cli(value = "FORMAT", constantaliases = {json = "json", text = "text"})
     format: "text" | "json" = "text"
 
     --- Disable the default policy.
@@ -123,7 +130,8 @@ local record CheckArgs
     files: {string} = {}
 end
 
-local checked, checkProblem = CheckArgs.fromCLI({"-v", "--format", "json", "-j", "3", "a.nupp", "b.nupp"})
+assert((CheckArgs as any).fromCLI == nil)
+local checked, checkProblem = CheckArgs.fromcli({"-v", "--format", "json", "-j", "3", "a.nupp", "b.nupp"})
 assert(checked ~= nil, checkProblem and checkProblem.message)
 assert(checked.verbose and checked.format == "json" and checked.jobs == 3 and checked.enabled)
 assert(#checked.files == 2 and checked.files[2] == "b.nupp")
@@ -132,13 +140,13 @@ local same, sameProblem = cliModule.parse(CheckArgs, {"--format=text", "main.nup
 assert(same ~= nil, sameProblem and sameProblem.message)
 assert(not same.verbose and same.format == "text" and same.jobs == nil)
 assert(#same.files == 1 and same.files[1] == "main.nupp")
-local aliased = assert(CheckArgs.fromCLI({"--json", "--disable"}))
+local aliased = assert(CheckArgs.fromcli({"--json", "--disable"}))
 assert(aliased.format == "json" and not aliased.enabled)
-local numeric = assert(CheckArgs.fromCLI({"--ratio", "1.25"}))
+local numeric = assert(CheckArgs.fromcli({"--ratio", "1.25"}))
 assert(numeric.ratio == 1.25)
 local cachedSchema = assert(cliModule.schema(CheckArgs))
 assert(cachedSchema.byName == nil)
-assert(CheckArgs.fromCLI({}) ~= nil)
+assert(CheckArgs.fromcli({}) ~= nil)
 assert(cachedSchema.byName == nil)
 
 --- Print greeting commands.
@@ -149,8 +157,11 @@ end
 
 local record Names is cliModule.Completer
     function complete(self, request: cliModule.CompletionRequest): {cliModule.CompletionCandidate}
-        assert(request.field == "name" and request.commandPath[1] == "hello")
+        assert(request.field == "name" and request.commandpath[1] == "hello")
+        assert(rawget(request as any, "wordIndex") == nil)
+        assert(rawget(request as any, "commandPath") == nil)
         assert(request.cwd == "." and request.environment.mode == "test")
+
         return {new cliModule.CompletionCandidate(value = request.prefix .. "Ada")}
     end
 end
@@ -173,11 +184,14 @@ local record Hello
     end
 end
 
-assert(Hello.cliName() == "hello")
-assert(Hello.cliAliases()[1] == "hi")
-assert(Hello.cliSummary() == "Print one greeting.")
+assert(Hello.cliname() == "hello")
+assert((Hello as any).cliName == nil)
+assert((Hello as any).cliAliases == nil)
+assert((Hello as any).cliSummary == nil)
+assert(Hello.clialiases()[1] == "hi")
+assert(Hello.clisummary() == "Print one greeting.")
 assert(assert(cliModule.descriptor(Hello)).completers[2] == Names)
-local greeting, greetingProblem = Hello.fromCLI({"Ada"})
+local greeting, greetingProblem = Hello.fromcli({"Ada"})
 assert(greeting ~= nil, greetingProblem and greetingProblem.message)
 assert(greeting:run() == 7)
 
@@ -188,8 +202,12 @@ end
 local app = cliModule.application(Greet, {name = "greeter", version = "1.0.0"})
 local invocation, invocationProblem = app:resolve({"hi", "Ada"})
 assert(invocation ~= nil, invocationProblem and invocationProblem.message)
-assert(invocation.commandType == Hello and invocation.options.name == "Ada")
-local help = assert(app:commandHelp({"hello"}))
+assert(invocation.commandtype == Hello and invocation.options.name == "Ada")
+assert(rawget(invocation as any, "commandType") == nil)
+assert(rawget(invocation as any, "commandPath") == nil)
+assert((app as any).commandHelp == nil)
+assert(type(app.commandhelp) == "function")
+local help = assert(app:commandhelp({"hello"}))
 assert(help:match("Print one greeting%."))
 assert(help:match("NAME"))
 assert(help:match("Person to greet%."))
@@ -197,7 +215,7 @@ local rootHelp = app:help()
 assert(rootHelp:match("hello%s+Print one greeting%."))
 local candidates = app:complete({
     argv = {"hello", "A"},
-    wordIndex = 2,
+    wordindex = 2,
     prefix = "A",
     cwd = ".",
     environment = {mode = "test"},
@@ -205,21 +223,21 @@ local candidates = app:complete({
 assert(#candidates == 1 and candidates[1].value == "AAda")
 local attachedChoices = app:complete({
     argv = {"hello", "--mode=j"},
-    wordIndex = 2,
+    wordindex = 2,
     prefix = "--mode=j",
     environment = {mode = "test"},
 })
 assert(#attachedChoices == 1 and attachedChoices[1].value == "--mode=json")
 local followingChoices = app:complete({
     argv = {"hello", "--mode", "j"},
-    wordIndex = 3,
+    wordindex = 3,
     prefix = "j",
     environment = {mode = "test"},
 })
 assert(#followingChoices == 1 and followingChoices[1].value == "json")
 local afterFramework = app:complete({
     argv = {"--color=never", "hello", "A"},
-    wordIndex = 3,
+    wordindex = 3,
     prefix = "A",
     environment = {mode = "test"},
 })
@@ -231,25 +249,25 @@ assert(app:completion("fish"):match("complete %-c greeter"))
 local hello = cliModule.application(Hello, {name = "hello"})
 local afterTerminator = app:complete({
     argv = {"hello", "--", "--m"},
-    wordIndex = 3,
+    wordindex = 3,
     prefix = "--m",
     environment = {mode = "test"},
 })
 assert(#afterTerminator == 1 and afterTerminator[1].value == "--mAda")
 local direct, directProblem = hello:resolve({"Ada"})
 assert(direct ~= nil, directProblem and directProblem.message)
-assert(direct.commandType == Hello and #direct.commandPath == 0)
+assert(direct.commandtype == Hello and #direct.commandpath == 0)
 assert(hello:help():match("NAME"))
 assert(hello:main({"Ada"}) == 7)
 
-local _, invalidInteger = CheckArgs.fromCLI({"--jobs", "many"})
+local _, invalidInteger = CheckArgs.fromcli({"--jobs", "many"})
 assert(invalidInteger ~= nil and invalidInteger.kind == "invalidValue")
 assert(invalidInteger.index == 1 and invalidInteger.raw == "--jobs")
-local _, missingName = Hello.fromCLI({})
+local _, missingName = Hello.fromcli({})
 assert(missingName ~= nil and missingName.kind == "missingRequired" and missingName.field == "name")
-local _, duplicate = CheckArgs.fromCLI({"--jobs", "1", "--jobs", "2"})
+local _, duplicate = CheckArgs.fromcli({"--jobs", "1", "--jobs", "2"})
 assert(duplicate ~= nil and duplicate.kind == "duplicateOption")
-local _, unknownOption = CheckArgs.fromCLI({"--unknown"})
+local _, unknownOption = CheckArgs.fromcli({"--unknown"})
 assert(unknownOption ~= nil and unknownOption.kind == "unknownOption")
 
 @derive(cliModule.arguments)
@@ -259,15 +277,15 @@ local record PatternArgs
     level: string?
 end
 
-assert(assert(PatternArgs.fromCLI({"-O2"})).level == "2")
-local _, syntheticPatternName = PatternArgs.fromCLI({"--O", "2"})
+assert(assert(PatternArgs.fromcli({"-O2"})).level == "2")
+local _, syntheticPatternName = PatternArgs.fromcli({"--O", "2"})
 assert(syntheticPatternName ~= nil and syntheticPatternName.kind == "unknownOption")
 
-@cli(preserveUnknown = true)
+@cli(preserveunknown = true)
 @derive(cliModule.arguments)
 local record Forwarded
     --- Optional attached profiling interval.
-    @cli(arity = "optionalAttached", constant = "")
+    @cli(arity = "optionalattached", constant = "")
     profile: string?
 
     --- Arguments owned by the downstream program.
@@ -275,11 +293,11 @@ local record Forwarded
     arguments: {string} = {}
 end
 
-local forwarded = assert(Forwarded.fromCLI({"--other", "value", "--profile=5", "suite"}))
+local forwarded = assert(Forwarded.fromcli({"--other", "value", "--profile=5", "suite"}))
 assert(forwarded.profile == "5")
 assert(#forwarded.arguments == 3)
 assert(forwarded.arguments[1] == "--other" and forwarded.arguments[3] == "suite")
-local bareProfile = assert(Forwarded.fromCLI({"--profile"}))
+local bareProfile = assert(Forwarded.fromcli({"--profile"}))
 assert(bareProfile.profile == "")
 
 @derive(cliModule.arguments)
@@ -288,7 +306,7 @@ local record Sets
     tags: {[string]: boolean} = {}
 end
 
-local tags = assert(Sets.fromCLI({"--tags", "fast", "--tags", "portable", "--tags", "fast"}))
+local tags = assert(Sets.fromcli({"--tags", "fast", "--tags", "portable", "--tags", "fast"}))
 assert(tags.tags.fast and tags.tags.portable)
 
 @derive(cliModule.arguments)
@@ -306,9 +324,9 @@ local record OptionalChoices
     file: string
 end
 
-local choicesSkipped = assert(OptionalChoices.fromCLI({"main.nupp"}))
+local choicesSkipped = assert(OptionalChoices.fromcli({"main.nupp"}))
 assert(choicesSkipped.mode == nil and choicesSkipped.format == nil and choicesSkipped.file == "main.nupp")
-local secondChoice = assert(OptionalChoices.fromCLI({"json", "main.nupp"}))
+local secondChoice = assert(OptionalChoices.fromcli({"json", "main.nupp"}))
 assert(secondChoice.mode == nil and secondChoice.format == "json" and secondChoice.file == "main.nupp")
 
 terminal.withcolormode("always", function()

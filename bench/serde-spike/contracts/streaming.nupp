@@ -37,7 +37,7 @@ local record Description is core.Description<smithy.Member>
     @readonly nullable: boolean = false
     @readonly width: integer?
     @readonly signed: boolean?
-    @readonly canRead: boolean = false
+    @readonly canread: boolean = false
     @readonly children: {core.Child<smithy.Member>} = {}
 end
 local record Streaming is core.Adapter<Stream, smithy.Member>

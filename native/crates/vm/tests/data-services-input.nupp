@@ -43,7 +43,7 @@ function tests.run(): integer
         assert(checksum.value(name, "123456789") == expected[index])
         with first = checksum.newchecksum(name), second = checksum.newchecksum(name) do
             first:write("1234")
-            second:writeSpan(part)
+            second:writespan(part)
             first:write("56789")
             assert(first:value() == expected[index] and second:value() == expected[index])
             first:write("")
@@ -65,7 +65,7 @@ end
 
 function tests.worker(): integer
     with scope = tasks.scope() do
-        local child = scope:fork(function(): uint64
+        local child = scope:work(function(): uint64
             local sums = require("binary.hash.checksum")
             local ids = require("nupp.runtime.provider.nativeuuid")
             assert(#ids.uuid4() == 36 and #ids.uuid7() == 36)

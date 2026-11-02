@@ -41,11 +41,11 @@ type http.Capabilities = messages.Capabilities
 --- Reports the guarantees of the selected HTTP provider.
 function http.capabilities(): http.Capabilities
     return new messages.Capabilities(
-        streamingResponse = false,
-        streamingRequest = false,
-        transportPolicy = false,
-        connectionPolicy = false,
-        protocolVersion = false
+        streamingresponse = false,
+        streamingrequest = false,
+        transportpolicy = false,
+        connectionpolicy = false,
+        protocolversion = false
     )
 end
 
@@ -159,7 +159,7 @@ record http.Response is contracts.Response
         return self.status >= 200 and self.status < 300
     end
 
-    function headerValues(self, name: string): {string}
+    function headervalues(self, name: string): {string}
         local values = self._headers[name:lower()] or {}
         local copy: {string} = {}
         for index = 1, #values do
@@ -220,17 +220,17 @@ record http.Client is contracts.Client
             error("nupp: HTTP options must be a table", 2)
         end
         for _, key in ipairs({
-            "userAgent",
-            "connectTimeoutMs",
-            "stallTimeoutMs",
-            "maxRedirects",
-            "maxPendingRequests",
-            "maxConnections",
-            "maxConnectionsPerHost",
-            "insecureHosts",
+            "useragent",
+            "connecttimeoutms",
+            "stalltimeoutms",
+            "maxredirects",
+            "maxpendingrequests",
+            "maxconnections",
+            "maxconnectionsperhost",
+            "insecurehosts",
             "proxy",
-            "noProxy",
-            "proxyCredentials",
+            "noproxy",
+            "proxycredentials",
             "compressed"
         }) do
             if given[key] ~= nil then
@@ -239,15 +239,15 @@ record http.Client is contracts.Client
         end
         self._options = {
             headers = copyHeaders(given.headers, "default headers"),
-            timeoutMs = given.timeoutMs == nil and 30000 or whole(given.timeoutMs, "timeoutMs", 1),
-            maxBytes = given.maxBytes == nil and 0 or whole(given.maxBytes, "maxBytes", 0),
+            timeoutms = given.timeoutms == nil and 30000 or whole(given.timeoutms, "timeoutms", 1),
+            maxbytes = given.maxbytes == nil and 0 or whole(given.maxbytes, "maxbytes", 0),
         }
         self._closed = false
         self._pending = 0
     end
 
     --- Fetch is driven by the page, so there is nothing for a pump to move.
-    function pump(exclusive self, timeoutMs: integer?): nil
+    function pump(exclusive self, timeoutms: integer?): nil
     end
 
     function pending(self): integer
@@ -261,11 +261,11 @@ record http.Client is contracts.Client
         if type(request) ~= "table" then
             error("nupp: HTTP request must be a Request", 2)
         end
-        if request.stallTimeoutMs ~= nil then
+        if request.stalltimeoutms ~= nil then
             return nil, privateIo.toError("browser HTTP does not support stallTimeoutMs")
         end
         local url = request.url
-        if url == nil or type(url.toString) ~= "function" then
+        if url == nil or type(url.tostring) ~= "function" then
             error("nupp: HTTP request url must be a URI", 2)
         end
         local scheme = url:scheme()
@@ -299,10 +299,10 @@ record http.Client is contracts.Client
         if type(body) == "string" then
             upload = body as string
         elseif body is messages.ReaderBody then
-            if body.length ~= nil then
-                whole(body.length, "reader body length", 0)
+            if body.len ~= nil then
+                whole(body.len, "reader body length", 0)
             end
-            if body.contentType ~= nil and type(body.contentType) ~= "string" then
+            if body.contenttype ~= nil and type(body.contenttype) ~= "string" then
                 error("nupp: HTTP content type must be a string", 2)
             end
             local chunks: {string} = {}
@@ -315,17 +315,17 @@ record http.Client is contracts.Client
                     break
                 end
                 length = length + #bytes
-                if body.length ~= nil and length > body.length then
+                if body.len ~= nil and length > body.len then
                     return nil, privateIo.toError("HTTP upload exceeded its declared length")
                 end
                 chunks[#chunks + 1] = bytes
             end
-            if body.length ~= nil and length ~= body.length then
+            if body.len ~= nil and length ~= body.len then
                 return nil, privateIo.toError("HTTP upload ended before its declared length")
             end
             upload = table.concat(chunks)
-            if body.contentType ~= nil and headerPositions["content-type"] == nil then
-                headers[#headers + 1] = {"content-type", body.contentType}
+            if body.contenttype ~= nil and headerPositions["content-type"] == nil then
+                headers[#headers + 1] = {"content-type", body.contenttype}
                 headerPositions["content-type"] = #headers
             end
         elseif body ~= nil then
@@ -333,11 +333,11 @@ record http.Client is contracts.Client
         end
         local descriptor: any = {
             memoryResponse = true,
-            url = url:toString(),
+            url = url:tostring(),
             method = method,
-            timeoutMs = request.timeoutMs == nil and self._options.timeoutMs
-            or whole(request.timeoutMs, "timeoutMs", 1),
-            maxBytes = request.maxBytes == nil and self._options.maxBytes or whole(request.maxBytes, "maxBytes", 0),
+            timeoutMs = request.timeoutms == nil and self._options.timeoutms
+            or whole(request.timeoutms, "timeoutms", 1),
+            maxBytes = request.maxbytes == nil and self._options.maxbytes or whole(request.maxbytes, "maxbytes", 0),
         }
         if #headers > 0 then
             -- An empty Lua table encodes as a JSON object, which the host cannot
@@ -398,7 +398,7 @@ record http.Client is contracts.Client
             return nil, privateIo.toError(headersProblem)
         end
         local storage = io.newbuffer(bodyBytes)
-        local lease = storage:reserveWrite(0, bodyBytes)
+        local lease = storage:reservewrite(0, bodyBytes)
         do
             local output = lease:span()
             do
@@ -450,4 +450,4 @@ local function newClient(options: messages.Options?): contracts.Client
     return new http.Client(options)
 end
 
-export = {newClient = newClient, capabilities = http.capabilities}
+export = {newclient = newClient, capabilities = http.capabilities}

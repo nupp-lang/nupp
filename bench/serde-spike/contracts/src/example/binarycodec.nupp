@@ -41,7 +41,7 @@ local function plan<M is core.Member>(
         return previous
     end
     assert2(not description.nullable, "binary fixture has no null representation")
-    assert2(direction ~= "read" or description.canRead, "binding has no construction operation")
+    assert2(direction ~= "read" or description.canread, "binding has no construction operation")
     local kind = description.kind
     local tag = assert2(wire[kind], "unsupported binary fixture kind: " .. kind)
     local number = policy:number(description.member)
@@ -150,19 +150,19 @@ local record Unknown is core.UnknownReader, own.Closeable
         assert2(not self.closed and not self.used, "binary unknown reader has expired")
     end
 
-    function skipValue(exclusive self): nil
+    function skipvalue(exclusive self): nil
         self:live()
         self.used = true
     end
 
-    function captureValue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
+    function capturevalue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
         self:live()
         local value = documents.withcontext(
             documents.atom(new Opaque(family = family, field = self.entry.field, bytes = self.entry.bytes)),
             self.source
         )
         local reader = documentReaders.reader(value)
-        local result = adapter:readContents(reader)
+        local result = adapter:readcontents(reader)
         local complete, problem = pcall(reader.finish, reader)
         if not complete then
             error(publication.discardfailed(adapter, result, problem), 0)
@@ -194,7 +194,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         return self.source
     end
 
-    function isNull(self): boolean
+    function isnull(self): boolean
         self:live()
         return false
     end
@@ -208,20 +208,20 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         self.used = true
     end
 
-    function readString(exclusive self, member: M): string
+    function readstring(exclusive self, member: M): string
         self:consume(member, "string")
         assert2(type(self.value) == "string", "invalid string carrier")
         assert2(utf8.isvalid(self.value as string), "invalid UTF-8 string")
         return self.value as string
     end
 
-    function readBytes(exclusive self, member: M): string
+    function readbytes(exclusive self, member: M): string
         self:consume(member, "bytes")
         assert2(type(self.value) == "string", "invalid byte carrier")
         return self.value as string
     end
 
-    function readInteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
+    function readinteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
         self:consume(member, "integer")
         assert2(
             width == self.selected.description.width and signed == self.selected.description.signed,
@@ -239,7 +239,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         return new Input<M>(selected = selected, value = value, source = self.source, depth = self.depth + 1)
     end
 
-    function readStruct<S>(
+    function readstruct<S>(
         exclusive self,
         member: M,
         exclusive state: S,
@@ -270,7 +270,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         end
     end
 
-    function readTuple<S>(
+    function readtuple<S>(
         exclusive self,
         member: M,
         size: integer,
@@ -287,7 +287,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         end
     end
 
-    function containerSize(self): integer?
+    function containersize(self): integer?
         self:live()
         return self.selected.description.kind == "tuple" and #self.selected.ordered or nil
     end
@@ -296,43 +296,43 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         self.closed = true
     end
 
-    function readNull(exclusive self, member: M): nil
+    function readnull(exclusive self, member: M): nil
         error("unsupported binary fixture operation", 2)
     end
 
-    function readBoolean(exclusive self, member: M): boolean
+    function readbool(exclusive self, member: M): boolean
         error("unsupported binary fixture operation", 2)
     end
 
-    function readFloat(exclusive self, member: M, width: 32 | 64): number
+    function readfloat(exclusive self, member: M, width: 32 | 64): number
         error("unsupported binary fixture operation", 2)
     end
 
-    function readBigInteger(exclusive self, member: M): string
+    function readbiginteger(exclusive self, member: M): string
         error("unsupported binary fixture operation", 2)
     end
 
-    function readDecimal(exclusive self, member: M): core.Decimal
+    function readdecimal(exclusive self, member: M): core.Decimal
         error("unsupported binary fixture operation", 2)
     end
 
-    function readNumberToken(exclusive self, member: M): string
+    function readnumbertoken(exclusive self, member: M): string
         error("unsupported binary fixture operation", 2)
     end
 
-    function readTimestamp(exclusive self, member: M): core.Timestamp
+    function readtimestamp(exclusive self, member: M): core.Timestamp
         error("unsupported binary fixture operation", 2)
     end
 
-    function readAtom(exclusive self, member: M): core.Atom
+    function readatom(exclusive self, member: M): core.Atom
         error("unsupported binary fixture operation", 2)
     end
 
-    function readDocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
+    function readdocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
         error("unsupported binary fixture operation", 2)
     end
 
-    function readUnion<S>(
+    function readunion<S>(
         exclusive self,
         member: M,
         exclusive state: S,
@@ -342,11 +342,11 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         error("unsupported binary fixture operation", 2)
     end
 
-    function readList<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
+    function readlist<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
         error("unsupported binary fixture operation", 2)
     end
 
-    function readMap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
+    function readmap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
         error("unsupported binary fixture operation", 2)
     end
 end
@@ -401,16 +401,16 @@ local record Output<M is core.Member> is core.Writer<M>
         end
     end
 
-    function writeString(exclusive self, member: M, value: string): nil
+    function writestring(exclusive self, member: M, value: string): nil
         assert2(utf8.isvalid(value), "invalid UTF-8 string")
         self:put(member, "string", value)
     end
 
-    function writeBytes(exclusive self, member: M, value: string): nil
+    function writebytes(exclusive self, member: M, value: string): nil
         self:put(member, "bytes", value)
     end
 
-    function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
+    function writeinteger(exclusive self, member: M, borrows value: core.Integer): nil
         local selected = self:selected(member)
         local numbers = require("serde.codec")
         self:put(
@@ -441,16 +441,16 @@ local record Output<M is core.Member> is core.Writer<M>
         end
     end
 
-    function writeStruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+    function writestruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
         self:aggregate(member, "structure", source, emit)
     end
 
-    function writeTuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
+    function writetuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
         assert2(size == #self:selected(member).ordered, "tuple arity does not match its schema")
         self:aggregate(member, "tuple", source, emit)
     end
 
-    function writeUnknown<F is core.WireField, D>(
+    function writeunknown<F is core.WireField, D>(
         exclusive self,
         field: F,
         borrows value: D,
@@ -484,60 +484,60 @@ local record Output<M is core.Member> is core.Writer<M>
         self.closed = true
     end
 
-    function writeNull(exclusive self, member: M): nil
+    function writenull(exclusive self, member: M): nil
         error("unsupported binary fixture operation", 2)
     end
 
-    function writeBoolean(exclusive self, member: M, value: boolean): nil
+    function writebool(exclusive self, member: M, value: boolean): nil
         error("unsupported binary fixture operation", 2)
     end
 
-    function writeFloat(exclusive self, member: M, value: number, width: 32 | 64): nil
+    function writefloat(exclusive self, member: M, value: number, width: 32 | 64): nil
         error("unsupported binary fixture operation", 2)
     end
 
-    function writeNumberToken(exclusive self, member: M, value: string): nil
+    function writenumbertoken(exclusive self, member: M, value: string): nil
         error("unsupported binary fixture operation", 2)
     end
 
-    function writeBigInteger(exclusive self, member: M, value: string): nil
+    function writebiginteger(exclusive self, member: M, value: string): nil
         error("unsupported binary fixture operation", 2)
     end
 
-    function writeDecimal(exclusive self, member: M, borrows value: core.Decimal): nil
+    function writedecimal(exclusive self, member: M, borrows value: core.Decimal): nil
         error("unsupported binary fixture operation", 2)
     end
 
-    function writeTimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
+    function writetimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
         error("unsupported binary fixture operation", 2)
     end
 
-    function writeAtom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
+    function writeatom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
         error("unsupported binary fixture operation", 2)
     end
 
-    function writeDocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
+    function writedocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
         error("unsupported binary fixture operation", 2)
     end
 
-    function writeUnion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+    function writeunion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
         error("unsupported binary fixture operation", 2)
     end
 
-    function writeList<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+    function writelist<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
         error("unsupported binary fixture operation", 2)
     end
 
-    function writeMap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+    function writemap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
         error("unsupported binary fixture operation", 2)
     end
 
-    function writeEntry<K, V>(
+    function writeentry<K, V>(
         exclusive self,
         borrows key: K,
-        keyEmit: core.Members<M, K>,
+        keyemit: core.Members<M, K>,
         borrows value: V,
-        valueEmit: core.Members<M, V>
+        valueemit: core.Members<M, V>
     ): nil
         error("unsupported binary fixture operation", 2)
     end

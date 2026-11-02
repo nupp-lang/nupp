@@ -14,7 +14,7 @@ function main.checkpointStart(): number
             local time = require("coroutine")
             local clock = require("nupp.vm.clock")
             local handler = new host.Handler(
-                canPark = function(_: host.Handler): boolean
+                canpark = function(_: host.Handler): boolean
                     return true
                 end,
                 park = function(_: host.Handler, waiting: host.Waiting, _: function(): nil): nil
@@ -28,7 +28,7 @@ function main.checkpointStart(): number
                 end
             )
             const handling = host.install(handler)
-            with scope = tasks.scope(timeoutMs = 1000) do
+            with scope = tasks.scope(timeoutms = 1000) do
                 local child = scope:spawn(function(): number
                     time.sleep(50)
                     return 42
@@ -140,7 +140,7 @@ function main.cancellation(): number
             return child:await()
         end)
         assert2(not ok and tasks.iscancelled(reason))
-        assert2(child:isDone() and child:status() == "cancelled")
+        assert2(child:isdone() and child:status() == "cancelled")
     end
 
     return 42
@@ -154,7 +154,7 @@ function main.churn(): number
                 return 1
             end)
             total = total + child:await()
-            assert2(child:isDone() and child:await() == 1)
+            assert2(child:isdone() and child:await() == 1)
         end
     end
     assert2(total == 1000)
@@ -257,7 +257,7 @@ function main.workers(): number
     local source: any = {answer = 1}
     source.self = source
     with scope = tasks.scope() do
-        local child = scope:fork(source, function(value: any): any
+        local child = scope:work(source, function(value: any): any
             value.answer = 42
             assert2(value.self == value)
             return value
@@ -273,15 +273,15 @@ end
 function main.workerSettlement(): number
     local failed, problem = pcall(function(): nil
         with scope = tasks.scope() do
-            scope:fork(function(): number
+            scope:work(function(): number
                 error("worker settlement failure")
             end)
         end
     end)
     assert2(not failed and tostring(problem):find("worker settlement failure", 1, true) ~= nil)
     local completed, cancelled = pcall(function(): nil
-        with scope = tasks.scope(timeoutMs = 10) do
-            local child = scope:fork(function(): number
+        with scope = tasks.scope(timeoutms = 10) do
+            local child = scope:work(function(): number
                 local total = 0
                 while true do
                     total = total + 1
@@ -360,7 +360,7 @@ function main.channels(): number
     do
         local channel = tasks.channel<number>(1)
         with scope = tasks.scope() do
-            local sender = scope:fork(channel:share(), function(channel: any): number
+            local sender = scope:work(channel:share(), function(channel: any): number
                 channel:send(20)
                 channel:send(22)
                 return 1

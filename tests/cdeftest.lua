@@ -140,7 +140,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
             "do",
             "   local writer = output:write()",
             "   do",
-            "      local parts = writer:splitAt(1)",
+            "      local parts = writer:splitat(1)",
             "      local readable = input:read():slice(2, 6)",
             "      counted_pointer_transform(parts.right, readable)",
             "   end",

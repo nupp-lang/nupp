@@ -29,7 +29,7 @@ local expected = 'Credentials { user = "ada", password = <redacted>, callback = 
 assert2(debug.render(binding, value) == expected)
 assert2(
     not pcall(function()
-        return json.codec(__serdeJson.defaultPolicy):encode(binding, value)
+        return json.codec(__serdeJson.defaultpolicy):encode(binding, value)
     end)
 )
 assert2(debug.render(binding, value) == expected)
@@ -47,7 +47,7 @@ local instance = new Other(name = "second", ignored = function(): nil
 end)
 assert2(
     not pcall(function()
-        return json.codec(__serdeJson.defaultPolicy):encode(other, instance)
+        return json.codec(__serdeJson.defaultpolicy):encode(other, instance)
     end)
 )
 assert2(debug.render(other, instance) == 'Other { name = "second" }')
@@ -100,7 +100,7 @@ end
 assert2(debug.render(debug.binding(Printable), new Printable(value = customized)) == "Printable { value = CUSTOM(7) }")
 assert2(
     not pcall(function()
-        return json.codec(__serdeJson.defaultPolicy)
+        return json.codec(__serdeJson.defaultpolicy)
             :encode(declarations.binding(Printable), new Printable(value = customized))
     end)
 )

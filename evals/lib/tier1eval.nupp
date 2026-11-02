@@ -60,7 +60,7 @@ end
 function tier1.makeWorkspace(root: string, nupp: string, entry: any): string
     local workspace = harness.join(root, "workspace")
     local bin = harness.join(workspace, "bin")
-    local made, reason = files.createdirectory(bin)
+    local made, reason = files.mkdir(bin)
     if not made then
         error("cannot create tier-1 workspace: " .. tostring(reason), 2)
     end
@@ -146,7 +146,7 @@ function tier1.evaluate(
     timeoutSeconds: number?
 ): any
     local entry = tier1.loadTask(nupp, code)
-    local made, makeErr = files.createdirectory(out)
+    local made, makeErr = files.mkdir(out)
     if not made then
         error("cannot create evaluation output directory: " .. tostring(makeErr), 2)
     end

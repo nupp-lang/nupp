@@ -19,7 +19,7 @@ end
 
 `value` is a snapshot rather than a finish, so a context keeps going after one
 is taken. A context is an [`io.Writer`](io.Writer), so
-`reader:transferTo(running)` checksums a whole stream without holding it. These say nothing about whether bytes were changed on purpose: for
+`reader:transferto(running)` checksums a whole stream without holding it. These say nothing about whether bytes were changed on purpose: for
 that reach for [](binary.hash.mac).
 
 ## Built-in algorithms
@@ -70,7 +70,7 @@ export interface Checksum is Writer
 
     --- Absorbs a borrowed byte view without retaining it.
     --- @return how many bytes it absorbed, which is all of them
-    writeSpan: function(exclusive self: Checksum, borrows bytes: span.ByteSpan): (integer?, string?)
+    writespan: function(exclusive self: Checksum, borrows bytes: span.ByteSpan): (integer?, string?)
 
     --- Nothing is buffered behind a checksum, so this only returns true.
     flush: function(self: Checksum): (boolean, string?)
@@ -102,7 +102,7 @@ local record Context is Checksum
         return true, nil
     end
 
-    function writeSpan(exclusive self, borrows bytes: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows bytes: span.ByteSpan): (integer?, string?)
         self.state:update(bytes)
 
         return #bytes, nil
@@ -132,7 +132,7 @@ export record Algorithm
     @private implementation: provider.Algorithm
 
     --- Creates independent owned state for incremental writes and snapshots.
-    function newChecksum(self): Checksum
+    function newchecksum(self): Checksum
         return new Context(state = self.implementation:create(), name = self.name, bits = self.width)
     end
 end
@@ -201,7 +201,7 @@ end
 --- @param name the canonical checksum algorithm name
 --- @return an unfinished checksum context
 export function newchecksum(name: string): Checksum
-    return algorithm(name):newChecksum()
+    return algorithm(name):newchecksum()
 end
 
 --- Lists available canonical checksum names in ascending order.

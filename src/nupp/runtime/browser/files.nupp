@@ -117,18 +117,18 @@ function files.capabilities(): messages.Capabilities
     local available = type(value) == "table" and value.available == true
     return new messages.Capabilities(
         available = available,
-        arbitraryPaths = false,
-        symbolicLinks = false,
-        readOnlyAttributes = false,
+        arbitrarypaths = false,
+        symlinks = false,
+        readonlyattributes = false,
         glob = false,
         rename = false,
-        atomicWrite = false,
-        temporaryPaths = false,
-        concurrentOpenHandles = false,
-        currentDirectory = false,
-        userFolders = false,
-        executableDirectory = false,
-        persistentStorageRequest = available and value.persistentAvailable == true
+        atomicwrite = false,
+        tmppaths = false,
+        concurrentopenhandles = false,
+        cwd = false,
+        userfolders = false,
+        executabledirectory = false,
+        persistentstoragerequest = available and value.persistentAvailable == true
     )
 end
 
@@ -176,7 +176,7 @@ function files.info(path: any): (messages.Info?, string?)
 
     -- The host answers seconds; the facade answers the milliseconds the clock does.
 
-    return new messages.Info(kind = kind, size = size, modified = (modified as number) * 1000, readOnly = false), nil
+    return new messages.Info(kind = kind, size = size, modified = (modified as number) * 1000, readonly = false), nil
 end
 
 function files.exists(path: any): boolean
@@ -281,12 +281,12 @@ local record File is io.Reader, io.Writer
         end
         local wanted = math.min(positive(count, "File:read count", 2), READ_SIZE)
         local destination = io.newbuffer(wanted)
-        local lease = destination:reserveWrite(0, wanted)
+        local lease = destination:reservewrite(0, wanted)
         local got: integer?
         local reason: string?
         do
             local output = lease:span()
-            got, reason = self:readSpan(output)
+            got, reason = self:readspan(output)
             own.drop(output)
         end
         lease:commit(got or 0)
@@ -294,15 +294,15 @@ local record File is io.Reader, io.Writer
             return nil, reason
         end
 
-        return destination:getString(), nil
+        return destination:getstring(), nil
     end
 
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the file is closed"
         end
         local pointer, capacity = destination:ref()
-        local count = positive(math.min(capacity, READ_SIZE), "File:readSpan destination length", 2)
+        local count = positive(math.min(capacity, READ_SIZE), "File:readspan destination length", 2)
         local leaseRead = memory.lease as function(
             exclusive pointer: uint8[?],
             count: integer,
@@ -322,20 +322,20 @@ local record File is io.Reader, io.Writer
         return got, invalid
     end
 
-    function readInto(
+    function readinto(
         exclusive self,
         exclusive destination: io.Buffer,
         offset: integer?,
         count: integer?
     ): (integer?, string?)
-        local from = counted(offset or 0, "File:readInto offset", 2)
-        local wanted = math.min(positive(count or READ_SIZE, "File:readInto count", 2), READ_SIZE)
-        local lease = destination:reserveWrite(from, wanted)
+        local from = counted(offset or 0, "File:readinto offset", 2)
+        local wanted = math.min(positive(count or READ_SIZE, "File:readinto count", 2), READ_SIZE)
+        local lease = destination:reservewrite(from, wanted)
         local got: integer?
         local reason: string?
         do
             local output = lease:span()
-            got, reason = self:readSpan(output)
+            got, reason = self:readspan(output)
             own.drop(output)
         end
         if got == nil then
@@ -347,7 +347,7 @@ local record File is io.Reader, io.Writer
         return got, nil
     end
 
-    function transferTo(exclusive self, exclusive destination: io.Writer): (integer?, string?)
+    function transferto(exclusive self, exclusive destination: io.Writer): (integer?, string?)
         local total: integer = 0
         while true do
             local chunk, reason = self:read(READ_SIZE)
@@ -370,7 +370,7 @@ local record File is io.Reader, io.Writer
             return false, "the file is closed"
         end
         local source = span.fromstring(bytes)
-        local wrote, reason = self:writeSpan(source)
+        local wrote, reason = self:writespan(source)
         if wrote == nil then
             return false, reason
         end
@@ -381,7 +381,7 @@ local record File is io.Reader, io.Writer
         return true, nil
     end
 
-    function writeSpan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
+    function writespan(exclusive self, borrows source: span.ByteSpan): (integer?, string?)
         if self._closed then
             return nil, "the file is closed"
         end
@@ -468,7 +468,7 @@ local record File is io.Reader, io.Writer
         return true, nil
     end
 
-    function isReleased(borrows self): boolean
+    function isreleased(borrows self): boolean
         return self._closed
     end
 
@@ -551,10 +551,10 @@ function files.read(path: any): (string?, string?)
 end
 
 local function wholeWrite(path: any, bytes: any, mode: messages.Mode): (boolean, string?)
-    if type(bytes) ~= "string" and (type(bytes) ~= "table" or bytes.getString == nil) then
+    if type(bytes) ~= "string" and (type(bytes) ~= "table" or bytes.getstring == nil) then
         error("nupp: io.files contents must be bytes or a byte view", 3)
     end
-    local text = type(bytes) == "string" and bytes or bytes:getString()
+    local text = type(bytes) == "string" and bytes or bytes:getstring()
     pending = pending + 1
     local opened, reason = files.open(path, mode)
     if opened == nil then

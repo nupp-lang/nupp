@@ -14,41 +14,41 @@ Base64 and hexadecimal are reversible codecs.
 
 ```nupp
 local algorithm = binary.hash.digest.algorithm("sha256")
-assert(algorithm.digestSize == 32)
-local rolling = algorithm:newDigest()
+assert(algorithm.digestsize == 32)
+local rolling = algorithm:newdigest()
 rolling:write("first chunk")
 rolling:write("second chunk")
 local raw: string = rolling:digest()
 ```
 
 `binary.hash.digest.newdigest(name)` is shorthand for
-`algorithm(name):newDigest()`.
+`algorithm(name):newdigest()`.
 `lookup(name)` returns nil when an algorithm is unavailable; `algorithm` and
 `newdigest` raise instead. `algorithms()` returns sorted canonical names.
-Descriptors expose `name` and `digestSize` before construction; a created
-digest exposes `algorithm()` and `digestSize()`.
+Descriptors expose `name` and `digestsize` before construction; a created
+digest exposes `algorithm()` and `digestsize()`.
 
 The built-ins are `md5` (16 bytes), `sha1` (20), `sha256` (32), and
 `sha512` (64). MD5 and SHA-1 are legacy interoperability algorithms and
 must not be used where collision resistance is required.
 
 A digest is an [`io.Writer`](io.Writer): `write(string)` and
-`writeSpan(ByteSpan)` accept chunks without retaining input views, and the state
+`writespan(ByteSpan)` accept chunks without retaining input views, and the state
 stays bounded as the message grows. Anything that fills a writer fills a digest,
-so `reader:transferTo(rolling)` hashes a file or a response body a window at a
+so `reader:transferto(rolling)` hashes a file or a response body a window at a
 time.
 
 ## Finalization and caller storage
 
 `digest()` returns raw bytes, `digest(destination)` writes a writable byte span
-and returns the byte count, and `hexDigest()` returns lowercase hexadecimal.
+and returns the byte count, and `hexdigest()` returns lowercase hexadecimal.
 Every finalization consumes the digest; it neither snapshots nor resets it.
 Scope exit closes an unfinished provider context.
 
 ```nupp
 local rolling = binary.hash.digest.newdigest("sha256")
 rolling:write("payload")
-local bytes = nupp.mem.array.bytes(rolling:digestSize())
+local bytes = nupp.mem.array.bytes(rolling:digestsize())
 local output = bytes:write()
 local written: integer = rolling:digest(output)
 assert(written == 32)
@@ -57,7 +57,7 @@ local readable = bytes:read()
 assert(#readable == 32)
 ```
 
-A destination must contain at least `digestSize()` bytes. Only that prefix
+A destination must contain at least `digestsize()` bytes. Only that prefix
 is written; pass a slice to choose an offset. A short destination raises before
 any output is written. The digest is consumed and the provider context is closed
 even when finalization fails. The destination remains owned by the caller.
@@ -91,7 +91,7 @@ own scalar serialization rules. Checksums provide no authentication.
 
 `binary.hash.mac.newmac("hmac-sha256", key)` accepts a raw-byte key and returns
 the same writer and consuming finalization as a digest. Its descriptor has
-`digestSize = 32`. The one-shot forms are `mac.digest(name, key, bytes)` and
+`digestsize = 32`. The one-shot forms are `mac.digest(name, key, bytes)` and
 `mac.hexdigest(name, key, bytes)`.
 
 `hmac-sha256` names the HMAC construction over SHA-256. Smithy's `httpChecksum`

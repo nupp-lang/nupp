@@ -2710,7 +2710,7 @@ function M.constrainedTypesNarrowTheirBase()
         {
             "local type Percent = types.range(integer, 0, 100)",
             "local type Digit = types.range(Percent, 0, 9)",
-            "local type Short = types.length(string, 1, 4)",
+            "local type Short = types.len(string, 1, 4)",
         },
         "\n"
     )
@@ -2755,7 +2755,7 @@ end
 -- nothing is reported rather than compiled into a test no value passes.
 function M.constrainedDeclarationsAreValidated()
     testAssert.eq((diagsOf("local type E = types.range(integer, 10, 0)\nreturn E")), "NUPP2422:1")
-    testAssert.eq((diagsOf("local type E = types.length(integer, 0, 4)\nreturn E")), "NUPP2422:1")
+    testAssert.eq((diagsOf("local type E = types.len(integer, 0, 4)\nreturn E")), "NUPP2422:1")
     testAssert.eq((diagsOf("local type E = types.range(string, 0, 4)\nreturn E")), "NUPP2422:1")
     testAssert.eq((diagsOf("local type E = types.range(uint32, -1, 4)\nreturn E")), "NUPP2422:1")
     -- an intersection that admits nothing

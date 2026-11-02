@@ -37,13 +37,13 @@ local function fakeBackend(script)
         if script.listenFails then
             return nil, "nupp: could not listen: " .. script.listenFails
         end
-        state.reusePort = reusePort
+        state.reuseport = reusePort
         state.backlog = backlog
 
         return {host = host, port = port}
     end
 
-    function self:listenerPort(listener)
+    function self:listenerport(listener)
         return listener.port == 0 and 54321 or listener.port
     end
 
@@ -59,7 +59,7 @@ local function fakeBackend(script)
         return {which = "accepted"}
     end
 
-    function self:closeListener(listener)
+    function self:closelistener(listener)
         state.closedListeners = state.closedListeners + 1
     end
 
@@ -72,7 +72,7 @@ local function fakeBackend(script)
         return {host = host, port = port}
     end
 
-    function self:connectPoll(request)
+    function self:connectpoll(request)
         state.connectPolls = (state.connectPolls or 0) + 1
         if state.connectPolls < (script.connectAfter or 1) then
             return nil
@@ -81,7 +81,7 @@ local function fakeBackend(script)
         return {which = "connected"}
     end
 
-    function self:closeConnect(request)
+    function self:closeconnect(request)
         state.closedConnect = true
     end
 
@@ -121,33 +121,33 @@ local function fakeBackend(script)
         return state.pending
     end
 
-    function self:writeFailed(stream)
+    function self:writefailed(stream)
         return script.writeFails == true
     end
 
-    function self:shuttingDown(stream)
-        return state.shuttingDown == true
+    function self:shuttingdown(stream)
+        return state.shuttingdown == true
     end
 
-    function self:shutdownWrite(stream)
+    function self:shutdownwrite(stream)
         state.shutdown = true
         -- A real platform takes the request and finishes it later; the fake
         -- finishes it on the next turn of the reactor, so a caller that waits for
         -- it makes progress rather than spinning.
-        state.shuttingDown = script.shutdownPends == true
+        state.shuttingdown = script.shutdownPends == true
         return true
     end
 
-    function self:keepAlive(stream, enabled, delayMs)
-        state.keepAlive = {enabled = enabled, delayMs = delayMs}
+    function self:keepalive(stream, enabled, delayMs)
+        state.keepalive = {enabled = enabled, delayMs = delayMs}
         return true
     end
 
-    function self:closeStream(stream)
+    function self:closestream(stream)
         state.closedStreams = state.closedStreams + 1
     end
 
-    function self:bindDatagram(host, port, reusePort)
+    function self:binddatagram(host, port, reusePort)
         if script.bindFails then
             return nil, "nupp: could not bind: " .. script.bindFails
         end
@@ -156,7 +156,7 @@ local function fakeBackend(script)
         return {host = host, port = port}
     end
 
-    function self:datagramPort(socket)
+    function self:datagramport(socket)
         return socket.port == 0 and 41234 or socket.port
     end
 
@@ -174,13 +174,13 @@ local function fakeBackend(script)
         return bytes, next.host or "10.0.0.1", next.port or 5000, #bytes < #next.bytes
     end
 
-    function self:sendTo(socket, host, port, bytes)
+    function self:sendto(socket, host, port, bytes)
         state.sent = state.sent or {}
         state.sent[#state.sent + 1] = {host = host, port = port, bytes = bytes}
         return true
     end
 
-    function self:closeDatagram(socket)
+    function self:closedatagram(socket)
         state.closedDatagrams = (state.closedDatagrams or 0) + 1
     end
 
@@ -191,7 +191,7 @@ local function fakeBackend(script)
         if state.pending > 0 and script.drainsOnRun then
             state.pending = 0
         end
-        state.shuttingDown = false
+        state.shuttingdown = false
     end
 
     return self, state
@@ -221,7 +221,7 @@ function M.emptyIsOnlyEverTheEnd()
     local stream = connected({arriving = {"x"}})
     testAssert.eq(assert(stream:read(4)), "x", "the byte arrives")
     testAssert.eq(assert(stream:read(4)), "", "then the end")
-    assert(stream:isEnded(), "and the stream says so")
+    assert(stream:isended(), "and the stream says so")
     stream:close()
 end
 
@@ -245,7 +245,7 @@ function M.writeLargerThanTheBoundStillProceeds()
     -- sent. An input larger than the high-water mark must not deadlock.
     local backend, state = fakeBackend({drains = false, drainsOnRun = true})
     install(backend)
-    local stream = assert(net.connect({host = "example", port = 80, sendHighWater = 4}))
+    local stream = assert(net.connect({host = "example", port = 80, sendhighwater = 4}))
     assert(stream:write("0123456789"), "a value larger than the bound is written")
     testAssert.eq(table.concat(state.written), "0123456789", "in pieces, all of them")
     assert(#state.written > 1, "and it really was more than one piece")
@@ -258,7 +258,7 @@ function M.aBackendMayApplyAStricterSendBound()
     -- queue to retire, not spin while it remains below the caller's bound.
     local backend, state = fakeBackend({backpressureOnce = true, backendPending = 4, drainsOnRun = true,})
     install(backend)
-    local stream = assert(net.connect({host = "example", port = 80, sendHighWater = 16}))
+    local stream = assert(net.connect({host = "example", port = 80, sendhighwater = 16}))
     assert(stream:write("payload"), "the write resumes after native backpressure")
     testAssert.eq(table.concat(state.written), "payload", "and accepts every byte exactly once")
     assert(state.runs > 0, "native backpressure drove the reactor rather than spinning")
@@ -267,7 +267,7 @@ end
 
 function M.writeRefusesAfterTheSendingHalfIsClosed()
     local stream, state = connected({})
-    assert(stream:shutdownWrite(), "the sending half closes")
+    assert(stream:shutdownwrite(), "the sending half closes")
     assert(state.shutdown, "which reaches the platform")
     local wrote, why = stream:write("late")
     testAssert.eq(wrote, false, "a write after it is refused")
@@ -287,7 +287,7 @@ function M.closingTheWriterViewHalfCloses()
     -- socket has one handle with two halves, so closing the writing view ends a
     -- direction rather than returning a resource.
     local stream, state = connected({})
-    local writer = stream:asWriter()
+    local writer = stream:aswriter()
     writer:close()
     assert(state.shutdown, "closing the writer view half-closes")
     testAssert.eq(state.closedStreams, 0, "and leaves the connection open")
@@ -297,7 +297,7 @@ end
 
 function M.closingTheReaderViewLeavesTheConnection()
     local stream, state = connected({arriving = {"ab"}})
-    local reader = stream:asReader()
+    local reader = stream:asreader()
     testAssert.eq(assert(reader:read(4)), "ab", "the view reads")
     reader:close()
     local got, why = reader:read(4)
@@ -310,7 +310,7 @@ end
 
 function M.directionViewsExposeOnlyTheirOwnHalf()
     local stream = connected({arriving = {"readable"}})
-    local reader = stream:asReader()
+    local reader = stream:asreader()
     local wrote, writeWhy = reader:write("wrong way")
     testAssert.eq(wrote, false, "a reading view cannot write")
     assert(tostring(writeWhy):find("read-only", 1, true) ~= nil, "and says which direction it has")
@@ -319,7 +319,7 @@ function M.directionViewsExposeOnlyTheirOwnHalf()
     assert(tostring(flushWhy):find("read-only", 1, true) ~= nil, "and gives the same direction reason")
     reader:close()
 
-    local writer = stream:asWriter()
+    local writer = stream:aswriter()
     local bytes, readWhy = writer:read(1)
     testAssert.eq(bytes, nil, "a writing view cannot read")
     assert(tostring(readWhy):find("write-only", 1, true) ~= nil, "and says which direction it has")
@@ -329,7 +329,7 @@ end
 
 function M.aViewReadsThroughTheSharedContract()
     local stream = connected({arriving = {"shared"}})
-    local reader = stream:asReader()
+    local reader = stream:asreader()
     testAssert.eq(assert(reader:read(6)), "shared", "a view is a Reader")
     reader:close()
     stream:close()
@@ -357,11 +357,11 @@ end
 function M.reusePortIsPassedThroughRatherThanAssumed()
     local backend, state = fakeBackend({})
     install(backend)
-    local listener = assert(net.listen({host = "127.0.0.1", port = 0, reusePort = true}))
-    testAssert.eq(state.reusePort, true, "the request reaches the platform")
+    local listener = assert(net.listen({host = "127.0.0.1", port = 0, reuseport = true}))
+    testAssert.eq(state.reuseport, true, "the request reaches the platform")
     listener:close()
     local plain = assert(net.listen({host = "127.0.0.1", port = 0}))
-    testAssert.eq(state.reusePort, false, "and is off unless asked for")
+    testAssert.eq(state.reuseport, false, "and is off unless asked for")
     plain:close()
 end
 
@@ -409,7 +409,7 @@ function M.aConnectPolledAgainBeforeItRunsResumesOnce()
             end
             suspension.poll()
         end,
-        canPark = function()
+        canpark = function()
             return true
         end,
     })
@@ -428,7 +428,7 @@ function M.abandoningAConnectReleasesItsRequest()
     local installation = suspensionHost.install({
         park = function()
         end,
-        canPark = function()
+        canpark = function()
             return false
         end,
     })
@@ -441,7 +441,7 @@ end
 
 function M.aFailedConnectPollReleasesItsRequest()
     local backend, state = fakeBackend({})
-    backend.connectPoll = function()
+    backend.connectpoll = function()
         error("broken poll")
     end
     install(backend)
@@ -455,7 +455,7 @@ function M.closingIsIdempotent()
     local stream, state = connected({})
     stream:close()
     testAssert.eq(state.closedStreams, 1, "the first close releases")
-    testAssert.eq(stream:isReleased(), true, "and the stream says so")
+    testAssert.eq(stream:isreleased(), true, "and the stream says so")
 end
 
 function M.aDatagramCarriesItsPeerAndItsLength()
@@ -463,9 +463,9 @@ function M.aDatagramCarriesItsPeerAndItsLength()
     install(backend)
     local socket = assert(net.bind({host = "0.0.0.0", port = 0}))
     local buffer = io_.newbuffer(64)
-    local message = assert(socket:receiveFrom(buffer, 64))
-    testAssert.eq(message.length, 4, "the length is what landed")
-    testAssert.eq(buffer:getString(0, 4), "ping", "and the bytes went into the storage offered")
+    local message = assert(socket:receivefrom(buffer, 64))
+    testAssert.eq(message.len, 4, "the length is what landed")
+    testAssert.eq(buffer:getstring(0, 4), "ping", "and the bytes went into the storage offered")
     testAssert.eq(message.address.host, "10.0.0.7", "the peer's address comes with it")
     testAssert.eq(message.address.port, 9001, "and its port")
     testAssert.eq(message.truncated, false, "a whole datagram is not truncated")
@@ -480,8 +480,8 @@ function M.aTruncatedDatagramSaysSo()
     install(backend)
     local socket = assert(net.bind({host = "0.0.0.0", port = 0}))
     local buffer = io_.newbuffer(64)
-    local message = assert(socket:receiveFrom(buffer, 4))
-    testAssert.eq(message.length, 4, "only what there was room for landed")
+    local message = assert(socket:receivefrom(buffer, 4))
+    testAssert.eq(message.len, 4, "only what there was room for landed")
     testAssert.eq(message.truncated, true, "and the caller is told the rest is gone")
     buffer:close()
     socket:close()
@@ -494,8 +494,8 @@ function M.anEmptyDatagramIsAMessageNotAnAbsence()
     install(backend)
     local socket = assert(net.bind({host = "0.0.0.0", port = 0}))
     local buffer = io_.newbuffer(64)
-    local message = assert(socket:receiveFrom(buffer, 64))
-    testAssert.eq(message.length, 0, "an empty datagram is zero bytes")
+    local message = assert(socket:receivefrom(buffer, 64))
+    testAssert.eq(message.len, 0, "an empty datagram is zero bytes")
     testAssert.eq(message.address.port, 7, "and still carries the peer that sent it")
     assert(state.receives >= 3, "the quiet polls before it were not messages")
     buffer:close()
@@ -506,7 +506,7 @@ function M.sendingNamesThePeer()
     local backend, state = fakeBackend({})
     install(backend)
     local socket = assert(net.bind({host = "0.0.0.0", port = 0}))
-    assert(socket:sendTo({host = "10.0.0.3", port = 4242}, "reply"), "the send is taken")
+    assert(socket:sendto({host = "10.0.0.3", port = 4242}, "reply"), "the send is taken")
     testAssert.eq(state.sent[1].host, "10.0.0.3", "to the address named")
     testAssert.eq(state.sent[1].port, 4242, "and its port")
     testAssert.eq(state.sent[1].bytes, "reply", "with the bytes given")
@@ -562,11 +562,11 @@ function M.closingAWritingViewWaitsForTheDirectionToEnd()
     local backend, state = fakeBackend({shutdownPends = true})
     install(backend)
     local stream = assert(net.connect({host = "example", port = 80}))
-    local writer = stream:asWriter()
+    local writer = stream:aswriter()
     assert(writer:write("last"), "the view writes")
     writer:close()
     assert(state.shutdown, "the direction was ended")
-    testAssert.eq(state.shuttingDown, false, "and the close waited for it to finish")
+    testAssert.eq(state.shuttingdown, false, "and the close waited for it to finish")
     stream:close()
 end
 
@@ -577,9 +577,9 @@ function M.endingTheSendingHalfWaitsForIt()
     install(backend)
     local stream = assert(net.connect({host = "example", port = 80}))
     assert(stream:write("before the end"), "the write completes")
-    assert(stream:shutdownWrite(), "the sending half is ended")
+    assert(stream:shutdownwrite(), "the sending half is ended")
     assert(state.shutdown, "which reached the platform")
-    testAssert.eq(state.shuttingDown, false, "and was waited for rather than submitted")
+    testAssert.eq(state.shuttingdown, false, "and was waited for rather than submitted")
     stream:close()
 end
 
@@ -611,9 +611,9 @@ function M.listenerBacklogsAndPumpDelaysAreChecked()
     testAssert.eq(ok, false, "a negative pump delay is refused")
     testAssert.eq(state.runs, 0, "an invalid delay does not reach the provider")
     local stream = assert(net.connect({host = "example", port = 80}))
-    ok = pcall(stream.setKeepAlive, stream, true, 4294967296)
+    ok = pcall(stream.setkeepalive, stream, true, 4294967296)
     testAssert.eq(ok, false, "a keepalive delay outside the native range is refused")
-    testAssert.eq(state.keepAlive, nil, "an invalid keepalive delay does not reach the provider")
+    testAssert.eq(state.keepalive, nil, "an invalid keepalive delay does not reach the provider")
     stream:close()
 end
 
@@ -621,12 +621,12 @@ function M.aSocketPathMayBeAPathValue()
     -- The filesystem names every other io facade accepts: text, a io.path.Path,
     -- or an application path. The platform receives the text either way.
     local backend, state = fakeBackend({})
-    function backend:listenPath(path, backlog)
+    function backend:listenpath(path, backlog)
         state.listenedPath = path
         return {host = "", port = 0}
     end
 
-    function backend:connectPath(path, timeoutMs)
+    function backend:connectpath(path, timeoutMs)
         state.connectedPath = path
         return nil, "nobody there"
     end
@@ -651,8 +651,8 @@ function M.keepAliveDelayIsMilliseconds()
     local backend, state = fakeBackend({})
     install(backend)
     local stream = assert(net.connect({host = "example", port = 80}))
-    assert(stream:setKeepAlive(true, 1500), "the option was set")
-    testAssert.eq(state.keepAlive.delayMs, 1500, "and the provider received milliseconds unchanged")
+    assert(stream:setkeepalive(true, 1500), "the option was set")
+    testAssert.eq(state.keepalive.delayMs, 1500, "and the provider received milliseconds unchanged")
     stream:close()
 end
 
@@ -686,7 +686,7 @@ function M.providerByteCountsCannotExceedTheRequest()
     install(backend)
     local socket = assert(net.bind({host = "0.0.0.0", port = 0}))
     local destination = io_.newbuffer()
-    local message, datagramWhy = socket:receiveFrom(destination, 4)
+    local message, datagramWhy = socket:receivefrom(destination, 4)
     testAssert.eq(message, nil, "an oversized datagram with no peer is refused")
     assert(tostring(datagramWhy):find("invalid datagram", 1, true) ~= nil, "and reports the malformed result")
     destination:close()

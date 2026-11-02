@@ -42,7 +42,7 @@ local sink = 0.0
 
 local coldStarted = now()
 with scope = tasks.scope() do
-    sink = sink + scope:fork(0, jobs.identity):await()
+    sink = sink + scope:work(0, jobs.identity):await()
 end
 const coldMs = now() - coldStarted
 const lanes = math.max(1, math.min(os.info().parallelism, 64)) as integer
@@ -54,7 +54,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = tasks.scope() do
         for index = 1, LATENCY_TASKS do
-            sink = sink + scope:fork(index, jobs.identity):await()
+            sink = sink + scope:work(index, jobs.identity):await()
         end
     end
     if sample > 2 then
@@ -77,7 +77,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
-            sink = sink + #scope:fork(text, jobs.echoText):await()
+            sink = sink + #scope:work(text, jobs.echoText):await()
         end
     end
     if sample > 2 then
@@ -100,7 +100,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
-            const returned = scope:fork(payload, jobs.echoPayload):await()
+            const returned = scope:work(payload, jobs.echoPayload):await()
             sink = sink + returned.id + #returned.bytes
         end
     end
@@ -123,7 +123,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
-            const returned = scope:fork(payload, jobs.echoDynamic):await()
+            const returned = scope:work(payload, jobs.echoDynamic):await()
             sink = sink + returned.id + #returned.bytes
         end
     end
@@ -147,7 +147,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
-            const returned = scope:fork(plainTable, jobs.echoDynamic):await()
+            const returned = scope:work(plainTable, jobs.echoDynamic):await()
             sink = sink + returned.id + #returned.bytes
         end
     end
@@ -167,11 +167,11 @@ rows[
 
 local sparse = new jobs.Sparse(id = 7, label = "payload", bytes = text)
 with scope = tasks.scope() do
-    const bare = scope:fork(sparse, jobs.echoSparse):await()
+    const bare = scope:work(sparse, jobs.echoSparse):await()
     if bare.note ~= nil or bare.id ~= 7 or #bare.bytes ~= #text then
         error("an optional-field record round trip corrupted its fields")
     end
-    const noted = scope:fork(new jobs.Sparse(id = 8, label = "n", bytes = "b", note = "kept"), jobs.echoSparse):await()
+    const noted = scope:work(new jobs.Sparse(id = 8, label = "n", bytes = "b", note = "kept"), jobs.echoSparse):await()
     if noted.note ~= "kept" or noted.id ~= 8 then
         error("a present optional field did not survive the round trip")
     end
@@ -181,7 +181,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
-            const returned = scope:fork(sparse, jobs.echoSparse):await()
+            const returned = scope:work(sparse, jobs.echoSparse):await()
             sink = sink + returned.id + #returned.bytes
         end
     end
@@ -212,7 +212,7 @@ if corpus:slice(0, corpus:len()) ~= corpus then
     error("region extent equality failed")
 end
 with scope = tasks.scope() do
-    const counted = scope:fork(corpus, 0, corpus:len(), jobs.countRange):await()
+    const counted = scope:work(corpus, 0, corpus:len(), jobs.countRange):await()
     if counted ~= expectedLines then
         error("a region crossing miscounted: " .. tostring(counted))
     end
@@ -223,7 +223,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
-            sink = sink + #scope:fork(lined, jobs.echoText):await()
+            sink = sink + #scope:work(lined, jobs.echoText):await()
         end
     end
     if sample > 2 then
@@ -245,7 +245,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
-            sink = sink + scope:fork(corpus, jobs.regionSize):await()
+            sink = sink + scope:work(corpus, jobs.regionSize):await()
         end
     end
     if sample > 2 then
@@ -268,7 +268,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = tasks.scope() do
         for _ = 1, SCAN_TASKS do
-            sink = sink + scope:fork(corpus, 0, corpus:len(), jobs.countRange):await()
+            sink = sink + scope:work(corpus, 0, corpus:len(), jobs.countRange):await()
         end
     end
     if sample > 2 then
@@ -290,7 +290,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = tasks.scope() do
         for _ = 1, SCAN_TASKS do
-            sink = sink + scope:fork(lined, jobs.countText):await()
+            sink = sink + scope:work(lined, jobs.countText):await()
         end
     end
     if sample > 2 then
@@ -311,7 +311,7 @@ const heap = require("nupp.mem.heap")
 
 local small = heap.alloc(ffi.typeof<uint8>(), 4096)
 with scope = tasks.scope() do
-    small = scope:fork(small, 7, jobs.bump):await()
+    small = scope:work(small, 7, jobs.bump):await()
 end
 do
     local readable = small:read()
@@ -325,7 +325,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = tasks.scope() do
         for _ = 1, PAYLOAD_TASKS do
-            small = scope:fork(small, jobs.bounce):await()
+            small = scope:work(small, jobs.bounce):await()
         end
     end
     if sample > 2 then
@@ -351,7 +351,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = tasks.scope() do
         for _ = 1, MOVE_TASKS do
-            frame = scope:fork(frame, jobs.bounce):await()
+            frame = scope:work(frame, jobs.bounce):await()
         end
     end
     if sample > 2 then
@@ -378,7 +378,7 @@ for sample = 1, SAMPLES + 2 do
     local started = now()
     with scope = tasks.scope() do
         for _ = 1, MOVE_TASKS do
-            sink = sink + #scope:fork(big, jobs.echoText):await()
+            sink = sink + #scope:work(big, jobs.echoText):await()
         end
     end
     if sample > 2 then
@@ -409,7 +409,7 @@ end
 -- wait together, so every lane is busy at once.
 local function burnOnALane(): nil
     with lane = tasks.scope() do
-        sink = sink + lane:fork(iterations, jobs.burn):await()
+        sink = sink + lane:work(iterations, jobs.burn):await()
     end
 end
 

@@ -122,7 +122,7 @@ local function structure(): nil
     local left, right = first:deinterleave(second)
     assert2((left == a):all() and (right == b):all())
     assert2((a:reverse():reverse() == a):all())
-    assert2((a:rotateLeft(1):rotateRight(1) == a):all())
+    assert2((a:rotateleft(1):rotateright(1) == a):all())
     assert2(a:insert(2, 42ULL):extract(2) == 42ULL)
     assert2(a:align(b, 1):extract(1) == 24ULL)
     local selected = species:tail(2)
@@ -131,11 +131,11 @@ local function structure(): nil
     assert2(a:swizzle(species:iota(3ULL, 18446744073709551615ULL)):extract(1) == a:extract(3))
     const storage = array.scalar(array.uint64, 17)
     const writer = storage:write()
-    species:storeTriples(writer, 1, a, b, species:splat(99ULL))
-    species:storeTriples(writer, 10, a, b, species:splat(100ULL))
-    local x, y, z = species:loadTriples(writer, 1)
+    species:storetriples(writer, 1, a, b, species:splat(99ULL))
+    species:storetriples(writer, 10, a, b, species:splat(100ULL))
+    local x, y, z = species:loadtriples(writer, 1)
     assert2((x == a):all() and (y == b):all() and (z == 99ULL):all())
-    local p, q, r = species:loadTriples(writer, 10)
+    local p, q, r = species:loadtriples(writer, 10)
     assert2((p == a):all() and (q == b):all() and r:extract(3) == 0ULL)
     own.drop(writer)
     const reader = storage:read()
@@ -164,7 +164,7 @@ export function workers(): number
     local species = simd.species(array.uint64, 3)
     local vector = species:iota(9007199254740993ULL, 1ULL)
     with scope = tasks.scope() do
-        local job = scope:fork(vector, function(
+        local job = scope:work(vector, function(
             value: simd.Vector<uint64, simd.Fixed<3>>
         ): simd.Vector<uint64, simd.Fixed<3>>
             local changed = value + 7ULL

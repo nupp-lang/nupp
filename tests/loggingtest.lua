@@ -442,10 +442,10 @@ function M.aModuleLevelOverridesOnlyThatExactModule()
     local log = runtime()
     log.setlevel("warn")
 
-    local physics = log.forModule("test.scoped.physics")
-    local collision = log.forModule("test.scoped.physics.collision")
-    local render = log.forModule("test.scoped.render")
-    testAssert.eq(log.forModule("test.scoped.physics"), physics, "a module view is cached")
+    local physics = log.formodule("test.scoped.physics")
+    local collision = log.formodule("test.scoped.physics.collision")
+    local render = log.formodule("test.scoped.render")
+    testAssert.eq(log.formodule("test.scoped.physics"), physics, "a module view is cached")
 
     testAssert.eq(log.setmodulelevel("test.scoped.physics", "debug"), "warn", "setting answers the inherited level")
     assert(physics.on[4], "the selected module admits debug")
@@ -475,7 +475,7 @@ function M.aModuleLevelConfiguredBeforeTheViewIsCreatedIsApplied()
     log.setlevel("warn")
 
     log.setmodulelevel("test.scoped.future", "info")
-    local future = log.forModule("test.scoped.future")
+    local future = log.formodule("test.scoped.future")
     assert(future.on[3], "a future view receives its override")
     assert(not future.on[4], "the override still filters lower severities")
 
@@ -566,6 +566,12 @@ function M.everyPathCallRunsFromAModule()
     testAssert.eq(#lines, 2, "the named logger and the lowered site both reached the sink")
     testAssert.eq(lines[1].module, "amb.named", "the named logger carries its name")
     testAssert.eq(lines[2].module, "amb", "the lowered site carries the module")
+end
+
+function M.precedingModuleViewFactoryIsAbsent()
+    local log = require("log")
+    testAssert.eq(log.forModule, nil)
+    testAssert.eq(type(log.formodule), "function")
 end
 
 return M

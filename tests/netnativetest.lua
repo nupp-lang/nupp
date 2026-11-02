@@ -40,9 +40,9 @@ function M.aHalfCloseIsTheEndInOneDirectionOnly()
     -- The three-state read, against a real peer: after the client half-closes the
     -- server reads empty, and the server can still write back.
     local listener, client, served = pair()
-    assert(client:shutdownWrite(), "the client ends its sending half")
+    assert(client:shutdownwrite(), "the client ends its sending half")
     testAssert.eq(assert(served:read(64)), "", "which the server reads as the end")
-    assert(served:isEnded(), "and the server says the peer is done")
+    assert(served:isended(), "and the server says the peer is done")
     assert(served:write("bye"), "while the other direction still writes")
     testAssert.eq(assert(client:read(64)), "bye", "and the client still reads")
     served:close()
@@ -54,12 +54,12 @@ function M.aLargeValueCrossesInPieces()
     -- Larger than the send bound and larger than one read, so both the write
     -- loop and the read loop have to come back for the rest.
     local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
-    local client = assert(net.connect({host = "127.0.0.1", port = listener:port(), sendHighWater = 4096,}))
+    local client = assert(net.connect({host = "127.0.0.1", port = listener:port(), sendhighwater = 4096,}))
     local served = assert(listener:accept())
 
     local payload = ("abcdefgh"):rep(32768)
     assert(client:write(payload), "a 256 KiB value is written whole")
-    assert(client:shutdownWrite(), "and the sending half is ended")
+    assert(client:shutdownwrite(), "and the sending half is ended")
 
     local parts = {}
     while true do
@@ -79,7 +79,7 @@ end
 function M.aReaderViewReadsARealConnection()
     local listener, client, served = pair()
     assert(client:write("through the contract"), "the client writes")
-    local reader = served:asReader()
+    local reader = served:asreader()
     testAssert.eq(
         assert(reader:read(64)),
         "through the contract",
@@ -93,12 +93,12 @@ end
 
 function M.closingTheWriterViewEndsOneDirection()
     local listener, client, served = pair()
-    local writer = client:asWriter()
+    local writer = client:aswriter()
     assert(writer:write("last"), "the view writes")
     writer:close()
     testAssert.eq(assert(served:read(64)), "last", "the bytes still arrived")
     testAssert.eq(assert(served:read(64)), "", "and the peer saw the end")
-    assert(served:isEnded(), "which is what closing the writer view means")
+    assert(served:isended(), "which is what closing the writer view means")
     -- The connection itself is untouched: the server can still answer.
     assert(served:write("ack"), "the other half is still open")
     testAssert.eq(assert(client:read(64)), "ack", "and the client still reads it")
@@ -180,10 +180,10 @@ end
 function M.aDatagramCrossesWithItsPeer()
     local a, b = datagrams()
     local buffer = io_.newbuffer(2048)
-    assert(a:sendTo({host = "127.0.0.1", port = b:port()}, "ping"), "a sends")
-    local message = assert(b:receiveFrom(buffer, 2048))
-    testAssert.eq(message.length, 4, "b receives the whole datagram")
-    testAssert.eq(buffer:getString(0, 4), "ping", "into the storage it offered")
+    assert(a:sendto({host = "127.0.0.1", port = b:port()}, "ping"), "a sends")
+    local message = assert(b:receivefrom(buffer, 2048))
+    testAssert.eq(message.len, 4, "b receives the whole datagram")
+    testAssert.eq(buffer:getstring(0, 4), "ping", "into the storage it offered")
     testAssert.eq(message.address.port, a:port(), "carrying the peer that sent it")
     testAssert.eq(message.truncated, false, "and it was not truncated")
     buffer:close()
@@ -196,9 +196,9 @@ function M.aDatagramLargerThanTheStorageIsReportedTruncated()
     -- wrong: parsing the first part of a larger message nobody sent.
     local a, b = datagrams()
     local buffer = io_.newbuffer(2048)
-    assert(a:sendTo({host = "127.0.0.1", port = b:port()}, ("x"):rep(600)), "a sends 600 bytes")
-    local message = assert(b:receiveFrom(buffer, 100))
-    testAssert.eq(message.length, 100, "b takes what it offered room for")
+    assert(a:sendto({host = "127.0.0.1", port = b:port()}, ("x"):rep(600)), "a sends 600 bytes")
+    local message = assert(b:receivefrom(buffer, 100))
+    testAssert.eq(message.len, 100, "b takes what it offered room for")
     testAssert.eq(message.truncated, true, "and is told the rest is gone")
     buffer:close()
     b:close()
@@ -208,9 +208,9 @@ end
 function M.anEmptyDatagramArrivesAsAMessage()
     local a, b = datagrams()
     local buffer = io_.newbuffer(2048)
-    assert(a:sendTo({host = "127.0.0.1", port = b:port()}, ""), "a sends an empty datagram")
-    local message = assert(b:receiveFrom(buffer, 2048))
-    testAssert.eq(message.length, 0, "which arrives as zero bytes")
+    assert(a:sendto({host = "127.0.0.1", port = b:port()}, ""), "a sends an empty datagram")
+    local message = assert(b:receivefrom(buffer, 2048))
+    testAssert.eq(message.len, 0, "which arrives as zero bytes")
     testAssert.eq(message.address.port, a:port(), "still carrying its peer")
     testAssert.eq(message.truncated, false, "and nothing was dropped")
     buffer:close()
@@ -224,13 +224,13 @@ function M.datagramsKeepTheirBoundaries()
     local a, b = datagrams()
     local buffer = io_.newbuffer(2048)
     for index = 1, 3 do
-        assert(a:sendTo({host = "127.0.0.1", port = b:port()}, ("m%d"):format(index)), "each send is its own datagram")
+        assert(a:sendto({host = "127.0.0.1", port = b:port()}, ("m%d"):format(index)), "each send is its own datagram")
     end
     local seen = {}
     for _ = 1, 3 do
-        local message = assert(b:receiveFrom(buffer, 2048))
-        testAssert.eq(message.length, 2, "each receive is one whole message")
-        seen[buffer:getString(0, 2)] = true
+        local message = assert(b:receivefrom(buffer, 2048))
+        testAssert.eq(message.len, 2, "each receive is one whole message")
+        seen[buffer:getstring(0, 2)] = true
     end
     for index = 1, 3 do
         assert(seen[("m%d"):format(index)], "every message arrived separately")
@@ -243,7 +243,7 @@ end
 function M.sendingNowhereReportsWhyRatherThanRaising()
     local a = assert(net.bind({host = "127.0.0.1", port = 0}))
     -- Port zero is not a destination; the platform refuses it.
-    local sent, why = a:sendTo({host = "127.0.0.1", port = 0}, "nowhere")
+    local sent, why = a:sendto({host = "127.0.0.1", port = 0}, "nowhere")
     if sent then
         a:close()
         return
@@ -257,7 +257,7 @@ function M.aConnectGivesUpOnItsDeadline()
     -- without a deadline this hangs. 203.0.113.0/24 is reserved for documentation
     -- and is not routed, which is what makes it reliably silent.
     local started = os.clock()
-    local stream, why = net.connect({host = "203.0.113.1", port = 9, timeoutMs = 250,})
+    local stream, why = net.connect({host = "203.0.113.1", port = 9, timeoutms = 250,})
     testAssert.eq(stream, nil, "the connect gives up rather than hanging")
     assert(why ~= nil, "and says why")
     testAssert.eq(why.kind, "timeout", "as a timeout: " .. tostring(why))
@@ -277,7 +277,7 @@ function M.aConnectDeadlineStartsWhenTheConnectionDoes()
     end
 
     listener = assert(net.listen({host = "127.0.0.1", port = 0}))
-    client = assert(net.connect({host = "127.0.0.1", port = listener:port(), timeoutMs = 100,}))
+    client = assert(net.connect({host = "127.0.0.1", port = listener:port(), timeoutms = 100,}))
     served = assert(listener:accept())
     served:close()
     client:close()
@@ -288,13 +288,13 @@ function M.loadBalancingReuseIsRefusedCleanlyWhereItIsUnsupported()
     -- macOS and Windows have no load-balancing port reuse, and the provider
     -- refuses it rather than giving different semantics. Either answer is
     -- correct here; what must not happen is a raise or a silent downgrade.
-    local first, why = net.listen({host = "127.0.0.1", port = 0, reusePort = true})
+    local first, why = net.listen({host = "127.0.0.1", port = 0, reuseport = true})
     if first == nil then
         assert(why ~= nil, "an unsupported request is refused with a reason")
         return
     end
     -- Where it is supported, a second listener may share the port.
-    local second = net.listen({host = "127.0.0.1", port = first:port(), reusePort = true})
+    local second = net.listen({host = "127.0.0.1", port = first:port(), reuseport = true})
     if second ~= nil then
         second:close()
     end
@@ -339,9 +339,9 @@ function M.aUnixSocketHalfClosesTheSameWay()
     local client = assert(net.connect({path = path}))
     local served = assert(listener:accept())
 
-    assert(client:shutdownWrite(), "the client ends its sending half")
+    assert(client:shutdownwrite(), "the client ends its sending half")
     testAssert.eq(assert(served:read(64)), "", "which the server reads as the end")
-    assert(served:isEnded(), "and says the peer is done")
+    assert(served:isended(), "and says the peer is done")
     assert(served:write("ack"), "while the other direction still writes")
     testAssert.eq(assert(client:read(64)), "ack", "and is still read")
 
@@ -389,11 +389,11 @@ function M.aConnectionKnowsWhoIsAtTheOtherEnd()
     -- what a listener cannot infer: it knows the address it bound and nothing
     -- about who reached it.
     local listener, client, served = pair()
-    local peer = served:peerAddress()
+    local peer = served:peeraddress()
     assert(peer ~= nil, "an accepted connection knows its peer")
     testAssert.eq(peer.host, "127.0.0.1", "which is where it came from")
-    testAssert.eq(peer.port, client:localAddress().port, "and the port is the one the client is using")
-    testAssert.eq(client:peerAddress().port, listener:port(), "and the client's peer is the listener")
+    testAssert.eq(peer.port, client:localaddress().port, "and the port is the one the client is using")
+    testAssert.eq(client:peeraddress().port, listener:port(), "and the client's peer is the listener")
     served:close()
     client:close()
     listener:close()
@@ -405,7 +405,7 @@ function M.aUnixConnectionHasNoPeerAddress()
     local listener = assert(net.listen({path = path}))
     local client = assert(net.connect({path = path}))
     local served = assert(listener:accept())
-    testAssert.eq(served:peerAddress(), nil, "a filesystem name is not a peer address, and none is invented for it")
+    testAssert.eq(served:peeraddress(), nil, "a filesystem name is not a peer address, and none is invented for it")
     served:close()
     client:close()
     listener:close()
@@ -414,10 +414,10 @@ end
 
 function M.socketOptionsAreSetOnRealConnections()
     local listener, client, served = pair()
-    assert(served:setNoDelay(true), "Nagle can be turned off")
-    assert(served:setNoDelay(false), "and back on")
-    assert(served:setKeepAlive(true, 30000), "keepalive probing can be turned on")
-    assert(served:setKeepAlive(false, 1000), "and off")
+    assert(served:setnodelay(true), "Nagle can be turned off")
+    assert(served:setnodelay(false), "and back on")
+    assert(served:setkeepalive(true, 30000), "keepalive probing can be turned on")
+    assert(served:setkeepalive(false, 1000), "and off")
     -- Still a working connection afterwards.
     assert(client:write("after options"), "the connection still writes")
     testAssert.eq(assert(served:read(64)), "after options", "and still reads")
@@ -429,7 +429,7 @@ end
 function M.optionsOnAClosedConnectionReportRatherThanCrash()
     local listener, client, served = pair()
     served:close()
-    local ok, why = served:setNoDelay(true)
+    local ok, why = served:setnodelay(true)
     testAssert.eq(ok, false, "an option on a released connection is refused")
     assert(why ~= nil, "with a reason")
     client:close()
@@ -438,11 +438,11 @@ end
 
 function M.datagramOptionsAreSet()
     local socket = assert(net.bind({host = "0.0.0.0", port = 0}))
-    assert(socket:setBroadcast(true), "broadcast can be allowed")
-    assert(socket:setMulticastTTL(1), "a hop limit can be set")
-    assert(socket:setMulticastLoop(false), "and loopback turned off")
+    assert(socket:setbroadcast(true), "broadcast can be allowed")
+    assert(socket:setmulticastttl(1), "a hop limit can be set")
+    assert(socket:setmulticastloop(false), "and loopback turned off")
     local bad = pcall(function()
-        return socket:setMulticastTTL(0)
+        return socket:setmulticastttl(0)
     end)
     testAssert.eq(bad, false, "a hop limit outside 1 through 255 is a mistake at the call site")
     socket:close()
@@ -453,9 +453,9 @@ function M.aMulticastGroupCanBeJoinedAndLeft()
     -- 239.0.0.0/8 is administratively scoped and safe to use on a LAN. Joining
     -- can legitimately fail on a machine with no multicast-capable interface, so
     -- either answer is accepted; what must not happen is a raise.
-    local joined, why = socket:joinMulticast("239.255.42.99")
+    local joined, why = socket:joinmulticast("239.255.42.99")
     if joined then
-        assert(socket:leaveMulticast("239.255.42.99"), "and left again")
+        assert(socket:leavemulticast("239.255.42.99"), "and left again")
     else
         assert(why ~= nil, "a refused join says why rather than raising")
     end
@@ -470,9 +470,9 @@ function M.linesComeOffAConnectionThroughTheSharedReader()
         client:write("first\r\nsecond\nthird without a terminator"),
         "the client writes three lines, two of them terminated"
     )
-    assert(client:shutdownWrite(), "and ends its sending half")
+    assert(client:shutdownwrite(), "and ends its sending half")
 
-    local lines = io_.newlines(served:asReader())
+    local lines = io_.newlines(served:asreader())
     testAssert.eq(assert(lines:read()), "first", "CRLF ends a line and is not part of it")
     testAssert.eq(assert(lines:read()), "second", "and so does a bare LF")
     testAssert.eq(assert(lines:read()), "third without a terminator", "and what is left at the end is still a line")
@@ -489,7 +489,7 @@ function M.anOverlongLineIsRefusedRatherThanBuffered()
     -- peer takes the process down.
     local listener, client, served = pair()
     assert(client:write(("x"):rep(4096)), "the client sends a very long line")
-    local lines = io_.newlines(served:asReader(), 64)
+    local lines = io_.newlines(served:asreader(), 64)
     local line, why = lines:read()
     testAssert.eq(line, nil, "the read is refused")
     assert(why ~= nil and why:find("longer than the limit", 1, true) ~= nil, "and says the line was too long")
@@ -505,7 +505,7 @@ function M.anOverlongLineIsRefusedEvenWhenItsTerminatorArrivesWithIt()
     -- otherwise walk straight past it.
     local listener, client, served = pair()
     assert(client:write(("x"):rep(100) .. "\n"), "a 100-byte line arrives whole")
-    local lines = io_.newlines(served:asReader(), 64)
+    local lines = io_.newlines(served:asreader(), 64)
     local line, why = lines:read()
     testAssert.eq(line, nil, "and is still refused against a 64-byte limit")
     assert(
@@ -541,11 +541,11 @@ function M.aSendBoundOfZeroIsRefused()
     -- Zero satisfies the declared type and makes every write wait on a condition
     -- that can never hold, so it is refused where it is written.
     local ok = pcall(function()
-        return net.connect({host = "127.0.0.1", port = 1, sendHighWater = 0})
+        return net.connect({host = "127.0.0.1", port = 1, sendhighwater = 0})
     end)
     testAssert.eq(ok, false, "a bound of zero is a mistake at the call site")
     local negative = pcall(function()
-        return net.connect({host = "127.0.0.1", port = 1, sendHighWater = -1})
+        return net.connect({host = "127.0.0.1", port = 1, sendhighwater = -1})
     end)
     testAssert.eq(negative, false, "and so is a negative one")
 end
@@ -580,7 +580,7 @@ function M.moreThanTheReceiveBoundStillArrivesWhole()
             end
         end
     end
-    assert(client:shutdownWrite(), "the sending half is ended")
+    assert(client:shutdownwrite(), "the sending half is ended")
     while true do
         local chunk = assert(served:read(65536))
         if #chunk == 0 then
@@ -621,7 +621,7 @@ function M.aLineOfExactlyTheLimitIsAccepted()
     -- length.
     local listener, client, served = pair()
     assert(client:write(("y"):rep(64) .. "\r\n"), "a 64-byte line ends with CRLF")
-    local lines = io_.newlines(served:asReader(), 64)
+    local lines = io_.newlines(served:asreader(), 64)
     testAssert.eq(assert(lines:read()), ("y"):rep(64), "and is accepted at a 64-byte limit")
     lines:close()
     served:close()
@@ -689,7 +689,7 @@ function M.aBorrowedWriterFlushesTheSameQueue()
     -- reads. Reading first would pump the reactor and let the shutdown complete
     -- on its own, which hides whether closing the view actually waited for it.
     local listener, client, served = pair()
-    local writer = client:asWriter()
+    local writer = client:aswriter()
     assert(writer:write("through the view"), "the view writes")
     assert(writer:flush(), "and can wait for it to leave")
     testAssert.eq(client:pending(), 0, "so nothing is left held")
@@ -720,7 +720,7 @@ function M.aPartiallyConsumedStreamStillDeliversEverything()
             taken = taken + #chunk
         end
     end
-    assert(client:shutdownWrite(), "the sender finishes")
+    assert(client:shutdownwrite(), "the sender finishes")
     served:close()
     client:close()
     listener:close()
@@ -753,14 +753,14 @@ function M.aLinkLocalPeerCanBeAnswered()
     local a = assert(net.bind({host = "::", port = 0}))
     local b = assert(net.bind({host = "::", port = 0}))
     local buffer = io_.newbuffer(64)
-    assert(a:sendTo({host = zoned, port = b:port()}, "ping"), "a sends to its own link-local address")
-    local message = assert(b:receiveFrom(buffer, 64))
-    testAssert.eq(buffer:getString(0, message.length), "ping", "b receives it")
+    assert(a:sendto({host = zoned, port = b:port()}, "ping"), "a sends to its own link-local address")
+    local message = assert(b:receivefrom(buffer, 64))
+    testAssert.eq(buffer:getstring(0, message.len), "ping", "b receives it")
     assert(message.address.host:find("%", 1, true) ~= nil, "the peer arrives with its scope")
-    local replied, why = b:sendTo(message.address, "pong")
+    local replied, why = b:sendto(message.address, "pong")
     assert(replied, "b answers the peer it heard from: " .. tostring(why))
-    local answer = assert(a:receiveFrom(buffer, 64))
-    testAssert.eq(buffer:getString(0, answer.length), "pong", "and a receives the answer")
+    local answer = assert(a:receivefrom(buffer, 64))
+    testAssert.eq(buffer:getstring(0, answer.len), "pong", "and a receives the answer")
     buffer:close()
     b:close()
     a:close()

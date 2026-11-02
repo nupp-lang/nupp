@@ -77,7 +77,7 @@ function M.independentBoundaryVectors(): nil
         for index = 1, length, 13 do
             rolling:write(input:sub(index, index + 12))
         end
-        assert(rolling:hexDigest() == expected, name .. " chunked length " .. length)
+        assert(rolling:hexdigest() == expected, name .. " chunked length " .. length)
     end
 end
 

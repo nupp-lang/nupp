@@ -11,6 +11,12 @@ local function rejects(body: function(): nil, message: string): nil
     assert2(tostring(problem):find(message, 1, true), tostring(problem))
 end
 
+function M.portableLimitsHaveCanonicalPublicKeys(): nil
+    assert2(gpu.portableworkgroupthreads == 256 and gpu.portablescratchbytes == 16384)
+    assert2((gpu as any).PORTABLE_WORKGROUP_THREADS == nil)
+    assert2((gpu as any).PORTABLE_SCRATCH_BYTES == nil)
+end
+
 function M.workgroupPhasesHaveDeterministicCpuMeaning(): nil
     local results: {float} = {}
     gpu.workgroups(math.u32.wrap(2), math.u32.wrap(4), function(groupIndex: uint32, phases: gpu.Phases)
@@ -20,7 +26,7 @@ function M.workgroupPhasesHaveDeterministicCpuMeaning(): nil
             local value = base + localIndex + math.u32.wrap(1)
             values[localIndex as integer] = math.f32.narrow(value as number)
         end)
-        phases:reduceSum(values)
+        phases:reducesum(values)
         phases:run(function(localIndex: uint32)
             if localIndex == math.u32.wrap(0) then
                 results[(groupIndex as integer) + 1] = math.f32.narrow(values[0])
@@ -41,7 +47,7 @@ function M.inclusiveScanHasDeterministicCpuMeaning(): nil
         phases:run(function(localIndex: uint32)
             values[localIndex as integer] = localIndex + math.u32.wrap(1)
         end)
-        phases:inclusiveScan(values, temporary)
+        phases:inclusivescan(values, temporary)
         phases:run(function(localIndex: uint32)
             results[(localIndex as integer) + 1] = math.u32.wrap(values[localIndex as integer] as integer)
         end)
@@ -143,19 +149,19 @@ function M.tensorLayoutsTransposeBroadcastAndProveInjectivity(): nil
     assert2(broadcast:extent() == 6)
     assert2(shape[1] == 4 and shape[2] == 2 and shape[3] == 3)
     assert2(strides[1] == 0 and strides[2] == 1 and strides[3] == 2)
-    assert2(not broadcast:isDense())
-    assert2(not broadcast:isInjective())
+    assert2(not broadcast:isdense())
+    assert2(not broadcast:isinjective())
 
     local gapped = layout.asstrided(stored, {2, 2}, {3, 1}, 0)
     assert2(gapped.count == 4)
     assert2(gapped:extent() == 5)
-    assert2(not gapped:isDense())
-    assert2(gapped:isInjective())
+    assert2(not gapped:isdense())
+    assert2(gapped:isinjective())
 
     local singleton = layout.new({1, 6}, {0, 1})
     assert2(singleton:offset() == 0, "the offset defaults to the first element")
-    assert2(singleton:isDense())
-    assert2(singleton:isInjective())
+    assert2(singleton:isdense())
+    assert2(singleton:isinjective())
 end
 
 function M.tensorLayoutsCopyInputsAndValidateEveryTransformation(): nil

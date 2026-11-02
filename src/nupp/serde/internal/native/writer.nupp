@@ -74,58 +74,58 @@ local record Output<M is core.Member> is core.Writer<M>
         end
     end
 
-    function writeNull(exclusive self, member: M): nil
+    function writenull(exclusive self, member: M): nil
         self:put(member, {"null"})
     end
 
-    function writeBoolean(exclusive self, member: M, value: boolean): nil
+    function writebool(exclusive self, member: M, value: boolean): nil
         self:put(member, {"boolean", value})
     end
 
-    function writeString(exclusive self, member: M, value: string): nil
+    function writestring(exclusive self, member: M, value: string): nil
         self:put(member, {"string", value})
     end
 
-    function writeBytes(exclusive self, member: M, value: string): nil
+    function writebytes(exclusive self, member: M, value: string): nil
         self:put(member, {"bytes", value})
     end
 
-    function writeNumberToken(exclusive self, member: M, value: string): nil
+    function writenumbertoken(exclusive self, member: M, value: string): nil
         json.numberToken(value)
         self:put(member, {"numberToken", value})
     end
 
-    function writeBigInteger(exclusive self, member: M, value: string): nil
+    function writebiginteger(exclusive self, member: M, value: string): nil
         documents.bigInteger(value)
         self:put(member, {"bigInteger", value})
     end
 
-    function writeInteger(exclusive self, member: M, borrows value: core.Integer): nil
+    function writeinteger(exclusive self, member: M, borrows value: core.Integer): nil
         numbers.integer(value.decimal, value.width, value.signed)
         self:put(member, {"integer", value.decimal, value.width, value.signed})
     end
 
-    function writeFloat(exclusive self, member: M, value: number, width: 32 | 64): nil
+    function writefloat(exclusive self, member: M, value: number, width: 32 | 64): nil
         self:put(member, {"float", numbers.floating(value, width, true), width})
     end
 
-    function writeDecimal(exclusive self, member: M, borrows value: core.Decimal): nil
+    function writedecimal(exclusive self, member: M, borrows value: core.Decimal): nil
         documents.bigInteger(value.coefficient)
         assert(value.exponent % 1 == 0 and math.abs(value.exponent) <= 9007199254740991, "invalid decimal exponent")
         self:put(member, {"decimal", value.coefficient, value.exponent})
     end
 
-    function writeTimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
+    function writetimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
         numbers.integer(value.seconds, 64, true)
         assert(value.nanos % 1 == 0 and value.nanos >= 0 and value.nanos < 1000000000, "invalid timestamp nanos")
         self:put(member, {"timestamp", value.seconds, value.nanos})
     end
 
-    function writeAtom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
+    function writeatom<A is core.Atom>(exclusive self, member: M, borrows value: A): nil
         error("native persistence refuses atoms without an explicit adapter", 2)
     end
 
-    function writeDocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
+    function writedocument<D>(exclusive self, member: M, borrows value: D, adapter: core.DocumentAdapter<D>): nil
         self:put(member, {"document", fromContents(adapter, value, self.depth + #self.frames + 1, self.budget)})
     end
 
@@ -147,47 +147,47 @@ local record Output<M is core.Member> is core.Writer<M>
         self:put(member, frame.value)
     end
 
-    function writeStruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+    function writestruct<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
         self:aggregate(member, "structure", nil, source, emit)
     end
 
-    function writeUnion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
+    function writeunion<S>(exclusive self, member: M, borrows source: S, emit: core.Members<M, S>): nil
         self:aggregate(member, "union", 1, source, emit)
     end
 
-    function writeList<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+    function writelist<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
         self:aggregate(member, "list", size, source, emit)
     end
 
-    function writeTuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
+    function writetuple<S>(exclusive self, member: M, size: integer, borrows source: S, emit: core.Members<M, S>): nil
         self:aggregate(member, "tuple", size, source, emit)
     end
 
-    function writeMap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
+    function writemap<S>(exclusive self, member: M, size: integer?, borrows source: S, emit: core.Members<M, S>): nil
         self:aggregate(member, "map", size, source, emit)
     end
 
-    function writeEntry<K, V>(
+    function writeentry<K, V>(
         exclusive self,
         borrows key: K,
-        keyEmit: core.Members<M, K>,
+        keyemit: core.Members<M, K>,
         borrows value: V,
-        valueEmit: core.Members<M, V>
+        valueemit: core.Members<M, V>
     ): nil
         self:live()
         local frame = assert(self.frames[#self.frames], "entry outside map")
         assert(frame.kind == "map" and not frame.inEntry, "entry outside map")
         frame.inEntry, frame.readingKey = true, true
-        keyEmit:apply(key, self)
+        keyemit:apply(key, self)
         assert(frame.key ~= nil, "map key was not written")
         frame.readingKey = false
         local before = frame.count
-        valueEmit:apply(value, self)
+        valueemit:apply(value, self)
         assert(frame.count == before + 1, "map value was not written")
         frame.inEntry = false
     end
 
-    function writeUnknown<F is core.WireField, D>(
+    function writeunknown<F is core.WireField, D>(
         exclusive self,
         field: F,
         borrows value: D,

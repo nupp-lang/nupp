@@ -100,12 +100,12 @@ Asking one array for a shared span while a writer over it is live reports
 remains blocked until the child is dropped, preventing a write through the
 parent from overlapping the slice.
 
-`splitAt(mid)` partitions a writer into audited, non-overlapping left and right
+`splitat(mid)` partitions a writer into audited, non-overlapping left and right
 regions. `mid` is the number of elements in the left region, so zero gives an
 empty left side and `count` gives an empty right side. Both children retain the
 parent as their root.
 
-Use a slice for one subrange and `splitAt` when two disjoint writable regions
+Use a slice for one subrange and `splitat` when two disjoint writable regions
 must be live together. Unknown indexes and bounds otherwise conservatively
 overlap.
 
@@ -359,7 +359,7 @@ sealed interface span.WriteSpan<T> is span.WriteToken
     --- Returns an affine writable subrange, inclusive at both ends.
     ---
     --- The child borrows this range, so the parent is unusable until the child is
-    --- dropped. Two disjoint children at once is what `splitAt` is for.
+    --- dropped. Two disjoint children at once is what `splitat` is for.
     slice: function(
         exclusive self: WriteSpan<T>,
         first: integer,
@@ -374,13 +374,13 @@ sealed interface span.WriteSpan<T> is span.WriteToken
     --- ```nupp:fragment
     --- do
     ---     local writable = values:write()
-    ---     local split = writable:splitAt(2)
+    ---     local split = writable:splitat(2)
     ---     split.left[1] = 11 as int32
     ---     split.right[1] = 22 as int32
     --- end
     --- ```
     @partition(left, right)
-    splitAt: function(exclusive self: WriteSpan<T>, mid: integer): span.WriteSplit<T> borrows (self)
+    splitat: function(exclusive self: WriteSpan<T>, mid: integer): span.WriteSplit<T> borrows (self)
 end
 
 --- A writable span whose exact element count is part of its static type.
@@ -480,7 +480,7 @@ local record WriteSpanImpl<T> is span.WriteSpan<T>
 
     --- Partitions this range at a zero-based boundary count.
     --- @raises string when mid is negative or greater than count
-    function splitAt(exclusive self: WriteSpanImpl<T>, mid: integer): span.WriteSplit<T> borrows (self)
+    function splitat(exclusive self: WriteSpanImpl<T>, mid: integer): span.WriteSplit<T> borrows (self)
         if mid % 1 ~= 0 or mid < 0 or mid > self.count then
             error("nupp: write span split point out of bounds", 2)
         end
@@ -583,7 +583,7 @@ local record FixedWriteSpanImpl<T, const N: integer> is span.FixedWriteSpan<T, N
         ) as span.WriteSpan<T>
     end
 
-    function splitAt(exclusive self: FixedWriteSpanImpl<T, N>, mid: integer): span.WriteSplit<T> borrows (self)
+    function splitat(exclusive self: FixedWriteSpanImpl<T, N>, mid: integer): span.WriteSplit<T> borrows (self)
         if mid % 1 ~= 0 or mid < 0 or mid > (self.count as integer) then
             error("nupp: write span split point out of bounds", 2)
         end

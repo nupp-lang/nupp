@@ -67,7 +67,7 @@ function tests.scalarReadersAcceptStructuralQueues(): nil
     local queue = new Queue(bytes = "\1\2\3\4")
     local reader = standard.newscalarreader(queue)
     assert2(reader:remaining() == 4)
-    assert2(reader:readUint32() == 67305985)
+    assert2(reader:readuint32() == 67305985)
     assert2(reader:remaining() == 0)
     assert2(#queue.bytes == 0)
 end
@@ -76,29 +76,29 @@ function tests.structuralQueuesReadIntoBuffersAndWritableSpans(): nil
     local queue = new Queue(bytes = "abcdef")
     local reader = standard.newqueuereader(queue)
     local destination = standard.newbuffer(8)
-    assert2(reader:readInto(destination, 0, 3) == 3)
-    local lease = destination:reserveWrite(3, 3)
+    assert2(reader:readinto(destination, 0, 3) == 3)
+    local lease = destination:reservewrite(3, 3)
     do
         local output = lease:span()
-        assert2(reader:readSpan(output) == 3)
+        assert2(reader:readspan(output) == 3)
         own.drop(output)
     end
     lease:commit(3)
-    assert2(destination:getString() == "abcdef")
+    assert2(destination:getstring() == "abcdef")
     assert2(reader:read(1) == "")
 end
 
 function tests.stringReadersFillWritableSpans(): nil
     local reader = standard.newstringreader("abc")
     local destination = standard.newbuffer(3)
-    local lease = destination:reserveWrite(0, 3)
+    local lease = destination:reservewrite(0, 3)
     do
         local output = lease:span()
-        assert2(reader:readSpan(output) == 3)
+        assert2(reader:readspan(output) == 3)
         own.drop(output)
     end
     lease:commit(3)
-    assert2(destination:getString() == "abc")
+    assert2(destination:getstring() == "abc")
 end
 
 function tests.linesKeepTerminatorsAndFinalFragments(): nil

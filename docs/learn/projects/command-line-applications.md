@@ -25,7 +25,7 @@ local record Options
     files: {string} = {}
 end
 
-local options, problem = Options.fromCLI(arg)
+local options, problem = Options.fromcli(arg)
 assert(options ~= nil, problem and problem.message)
 ```
 
@@ -46,7 +46,7 @@ while true do
     local kind, problem = parser:next()
     assert(problem == nil, problem and problem.message)
     if kind == nil then break end
-    if kind == cli.shortOption or kind == cli.longOption then
+    if kind == cli.shortoption or kind == cli.longoption then
         print(kind, parser:key(), parser:value() or "")
     else
         print(kind, parser:raw())
@@ -62,7 +62,7 @@ errors. `--` makes every remaining word an argument.
 
 ## Derive typed arguments
 
-`@derive(cli.arguments)` adds `fromCLI`. Optional choice positionals are skipped
+`@derive(cli.arguments)` adds `fromcli`. Optional choice positionals are skipped
 until an argument matches, so a required positional can follow them.
 
 ```nupp
@@ -79,7 +79,7 @@ local record Input
     file: string
 end
 
-local input = assert(Input.fromCLI({"main.nupp"}))
+local input = assert(Input.fromcli({"main.nupp"}))
 assert(input.mode == nil and input.file == "main.nupp")
 ```
 

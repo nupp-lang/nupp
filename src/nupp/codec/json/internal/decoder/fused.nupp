@@ -496,7 +496,7 @@ local function decodeFused<const Variant: integer>(
         else -> _valueBuilder.newsized(nullValue, builderDepth, sourceCount, arrayMarker, objectMarker)
     end
     local cursor: uint32 = 0
-    tapeCount = _valueBuilder.scratchlength(tape)
+    tapeCount = _valueBuilder.scratchlen(tape)
     local tapeCursor: uint32 = 0
     local needValue = true
     local done = false
@@ -672,9 +672,9 @@ local function decodeFused<const Variant: integer>(
             if tag == 0 then
                 _valueBuilder.null(values)
             elseif tag == 1 then
-                _valueBuilder.boolean(values, true)
+                _valueBuilder.bool(values, true)
             elseif tag == 2 then
-                _valueBuilder.boolean(values, false)
+                _valueBuilder.bool(values, false)
             elseif tag == 4 then
                 _valueBuilder.string(values, source, start, length, flags == 1)
             elseif tag == 5 then

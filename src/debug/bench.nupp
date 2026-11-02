@@ -31,6 +31,7 @@ const assert2 = require("assert")
 
 local json = require("serde.json")
 local statistics = require("nupp.bench.internal.statistics")
+local recordio = require("nupp.bench.internal.record")
 
 local bench = {}
 
@@ -47,10 +48,10 @@ local bench = {}
 --- An older record still reads as a baseline, and an inconclusive one: nothing in it
 --- says the program it timed is the one this compiler runs, so every duration verdict
 --- against it is inconclusive rather than an error. Any other schema is refused.
-bench.SCHEMA = 5
+bench.schema = 5
 
 --- The oldest schema a standalone program still reads as a baseline.
-bench.OLDEST_BASELINE_SCHEMA = 2
+bench.oldestbaselineschema = 2
 
 --- Rounds timed per case. The median of these is what a record reports, so an odd
 --- count has a middle to take.
@@ -147,28 +148,28 @@ type bench.SuiteOptions = {
     cases: {bench.SuiteCase},
 
     --- Variant used as the denominator in the human result table.
-    baselineVariant: string?,
+    baselinevariant: string?,
 
     --- Calls made before timing begins.
-    warmupIterations: integer?,
+    warmupiterations: integer?,
 
     --- Calls to `run` inside a timed sample. State is set up once per sample.
-    sampleIterations: integer?,
+    sampleiterations: integer?,
 
     --- Stop once both this many samples and this many milliseconds of measured time
     --- exist.
-    minSamples: integer?,
-    minDurationMs: number?,
+    minsamples: integer?,
+    mindurationms: number?,
 
     --- Safety bounds when a sample is much faster or slower than expected.
-    maxSamples: integer?,
-    maxDurationMs: number?
+    maxsamples: integer?,
+    maxdurationms: number?
 }
 
 --- Optional sections in the human result report.
 type bench.FormatOptions = {
     --- Compare suite variants by their geometric-mean ratio.
-    geometricMean: boolean?,
+    geometricmean: boolean?,
 
     --- Forks behind the measurements, when the runner merged them.
     ---
@@ -196,61 +197,61 @@ record bench.Measurement
     rounds: integer?
 
     --- The median round, in milliseconds. Recorded, never gated.
-    medianMs: number?
+    medianms: number?
 
     --- The fastest round, in milliseconds.
-    minMs: number?
+    minms: number?
 
     --- Suite samples in milliseconds, normalized to one represented operation.
-    samplesMs: {number}?
+    samplesms: {number}?
 
-    meanMs: number?
-    stdevMs: number?
-    p90Ms: number?
+    meanms: number?
+    stdevms: number?
+    p90ms: number?
 
     --- The 99th percentile of this measurement's samples, in milliseconds: rounds for
     --- a case, samples for a suite, frames for a frame session.
-    p99Ms: number?
+    p99ms: number?
 
     --- Calls to a suite variant inside a timed sample, and the operations a call
     --- represents.
-    sampleIterations: integer?
+    sampleiterations: integer?
 
-    operationsPerInvocation: integer?
-    warmupIterations: integer?
-    minSamples: integer?
-    minDurationMs: number?
-    maxSamples: integer?
-    maxDurationMs: number?
+    operationsperinvocation: integer?
+    warmupiterations: integer?
+    minsamples: integer?
+    mindurationms: number?
+    maxsamples: integer?
+    maxdurationms: number?
 
     --- Comparative-suite identity. Kept apart so a reader need not parse `name`.
     suite: string?
 
     variant: string?
-    caseName: string?
+    casename: string?
     parameters: {[string]: any}?
-    baselineVariant: string?
+    baselinevariant: string?
 
     --- Kilobytes allocated, read with the collector stopped. A case stores one round;
     --- a suite stores one represented operation. A size rather than a count of
     --- allocations, and recorded only.
-    allocatedKb: number?
+    allocatedkb: number?
 
     --- Kilobytes still held once the collector has run again, which is what "retained"
     --- has to mean. An earlier implementation reported the number above and called it
     --- this one: with collection stopped for the rounds, the heap delta is what they
     --- allocated, not what survived them.
-    retainedKb: number?
+    retainedkb: number?
 
-    --- Frame durations in milliseconds at the named quantiles. `p99Ms` is above.
-    p50Ms: number?
+    --- Frame durations in milliseconds at the named quantiles. `p99ms` is above.
+    p50ms: number?
 
-    p999Ms: number?
+    p999ms: number?
 
     --- Frames recorded, and how many exceeded the budget.
     frames: integer?
 
-    overBudget: integer?
+    overbudget: integer?
 
     --- Quantiles of this measurement's own samples, in milliseconds.
     ---
@@ -262,10 +263,10 @@ record bench.Measurement
     --- The upper end is the tail rather than the third quartile because the tail is
     --- what a reader is looking for. A slow mode holding a tenth of the samples moves
     --- p99 and leaves p75 where it was, so a box would have hidden exactly the case
-    --- worth seeing. `p75Ms` stays in the record for anyone who wants the box.
-    p25Ms: number?
+    --- worth seeing. `p75ms` stays in the record for anyone who wants the box.
+    p25ms: number?
 
-    p75Ms: number?
+    p75ms: number?
 
     --- The interquartile range of this measurement's own samples, in milliseconds.
     ---
@@ -274,7 +275,7 @@ record bench.Measurement
     --- and a thermal state, so they are not independent draws and no interval
     --- may be derived from them. An interval comes from fork summaries, which the
     --- runner assembles across processes.
-    iqrMs: number?
+    iqrms: number?
 
     --- What a monotone-trend test made of this process's samples in execution order:
     --- `trend`, `no-trend-detected`, or `unknown`.
@@ -289,10 +290,10 @@ record bench.Measurement
     ---
     --- `trend` needs both a significant test and a drift worth acting on, so a series
     --- that moved half a percent with a p-value of 0.005 is not reported as trending.
-    trendTau: number?
+    trendtau: number?
 
-    trendPValue: number?
-    trendDrift: number?
+    trendpvalue: number?
+    trenddrift: number?
 
     --- The fraction of this measurement's samples lying within ten percent of its
     --- median.
@@ -308,12 +309,12 @@ record bench.Measurement
     ---
     --- Classified, never removed. A real warmup or deoptimization phase falls exactly
     --- where these fences do, so excluding what they catch would delete the behavior
-    --- `trend` is looking for. Every sample stays in `samplesMs` and in the median.
-    outlierCount: integer?
+    --- `trend` is looking for. Every sample stays in `samplesms` and in the median.
+    outliercount: integer?
 
-    outlierMaxRatio: number?
+    outliermaxratio: number?
 
-    --- The checksum the body declared, as `checksumText` renders it, when it declared
+    --- The checksum the body declared, as `checksumtext` renders it, when it declared
     --- one. A deterministic counter: two records of one case must agree on it.
     checksum: string?
 
@@ -321,24 +322,24 @@ record bench.Measurement
     ---
     --- Absent on a measurement a child wrote: a child is a process and knows nothing
     --- about the others.
-    forkCount: integer?
+    forkcount: integer?
 
     --- One normalized summary per fork, in execution order. The input the interval
     --- below was computed from, kept so a reader can recompute it.
-    forkSummariesMs: {number}?
+    forksummariesms: {number}?
 
     --- The interval for this benchmark's population median, when one is available.
     ---
-    --- `intervalCoverage` is the probability this interval actually attains, not one
+    --- `intervalcoverage` is the probability this interval actually attains, not one
     --- that was requested: it falls out of the fork count through the sign test, and a
     --- run with too few forks gets no interval rather than a relabelled one.
-    intervalLowMs: number?
+    intervallowms: number?
 
-    intervalHighMs: number?
-    intervalCoverage: number?
+    intervalhighms: number?
+    intervalcoverage: number?
 
     --- Why there is no interval: `below-minimum-forks` or `trend-warning`.
-    intervalWithheld: string?
+    intervalwithheld: string?
 end
 
 local measurements: {bench.Measurement} = {}
@@ -463,24 +464,24 @@ end
 ---
 --- @param text what the baseline file holds
 --- @param path where it was read from, for the message
---- @param oldest the oldest schema the reader accepts, `OLDEST_BASELINE_SCHEMA` by
+--- @param oldest the oldest schema the reader accepts, `oldestbaselineschema` by
 ---     default
 --- @return the decoded baseline, or nil where it is refused
 --- @return why it was refused, naming its schema and the ones this version reads
 function bench.decodebaseline(text: string, path: string, oldest: integer?): (any, string?)
-    local low = oldest or bench.OLDEST_BASELINE_SCHEMA
+    local low = oldest or bench.oldestbaselineschema
     local decoded, document = pcall(json.decodevalue, text)
     if not decoded or type(document) ~= "table" or json.isarray(document) then
         return nil, ("nupp: baseline %s is not a bench record"):format(path)
     end
     local schema = document.schema
-    if type(schema) ~= "number" or schema ~= math.floor(schema) or schema < low or schema > bench.SCHEMA then
+    if type(schema) ~= "number" or schema ~= math.floor(schema) or schema < low or schema > bench.schema then
         return nil, (
             "nupp: baseline %s has schema %s; this bench reads schema %d, and %d through %d without durations"
-        ):format(path, schema == nil and "none" or tostring(schema), bench.SCHEMA, low, bench.SCHEMA - 1)
+        ):format(path, schema == nil and "none" or tostring(schema), bench.schema, low, bench.schema - 1)
     end
 
-    return document, nil
+    return recordio.read(document), nil
 end
 
 --- The baseline, read once and remembered, or nil when there is none to read.
@@ -611,7 +612,7 @@ local function announce(listing: any): nil
         if not handle then
             error("nupp: cannot write " .. options.casesOut, 0)
         end
-        handle:write(json.encodevalue(listing), "\n")
+        handle:write(json.encodevalue(recordio.writemeasurement(listing)), "\n")
         handle:close()
 
         return
@@ -656,7 +657,7 @@ end
 --- Text, so that two runtimes rendering the same number differently -- an integral
 --- float as `3` or `3.0` -- still agree. A whole number is formatted as one; anything
 --- else is `tostring`.
-function bench.checksumText(value: any): string
+function bench.checksumtext(value: any): string
     if type(value) == "number" and value == math.floor(value) and math.abs(value) < 2 ^ 53 then
         return ("%d"):format(value)
     end
@@ -669,13 +670,13 @@ local function checksumOf(subject: bench.Case): string?
         return nil
     end
 
-    return bench.checksumText(subject.checksum)
+    return bench.checksumtext(subject.checksum)
 end
 
-local function measureCase(name: string, body: function(bench.Case): nil, fixedN: integer?): nil
+local function measureCase(name: string, body: function(bench.Case): nil, fixedn: integer?): nil
     announceRun(name)
 
-    local n = calibrate(name, body, fixedN or options.iterations or baselineIterations(name))
+    local n = calibrate(name, body, fixedn or options.iterations or baselineIterations(name))
     local subject = new bench.Case(name = name, n = n)
     body(subject)
     local checksum = checksumOf(subject)
@@ -722,23 +723,23 @@ local function measureCase(name: string, body: function(bench.Case): nil, fixedN
         kind = "case",
         n = n,
         rounds = ROUNDS,
-        medianMs = median(times),
-        minMs = smallest(times),
-        samplesMs = times,
-        p25Ms = statistics.quantile(roundOrder, 0.25),
-        p75Ms = statistics.quantile(roundOrder, 0.75),
-        p99Ms = statistics.quantile(roundOrder, 0.99),
-        iqrMs = statistics.iqr(times),
+        medianms = median(times),
+        minms = smallest(times),
+        samplesms = times,
+        p25ms = statistics.quantile(roundOrder, 0.25),
+        p75ms = statistics.quantile(roundOrder, 0.75),
+        p99ms = statistics.quantile(roundOrder, 0.99),
+        iqrms = statistics.iqr(times),
         trend = rounds.verdict,
-        trendTau = rounds.tau,
-        trendPValue = rounds.pValue,
-        trendDrift = rounds.drift,
+        trendtau = rounds.tau,
+        trendpvalue = rounds.pValue,
+        trenddrift = rounds.drift,
         concentration = statistics.concentration(times, statistics.CONCENTRATION_TOLERANCE),
-        outlierCount = far.severe,
-        outlierMaxRatio = far.maxRatio,
+        outliercount = far.severe,
+        outliermaxratio = far.maxRatio,
         checksum = checksum,
-        allocatedKb = allocated / ROUNDS,
-        retainedKb = retained
+        allocatedkb = allocated / ROUNDS,
+        retainedkb = retained
     )
 end
 
@@ -750,11 +751,11 @@ end
 ---
 --- @param name what to record the case as
 --- @param body the work, which iterates `case.n` times
---- @param fixedN an explicit iteration count, skipping calibration
+--- @param fixedn an explicit iteration count, skipping calibration
 --- @raises string when the name is empty or already declared
-function bench.case(name: string, body: function(bench.Case): nil, fixedN: integer?): nil
+function bench.case(name: string, body: function(bench.Case): nil, fixedn: integer?): nil
     register(name, function(): nil
-        measureCase(name, body, fixedN)
+        measureCase(name, body, fixedn)
     end)
 end
 
@@ -821,7 +822,7 @@ local function expandedParameters(source: {[string]: {any}}?): {{[string]: any}}
     return expanded
 end
 
-local function suiteName(suite: string, caseName: string, variant: string, parameters: {[string]: any}): string
+local function suiteName(suite: string, casename: string, variant: string, parameters: {[string]: any}): string
     local keys: {string} = {}
     for key in pairs(parameters) do
         keys[#keys + 1] = key
@@ -831,7 +832,7 @@ local function suiteName(suite: string, caseName: string, variant: string, param
     for _, key in ipairs(keys) do
         suffix[#suffix + 1] = key .. "=" .. tostring(parameters[key])
     end
-    local name = suite .. "." .. caseName .. "." .. variant
+    local name = suite .. "." .. casename .. "." .. variant
     if #suffix > 0 then
         name = name .. ":" .. table.concat(suffix, ",")
     end
@@ -885,18 +886,18 @@ local function measureSuite(
     parameters: {[string]: any},
     name: string
 ): nil
-    local warmups = positiveInteger(suite.warmupIterations, 10, "warmupIterations")
-    local iterations = positiveInteger(suite.sampleIterations, 1, "sampleIterations")
-    local minSamples = positiveInteger(suite.minSamples, 15, "minSamples")
-    local maxSamples = positiveInteger(suite.maxSamples, 100000, "maxSamples")
-    local minDuration = positiveNumber(suite.minDurationMs, 500.0, "minDurationMs")
-    local maxDuration = positiveNumber(suite.maxDurationMs, 10000.0, "maxDurationMs")
+    local warmups = positiveInteger(suite.warmupiterations, 10, "warmupiterations")
+    local iterations = positiveInteger(suite.sampleiterations, 1, "sampleiterations")
+    local minsamples = positiveInteger(suite.minsamples, 15, "minsamples")
+    local maxsamples = positiveInteger(suite.maxsamples, 100000, "maxsamples")
+    local minDuration = positiveNumber(suite.mindurationms, 500.0, "mindurationms")
+    local maxDuration = positiveNumber(suite.maxdurationms, 10000.0, "maxdurationms")
     local operations = positiveInteger(case.operations, 1, "case operations")
-    if maxSamples < minSamples then
-        error("nupp: maxSamples must be at least minSamples", 0)
+    if maxsamples < minsamples then
+        error("nupp: maxsamples must be at least minsamples", 0)
     end
     if maxDuration < minDuration then
-        error("nupp: maxDurationMs must be at least minDurationMs", 0)
+        error("nupp: maxdurationms must be at least mindurationms", 0)
     end
 
     announceRun(name)
@@ -913,18 +914,18 @@ local function measureSuite(
     local samples: {number} = {}
     local measured = 0.0
     local wallStarted = os.monotonic()
-    while #samples < minSamples or measured < minDuration do
-        if #samples >= maxSamples or os.monotonic() - wallStarted >= maxDuration then
+    while #samples < minsamples or measured < minDuration do
+        if #samples >= maxsamples or os.monotonic() - wallStarted >= maxDuration then
             break
         end
         local elapsed = callVariant(variant, invocation, iterations)
         measured = measured + elapsed
         samples[#samples + 1] = elapsed / (iterations * operations)
     end
-    if #samples < minSamples or measured < minDuration then
+    if #samples < minsamples or measured < minDuration then
         error(
             (
-                "nupp: %s reached its sampling limit after %d samples and %.3f ms measured; increase sampleIterations or the maximums"
+                "nupp: %s reached its sampling limit after %d samples and %.3f ms measured; increase sampleiterations or the maximums"
             ):format(name, #samples, measured),
             0
         )
@@ -980,37 +981,37 @@ local function measureSuite(
         name = name,
         kind = "suite",
         rounds = #samples,
-        medianMs = p50,
-        minMs = minimum,
-        samplesMs = samples,
-        meanMs = mean,
-        stdevMs = stdev,
-        p90Ms = p90,
-        p99Ms = p99,
-        p25Ms = statistics.quantile(sampleOrder, 0.25),
-        p75Ms = statistics.quantile(sampleOrder, 0.75),
-        iqrMs = statistics.iqr(samples),
+        medianms = p50,
+        minms = minimum,
+        samplesms = samples,
+        meanms = mean,
+        stdevms = stdev,
+        p90ms = p90,
+        p99ms = p99,
+        p25ms = statistics.quantile(sampleOrder, 0.25),
+        p75ms = statistics.quantile(sampleOrder, 0.75),
+        iqrms = statistics.iqr(samples),
         trend = drift.verdict,
-        trendTau = drift.tau,
-        trendPValue = drift.pValue,
-        trendDrift = drift.drift,
+        trendtau = drift.tau,
+        trendpvalue = drift.pValue,
+        trenddrift = drift.drift,
         concentration = statistics.concentration(samples, statistics.CONCENTRATION_TOLERANCE),
-        outlierCount = far.severe,
-        outlierMaxRatio = far.maxRatio,
-        sampleIterations = iterations,
-        operationsPerInvocation = operations,
-        warmupIterations = warmups,
-        minSamples = minSamples,
-        minDurationMs = minDuration,
-        maxSamples = maxSamples,
-        maxDurationMs = maxDuration,
+        outliercount = far.severe,
+        outliermaxratio = far.maxRatio,
+        sampleiterations = iterations,
+        operationsperinvocation = operations,
+        warmupiterations = warmups,
+        minsamples = minsamples,
+        mindurationms = minDuration,
+        maxsamples = maxsamples,
+        maxdurationms = maxDuration,
         suite = suite.name,
         variant = variant.name,
-        caseName = case.name,
+        casename = case.name,
         parameters = parameters,
-        baselineVariant = suite.baselineVariant or suite.variants[1].name,
-        allocatedKb = allocated / (iterations * operations),
-        retainedKb = retained
+        baselinevariant = suite.baselinevariant or suite.variants[1].name,
+        allocatedkb = allocated / (iterations * operations),
+        retainedkb = retained
     )
 end
 
@@ -1026,7 +1027,7 @@ local function registerSuite(
         function(): nil
             measureSuite(options, case, variant, parameters, name)
         end,
-        {name = name, suite = options.name, caseName = case.name, variant = variant.name, parameters = parameters,}
+        {name = name, suite = options.name, casename = case.name, variant = variant.name, parameters = parameters,}
     )
 end
 
@@ -1048,9 +1049,9 @@ function bench.suite(options: bench.SuiteOptions): nil
         end
         variants[variant.name] = true
     end
-    local baselineVariant = options.baselineVariant or options.variants[1].name
-    if not variants[baselineVariant] then
-        error("nupp: baselineVariant does not name a variant", 2)
+    local baselinevariant = options.baselinevariant or options.variants[1].name
+    if not variants[baselinevariant] then
+        error("nupp: baselinevariant does not name a variant", 2)
     end
     local cases: {[string]: boolean} = {}
     for _, case in ipairs(options.cases) do
@@ -1079,7 +1080,7 @@ end
 --- produces no record, and the runner says so.
 record bench.FrameSession
     name: string
-    budgetMs: number
+    budgetms: number
     wanted: integer
     samples: {number}
     started: number
@@ -1094,11 +1095,11 @@ end
 --- example.
 ---
 --- @param name what to record the session as
---- @param budgetMs milliseconds a frame is allowed; frames over it are counted
+--- @param budgetms milliseconds a frame is allowed; frames over it are counted
 --- @param count frames to record before `more` turns false, or nil to let the
 ---     application decide when to stop
 --- @raises string when the name is empty or already declared
-function bench.frames(name: string, budgetMs: number?, count: integer?): bench.FrameSession
+function bench.frames(name: string, budgetms: number?, count: integer?): bench.FrameSession
     -- A frame session is a case as far as the runner is concerned: it is named, it is
     -- listed, and it is selected one per process. A session that is being listed or is
     -- not the selected one is handed back already finished, so `more` is false and the
@@ -1117,7 +1118,7 @@ function bench.frames(name: string, budgetMs: number?, count: integer?): bench.F
     if inert then
         return new bench.FrameSession(
             name = name,
-            budgetMs = budgetMs or 0.0,
+            budgetms = budgetms or 0.0,
             wanted = count or 0,
             samples = {},
             started = 0.0,
@@ -1130,7 +1131,7 @@ function bench.frames(name: string, budgetMs: number?, count: integer?): bench.F
 
     return new bench.FrameSession(
         name = name,
-        budgetMs = budgetMs or 0.0,
+        budgetms = budgetms or 0.0,
         wanted = count or 0,
         samples = {},
         started = 0.0,
@@ -1187,9 +1188,9 @@ function bench.FrameSession:report(): nil
     end
     table.sort(sorted)
     local over: integer = 0
-    if self.budgetMs > 0 then
+    if self.budgetms > 0 then
         for index = 1, #sorted do
-            if sorted[index] > self.budgetMs then
+            if sorted[index] > self.budgetms then
                 over = (over + 1) as integer
             end
         end
@@ -1200,11 +1201,11 @@ function bench.FrameSession:report(): nil
     ] = new bench.Measurement(
         name = self.name,
         kind = "frames",
-        p50Ms = quantile(sorted, 0.5),
-        p99Ms = quantile(sorted, 0.99),
-        p999Ms = quantile(sorted, 0.999),
+        p50ms = quantile(sorted, 0.5),
+        p99ms = quantile(sorted, 0.99),
+        p999ms = quantile(sorted, 0.999),
         frames = #sorted,
-        overBudget = over
+        overbudget = over
     )
     bench.report()
 end
@@ -1240,7 +1241,7 @@ local function buildRecord(): any
         cases[index] = measurements[index]
     end
 
-    return {schema = bench.SCHEMA, cases = cases, compiler = compilerIdentity(),}
+    return {schema = bench.schema, cases = cases, compiler = compilerIdentity(),}
 end
 
 --- Says the compiler changed between a baseline and this record, or nil when it did
@@ -1290,12 +1291,12 @@ function bench.compare(record: any, baseline: any): ({string}, {string})
     local failures: {string} = {}
     local uncompared: {string} = {}
     local schema = baseline.schema
-    if type(schema) == "number" and schema < bench.SCHEMA then
+    if type(schema) == "number" and schema < bench.schema then
         uncompared[
             #uncompared + 1
         ] = (
             "baseline is schema %d, older than this record's %d; every comparison against it is inconclusive"
-        ):format(schema, bench.SCHEMA)
+        ):format(schema, bench.schema)
 
         return failures, uncompared
     end
@@ -1329,7 +1330,7 @@ end
 --- Case scores are normalized to one body iteration. The calibrated batch size stays
 --- in the JSON record, where the runner also finds it for the next comparison.
 function bench.format(record: any, options: bench.FormatOptions?): string
-    local includeGeometricMean = options and options.geometricMean == true
+    local includeGeometricMean = options and options.geometricmean == true
     local rows: {any} = {}
     local width: integer = #"Benchmark"
     local baselines: {[string]: number} = {}
@@ -1354,7 +1355,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
     end
 
     local function comparisonKey(entry: any): string
-        return tostring(entry.suite) .. "|" .. tostring(entry.caseName) .. "|" .. parameterText(entry)
+        return tostring(entry.suite) .. "|" .. tostring(entry.casename) .. "|" .. parameterText(entry)
     end
 
     for _, entry in ipairs(record.cases or {}) do
@@ -1364,15 +1365,15 @@ function bench.format(record: any, options: bench.FormatOptions?): string
             local workload = workloadsByKey[key]
             if not workload then
                 local parameters = parameterText(entry)
-                local label = tostring(entry.suite) .. "." .. tostring(entry.caseName)
+                local label = tostring(entry.suite) .. "." .. tostring(entry.casename)
                 if parameters ~= "" then
                     label = label .. ":" .. parameters
                 end
                 workload = {
                     label = label,
                     suite = entry.suite,
-                    caseName = entry.caseName,
-                    baselineVariant = entry.baselineVariant,
+                    casename = entry.casename,
+                    baselinevariant = entry.baselinevariant,
                     values = {},
                     variants = {},
                     variantSeen = {},
@@ -1383,7 +1384,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 if not suite then
                     suite = {
                         name = entry.suite,
-                        baselineVariant = entry.baselineVariant,
+                        baselinevariant = entry.baselinevariant,
                         workloads = {},
                         variants = {},
                         variantSeen = {},
@@ -1397,14 +1398,14 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 workload.variantSeen[entry.variant] = true
                 workload.variants[#workload.variants + 1] = entry.variant
             end
-            workload.values[entry.variant] = entry.medianMs or 0.0
+            workload.values[entry.variant] = entry.medianms or 0.0
             local suite = suitesByName[entry.suite]
             if suite and not suite.variantSeen[entry.variant] then
                 suite.variantSeen[entry.variant] = true
                 suite.variants[#suite.variants + 1] = entry.variant
             end
-            if entry.variant == entry.baselineVariant then
-                baselines[key] = entry.medianMs or 0.0
+            if entry.variant == entry.baselinevariant then
+                baselines[key] = entry.medianms or 0.0
             end
         end
     end
@@ -1416,8 +1417,8 @@ function bench.format(record: any, options: bench.FormatOptions?): string
     -- samples it summarizes share a heap and compiled code, so nothing
     -- about a population median follows from it, and the note below the table says so.
     local function spreadCell(entry: any, scale: number): string
-        local lowerQuartile = entry.p25Ms
-        local tail = entry.p99Ms
+        local lowerQuartile = entry.p25ms
+        local tail = entry.p99ms
         if not lowerQuartile or not tail then
             return "-"
         end
@@ -1427,22 +1428,22 @@ function bench.format(record: any, options: bench.FormatOptions?): string
 
     -- The interval for a merged measurement, or why there is not one.
     local function intervalCell(entry: any, scale: number): string
-        if entry.intervalWithheld == "trend-warning" then
+        if entry.intervalwithheld == "trend-warning" then
             return "unstable"
         end
-        if not entry.intervalLowMs or not entry.intervalHighMs then
+        if not entry.intervallowms or not entry.intervalhighms then
             return "-"
         end
 
-        return ("[%.3f, %.3f]"):format(entry.intervalLowMs * scale, entry.intervalHighMs * scale)
+        return ("[%.3f, %.3f]"):format(entry.intervallowms * scale, entry.intervalhighms * scale)
     end
 
     local function coverageCell(entry: any): string
-        if not entry.intervalCoverage then
+        if not entry.intervalcoverage then
             return "-"
         end
 
-        return ("%.2f%%"):format(entry.intervalCoverage * 100.0)
+        return ("%.2f%%"):format(entry.intervalcoverage * 100.0)
     end
 
     -- Allocation is measured in a separate collector-stopped pass and stored in
@@ -1450,7 +1451,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
     -- stores one round, so divide by the calibrated iteration count here just as its
     -- duration score does.
     local function allocationCell(entry: any): string
-        local allocated = entry.allocatedKb
+        local allocated = entry.allocatedkb
         if allocated == nil then
             return "-"
         end
@@ -1471,14 +1472,14 @@ function bench.format(record: any, options: bench.FormatOptions?): string
         if entry.kind == "case" then
             local n = entry.n or 0
             local scale = n > 0 and (1000000.0 / n) or 0.0
-            local score = (entry.medianMs or 0.0) * scale
+            local score = (entry.medianms or 0.0) * scale
             rows[
                 #rows + 1
             ] = {
                 name = entry.name,
                 mode = "p50",
                 count = tostring(entry.rounds or 0),
-                forkCount = tostring(entry.forkCount or 1),
+                forkcount = tostring(entry.forkcount or 1),
                 score = ("%.3f"):format(score),
                 units = "ns/op",
                 allocation = allocationCell(entry),
@@ -1489,11 +1490,11 @@ function bench.format(record: any, options: bench.FormatOptions?): string
             }
         elseif entry.kind == "suite" then
             local scale = 1000000.0
-            local score = (entry.medianMs or 0.0) * scale
+            local score = (entry.medianms or 0.0) * scale
             local baselineScore = baselines[comparisonKey(entry)]
             local ratio = "-"
             if baselineScore and score > 0 then
-                ratio = ("%.3fx"):format(baselineScore / (entry.medianMs or 0.0))
+                ratio = ("%.3fx"):format(baselineScore / (entry.medianms or 0.0))
             end
             rows[
                 #rows + 1
@@ -1501,7 +1502,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 name = entry.name,
                 mode = "p50",
                 count = tostring(entry.rounds or 0),
-                forkCount = tostring(entry.forkCount or 1),
+                forkcount = tostring(entry.forkcount or 1),
                 score = ("%.3f"):format(score),
                 units = "ns/op",
                 allocation = allocationCell(entry),
@@ -1518,8 +1519,8 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 name = entry.name,
                 mode = "p50",
                 count = count,
-                forkCount = tostring(entry.forkCount or 1),
-                score = ("%.3f"):format(entry.p50Ms or 0.0),
+                forkcount = tostring(entry.forkcount or 1),
+                score = ("%.3f"):format(entry.p50ms or 0.0),
                 units = "ms/frame",
                 allocation = "-",
                 ratio = "-",
@@ -1533,8 +1534,8 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 name = entry.name,
                 mode = "p99",
                 count = count,
-                forkCount = tostring(entry.forkCount or 1),
-                score = ("%.3f"):format(entry.p99Ms or 0.0),
+                forkcount = tostring(entry.forkcount or 1),
+                score = ("%.3f"):format(entry.p99ms or 0.0),
                 units = "ms/frame",
                 allocation = "-",
                 ratio = "-",
@@ -1548,8 +1549,8 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 name = entry.name,
                 mode = "p99.9",
                 count = count,
-                forkCount = tostring(entry.forkCount or 1),
-                score = ("%.3f"):format(entry.p999Ms or 0.0),
+                forkcount = tostring(entry.forkcount or 1),
+                score = ("%.3f"):format(entry.p999ms or 0.0),
                 units = "ms/frame",
                 allocation = "-",
                 ratio = "-",
@@ -1557,15 +1558,15 @@ function bench.format(record: any, options: bench.FormatOptions?): string
                 interval = "-",
                 coverage = "-",
             }
-            if (entry.overBudget or 0) > 0 then
+            if (entry.overbudget or 0) > 0 then
                 rows[
                     #rows + 1
                 ] = {
                     name = entry.name .. ":over-budget",
                     mode = "count",
                     count = count,
-                    forkCount = tostring(entry.forkCount or 1),
-                    score = tostring(entry.overBudget),
+                    forkcount = tostring(entry.forkcount or 1),
+                    score = tostring(entry.overbudget),
                     units = "frames",
                     allocation = "-",
                     ratio = "-",
@@ -1633,7 +1634,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
         local cells = {
             row.name,
             row.mode,
-            (replicated and row.forkCount or row.count) or "0",
+            (replicated and row.forkcount or row.count) or "0",
             row.score,
             row.units,
             row.allocation,
@@ -1694,7 +1695,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
     for _, suite in ipairs(includeGeometricMean and suites or {}) do
         local expected: integer = 0
         for _, workload in ipairs(suite.workloads) do
-            local baselineScore = workload.values[suite.baselineVariant]
+            local baselineScore = workload.values[suite.baselinevariant]
             if baselineScore and baselineScore > 0 then
                 expected = (expected + 1) as integer
             end
@@ -1706,10 +1707,10 @@ function bench.format(record: any, options: bench.FormatOptions?): string
             local caseOrder: {string} = {}
             local compared: integer = 0
             for _, workload in ipairs(suite.workloads) do
-                local baselineScore = workload.values[suite.baselineVariant]
+                local baselineScore = workload.values[suite.baselinevariant]
                 local score = workload.values[variant]
                 if baselineScore and baselineScore > 0 and score and score > 0 then
-                    local name = workload.caseName
+                    local name = workload.casename
                     local case = cases[name]
                     if not case then
                         case = {total = 0.0, count = 0}
@@ -1735,7 +1736,7 @@ function bench.format(record: any, options: bench.FormatOptions?): string
             lines[#lines + 1] = ""
             lines[
                 #lines + 1
-            ] = "Geometric mean: " .. tostring(suite.name) .. " (vs " .. tostring(suite.baselineVariant) .. ")"
+            ] = "Geometric mean: " .. tostring(suite.name) .. " (vs " .. tostring(suite.baselinevariant) .. ")"
             local summaryPattern = "%-" .. tostring(summaryWidth) .. "s  %8s"
             lines[#lines + 1] = summaryPattern:format("Variant", "Ratio")
             for _, entry in ipairs(summary) do
@@ -1798,7 +1799,7 @@ function bench.report(): nil
         job.run()
     end
     local record = buildRecord()
-    local encoded = json.encodevalue(record)
+    local encoded = json.encodevalue(recordio.write(record))
     writeFile(options.out, encoded)
     if options.json then
         io.stdout:write(encoded, "\n")

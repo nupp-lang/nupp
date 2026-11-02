@@ -702,7 +702,7 @@ local function annotate(root)
             elseif declish and child ~= n.generics and not headerPart[child] then
                 markStart = not joined[child]
                 if joined[child] then
-                    -- `@annotationValue [string]: integer`: a member is not the
+                    -- `@annotationvalue [string]: integer`: a member is not the
                     -- annotation's argument list, whatever bracket opens it.
                     firstToken(child).spaceBeforeTok = true
                 end
@@ -1789,7 +1789,7 @@ local function canonicalizeSingleValueAnnotations(result, opts)
                     -- annotation on an indexer, array part or constructor.
                     if entry.kind == "fieldDecl" then
                         for _, attached in ipairs(entry.annotations or {}) do
-                            if attached.name.text == "annotationValue" then
+                            if attached.name.text == "annotationvalue" then
                                 if marked then
                                     duplicate = true
                                 else

@@ -40,7 +40,7 @@ export interface Construction<T, S is own.Closeable>
 
     --- Builds the value from a draft the fields have been read into.
     ---
-    --- The structure adapter does not check `required` or `hasDefault`
+    --- The structure adapter does not check `required` or `hasdefault`
     --- itself, so `finish` is where a field that never arrived is reported or
     --- given its default. The draft is transferred to `finish`, which drops it.
     ---
@@ -99,7 +99,7 @@ end
 local record Projected<T, S is own.Closeable, V is own.Copyable, M is core.Member> is Field<T, S, M>
     @readonly member: M
     @readonly required: boolean
-    @readonly hasDefault: boolean
+    @readonly hasdefault: boolean
     @readonly get: Get<T, V>
     @readonly present: Has<T>?
     @readonly set: Set<S, V>
@@ -145,7 +145,7 @@ export function field<T, S is own.Closeable, V is own.Copyable, M is core.Member
     set: Set<S, V>,
     adapter: core.Adapter<V, M>,
     required: boolean,
-    hasDefault: boolean,
+    hasdefault: boolean,
     present: Has<T>?
 ): Field<T, S, M>
     return new Projected<T, S, V, M>(
@@ -155,7 +155,7 @@ export function field<T, S is own.Closeable, V is own.Copyable, M is core.Member
         set = set,
         adapter = adapter,
         required = required,
-        hasDefault = hasDefault
+        hasdefault = hasdefault
     )
 end
 
@@ -189,7 +189,7 @@ local record Description<M is core.Member> is core.Description<M>
     @readonly nullable: boolean = false
     @readonly width: integer?
     @readonly signed: boolean?
-    @readonly canRead: boolean = true
+    @readonly canread: boolean = true
     @readonly children: const{core.Child<M>}
 end
 
@@ -223,7 +223,7 @@ local record Reject<S is own.Closeable> is core.UnknownConsumer<S>
         identity: F,
         exclusive reader: core.UnknownReader
     ): nil
-        error("unknown member: " .. identity:diagnosticLabel(), 2)
+        error("unknown member: " .. identity:diagnosticlabel(), 2)
     end
 end
 
@@ -240,12 +240,12 @@ local record Adapter<T, S is own.Closeable, M is core.Member> is core.Adapter<T,
     end
 
     function write(self, borrows source: T, exclusive writer: core.Writer<M>): nil
-        writer:writeStruct(self.description.member, source, self.emit)
+        writer:writestruct(self.description.member, source, self.emit)
     end
 
     function read(self, exclusive reader: core.Reader<M>): T
         local state = self.construction:begin()
-        reader:readStruct(self.description.member, state, self.consume, self.unknown)
+        reader:readstruct(self.description.member, state, self.consume, self.unknown)
         return self.construction:finish(state)
     end
 
@@ -266,7 +266,7 @@ export function adapter<T, S is own.Closeable, M is core.Member>(
     construction: Construction<T, S>,
     unknown: core.UnknownConsumer<S>?,
     additional: core.Members<M, T>?,
-    deferredConstruction: boolean?
+    deferredconstruction: boolean?
 ): core.Adapter<T, M>
     local ordered: {Field<T, S, M>} = {}
     local byMember: {[M]: Field<T, S, M>} = {}
@@ -280,7 +280,7 @@ export function adapter<T, S is own.Closeable, M is core.Member>(
 
     return new Adapter<T, S, M>(
         description = new Description<M>(member = member, children = children),
-        deferredConstruction = deferredConstruction == true,
+        deferredConstruction = deferredconstruction == true,
         fields = ordered,
         construction = construction,
         emit = new Emit<T, S, M>(fields = ordered, additional = additional),

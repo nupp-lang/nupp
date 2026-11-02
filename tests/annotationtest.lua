@@ -561,7 +561,7 @@ function M.annotationValueDesignatesThePositionalMember()
         {
             '@annotation(targets = {"record"})',
             "local record documentation",
-            "    @annotationValue",
+            "    @annotationvalue",
             "    text: string",
             "end",
             '@documentation("A user")',
@@ -577,8 +577,10 @@ end
 
 function M.lowercaseAnnotationValueUsesTheExistingDefinition()
     local registry = annotations.new()
-    testAssert.eq(registry:get("annotationvalue"), registry:get("annotationValue"))
-    testAssert.eq(registry.byname.annotationvalue, nil, "the accepted key is not a second definition")
+    testAssert.eq(registry:get("annotationvalue"), registry.byname.annotationvalue)
+    assert(registry:get("annotationvalue"))
+    testAssert.eq(registry:get("annotationValue"), nil)
+    testAssert.eq(registry.byname.annotationValue, nil, "the preceding builtin is retired")
     local replacement = registry:define({name = "annotationvalue", arguments = "none", targets = {"field"}})
     testAssert.eq(replacement, nil, "the accepted key cannot replace the builtin")
     local prefix = [[
@@ -600,7 +602,7 @@ end
 local record documentation
     @annotationvalue
     first: string
-    @annotationValue
+    @annotationvalue
     second: string
 end
 ]]
@@ -634,12 +636,14 @@ end
     end
 
     local recordValues = values(declaration)
-    testAssert.eq(recordValues.preserveUnknown, true)
-    testAssert.eq(recordValues.stopAtFirstArgument, true)
-    testAssert.eq(recordValues.preserveunknown, nil)
+    testAssert.eq(recordValues.preserveunknown, true)
+    testAssert.eq(recordValues.stopatfirstargument, true)
+    testAssert.eq(recordValues.preserveUnknown, nil)
+    testAssert.eq(recordValues.stopAtFirstArgument, nil)
     local fieldValues = values(declaration.entries[1])
-    testAssert.eq(fieldValues.constantAliases.auto, "auto")
-    testAssert.eq(fieldValues.arity, "optionalattached", "arg normalizes the accepted tag at its parser boundary")
+    testAssert.eq(fieldValues.constantaliases.auto, "auto")
+    testAssert.eq(fieldValues.constantAliases, nil)
+    testAssert.eq(fieldValues.arity, "optionalattached", "canonical arity is retained at the parser boundary")
     for _, members in ipairs({
         "preserveunknown = true, preserveUnknown = false",
         "preserveUnknown = true, preserveunknown = false",
@@ -650,6 +654,10 @@ end
     }) do
         testAssert.eq(checked("@cli(" .. members .. ")\nlocal record Duplicate end"), "NUPP2115")
     end
+    testAssert.eq(
+        checked("@cli(preserveunknown = true, preserveunknown = false)\nlocal record Duplicate end"),
+        "NUPP2115"
+    )
     testAssert.eq(checked('@cli(preserveunknown = "yes")\nlocal record Bad end'), "NUPP2115")
     testAssert.eq(checked('@cli(stopatfirstarg = true)\nlocal record Bad end'), "NUPP2115")
     testAssert.eq(checked('@cli(arity = "optionalattachedextra")\nlocal record Bad end'), "NUPP2115")
@@ -660,16 +668,16 @@ function M.onlyOneAnnotationValueIsAllowed()
         {
             '@annotation(targets = {"record"})',
             "local record bad",
-            "    @annotationValue",
+            "    @annotationvalue",
             "    first: string",
-            "    @annotationValue",
+            "    @annotationvalue",
             "    second: string",
             "end",
         },
         "\n"
     )
     testAssert.eq(checked(src), "NUPP2114")
-    testAssert.eq(checked("local record Plain\n@annotationValue\nx: string\nend"), "NUPP2114")
+    testAssert.eq(checked("local record Plain\n@annotationvalue\nx: string\nend"), "NUPP2114")
 end
 
 function M.annotationValuesAreCompileTimeConstants()
@@ -677,7 +685,7 @@ function M.annotationValuesAreCompileTimeConstants()
         {
             '@annotation(targets = {"record"})',
             "local record documentation",
-            "    @annotationValue",
+            "    @annotationvalue",
             "    text: string",
             "end",
             "local runtime = 'no'",
@@ -694,7 +702,7 @@ function M.annotationReferencesResolveTypes()
         {
             '@annotation(targets = {"record"})',
             "local record relatesTo",
-            "    @annotationValue",
+            "    @annotationvalue",
             "    @ref",
             "    target: any",
             "end",
@@ -724,7 +732,7 @@ function M.annotationReferencesMustNameCompatibleTypes()
         {
             '@annotation(targets = {"record"})',
             "local record relatesTo",
-            "    @annotationValue",
+            "    @annotationvalue",
             "    @ref",
             "    target: number",
             "end",
@@ -745,7 +753,7 @@ function M.formatterPrefersTheSingleValueSpelling()
         {
             '@annotation(targets={"record"})',
             "local record documentation",
-            "@annotationValue",
+            "@annotationvalue",
             "text:string",
             "end",
             '@documentation(text = "A user")',
@@ -765,7 +773,7 @@ function M.annotationDefinitionsAndApplicationsErase()
         {
             '@annotation(targets = {"record"})',
             "local record documentation",
-            "    @annotationValue",
+            "    @annotationvalue",
             "    text: string",
             "end",
             '@documentation("A user")',
@@ -1092,6 +1100,13 @@ return a, b, values[1], values[2], chosen, c, d, table.concat(log, ',')
     testAssert.eq(#(diagnostics or {}), 0)
     testAssert.eq(checked(formatted), "")
     testAssert.eq(fmt.format(formatted, "test.nupp"), formatted, "formatting idempotence")
+end
+
+function M.precedingBuiltinAnnotationNamesCanOnlyBeUserDefined()
+    testAssert.eq(checked("local record Plain\n@annotationValue\nx: string\nend"), "NUPP2111")
+    local registry = annotations.new()
+    assert(registry:define({name = "annotationValue", arguments = "none", targets = {"field"}}))
+    assert(registry:get("annotationValue"), "user annotation names are not globally reserved")
 end
 
 return M

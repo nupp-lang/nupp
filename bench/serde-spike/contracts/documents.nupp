@@ -32,7 +32,7 @@ local original = documents.withcontext(
         documents.biginteger("123456789012345678901234567890"),
         documents.bytes("\0\255blob"),
         documents.timestamp(new core.Timestamp(seconds = "-1", nanos = 500000000)),
-        documents.union("ok", documents.boolean(true)),
+        documents.union("ok", documents.bool(true)),
         documents.map({
             new documents.MapEntry(
                 key = documents.integer(new core.Integer(decimal = "7", width = 32, signed = true)),
@@ -50,10 +50,10 @@ assert(snapshot:at(1).kind == "null" and snapshot:at(11).kind == "null")
 assert(snapshot:at(2):integer().decimal == "18446744073709551615")
 assert(snapshot:at(3):decimal().coefficient == "-0" and snapshot:at(3):decimal().exponent == -2)
 assert(snapshot:at(4):float().width == 32 and snapshot:at(4):float().value == 1.5)
-assert(snapshot:at(5):bigInteger() == "123456789012345678901234567890")
+assert(snapshot:at(5):biginteger() == "123456789012345678901234567890")
 assert(snapshot:at(6):bytes() == "\0\255blob")
 assert(snapshot:at(7):timestamp().nanos == 500000000)
-assert(assert(snapshot:at(8):get("ok")):boolean())
+assert(assert(snapshot:at(8):get("ok")):bool())
 assert(snapshot:at(9):entry(1).key:integer().decimal == "7")
 assert(snapshot:at(9):entry(1).value.kind == "null")
 assert(snapshot:at(10):atom().family == atom.family)

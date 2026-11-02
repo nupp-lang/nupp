@@ -48,7 +48,7 @@ log.error("id %d", id)
 ```
 
 ```lua
-const __nuppModule = require("log").forModule("amb");   -- once, in the prologue
+const __nuppModule = require("log").formodule("amb");   -- once, in the prologue
 if __nuppModule.on[1] then __nuppModule.emit(1,47,string.format("id %d",id)) end
 ```
 
@@ -410,7 +410,7 @@ end
 --- @param module the module name its lines carry
 --- @return the view, whose `on` a site indexes and whose `emit` it calls
 --- @internal
-function log.forModule(module: string): any
+function log.formodule(module: string): any
     local view = moduleViews[module]
     if not view then
         view = {
@@ -759,6 +759,5 @@ function log.levelname(severity: log.Severity): log.Level
 end
 
 -- Removed after the accepting seed owns the lowercase prologue helper.
-log.formodule = log.forModule
 
 export = log

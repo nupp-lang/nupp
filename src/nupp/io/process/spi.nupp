@@ -44,7 +44,7 @@ export interface Provider
     @readonly write: function(Provider, any, string): (integer, boolean)
 
     --- Releases a pipe handle; repeated release must be harmless.
-    @readonly closeStream: function(Provider, any): (boolean, string?)
+    @readonly closestream: function(Provider, any): (boolean, string?)
 
     --- Releases the settled child owner; repeated release must be harmless.
     @readonly reap: function(Provider, any): (boolean, string?)
@@ -54,5 +54,5 @@ export interface Provider
 
     --- Waits for the Interest read/write sets or child completion up to the
     --- requested millisecond interval, returning the number of ready interests.
-    @readonly waitReady: function(Provider, Interest, number): integer
+    @readonly waitready: function(Provider, Interest, number): integer
 end

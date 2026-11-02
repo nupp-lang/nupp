@@ -165,7 +165,7 @@ created.
 
 ## Field-wise row copies
 
-`copyFrom` moves a row range without materializing row structs. It validates
+`copyfrom` moves a row range without materializing row structs. It validates
 both ranges before moving bytes, then performs one contiguous copy per field.
 
 ```nupp:fragment
@@ -178,7 +178,7 @@ with rows = source:write() do
 end
 
 with rows = target:write() do
-    rows:copyFrom(2, source:read(), 1, 2)
+    rows:copyfrom(2, source:read(), 1, 2)
 end
 
 assert(target:read()[3].dy == 8)
@@ -198,15 +198,15 @@ field identities.
 
 `soa.layoutof` gives declaration-order fields, stable semantic identities, C
 type names, sizes, alignments, and a versioned fingerprint, without exposing the
-slab pointer. `forCount` adds the offsets and byte counts for one row count.
+slab pointer. `forcount` adds the offsets and byte counts for one row count.
 
 ```nupp:fragment
 local layout = soa.layoutof(ffi.typeof<Particle>())
-local instance = layout:forCount(1024)
+local instance = layout:forcount(1024)
 
 for ordinal, field in ipairs(layout.fields) do
     local segment = instance.segments[ordinal]
-    print(field.identity, segment.offset, segment.byteCount)
+    print(field.identity, segment.offset, segment.bytecount)
 end
 
 assert(layout.fingerprint:match("^soa1|"))

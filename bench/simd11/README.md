@@ -204,7 +204,7 @@ Base64 encoding compares `bench/base64simd`'s encoder with
 `bench/base64/base64_control.c`'s NEON one, which de-interleaves with `vld3q`,
 looks the alphabet up with `vqtbl4q` and interleaves with `vst4q`;
 `handwritten/base64.c` says how to build the comparison. The generated encoder
-now does the same: `loadTriples` and `storeQuads` are `ld3` and `st4`, and the
+now does the same: `loadtriples` and `storequads` are `ld3` and `st4`, and the
 four-table `swizzle` is one `tbl`. Before them it gathered each triple with a
 three-table `swizzle`, and that gather was the whole 10% it trailed by at
 1 KiB and up; replacing its two rounds of `interleave` with `st4` alone moved

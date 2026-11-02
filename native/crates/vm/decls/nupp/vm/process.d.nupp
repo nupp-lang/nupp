@@ -1,6 +1,18 @@
 local types = require("nupp.io.process.types")
+const {type Path} = require("io.files")
+-- Frozen host spawn descriptor, distinct from the public process.Options names.
+local type SpawnOptions = {
+    args: {string},
+    cwd: Path?,
+    env: {[string]: string}?,
+    clearEnv: boolean?,
+    stdin: types.StreamMode?,
+    stdout: types.StreamMode?,
+    stderr: types.ErrorMode?,
+    timeoutMs: integer?
+}
 local record Host
-    spawn: function(options: types.Options): (any?, any?, any?, any?, integer, string?)
+    spawn: function(options: SpawnOptions): (any?, any?, any?, any?, integer, string?)
     poll: function(child: any): (integer?, boolean)
     kill: function(child: any, force: boolean): nil
     read: function(stream: any, count: integer): string?

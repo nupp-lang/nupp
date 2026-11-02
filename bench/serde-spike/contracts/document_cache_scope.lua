@@ -18,7 +18,7 @@ local wrapped = {
 for _ = 1, 5 do
     assert(bridge.into(wrapped, document).id == "cached")
 end
-assert(selections == 1 and bridge.cachedBindings() == 1)
+assert(selections == 1 and bridge.cachedbindings() == 1)
 local decoder = bridge.decoder(wrapped)
 bridge.clear()
 assert(decoder:read(document).id == "cached")
@@ -53,7 +53,7 @@ collectgarbage("collect")
 assert(next(weak) == nil)
 for _ = 1, 270 do
     bridge.decoder(model.binding(model.newModel()))
-    assert(bridge.cachedBindings() <= 256)
+    assert(bridge.cachedbindings() <= 256)
 end
 bridge.clear()
 

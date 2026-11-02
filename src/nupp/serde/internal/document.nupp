@@ -23,7 +23,7 @@ end
 
 export record Name is core.WireField
     @readonly name: string
-    function diagnosticLabel(self): string
+    function diagnosticlabel(self): string
         return self.name
     end
 end
@@ -107,15 +107,15 @@ export record Document
     --- Returns the lexeme a `numbertoken` document holds.
     --- @return the number as it was written
     --- @raises string when the document is not a number token
-    function numberToken(self): string
-        assert2(self.kind == "numberToken", "document is not a number token")
+    function numbertoken(self): string
+        assert2(self.kind == "numbertoken", "document is not a number token")
         return self.text as string
     end
 
-    --- Returns the value a `boolean` document holds.
+    --- Returns the value a `bool` document holds.
     --- @raises string when the document is not a boolean
-    function boolean(self): boolean
-        assert2(self.kind == "boolean", "document is not a boolean")
+    function bool(self): boolean
+        assert2(self.kind == "bool", "document is not a boolean")
         return self.flag as boolean
     end
 
@@ -154,8 +154,8 @@ export record Document
     --- Returns the integer a `biginteger` document holds.
     --- @return the integer's decimal text
     --- @raises string when the document is not a big integer
-    function bigInteger(self): string
-        assert2(self.kind == "bigInteger", "document is not a big integer")
+    function biginteger(self): string
+        assert2(self.kind == "biginteger", "document is not a big integer")
         return self.text as string
     end
 
@@ -241,7 +241,7 @@ local one = new One()
 local record Entries is core.Members<Member, Document>
     function apply(self, borrows value: Document, exclusive writer: core.Writer<Member>): nil
         for _, entry in ipairs(value.entries as {MapEntry}) do
-            writer:writeEntry(entry.key, one, entry.value, one)
+            writer:writeentry(entry.key, one, entry.value, one)
         end
     end
 end
@@ -249,40 +249,40 @@ local fields, elements, entries = new Fields(), new Elements(), new Entries()
 
 write = function(borrows value: Document, member: Member, exclusive writer: core.Writer<Member>): nil
     if value.kind == "null" then
-        writer:writeNull(member)
-    elseif value.kind == "boolean" then
-        writer:writeBoolean(member, value.flag as boolean)
+        writer:writenull(member)
+    elseif value.kind == "bool" then
+        writer:writebool(member, value.flag as boolean)
     elseif value.kind == "string" then
-        writer:writeString(member, value.text as string)
-    elseif value.kind == "numberToken" then
-        writer:writeNumberToken(member, value.text as string)
+        writer:writestring(member, value.text as string)
+    elseif value.kind == "numbertoken" then
+        writer:writenumbertoken(member, value.text as string)
     elseif value.kind == "bytes" then
-        writer:writeBytes(member, value.text as string)
+        writer:writebytes(member, value.text as string)
     elseif value.kind == "timestamp" then
-        writer:writeTimestamp(member, value.time as core.Timestamp)
+        writer:writetimestamp(member, value.time as core.Timestamp)
     elseif value.kind == "integer" then
-        writer:writeInteger(member, value.integerValue as core.Integer)
+        writer:writeinteger(member, value.integerValue as core.Integer)
     elseif value.kind == "decimal" then
-        writer:writeDecimal(member, value.decimalValue as core.Decimal)
+        writer:writedecimal(member, value.decimalValue as core.Decimal)
     elseif value.kind == "float" then
         local item = value.floatValue as core.Float
-        writer:writeFloat(member, item.value, item.width)
-    elseif value.kind == "bigInteger" then
-        writer:writeBigInteger(member, value.text as string)
+        writer:writefloat(member, item.value, item.width)
+    elseif value.kind == "biginteger" then
+        writer:writebiginteger(member, value.text as string)
     elseif value.kind == "atom" then
-        writer:writeAtom(member, value.atomValue as core.Atom)
+        writer:writeatom(member, value.atomValue as core.Atom)
     elseif value.kind == "document" then
-        writer:writeDocument(member, value:document(), adapter)
+        writer:writedocument(member, value:document(), adapter)
     elseif value.kind == "map" then
-        writer:writeMap(member, value:size(), value, entries)
+        writer:writemap(member, value:size(), value, entries)
     elseif value.kind == "tuple" then
-        writer:writeTuple(member, #value.elements, value, elements)
+        writer:writetuple(member, #value.elements, value, elements)
     elseif value.kind == "union" then
-        writer:writeUnion(member, value, fields)
+        writer:writeunion(member, value, fields)
     elseif value.kind == "structure" then
-        writer:writeStruct(member, value, fields)
+        writer:writestruct(member, value, fields)
     elseif value.kind == "list" then
-        writer:writeList(member, #value.elements, value, elements)
+        writer:writelist(member, #value.elements, value, elements)
     else
         error("unsupported document kind: " .. value.kind, 2)
     end
@@ -325,39 +325,39 @@ read = function(exclusive reader: core.DocumentReader): Document
     local items: {Document} = {}
     local members: {Entry} = {}
     if kind == "null" then
-        reader:readNull()
-    elseif kind == "boolean" then
-        flag = reader:readBoolean()
+        reader:readnull()
+    elseif kind == "bool" then
+        flag = reader:readbool()
     elseif kind == "string" then
-        text = reader:readString()
-    elseif kind == "numberToken" then
-        text = reader:readNumberToken()
+        text = reader:readstring()
+    elseif kind == "numbertoken" then
+        text = reader:readnumbertoken()
     elseif kind == "bytes" then
-        text = reader:readBytes()
+        text = reader:readbytes()
     elseif kind == "timestamp" then
-        time = reader:readTimestamp()
+        time = reader:readtimestamp()
     elseif kind == "integer" then
-        integerValue = reader:readInteger()
+        integerValue = reader:readinteger()
     elseif kind == "decimal" then
-        decimalValue = reader:readDecimal()
+        decimalValue = reader:readdecimal()
     elseif kind == "float" then
-        floatValue = reader:readFloat()
-    elseif kind == "bigInteger" then
-        text = reader:readBigInteger()
+        floatValue = reader:readfloat()
+    elseif kind == "biginteger" then
+        text = reader:readbiginteger()
     elseif kind == "atom" then
-        atomValue = reader:readAtom()
+        atomValue = reader:readatom()
     elseif kind == "document" then
-        items[1] = reader:readDocument(adapter)
+        items[1] = reader:readdocument(adapter)
     elseif kind == "map" then
-        reader:readMap(mapEntries, addEntry)
+        reader:readmap(mapEntries, addEntry)
     elseif kind == "tuple" then
-        reader:readTuple(items, addElement)
+        reader:readtuple(items, addElement)
     elseif kind == "union" then
-        reader:readUnion(members, addField)
+        reader:readunion(members, addField)
     elseif kind == "list" then
-        reader:readList(items, addElement)
+        reader:readlist(items, addElement)
     elseif kind == "structure" then
-        reader:readStruct(members, addField)
+        reader:readstruct(members, addField)
     else
         error("unsupported document input: " .. kind, 2)
     end
@@ -384,10 +384,10 @@ local record Description is core.Description<Member>
     @readonly nullable: boolean
     @readonly width: integer?
     @readonly signed: boolean?
-    @readonly canRead: boolean
+    @readonly canread: boolean
     @readonly children: {core.Child<Member>}
 end
-local description = new Description(kind = "dynamic", member = root, nullable = true, canRead = false, children = {})
+local description = new Description(kind = "dynamic", member = root, nullable = true, canread = false, children = {})
 
 local record Contents is core.Adapter<Document, Member>
     function describe(self, direction: core.Direction): core.Description<Member>
@@ -417,7 +417,7 @@ local record Adapter is core.DocumentAdapter<Document>
         return self.binding
     end
 
-    function readContents(self, exclusive reader: core.DocumentReader): Document
+    function readcontents(self, exclusive reader: core.DocumentReader): Document
         return read(reader)
     end
 end
@@ -433,7 +433,7 @@ end
 
 export function numberToken(value: string): Document
     json.numberToken(value)
-    return new Document(kind = "numberToken", text = value, elements = {}, fields = {})
+    return new Document(kind = "numbertoken", text = value, elements = {}, fields = {})
 end
 
 export function document(value: Document): Document
@@ -468,7 +468,7 @@ export function object(values: {Entry}): Document
 end
 
 export function boolean(value: boolean): Document
-    return new Document(kind = "boolean", flag = value, elements = {}, fields = {})
+    return new Document(kind = "bool", flag = value, elements = {}, fields = {})
 end
 
 export function integer(value: core.Integer): Document
@@ -489,7 +489,7 @@ export function bigInteger(value: string): Document
         "invalid big integer"
     )
 
-    return new Document(kind = "bigInteger", text = value, elements = {}, fields = {})
+    return new Document(kind = "biginteger", text = value, elements = {}, fields = {})
 end
 
 export function bytes(value: string): Document
@@ -558,7 +558,7 @@ local record Policy<M is core.Member> is plans.Policy<M>
         return self.epoch and json.numberToken(timestamps.epoch(value)) or json.encoded(timestamps.dateTime(value))
     end
 
-    function parseTimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
+    function parsetimestamp(self, member: M, text: string, kind: "string" | "number"): core.Timestamp
         if kind == "number" then
             return timestamps.parseEpoch(text)
         else

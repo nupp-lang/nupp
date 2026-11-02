@@ -56,7 +56,7 @@ end
 function M.everyTopLevelNuppBenchmarkUsesTheHarness()
     local paths = {}
     for index, path in ipairs(assert(files.glob(HERE .. "/../bench/*.nupp"))) do
-        paths[index] = path:toString()
+        paths[index] = path:tostring()
     end
     table.sort(paths)
     testAssert.eq(#paths, 6, "all six top-level Nupp benchmarks are present")
@@ -72,9 +72,9 @@ end
 function M.aBaselineOfTheSameSchemaCompares()
     local bench = require("debug.bench")
     local compiler = {version = "0.0.0", digest = "aaaaaaaaaaaaaaaaaaaa"}
-    local baseline = {schema = bench.SCHEMA, compiler = compiler, cases = {{name = "parse", kind = "case", n = 4}}}
+    local baseline = {schema = bench.schema, compiler = compiler, cases = {{name = "parse", kind = "case", n = 4}}}
     local record = {
-        schema = bench.SCHEMA,
+        schema = bench.schema,
         compiler = compiler,
         cases = {{name = "parse", kind = "case", n = 4}, {name = "emit", kind = "case", n = 2}},
     }
@@ -85,7 +85,7 @@ function M.aBaselineOfTheSameSchemaCompares()
 
     -- A compiler change is reported and never stops the comparison.
     local moved = {
-        schema = bench.SCHEMA,
+        schema = bench.schema,
         compiler = {version = "0.0.1", digest = "bbbbbbbbbbbbbbbbbbbb"},
         cases = record.cases
     }
@@ -105,17 +105,17 @@ end
 function M.anOlderSchemaBaselineIsInconclusive()
     local bench = require("debug.bench")
     local older = {
-        schema = bench.SCHEMA - 1,
+        schema = bench.schema - 1,
         executionProfile = {optLevel = 1, disabled = ""},
         allocationSites = {{file = "a.nupp", kind = "table", line = 1, col = 1}},
         cases = {},
     }
-    local record = {schema = bench.SCHEMA, cases = {{name = "parse", kind = "case", n = 4}}}
+    local record = {schema = bench.schema, cases = {{name = "parse", kind = "case", n = 4}}}
     local failures, notes = bench.compare(record, older)
     testAssert.eq(#failures, 0, "an older baseline fails nothing")
     testAssert.eq(#notes, 1, table.concat(notes, "\n"))
     assert(notes[1]:find("inconclusive", 1, true) ~= nil, notes[1])
-    assert(notes[1]:find("schema " .. (bench.SCHEMA - 1), 1, true) ~= nil, "and names the schema: " .. notes[1])
+    assert(notes[1]:find("schema " .. (bench.schema - 1), 1, true) ~= nil, "and names the schema: " .. notes[1])
 end
 
 function M.duplicateBenchmarkNamesAreRejected()
@@ -134,8 +134,8 @@ function M.formatsHumanResultsAsPerOperationScores()
     local bench = require("debug.bench")
     local rendered = bench.format({
         cases = {
-            {name = "parse", kind = "case", n = 4, rounds = 7, medianMs = 0.000004, allocatedKb = 0.5,},
-            {name = "frame", kind = "frames", frames = 60, p50Ms = 1.25, p99Ms = 2.5, p999Ms = 3.75, overBudget = 2,},
+            {name = "parse", kind = "case", n = 4, rounds = 7, medianms = 0.000004, allocatedkb = 0.5,},
+            {name = "frame", kind = "frames", frames = 60, p50ms = 1.25, p99ms = 2.5, p999ms = 3.75, overbudget = 2,},
         },
     })
     testAssert.eq(
@@ -166,12 +166,12 @@ function M.formatsSuiteAllocationAsBytesPerRepresentedOperation()
                 name = "copy.block",
                 kind = "suite",
                 rounds = 20,
-                medianMs = 0.001,
-                allocatedKb = 1.5,
+                medianms = 0.001,
+                allocatedkb = 1.5,
                 suite = "copy",
-                caseName = "block",
+                casename = "block",
                 variant = "base",
-                baselineVariant = "base",
+                baselinevariant = "base",
             },
         },
     })
@@ -191,10 +191,10 @@ function M.singleForkTableRefusesToCallItsSpreadAnInterval()
                 kind = "case",
                 n = 4,
                 rounds = 7,
-                medianMs = 0.000004,
-                p25Ms = 0.0000035,
-                p75Ms = 0.0000052,
-                p99Ms = 0.0000081,
+                medianms = 0.000004,
+                p25ms = 0.0000035,
+                p75ms = 0.0000052,
+                p99ms = 0.0000081,
             },
         },
     })
@@ -219,15 +219,15 @@ function M.replicatedTableReportsAttainedCoverage()
                     name = "map.lookup.table",
                     kind = "suite",
                     rounds = 40,
-                    forkCount = 10,
-                    medianMs = 0.000004,
+                    forkcount = 10,
+                    medianms = 0.000004,
                     suite = "map",
-                    caseName = "lookup",
+                    casename = "lookup",
                     variant = "table",
-                    baselineVariant = "table",
-                    intervalLowMs = 0.0000038,
-                    intervalHighMs = 0.0000043,
-                    intervalCoverage = 0.978515625,
+                    baselinevariant = "table",
+                    intervallowms = 0.0000038,
+                    intervalhighms = 0.0000043,
+                    intervalcoverage = 0.978515625,
                 },
             },
         },
@@ -251,13 +251,13 @@ function M.withheldIntervalIsNamedInTheTable()
                     name = "map.lookup.table",
                     kind = "suite",
                     rounds = 40,
-                    forkCount = 12,
-                    medianMs = 0.000004,
+                    forkcount = 12,
+                    medianms = 0.000004,
                     suite = "map",
-                    caseName = "lookup",
+                    casename = "lookup",
                     variant = "table",
-                    baselineVariant = "table",
-                    intervalWithheld = "trend-warning",
+                    baselinevariant = "table",
+                    intervalwithheld = "trend-warning",
                 },
             },
         },
@@ -274,66 +274,66 @@ function M.formatsComparativeSuitesWithBaselineRatios()
                 name = "map.lookup.table:size=100",
                 kind = "suite",
                 rounds = 20,
-                medianMs = 0.00002,
+                medianms = 0.00002,
                 suite = "map",
-                caseName = "lookup",
+                casename = "lookup",
                 variant = "table",
-                baselineVariant = "table",
+                baselinevariant = "table",
                 parameters = {size = 100},
             },
             {
                 name = "map.lookup.array:size=100",
                 kind = "suite",
                 rounds = 20,
-                medianMs = 0.00001,
+                medianms = 0.00001,
                 suite = "map",
-                caseName = "lookup",
+                casename = "lookup",
                 variant = "array",
-                baselineVariant = "table",
+                baselinevariant = "table",
                 parameters = {size = 100},
             },
             {
                 name = "map.lookup.table:size=200",
                 kind = "suite",
                 rounds = 20,
-                medianMs = 0.00008,
+                medianms = 0.00008,
                 suite = "map",
-                caseName = "lookup",
+                casename = "lookup",
                 variant = "table",
-                baselineVariant = "table",
+                baselinevariant = "table",
                 parameters = {size = 200},
             },
             {
                 name = "map.lookup.array:size=200",
                 kind = "suite",
                 rounds = 20,
-                medianMs = 0.00002,
+                medianms = 0.00002,
                 suite = "map",
-                caseName = "lookup",
+                casename = "lookup",
                 variant = "array",
-                baselineVariant = "table",
+                baselinevariant = "table",
                 parameters = {size = 200},
             },
             {
                 name = "map.insert.table:size=100",
                 kind = "suite",
                 rounds = 20,
-                medianMs = 0.00003,
+                medianms = 0.00003,
                 suite = "map",
-                caseName = "insert",
+                casename = "insert",
                 variant = "table",
-                baselineVariant = "table",
+                baselinevariant = "table",
                 parameters = {size = 100},
             },
             {
                 name = "map.insert.array:size=100",
                 kind = "suite",
                 rounds = 20,
-                medianMs = 0.00006,
+                medianms = 0.00006,
                 suite = "map",
-                caseName = "insert",
+                casename = "insert",
                 variant = "array",
-                baselineVariant = "table",
+                baselinevariant = "table",
                 parameters = {size = 100},
             },
         },
@@ -349,7 +349,7 @@ function M.formatsComparativeSuitesWithBaselineRatios()
         "each workload names its winner against the runner-up\n" .. rendered
     )
     assert(rendered:find("Geometric mean", 1, true) == nil, "geometric means are opt-in\n" .. rendered)
-    local geometric = bench.format(record, {geometricMean = true})
+    local geometric = bench.format(record, {geometricmean = true})
     assert(
         geometric:find("Geometric mean: map %(vs table%)") ~= nil and geometric:find("array%s+1%.189x") ~= nil,
         "the summary weights parameter expansions within their logical case\n" .. geometric
@@ -817,7 +817,7 @@ end
 -- version reads.
 function M.aBaselineWithASchemaThisVersionCannotReadIsRefused()
     local bench = require("debug.bench")
-    testAssert.eq(bench.SCHEMA, 5, "records are written at schema 5")
+    testAssert.eq(bench.schema, 5, "records are written at schema 5")
     for _, schema in ipairs({2, 3, 4, 5}) do
         local document, refused = bench.decodebaseline(('{"schema":%d,"cases":[]}'):format(schema), "b.json")
         assert(document ~= nil and refused == nil, "schema " .. schema .. " reads as a baseline")
@@ -840,11 +840,11 @@ end
 -- A checksum is text so two runtimes rendering one number differently still agree.
 function M.checksumTextRendersWholeNumbersAsIntegers()
     local bench = require("debug.bench")
-    testAssert.eq(bench.checksumText(832040), "832040", "a whole number is an integer")
-    testAssert.eq(bench.checksumText(3.0), "3", "an integral float is the same integer")
-    testAssert.eq(bench.checksumText(-7), "-7", "and so is a negative one")
-    testAssert.eq(bench.checksumText(0.5), tostring(0.5), "a fraction is left to tostring")
-    testAssert.eq(bench.checksumText("abc"), "abc", "text is itself")
+    testAssert.eq(bench.checksumtext(832040), "832040", "a whole number is an integer")
+    testAssert.eq(bench.checksumtext(3.0), "3", "an integral float is the same integer")
+    testAssert.eq(bench.checksumtext(-7), "-7", "and so is a negative one")
+    testAssert.eq(bench.checksumtext(0.5), tostring(0.5), "a fraction is left to tostring")
+    testAssert.eq(bench.checksumtext("abc"), "abc", "text is itself")
 end
 
 -- The one deterministic counter a baseline gates: a case that computed a different
@@ -853,7 +853,7 @@ function M.aChecksumIsGatedAgainstTheBaseline()
     local bench = require("debug.bench")
 
     local function record(checksum)
-        return {schema = bench.SCHEMA, cases = {{name = "fib", kind = "case", n = 1, checksum = checksum}}}
+        return {schema = bench.schema, cases = {{name = "fib", kind = "case", n = 1, checksum = checksum}}}
     end
 
     local failures = bench.compare(record("832040"), record("832040"))
@@ -948,6 +948,96 @@ function M.splitRssReadsTimeReports()
     own, bytes = runner.splitRss("only the child spoke\n", macos)
     testAssert.eq(bytes, nil, "no report, no peak")
     testAssert.eq(own, "only the child spoke\n", "and the output is untouched")
+end
+
+function M.finalBenchNamesRetireTheOldPublicKeys()
+    local bench = require("debug.bench")
+    testAssert.eq(bench.schema, 5)
+    testAssert.eq(bench.oldestbaselineschema, 2)
+    testAssert.eq(rawget(bench, "SCHEMA"), nil)
+    testAssert.eq(rawget(bench, "OLDEST_BASELINE_SCHEMA"), nil)
+    compile(
+        [[
+local bench = debug.bench
+local measurement = new bench.Measurement(name = "x", kind = "case", medianms = 1.25, samplesms = {1.25})
+local options: debug.bench.SuiteOptions = {
+    name = "x", variants = {}, cases = {}, baselinevariant = "base",
+    warmupiterations = 1, sampleiterations = 2, minsamples = 3,
+    mindurationms = 4, maxsamples = 5, maxdurationms = 6
+}
+local format: debug.bench.FormatOptions = {geometricmean = true}
+local frames = bench.frames("typed-only", budgetms = 16, count = 1)
+bench.keep(measurement.medianms)
+bench.keep(frames.budgetms)
+bench.keep(options.sampleiterations)
+bench.keep(format.geometricmean)
+]]
+    )
+end
+
+function M.schema4AdaptersTranslateOnlyMeasurementSlots()
+    local recordio = require("nupp.bench.internal.record")
+    local bench = require("debug.bench")
+    local codec = require("serde.json")
+    local payload = {medianMs = "user value", samplesMs = {9, 8}, caseName = "user case"}
+    local measurement = {
+        name = "x",
+        kind = "suite",
+        medianMs = 1.25,
+        samplesMs = {1, 2},
+        allocatedKb = 0.5,
+        caseName = "case",
+        operationsPerInvocation = 7,
+        intervalLowMs = 1,
+        intervalHighMs = 2,
+        intervalCoverage = 0.98,
+        parameters = payload,
+        extension = payload
+    }
+    local wire = {
+        schema = 4,
+        cases = {measurement},
+        metadata = payload,
+        benchmarks = {{summary = measurement, forks = {{measurement = measurement}}}},
+        comparisons = {{baseline = {cases = {measurement}}}}
+    }
+    local public = recordio.read(wire)
+    testAssert.eq(public.cases[1].medianms, 1.25, "milliseconds retain their units")
+    testAssert.eq(public.cases[1].operationsperinvocation, 7)
+    testAssert.eq(public.cases[1].medianMs, nil, "the old key is not a public alias")
+    testAssert.eq(public.benchmarks[1].summary.samplesms[2], 2)
+    testAssert.eq(public.benchmarks[1].forks[1].measurement.casename, "case")
+    testAssert.eq(public.comparisons[1].baseline.cases[1].allocatedkb, 0.5)
+    assert(public.cases[1].parameters == payload and public.metadata == payload)
+    assert(public.cases[1].extension == payload, "unknown payloads are not recursively renamed")
+    testAssert.eq(payload.medianMs, "user value", "input objects are not mutated")
+    testAssert.deepeq(recordio.write(public), wire, "schema4 keeps its original keys")
+    local decoded = assert(bench.decodebaseline(json.encode(wire), "schema4.json"))
+    testAssert.eq(decoded.cases[1].medianms, 1.25)
+    testAssert.eq(decoded.cases[1].medianMs, nil)
+    testAssert.deepeq(recordio.write(decoded), codec.decodevalue(json.encode(wire)))
+    for schema = 2, 3 do
+        local legacy = {schema = schema, cases = {{name = "x", medianSec = 2}}}
+        local accepted = assert(bench.decodebaseline(json.encode(legacy), "old.json"))
+        testAssert.eq(accepted.cases[1].medianms, nil, "older seconds are not relabeled milliseconds")
+        testAssert.eq(accepted.cases[1].medianSec, 2)
+    end
+end
+
+function M.schema4AdapterPreservesEmptyArraysAndMissingObservations()
+    local recordio = require("nupp.bench.internal.record")
+    local serde = require("serde.json")
+    local wire = serde.decodevalue('{"schema":4,"cases":[],"benchmarks":[],"comparisons":[]}')
+    local public = recordio.read(wire)
+    assert(serde.isarray(public.cases) and serde.isarray(public.benchmarks) and serde.isarray(public.comparisons))
+    local encoded = serde.encodevalue(recordio.write(public))
+    local back = serde.decodevalue(encoded)
+    assert(serde.isarray(back.cases) and serde.isarray(back.benchmarks) and serde.isarray(back.comparisons))
+    local absent = recordio.read({schema = 4, cases = {{name = "x"}}})
+    testAssert.eq(absent.cases[1].abortsites, nil, "unobserved is distinct from an empty observation")
+    testAssert.eq(recordio.write(absent).cases[1].abortSites, nil)
+    local odd = {schema = 4, cases = {7}, benchmarks = {false, 9}, comparisons = {3}}
+    testAssert.deepeq(recordio.write(recordio.read(odd)), odd, "the adapter does not add schema validation")
 end
 
 return M

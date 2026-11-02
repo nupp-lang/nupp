@@ -35,7 +35,7 @@ function M.acceptsOnlyKnownMetadataPositionsWithoutChangingPrivateInputs()
     test.eq(value.fields[1].defaultvalue, user)
     test.eq(value.types[1].noreturn, false)
     test.eq(value.types[1].typeparameters, source.types[1].typeParameters)
-    test.eq(value.types[1].staticfields, value.types[1].staticFields)
+    test.eq(value.types[1].staticFields, nil)
     test.eq(value.types[1].staticfields[1].defaultvalue, user)
     test.eq(rawget(source, "qualifiedname"), nil)
     test.eq(rawget(source.fields[1], "hasdefault"), nil)
@@ -44,7 +44,7 @@ function M.acceptsOnlyKnownMetadataPositionsWithoutChangingPrivateInputs()
     test.eq(user.qualifiedName, "user-owned")
 end
 
-function M.comptimeAliasesPreserveDescriptorAndUserValueIdentity()
+function M.comptimeCanonicalKeysPreserveDescriptorAndUserValueIdentity()
     local state = {}
     providers.installEvaluator(state, {})
     local source = descriptor()
@@ -55,9 +55,11 @@ function M.comptimeAliasesPreserveDescriptorAndUserValueIdentity()
     local fields = providers.index(state, first, "fields")
     local field = providers.index(state, fields, 1)
     test.eq(providers.index(state, field, "hasdefault"), false)
-    local oldvalue = providers.index(state, field, "defaultValue")
+    local oldvalue, failure = providers.index(state, field, "defaultValue")
+    test.eq(oldvalue, nil)
+    test.eq(failure, nil)
     local newvalue = providers.index(state, field, "defaultvalue")
-    test.eq(providers.operator(state, "==", oldvalue, newvalue), true)
+    test.eq(providers.operator(state, "==", newvalue, providers.index(state, field, "defaultvalue")), true)
     test.eq(providers.index(state, newvalue, "sourceKind"), "user")
     test.eq(providers.index(state, newvalue, "sourcekind"), nil)
 end
@@ -77,7 +79,7 @@ function M.runtimeDescriptorsRetainTheirCacheAndPrivateBlueprint()
     test.eq(rawget(user, "sourcekind"), nil)
 end
 
-function M.managedExclusiveAliasIsTheSameOperation()
+function M.managedExclusiveOperationRetiresThePrecedingMethod()
     local namespace, runtime = {}, {}
     managed.install(namespace, runtime)
     local cell = namespace.__manage(
@@ -87,7 +89,8 @@ function M.managedExclusiveAliasIsTheSameOperation()
         "fixture"
     )
     local alias = cell:alias()
-    test.eq(alias.withexclusive, alias.withExclusive)
+    test.eq(type(alias.withexclusive), "function")
+    test.eq(alias.withExclusive, nil)
     local value, reason = alias:withexclusive(function(held)
         held.count = held.count + 1
         return held.count
@@ -153,7 +156,7 @@ function M.acceptsEveryProducedDescriptorKeyAtItsExactRecordBoundary()
         {"writevalue", "writeValue"},
     }) do
         test.eq(current[names[1]], node[names[2]], names[1])
-        test.eq(current[names[1]], current[names[2]], "accepting keys share the value")
+        test.eq(current[names[2]], nil, "preceding public key is retired")
         test.eq(rawget(node, names[1]), nil, "private graph was not changed")
     end
     for _, names in ipairs({
@@ -163,18 +166,18 @@ function M.acceptsEveryProducedDescriptorKeyAtItsExactRecordBoundary()
         {"writevalue", "writeValue"},
     }) do
         test.eq(current.index[names[1]], node.index[names[2]])
-        test.eq(current.index[names[1]], current.index[names[2]])
+        test.eq(current.index[names[2]], nil)
         test.eq(rawget(node.index, names[1]), nil)
     end
     test.eq(current.construction.requiresfactory, false)
-    test.eq(current.construction.requiresFactory, false)
+    test.eq(current.construction.requiresFactory, nil)
     test.eq(current.construction.params, node.construction.params)
     test.eq(current.cleanups[1].functiontype, 2)
-    test.eq(current.cleanups[1].functionType, 2)
+    test.eq(current.cleanups[1].functionType, nil)
     test.eq(current.cleanups[1].key, "tasks.isDone", "native ID is unchanged")
     test.eq(current.cleanups[1].name, "readKey", "user member identity is unchanged")
-    test.eq(current.kind, "protocolThread", "single-valued tag changes belong to final adoption")
-    test.eq(current.operation, "comptimeTypeCall")
+    test.eq(current.kind, "protocolthread")
+    test.eq(current.operation, "comptimetypecall")
     test.eq(public.fields[1].defaultvalue, user)
     test.eq(user.qualifiedName, "user-owned")
     test.eq(rawget(user, "qualifiedname"), nil)
@@ -197,6 +200,74 @@ function M.acceptsEveryProducedDescriptorKeyAtItsExactRecordBoundary()
     test.eq(published.types[1].index.readkey, 2)
     test.eq(published.types[1].cleanups[1].functiontype, 2)
     test.eq(runtime.runtime(witness), published)
+end
+
+-- Old accepting-seed descriptors and current descriptors converge at one public
+-- boundary. Private T/blueprint tags and user data are never normalized in place.
+function M.acceptingSeedTagsNormalizeAtEveryPublishedPosition()
+    local tags = {
+        {"protocolThread", "protocolthread"},
+        {"genericAlias", "genericalias"},
+        {"typeHandle", "typehandle"},
+        {"packResult", "packresult"},
+        {"constLiteral", "constliteral"},
+        {"constVar", "constvar"},
+        {"constOp", "constop"},
+    }
+    for _, names in ipairs(tags) do
+        local user = {kind = names[1], operation = "comptimeTypeCall"}
+        local source = {
+            kind = names[1],
+            fields = {{kind = names[1], defaultValue = user}},
+            types = {{kind = names[1], operation = "comptimeTypeCall"}}
+        }
+        local current = shape.accept(source)
+        test.eq(current.kind, names[2])
+        test.eq(current.fields[1].kind, names[2])
+        test.eq(current.types[1].kind, names[2])
+        test.eq(current.types[1].operation, "comptimetypecall")
+        test.eq(current.fields[1].defaultvalue, user)
+        test.eq(source.kind, names[1])
+        test.eq(source.fields[1].kind, names[1])
+        test.eq(source.types[1].kind, names[1])
+        test.eq(source.types[1].operation, "comptimeTypeCall")
+        test.eq(user.kind, names[1])
+        test.eq(user.operation, "comptimeTypeCall")
+        local again = shape.accept(current)
+        test.eq(again.kind, names[2])
+        test.eq(again.fields[1].kind, names[2])
+        test.eq(again.types[1].kind, names[2])
+        test.eq(again.types[1].operation, "comptimetypecall")
+        test.eq(again.fields[1].defaultvalue, user)
+        local state = {}
+        providers.installEvaluator(state, {})
+        local held = providers.reflect(state, source)
+        test.eq(providers.index(state, held, "kind"), names[2])
+        local fields = providers.index(state, held, "fields")
+        test.eq(providers.index(state, providers.index(state, fields, 1), "kind"), names[2])
+        local nodes = providers.index(state, held, "types")
+        local first = providers.index(state, nodes, 1)
+        test.eq(providers.index(state, first, "kind"), names[2])
+        test.eq(providers.index(state, first, "operation"), "comptimetypecall")
+    end
+end
+
+function M.canonicalDescriptorKeysWinWithoutMergingUserData()
+    local source = {
+        qualifiedName = "old",
+        qualifiedname = "current",
+        fields = {{hasDefault = true, hasdefault = false}},
+        types = {{noReturn = true, noreturn = false}}
+    }
+    local value = shape.accept(source)
+    test.eq(value.qualifiedname, "current")
+    test.eq(value.qualifiedName, nil)
+    test.eq(value.fields[1].hasdefault, false)
+    test.eq(value.fields[1].hasDefault, nil)
+    test.eq(value.types[1].noreturn, false)
+    test.eq(value.types[1].noReturn, nil)
+    test.eq(source.fields[1].hasDefault, true)
+    test.eq(source.fields[1].hasdefault, false)
 end
 
 return M

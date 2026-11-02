@@ -11,7 +11,7 @@ local document = require("serde.document")
 local json = require("serde.json")
 local value = json.decodedocument(document.adapter(), '{"id":18446744073709551615,"tags":["a","b"]}')
 assert(value.kind == "structure")
-assert(assert(value:get("id")):numberToken() == "18446744073709551615")
+assert(assert(value:get("id")):numbertoken() == "18446744073709551615")
 assert(assert(value:get("tags")):at(2):string() == "b")
 assert(json.encodedocument(document.adapter(), value) == '{"id":18446744073709551615,"tags":["a","b"]}')
 ```
@@ -38,7 +38,7 @@ local record Point
 end
 local points = serde.binding(Point)
 local tree = document.from(points, new Point(x = 1, y = 2))
-assert(assert(tree:get("y")):numberToken() == "2")
+assert(assert(tree:get("y")):numbertoken() == "2")
 assert(document.into(points, tree).x == 1)
 ```
 ]]
@@ -72,7 +72,7 @@ export const MapEntry = documents.MapEntry
 
 --- Returns the adapter that reads and writes a [](Document) as its contents.
 ---
---- Pass it to a codec's `encodeDocument` and `decodeDocument`, or to
+--- Pass it to a codec's `encodedocument` and `decodedocument`, or to
 --- [](serde.adapters.document) for a document-valued member.
 ---
 --- @return the shared adapter
@@ -82,7 +82,7 @@ export const adapter = documents.documentAdapter
 export const null = documents.null
 
 --- A boolean.
-export const boolean = documents.boolean
+export const bool = documents.boolean
 
 --- A string.
 export const string = documents.string
@@ -125,7 +125,7 @@ export const tuple = documents.tuple
 --- local document = require("serde.document")
 --- local json = require("serde.json")
 --- local value = document.object({
----     new document.Entry(name = "ok", value = document.boolean(true)),
+---     new document.Entry(name = "ok", value = document.bool(true)),
 ---     new document.Entry(name = "note", value = document.null())
 --- })
 --- assert(json.encodedocument(document.adapter(), value) == '{"ok":true,"note":null}')

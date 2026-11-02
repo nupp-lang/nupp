@@ -163,7 +163,7 @@ local function run(options: any): integer
     end
     if values.gpuCosts ~= nil then
         local directory = require("nupp.compiler.fs").dirname(values.gpuCosts)
-        local made, makeErr = require("io.files").createdirectory(directory)
+        local made, makeErr = require("io.files").mkdir(directory)
         if not made then
             io.stderr:write(errors.message(makeErr) .. "\n")
             return 1
@@ -242,7 +242,7 @@ end
 ---
 ---     nupp run src/main.nupp
 ---     nupp run src/main.nupp first second
-@cli(name = "run", stopAtFirstArgument = true)
+@cli(name = "run", stopatfirstargument = true)
 @derive(cliModule.command)
 local record Run
     --- Keep named function identities patchable at poll points.

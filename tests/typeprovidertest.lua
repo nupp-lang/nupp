@@ -39,7 +39,7 @@ local function invoke(state, intrinsic, ...)
     return state.intrinsics[intrinsic](nil, {n = select("#", ...), ...})
 end
 
-function M.acceptingTypeNamesShareHandlesAndPrivateBlueprints()
+function M.canonicalTypeNamesKeepPrivateBlueprintsAndRetirePrecedingKeys()
     local state, values = {}, {}
     providers.installEvaluator(state, values)
     local library = values.types
@@ -50,7 +50,8 @@ function M.acceptingTypeNamesShareHandlesAndPrivateBlueprints()
         {"functiontype", "function_"},
         {"len", "length"},
     }) do
-        testAssert.eq(library[names[1]], library[names[2]], names[1] .. " shares its preceding handle")
+        assert(library[names[1]], names[1] .. " is installed")
+        testAssert.eq(library[names[2]], nil, names[2] .. " is retired")
     end
     testAssert.eq(state.opaque[library.bool].payload.name, "boolean")
     testAssert.eq(state.opaque[library.niltype].payload.name, "nil")
@@ -58,20 +59,17 @@ function M.acceptingTypeNamesShareHandlesAndPrivateBlueprints()
     local parameters = assert(invoke(state, library.pack, {library.string}))
     local results = assert(invoke(state, library.pack, {library.bool, library.niltype}))
     local current = assert(invoke(state, library.functiontype, parameters, results))
-    testAssert.eq(current, assert(invoke(state, library.function_, parameters, results)))
+    testAssert.eq(current, assert(invoke(state, library.functiontype, parameters, results)))
     testAssert.eq(state.opaque[current].payload.kind, "function")
     local bounded = assert(invoke(state, library.len, library.string, 1, 4))
-    testAssert.eq(bounded, assert(invoke(state, library.length, library.string, 1, 4)))
+    testAssert.eq(bounded, assert(invoke(state, library.len, library.string, 1, 4)))
     testAssert.eq(state.opaque[bounded].payload.lengthwise, true)
     local refused, failure = invoke(state, library.len, library.string, 4, 1)
-    local oldRefused, oldFailure = invoke(state, library.length, library.string, 4, 1)
     testAssert.eq(refused, nil)
-    testAssert.eq(oldRefused, nil)
-    testAssert.eq(failure.code, oldFailure.code)
-    testAssert.eq(failure.message, oldFailure.message)
+    testAssert.eq(failure.code, "NUPP2420")
 end
 
-function M.acceptingDescribeKeysPreservePrivateGraphKeys()
+function M.canonicalDescribeKeysPreservePrivateGraphKeys()
     local state, values = {}, {}
     providers.installEvaluator(state, values)
     local library = values.types
@@ -87,14 +85,14 @@ function M.acceptingDescribeKeysPreservePrivateGraphKeys()
     local imported = assert(providers.importTypeDescriptor(state, descriptor))
     local described = assert(invoke(state, library.describe, imported))
     testAssert.eq(described.sourcekind, "map")
-    testAssert.eq(described.sourcekind, described.sourceKind)
+    testAssert.eq(described.sourceKind, nil)
     for _, names in ipairs({
         {"readkey", "readKey"},
         {"readvalue", "readValue"},
         {"writekey", "writeKey"},
         {"writevalue", "writeValue"}
     }) do
-        testAssert.eq(described[names[1]], described[names[2]], "descriptor aliases share exact handles")
+        testAssert.eq(described[names[2]], nil, "preceding public descriptor keys are retired")
         assert(described[names[1]])
     end
     local nominal = assert(
@@ -119,7 +117,7 @@ function M.acceptingDescribeKeysPreservePrivateGraphKeys()
     )
     local nominalDescription = assert(invoke(state, library.describe, nominal))
     testAssert.eq(nominalDescription.declarationkind, "record")
-    testAssert.eq(nominalDescription.declarationkind, nominalDescription.declarationKind)
+    testAssert.eq(nominalDescription.declarationKind, nil)
     testAssert.eq(state.opaque[imported].payload.readkey, nil, "private blueprint keys are unchanged")
     testAssert.eq(state.opaque[imported].payload.sourcekind, nil)
     testAssert.eq(state.opaque[nominal].payload.nominal.kind, "record")

@@ -118,7 +118,7 @@ function suite.customBackingIsRootedAndUsedAgainOnGrowth(): nil
     ffistorage.setAllocator(storage, function(bytes: integer, alignment: integer): (any, any)
         allocations = allocations + 1
         test.eq(alignment, pointLayout.alignment)
-        const owner = native.allocateBytes(bytes)
+        const owner = native.allocbytes(bytes)
         return owner, owner
     end)
     const source = ffistorage.allocate(storage, 10) as Point[?]

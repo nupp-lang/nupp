@@ -161,7 +161,7 @@ export function newpump(): Pump
             end
 
             while not waiting:ready() do
-                waiting:onResume(wake)
+                waiting:onresume(wake)
                 if not waiting:ready() then
                     local keepRunning = coroutine.yield()
                     if keepRunning == false then
@@ -170,7 +170,7 @@ export function newpump(): Pump
                 end
             end
         end,
-        canPark = function(_: suspensionContract.Handler): boolean
+        canpark = function(_: suspensionContract.Handler): boolean
             return true
         end,
         shutdown = function(_: suspensionContract.Handler): nil

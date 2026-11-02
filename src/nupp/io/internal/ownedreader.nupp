@@ -14,7 +14,7 @@ local integer_ = bytes.validateInteger
 local DEFAULT_READ = 65536
 
 -- A completed host transfer can give its allocation to a reader directly.
--- Unlike Buffer:newReader's snapshot, this consumes the owner and copies no bytes.
+-- Unlike Buffer:newreader's snapshot, this consumes the owner and copies no bytes.
 local record MemoryReader is Reader
     @private _data: uint8[?]
     @private _length: integer
@@ -37,14 +37,14 @@ local record MemoryReader is Reader
         return bytes, nil
     end
 
-    function readSpan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
         local wanted: integer
         do
             local output = destination as span.WriteSpan<uint8>
-            wanted = positive(#output, "Reader:readSpan destination length", 2)
+            wanted = positive(#output, "Reader:readspan destination length", 2)
         end
         local taking = math.min(wanted, self._length - self._at) as integer
         local pointer = destination:ref()
@@ -57,7 +57,7 @@ local record MemoryReader is Reader
         return taking, nil
     end
 
-    function readInto(
+    function readinto(
         exclusive self,
         exclusive destination: Buffer,
         offset: integer?,
@@ -66,16 +66,16 @@ local record MemoryReader is Reader
         if self._closed then
             return nil, "the reader is closed"
         end
-        local from = integer_(offset or 0, "Reader:readInto offset", 2)
-        local wanted = positive(count or DEFAULT_READ, "Reader:readInto count", 2)
+        local from = integer_(offset or 0, "Reader:readinto offset", 2)
+        local wanted = positive(count or DEFAULT_READ, "Reader:readinto count", 2)
         local taking = math.min(wanted, self._length - self._at) as integer
         if taking == 0 then
             return 0, nil
         end
-        local lease = destination:reserveWrite(from, wanted)
+        local lease = destination:reservewrite(from, wanted)
         do
             local output = lease:span()
-            local _read, _reason = self:readSpan(output)
+            local _read, _reason = self:readspan(output)
             own.drop(output)
         end
         lease:commit(taking)
@@ -83,7 +83,7 @@ local record MemoryReader is Reader
         return taking, nil
     end
 
-    function transferTo(exclusive self, exclusive destination: Writer): (integer?, string?)
+    function transferto(exclusive self, exclusive destination: Writer): (integer?, string?)
         if self._closed then
             return nil, "the reader is closed"
         end
@@ -91,7 +91,7 @@ local record MemoryReader is Reader
         local total: integer = 0
         while self._at < self._length do
             local rest = source:slice(self._at + 1, self._length)
-            local written, reason = destination:writeSpan(rest)
+            local written, reason = destination:writespan(rest)
             if written == nil then
                 return nil, reason
             end

@@ -22,13 +22,13 @@ for _, mode in ipairs({"consume", "under", "over", "raise"}) do
             if mode == "raise" then
                 error("consumer failed", 0)
             end
-            assert(child:readNumberToken() == tostring(index))
+            assert(child:readnumbertoken() == tostring(index))
             if mode == "over" then
-                child:readNumberToken()
+                child:readnumbertoken()
             end
         end,
     }
-    local ok, problem = pcall(reader.readList, reader, state, consumer)
+    local ok, problem = pcall(reader.readlist, reader, state, consumer)
     assert(ok == (mode == "consume"), tostring(problem))
     if mode == "consume" then
         cursor:finish()
@@ -47,29 +47,29 @@ end
 local cursor = syntax.reader("123456789012345678901234567890")
 local unknown = documents.unknown(cursor)
 local adapter = {
-    readContents = function(_, reader)
-        return reader:readNumberToken()
+    readcontents = function(_, reader)
+        return reader:readnumbertoken()
     end
 }
-assert(unknown:captureValue(adapter) == "123456789012345678901234567890")
+assert(unknown:capturevalue(adapter) == "123456789012345678901234567890")
 cursor:finish()
 refused(
     function()
-        unknown:skipValue()
+        unknown:skipvalue()
     end,
     "already been consumed"
 )
 unknown:expire()
 refused(
     function()
-        unknown:captureValue(adapter)
+        unknown:capturevalue(adapter)
     end,
     "expired"
 )
 
 for _, bytes in ipairs({"[1,]", [[{"x":1,"x":2}]], [["\q"]], "[1 2]"}) do
     local malformed = documents.unknown(syntax.reader(bytes))
-    local ok, problem = pcall(malformed.skipValue, malformed)
+    local ok, problem = pcall(malformed.skipvalue, malformed)
     assert(not ok and getmetatable(problem) == errors.Error)
     assert(problem.code == "syntax" and problem.byte >= 1)
 end
@@ -77,8 +77,8 @@ end
 local ignored = documents.unknown(syntax.reader("[1,2]"))
 refused(
     function()
-        ignored:captureValue({
-            readContents = function()
+        ignored:capturevalue({
+            readcontents = function()
                 return "ignored"
             end
         })
@@ -103,7 +103,7 @@ for _, mode in ipairs({"consume", "under", "over", "raise"}) do
     local retained, discarded
     local adapter = {
         describe = function()
-            return {member = member, kind = "string", canRead = true, children = {}}
+            return {member = member, kind = "string", canread = true, children = {}}
         end,
         read = function(_, reader)
             retained = reader
@@ -113,9 +113,9 @@ for _, mode in ipairs({"consume", "under", "over", "raise"}) do
             if mode == "raise" then
                 error("adapter failed", 0)
             end
-            local value = reader:readString(member)
+            local value = reader:readstring(member)
             if mode == "over" then
-                reader:readString(member)
+                reader:readstring(member)
             end
 
             return value
@@ -165,21 +165,21 @@ for _, mode in ipairs({"under", "over"}) do
     local member = {name = "text"}
     local model = {
         describe = function()
-            return {kind = "string", member = member, children = {}, canRead = false}
+            return {kind = "string", member = member, children = {}, canread = false}
         end,
         write = function(_, value, writer)
             if mode == "over" then
-                writer:writeString(member, "one")
-                writer:writeString(member, "two")
+                writer:writestring(member, "one")
+                writer:writestring(member, "two")
             end
         end,
     }
     local selected = setmetatable({adapter = model}, core.Bound)
     local destination = buffers.newbuffer()
     local sink = jsonSyntax.newwriter(destination)
-    sink:startArray()
+    sink:startarray()
     local ok, problem = pcall(function()
-        return codec.codec(profile):writeValue(selected, "value", sink)
+        return codec.codec(profile):writevalue(selected, "value", sink)
     end)
     assert(not ok and problem.code == "contract", tostring(problem))
     sink:close()

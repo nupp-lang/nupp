@@ -45,7 +45,7 @@ end
 export const monotonic: function(): number = clocks.now
 
 --- Returns milliseconds since the Unix epoch.
-export const walltime: function(): number = clocks.wallTime
+export const walltime: function(): number = clocks.walltime
 
 --- Generates a random version 4 UUID using the retained host service.
 export const uuid4: function(): string = uuid.uuid4

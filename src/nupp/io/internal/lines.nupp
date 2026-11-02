@@ -25,7 +25,7 @@ export sealed interface Lines is own.Closeable
     read: function(self: Lines): (string?, string?)
 
     --- Whether this reader has been released.
-    isReleased: function(self: Lines): boolean
+    isreleased: function(self: Lines): boolean
 
     --- Releases this reader and the source it took.
     close: @nosuspend function(takes self: Lines): nil
@@ -39,7 +39,7 @@ local record LineReader is Lines
     @private _closed: boolean
     @private _ended: boolean
 
-    function isReleased(self): boolean
+    function isreleased(self): boolean
         return self._closed
     end
 

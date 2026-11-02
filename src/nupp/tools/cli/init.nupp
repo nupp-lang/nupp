@@ -36,7 +36,7 @@ local function application(): any
         version = require("nupp.tools.version").line(),
         width = 79,
         indent = "  ",
-        labelLimit = 20,
+        labellimit = 20,
     })
 
     return APPLICATION
@@ -47,10 +47,10 @@ local function child(parent: any, name: string?): any?
         return nil
     end
     for _, subject in ipairs(parent.subcommands()) do
-        if subject.cliName() == name then
+        if subject.cliname() == name then
             return subject
         end
-        for _, alias in ipairs(subject.cliAliases()) do
+        for _, alias in ipairs(subject.clialiases()) do
             if alias == name then
                 return subject
             end
@@ -78,7 +78,7 @@ end
 --- Writes a command's compiler report schema when it owns one.
 local function writeSchema(argv: {string}): integer?
     local subject, argumentStart = selectCommand(argv)
-    if subject.cliName() == "lsp" and argv[argumentStart] == "--schema" then
+    if subject.cliname() == "lsp" and argv[argumentStart] == "--schema" then
         return require(
             "nupp.tools.cli.error"
         ).forCommand("lsp")("--schema answers for one operation: nupp lsp <operation> --schema")
@@ -189,7 +189,7 @@ function cli.names(): {string}
     local names: {string} = {}
     for _, subject in ipairs(root.Root.subcommands()) do
         local commandType: any = subject
-        names[#names + 1] = commandType.cliName()
+        names[#names + 1] = commandType.cliname()
     end
 
     return names

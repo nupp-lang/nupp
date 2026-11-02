@@ -21,7 +21,7 @@ local function plan<M is core.Member>(description: core.Description<M>, seen: {[
     if prior ~= nil then
         return prior
     end
-    assert2(description.canRead, "binding has no construction operation")
+    assert2(description.canread, "binding has no construction operation")
     local result = new Plan<M>(description = description)
     seen[description] = result
     for _, child in ipairs(description.children) do
@@ -45,16 +45,16 @@ local record Unknown is core.UnknownReader, own.Closeable
         assert2(not self.expired and not self.used, "unknown document reader is no longer usable")
     end
 
-    function skipValue(exclusive self): nil
+    function skipvalue(exclusive self): nil
         self:live()
         self.used = true
     end
 
-    function captureValue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
+    function capturevalue<D>(exclusive self, adapter: core.DocumentAdapter<D>): D
         self:live()
         self.used = true
         local reader = readers.reader(self.value)
-        local result = adapter:readContents(reader)
+        local result = adapter:readcontents(reader)
         local complete, problem = pcall(reader.finish, reader)
         if not complete then
             error(publication.failure(adapter, result, problem), 0)
@@ -86,7 +86,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         return self.value:context()
     end
 
-    function isNull(self): boolean
+    function isnull(self): boolean
         self:live()
         return self.value.kind == "null"
     end
@@ -97,62 +97,62 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         self.used = true
     end
 
-    function readNull(exclusive self, member: M): nil
+    function readnull(exclusive self, member: M): nil
         assert2(self.plan.description.nullable or self.plan.description.kind == "null", "binding does not admit null")
         self:consume("null")
     end
 
-    function readBoolean(exclusive self, member: M): boolean
-        self:consume("boolean")
-        return self.value:boolean()
+    function readbool(exclusive self, member: M): boolean
+        self:consume("bool")
+        return self.value:bool()
     end
 
-    function readInteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
+    function readinteger(exclusive self, member: M, width: 8 | 16 | 32 | 64, signed: boolean): core.Integer
         self:consume("integer")
         return numbers.integer(self.value:integer().decimal, width, signed)
     end
 
-    function readFloat(exclusive self, member: M, width: 32 | 64): number
+    function readfloat(exclusive self, member: M, width: 32 | 64): number
         self:consume("float")
         return numbers.floating(self.value:float().value, width, true)
     end
 
-    function readBigInteger(exclusive self, member: M): string
-        self:consume("bigInteger")
-        return self.value:bigInteger()
+    function readbiginteger(exclusive self, member: M): string
+        self:consume("biginteger")
+        return self.value:biginteger()
     end
 
-    function readDecimal(exclusive self, member: M): core.Decimal
+    function readdecimal(exclusive self, member: M): core.Decimal
         self:consume("decimal")
         return self.value:decimal()
     end
 
-    function readNumberToken(exclusive self, member: M): string
-        self:consume("numberToken")
-        return self.value:numberToken()
+    function readnumbertoken(exclusive self, member: M): string
+        self:consume("numbertoken")
+        return self.value:numbertoken()
     end
 
-    function readString(exclusive self, member: M): string
+    function readstring(exclusive self, member: M): string
         self:consume("string")
         return self.value:string()
     end
 
-    function readBytes(exclusive self, member: M): string
+    function readbytes(exclusive self, member: M): string
         self:consume("bytes")
         return self.value:bytes()
     end
 
-    function readTimestamp(exclusive self, member: M): core.Timestamp
+    function readtimestamp(exclusive self, member: M): core.Timestamp
         self:consume("timestamp")
         return self.value:timestamp()
     end
 
-    function readAtom(exclusive self, member: M): core.Atom
+    function readatom(exclusive self, member: M): core.Atom
         self:consume("atom")
         return self.value:atom()
     end
 
-    function readDocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
+    function readdocument<D>(exclusive self, member: M, adapter: core.DocumentAdapter<D>): D
         self:consume("document")
         local contents = self.value:document()
         local context = self.value:context()
@@ -160,7 +160,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
             contents = documents.withContext(contents, context)
         end
         local reader = readers.reader(contents)
-        local result = adapter:readContents(reader)
+        local result = adapter:readcontents(reader)
         local complete, problem = pcall(reader.finish, reader)
         if not complete then
             error(publication.failure(adapter, result, problem), 0)
@@ -182,7 +182,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         return nil
     end
 
-    function containerSize(self): integer?
+    function containersize(self): integer?
         self:live()
         return self:size()
     end
@@ -227,7 +227,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         end
     end
 
-    function readStruct<S>(
+    function readstruct<S>(
         exclusive self,
         member: M,
         exclusive state: S,
@@ -237,7 +237,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         self:object("structure", state, consume, unknown)
     end
 
-    function readUnion<S>(
+    function readunion<S>(
         exclusive self,
         member: M,
         exclusive state: S,
@@ -263,11 +263,11 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         end
     end
 
-    function readList<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
+    function readlist<S>(exclusive self, member: M, exclusive state: S, consume: core.ElementConsumer<M, S>): nil
         self:array("list", nil, state, consume)
     end
 
-    function readTuple<S>(
+    function readtuple<S>(
         exclusive self,
         member: M,
         size: integer,
@@ -277,7 +277,7 @@ local record Input<M is core.Member> is core.Reader<M>, own.Closeable
         self:array("tuple", size, state, consume)
     end
 
-    function readMap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
+    function readmap<S>(exclusive self, member: M, exclusive state: S, consume: core.EntryConsumer<M, S>): nil
         self:consume("map")
         for index = 1, self.value:size() do
             local entry = self.value:entry(index)

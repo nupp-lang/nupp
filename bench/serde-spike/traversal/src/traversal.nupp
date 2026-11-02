@@ -274,7 +274,7 @@ local record Fields
                 self.pending = true
                 return true
             end
-            cursor:skipValue()
+            cursor:skipvalue()
         end
     end
 

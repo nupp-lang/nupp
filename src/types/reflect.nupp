@@ -34,7 +34,7 @@ export type FieldCodec<T> = types.reflect.FieldCodec<T>
 export const extensionkey: function<T>(build: function(host: any): T): ExtensionKey<T> = api.extensionKey
 
 --- Reads the descriptor carried by a first-class type witness.
-export const runtime: function<T>(typeObject: Type<T>): Info = api.runtime
+export const runtime: function<T>(typeobject: Type<T>): Info = api.runtime
 
 --- Reads a reachable nominal witness, or nil for an unresolved declaration.
 export const runtimetype: function(info: Info, index: integer): Type<unknown>? = api.runtimeType

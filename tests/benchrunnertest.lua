@@ -270,6 +270,7 @@ function M.aBaselineSchemaIsCheckedWhereItIsRead()
     testAssert.eq(verdict.withheld, "baseline-schema", "the schema withholds the interval")
     testAssert.eq(verdict.verdict, "inconclusive", "durations against a version four baseline are inconclusive")
     assert(read(stderr):find("is schema 4", 1, true) ~= nil, read(stderr))
+    testAssert.eq(comparison.baseline.benchmarks[1].summary.medianms, nil, "runner documents stay wire-only")
 
     local older = rename(current)
     older.schema = 3
@@ -280,6 +281,11 @@ function M.aBaselineSchemaIsCheckedWhereItIsRead()
     verdict = comparison.verdicts[1]
     testAssert.eq(verdict.interval, nil, "a version three baseline has no durations to compare")
     testAssert.eq(verdict.verdict, "inconclusive", "durations against a version three baseline are inconclusive")
+
+    older.schema = 2
+    write(older)
+    assert(run(compared) ~= 0, "the runner still requires schema3 or later")
+    assert(read(stderr):find("has schema 2", 1, true) ~= nil)
 
     current.schema = 6
     write(current)
@@ -322,6 +328,58 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
     assert(progressAt ~= nil, "the case is announced before it runs")
     assert(resultsAt ~= nil and progressAt < resultsAt, "progress precedes the result table")
     assert(human:find("protocol%s+p50%s+7%s+[%d.]+%s+ns/op") ~= nil, "the result is per operation")
+
+    -- Real library output, read back through the actual CLI baseline path.
+    local baseline = working .. "/baseline.json"
+    for _, schema in ipairs({2, 3, 4}) do
+        local prior = json.decode(read(recordOut))
+        prior.schema = schema
+        if schema < 4 then
+            for _, measurement in ipairs(prior.cases) do
+                local renamed = {}
+                for key, value in pairs(measurement) do
+                    if type(key) == "string" and key:match("Ms$") then
+                        if type(value) == "number" then
+                            value = value / 1000
+                        elseif type(value) == "table" then
+                            local seconds = {}
+                            for index, sample in ipairs(value) do
+                                seconds[index] = sample / 1000
+                            end
+                            value = seconds
+                        end
+                        renamed[key:gsub("Ms$", "Sec")] = value
+                    else
+                        renamed[key] = value
+                    end
+                end
+                for key in pairs(measurement) do
+                    measurement[key] = nil
+                end
+                for key, value in pairs(renamed) do
+                    measurement[key] = value
+                end
+            end
+        end
+        local baselineText = json.encode(prior)
+        local handle = assert(io.open(baseline, "wb"))
+        handle:write(baselineText)
+        handle:close()
+        local status = os.execute(
+            inWorkspace(
+                working,
+                (
+                    "%q run -O1 %q --case protocol --n 3 --baseline %q --out %q --quiet > %q"
+                ):format(NUPP, fixture, baseline, recordOut, stdout)
+            )
+        )
+        testAssert.eq(status, 0, "standalone baseline schema " .. schema .. " reads")
+        local nextRecord = json.decode(read(recordOut))
+        testAssert.eq(nextRecord.schema, 4)
+        assert(type(nextRecord.cases[1].medianMs) == "number", "schema4 output retains milliseconds")
+        testAssert.eq(nextRecord.cases[1].medianms, nil, "the public field does not leak into JSON")
+        testAssert.eq(read(baseline), baselineText, "reading a baseline does not rewrite it")
+    end
 
     os.execute(("rm -rf %q"):format(working))
 end

@@ -12,11 +12,11 @@ const host = require("nupp.vm.files")
 
 local provider = {}
 
-function provider.separator(): string
+function provider.sep(): string
     return package.config:sub(1, 1)
 end
 
-function provider.currentDirectory(): (string?, string?)
+function provider.cwd(): (string?, string?)
     return host.currentDirectory()
 end
 

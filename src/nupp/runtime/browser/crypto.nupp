@@ -61,7 +61,7 @@ local function random(count: integer, wallTime: boolean?): any
     return {bytes = bytes, wallTimeMs = timestamp,}
 end
 
-function crypto.randomBytes(count: integer): string
+function crypto.randombytes(count: integer): string
     return random(count).bytes
 end
 
@@ -124,7 +124,7 @@ local function byteTable(raw: string): {integer}
 end
 
 function crypto.uuid4(): string
-    local bytes = byteTable(crypto.randomBytes(16))
+    local bytes = byteTable(crypto.randombytes(16))
     bytes[7] = bytes[7] % 16 + 64
     bytes[9] = bytes[9] % 64 + 128
     return canonical(bytes)

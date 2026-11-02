@@ -94,9 +94,9 @@ export const scope = source1.open
 export const race = source1.race
 export const run = source1.run
 export const sleep: clockContract.Provider.["sleep"] = selectedTime and selectedTime.sleep or missingClock
-export const sleepuntil: clockContract.Provider.["sleepUntil"] = selectedTime and selectedTime.sleepUntil
+export const sleepuntil: clockContract.Provider.["sleepuntil"] = selectedTime and selectedTime.sleepuntil
     or missingClock
-export const wakeat: clockContract.Provider.["wakeAt"] = selectedTime and selectedTime.wakeAt or missingClock
+export const wakeat: clockContract.Provider.["wakeat"] = selectedTime and selectedTime.wakeat or missingClock
 
 --- @internal
 export const value: table = do
