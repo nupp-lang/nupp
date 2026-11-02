@@ -193,7 +193,7 @@ local function debugFormatPlan(format: string): any
 end
 
 -- Which zone-stack operation `push` or `pop` names, when the receiver is a plain
--- identifier statically known to hold the module `require("nupp.profile.zone")`
+-- identifier statically known to hold the module `require("debug.profile.zone")`
 -- returns, or nil for anything else.
 --
 -- A local's own type is read rather than re-inferred, so a receiver more elaborate than
@@ -206,7 +206,7 @@ local function zoneIntrinsic(c, callee): string?
         return nil
     end
     local name = callee.name.text
-    if RECEIVER_INTRINSICS[name] ~= "nupp.profile.zone" then
+    if RECEIVER_INTRINSICS[name] ~= "debug.profile.zone" then
         return nil
     end
     local base = callee.obj

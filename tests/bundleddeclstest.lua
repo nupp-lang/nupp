@@ -44,8 +44,10 @@ local BUNDLED = {
     "nupp.util.internal.pool",
     "nupp.mem.arena",
     "events",
-    "nupp.profile.zone",
-    "nupp.profile",
+    "nupp.spi",
+    "debug.profile.trace",
+    "debug.profile.zone",
+    "debug.profile",
 }
 
 -- Checks a strict program against the prelude and answers its diagnostics as
@@ -94,6 +96,10 @@ end
 function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     local env = envMod.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
     local sources = {
+        ["nupp.spi"] = "/nupp/spi/init.nupp",
+        ["debug.profile"] = "/debug/profile/init.nupp",
+        ["debug.profile.trace"] = "/debug/profile/trace.nupp",
+        ["debug.profile.zone"] = "/debug/profile/zone.nupp",
         ["binary"] = "/binary/init.nupp",
         ["binary.span"] = "/binary/span.nupp",
         ["nupp.runtime.entropy"] = "/nupp/runtime/entropy.nupp",
@@ -161,6 +167,38 @@ return bits, values, qualified, bytes
     local binary = env.resolveModuleExports(env, "binary")
     local private = env.resolveModuleExports(env, "nupp.util.internal.bitset")
     testAssert.eq(binary.types.Bitset, private.types.Bitset)
+end
+
+function M.providerContractImportErasesWithoutLoadingAnImplementation()
+    local parsed = parser.parse(
+        [[
+local {type ClockProvider} = require("nupp.spi")
+return function(clock: ClockProvider): number return clock.now() end
+]],
+        "provider-contract-import.nupp"
+    )
+    testAssert.eq(#parsed.errors, 0)
+    for _, diagnostic in ipairs(check.check(parsed, "provider-contract-import.nupp", strictEnv())) do
+        assert(diagnostic.severity ~= "error", diagnostic.msg)
+    end
+    local code = gen.generate(parsed, "provider_contract_import")
+    assert(not code:find('nupp.spi', 1, true), code)
+end
+
+function M.profilingCollectorAndRegistryKeepDistinctQualifiedTypes()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local profile = debug.profile
+local trace = debug.profile.trace
+local version: integer = trace.catalogversion
+local session = profile.trace()
+local report: profile.TraceReport = session:stop()
+return version, report.totalaborts
+]]
+        ),
+        ""
+    )
 end
 
 function M.uuidUsesItsContractWithoutNativeCompilerServices()

@@ -2487,10 +2487,7 @@ return random, time
     testAssert.eq(project.check(dir, {produced = warm, diagnostics = {}}), 0)
     testAssert.eq(warm.timing.compiledModules, 0, "the unchanged runtime closure is reused")
     for _, span in ipairs(warm.timing.slowest) do
-        assert(
-            span.module ~= "nupp.mem.representation.spi",
-            "a warm check must not recheck shared representation declarations"
-        )
+        assert(span.module ~= "nupp.spi", "a warm check must not recheck shared representation declarations")
     end
 
     remove(dir)

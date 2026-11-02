@@ -2348,8 +2348,8 @@ local processCalls = {
     "require('nupp.workers')",
     'require("io.internal.process")',
     "require('io.internal.process')",
-    'require("nupp.profile")',
-    "require('nupp.profile')",
+    'require("debug.profile")',
+    "require('debug.profile')",
     'require("coroutine.workers")',
     "require('coroutine.workers')",
     -- Reaching into the loader is process-shaped whether or not a process is

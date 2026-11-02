@@ -216,7 +216,7 @@ end
 -- merely reach the codes it is carried by.
 function M.everyDocsPointerLeadsToASection()
     local reference = require("nupp.tools.reference")
-    local trace = require("nupp.profile.trace")
+    local trace = require("debug.profile.trace")
     local root = HERE .. "/.."
     local pointers = {}
     for _, code in ipairs(explain.codes()) do

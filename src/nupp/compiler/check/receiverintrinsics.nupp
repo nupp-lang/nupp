@@ -13,6 +13,6 @@ member names as a dependency on the module. Both read this one table.
 --- Member name -> the module its receiver must hold.
 local receiverintrinsics: {
     [string]: string
-} = {push = "nupp.profile.zone", pop = "nupp.profile.zone", keep = "debug.bench",}
+} = {push = "debug.profile.zone", pop = "debug.profile.zone", keep = "debug.bench",}
 
 export = receiverintrinsics

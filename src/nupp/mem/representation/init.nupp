@@ -1,10 +1,10 @@
 module nupp.mem.representation
 
 local spi = require("nupp.runtime.packages")
-local contracts = require("nupp.mem.representation.spi")
+local contracts = require("nupp.spi")
 
 export const storage: contracts.CstorageProvider? = do
-    const chosen = spi.select(spi.providers<contracts.CstorageProvider>("nupp.mem.representation.spi.CstorageProvider"))
+    const chosen = spi.select(spi.providers<contracts.CstorageProvider>("nupp.spi.CstorageProvider"))
     if chosen ~= nil then
         yield chosen
     end

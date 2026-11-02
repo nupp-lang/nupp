@@ -214,7 +214,7 @@ local function run(options: any): integer
     -- `--json` each one is a diagnostic, so `ok` false says why.
     local blocked = options.check and analysis.mustBlockers > 0
     if collected and blocked then
-        local trace = require("nupp.profile.trace")
+        local trace = require("debug.profile.trace")
         for _, fn in ipairs(functions) do
             for _, ins in ipairs(fn.instructions) do
                 if ins.traceReachability == "must" then

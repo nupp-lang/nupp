@@ -1,11 +1,11 @@
-module nupp.profile
+module debug.profile
 
 --[[
 Two profiling channels: one for where the time went, one for whether it went
 there compiled.
 
 ```nupp:fragment
-local profile = nupp.profile
+local profile = debug.profile
 
 local session = profile.sample({intervalms = 5})
 render()
@@ -24,7 +24,7 @@ sampler cannot answer and the one that usually matters here: code the JIT
 refused is an order of magnitude slower than code it took, and nothing says so
 out loud.
 
-Both channels attribute work through [](nupp.profile.zone), so a sample or an
+Both channels attribute work through [](debug.profile.zone), so a sample or an
 abort carries the zone path that was open when it happened. Both are
 process-wide rather than per-coroutine, and at most one session of each kind
 runs at a time.
@@ -40,10 +40,10 @@ See [profiling.md](docs/learn/performance/profiling.md) for reading a report, an
 the program.
 ]]
 
-local zone = require("nupp.profile.zone")
+local zone = require("debug.profile.zone")
 local jitProfile = require("jit.profile")
 local jitUtil = require("jit.util")
-local traceRegistry = require("nupp.profile.trace")
+local traceRegistry = require("debug.profile.trace")
 
 local profile = {}
 

@@ -1,11 +1,11 @@
-module nupp.profile.zone
+module debug.profile.zone
 
 --[[
 Gated LuaJIT profiler zones: the stack work is skipped until a profiler asks for
 it.
 
 ```nupp:fragment
-local zone = nupp.profile.zone
+local zone = debug.profile.zone
 
 local function render(): nil
     zone.push("render")
@@ -36,7 +36,7 @@ above is about. The fields exist for that generated code to reach; every other
 call site, and every function below, still goes through the ordinary API.
 
 See [profiling.md](docs/learn/performance/profiling.md) for what a zone path does to a report, and
-[](nupp.profile) for the sessions that read one.
+[](debug.profile) for the sessions that read one.
 ]]
 
 local zone = {}

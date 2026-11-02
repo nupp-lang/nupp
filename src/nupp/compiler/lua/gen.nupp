@@ -7217,10 +7217,10 @@ function gen.generate(
         elseif kind == "callStmt" and x.expr and x.expr.zoneIntrinsic then
             -- The active test and the stack write stand at the site instead of behind a
             -- call, on a receiver the checker proved is exactly the module
-            -- `nupp.profile.zone` returns -- a zone marker being a call at all is the
-            -- cost `nupp/profile/zone.nupp`'s own comment marks a hot path against. The
-            -- receiver is bound once so an expression more elaborate than a bare name
-            -- (still possible: the checker only requires a name, not that it stays
+            -- `debug.profile.zone` returns -- a zone marker being a call at all is the
+            -- cost `debug/profile/zone.nupp`'s own comment marks a hot path against.
+            -- The receiver is bound once so an expression more elaborate than a bare
+            -- name (still possible: the checker only requires a name, not that it stays
             -- simple) is not evaluated twice.
             local call = x.expr
             local op = call.zoneIntrinsic

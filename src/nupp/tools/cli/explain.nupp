@@ -75,7 +75,7 @@ local function run(options: any): integer
             return usageError("--list lists every code; it does not take one")
         end
         local codes = explain.codes()
-        for _, reason in ipairs(require("nupp.profile.trace").records()) do
+        for _, reason in ipairs(require("debug.profile.trace").records()) do
             codes[#codes + 1] = reason.id
         end
         table.sort(codes)
@@ -93,7 +93,7 @@ local function run(options: any): integer
     -- is the same request typed with less shift.
     local requested = positional[1]
     local code = requested:upper()
-    local reason = require("nupp.profile.trace").reason(requested:lower())
+    local reason = require("debug.profile.trace").reason(requested:lower())
     local entry = reason
         and {
             code = reason.id,
@@ -129,7 +129,10 @@ local function run(options: any): integer
             class = display.class,
             repair = display.repair,
             reasonCatalog = reason
-            and {id = require("nupp.profile.trace").catalogid, version = require("nupp.profile.trace").catalogversion,}
+            and {
+                id = require("debug.profile.trace").catalogid,
+                version = require("debug.profile.trace").catalogversion,
+            }
             or nil,
         })
         return 0

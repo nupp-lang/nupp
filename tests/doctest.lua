@@ -5784,7 +5784,7 @@ local VERSION_SOURCES = {
     ["Test report"] = {"src/nupp/tools/cli/test.nupp", "schemaVersion = {%s*type = \"integer\",%s*enum = {(%d+)}"},
     ["Bench record"] = {"src/debug/bench.nupp", "bench%.schema = (%d+)"},
     ["Optimizer remarks"] = {"src/nupp/tools/cli/compile.nupp", "local document = {%s*schema = (%d+),"},
-    ["Trace reason catalog"] = {"src/nupp/profile/trace.nupp", "trace%.catalogversion = (%d+)"},
+    ["Trace reason catalog"] = {"src/debug/profile/trace.nupp", "trace%.catalogversion = (%d+)"},
     ["GPU cost records"] = {"native/crates/gpu/src/costs.rs", "values%[\"schemaVersion\"%] = json!%((%d+)%)"},
 }
 

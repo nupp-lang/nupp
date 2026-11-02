@@ -1,6 +1,6 @@
 --[[
 `nupp` holds admission and layout queries alongside the remaining host,
-storage, profiling, random-generator, and text-buffer APIs. Most library code
+storage, provider, random-generator, and text-buffer APIs. Most library code
 uses the standard roots directly:
 
 ```nupp
@@ -8,8 +8,9 @@ local encoded = serde.json.encodevalue({ok = true})
 log.info("wrote %d bytes", #encoded)
 ```
 
-The documented `nupp.host`, `nupp.mem`, `nupp.profile`,
-`nupp.random`, and `nupp.text` namespaces retain their current contracts.
+The documented `nupp.host`, `nupp.mem`, `nupp.spi`, `nupp.random`, and
+`nupp.text` namespaces retain their current contracts. Profiling uses
+`debug.profile`.
 I/O, system facts, tasks, types, binary codecs, and serialization use `io`,
 `os`, `coroutine`, `types`, `binary`, and `serde` respectively. Private
 implementation modules remain beneath `nupp`; application imports use the

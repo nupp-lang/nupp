@@ -81,10 +81,11 @@ library can expose equivalent operations explicitly.
 SPI covers operations whose implementation varies. Fixed hashing, scalar SIMD,
 layout arithmetic, and other ordinary helpers are normal modules.
 
-Implementation interfaces live beside their consuming library in `.spi` modules.
-Importing a declaration loads no implementation. Packages advertise their modules
-in `nupp/spi.json`; `package.providers(Interface)` lazily iterates them in
-dependency order. The consumer decides what wins.
+Library-specific interfaces live beside their consuming library in `.spi`
+modules. Shared core provider contracts live in the declarations-only
+[](nupp.spi) module. Importing a declaration loads no implementation. Packages
+advertise their modules in `nupp/spi.json`; `package.providers(Interface)` lazily
+iterates them in dependency order. The consumer decides what wins.
 
 Standard-library facades choose with `package.select`: the unique highest
 `priority`, with an omitted priority counting as zero. A highest-priority tie
@@ -95,8 +96,9 @@ its actual operations during module initialization, so calls perform no SPI look
 ## Runtime interfaces
 
 [SPI](../spi.md#standard-library-providers) lists each interface and its owning
-module. Shared storage, struct, memory-host, and integer declarations remain in
-`nupp.mem.representation.spi`; storage and its integer operations must agree.
+module. `nupp.spi.CstorageProvider` and `nupp.spi.StructvalueProvider` describe
+shared storage and struct operations. Their layouts and scalar codecs must
+agree with the representation compiled into the program.
 
 `nupp.text` owns the portable buffer surface and one shared `Buffer` type.
 Its native adapter uses LuaJIT's `string.buffer`. Explicitly native pointer and

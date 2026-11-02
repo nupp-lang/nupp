@@ -1,13 +1,13 @@
 local testAssert = require("assert")
--- The nupp.profile.zone push/pop intrinsic: a call in statement position on a receiver
--- statically known to be the module nupp.profile.zone returns is generated inline
+-- The debug.profile.zone push/pop intrinsic: a call in statement position on a receiver
+-- statically known to be the module debug.profile.zone returns is generated inline
 -- against its private fields rather than called. pop additionally needs its popped name
 -- discarded, since a captured value has nowhere to go but an ordinary call.
 local parser = require("nupp.compiler.syntax.parser")
 local gen = require("nupp.compiler.lua.gen")
 local check = require("fragment")
 local envMod = require("nupp.compiler.project.env")
-local zone = require("nupp.profile.zone")
+local zone = require("debug.profile.zone")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local env = envMod.new(HERE .. "/..")
@@ -42,7 +42,7 @@ local M = {}
 function M.lowersPushAndADiscardedPopButNotACapturedPop()
     local code = compile(
         [[
-local zone = require("nupp.profile.zone")
+local zone = require("debug.profile.zone")
 zone.push("render")
 local kept = zone.pop()
 zone.pop()
@@ -58,6 +58,30 @@ zone.pop()
     testAssert.eq(calls, 1, "exactly the captured pop keeps an ordinary call\n" .. code)
 end
 
+function M.builtinAliasRetainsZoneIntrinsics()
+    local code, diagnostics = compile([[
+local zone = debug.profile.zone
+zone.push("render")
+zone.pop()
+]])
+    for _, diagnostic in ipairs(diagnostics) do
+        assert(diagnostic.severity ~= "error", diagnostic.msg)
+    end
+    assert(code:find("__nuppActive", 1, true), code)
+end
+
+function M.lexicalDebugShadowKeepsOrdinaryCalls()
+    local code = compile(
+        [[
+local debug = {profile = {zone = {push = function(_: string): nil end}}}
+local zone = debug.profile.zone
+zone.push("x")
+]]
+    )
+    assert(code:find("zone%s*%.%s*push%s*%(") ~= nil, code)
+    assert(code:find("__nuppActive", 1, true) == nil, code)
+end
+
 function M.lowersPushOnlyOnAReceiverStaticallyKnownToBeTheZoneModule()
     local code = compile([[
 local other = {push = function(_: {any}, _: string): nil end}
@@ -69,7 +93,7 @@ end
 
 function M.lowersPushOnlyOnABareNameReceiver()
     local code = compile([[
-local holder = {zone = require("nupp.profile.zone")}
+local holder = {zone = require("debug.profile.zone")}
 holder.zone.push("x")
 ]])
     assert(code:find("push%s*%(") ~= nil, "a non-name receiver keeps its call\n" .. code)
@@ -78,7 +102,7 @@ end
 function M.matchesTheOrdinaryApiAtRunTime()
     local outer, inner, poppedCount, depthAfter, depthWhileInactive = run(
         [[
-local zone = require("nupp.profile.zone")
+local zone = require("debug.profile.zone")
 zone.acquire()
 zone.push("outer")
 zone.push("inner")
@@ -103,7 +127,7 @@ function M.staysCorrectAlongsideAnUnrelatedLiveSession()
     -- started outside the compiled unit still sees what it pushed.
     zone.acquire()
     local depth = run([[
-local zone = require("nupp.profile.zone")
+local zone = require("debug.profile.zone")
 zone.push("compiled")
 return zone.depth()
 ]])

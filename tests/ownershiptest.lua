@@ -5929,7 +5929,7 @@ function M.aProfileSessionIsHeldByItsScope()
     assertClean(
         table.concat(
             {
-                "local profile = require('nupp.profile')",
+                "local profile = require('debug.profile')",
                 "local function finish<S is profile.Session>(borrows session: S): S.Report",
                 "   return session:stop()",
                 "end",

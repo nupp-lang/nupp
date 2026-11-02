@@ -3170,7 +3170,7 @@ function M.profileSessionProtocolPreservesItsReportType()
     assertClean(
         table.concat(
             {
-                "local profile = require('nupp.profile')",
+                "local profile = require('debug.profile')",
                 "local function finish<S is profile.Session>(borrows session: S): S.Report",
                 "   return session:stop()",
                 "end",
@@ -3190,7 +3190,7 @@ function M.profileSessionProtocolPreservesItsReportType()
             diagsOf(
                 table.concat(
                     {
-                        "local profile = require('nupp.profile')",
+                        "local profile = require('debug.profile')",
                         "local function finish<S is profile.Session>(borrows session: S): S.Report",
                         "   return session:stop()",
                         "end",

@@ -1035,7 +1035,7 @@ function M.bundledModulesAreLoadedWhenSomethingAsksForThem()
     local ok, err = pcall(function()
         local env = envMod.new(dir, {cache = false})
         testAssert.eq(checked["ffi"], nil, "building an environment does not check ffi")
-        testAssert.eq(checked["nupp.profile.zone"], nil, "nor the standard library")
+        testAssert.eq(checked["debug.profile.zone"], nil, "nor the standard library")
 
         -- Asking is what loads it, and asking twice does not check it twice.
         assert(env.bundled["ffi"], "ffi is still there when wanted")

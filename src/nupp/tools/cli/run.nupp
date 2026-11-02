@@ -340,7 +340,7 @@ local function run(options: any): integer
     -- Opened here rather than around the compile, so what the report describes is the
     -- program that was asked for and not the compiler that got it ready.
     if profiling or tracingAborts then
-        local profile = require("nupp.profile")
+        local profile = require("debug.profile")
         if profiling then
             -- The chunk was named after the file, so that is what its frames say;
             -- everything under them is this command getting there.

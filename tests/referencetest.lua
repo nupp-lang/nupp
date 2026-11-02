@@ -9,7 +9,7 @@ local testAssert = require("assert")
 local reference = require("nupp.tools.reference")
 local explain = require("nupp.tools.explain")
 local lints = require("nupp.compiler.lints")
-local trace = require("nupp.profile.trace")
+local trace = require("debug.profile.trace")
 local project = require("nupp.tools.build.project")
 local json = require("testjson")
 

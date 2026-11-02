@@ -1,8 +1,146 @@
-module nupp.mem.representation.spi
+module nupp.spi
 
---[[Implementation interfaces consumed during ordinary module initialization.
-Discover with package.providers; the consumer chooses the unique highest priority.
-Omitted priority is zero. Importing these declarations loads no implementation.]]
+--[[
+`nupp.spi` declares service-provider contracts for host facilities.
+Packages advertise implementations through `package.providers`; consumers select
+one with `package.select`.
+
+```nupp:fragment
+local providers = package.providers<nupp.spi.ClockProvider>()
+local clock = assert(package.select(providers))
+print(clock.now())
+```
+
+Importing these declarations selects no provider. Each consumer retains its own
+selection and fallback policy. Omitted priorities are zero, and the unique
+highest priority wins where a consumer uses `package.select`.
+]]
+
+local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
+
+--- Cryptographically secure randomness for the executing host.
+---
+--- Use the host secure random source and propagate its failures. Deterministic
+--- pseudo-random generators do not satisfy this contract. Host requests may suspend.
+export interface EntropyProvider
+    @readonly priority: integer?
+
+    --- Returns exactly count random bytes. Accepts integers from zero through
+    --- 1048576; zero returns an empty string. Raises on invalid counts or failure.
+    @readonly randombytes: function(count: integer): string
+end
+
+--- Facts and a parallelism query for the executing ABI.
+export interface SystemProvider
+    @readonly priority: integer?
+
+    --- Platform name, such as macos, linux, windows, or browser.
+    @readonly platform: string
+
+    --- Architecture name, such as aarch64, x86_64, or wasm32.
+    @readonly architecture: string
+
+    --- Byte order: little or big.
+    @readonly endianness: string
+
+    --- Pointer width in bits: 32 or 64.
+    @readonly pointerbits: integer
+
+    --- Estimates usable execution units, always at least one.
+    @readonly availableparallelism: function(): integer
+end
+
+--- Clocks and cancellable waits, measured in milliseconds.
+---
+--- now is monotonic with an unspecified origin; walltime is Unix epoch time and
+--- must not be used for monotonic deadlines. wakeat and sleepuntil use the same
+--- origin as now. Finite non-negative durations and deadlines are required.
+--- Waits cooperate with the selected suspension implementation. Timer callbacks and
+--- cancellation functions belong to the current Lua state.
+export interface ClockProvider
+    @readonly priority: integer?
+
+    --- Schedules a deadline callback and returns its cancellation function.
+    --- Registration itself must not suspend the subscriber.
+    @readonly wakeat: function(deadline: number, resume: function(boolean): nil): function(): nil
+
+    --- Returns monotonic milliseconds used for durations and deadlines.
+    @readonly now: function(): number
+
+    --- Returns milliseconds since the Unix epoch.
+    @readonly walltime: function(): number
+
+    --- Waits for a relative interval through the current suspension context.
+    @readonly sleep: function(ms: number): nil
+
+    --- Waits until an absolute deadline in the now clock domain.
+    @readonly sleepuntil: function(deadline: number): nil
+end
+
+--- Canonical lowercase, hyphenated UUID generation for [](os.uuid4) and [](os.uuid7).
+---
+--- Version 4 provides random UUIDs and version 7 provides time-ordered UUIDs.
+--- Version and variant bits must be correct; randomness failures must be reported.
+export interface UuidProvider
+    @readonly priority: integer?
+
+    --- Generates a random version 4 UUID.
+    @readonly uuid4: function(): string
+
+    --- Generates a time-ordered version 7 UUID.
+    @readonly uuid7: function(): string
+end
+
+--- Construction of the canonical portable FIFO Buffer.
+---
+--- Return the shared Buffer type from nupp.text.internal.buffer. Implementations may
+--- use native objects or portable state, but all signatures and chaining results
+--- must retain that identity. Native pointer and serializer facilities are outside
+--- this portable contract.
+export interface BufferProvider
+    @readonly priority: integer?
+
+    --- Creates an independent FIFO buffer; accepts a size hint or an options table.
+    @readonly new: function(size: (integer | table)?, options: table?): SharedBuffer
+end
+
+--- Called with the results of a call whose caller stopped waiting.
+export type Late = function(...: any): nil
+
+--- What a full stream does with one more message: suspend the sender until
+--- the stream ships (`block`, outbound only), keep only the newest (`latest`),
+--- or drop the oldest past the limit (`dropoldest`).
+export type Policy = "block" | "latest" | "dropoldest"
+
+export interface HostProvider
+    --- Ranks a discovered implementation; the highest unique priority wins.
+    @readonly priority: integer?
+
+    --- Reports whether something is attached to answer requests at all.
+    @readonly attached: function(): boolean
+
+    --- Sends a request and suspends until the host answers it.
+    --- Raises the host's failure as an error in the caller.
+    @readonly call: function(kind: string, late: Late?, ...: any): ...any
+
+    --- Queues a request for the host without waiting for its answer.
+    @readonly post: function(kind: string, ...: any): nil
+
+    --- Appends a message to the kind's outbound stream, applying `policy` with
+    --- `limit` when the stream already holds that many unshipped messages.
+    @readonly send: function(kind: string, policy: Policy, limit: integer, ...: any): nil
+
+    --- Delivers the kind's inbound messages to `deliver` at each turn boundary,
+    --- keeping at most `limit` per turn as `policy` says. Returns two
+    --- functions: one stops the route when called; the other returns how many
+    --- messages it has dropped.
+    @readonly route: function(
+        kind: string,
+        policy: Policy,
+        limit: integer,
+        deliver: function(...: any): nil
+    ): (function(): nil, function(): integer)
+end
 
 --- Casts storage to elements of any supplied ctype.
 ---

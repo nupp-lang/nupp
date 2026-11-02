@@ -18,12 +18,12 @@ spends time; the trace-abort report helps explain failed compilation.
 
 For benchmarks, see [Profiling a benchmark](#profiling-a-benchmark).
 
-Both are available through `nupp.profile`. Sampling and trace sessions implement
-`profile.Session`. Its associated `Report` type lets a shared helper return the
-appropriate report type:
+Both are available through `debug.profile`. Sampling and trace sessions implement
+`debug.profile.Session`. Its associated `Report` type lets a shared helper
+return the appropriate report type:
 
 ```nupp:playground
-local profile = nupp.profile
+local profile = debug.profile
 
 local function finish<S is profile.Session>(borrows session: S): S.Report
     return session:stop()
@@ -60,7 +60,7 @@ intervals increase profiling overhead; use them for short captures.
 
 <a href="/images/speedscope-profile.jpg"><img src="/images/speedscope-profile.jpg" width="1280" height="720" style="max-width: 100%; height: auto" alt="A captured Nupp documentation-build profile rendered as a flame graph in speedscope's Left Heavy view"></a>
 
-A documentation build captured with `nupp.profile.sample`, shown in speedscope's
+A documentation build captured with `debug.profile.sample`, shown in speedscope's
 **Left Heavy** view. Wider blocks account for more samples. Click the screenshot
 to enlarge it.
 
@@ -110,10 +110,10 @@ Native VM states are excluded from those counts. Combine `run --profile` with
 Zones label phases such as loading, physics, and rendering. They let you
 distinguish calls to the same function from different phases of your program.
 
-`nupp.profile.zone` is a stack of names that the profiler reads:
+`debug.profile.zone` is a stack of names that the profiler reads:
 
 ```nupp:fragment
-local zone = nupp.profile.zone
+local zone = debug.profile.zone
 
 local function frame()
     zone.push("frame")
@@ -143,7 +143,7 @@ When no profiler is active, `push` and `pop` check a boolean and return. During
 profiling, calls inside a hot loop can interfere with trace compilation.
 
 Nupp inlines `push` and `pop` when called as statements through a local binding
-such as `local zone = nupp.profile.zone`. This removes the function call;
+such as `local zone = debug.profile.zone`. This removes the function call;
 `pop` is only inlined when its return value is unused.
 
 | Written as | Lowered | Reason |
@@ -152,7 +152,7 @@ such as `local zone = nupp.profile.zone`. This removes the function call;
 | `zone.pop()` | yes | the popped name is discarded |
 | `local name = zone.pop()` | no | the popped name is kept |
 | `holder.zone.push("frame")` | no | the receiver is not a bare name |
-| `other.push("frame")` | no | `other` is not `nupp.profile.zone` |
+| `other.push("frame")` | no | `other` is not `debug.profile.zone` |
 
 Place zone boundaries around phases, outside inner loops. The other forms
 above make ordinary function calls, as do `enter` and `leave`. `bench.keep`
@@ -246,11 +246,11 @@ comparison against a baseline. See
 
 ## Profiling from a program
 
-Use `nupp.profile` directly to capture part of a run, such as one frame, one
+Use `debug.profile` directly to capture part of a run, such as one frame, one
 request, or the work after warm-up:
 
 ```nupp:fragment
-local profile = nupp.profile
+local profile = debug.profile
 
 local session = profile.sample({intervalms = 2, zone = "frame/render"})
 renderEverything()
@@ -269,9 +269,12 @@ the session starts and cannot be widened afterwards.
 
 ### Collecting aborts
 
-Use `profile.trace()` to collect trace aborts:
+Use `profile.trace()` through a local `profile = debug.profile` alias to collect
+trace aborts. The separate [](debug.profile.trace) module describes the stable
+trace reasons; access that registry directly as `debug.profile.trace`.
 
 ```nupp:fragment
+local profile = debug.profile
 local session = profile.trace()
 runTheWorkload()
 local report = session:stop()

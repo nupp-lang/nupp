@@ -2,7 +2,7 @@ local fixtures = require("providerstate")
 local M = {}
 
 local function runtime(storage)
-    local advertised = {['nupp.mem.representation.spi.CstorageProvider'] = storage and {'fixture.storage'} or {}}
+    local advertised = {['nupp.spi.CstorageProvider'] = storage and {'fixture.storage'} or {}}
 
     return fixtures.instance(
         {

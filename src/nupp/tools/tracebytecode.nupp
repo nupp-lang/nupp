@@ -10,7 +10,7 @@ axes separate is what lets a diagnostic say "this path aborts" without claiming 
 different root trace cannot compile.
 ]]
 
-local trace = require("nupp.profile.trace")
+local trace = require("debug.profile.trace")
 local hash = require("nupp.compiler.hash")
 
 local bytecode = {}

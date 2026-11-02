@@ -68,8 +68,8 @@ assert(second.encode("x") == "second:x")
 assert(spi.providers(Codec)() == first)
 assert(package.providers(Codec)() == first)
 assert(package.providers == spi.providers and package.select == spi.select)
-local oldModuleAvailable = pcall(require, "nupp.spi")
-assert(not oldModuleAvailable)
+local contracts: any = require("nupp.spi")
+assert(contracts.providers == nil and contracts.select == nil and contracts.load == nil)
 local api = require("example.api")
 assert(spi.providers(api.Codec)() == first)
 local encode = first.encode
@@ -332,7 +332,7 @@ function M.optionalFallbackInitializationErrorsCannotMasqueradeAsAbsence()
     local cases = {
         {
             module = "nupp.runtime.timeprovider",
-            interface = "nupp.time.spi.Provider",
+            interface = "nupp.spi.ClockProvider",
             fallback = "nupp.runtime.provider.nativetime",
         },
         {
@@ -601,7 +601,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
     local cases = {
         {
             module = "nupp.time",
-            interface = "nupp.time.spi.Provider",
+            interface = "nupp.spi.ClockProvider",
             native = "nupp.runtime.provider.nativetime",
             browser = "nupp.runtime.browser.time",
             member = "sleep",
@@ -619,7 +619,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.runtime.system",
-            interface = "nupp.system.spi.Provider",
+            interface = "nupp.spi.SystemProvider",
             native = "nupp.runtime.provider.nativesystem",
             browser = "nupp.runtime.browser.system",
             member = "availableparallelism",
@@ -646,13 +646,13 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.runtime.uuidprovider",
-            interface = "nupp.util.spi.UuidProvider",
+            interface = "nupp.spi.UuidProvider",
             native = "nupp.runtime.provider.nativeuuid",
             browser = "nupp.runtime.browser.crypto"
         },
         {
             module = "nupp.runtime.entropy",
-            interface = "nupp.random.spi.Provider",
+            interface = "nupp.spi.EntropyProvider",
             native = "nupp.runtime.provider.nativecrypto",
             browser = "nupp.runtime.browser.crypto",
             member = "randombytes",
@@ -669,7 +669,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.text",
-            interface = "nupp.text.spi.Provider",
+            interface = "nupp.spi.BufferProvider",
             native = "nupp.runtime.provider.nativebuffer",
             browser = "nupp.runtime.provider.tablebuffer",
             member = "new",
@@ -678,7 +678,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.mem.representation",
-            interface = "nupp.mem.representation.spi.CstorageProvider",
+            interface = "nupp.spi.CstorageProvider",
             native = "nupp.runtime.provider.nativestorage",
             -- No other storage ships: a LuaJIT VM takes native storage on either host.
             browser = "fixture.otherstorage",
@@ -1003,7 +1003,7 @@ local SELECTING_FACADES = {
     {"binary.compress", "binary.compress.spi.Provider"},
     {"binary.hash.digest", "binary.hash.digest.spi.Provider"},
     {"io.gpu", "io.gpu.spi.Provider"},
-    {"nupp.host", "nupp.host.spi.Provider"},
+    {"nupp.host", "nupp.spi.HostProvider"},
     {"io.files", "io.files.spi.Provider"},
     {"nupp.io.http", "nupp.io.http.spi.Provider"},
     {"nupp.io.net", "nupp.io.net.spi.Provider"},
@@ -1012,14 +1012,14 @@ local SELECTING_FACADES = {
     {"io.net.tls", "io.net.tls.spi.Provider"},
     {"nupp.io.uri.provider", "io.uri.spi.Provider"},
     {"binary.hash.mac", "binary.hash.mac.spi.Provider"},
-    {"nupp.runtime.entropy", "nupp.random.spi.Provider"},
-    {"nupp.mem.representation", "nupp.mem.representation.spi.CstorageProvider"},
-    {"nupp.runtime.timeprovider", "nupp.time.spi.Provider"},
-    {"nupp.runtime.uuidprovider", "nupp.util.spi.UuidProvider"},
+    {"nupp.runtime.entropy", "nupp.spi.EntropyProvider"},
+    {"nupp.mem.representation", "nupp.spi.CstorageProvider"},
+    {"nupp.runtime.timeprovider", "nupp.spi.ClockProvider"},
+    {"nupp.runtime.uuidprovider", "nupp.spi.UuidProvider"},
     {"nupp.runtime.workersprovider", "nupp.workers.spi.Provider"},
     {"nupp.suspension.selected", "nupp.suspension.spi.Provider"},
-    {"nupp.runtime.system", "nupp.system.spi.Provider"},
-    {"nupp.text", "nupp.text.spi.Provider"},
+    {"nupp.runtime.system", "nupp.spi.SystemProvider"},
+    {"nupp.text", "nupp.spi.BufferProvider"},
 }
 
 -- Loads `facade` afresh against a provider index holding `priorities`, one

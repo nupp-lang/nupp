@@ -352,11 +352,20 @@ function M.runtimeImplementationInterfacesArePublic()
         [[
 module application
 local spi = package
-local {type CstorageProvider} = require("nupp.mem.representation.spi")
-local uuid = require("nupp.util.spi")
-local storage = spi.providers(CstorageProvider)
-local uuids = spi.providers(uuid.UuidProvider)
-export = {storage = storage, uuids = uuids}
+local contracts = require("nupp.spi")
+local entropy = spi.providers(contracts.EntropyProvider)
+local system = spi.providers(contracts.SystemProvider)
+local clock = spi.providers(contracts.ClockProvider)
+local uuid = spi.providers(contracts.UuidProvider)
+local buffer = spi.providers(contracts.BufferProvider)
+local host = spi.providers(contracts.HostProvider)
+local storage = spi.providers(contracts.CstorageProvider)
+local structs = spi.providers(contracts.StructvalueProvider)
+local function helpers(late: contracts.Late, policy: contracts.Policy, cast: contracts.CastElements): nil
+    late(policy, cast)
+end
+export = {entropy = entropy, system = system, clock = clock, uuid = uuid,
+    buffer = buffer, host = host, storage = storage, structs = structs, helpers = helpers}
 ]]
     )
     assert(found == "", found)

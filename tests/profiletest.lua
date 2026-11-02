@@ -1,5 +1,5 @@
 local testAssert = require("assert")
--- nupp.profile, both channels, plus the `nupp run` flags that drive them.
+-- debug.profile, both channels, plus the `nupp run` flags that drive them.
 --
 -- A sampler is timing-dependent by construction, so nothing here asserts a
 -- sample count. What it asserts is the shape: that a workload run under a
@@ -8,8 +8,8 @@ local testAssert = require("assert")
 -- the flame graph tools read. The workloads run against the clock rather than
 -- a fixed iteration count, so a faster machine does not turn into an empty
 -- report.
-local profile = require("nupp.profile")
-local zone = require("nupp.profile.zone")
+local profile = require("debug.profile")
+local zone = require("debug.profile.zone")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -101,7 +101,7 @@ local function burn(seconds)
 end
 
 local function fnewAbortPayload()
-    local registry = require("nupp.profile.trace")
+    local registry = require("debug.profile.trace")
     local vmdef = require("jit.vmdef")
     local errorCode
     for code, format in pairs(vmdef.traceerr) do
@@ -422,7 +422,7 @@ end
 -------------------------------------------------------------------------------
 
 function M.recordedTracePayloadUsesTheStaticReasonIdentity()
-    local registry = require("nupp.profile.trace")
+    local registry = require("debug.profile.trace")
     local reason, raw = registry.runtime(FNEW_ERROR_CODE, FNEW_OPCODE)
     testAssert.eq(
         reason.id,
@@ -434,7 +434,7 @@ function M.recordedTracePayloadUsesTheStaticReasonIdentity()
 end
 
 function M.unknownTracePayloadStaysVisibleWithoutInventedAdvice()
-    local registry = require("nupp.profile.trace")
+    local registry = require("debug.profile.trace")
     local reason, raw = registry.runtime(2147483647, "opaque")
     testAssert.eq(reason.id, "jit/runtime-unknown", "unknown stays unknown")
     testAssert.eq(reason.repair, nil, "an unknown event has no guessed repair")
@@ -445,7 +445,7 @@ end
 -- value must not widen the rendering.
 
 function M.publicTraceProfilesKeepTheirSerializedMetadataContract()
-    local registry = require("nupp.profile.trace")
+    local registry = require("debug.profile.trace")
     local project = require("nupp.tools.profilemetadata").capture
     local value = registry.profile()
     local wire = project(value)
@@ -472,7 +472,7 @@ function M.publicTraceProfilesKeepTheirSerializedMetadataContract()
 end
 
 function M.traceProfileDigestIsEightHexCharacters()
-    local registry = require("nupp.profile.trace")
+    local registry = require("debug.profile.trace")
     local described = registry.profile()
     assertMatch(described.bytecodeschema, "^%x%x%x%x%x%x%x%x$", "the bytecode schema digest")
     assertMatch(described.id, described.bytecodeschema, "and the profile id carries it")

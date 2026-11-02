@@ -230,7 +230,7 @@ return direct, cast, constructed
     testAssert.eq(countLines(code), countLines(source), "record returns keep source lines")
     local direct, cast, constructed = assert(loadstring(code))()
     local util = require("jit.util")
-    local trace = require("nupp.profile.trace")
+    local trace = require("debug.profile.trace")
     for _, fn in ipairs({direct, cast, constructed}) do
         testAssert.eq(fn(37).value, 37)
         local pc = 1

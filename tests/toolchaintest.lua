@@ -371,10 +371,10 @@ end
 -- compiled against, `231` for LLVM 23.1.
 function M.handCopiedPinsAgreeWithThePinsFile()
     local recorded = pins()
-    local trace = read(ROOT .. "/src/nupp/profile/trace.nupp")
+    local trace = read(ROOT .. "/src/debug/profile/trace.nupp")
     assert(
         trace:find('trace.pinnedluajitrevision = "' .. recorded.LUAJIT_REV .. '"', 1, true),
-        "src/nupp/profile/trace.nupp names a LuaJIT revision other than LUAJIT_REV"
+        "src/debug/profile/trace.nupp names a LuaJIT revision other than LUAJIT_REV"
     )
 
     local notice = read(ROOT .. "/host/NOTICE.md")

@@ -22,6 +22,7 @@ local MODULES: {[string]: {
     ["nupp.runtime.clocks"] = facility("host", "runtime.clocks"),
     ["nupp.runtime.standardos"] = {kind = "common"},
     ["nupp.runtime.packages"] = {kind = "common"},
+    ["nupp.spi"] = {kind = "common"},
     ["serde.hex"] = {kind = "common"},
     ["binary.hash"] = {kind = "common"},
     ["types"] = {kind = "common"},
@@ -30,9 +31,7 @@ local MODULES: {[string]: {
     ["own"] = {kind = "common"},
     ["binary.hash.digest"] = facility("runtime", "runtime.bitops"),
     ["binary.hash.mac.spi"] = {kind = "common"},
-    ["nupp.system.spi"] = {kind = "common"},
     ["nupp.host"] = facility("host", "runtime.host"),
-    ["nupp.host.spi"] = {kind = "common"},
     ["nupp.host.pump"] = {kind = "common"},
     ["nupp.host.internal.values"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.runtime.provider.nativehost"] = facility("runtime", "native.host"),
@@ -146,10 +145,10 @@ local MODULES: {[string]: {
     ["nupp.mem.soa"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.mem.span"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.runtime.native"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.profile"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.profile.trace"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.profile.zone"] = {kind = "unavailable", capability = "cinterop"},
-    -- Reaches the recorder through nupp.profile, so it is available exactly where that
+    ["debug.profile"] = {kind = "unavailable", capability = "cinterop"},
+    ["debug.profile.trace"] = {kind = "unavailable", capability = "cinterop"},
+    ["debug.profile.zone"] = {kind = "unavailable", capability = "cinterop"},
+    -- Reaches the recorder through debug.profile, so it is available exactly where that
     -- is.
     ["debug.bench"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.random"] = {kind = "common"},

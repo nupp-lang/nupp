@@ -297,7 +297,7 @@ interface cst.Hints
     logFormatIntrinsic: any
 
     --- "push" or "pop" when the call is on a name statically known to hold the module
-    --- `nupp.profile.zone` returns and carries the right arity. Lowering additionally
+    --- `debug.profile.zone` returns and carries the right arity. Lowering additionally
     --- needs statement position, so a `pop` whose popped name is kept stays an ordinary
     --- call.
     zoneIntrinsic: string?

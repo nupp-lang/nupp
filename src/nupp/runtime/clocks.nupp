@@ -1,15 +1,15 @@
 @!internal
 module nupp.runtime.clocks
 
-local contracts = require("nupp.time.spi")
+local contracts = require("nupp.spi")
 
 local target = require("nupp.runtime.target")
-const provider: contracts.Provider = require("nupp.runtime.timeprovider").provider ?? do
+const provider: contracts.ClockProvider = require("nupp.runtime.timeprovider").provider ?? do
     if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativetime") as contracts.Provider
+        yield _G.require("nupp.runtime.provider.nativetime") as contracts.ClockProvider
     end
     assert(target.host == "browser" and rawget(_G, "__nuppBrowser") ~= nil, "nupp.time: no clock provider is available")
-    yield _G.require("nupp.runtime.browser.time") as contracts.Provider
+    yield _G.require("nupp.runtime.browser.time") as contracts.ClockProvider
 end
 
-export const selected: contracts.Provider = provider
+export const selected: contracts.ClockProvider = provider
