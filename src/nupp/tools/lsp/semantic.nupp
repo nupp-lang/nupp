@@ -255,11 +255,6 @@ function semantic.syntaxKinds(result: semantic.Parse): {[lexer.Token]: string}
             mark(node.name, "decorator")
         elseif kind == "dedentString" then
             mark(node.keyword, keywordType)
-        elseif kind == "withStmt" then
-            mark(node.withTok, keywordType)
-            for _, binding in ipairs(node.bindings or {}) do
-                mark(binding.name, "variable")
-            end
         elseif kind == "bindingEntry" then
             if node.typeOnly then
                 mark(node.typeOnly, keywordType)

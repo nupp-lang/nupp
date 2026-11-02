@@ -125,7 +125,6 @@ local COVERAGE_STATEMENTS = {
     breakStmt = true,
     continueStmt = true,
     gotoStmt = true,
-    withStmt = true,
     yieldStmt = true,
 }
 
@@ -3424,7 +3423,6 @@ function gen.generate(
                         or child.kind == "elseifClause"
                         or child.kind == "elseClause"
                         or child.kind == "doStmt"
-                        or child.kind == "withStmt"
                         or child.kind == "pragmaStmt"
                     then
                         lowerSwitches(child, lazy)
@@ -4054,7 +4052,7 @@ function gen.generate(
     -- The exit a suffix takes is the statement it stands for, so it is emitted as
     -- one. A synthesized `return` carrying the captured results reaches the same
     -- cleanup packing, region encoding and construction paths a written return does,
-    -- which is what makes an exit out of a `with` scope or a lowered region discharge
+    -- which makes an exit from a cleanup region discharge
     -- what it is leaving. On `emitDepth` rather than on a local: `gen.generate` is at
     -- Lua's two hundred locals, and one more stops the file generating at all.
     function emitDepth.orExitReturn(node, temps)
@@ -8139,7 +8137,7 @@ function gen.generate(
             e("end", endTok and endTok.line or nil)
             return
 
-        elseif kind == "cleanupRegion" or kind == "withStmt" then
+        elseif kind == "cleanupRegion" then
             -- A declaration that became this region's first binding was a switch
             -- statement root before the region replaced it, and a switch in its
             -- value is lifted here as it would have been there. Lifting the first
@@ -8147,52 +8145,6 @@ function gen.generate(
             local first = x.bindings and x.bindings[1] or nil
             if first and first.expr and #x.bindings == 1 and emitDepth.switchContains(first.expr) then
                 emitDepth.lowerSwitches(first.expr)
-            end
-            if kind == "withStmt" then
-                x.enclosingCaptures = automaticCaptures(x.body, x.bindings)
-                x.capturesEnclosing = #x.enclosingCaptures > 0
-            end
-            local virtualBinding = kind == "withStmt"
-                and x.bindings
-                and x.bindings[1]
-                and x.bindings[1].virtualIndexedView
-                or nil
-            if virtualBinding then
-                local binding = x.bindings[1]
-                virtualBinding.anchorName = virtualBinding.anchorName or nextTemp()
-                e("do local " .. virtualBinding.anchorName .. "=", x.withTok and x.withTok.line or sourceLine(x))
-                emit(virtualBinding.source)
-                e("; local " .. binding.name.text .. "=", sourceLine(binding.expr))
-                emit(binding.expr)
-                e("; do")
-                if x.body then
-                    emit(x.body)
-                end
-                e("end end", x.endTok and x.endTok.line or nil)
-                return
-            elseif kind == "withStmt" and x.directCleanup then
-                local binding = x.bindings[1]
-                e("do local ", x.withTok and x.withTok.line or sourceLine(x))
-                e(binding.name.text .. "=", sourceLine(binding.expr))
-                local move = ownershipMoveOf(binding.expr)
-                local movedActive = move and activeFlag(move) or nil
-                emit(binding.expr)
-                if movedActive then
-                    e(("; %s=false"):format(movedActive))
-                end
-                e("; do")
-                if x.body then
-                    emit(x.body)
-                end
-                e("end;")
-                for _, cleanup in ipairs(binding.ownerCleanups or {}) do
-                    local call = cleanupCall(cleanup, binding.name.text)
-                    if call then
-                        e(call .. ";", x.endTok and x.endTok.line or nil)
-                    end
-                end
-                e("end")
-                return
             end
             ensureCleanupRuntime()
             local count = nextTemp()
@@ -8432,7 +8384,7 @@ function gen.generate(
                 local frame = framed and nextTemp() or nil
                 local frameParam = framed and nextTemp() or nil
                 local binding = x.bindings[1]
-                e("do const ", (x.startTok or x.withTok) and (x.startTok or x.withTok).line or sourceLine(x))
+                e("do const ", x.startTok and x.startTok.line or sourceLine(x))
                 e(("%s="):format(owners[1]), sourceLine(binding.expr))
                 local move = ownershipMoveOf(binding.expr)
                 local movedActive = move and activeFlag(move) or nil
@@ -8548,10 +8500,7 @@ function gen.generate(
                     end
                     emitDepth.pushCaptureFrame(captures, stateFrame)
                 else
-                    e(
-                        ("do local %s=0; local "):format(count),
-                        (x.startTok or x.withTok) and (x.startTok or x.withTok).line or sourceLine(x)
-                    )
+                    e(("do local %s=0; local "):format(count), x.startTok and x.startTok.line or sourceLine(x))
                     e(table.concat(owners, ","))
                     for j = 1, #(x.bindings or {}) do
                         if active[j] then

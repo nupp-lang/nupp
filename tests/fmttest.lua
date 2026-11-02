@@ -225,12 +225,18 @@ function M.rejectedLexicalOwnershipFormsRemainUnchanged()
         "local owner = @unsafe adopt raw as affine(any)",
         "local raw = @unsafe release owner",
         "drop owner",
-        "handle suspension with handler do end",
     }) do
         local formatted, errors = formatter:format(source, "test.nupp")
         testAssert.eq(formatted, source)
         testAssert.eq(errors[1] and errors[1].code, "NUPP1005")
     end
+end
+
+function M.removedWithSyntaxIsNotFormattedAsAValidProgram()
+    local source = "with owner = acquire() do end"
+    local formatted, errors = formatter:format(source, "test.nupp")
+    testAssert.eq(formatted, source)
+    assert(#errors > 0, "removed syntax must fail normal parsing")
 end
 
 function M.stageZeroSourcesUseCanonicalForms()

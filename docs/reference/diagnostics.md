@@ -165,7 +165,7 @@ that page:
 | Reflection | [reflection.md](../learn/language/reflection.md) | `NUPP2414`, `NUPP2415`, `NUPP2416`, `NUPP2418` |
 | Refinements | [refinements.md](../learn/language/types/refinements.md) | `NUPP2122` |
 | Structure-of-arrays storage | [structure-of-arrays.md](../learn/runtime/data/structure-of-arrays.md) | `NUPP2009`, `NUPP2403` |
-| Suspension | [suspension.md](../learn/runtime/concurrency/suspension.md) | `NUPP2603`, `NUPP2701`, `NUPP2702`, `NUPP2706` |
+| Suspension | [suspension.md](../learn/runtime/concurrency/suspension.md) | `NUPP2603`, `NUPP2701`, `NUPP2702` |
 | Do expressions | [do-expressions.md](../learn/language/do-expressions.md) | `NUPP2141`, `NUPP2142` |
 | Exit suffixes | [exit-suffixes.md](../learn/language/exit-suffixes.md) | `NUPP2002`, `NUPP2149`, `NUPP2517`, `NUPP2605` |
 | Switch expressions | [switch-expressions.md](../learn/language/switch-expressions.md) | `NUPP2137` through `NUPP2142`, `NUPP3001` |

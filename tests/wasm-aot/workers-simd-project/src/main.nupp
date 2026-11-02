@@ -9,7 +9,8 @@ local lanes: integer = 0
 -- One child per job: each forks the kernel and waits for it, and the children wait
 -- together, so the kernels run on their lanes at the same time.
 local function compare(): nil
-    with lane = tasks.scope() do
+    do
+        local lane = tasks.scope();
         local produced = lane:work(64, 2, kernels.scaled):await()
         lanes = lanes + 1
         agreed = agreed and #produced == #expected
@@ -19,7 +20,8 @@ local function compare(): nil
     end
 end
 
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope();
     for _ = 1, 8 do
         scope:spawn(compare)
     end

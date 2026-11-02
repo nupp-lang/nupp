@@ -2,7 +2,6 @@ local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("fragment")
 local gen = require("nupp.compiler.lua.gen")
-local fmt = require("nupp.tools.fmt")
 local envMod = require("nupp.compiler.project.env")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
@@ -78,7 +77,7 @@ function M.repeatConditionsCanReadBodyOwnersBeforeCleanup()
     testAssert.eq(chunk(), "r")
 end
 
-function M.withIsContextualAndScopesAnAffineOwner()
+function M.anOrdinaryScopeClosesAnAffineOwner()
     local ordinary = parser.parse(
         "local with = function(value) return value end\nreturn with(1)",
         "automatic-destruction-test.nupp"
@@ -87,31 +86,20 @@ function M.withIsContextualAndScopesAnAffineOwner()
 
     local chunk = compile(
         PRELUDE .. table.concat(
-            {"", "with value = open_resource('w') do", "   value.name = value.name", "end", "return calls",},
+            {"", "do local value = open_resource('w') ;", "   value.name = value.name", "end", "return calls",},
             "\n"
         )
     )
     testAssert.eq(chunk(), "w")
 end
 
-function M.aProvenNonRaisingWithUsesDirectCleanup()
-    local chunk, code = compile(
-        PRELUDE .. table.concat(
-            {"", "with value = open_resource('f') do", "   value.name = value.name", "end", "return calls",},
-            "\n"
-        )
-    )
-    testAssert.eq(chunk(), "f")
-    assert(not code:find("xpcall", 1, true), "a proven non-raising with should call its terminal directly:\n" .. code)
-end
-
-function M.aWithThatMayRaiseKeepsProtectedCleanup()
+function M.aScopeThatMayRaiseKeepsProtectedCleanup()
     local chunk, code = compile(
         PRELUDE .. table.concat(
             {
                 "",
                 "local function run()",
-                "   with value = open_resource('p') do",
+                "   do local value = open_resource('p') ;",
                 "      error(value.name)",
                 "   end",
                 "end",
@@ -124,10 +112,10 @@ function M.aWithThatMayRaiseKeepsProtectedCleanup()
     local ok, calls = chunk()
     testAssert.eq(ok, false)
     testAssert.eq(calls, "p")
-    assert(code:find("xpcall", 1, true), "a possibly raising with must retain body protection:\n" .. code)
+    assert(code:find("xpcall", 1, true), "a possibly raising scope must retain body protection:\n" .. code)
 end
 
-function M.aWithWhoseTerminalMayRaiseKeepsProtectedCleanup()
+function M.aScopeWhoseTerminalMayRaiseKeepsProtectedCleanup()
     local source = table.concat(
         {
             "local record Resource",
@@ -140,7 +128,7 @@ function M.aWithWhoseTerminalMayRaiseKeepsProtectedCleanup()
             "   return new Resource(name = name)",
             "end",
             "local function run()",
-            "   with value = open_resource('c') do",
+            "   do local value = open_resource('c') ;",
             "      value.name = value.name",
             "   end",
             "end",
@@ -153,12 +141,12 @@ function M.aWithWhoseTerminalMayRaiseKeepsProtectedCleanup()
     assert(code:find("xpcall", 1, true), "a possibly raising terminal must retain protected cleanup:\n" .. code)
 end
 
-function M.withAcquiresLeftToRightAndDropsInReverse()
+function M.scopeAcquisitionsRunLeftToRightAndDropInReverse()
     local chunk = compile(
         PRELUDE .. table.concat(
             {
                 "",
-                "with first = open_resource('a'), second = open_resource('b') do",
+                "do local first = open_resource('a'); local second = open_resource('b') ;",
                 "   calls = calls .. 'x'",
                 "end",
                 "return calls",
@@ -169,16 +157,16 @@ function M.withAcquiresLeftToRightAndDropsInReverse()
     testAssert.eq(chunk(), "xba")
 end
 
-function M.withDropsOnRaisedAndReturnedExits()
+function M.scopedOwnersDropOnRaisedAndReturnedExits()
     local chunk = compile(
         PRELUDE .. table.concat(
             {
                 "",
                 "local function returning(): string",
-                "   with value = open_resource('r') do return value.name end",
+                "   do local value = open_resource('r') ; return value.name end",
                 "end",
                 "local function raising()",
-                "   with value = open_resource('e') do error('body') end",
+                "   do local value = open_resource('e') ; error('body') end",
                 "end",
                 "local result = returning()",
                 "local ok = pcall(raising)",
@@ -193,29 +181,7 @@ function M.withDropsOnRaisedAndReturnedExits()
     testAssert.eq(calls, "re")
 end
 
-function M.withBindingCannotEscapeOrBeDroppedEarly()
-    testAssert.eq(
-        codes(
-            PRELUDE .. table.concat(
-                {
-                    "",
-                    "local function escape(): Resource",
-                    "   with value = open_resource('x') do return value end",
-                    "end",
-                },
-                "\n"
-            )
-        ),
-        "NUPP2608"
-    )
-
-    testAssert.eq(
-        codes(PRELUDE .. table.concat({"", "with value = open_resource('x') do own.drop(value) end",}, "\n")),
-        "NUPP2602"
-    )
-end
-
-function M.withOwnersCanBeReborrowedExclusively()
+function M.scopedOwnersCanBeReborrowedExclusively()
     local chunk = compile(
         PRELUDE
         .. "\n"
@@ -223,11 +189,11 @@ function M.withOwnersCanBeReborrowedExclusively()
 local function rename(exclusive value: Resource): nil
     value.name = 'changed'
 end
-with value = open_resource('fresh') do
+do local value = open_resource('fresh') ;
     rename(value)
 end
 local owner = open_resource('named')
-with value = owner do
+do local value = owner ;
     rename(value)
 end
 return calls
@@ -236,14 +202,15 @@ return calls
     testAssert.eq(chunk(), "changedchanged")
 end
 
-function M.withReborrowsRejectLiveAliasesAndRecoverAtScopeExit()
+function M.scopedReborrowsRejectLiveAliasesAndRecoverAtScopeExit()
     local source = PRELUDE
         .. "\n"
         .. [[
 local function rename(exclusive value: Resource): nil value.name = 'changed' end
-with value = open_resource('fresh') do
+local function view(borrows value: Resource): Resource borrows(value) return value end
+do local value = open_resource('fresh') ;
     do
-        local alias = value
+        local alias = view(value)
         rename(value)
         print(alias.name)
     end
@@ -254,7 +221,7 @@ end
     testAssert.eq(codes((source:gsub("        rename%(value%)\n", ""))), "")
 end
 
-local WITH_SPAN = [[
+local SPAN_SOURCE = [[
 local array = require("nupp.mem.array")
 local span = require("binary.span")
 @aot
@@ -264,16 +231,16 @@ end
 local values = array.scalar(array.float, 4)
 ]]
 
-function M.withWritableSpansKeepTheirSourceLoansUntilExit()
+function M.scopedWritableSpansKeepTheirSourceLoansUntilExit()
     testAssert.eq(
         codes(
-            WITH_SPAN
+            SPAN_SOURCE
             .. [[
-with writable = values:write() do
+do local writable = values:write() ;
     fill(writable)
 end
 local owner = values:write()
-with writable = owner do
+do local writable = owner ;
     fill(writable)
 end
 local result = values:read()
@@ -284,15 +251,16 @@ print(result[1])
     )
 
     for _, operation in ipairs({"local other = values:write()", "local other = values:read()", "own.drop(values)",}) do
-        local actual = codes(WITH_SPAN .. "\nwith writable = values:write() do\n" .. operation .. "\nend")
+        local actual = codes(SPAN_SOURCE .. "\ndo local writable = values:write() ;\n" .. operation .. "\nend")
         assert(actual:find("NUPP260[27]"), operation .. ": " .. actual)
     end
 end
 
-function M.withWritableSpansRejectOverlappingAcquisitions()
+function M.scopedWritableSpansRejectOverlappingAcquisitions()
     local actual = codes(
-        WITH_SPAN .. [[
-with left = values:write(), right = values:write() do
+        SPAN_SOURCE
+        .. [[
+do local left = values:write(); local right = values:write() ;
     fill(left)
     fill(right)
 end
@@ -301,11 +269,11 @@ end
     assert(actual:find("NUPP2607", 1, true), actual)
 end
 
-function M.withWritableSpansRejectLiveDerivedViews()
-    for _, derive in ipairs({"writable", "writable:shared()", "writable:slice(1, 2)"}) do
-        local source = WITH_SPAN
+function M.scopedWritableSpansRejectLiveDerivedViews()
+    for _, derive in ipairs({"writable:shared()", "writable:slice(1, 2)"}) do
+        local source = SPAN_SOURCE
             .. [[
-with writable = values:write() do
+do local writable = values:write() ;
     do
         local child = ]]
             .. derive
@@ -320,53 +288,6 @@ end
         testAssert.eq(codes(source), "NUPP2607", derive)
         testAssert.eq(codes((source:gsub("        fill%(writable%)\n", ""))), "", derive)
     end
-end
-
-function M.withWritableSpanViewsCannotEscapeTheirExtent()
-    local actual = codes(
-        WITH_SPAN
-        .. [[
-local function escape(exclusive owner: array.Array<float>): span.Span<float> borrows (owner)
-    with writable = owner:write() do
-        return writable:shared()
-    end
-end
-]]
-    )
-    testAssert.eq(actual, "NUPP2619")
-end
-
-function M.gotoCannotEnterAWithScope()
-    testAssert.eq(
-        codes(
-            PRELUDE .. table.concat(
-                {
-                    "",
-                    "goto inside",
-                    "with value = open_resource('x') do",
-                    "   ::inside::",
-                    "   print(value.name)",
-                    "end",
-                },
-                "\n"
-            )
-        ),
-        "NUPP2706"
-    )
-end
-
-function M.withFormatsWrappedBindingsIdempotently()
-    local source = "with first_resource = open_resource('a very long resource "
-        .. "name that forces wrapping'), second_resource = open_resource('another "
-        .. "very long resource name that forces wrapping') do\n"
-        .. "use(first_resource, second_resource)\nend"
-    local formatted, errors = fmt.format(source, "with-test.nupp")
-    testAssert.eq(#errors, 0)
-    assert(formatted:find("with\n    first_resource", 1, true), formatted)
-    assert(formatted:find("\n    second_resource", 1, true), formatted)
-    assert(formatted:find("\ndo\n", 1, true), formatted)
-    local again = fmt.format(formatted, "with-test.nupp")
-    testAssert.eq(again, formatted)
 end
 
 function M.fallthroughDestroysAnOrdinaryOwner()

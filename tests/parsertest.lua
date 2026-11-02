@@ -975,7 +975,22 @@ function M.ifClausesBindANameFollowedByEquals()
     testAssert.eq(clauses[4].cond.kind, "name")
 end
 
-function M.legacyOwnershipAndHandlerFormsHaveMachineApplicableFixes()
+function M.withAcquisitionSyntaxIsRejected()
+    for _, source in ipairs({
+        "with owner = acquire() do end",
+        "with first = acquire(), second = acquire() do end",
+        "with owner: Owner = acquire() do end",
+        "with\n    owner = acquire()\ndo\nend",
+    }) do
+        assert(#parser.parse(source).errors > 0, source)
+    end
+    local ordinary = assertRoundtrip(
+        "local with = function(value) return value end\nlocal handle, suspension = 1, 2\nwith = with(handle + suspension)\nreturn with"
+    )
+    testAssert.eq(#ordinary.errors, 0)
+end
+
+function M.legacyOwnershipFormsHaveMachineApplicableFixes()
     for _, case in ipairs({
         {source = "local raw = @unsafe release owner", fixed = "local raw = @unsafe own.release(owner)",},
         {
@@ -983,10 +998,6 @@ function M.legacyOwnershipAndHandlerFormsHaveMachineApplicableFixes()
             fixed = "local owner = @unsafe own.adopt<affine(integer, close)>(raw)",
         },
         {source = "drop owner", fixed = "own.drop(owner)"},
-        {
-            source = "handle suspension with frame.handler do print('inside') end",
-            fixed = "with installation = coroutine.suspension.host.install(frame.handler) do print('inside') end",
-        },
     }) do
         local parsed = parser.parse(case.source)
         testAssert.eq(#parsed.errors, 1, case.source)

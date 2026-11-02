@@ -72,7 +72,7 @@ function M.directFieldsAndWholeRowsKeepValueSemantics()
         PRELUDE
         .. [[
 local particles = soa.alloc(ffi.typeof<Particle>(), 4)
-with rows = particles:write() do
+do local rows = particles:write() ;
     for index = 1, #rows do
         rows[index].x = index
         rows[index].y = index * 2
@@ -197,12 +197,12 @@ return particles:read()[3].x
     assert(compact:find("[0+index-1].x", 1, true), "span range did not index its captured C array")
 end
 
-function M.nonRaisingWithOverDirectFieldsNeedsNoProtectedBody()
-    local value, _, parsed = runs(
+function M.scopedDirectFieldsKeepTheirResults()
+    local value = runs(
         PRELUDE
         .. [[
 local particles = soa.alloc(ffi.typeof<Particle>(), 2)
-with rows = particles:write() do
+do local rows = particles:write() ;
     for index = 1, #rows do
         rows[index].x = index
         rows[index].x += 0.5
@@ -213,23 +213,7 @@ own.drop(particles)
 return value
 ]]
     )
-    testAssert.eq(value, 2.5, "direct with result")
-    local direct = false
-
-    local function walk(node)
-        if type(node) ~= "table" then
-            return
-        end
-        if node.kind == "withStmt" then
-            direct = node.directCleanup == true
-        end
-        for _, child in ipairs(node) do
-            walk(child)
-        end
-    end
-
-    walk(parsed.root)
-    assert(direct, "a non-raising SoA with should select direct cleanup")
+    testAssert.eq(value, 2.5, "scoped direct-field result")
 end
 
 function M.compoundAssignmentEvaluatesTheIndexOnce()

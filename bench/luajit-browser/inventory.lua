@@ -24,7 +24,6 @@ local report = {
     totals = {
         modules = 0,
         sourceSyntaxAccepted = 0,
-        withSyntax = 0,
         protectedCleanup = 0,
         protectedCleanupWithSuspension = 0,
         directSuspension = 0,
@@ -68,14 +67,11 @@ for name, entry in pairs(state.modules) do
             compat.syntax(parsed, function(at, reason)
                 reasons[#reasons + 1] = {line = at.line, reason = reason}
             end)
-            local withCount, yieldCount = 0, 0
+            local yieldCount = 0
 
             local function visit(node)
                 if node.trivia then
                     return
-                end
-                if node.kind == "withStmt" then
-                    withCount = withCount + 1
                 end
                 if node.kind == "dotIndex"
                     and node.name.text == "yield"
@@ -113,7 +109,6 @@ for name, entry in pairs(state.modules) do
                 module = name,
                 path = path,
                 syntaxRejections = reasons,
-                withCount = withCount,
                 authoredCoroutineYieldReads = yieldCount,
                 protectedCleanup = protected,
                 effects = entry.effects,
@@ -125,9 +120,6 @@ for name, entry in pairs(state.modules) do
             t.modules = t.modules + 1
             if #reasons == 0 then
                 t.sourceSyntaxAccepted = t.sourceSyntaxAccepted + 1
-            end
-            if withCount > 0 then
-                t.withSyntax = t.withSyntax + 1
             end
             if protected then
                 t.protectedCleanup = t.protectedCleanup + 1

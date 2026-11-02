@@ -96,7 +96,8 @@ local record Context is Digest
         -- Take custody before any operation that can raise, including allocation
         -- and destination validation. The context closes on every exit.
         local size = self.size
-        with owner = new StateOwner(state = self.state) do
+        do
+            local owner = new StateOwner(state = self.state)
             if #destination < size then
                 error("digest destination needs " .. size .. " bytes", 2)
             end
@@ -108,7 +109,8 @@ local record Context is Digest
 
     function digest(takes self): string
         local size = self.size
-        with owner = new StateOwner(state = self.state) do
+        do
+            local owner = new StateOwner(state = self.state)
             local bytes = storage.allocateBytes(size)
             local output = span.writecarray(bytes, size)
             owner.state:finish(output)
@@ -119,7 +121,8 @@ local record Context is Digest
 
     function hexdigest(takes self): string
         local size = self.size
-        with owner = new StateOwner(state = self.state) do
+        do
+            local owner = new StateOwner(state = self.state)
             local bytes = storage.allocateBytes(size)
             local output = span.writecarray(bytes, size)
             owner.state:finish(output)

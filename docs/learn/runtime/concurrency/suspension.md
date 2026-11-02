@@ -61,7 +61,8 @@ local function printCompilerVersion(): nil
 end
 
 local function application(): nil
-    with installation = coroutine.suspension.host.install(frame.handler) do
+    do
+        local installation = coroutine.suspension.host.install(frame.handler)
         printCompilerVersion()
     end
 end
@@ -232,7 +233,8 @@ local function childWork(): nil
 end
 
 local function application(): nil
-    with installation = coroutine.suspension.host.install(frame.handler) do
+    do
+        local installation = coroutine.suspension.host.install(frame.handler)
         local task = suspension.create(childWork)
         local ok, problem = coroutine.resume(task)
         if not ok then
@@ -425,7 +427,8 @@ them, and `goto` may reach a label outside:
 local frame = require("scheduler")
 
 local function choose(): integer
-    with installation = coroutine.suspension.host.install(frame.handler) do
+    do
+        local installation = coroutine.suspension.host.install(frame.handler)
         return 1
     end
 end
@@ -436,22 +439,6 @@ print(choose())
 The lowering uses the same completion protocol as automatic resource cleanup,
 which preserves a body failure as the primary error when closing the
 installation fails too, while still reporting the close failure.
-
-Control cannot jump *into* a handled region, because such a jump would bypass
-handler installation and the lexical state before the label:
-
-```nupp:refused [wrong.nupp]
-local frame = require("scheduler")
-
-goto inside
-with installation = coroutine.suspension.host.install(frame.handler) do
-    ::inside::
-end
-```
-
-```text [nupp check wrong.nupp]
-error: NUPP2706: control cannot enter a `with` scope
-```
 
 ## C-call boundaries
 

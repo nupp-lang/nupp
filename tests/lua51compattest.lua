@@ -387,7 +387,7 @@ local record Guard value: number end
 local function close(takes guard: Guard): nil end
 local function acquire(): affine(Guard, close) return new Guard(value=1) end
 local function work(fail: boolean): number
-    with item = acquire() do
+    do local item = acquire() ;
         if fail then error("failure") end
         return item.value
     end

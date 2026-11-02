@@ -2493,7 +2493,7 @@ end
 local record R
     x: integer
     constructor(self, early: boolean): R
-        with guard = new Guard() do
+        do local guard = new Guard() ;
             self.x = 1
             if early then return end
         end

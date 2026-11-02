@@ -7,11 +7,11 @@ import { lua } from "@codemirror/legacy-modes/mode/lua";
 
 const NUPP_KEYWORDS = new Set([
   "as", "associated", "borrows", "cdef", "const", "constructor", "continue",
-  "each", "exclusive", "from", "global", "handle", "infer", "interface", "is",
+  "each", "exclusive", "from", "global", "infer", "interface", "is",
   "keyof", "match", "matches", "metamethod", "new", "out", "preserves",
   "record", "releases", "resumes", "retains", "scoped", "struct",
-  "suspension", "takes", "type", "typeerror", "unpackof", "when",
-  "where", "with", "writekeyof", "writeof", "yields",
+  "takes", "type", "typeerror", "unpackof", "when",
+  "where", "writekeyof", "writeof", "yields",
 ]);
 
 const LUA_KEYWORDS = new Set([

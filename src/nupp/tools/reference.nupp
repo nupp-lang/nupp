@@ -1627,54 +1627,6 @@ return m
     ),
 
     new reference.Section(
-        title = "Exact affine scopes",
-        codes = {"NUPP2602", "NUPP2608", "NUPP2615"},
-        body = [=[
-`with name = acquire() do ... end` gives a terminal-bearing affine value one
-exact extent. The owner moves into a hidden slot and the visible name is a
-scoped borrow, so it cannot be moved, returned, stored, reassigned, captured by
-an escaping closure, or dropped early.
-
-The hidden owner drops on fallthrough, return, loop control, outward goto, and
-raised errors. Multiple acquisitions run left to right and drop right to left;
-each successful prefix remains protected if a later acquisition fails. `with`
-uses the same cleanup region as automatic lexical destruction.
-
-A single-acquisition extent with ordinary fallthrough lowers to a plain block
-and direct terminal calls when the body and terminals are proven non-raising.
-Protected lowering is retained whenever those proofs or that control-flow shape
-are absent.
-
-`with` is contextual at statement position when a name followed by `=` or `:`
-selects this form. Elsewhere it remains an ordinary identifier. Use a normal
-affine local plus `drop` when early release or ownership transfer is intended.
-]=],
-        example = [=[
-local m = {}
-
-local record Guard
-    active: boolean
-end
-
-local function finish(takes guard: Guard): nil
-    guard.active = false
-end
-
-local function acquire(): affine(Guard, finish)
-    return new Guard(active = true)
-end
-
-function m.run(): boolean
-    with guard = acquire() do
-        return guard.active
-    end
-end
-
-return m
-]=]
-    ),
-
-    new reference.Section(
         title = "C interop",
         codes = {"NUPP2203", "NUPP2101", "NUPP2502", "NUPP2514", "NUPP2602", "NUPP2619", "NUPP2707"},
         body = [=[
@@ -2326,7 +2278,7 @@ return m
 
     new reference.Section(
         title = "Waiting and concurrency",
-        codes = {"NUPP2706"},
+        codes = {},
         body = [=[
 A suspension-aware call is an ordinary call. There is no `async function`, no
 `await`, no future in a return type, and no asynchronous half of the standard
@@ -2338,21 +2290,20 @@ propagates through resolved calls and across modules, separately from parameter
 and result types. `@nosuspend` refuses that fact rather than consuming it, and
 the Suspension regions section covers it.
 
-`with installation = nupp.suspension.host.install(HANDLER) do ... end` installs a
-host's scheduling policy for the region and everything called beneath it, per
-coroutine rather than per process. `HANDLER` is an ordinary value satisfying
-`nupp.suspension.host.Handler`, not a keyword or a global scheduler. Where none is installed a wait drives the
+A local `installation = coroutine.suspension.host.install(handler)` installs a
+host's scheduling policy until the installation leaves scope, per coroutine
+rather than per process. `handler` is an ordinary value satisfying
+`coroutine.suspension.host.Handler`. Where none is installed a wait drives the
 registered readiness sources on the current thread, which is what a
 command-line program wants. In a browser application only the root coroutine
 can wait on the page; anywhere else a wait with no handler raises "cannot
-suspend here". `NUPP2706` rejects a jump into the region, which would bypass
-installation.
+suspend here".
 
 `nupp.tasks` runs several bodies concurrently, each in its own coroutine, and
 one body parking is what lets the next one run. A scope opened with
 `nupp.tasks.open` owns children started over time, bounds them with `limit`,
-and settles them where its `with` ends. Two whole-family calls take a complete
-family instead:
+and settles them when its local owner leaves scope. Two whole-family calls
+take a complete family instead:
 
 - `gather` returns values and errors side by side, for a caller handling each.
 - `race` returns the first settled value and its index, then cancels the rest.
@@ -2387,7 +2338,8 @@ function m.statuses(urls: {string}): {integer}
     end
 
     local codes: {integer} = {}
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope()
         for index, url in ipairs(urls) do
             scope:spawn(codes, index, url, storeStatus)
         end
@@ -2402,7 +2354,7 @@ return m
 
     new reference.Section(
         title = "Suspension regions",
-        codes = {"NUPP2701", "NUPP2702", "NUPP2706"},
+        codes = {"NUPP2701", "NUPP2702"},
         body = [=[
 `@nosuspend do ... end` refuses, while compiling, any call inside it that may
 suspend the current coroutine. It is lexical and static: it erases to an
@@ -2435,8 +2387,6 @@ boundary under `NUPP2702`.
 `@nosuspend` annotates a `do` region or a function type; the unprefixed name has
 no special grammar.
 
-Handled exits release first, and `NUPP2706` rejects jumps in, which would bypass
-installation.
 ]=],
         example = [=[
 local m = {}

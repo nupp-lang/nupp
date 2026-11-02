@@ -552,12 +552,12 @@ return work
     assert(not code:find("values:drop()", 1, true), code)
 end
 
-function M.withBindingsUseTheSameVirtualWritableRoot()
+function M.scopedBindingsUseTheSameVirtualWritableRoot()
     local code = compile(
         HEADER
         .. [[
 local function work(exclusive storage: Cell[?], count: integer): nil
-    with values = span.writecarray(storage, count) do
+    do local values = span.writecarray(storage, count) ;
         for index = 1, #values do
             values[index].value = 4
         end

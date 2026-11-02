@@ -756,7 +756,7 @@ end
 
 -- affine(T) takes T's cleanup from its Closeable claim, and a T declared later
 -- has not made that claim when the annotation resolves: the spec's compile and the
--- kernel's bind then returned owners with no terminal, and every `with` over them
+-- kernel's bind then returned owners with no terminal, and local ownership of them
 -- was refused with NUPP2615. So each generated record comes before the ones that
 -- name it.
 function M.gpuBindingDeclaresEachRecordBeforeItIsNamed()
@@ -826,10 +826,10 @@ local function addMask(exclusive output: span.WriteSpan<uint32>, borrows input: 
     end
 end
 
-with context = gpu.open() do
-    with gpuInput = context:buffer(array.uint32, 2), gpuOutput = context:buffer(array.uint32, 2) do
-        with kernel = addMask:compile(context) do
-            with binding = kernel:bind(gpuOutput, gpuInput) do
+do local context = gpu.open() ;
+    do local gpuInput = context:buffer(array.uint32, 2); local gpuOutput = context:buffer(array.uint32, 2) ;
+        do local kernel = addMask:compile(context) ;
+            do local binding = kernel:bind(gpuOutput, gpuInput) ;
                 binding:dispatch(math.u32.wrap(3))
             end
         end

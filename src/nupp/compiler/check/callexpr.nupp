@@ -1532,8 +1532,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     ("cannot suspend while temporal obligation %q is live"):format(obligation),
                     nil,
                     {
-                        help = "suspend inside a `with` installation scope, where a "
-                        .. "handler is responsible for resuming or cancelling it",
+                        help = "suspend under an installed handler responsible for "
+                        .. "resuming or cancelling the operation",
                     }
                 )
             end

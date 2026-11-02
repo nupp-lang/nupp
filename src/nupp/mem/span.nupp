@@ -172,8 +172,6 @@ projects the physical pointer and count arguments automatically.
 ::: seealso
 - [ownership.md](docs/learn/runtime/ownership/index.md) for what makes a writable span
   affine and when its access ends
-- [exact-affine-scopes.md](docs/learn/runtime/ownership/exact-scopes.md) for the scopes
-  that end a writable span, including the `with` block
 - [c-interop.md](docs/learn/runtime/c-interop/index.md) for the boundary `ref` and
   `countedBy` sit on
 :::

@@ -92,7 +92,8 @@ export record Pump
         local pump = self
         local task = coroutine.create(function(): nil
             local succeeded, result = pcall(function(): boolean?
-                with installation = suspensionHost.install(pump.handler) do
+                do
+                    local installation = suspensionHost.install(pump.handler)
                     return body()
                 end
             end)

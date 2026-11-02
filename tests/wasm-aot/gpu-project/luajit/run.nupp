@@ -20,10 +20,15 @@ do
 end
 local output = array.scalar(array.uint32, 2)
 local gpu = require("gpu")
-with context = gpu.open() do
-    with gpuInput = context:buffer(array.uint32, 2), gpuOutput = context:buffer(array.uint32, 2) do
-        with kernel = addMask:compile(context) do
-            with binding = kernel:bind(gpuOutput, gpuInput) do
+do
+    local context = gpu.open();
+    do
+        local gpuInput = context:buffer(array.uint32, 2);
+        local gpuOutput = context:buffer(array.uint32, 2);
+        do
+            local kernel = addMask:compile(context);
+            do
+                local binding = kernel:bind(gpuOutput, gpuInput);
                 context:upload(gpuInput, input:read())
                 binding:dispatch(math.u32.wrap(3))
             end

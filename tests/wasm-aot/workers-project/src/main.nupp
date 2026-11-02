@@ -6,7 +6,8 @@ local counter = require("counter")
 for index = 1, 100 do
     assert(counter.next() == index)
 end
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope();
     local independent = scope:work(jobs.nextCounter)
     assert(independent:await() == 1, "each lane loads its own implementation from the shared SPI index")
     assert(counter.next() == 101, "worker state is independent of the caller")
@@ -51,12 +52,14 @@ local fanned: {integer} = {}
 -- One child per job: each forks its job and waits for it, and the children wait
 -- together, so the jobs run on their lanes at the same time.
 local function checksumInto(index: integer): nil
-    with lane = tasks.scope() do
+    do
+        local lane = tasks.scope();
         fanned[index] = lane:work("browser-worker", 64, jobs.checksum):await()
     end
 end
 
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope();
     for index = 1, 8 do
         scope:spawn(index, checksumInto)
     end
@@ -67,7 +70,8 @@ for _, value in ipairs(fanned) do
 end
 boolean("fannedOut", matched)
 
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope();
     local reading = new jobs.Reading(label = "left", value = 41)
     local answer = scope:work(reading, jobs.louder):await()
     boolean("recordCrossed", answer.label == "LEFT" and answer.value == 42)
@@ -81,7 +85,8 @@ end
 ----------------------------------------------------------------------------
 
 local cleanupStarted = os.monotonic()
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope();
     scope:work(150, jobs.patient)
 end
 local cleanupElapsed = os.monotonic() - cleanupStarted
@@ -94,7 +99,8 @@ number("scopeCleanupMs", cleanupElapsed)
 
 local failedStatus = "unknown"
 local scopeProblem = raised(function(): nil
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         local bad = scope:work("beta", jobs.refuse)
         local problem = raised(function(): nil
             bad:await()
@@ -109,7 +115,8 @@ text("failedStatus", failedStatus)
 boolean(
     "unobservedFailureRaised",
     raised(function(): nil
-        with scope = tasks.scope() do
+        do
+            local scope = tasks.scope();
             scope:work("gamma", jobs.refuse)
         end
     end) ~= nil
@@ -120,14 +127,16 @@ boolean(
 ----------------------------------------------------------------------------
 
 local resultProblem = raised(function(): nil
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         scope:work("alpha", jobs.unsendableResult):await()
     end
 end)
 boolean("unsendableResultRefused", resultProblem ~= nil and resultProblem:find("cannot be copied", 1, true) ~= nil)
 
 -- And the caller is refused before anything is submitted at all.
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope();
     local shared = {name = "a"}
 
     local function submitAnAlias(): nil
@@ -146,7 +155,8 @@ end
 ----------------------------------------------------------------------------
 
 local nestedProblem = raised(function(): nil
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         scope:work(4, jobs.nested):await()
     end
 end)
@@ -157,12 +167,14 @@ boolean("nestedScopeRefused", nestedProblem ~= nil and nestedProblem:find("anoth
 ----------------------------------------------------------------------------
 
 local function occupyALane(): nil
-    with lane = tasks.scope() do
+    do
+        local lane = tasks.scope();
         lane:work(60, jobs.patient):await()
     end
 end
 
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope();
     -- More waiting tasks than any browser pool has lanes: the sleep lets every
     -- child run far enough to submit its job, so the next one is still queued, and
     -- cancelling it is a cancellation that never loads or invokes its function.
@@ -180,7 +192,8 @@ with scope = tasks.scope() do
     text("cancelledStatus", queued:status())
 end
 
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope();
     -- A settled task leaves a lane booted and idle, so the next submission is
     -- running by the time anything else happens.
     scope:work("warm", 1, jobs.checksum):await()
@@ -196,7 +209,8 @@ end
 -- Hard limits: the queue is bounded, and submission raises rather than waiting
 ----------------------------------------------------------------------------
 
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope();
     local submitted: integer = 0
     local refused: string? = nil
 
@@ -219,7 +233,8 @@ end
 -- A running lane observes the cancellation its checkpoint asks about
 ----------------------------------------------------------------------------
 
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope();
     -- A settled task leaves a lane booted and idle, so the next submission is
     -- running by the time anything else happens.
     scope:work("warm", 1, jobs.checksum):await()
@@ -237,7 +252,8 @@ end
 ----------------------------------------------------------------------------
 
 local coroutineChildren: integer = 0
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope();
     local first = scope:spawn(function(): integer
         tasks.checkpoint()
 
@@ -253,7 +269,8 @@ end
 boolean("coroutineChildrenRan", coroutineChildren == 3)
 
 local owned: integer = 0
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope();
     owned = scope:work("browser-worker", 1, jobs.checksum):await()
 end
 boolean("taskScopeOwnsWorkers", owned == jobs.checksum("browser-worker", 1))
@@ -262,7 +279,8 @@ boolean("taskScopeOwnsWorkers", owned == jobs.checksum("browser-worker", 1))
 local deadlineStarted = os.monotonic()
 
 local function bounded(): nil
-    with inner = tasks.scope(timeoutms = 250) do
+    do
+        local inner = tasks.scope(timeoutms = 250);
         inner:work(400, 25, jobs.cooperative):await()
     end
 end

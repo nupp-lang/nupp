@@ -110,17 +110,17 @@ the same obligation. A second use or move is rejected. See
 [ownership.md](borrowing.md#consumption-and-lexical-destruction)
 for the exact destruction order.
 
-Use [`with`](exact-scopes.md) when the value should instead have one
-exact extent:
+Use an ordinary `do` block to end an owner before the surrounding scope:
 
 ```nupp:fragment
-with session = openSession(1) do
+do
+    local session = openSession(1)
     inspect(session)
 end
 ```
 
-The visible `session` is a non-escaping borrow. Its hidden owner always drops at
-the end of the body and cannot be moved or ended early.
+The local `session` drops at the end of the block unless it was transferred or
+dropped earlier.
 
 `affine(T)` selects `T`'s inherent cleanup when `T` has a declared
 `own.Affine` claim. Otherwise it is deliberately terminal-less: it may be

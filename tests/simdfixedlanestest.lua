@@ -59,13 +59,13 @@ end
 return function(n: integer): (number, number, number, number, number)
     const values = array.scalar(array.float, n)
     const scaled = array.scalar(array.float, n)
-    with w = values:write() do
+    do local w = values:write() ;
         for i = 1, n do
             w[i] = i * 0.25
         end
     end
     local lanes, chunks, lastActive = 0, 0, 0
-    with out = scaled:write() do
+    do local out = scaled:write() ;
         lanes, chunks, lastActive = scale(out, values:read(), 2.0)
     end
     local total = 0
@@ -288,12 +288,12 @@ return function(): {number}
     const values = array.scalar(array.number, 10)
     const counts = array.scalar(array.int32, 10)
     local given = {5, 3, 9, 1, 7, 2, 8, 6, 4, 10}
-    with w = values:write() do
+    do local w = values:write() ;
         for i = 1, 10 do
             w[i] = given[i]
         end
     end
-    with w = counts:write() do
+    do local w = counts:write() ;
         for i = 1, 10 do
             w[i] = given[i] * 100000000 - 300000000
         end
@@ -442,20 +442,20 @@ end
 return function(): ({number}, {number})
     const data = array.scalar(array.float, 12)
     const out = array.scalar(array.float, 12)
-    with w = data:write() do
+    do local w = data:write() ;
         for i = 1, 12 do
             w[i] = i
         end
     end
     const bytes = array.bytes(4)
-    with w = bytes:write() do
+    do local w = bytes:write() ;
         w[1] = 10
         w[2] = 250
         w[3] = 3
         w[4] = 200
     end
     local answers: {number} = {}
-    with w = out:write() do
+    do local w = out:write() ;
         answers = probe(w, data:read(), bytes:read())
     end
     local written: {number} = {}
@@ -516,7 +516,7 @@ return function(): ({number}, {number})
     local s = simd.species(array.float, 4)
     local t = simd.species(array.float, 3)
     const particles = array.newarray(new Particle(), 2)
-    with w = particles:write() do
+    do local w = particles:write() ;
         w[1] = new Particle(1.5, s:splat(2.0), t:iota(7.0, 1.0))
         w[2].pos = s:iota(1.0, 1.0)
         w[2].pos = w[2].pos * 10.0

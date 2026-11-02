@@ -15,8 +15,10 @@ local function acquire(name: string): affine(Guard, finish)
 end
 
 local function protectedWork(fail: boolean): string
-    with outer = acquire("outer") do
-        with inner = acquire("inner") do
+    do
+        local outer = acquire("outer");
+        do
+            local inner = acquire("inner");
             if fail then
                 error("expected")
             end
@@ -41,7 +43,8 @@ assert(ready and value == 4)
 ready, value = coroutine.resume(co)
 assert(ready and value == 5)
 for index = 1, 3 do
-    with item = acquire("break") do
+    do
+        local item = acquire("break");
         assert(item.name == "break")
         break
     end

@@ -2277,7 +2277,8 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
                     "local function preserve(scoped callback: function(): nil, takes value: affine(voidptr)): voidptr preserves value return value end",
                     "local compiled = comptime do return {answer = 42} end",
                     "@nosuspend do end",
-                    "with installation = coroutine.suspension.host.install(cancel) do cancel() end",
+                    "do local installation = coroutine.suspension.host.install(cancel) ; cancel() end",
+                    "local with = 1; print(with)",
                     "local sealed interface Token end",
                     "interface Matcher",
                     "    associated type Result = R",
@@ -2289,18 +2290,10 @@ function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
         )
     )
     assert(html:find("nuppdoc-token-meta", 1, true), html)
-    for _, keyword in ipairs({
-        "keyof",
-        "preserves",
-        "scoped",
-        "unpackof",
-        "with",
-        "writekeyof",
-        "writeof",
-        "sealed",
-    }) do
+    for _, keyword in ipairs({"keyof", "preserves", "scoped", "unpackof", "writekeyof", "writeof", "sealed",}) do
         assert(html:find("keyword-" .. keyword, 1, true), html)
     end
+    assert(not html:find("keyword-with", 1, true), html)
     assert(html:find("keyword-yields", 1, true), html)
     assert(html:find("keyword-resumes", 1, true), html)
     assert(html:find("keyword-new", 1, true), html)

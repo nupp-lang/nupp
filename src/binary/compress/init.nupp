@@ -332,7 +332,8 @@ local record Writer is CompressionWriter
 
     function finish(takes self): (boolean, string?)
         local output, capacity = self.output, self.capacity
-        with owner = new PairOwner(state = self.state, destination = self.destination) do
+        do
+            local owner = new PairOwner(state = self.state, destination = self.destination)
             while true do
                 local writable = span.writecarray(output, capacity)
                 local written, status, reason = owner.state:finish(writable)

@@ -29,11 +29,13 @@ local function finish<S is profile.Session>(borrows session: S): S.Report
     return session:stop()
 end
 
-with sampling = profile.sample() do
+do
+    local sampling = profile.sample()
     local samples: profile.SampleReport = finish(sampling)
     print(samples.samples)
 end
-with tracing = profile.trace() do
+do
+    local tracing = profile.trace()
     local aborts: profile.TraceReport = finish(tracing)
     print(aborts.totalaborts)
 end
@@ -254,7 +256,8 @@ request, or the work after warm-up:
 ```nupp:fragment
 local profile = nupp.profile
 
-with session = profile.sample({intervalms = 2, zone = "frame/render"}) do
+do
+    local session = profile.sample({intervalms = 2, zone = "frame/render"})
     renderEverything()
     local report = session:stop("render.out")
 
@@ -275,7 +278,8 @@ the session starts and cannot be widened afterwards.
 Use `profile.trace()` to collect trace aborts:
 
 ```nupp:fragment
-with session = profile.trace() do
+do
+    local session = profile.trace()
     runTheWorkload()
     local report = session:stop()
 
@@ -289,9 +293,9 @@ end
 
 Profiling hooks apply to the whole process. One sampling session and one trace
 session can run at a time; starting a second session of either kind is an error.
-A session is a `own.Closeable`, so a `with` ends it where the block ends: a
-session nothing stopped is closed without a report, and closing one that `stop`
-already ended does nothing.
+A session is a `own.Closeable`, so a local session closes when its block ends.
+A session nothing stopped is closed without a report, and closing one that
+`stop` already ended does nothing.
 
 Each sample requires a timer interrupt, a stack walk, and a table write. Trace
 profiling runs a callback on each abort. Keep captures short to limit overhead.

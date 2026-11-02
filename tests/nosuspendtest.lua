@@ -233,7 +233,7 @@ end
 
 function M.judgesTheTerminalsARegionDischarges()
     -- A terminal runs where an owner is discharged, and no call names it: at the
-    -- statement that bound the owner, at a `with`, or at an explicit `drop`. Each is
+    -- statement that bound the owner, a block boundary, or an explicit `drop`. Each is
     -- judged where it stands, and the terminal is reported once per region.
     local resource = table.concat(
         {
@@ -260,11 +260,11 @@ function M.judgesTheTerminalsARegionDischarges()
     assert(refusals[1].msg:find("settling", 1, true) ~= nil, "it names the terminal: " .. refusals[1].msg)
     refusals = diagnose(
         resource .. table.concat(
-            {"@nosuspend do", "    with value = openSettling() do", "        print(value.value)", "    end", "end",},
+            {"@nosuspend do", "    do local value = openSettling() ;", "        print(value.value)", "    end", "end",},
             "\n"
         )
     )
-    testAssert.eq(#refusals, 1, "a with acquisition is judged")
+    testAssert.eq(#refusals, 1, "a scoped acquisition is judged")
     refusals = diagnose(
         resource .. table.concat(
             {"@nosuspend do", "    local value = openSettling()", "    own.drop(value)", "end",},
@@ -278,7 +278,7 @@ function M.judgesTheTerminalsARegionDischarges()
                 {
                     "@nosuspend do",
                     "    local value = openQuiet()",
-                    "    with other = openQuiet() do",
+                    "    do local other = openQuiet() ;",
                     "        print(other.value)",
                     "    end",
                     "end",
@@ -467,7 +467,7 @@ function M.aHandleRegionInstallsAndRestores()
             "local h = {park = function() end}",
             "local before = s.handled()",
             "local inside = false",
-            "with installation = require(\"coroutine.suspension.host\").install(h) do",
+            "do local installation = require(\"coroutine.suspension.host\").install(h) ;",
             "    inside = s.handled()",
             "end",
             "return before, inside, s.handled()",
@@ -486,7 +486,7 @@ function M.aHandleRegionInstallsAndRestores()
 end
 
 function M.aHandleRegionPreservesTheLineCount()
-    local src = "local h = {park = function() end}\nwith installation = require(\"coroutine.suspension.host\").install(h) do\n"
+    local src = "local h = {park = function() end}\ndo local installation = require(\"coroutine.suspension.host\").install(h) ;\n"
         .. "    local n = 1\n    print(n)\nend\n"
     local _, _, result = diagnose(src)
     local code = gen.generate(result, "test")
@@ -525,7 +525,7 @@ function M.aReturnLeavesAHandleRegionAfterReleasingIt()
                 "local released: integer = 0",
                 "local h = {shutdown = function() released = released + 1 end}",
                 "local function f(): integer, integer",
-                "    with installation = require(\"coroutine.suspension.host\").install(h) do",
+                "    do local installation = require(\"coroutine.suspension.host\").install(h) ;",
                 "        return 1, released",
                 "    end",
                 "end",
@@ -546,7 +546,7 @@ function M.aBodyAndReleaseFailureAreBothPreserved()
             {
                 "local h = {shutdown = function() error('release failed') end}",
                 "local ok, problem = pcall(function()",
-                "    with installation = require(\"coroutine.suspension.host\").install(h) do",
+                "    do local installation = require(\"coroutine.suspension.host\").install(h) ;",
                 "        error('body failed')",
                 "    end",
                 "end)",
@@ -567,13 +567,13 @@ function M.loopControlCanLeaveAHandleRegion()
                 "local h = {}",
                 "local total = 0",
                 "for index = 1, 3 do",
-                "    with installation = require(\"coroutine.suspension.host\").install(h) do",
+                "    do local installation = require(\"coroutine.suspension.host\").install(h) ;",
                 "        if index == 2 then continue end",
                 "        total = total + index",
                 "    end",
                 "end",
                 "while true do",
-                "    with installation = require(\"coroutine.suspension.host\").install(h) do",
+                "    do local installation = require(\"coroutine.suspension.host\").install(h) ;",
                 "        break",
                 "    end",
                 "end",
@@ -592,7 +592,7 @@ function M.aGotoCanLeaveAHandleRegion()
             {
                 "local h = {}",
                 "local answer = 0",
-                "with installation = require(\"coroutine.suspension.host\").install(h) do",
+                "do local installation = require(\"coroutine.suspension.host\").install(h) ;",
                 "    answer = 1",
                 "    goto done",
                 "end",
@@ -606,30 +606,8 @@ function M.aGotoCanLeaveAHandleRegion()
     testAssert.eq(answer, 1, "goto resumes outside after releasing the installation")
 end
 
-function M.refusesAGotoIntoAHandleRegion()
-    local _, diags = diagnose(
-        table.concat(
-            {
-                "local h = {}",
-                "goto inside",
-                "with installation = require(\"coroutine.suspension.host\").install(h) do",
-                "    ::inside::",
-                "end",
-            },
-            "\n"
-        )
-    )
-    local found = 0
-    for _, diag in ipairs(diags) do
-        if diag.code == "NUPP2706" then
-            found = found + 1
-        end
-    end
-    testAssert.eq(found, 1, "one diagnostic refuses the impossible incoming edge")
-end
-
 function M.aHandleRegionRequiresAHandler()
-    local _, diags = diagnose("with installation = require(\"coroutine.suspension.host\").install(42) do\nend")
+    local _, diags = diagnose("do local installation = require(\"coroutine.suspension.host\").install(42) ;\nend")
     local found = false
     for _, diag in ipairs(diags) do
         if diag.code == "NUPP2006" and diag.msg:find("Handler", 1, true) then
@@ -639,13 +617,13 @@ function M.aHandleRegionRequiresAHandler()
     assert(found, "a concrete non-handler is rejected at the construct")
 end
 
-function M.allowsABreakInsideALoopInAHandleRegion()
+function M.allowsABreakInsideAnInstallationScope()
     -- A `break` bound by a loop inside the region never crosses the closure boundary.
     local _, diags = diagnose(
         table.concat(
             {
-                "local h = {park = function() end}",
-                "with installation = require(\"coroutine.suspension.host\").install(h) do",
+                "local h = {park = function() end, canpark = function() return true end, shutdown = function() end}",
+                "do local installation = require(\"coroutine.suspension.host\").install(h) ;",
                 "    for index = 1, 3 do",
                 "        if index == 2 then",
                 "            break",
@@ -656,9 +634,7 @@ function M.allowsABreakInsideALoopInAHandleRegion()
             "\n"
         )
     )
-    for _, diag in ipairs(diags) do
-        assert(diag.code ~= "NUPP2706", "a loop's own break is not leaving the region")
-    end
+    testAssert.eq(#diags, 0, "a loop can break within an ordinary installation scope")
 end
 
 function M.handleIsContextualInBothWords()

@@ -71,7 +71,8 @@ end
 --- Submitting this raises where it runs: a worker task cannot fork onto another lane.
 export function nested(shards: integer): integer
     local answer: integer = 0
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         answer = scope:work(|| -> shards):await()
     end
 

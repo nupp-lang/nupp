@@ -98,7 +98,6 @@ interface cst.Hints
     automaticOwners: any
 
     automaticDirect: any
-    directCleanup: boolean?
     automaticRegion: boolean?
     automaticSequence: any
 
@@ -619,13 +618,7 @@ interface cst.Hints
     --- record, keyed by their index: {owner = automatic, field = name}.
     ownerCleanupGuards: any
 
-    --- The affine value acquired by a `with` binding.
-    acquiredType: any
-
-    --- The `with` binding a visible scoped borrow resolves to.
-    withBinding: any
-
-    --- Whether a `with` body reads a binding from an enclosing scope.
+    --- Whether a cleanup region reads a binding from an enclosing scope.
     capturesEnclosing: boolean?
 
     --- Free cleanup bindings this node registers in the runtime linker.
@@ -781,29 +774,6 @@ record cst.ExportStmt is cst.Hints
     equal: lexer.Token?
     value: cst.Node?
     stat: cst.Node?
-end
-
---- An exact affine extent, `with value = acquire() do ... end`.
-record cst.WithStmt is cst.Hints
-    {cst.Node | lexer.Token}
-
-    kind: 'withStmt'
-    withTok: lexer.Token?
-    bindings: {cst.WithBinding}
-    doTok: lexer.Token?
-    body: cst.Node?
-    endTok: lexer.Token?
-end
-
---- A left-to-right acquisition in a `with` statement.
-record cst.WithBinding is cst.Hints
-    {cst.Node | lexer.Token}
-
-    kind: 'withBinding'
-    name: lexer.Token?
-    type: cst.Node?
-    eq: lexer.Token?
-    expr: cst.Node?
 end
 
 --- An `if` and everything that belongs to it.
@@ -2719,8 +2689,6 @@ type cst.Node = cst.Chunk
     | cst.EmptyStmt
     | cst.ModuleStmt
     | cst.ExportStmt
-    | cst.WithStmt
-    | cst.WithBinding
     | cst.IfStmt
     | cst.IfClause
     | cst.ElseifClause

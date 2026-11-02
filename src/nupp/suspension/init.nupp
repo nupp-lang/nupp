@@ -84,10 +84,7 @@ suspension.canSuspend = provider.cansuspend
 
 --- Creates a coroutine that inherits the handler installed where it was created.
 ---
---- Here as well as on [](coroutine.suspension.host) because the compiler emits it: a
---- `with` statement's cleanup runs in a coroutine, and generated code names this
---- module to make it. Scheduler authors want it beside the rest of the host surface;
---- the emitted call wants it where it has always been.
+--- Also available on [](coroutine.suspension.host) for schedulers.
 suspension.create = provider.create
 
 export = suspension

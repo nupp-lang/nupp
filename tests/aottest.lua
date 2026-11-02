@@ -523,10 +523,10 @@ local function run(): integer
     if not gpu.available() then
         return 0
     end
-    with context = gpu.open() do
-        with input = context:buffer(array.float, 16), output = context:buffer(array.float, 16) do
-            with kernel = double:compile(context) do
-                with binding = kernel:bind(output, input) do
+    do local context = gpu.open() ;
+        do local input = context:buffer(array.float, 16); local output = context:buffer(array.float, 16) ;
+            do local kernel = double:compile(context) ;
+                do local binding = kernel:bind(output, input) ;
                     binding:dispatch()
                 end
             end

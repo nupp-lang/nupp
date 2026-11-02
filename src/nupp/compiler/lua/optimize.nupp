@@ -2244,37 +2244,6 @@ local function indexedRangeWalk(result, remarks)
                     candidates[definition] = candidate
                     byConstructor[constructor] = candidate
                 end
-            elseif node.kind == "withStmt" and #(node.bindings or {}) == 1 then
-                local binding = node.bindings[1]
-                local constructor = binding.expr
-                local producer = constructor and constructor.indexedViewProducer
-                local source = producer and producer.source
-                local definition = binding.name and binding.name.definition
-                if producer
-                    and producer.producer.descriptor.writable
-                    and source
-                    and source.kind == "name"
-                    and source.token
-                    and source.token.definition
-                    and definition
-                then
-                    local candidate = {
-                        kind = "root",
-                        definition = definition,
-                        constructor = constructor,
-                        source = source,
-                        sourceDefinition = source.token.definition,
-                        descriptor = producer.producer.descriptor,
-                        producer = producer.producer,
-                        count = producer.count,
-                        stat = node,
-                        withBinding = binding,
-                        admitted = true,
-                        dependencies = {},
-                    }
-                    candidates[definition] = candidate
-                    byConstructor[constructor] = candidate
-                end
             end
             for _, child in ipairs(node) do
                 findCandidates(child)
@@ -2363,9 +2332,6 @@ local function indexedRangeWalk(result, remarks)
                 definition.virtualIndexedView = candidate
                 if candidate.kind ~= "alias" then
                     candidate.constructor.virtualIndexedView = candidate
-                end
-                if candidate.withBinding then
-                    candidate.withBinding.virtualIndexedView = candidate
                 end
                 local owner = candidate.stat.automaticOwners and candidate.stat.automaticOwners[1]
                 if owner then
@@ -3271,7 +3237,7 @@ local SCOPE_NODES = {block = true, funcbody = true, shortfn = true, fornumStmt =
 -- Every declaration in the chunk, by name: its definition, where it is declared, and
 -- the source extent that holds every place it can be visible. The extent is the
 -- innermost scope-owning node around the declaration, which may be wider than the
--- binding's real scope -- a `with` or a `switch` case binds within its enclosing block
+-- binding's real scope -- a `switch` case binds within its enclosing block
 -- -- and never narrower, so a call outside it certainly does not see the binding.
 local function declarationScopes(root)
     local scopes = {}

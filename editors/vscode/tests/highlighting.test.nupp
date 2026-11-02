@@ -298,11 +298,6 @@ end
 local with = 1
 --    ^^^^ source.nupp - keyword.control.nupp
 
-with resource = makeResource() do
--- <- keyword.control.nupp
-   use(resource)
-end
-
 local function peek(borrows p: Widget): Widget borrows p
 --                  ^^^^^^^ storage.modifier.ownership.nupp
 --                                             ^^^^^^^ storage.modifier.ownership.nupp
@@ -375,13 +370,6 @@ end
 @nosuspend do
 -- <- keyword.control.nupp
    local safe = 1
-end
-
-handle suspension with cancel do
--- <- keyword.control.nupp
---     ^^^^^^^^^^ keyword.control.nupp
---                ^^^^ keyword.control.nupp
-   cancel()
 end
 
 local interface Matcher

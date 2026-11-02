@@ -353,7 +353,7 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         ] = [[
 const http = require("io.http")
 
-with client = http.newclient() do
+do local client = http.newclient() ;
     print("mixed native provider")
 end
 ]],
@@ -664,7 +664,7 @@ const tasks = require("coroutine")
 
 export function nested(shards: integer): integer
     local squared: integer = 0
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         squared = scope:work(|| -> shards * shards):await()
     end
 
@@ -681,7 +681,7 @@ const sharedbytes = require("nupp.mem.sharedbytes")
 
 local counter = require("counter")
 for index = 1, 100 do assert(counter.next() == index) end
-with scope = tasks.scope() do
+do local scope = tasks.scope() ;
     local independent = scope:work(jobs.nextCounter)
     assert(independent:await() == 1, "the worker has the same SPI index and fresh provider state")
     assert(counter.next() == 101, "worker initialization does not mutate the caller's provider")
@@ -762,7 +762,7 @@ end
 print(capture.run(40))
 
 local nestedOk, nestedProblem = pcall(function(): nil
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         scope:work(4, jobs.nested):await()
     end
 end)
@@ -770,7 +770,7 @@ print(not nestedOk, tostring(nestedProblem):find("another worker scope", 1, true
 
 
 local ok, problem = pcall(function(): nil
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         scope:work(jobs.fail)
     end
 end)
@@ -782,7 +782,7 @@ if arg[1] == "check-stack" then
 end
 
 local copied, copyProblem = pcall(function(): nil
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         scope:work(setmetatable({value = 1}, {}), jobs.gradual)
     end
 end)
@@ -792,7 +792,7 @@ const ffi = require("ffi")
 const heap = require("nupp.mem.heap")
 
 local frame = heap.alloc(ffi.typeof<uint8>(), 64)
-with scope = tasks.scope() do
+do local scope = tasks.scope() ;
     frame = scope:work(frame, 200, jobs.stamp):await()
 end
 do
@@ -809,7 +809,7 @@ do
     end
     own.drop(writable)
 end
-with scope = tasks.scope() do
+do local scope = tasks.scope() ;
     print(scope:work(counts, jobs.total):await())
 end
 
@@ -822,7 +822,7 @@ local absent, missingReason = sharedbytes.readfile("missing-shared-bytes.bin")
 assert(absent == nil and type(missingReason) == "string")
 
 local builder = sharedbytes.newbuilder()
-with writer = builder:reserve(3) do
+do local writer = builder:reserve(3) ;
     writer[1] = 104
     writer[2] = 105
     writer[3] = 33
@@ -853,7 +853,7 @@ const tasks = require("coroutine")
 
 export function run(base: integer): integer
     const box = new jobs.Box(value = 21)
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         const scalar = scope:work(2, |value: integer| -> base + value)
         const record = scope:work(|| -> box:doubled())
         return scalar:await() + record:await()
@@ -970,14 +970,14 @@ const shapes = require("shapes")
 const tasks = require("coroutine")
 
 local function doubled(index: integer): nil
-    with lane = tasks.scope() do
+    do local lane = tasks.scope() ;
         assert(lane:work(index, jobs.double):await() == index * 2)
     end
 end
 
 local function wide(): boolean
     local ok = pcall(function(): nil
-        with scope = tasks.scope() do
+        do local scope = tasks.scope() ;
             for index = 1, 100 do
                 scope:spawn(index, doubled)
             end
@@ -987,7 +987,7 @@ local function wide(): boolean
 end
 
 local loaded, loadProblem = pcall(function(): nil
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         scope:work(new shapes.Point(x = 1, y = 2), points.sum):await()
     end
 end)
@@ -997,7 +997,7 @@ local made = 0
 local madeProblem: any = nil
 for index = 1, 300 do
     local ok, problem = pcall(function(): nil
-        with scope = tasks.scope() do
+        do local scope = tasks.scope() ;
             assert((scope:work(index, jobs.make):await() as any).v == index)
         end
     end)
@@ -1014,7 +1014,7 @@ print(made, tostring(madeProblem):find("at most 256 record types", 1, true) ~= n
 const total: integer = 64 * 2 * 1024 + 1
 local spawned = 0
 local _, flooded = pcall(function(): nil
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         for index = 1, total do
             local spin = 0
             for _ = 1, 20000 do spin = spin + 1 end
@@ -1123,8 +1123,8 @@ local handler = {
 }
 
 const app = coroutine.create(function(): nil
-with handling = suspensionHost.install(handler) do
-with scope = tasks.scope() do
+do local handling = suspensionHost.install(handler) ;
+do local scope = tasks.scope() ;
     const running = scope:work(1000000000, jobs.cancellable)
     while running:status() == "queued" do
         suspension.poll()
@@ -1135,7 +1135,7 @@ with scope = tasks.scope() do
         tostring(problem):find("stop running", 1, true) ~= nil)
 end
 
-with scope = tasks.scope() do
+do local scope = tasks.scope() ;
     const returning = scope:work(jobs.returnsAfterCancellation)
     while returning:status() == "queued" do suspension.poll() end
     const requested = returning:cancel("observe at return")
@@ -1146,14 +1146,14 @@ end
 
 -- A fork is a worker child with the task scope's own handle: it counts against the
 -- scope's limit until its lane answers, and its result pack comes back intact.
-with scope = tasks.scope(limit = 2) do
+do local scope = tasks.scope(limit = 2) ;
     const forked = scope:work(3, jobs.cancellable)
     const sibling = scope:work(2, jobs.cancellable)
     print(forked:await() + sibling:await(), forked:status(), sibling:isdone())
 end
 
 pcall(function(): nil
-with scope = tasks.scope() do
+do local scope = tasks.scope() ;
     for _ = 1, 64 do
         scope:work(1000000000, jobs.cancellable)
     end
@@ -1170,7 +1170,7 @@ end
 end)
 
 const deadlineOk, deadlineProblem = pcall(function(): nil
-    with scope = tasks.scope(timeoutms = 1) do
+    do local scope = tasks.scope(timeoutms = 1) ;
         scope:work(1000000000, jobs.cancellable):await()
     end
 end)
@@ -1261,14 +1261,14 @@ local region = sharedbytes.copy("abc")
 rawset(region as any, "_length", 99)
 local ok, problem = pcall(function(): nil
     local frame = heap.alloc(ffi.typeof<uint8>(), 64)
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         scope:work(frame, region, jobs.inspect)
     end
 end)
 print(ok, tostring(problem):find("extent lies outside its storage", 1, true) ~= nil)
 rawset(region as any, "_length", 3)
 local frame = heap.alloc(ffi.typeof<uint8>(), 64)
-with scope = tasks.scope() do
+do local scope = tasks.scope() ;
     print(scope:work(frame, region, jobs.inspect):await())
 end
 ]],
@@ -1319,7 +1319,7 @@ for index = 1, 9 do
     expected = expected + #("item" .. index) + #("path/" .. index)
 end
 local total: integer = 0
-with scope = tasks.scope(2) do
+do local scope = tasks.scope(2) ;
     for name, path in pairs(paths) do
         scope:spawn(function(): nil
             const size = scope:work(name, path, jobs.compress):await()
@@ -1384,7 +1384,7 @@ const lifecycle = rawget(require("nupp.tasks"), "__lifecycle") as function(borro
 
 local most: integer = 0
 local repeated = false
-with scope = tasks.scope(4) do
+do local scope = tasks.scope(4) ;
     const first = scope:work(3, jobs.square)
     for index = 1, 40 do
         scope:work(index, jobs.square)
@@ -1399,7 +1399,7 @@ print(most <= 4, repeated)
 
 local frame = heap.alloc(ffi.typeof<uint8>(), 64)
 local owing: integer = -1
-with scope = tasks.scope(1) do
+do local scope = tasks.scope(1) ;
     scope:work(frame, 7, jobs.stamp)
     for index = 1, 10 do
         scope:work(index, jobs.square)
@@ -1568,7 +1568,7 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         ] = [[
 const tasks = require("coroutine")
 local answer = 0
-with scope = tasks.scope() do
+do local scope = tasks.scope() ;
     answer = scope:spawn(function(): integer return 42 end):await()
 end
 print(answer)
@@ -1743,7 +1743,7 @@ return wrong
             "workersowned.nupp"
         ] = [[
 local tasks = require("coroutine")
-with scope = tasks.scope() do
+do local scope = tasks.scope() ;
     print(scope ~= nil)
 end
 return true

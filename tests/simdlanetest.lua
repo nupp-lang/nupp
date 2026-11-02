@@ -100,12 +100,12 @@ end
 return function(n: integer): (number, number)
     const values = array.scalar(array.float, n)
     const scaled = array.scalar(array.float, n)
-    with w = values:write() do
+    do local w = values:write() ;
         for i = 1, n do
             w[i] = i * 0.25
         end
     end
-    with out = scaled:write() do
+    do local out = scaled:write() ;
         scale(out, values:read(), 2.0)
     end
     const got = scaled:read()

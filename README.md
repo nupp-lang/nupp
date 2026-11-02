@@ -61,7 +61,7 @@ source checkout is documented separately in
 - Records, structs, interfaces, unions, refinements, generics, and narrowing
   add checked structure. Native LuaJIT targets represent structs as FFI cdata;
   portable targets select a checked table representation.
-- Affine ownership, borrowing, pinning, and exact scopes track cleanup and C
+- Affine ownership, borrowing, pinning, and lexical scopes track cleanup and C
   pointer lifetimes.
 - Suspension, task scopes, and worker pools express waiting and parallel work
   without changing a function's return type.

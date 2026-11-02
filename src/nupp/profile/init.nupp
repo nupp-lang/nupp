@@ -7,7 +7,8 @@ there compiled.
 ```nupp:fragment
 local profile = nupp.profile
 
-with session = profile.sample({intervalms = 5}) do
+do
+    local session = profile.sample({intervalms = 5})
     render()
     local report = session:stop("profile.out")
     print(report.samples, report.stacks)
@@ -32,9 +33,9 @@ runs at a time.
 
 Neither is free. A sample session pays a timer interrupt, a stack walk and a
 table write at every interval; a trace session pays a callback at every abort,
-inside the compiler. A session is a `own.Closeable`, so a `with` ends it where
-its block does: `stop` returns the report, and a session nothing stopped is
-closed without one.
+inside the compiler. A session is a `own.Closeable`, so a local session closes
+when its block ends. `stop` returns the report, and a session nothing stopped
+is closed without one.
 
 See [profiling.md](docs/learn/performance/profiling.md) for reading a report, and
 [jit-trace-checking.md](docs/learn/performance/jit-trace-checking.md) for finding the same aborts without running
@@ -94,11 +95,11 @@ type profile.TraceOptions = {
 --- A running profiling session whose declaration chooses the report `stop` returns.
 ---
 --- Sampling and trace-abort sessions share this lifecycle. Generic helpers can use
---- `S.Report` to preserve the concrete report chosen by a session declaration, and
---- take the session `borrows`. Each session is also a `own.Closeable`: `close`, which
---- leaving a `with` calls, ends one that nothing stopped without building a report,
---- and does nothing after `stop`. The two are separate so a helper bounded by this
---- one can still name `S.Report`.
+--- `S.Report` to preserve the concrete report chosen by a session declaration, and take
+--- the session `borrows`. Each session is also a `own.Closeable`: `close`, which
+--- lexical cleanup calls, ends one that nothing stopped without building a report, and
+--- does nothing after `stop`. The two are separate so a helper bounded by this one can
+--- still name `S.Report`.
 interface profile.Session
     --- What `stop` returns, chosen by the session declaration rather than here.
     associated type Report
@@ -185,8 +186,8 @@ end
 
 --- A running sampler, as `profile.sample` returns it.
 ---
---- Live until `stop` or `close`, and there is at most one at a time. Held by a `with`,
---- it is closed where the block ends, so the timer never outlives the question.
+--- Live until `stop` or `close`, and there is at most one at a time. A local
+--- session closes when its block ends, so the timer never outlives the question.
 record profile.SampleSession is profile.Session, own.Closeable
     associated type Report = profile.SampleReport
 
@@ -320,8 +321,8 @@ end
 
 --- A running trace-abort collector, as `profile.trace` returns it.
 ---
---- Live until `stop` or `close`, and there is at most one at a time. Held by a `with`,
---- it is closed where the block ends, so the event hook never outlives the question.
+--- Live until `stop` or `close`, and there is at most one at a time. A local
+--- session closes when its block ends, so the event hook never outlives the question.
 record profile.TraceSession is profile.Session, own.Closeable
     associated type Report = profile.TraceReport
 
@@ -569,7 +570,8 @@ end
 --- Starts sampling.
 ---
 --- ```nupp:fragment
---- with session = profile.sample({intervalms = 5, zone = "frame/render"}) do
+--- do
+---     local session = profile.sample({intervalms = 5, zone = "frame/render"})
 ---     render()
 ---     local report = session:stop("render.collapsed")
 ---     print(report.samples, report.stacks)
@@ -908,7 +910,7 @@ end
 
 local tracing = false
 
---- Ends the session without a report, which is what leaving its `with` does.
+--- Ends the session without a report, as lexical cleanup does.
 ---
 --- Does nothing once `stop` has run, so a block that stopped its session to read the
 --- report closes it for free.
@@ -931,7 +933,8 @@ end
 --- Starts collecting trace aborts.
 ---
 --- ```nupp:fragment
---- with session = profile.trace() do
+--- do
+---     local session = profile.trace()
 ---     render()
 ---     local report = session:stop("aborts.csv")
 ---     print(report.blacklisted, report.totalaborts)
@@ -1109,7 +1112,7 @@ function profile.TraceSession:stop(filename: string?): profile.TraceReport
     return report
 end
 
---- Ends the session without a report, which is what leaving its `with` does.
+--- Ends the session without a report, as lexical cleanup does.
 ---
 --- Does nothing once `stop` has run, so a block that stopped its session to read the
 --- report closes it for free.

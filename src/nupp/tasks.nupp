@@ -11,7 +11,8 @@ until every one of them has run, been cancelled, or unwound.
 ```nupp
 local greeting = ""
 
-with scope = coroutine.scope() do
+do
+    local scope = coroutine.scope()
     const hello = scope:spawn(function(): string
         return "hello"
     end)
@@ -33,7 +34,8 @@ cancelled or its deadline passed.
 ```nupp
 local total = 0
 
-with scope = coroutine.scope(timeoutms = 1000) do
+do
+    local scope = coroutine.scope(timeoutms = 1000)
     const sum = scope:spawn("sum values", function(): integer
         local answer: integer = 0
         for value = 1, 1000 do
@@ -255,7 +257,7 @@ end
 
 --- Represents a scope opened by `scope`.
 ---
---- A `own.Closeable`: `scope` returns it as an owner a `with` block holds, and
+--- A `own.Closeable`: `scope` returns it as an owner held by a local, and
 --- leaving the block closes it. The block can add children to the scope and
 --- reach the worker scope it owns.
 record tasks.Scope is own.Closeable
@@ -300,7 +302,7 @@ record tasks.Scope is own.Closeable
     --- Requests cancellation of every child.
     cancel: function(borrows self: tasks.Scope, reason: string?): nil
 
-    --- Settles the scope, which is what leaving its `with` does.
+    --- Settles the scope, as lexical cleanup does.
     close: function(takes self: tasks.Scope): nil
 end
 
@@ -1381,7 +1383,8 @@ end
 --- exit. A child spawned after this settles as cancelled without running.
 ---
 --- ```nupp:fragment
---- with scope = coroutine.scope(limit = 4) do
+--- do
+---     local scope = coroutine.scope(limit = 4)
 ---     for _, mirror in ipairs(mirrors) do
 ---         scope:spawn(mirror, probe)
 ---     end
@@ -1646,20 +1649,21 @@ local function closeScope(owner: ScopeState): nil
     end
 end
 
---- Settles the scope, which is what leaving its `with` does.
+--- Settles the scope, as lexical cleanup does.
 ---
 --- Every child has run, been cancelled, or unwound when this returns, and the worker
 --- scope, where one was opened, has been closed through the suspension-aware path.
 --- It is a settling terminal: it parks until that is so, and so is refused inside a
---- `@nosuspend` region. A scope held in an ordinary local rather than a `with` is
---- closed early by `own.drop(scope)`, and closes once.
+--- `@nosuspend` region. `own.drop(scope)` closes a local scope early, and it
+--- closes once.
 ---
 --- A failure the block itself raises does not cancel the children: they run to
 --- completion before it propagates. Call `cancel` first where that is not wanted, or
 --- run the body with [](coroutine.run), which cancels them when it fails.
 ---
 --- ```nupp:fragment
---- with scope = coroutine.scope() do
+--- do
+---     local scope = coroutine.scope()
 ---     scope:spawn(function(): nil work() end)
 --- end
 --- ```
@@ -1674,7 +1678,7 @@ end
     end as any
 end
 
---- Opens a scope, to be held by a `with`.
+--- Opens a scope whose local owner settles its children when it leaves scope.
 ---
 --- The block is the scope's body. Children started in it with `spawn` and `work` are
 --- its family, and leaving the block -- normally, by `break` or `return`, or by an
@@ -1700,7 +1704,8 @@ end
 ---
 --- ```nupp:fragment
 --- const sizes: {integer} = {}
---- with scope = coroutine.scope(limit = 8) do
+--- do
+---     local scope = coroutine.scope(limit = 8)
 ---     for index, url in ipairs(urls) do
 ---         scope:spawn(sizes, index, url, storeSize)
 ---     end
@@ -1709,7 +1714,7 @@ end
 ---
 --- @param limit how many children may be live at once, or nil for no bound
 --- @param timeoutMs how long the whole scope may take, in milliseconds, or nil
---- @return the scope, settled when its `with` ends
+--- @return the scope, settled when its local owner leaves scope
 --- @raises string where the limit is not a positive integer or the timeout is not a
 ---     finite non-negative number
 --- Opens a scope's state on the running frame, for `scope` and `run`. Errors name the
@@ -1795,15 +1800,15 @@ end
 --- The callback form of [](coroutine.scope). The body is handed the scope and may
 --- start children in it with `spawn` and `work`. Where it returns, the children run
 --- to completion and its results are this call's, every position kept, `nil`s
---- included; a child's failure is raised instead, as leaving an `scope` block raises
---- it. Where the body fails, its children are cancelled before the scope drains
+--- included; a child's failure is raised instead, as when leaving a scope's
+--- block. Where the body fails, its children are cancelled before the scope drains
 --- them, and the body's failure is raised once they have unwound. A child that fails
 --- while it unwinds does not replace that failure: it is attached beside it.
 ---
---- That last case is the difference from `with scope = scope()`. A block cannot tell
---- its own failure from a normal exit, so it waits for every child either way; this
---- knows how its body ended, so a failure is not held up behind children that only
---- mattered while the body was going to use them.
+--- A local scope's cleanup cannot distinguish its block's failure from a normal
+--- exit, so it waits for every child either way. `run` knows how its body ended,
+--- so a failure is not held up behind children that only mattered while the body
+--- was going to use them.
 ---
 --- Takes the same named `limit` and `timeoutms` as `scope`. The body may come alone,
 --- `run(body)`, or named after them, `run(limit = 8, body = body)`.

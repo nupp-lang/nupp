@@ -137,10 +137,12 @@ end
 
 local values = array.scalar(array.float, 10)
 local doubled = array.scalar(array.float, 10)
-with writable = values:write() do
+do
+    local writable = values:write()
     for i = 1, #writable do writable[i] = i end
 end
-with out = doubled:write() do
+do
+    local out = doubled:write()
     scale(out, values:read(), 2.0)
 end
 local result = doubled:read()
@@ -154,9 +156,8 @@ print()
 
 `array.scalar` allocates ten zeroed floats. `write` lends out an *exclusive
 borrow*, a writable view that prevents other access to the same storage while
-it is live. `read` lends out a shared read-only view. Each `with` ends its
-writable borrow when the body exits, so the storage can be read again. See
-[exact affine scopes](../../runtime/ownership/exact-scopes.md) for `with` and
+it is live. `read` lends out a shared read-only view. Each local writable view
+drops when its block exits, so the storage can be read again. See
 [ownership and borrowing](../../runtime/ownership/borrowing.md) for the borrow
 rules.
 
@@ -500,7 +501,8 @@ local function clamp(exclusive values: span.WriteSpan<float>, low: float, high: 
 end
 
 local samples = array.scalar(array.float, 6)
-with writable = samples:write() do
+do
+    local writable = samples:write()
     writable[1] = -5.0
     writable[2] = 0.25
     writable[3] = 1.5
@@ -577,14 +579,16 @@ end
 
 local input = array.scalar(array.number, 5)
 local output = array.scalar(array.number, 5)
-with w = input:write() do
+do
+    local w = input:write()
     w[1] = 1.0
     w[2] = 2.0
     w[3] = 100.0
     w[4] = 0.5
     w[5] = 1000000.0
 end
-with w = output:write() do
+do
+    local w = output:write()
     halvings(w, input:read())
 end
 local result = output:read()
@@ -744,7 +748,8 @@ local function total(borrows values: span.Span<number>): number
 end
 
 local values = array.scalar(array.number, 10)
-with w = values:write() do
+do
+    local w = values:write()
     for i = 1, #w do w[i] = i end
 end
 print(total(values:read()))
@@ -780,7 +785,9 @@ end
 
 local a = array.scalar(array.float, 3)
 local b = array.scalar(array.float, 3)
-with wa = a:write(), wb = b:write() do
+do
+    local wa = a:write()
+    local wb = b:write()
     wa[1], wa[2], wa[3] = 1.0, 2.0, 3.0
     wb[1], wb[2], wb[3] = 4.0, 5.0, 6.0
 end
@@ -966,11 +973,13 @@ end
 
 local input = array.scalar(array.float, 8)
 local output = array.scalar(array.float, 8)
-with w = input:write() do
+do
+    local w = input:write()
     for i = 1, #w do w[i] = i * 0.5 end
 end
 local count: integer
-with w = output:write() do
+do
+    local w = output:write()
     count = above(w, input:read(), 2.0)
 end
 local result = output:read()

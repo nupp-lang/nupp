@@ -65,7 +65,7 @@ local struct Row
     x: int32
 end
 local owner = soa.alloc(ffi.typeof<Row>(), 2)
-with rows = owner:write() do
+do local rows = owner:write() ;
     rows[1].x = 17
 end
 local rows = owner:read()

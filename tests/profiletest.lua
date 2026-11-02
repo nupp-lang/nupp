@@ -388,8 +388,9 @@ function M.aStoppedSampleSessionRefusesEverything()
     )
 end
 
--- Closing is what leaving a `with` does: it ends a session nothing stopped, without a
--- report, so the next one can start, and it is free once `stop` has run.
+-- Closing is what leaving an owning local scope does: it ends a session nothing
+-- stopped, without a report, so the next one can start, and it is free once `stop` has
+-- run.
 function M.closingEndsASessionWithoutAReport()
     local sampling = profile.sample({intervalms = 10})
     testAssert.eq(sampling:close(), nil, "close answers no report")
