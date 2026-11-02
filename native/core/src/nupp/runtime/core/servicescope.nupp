@@ -129,6 +129,11 @@ export function mathFunction(scope: voidptr, op: uint64, x: uint64, y: uint64): 
     return os.mathFunction(op, x, y)
 end
 
+export function randomSeed(scope: voidptr): uint64
+    local _ = scope
+    return os.randomSeed()
+end
+
 -- Root-registration close failure retains all backing. Entry must preserve
 -- this scope and ledger, never reset them or drain mappings under live roots.
 export function retain(scope: voidptr): nil

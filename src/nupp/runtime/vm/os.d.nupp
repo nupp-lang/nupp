@@ -63,5 +63,11 @@ local record Os
     --- 4 log10, 5 sin, 6 cos, 7 tan, 8 asin, 9 acos, 10 atan2(x, y), 11 fmod.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     mathFunction: function(op: uint64, x: uint64, y: uint64): uint64
+
+    --- A seed for the guest's random numbers: the wall clock in nanoseconds
+    --- mixed with an address and the process id, as Lua's seed mixes the
+    --- time with addresses.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    randomSeed: function(): uint64
 end
 return Os

@@ -1606,6 +1606,16 @@ function tagged.forVersion(version: integer): any
                 return libraryCall(ctx, node, 2, node.args.exprs or {})
             elseif library == "print" then
                 return printValues(ctx, node)
+            elseif library == "math.random" or library == "math.randomseed" then
+                -- Without arguments a placeholder nil is the call's one value.
+                local args = node.args.exprs or {}
+                local random = library == "math.random"
+                need(#args <= 2, tostring(library) .. " takes at most two arguments")
+                if #args == 0 then
+                    local none = ctx.emit(node, "Nil", {}, "tagged")
+                    return ctx.emit(node, "LibCall", {random and 71 or 72, none}, "tagged") as integer
+                end
+                return libraryCall(ctx, node, random and 69 or 70, args)
             elseif library == "table.sort" then
                 -- Without a comparator the sort step compares with `<` itself.
                 local count = #(node.args.exprs or {})

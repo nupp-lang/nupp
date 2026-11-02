@@ -46,6 +46,12 @@ export struct Services
     -- status check (LANDED) takes the failure path, destroys them and raises
     -- lastError again.
     landed: uint64
+    -- math.random's xoshiro256** state, all zero until the first draw or
+    -- math.randomseed seeds it.
+    random0: uint64
+    random1: uint64
+    random2: uint64
+    random3: uint64
 end
 
 -- tableSet's answer when a __newindex function is to be called instead.
@@ -131,6 +137,10 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("fault"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("metaCallee"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("landed"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("random0"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("random1"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("random2"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("random3"), 0ULL)
     end
 
     return 1ULL

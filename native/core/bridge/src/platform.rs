@@ -349,3 +349,14 @@ fn math(op: u64, x: u64, y: u64) -> u64 {
 pub unsafe extern "C" fn math_function(op: u64, x: u64, y: u64) -> u64 {
     math(op, x, y)
 }
+
+/// A seed for the guest's random numbers: the wall clock in nanoseconds mixed
+/// with an address and the process id. The guest's math.random seed.
+pub unsafe extern "C" fn random_seed() -> u64 {
+    let clock = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|elapsed| elapsed.as_nanos() as u64)
+        .unwrap_or(0);
+    let local = 0u8;
+    clock ^ (&local as *const u8 as u64).rotate_left(32) ^ u64::from(std::process::id())
+}

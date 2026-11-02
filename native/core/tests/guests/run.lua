@@ -108,7 +108,8 @@ local CASES = {
     {"stringsQuoted", 0x7FFF00000000003F},
     {"outputPrint", 0x7FFF000000000006},
     {"numbersPower", 0x7FFF00018C459471},
-    {"libraryRanges", 0x7FFF00000000001F}
+    {"libraryRanges", 0x7FFF00000000001F},
+    {"numbersRandom", 0x7FFF00003A3E66EE}
 }
 -- What the cases that print write to the host's output, as Lua 5.5 writes it.
 local OUTPUT = {
@@ -174,7 +175,8 @@ local NUMERIC = {
     stringsQuoted = "catalog-strings-quoted",
     outputPrint = "catalog-output-print",
     numbersPower = "catalog-numbers-power",
-    libraryRanges = "catalog-library-ranges"
+    libraryRanges = "catalog-library-ranges",
+    numbersRandom = "catalog-numbers-random"
 }
 local FIXTURES = {
     "catalog-boolean",

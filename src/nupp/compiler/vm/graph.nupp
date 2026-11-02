@@ -1609,6 +1609,8 @@ local coreLibrary: {
     ["math.acos"] = true,
     ["math.atan"] = true,
     ["math.fmod"] = true,
+    ["math.random"] = true,
+    ["math.randomseed"] = true,
     rawget = true,
     rawset = true,
     ["table.concat"] = true,

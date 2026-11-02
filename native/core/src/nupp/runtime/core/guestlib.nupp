@@ -98,6 +98,11 @@ export const REVERSE: uint64 = 66ULL
 -- table.move(a1, f, e, t), and with a destination a2 its arguments packed.
 export const TABLE_MOVE: uint64 = 67ULL
 export const TABLE_MOVE_PACK: uint64 = 68ULL
+-- math.random and math.randomseed with arguments, and with none.
+export const MATH_RANDOM: uint64 = 69ULL
+export const MATH_RANDOMSEED: uint64 = 70ULL
+export const MATH_RANDOM_FLOAT: uint64 = 71ULL
+export const MATH_RANDOMSEED_HOST: uint64 = 72ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -2313,6 +2318,129 @@ local function mathFmod(ctx: voidptr, a: uint64, b: uint64): uint64
     return hostMath(11ULL, x, y)
 end
 
+-- math.random's four words of state, in the services.
+local function randomBase(ctx: voidptr): uint64
+    @unsafe do
+        return native.address(
+            native.offset(
+                native.loadPointer(ctx, context.SERVICE_SCOPE),
+                native.fieldOffset<guestscope.Services>("random0")
+            )
+        )
+    end
+end
+
+local function rotateLeft(x: uint64, n: uint64): uint64
+    return (x << n) | (x >> (64ULL - n))
+end
+
+-- xoshiro256**, as Lua 5.5 draws: the next value, advancing the state.
+local function nextRandom(state: uint64): uint64
+    @unsafe do
+        local s = native.pointer(state)
+        local s0 = native.load64(s, 0)
+        local s1 = native.load64(s, 8)
+        local s2 = native.load64(s, 16) ~ s0
+        local s3 = native.load64(s, 24) ~ s1
+        local result = rotateLeft(s1 * 5ULL, 7ULL) * 9ULL
+        native.store64(s, 0, s0 ~ s3)
+        native.store64(s, 8, s1 ~ s2)
+        native.store64(s, 16, s2 ~ (s1 << 17ULL))
+        native.store64(s, 24, rotateLeft(s3, 45ULL))
+        return result
+    end
+end
+
+-- Lua's setseed: the two seeds, 0xff so the state is never zero, and
+-- sixteen draws discarded to spread them.
+local function seedRandom(state: uint64, n1: uint64, n2: uint64): nil
+    @unsafe do
+        local s = native.pointer(state)
+        native.store64(s, 0, n1)
+        native.store64(s, 8, 0xffULL)
+        native.store64(s, 16, n2)
+        native.store64(s, 24, 0ULL)
+        local i: int64 = 0
+        while i < 16 do
+            nextRandom(state)
+            i = i + 1
+        end
+    end
+end
+
+-- The state, seeded from the host on first use as Lua seeds at startup.
+local function randomState(ctx: voidptr): uint64
+    @unsafe do
+        local state = randomBase(ctx)
+        local s = native.pointer(state)
+        if native.load64(s, 0) | native.load64(s, 8) | native.load64(s, 16) | native.load64(s, 24) == 0ULL then
+            seedRandom(state, os.randomSeed(), 0ULL)
+        end
+        return state
+    end
+end
+
+-- Lua's project: `ran` into [0, n], uniformly, drawing again while the
+-- smallest all-ones mask covering n leaves it above n.
+local function project(s: uint64, ran: uint64, n: uint64): uint64
+    local lim = n
+    local sh: uint64 = 1ULL
+    while lim & (lim + 1ULL) ~= 0ULL do
+        lim = lim | (lim >> sh)
+        sh = sh * 2ULL
+    end
+    local value = ran & lim
+    while value > n do
+        value = nextRandom(s) & lim
+    end
+
+    return value
+end
+
+-- math.random(): a float in [0, 1) from the top 53 bits; (m): an integer in
+-- [1, m], or any integer for 0; (m, n): an integer in [m, n].
+local function mathRandom(ctx: voidptr, count: uint64, a: uint64, b: uint64): uint64
+    local s = randomState(ctx)
+    local rv = nextRandom(s)
+    if count == 0ULL then
+        local scaled = native.fromBits(ints.toFloatBits(rv >> 11ULL)) * native.fromBits(0x3ca0000000000000ULL)
+        return floatValue(native.bits(scaled))
+    end
+    local low: int64 = 1
+    local up: int64 = 0
+    if count == 1ULL then
+        up = integerArgument(a, 0, 1ULL)
+        if up == 0 then
+            return guestscope.integer(ctx, rv)
+        end
+    else
+        low = integerArgument(a, 0, 1ULL)
+        up = integerArgument(b, 0, 2ULL)
+    end
+    if low > up then
+        error("bad argument #1 to 'random' (interval is empty)")
+    end
+
+    return guestscope.integer(ctx, project(s, rv, native.word(up) - native.word(low)) + native.word(low))
+end
+
+-- math.randomseed([n1 [, n2]]): seeds the state, from the host and a draw
+-- when no seed is given; answers the first seed.
+local function mathRandomseed(ctx: voidptr, count: uint64, a: uint64, b: uint64): uint64
+    local n1: uint64 = 0ULL
+    local n2: uint64 = 0ULL
+    if count == 0ULL then
+        n1 = os.randomSeed()
+        n2 = nextRandom(randomState(ctx))
+    else
+        n1 = native.word(integerArgument(a, 0, 1ULL))
+        n2 = native.word(integerArgument(b, 0, 2ULL))
+    end
+    seedRandom(randomBase(ctx), n1, n2)
+
+    return guestscope.integer(ctx, n1)
+end
+
 -- Library call `id` with `count` arguments; answers the result value. error
 -- (ERROR) is raised by its handler, which records where.
 export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
@@ -2336,6 +2464,14 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return hostMath(10ULL, numberArgument(a), x)
     elseif id == MATH_FMOD then
         return mathFmod(ctx, a, b)
+    elseif id == MATH_RANDOM then
+        return mathRandom(ctx, count, a, b)
+    elseif id == MATH_RANDOM_FLOAT then
+        return mathRandom(ctx, 0ULL, a, b)
+    elseif id == MATH_RANDOMSEED then
+        return mathRandomseed(ctx, count, a, b)
+    elseif id == MATH_RANDOMSEED_HOST then
+        return mathRandomseed(ctx, 0ULL, a, b)
     elseif id == PRINT then
         return printValues(ctx, a)
     elseif id == FORMAT_PACK then
