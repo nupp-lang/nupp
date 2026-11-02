@@ -4071,6 +4071,7 @@ local function interleavedLoadWays(expression: cst.Node): integer?
     end
     local name = (expression as cst.MethodCall).name
     local method = name ~= nil and (name as lexer.Token).text or ""
+    method = SIMD_METHOD_OPERATIONS[method] or method
 
     return method:sub(1, 4) == "load" and INTERLEAVED[method] or nil
 end

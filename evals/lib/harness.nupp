@@ -187,7 +187,7 @@ function harness.run(
         stdin = "null",
         stdout = "pipe",
         stderr = "pipe",
-        timeoutMs = timeoutSeconds ~= nil and math.floor(timeoutSeconds * 1000) or nil,
+        timeoutms = timeoutSeconds ~= nil and math.floor(timeoutSeconds * 1000) or nil,
     }
     local child, spawnProblem = process.spawn(options)
     if child == nil then
@@ -200,10 +200,10 @@ function harness.run(
     end
 
     return {
-        returncode = result.exit.exitCode,
+        returncode = result.exit.exitcode,
         stdout = result.output,
-        stderr = result.errorOutput,
-        timedOut = result.exit.timedOut,
+        stderr = result.erroroutput,
+        timedOut = result.exit.timedout,
     }
 end
 

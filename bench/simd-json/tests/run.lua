@@ -246,7 +246,7 @@ do
     valueBuilder.null(stream)
     valueBuilder.close(stream)
     valueBuilder.key(stream, "escaped\\n", 0, 9, true)
-    valueBuilder.boolean(stream, true)
+    valueBuilder.bool(stream, true)
     valueBuilder.close(stream)
     local built = valueBuilder.finish(stream)
     check(

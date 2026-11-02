@@ -619,7 +619,7 @@ function M.oneReadinessGenerationWakesHttpProcessAndFileWaiters()
         response:close()
 
         local child = startProcess({args = {"/bin/sh", "-c", "sleep 0.1"}, stdin = "null", stdout = "null"})
-        test.eq(child:wait().exitCode, 0)
+        test.eq(child:wait().exitcode, 0)
         child:close()
 
         local path = root .. "/readiness.txt"

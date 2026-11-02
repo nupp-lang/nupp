@@ -23,7 +23,7 @@ local function root(source: string, nullValue: any): any
     valueBuilder.openarray(state, math.u32.wrap(3))
     valueBuilder.null(state)
     valueBuilder.string(state, source, math.u32.wrap(0), math.u32.wrap(#source), false)
-    valueBuilder.boolean(state, false)
+    valueBuilder.bool(state, false)
     valueBuilder.close(state)
 
     return valueBuilder.finish(state)

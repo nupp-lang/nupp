@@ -726,7 +726,7 @@ function M.anInterruptedCheckLeavesNoWorkers()
         not exit:succeeded(),
         (
             "the interrupted check did not stop: code=%s killed=%s timedOut=%s"
-        ):format(tostring(exit.exitCode), tostring(exit.killed), tostring(exit.timedOut)) .. " output=" .. said
+        ):format(tostring(exit.exitcode), tostring(exit.killed), tostring(exit.timedout)) .. " output=" .. said
     )
 
     deadline = os.monotonic() + 60000

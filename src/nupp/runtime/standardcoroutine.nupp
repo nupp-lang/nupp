@@ -26,15 +26,15 @@ end
 assert(greeting == "hello world")
 ```
 
-`scope` takes a `limit`, which parks `spawn` and `fork` while that many children
-are live, and a `timeoutMs`, how long the scope may take. A running child
+`scope` takes a `limit`, which parks `spawn` and `work` while that many children
+are live, and a `timeoutms`, how long the scope may take. A running child
 cooperates by calling `checkpoint`, which is where it learns the scope was
 cancelled or its deadline passed.
 
 ```nupp
 local total = 0
 
-with scope = coroutine.scope(timeoutMs = 1000) do
+with scope = coroutine.scope(timeoutms = 1000) do
     const sum = scope:spawn("sum values", function(): integer
         local answer: integer = 0
         for value = 1, 1000 do
@@ -61,7 +61,7 @@ children found over time and one answer to what happens when the body returns, a
 child fails, or the whole thing is cancelled.
 
 CPU work on other threads is [](coroutine.workers), and a task scope is the only way
-to it: `fork` hands a child to a lane, and the scope owns the family of lanes
+to it: `work` hands a child to a lane, and the scope owns the family of lanes
 lazily and closes it through the suspension-aware path, so leaving the block
 inside a frame parks rather than blocking the thread.
 

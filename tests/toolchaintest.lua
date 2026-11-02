@@ -373,7 +373,7 @@ function M.handCopiedPinsAgreeWithThePinsFile()
     local recorded = pins()
     local trace = read(ROOT .. "/src/nupp/profile/trace.nupp")
     assert(
-        trace:find('trace.PINNED_LUAJIT_REVISION = "' .. recorded.LUAJIT_REV .. '"', 1, true),
+        trace:find('trace.pinnedluajitrevision = "' .. recorded.LUAJIT_REV .. '"', 1, true),
         "src/nupp/profile/trace.nupp names a LuaJIT revision other than LUAJIT_REV"
     )
 

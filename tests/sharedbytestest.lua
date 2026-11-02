@@ -21,8 +21,8 @@ function M.beforeAll()
         readFile = function()
             return nil, "unavailable"
         end,
-        text = function()
-            return ""
+        text = function(value, first, last)
+            return ffi.string(value.pointer + first - 1, math.max(last - first + 1, 0))
         end,
         pointer = function(value)
             return value.pointer
