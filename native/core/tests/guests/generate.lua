@@ -311,7 +311,15 @@ function generate.program(seed, size)
                 emit("Defaults.bonus = " .. expression(1) .. " % 100")
             else
                 local into = target()
-                emit(into .. " = (" .. into .. " + (cfg.bonus or 0) + (cfg.n1 or 0) * 3 + (cfg.n2 or 0)) % 1000003")
+                emit(
+                    into
+                    .. " = ("
+                    .. into
+                    .. " + (cfg.bonus or 0) + (cfg.n1 or 0) * 3 + (cfg.n2 or 0) + (dyn.key"
+                    .. pick(
+                        9
+                    ) .. " or 0)) % 1000003"
+                )
             end
         elseif roll == 12 and depth > 0 and closures < 3 then
             -- A closure made in this block, capturing what is in scope here.
@@ -354,6 +362,11 @@ function generate.program(seed, size)
         "local cfg: {[string]: integer} = setmetatable({}, {__index = Defaults})",
         "local cfg = setmetatable({}, {__index = Defaults})"
     )
+    emit("local dyn: {[string]: integer} = setmetatable({}, {", "local dyn = setmetatable({}, {")
+    emit("    __index = function(t: {[string]: integer}, k: string): integer", "    __index = function(t, k)")
+    emit("        return #k * 7 + (Defaults.bonus or 0)")
+    emit("    end")
+    emit("})")
     emit("local c: integer = 0", "local c = 0")
     emit("local s: string = \"\"", "local s = \"\"")
     emit("local function bump(n: integer): integer", "local function bump(n)")

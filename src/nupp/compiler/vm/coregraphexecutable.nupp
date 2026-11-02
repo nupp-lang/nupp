@@ -149,6 +149,7 @@ end
 
 local function derive(g: any, catalog: any): any
     local maximumArguments: integer = 0
+    local metaCalls = false
     for _, block in ipairs(g.blocks) do
         -- A capturing closure stages its captures in the call window too.
         for at, op in ipairs(block.op) do
@@ -157,6 +158,11 @@ local function derive(g: any, catalog: any): any
                 maximumArguments = math.max(maximumArguments, #block.args[at] - 1) as integer
             elseif op == "LibCall" then
                 maximumArguments = math.max(maximumArguments, #block.args[at] - 1) as integer
+            elseif op == "GetIdx" or op == "SetIdx" then
+                -- An __index or __newindex function is called from the top of
+                -- the call window: its callee, then up to three arguments.
+                maximumArguments = math.max(maximumArguments, 3) as integer
+                metaCalls = true
             end
         end
         if block.term.kind == "invoke" then
@@ -458,6 +464,7 @@ local function derive(g: any, catalog: any): any
         blockPCs = blockPCs,
         constants = copy(g.constants),
         calls = calls,
+        metaCalls = metaCalls,
         closureCount = closureCount
     }
 end
@@ -491,6 +498,10 @@ local function deriveCatalog(normalized: any): any
         visiting[index] = true
         local fn = functions[index]
         local instances, depth = fn.closureCount, 1
+        -- So does a metamethod an access may call.
+        if fn.metaCalls then
+            recursive = true
+        end
         for _, call in ipairs(fn.calls) do
             -- A dynamic call's callee is unknown: bound its depth like recursion.
             if call.target == normalized.schema.absent then
