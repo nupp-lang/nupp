@@ -226,6 +226,9 @@ export const META_SUB: uint64 = 4ULL
 export const META_MUL: uint64 = 5ULL
 export const META_MOD: uint64 = 6ULL
 export const META_LEN: uint64 = 7ULL
+export const META_LT: uint64 = 8ULL
+export const META_LE: uint64 = 9ULL
+export const META_EQ: uint64 = 10ULL
 
 -- The interned name of a metatable field: "__index", "__newindex" or
 -- "__metatable".
@@ -250,6 +253,12 @@ export function metaKey(ctx: voidptr, which: uint64): uint64
             refused = strings.appendWord(h, builder, 0x646f6d5f5fULL, 5ULL)
         elseif which == META_LEN then
             refused = strings.appendWord(h, builder, 0x6e656c5f5fULL, 5ULL)
+        elseif which == META_LT then
+            refused = strings.appendWord(h, builder, 0x746c5f5fULL, 4ULL)
+        elseif which == META_LE then
+            refused = strings.appendWord(h, builder, 0x656c5f5fULL, 4ULL)
+        elseif which == META_EQ then
+            refused = strings.appendWord(h, builder, 0x71655f5fULL, 4ULL)
         else
             refused = strings.appendWord(h, builder, 0x61746174656d5f5fULL, 8ULL)
                 | strings.appendWord(h, builder, 0x656c62ULL, 3ULL)
