@@ -530,6 +530,23 @@ input {
     text-transform: uppercase
 }
 
+/* API detail tables should read at the same size as the surrounding prose. */
+.nuppdoc-api-item :is(h4, h5, h6)+table {
+    font-size: 1rem
+}
+
+.nuppdoc-api-item :is(h4, h5, h6)+table th {
+    font-size: .76rem
+}
+
+.nuppdoc-api-item :is(h4, h5, h6)+table td p:first-child {
+    margin-top: 0
+}
+
+.nuppdoc-api-item :is(h4, h5, h6)+table td p:last-child {
+    margin-bottom: 0
+}
+
 
 .nuppdoc-module-grid {
     display: grid;
