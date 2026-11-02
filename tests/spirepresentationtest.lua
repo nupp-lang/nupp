@@ -65,4 +65,22 @@ function M.canonicalStorageBindingRetainsTheFrozenProviderAndOperations()
     assert(not pcall(binding.allocbytes, 0.5))
 end
 
+function M.nativeAllocationConsumersUseCanonicalProviderOperations()
+    local environment = require("nupp.compiler.project.env")
+    local root = assert(environment.compilerRoot())
+    local path = root .. "/native/crates/vm/tests/storage-consumers-input.nupp"
+    local source = assert(require("nupp.compiler.fs").readFile(path))
+    local parsed = require("nupp.compiler.syntax.parser").parse(source, path)
+    testAssert.eq(#parsed.errors, 0)
+    for _, diagnostic in ipairs(
+        require("fragment").check(parsed, path, environment.new(root), {
+            moduleName = "nupp.tests.vmstorageconsumers",
+        })
+    ) do
+        assert(diagnostic.severity and diagnostic.severity ~= "error", diagnostic.msg)
+    end
+    local value = require("program").run(parsed, "nupp.tests.vmstorageconsumers", path)
+    testAssert.eq(value.run(), 42)
+end
+
 return M

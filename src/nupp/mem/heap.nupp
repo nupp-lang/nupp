@@ -130,13 +130,13 @@ function heap.alloc<T>(element: ctype<T>, count: integer): affine(heap.Array<T>,
         error("nupp: heap array count must be a nonnegative integer", 2)
     end
 
-    local width = storage.sizeOf(element) as integer
+    local width = storage.sizeof(element) as integer
     if width <= 0 or (count > 0 and count > 9007199254740991 // width) then
         error("nupp: heap array byte size is too large", 2)
     end
 
     @unsafe do
-        local pointer = storage.allocateArray(element, count) as T[?]
+        local pointer = storage.allocarray(element, count) as T[?]
         local array = new heap.Array(pointer = pointer, count = count) as heap.Array<T>
         return array
     end

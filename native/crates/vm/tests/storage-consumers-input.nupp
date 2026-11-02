@@ -1,0 +1,49 @@
+module nupp.tests.vmstorageconsumers
+
+local probe = {}
+
+function probe.run(): integer
+    local heap = require("nupp.mem.heap")
+    local soa = require("nupp.mem.soa")
+    local shared = require("nupp.mem.sharedbytes")
+    local values = heap.alloc(ffi.typeof<int32>(), 2)
+    with writable = values:write() do
+        writable[1] = 11
+        writable[2] = 31
+    end
+    do
+        local readable = values:read()
+        assert(readable[1] + readable[2] == 42)
+    end
+    local struct Row
+        x: int32
+    end
+    local rows = soa.alloc(ffi.typeof<Row>(), 2)
+    with writable = rows:write() do
+        writable[1].x = 17
+        writable[2].x = 25
+    end
+    do
+        local readable = rows:read()
+        assert(readable[1].x + readable[2].x == 42)
+    end
+    local region = shared.copy("ABCD")
+    assert(region:tostring() == "ABCD" and region:len() == 4)
+    local view = region:viewas(ffi.typeof<uint8>())
+    assert(#view == 4 and view[1] == 65 and view[4] == 68)
+    local builder = shared.newbuilder()
+    builder:append("xy")
+    builder:append("z")
+    assert(builder:freeze():tostring() == "xyz")
+    local empty = shared.newbuilder()
+    assert(empty:freeze():tostring() == "")
+    assert(
+        not pcall(function(): nil
+            local invalid = heap.alloc(ffi.typeof<int32>(), -1)
+        end)
+    )
+
+    return 42
+end
+
+export = probe

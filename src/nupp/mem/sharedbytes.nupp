@@ -86,7 +86,7 @@ end
 
 -- A read-only byte view of the block starting `offset` bytes in.
 local function bytesAt(block: Block, offset: integer): any
-    return advance(storage.castBytes(block.data), offset)
+    return advance(storage.castbytes(block.data), offset)
 end
 
 --- An immutable extent of an engine-owned block. Reading happens in place
@@ -163,7 +163,7 @@ end
 
 --- @raises string when the region is not aligned or is not a whole number of elements
 function sharedbytes.Region:viewas<T>(element: ctype<T>): span.Span<T>
-    local width = storage.sizeOf(element) as integer
+    local width = storage.sizeof(element) as integer
     local alignment = (element as any).alignment as integer
     local byteOffset = self._first - 1
     if width < 1 or self._length % width ~= 0 then
@@ -256,7 +256,7 @@ local function ensure(growing: Growing, needed: integer): nil
         return
     end
     local capacity = math.max(needed, growing.capacity * 2, 64)
-    local grown = storage.allocateBytes(capacity)
+    local grown = storage.allocbytes(capacity)
     if growing.length > 0 then
         storage.copy(grown, growing.bytes, growing.length)
     end
@@ -284,7 +284,7 @@ function sharedbytes.Builder:append(chunk: string): nil
         return
     end
     ensure(growing, growing.length + count)
-    storage.copy(advance(growing.bytes, growing.length), storage.borrowString(chunk), count)
+    storage.copy(advance(growing.bytes, growing.length), storage.borrowstring(chunk), count)
     growing.length = growing.length + count
 end
 
@@ -331,7 +331,7 @@ function sharedbytes.Builder.freeze(takes self: sharedbytes.Builder): sharedbyte
     if growing.reserved ~= nil then
         error("nupp: a region builder has an open reservation", 2)
     end
-    local block = newBlock(storage.share(growing.bytes or storage.allocateBytes(0)))
+    local block = newBlock(storage.share(growing.bytes or storage.allocbytes(0)))
     local length = growing.length
     growing.bytes = nil
 
@@ -348,7 +348,7 @@ end
 
 --- Opens an empty builder.
 function sharedbytes.newbuilder(): affine(sharedbytes.Builder)
-    local growing = new Growing(bytes = storage.allocateBytes(0), capacity = 0, length = 0, reserved = nil)
+    local growing = new Growing(bytes = storage.allocbytes(0), capacity = 0, length = 0, reserved = nil)
     return new sharedbytes.Builder(_handle = growing) as affine(sharedbytes.Builder)
 end
 

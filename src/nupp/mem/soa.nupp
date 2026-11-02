@@ -576,7 +576,7 @@ function soa._allocate<T>(element: ctype<T>, count: integer, rawLayout: table): 
         words = 1
     end
     -- Word elements align the slab for every field `_layout` admits.
-    local raw = storage.allocateArray(storage.scalar("uint64"), words)
+    local raw = storage.allocarray(storage.scalar("uint64"), words)
     local base = storage.castWritableElements(storage.scalar("uint8"), raw)
 
     local columns: {any} = {}
