@@ -33,7 +33,7 @@ else
 fi
 [ -x "$LUA" ] || { echo "prelude-image: no interpreter at $LUA" >&2; exit 1; }
 
-"$ROOT/bin/nupp" build --target "$bootstrap_target"
+"$ROOT/bin/nupp" build --target "$bootstrap_target" --host browser
 
 mkdir -p "$(dirname "$IMAGE")"
 "$LUA" "$GENERATOR" \
@@ -48,7 +48,7 @@ trap 'rm -f "$roundtrip"' EXIT
 cmp "$IMAGE" "$roundtrip" \
     || { echo "prelude-image: fresh generation is not byte-reproducible" >&2; exit 1; }
 
-"$ROOT/bin/nupp" build --target "$compiler_target"
+"$ROOT/bin/nupp" build --target "$compiler_target" --host browser
 
 # The bundle now carries the image, so it can be asked to hydrate one and write
 # it back. That is the property worth checking and the one a committed file only
