@@ -128,6 +128,18 @@ local function shallow(record)
     return result
 end
 
+function M.lexicalBlockSummariesDoNotIssueCleanupDeclarationAuthority()
+    cleanupFixture(function(s, scope, owner, site, t)
+        local block = owner.body.body
+        assert(block.kind == "block" and block.automaticOwners[1] == site.automaticOwners[1])
+        assert(#unit.cleanupTypes(owner, block) == 0)
+        local types = unit.cleanupTypes(owner, site)
+        assert(#types == 1 and types[1] == t)
+        assert(unit.cleanupTarget(owner, site, t, t.cleanups[1]) == scope.functions.release)
+        assert(s.validate())
+    end)
+end
+
 function M.cleanupBindsDistinctCheckedRegistrationAndAnnotationRecords()
     cleanupFixture(function(s, scope, owner, site, t)
         local target = scope.functions.release

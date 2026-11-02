@@ -789,7 +789,8 @@ function unit.cleanupTypes(fn: any, site: any): any
     end
 
     add(site.inferredType)
-    for index, owner in pairs(site.automaticOwners or {}) do
+    local localOwners = site.kind == "localStmt" and site.automaticOwners
+    for index, owner in pairs(localOwners or {}) do
         need(
             site.kind == "localStmt"
             and owner.stat == site

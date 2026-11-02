@@ -387,7 +387,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
         end
         assert(value ~= nil, "function graph: continued expression requires a value")
         -- A fresh result owns its cleanup before a later initializer/argument
-        -- can fail. Publishing it as a local/with owner or taking it consumes
+        -- can fail. Publishing it as a local owner or taking it consumes
         -- this temporary, never the original owner's obligation twice.
         if cleanupEnabled and block and node.kind == "call" then
             local t = cleanup.type(node.inferredType)

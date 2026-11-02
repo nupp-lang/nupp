@@ -200,7 +200,7 @@ function program.describe(modules: {any}, entryModule: string): any
         requireByNode = {},
         calls = {},
         callByNode = {},
-        -- Per cleanup site (a local's statement, a with binding), the record
+        -- Per cleanup site (a local's statement), the record
         -- declaration whose destructor it runs, mapped to a synthetic
         -- reference to that record's name.
         cleanupTokens = {},
