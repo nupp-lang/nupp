@@ -151,7 +151,7 @@ end
 --- The severity a logging call site carries, as the runtime numbers them.
 local LOG_SEVERITY: {[string]: integer} = {error = 1, warn = 2, info = 3, debug = 4}
 
--- Which severity `log.<name>` names, or nil for anything else.
+-- Which severity `debug.log.<name>` names, or nil for anything else.
 --
 -- Marking the node rather than answering the call's type is deliberate: the call goes
 -- on to be checked like any other, so the format directives and their arguments are
@@ -162,7 +162,7 @@ local function logIntrinsic(c, callee): integer?
         return nil
     end
     local identity = apiidentity.expression(c, callee)
-    local member = identity and identity:match("^log%.([%w_]+)$")
+    local member = identity and identity:match("^debug%.log%.([%w_]+)$")
 
     return member and LOG_SEVERITY[member] or nil
 end
@@ -865,7 +865,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             if positionalOnly(argExprs) and format and format.kind == "string" then
                 node.logIntrinsic = severity
                 local sourceIdentity = apiidentity.sourceExpression(c, callee)
-                node.logModule = sourceIdentity and sourceIdentity:match("^(.*)%.[^.]+$") or "nupp.log"
+                node.logModule = sourceIdentity and sourceIdentity:match("^(.*)%.[^.]+$") or "debug.log"
                 node.logFormatIntrinsic = debugFormatPlan(literalString(format) or "")
             end
         end

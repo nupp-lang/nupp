@@ -6,14 +6,8 @@ local apiidentity = {}
 
 local ROOTS: {
     [string]: string
-} = {
-    ["nupp.simd"] = "simd",
-    ["nupp.events"] = "events",
-    ["nupp.gpu"] = "io.gpu",
-    ["nupp.math"] = "math",
-    ["nupp.log"] = "log",
-}
-local PUBLIC_ROOTS: {[string]: boolean} = {own = true, types = true}
+} = {["nupp.simd"] = "simd", ["nupp.events"] = "events", ["nupp.gpu"] = "io.gpu", ["nupp.math"] = "math",}
+local PUBLIC_ROOTS: {[string]: boolean} = {own = true, types = true, debug = true}
 for _, path in pairs(ROOTS) do
     local root = path:match("^[^.]+")
     if root then

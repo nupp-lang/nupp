@@ -5,7 +5,7 @@ uses the standard roots directly:
 
 ```nupp
 local encoded = serde.json.encodevalue({ok = true})
-log.info("wrote %d bytes", #encoded)
+debug.log.info("wrote %d bytes", #encoded)
 ```
 
 The documented `nupp.host`, `nupp.mem`, `nupp.spi`, `nupp.random`, and

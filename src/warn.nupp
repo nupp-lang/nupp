@@ -1,7 +1,8 @@
 module warn
 
 --[[
-`warn` joins its arguments and sends warnings through `log`'s sink and formatter.
+`warn` joins its arguments and sends warnings through `debug.log`'s sink and
+formatter.
 Warnings start enabled; `warn("@off")` disables them and `warn("@on")` enables them.
 
 ```nupp
@@ -9,7 +10,7 @@ warn("cannot read ", "settings.json")
 ```
 ]]
 
-local log = require("log")
+local log = require("debug.log")
 local output = log.formodule("warn")
 local enabled = true
 

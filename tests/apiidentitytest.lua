@@ -272,8 +272,10 @@ local function withProject(source, callback)
     local dir = os.tmpname()
     os.remove(dir)
     assert(os.execute("mkdir -p '" .. dir .. "/src'") == 0)
-    local moduleName = assert(source:match("module ([%w_]+)"))
-    local file = assert(io.open(dir .. "/src/" .. moduleName .. ".nupp", "wb"))
+    local moduleName = assert(source:match("module ([%w_.]+)"))
+    local path = dir .. "/src/" .. moduleName:gsub("%.", "/") .. ".nupp"
+    assert(os.execute("mkdir -p '" .. path:match("^(.*)/[^/]+$") .. "'") == 0)
+    local file = assert(io.open(path, "wb"))
     file:write(source)
     file:close()
     local ok, failure = pcall(callback, finalEnv(dir))
@@ -815,20 +817,20 @@ end
 
 function M.loggingKeepsLazyLoweringThroughCanonicalBindings()
     withProject([[
-module log
+module debug.log
 export function info(format: string, value: integer?): nil end
 ]], function(env)
         local missingModules = {}
         for _, source in ipairs({
-            'local logger = log\nlogger.info("value=%d", 1)',
-            'local logger = require("log")\nlocal alias = logger\nalias.info("value=%d", 1)',
-            'log.info("value=%d", 1)',
-            'local logger = require("log")\nlogger.info("value=%d", 1)',
+            'local logger = debug.log\nlogger.info("value=%d", 1)',
+            'local logger = require("debug.log")\nlocal alias = logger\nalias.info("value=%d", 1)',
+            'debug.log.info("value=%d", 1)',
+            'local logger = require("debug.log")\nlogger.info("value=%d", 1)',
         }) do
             local code, errors, parsed = compile(source, env)
             test.eq(errors, "", errors)
             local stats = parsed.root.blocks[1].stats
-            local expectedModule = "log"
+            local expectedModule = "debug.log"
             test.eq(stats[#stats].expr.logIntrinsic, 3, source)
             test.eq(stats[#stats].expr.logModule, expectedModule, source)
             if not code:find('require("' .. expectedModule .. '").formodule', 1, true) then
@@ -837,14 +839,14 @@ export function info(format: string, value: integer?): nil end
         end
         local _, errors, parsed = compile(
             [[
-local log = {info = function(format: string, value: integer): nil end}
-log.info("value=%d", 1)
+local debug = {log = {info = function(format: string, value: integer): nil end}}
+debug.log.info("value=%d", 1)
 ]],
             env
         )
         test.eq(errors, "", errors)
         test.eq(parsed.root.blocks[1].stats[2].expr.logIntrinsic, nil)
-        local _, aliasErrors, alias = compile('local info = require("log").info\ninfo("value=%d", 1)', env)
+        local _, aliasErrors, alias = compile('local info = require("debug.log").info\ninfo("value=%d", 1)', env)
         test.eq(aliasErrors, "", aliasErrors)
         test.eq(alias.root.blocks[1].stats[2].expr.logIntrinsic, nil)
         test.eq(#missingModules, 0, table.concat(missingModules, "\n"))

@@ -7191,9 +7191,10 @@ function gen.generate(
             -- own, because `emit` sits at Lua's 60-upvalue ceiling and an instrumented
             -- build spends one more. The name it answers is bound to a view that
             -- already knows the module, so a site carries only its severity and its
-            -- line. The view has its own key: a path such as `nupp.log.level` reaches
-            -- the module table under "nupp.log", and the view has only `on` and `emit`.
-            local logName = compilerModuleName((call.logModule or "nupp.log") .. "#view")
+            -- line. The view has its own key: a path such as `debug.log.level` reaches
+            -- the module table under "debug.log", and the view has only `on` and
+            -- `emit`.
+            local logName = compilerModuleName((call.logModule or "debug.log") .. "#view")
             e(("if %s.on[%d] then %s.emit(%d,%d,"):format(logName, severity, logName, severity, line), line)
             local formatPlan = call.logFormatIntrinsic
             if formatPlan then
@@ -10143,12 +10144,12 @@ function gen.generate(
     -- Bound here rather than with the required modules below, because those are
     -- independent of the bootstrap and this one is not: it reads the table the
     -- installer publishes, so it has to land after it rather than before.
-    for _, logModule in ipairs({"nupp.log", "log"}) do
-        local view = compilerModules[logModule .. "#view"]
+    do
+        local view = compilerModules["debug.log#view"]
         if view then
             code = (
                 "const %s = require(%q).formodule(%q); "
-            ):format(view, logModule, result.moduleName or filename or "?") .. code
+            ):format(view, "debug.log", result.moduleName or filename or "?") .. code
         end
     end
     local runtimeBootstrap = stdlib.bootstrap(runtimeEffects, hotState ~= nil, installingManaged)
@@ -10393,7 +10394,7 @@ function gen.generate(
     for _, moduleName in ipairs(compilerModuleOrder) do
         -- The logging view is not the module table: a site indexes a per-module view
         -- that `formodule` answers, so it is bound above rather than required here.
-        if moduleName ~= "nupp.log#view" and moduleName ~= "log#view" then
+        if moduleName ~= "debug.log#view" then
             code = ("local %s = require(%q); "):format(compilerModules[moduleName], moduleName) .. code
         end
     end

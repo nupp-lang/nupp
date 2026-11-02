@@ -5,7 +5,7 @@ local M = {}
 local function fixture()
     local calls = {}
     local load = providerstate.instance({warn = true}, {
-        log = {
+        ["debug.log"] = {
             formodule = function(name)
                 test.eq(name, "warn")
                 return {
@@ -55,7 +55,7 @@ function M.validatesEveryArgumentEvenWhenDisabled()
 end
 
 function M.usesTheApplicationSinkIndependentlyOfItsLevelFilter()
-    local log = require("log")
+    local log = require("debug.log")
     local warning = require("warn")
     local messages = {}
     local previousLevel = log.setlevel("off")
