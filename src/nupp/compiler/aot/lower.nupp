@@ -1924,7 +1924,13 @@ const SPECIES_WITNESSES: {
 }
 
 -- Public namespace casing does not change the builder operations in native IR.
-local BUILDER_CALLS: {[string]: string} = {["serde.valuebuilder.len"] = "serde.valuebuilder.length"}
+local BUILDER_CALLS: {
+    [string]: string
+} = {
+    ["serde.valuebuilder.len"] = "serde.valuebuilder.length",
+    ["serde.valuebuilder.bool"] = "serde.valuebuilder.boolean",
+    ["serde.valuebuilder.scratchlen"] = "serde.valuebuilder.scratchLength",
+}
 for _, name in ipairs({
     "newSized",
     "byteAt",
