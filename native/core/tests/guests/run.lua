@@ -107,7 +107,8 @@ local CASES = {
     {"stringsGsubFunction", 0x7FFF00000000003F},
     {"stringsQuoted", 0x7FFF00000000003F},
     {"outputPrint", 0x7FFF000000000006},
-    {"numbersPower", 0x7FFF00018C459471}
+    {"numbersPower", 0x7FFF00018C459471},
+    {"libraryRanges", 0x7FFF00000000001F}
 }
 -- What the cases that print write to the host's output, as Lua 5.5 writes it.
 local OUTPUT = {
@@ -172,7 +173,8 @@ local NUMERIC = {
     stringsGsubFunction = "catalog-strings-gsubfn",
     stringsQuoted = "catalog-strings-quoted",
     outputPrint = "catalog-output-print",
-    numbersPower = "catalog-numbers-power"
+    numbersPower = "catalog-numbers-power",
+    libraryRanges = "catalog-library-ranges"
 }
 local FIXTURES = {
     "catalog-boolean",

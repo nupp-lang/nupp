@@ -94,6 +94,10 @@ export const MATH_ASIN: uint64 = 62ULL
 export const MATH_ACOS: uint64 = 63ULL
 export const MATH_ATAN: uint64 = 64ULL
 export const MATH_FMOD: uint64 = 65ULL
+export const REVERSE: uint64 = 66ULL
+-- table.move(a1, f, e, t), and with a destination a2 its arguments packed.
+export const TABLE_MOVE: uint64 = 67ULL
+export const TABLE_MOVE_PACK: uint64 = 68ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -603,7 +607,7 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
 end
 
 -- table.concat(t, sep) over t[1..#t], whose elements are strings or numbers.
-local function concat(ctx: voidptr, count: uint64, list: uint64, separator: uint64): uint64
+local function concat(ctx: voidptr, count: uint64, list: uint64, separator: uint64, first: uint64, last: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
@@ -619,19 +623,20 @@ local function concat(ctx: voidptr, count: uint64, list: uint64, separator: uint
             end
         end
         local builder = state as strings.Builder*
-        local n = tables.length(t)
-        local i: uint64 = 1ULL
-        while i <= n do
-            local item = tables.get(t, values.TAG_INTEGER | i)
-            if strings.header(item) == 0ULL and not ints.isInteger(item) then
+        -- t[i] to t[j], 1 and #t by default; strings and numbers only.
+        local i = integerArgument(first, 1, 3ULL)
+        local j = integerArgument(last, native.index(tables.length(t)), 4ULL)
+        while i <= j do
+            local item = tables.get(t, values.TAG_INTEGER | native.word(i))
+            if strings.header(item) == 0ULL and floatOf(item) == values.NIL then
                 strings.release(builder)
                 error("invalid value (at index) in table for 'concat'")
             end
             appendText(h, builder, item)
-            if i < n and sep ~= 0ULL then
+            if i < j and sep ~= 0ULL then
                 strings.appendString(h, builder, sep)
             end
-            i = i + 1ULL
+            i = i + 1
         end
         return values.TAG_OBJ | strings.finish(h, builder)
     end
@@ -1184,23 +1189,61 @@ local function char(ctx: voidptr, a: uint64): uint64
 end
 
 -- string.rep(s, n): n copies, empty for n <= 0.
-local function rep(ctx: voidptr, value: uint64, a: uint64): uint64
+local function rep(ctx: voidptr, value: uint64, a: uint64, separator: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local s = stringArgument(value)
         local n = integerArgument(a, 0, 2ULL)
+        -- The separator goes between copies.
+        local sep: uint64 = 0ULL
+        if separator ~= values.NIL then
+            sep = stringArgument(separator)
+        end
         local h = guestHeap(ctx)
         local builder = state as strings.Builder*
-        if n > 0 and native.word(n) * strings.length(s) > 0x40000000ULL then
+        local each = strings.length(s)
+        if sep ~= 0ULL then
+            each = each + strings.length(sep)
+        end
+        if n > 0 and (native.word(n) > 0x40000000ULL or native.word(n) * each > 0x40000000ULL) then
             error("resulting string too large")
         end
         local i: int64 = 0
         while i < n do
+            if i > 0 and sep ~= 0ULL and strings.appendString(h, builder, sep) ~= 0ULL then
+                strings.release(builder)
+                error("not enough memory")
+            end
             if strings.appendString(h, builder, s) ~= 0ULL then
                 strings.release(builder)
                 error("not enough memory")
             end
             i = i + 1
+        end
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- string.reverse(s): its bytes in reverse order.
+local function reverse(ctx: voidptr, value: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local s = stringArgument(value)
+        local h = guestHeap(ctx)
+        local builder = state as strings.Builder*
+        local at = strings.bytes(s)
+        local i = strings.length(s)
+        while i > 0ULL do
+            i = i - 1ULL
+            if strings.appendWord(
+                h,
+                builder,
+                native.word(native.load8(native.pointer(at), native.index(i))),
+                1ULL
+            ) ~= 0ULL then
+                strings.release(builder)
+                error("not enough memory")
+            end
         end
         return values.TAG_OBJ | strings.finish(h, builder)
     end
@@ -1620,6 +1663,48 @@ local function tableRemove(ctx: voidptr, count: uint64, list: uint64, a: uint64)
         end
         tables.drain(h)
         return removed
+    end
+end
+
+-- table.move(a1, f, e, t [, a2]): a1[f..e] to a2[t..], a2 being a1 when
+-- absent, copying backwards when the ranges overlap that way; answers a2.
+-- Raw, as the tables' metatables are not consulted.
+local function tableMove(ctx: voidptr, source: uint64, fv: uint64, ev: uint64, tv: uint64, target: uint64): uint64
+    @unsafe do
+        local h = guestHeap(ctx)
+        local a1 = tableArgument(source)
+        local destination = source
+        if target ~= values.NIL then
+            destination = target
+        end
+        local a2 = tableArgument(destination)
+        local f = integerArgument(fv, 0, 2ULL)
+        local e = integerArgument(ev, 0, 3ULL)
+        local t = integerArgument(tv, 0, 4ULL)
+        if e >= f then
+            if f <= 0 and e >= native.index(0x7fffffffffffffffULL) + f then
+                error("bad argument #3 to 'move' (too many elements to move)")
+            end
+            local n = e - f + 1
+            if t > native.index(0x7fffffffffffffffULL) - n + 1 then
+                error("bad argument #4 to 'move' (destination wrap around)")
+            end
+            if t > e or t <= f or a1 ~= a2 then
+                local i: int64 = 0
+                while i < n do
+                    storeAt(h, a2, t + i, loadAt(a1, f + i))
+                    i = i + 1
+                end
+            else
+                local i = n - 1
+                while i >= 0 do
+                    storeAt(h, a2, t + i, loadAt(a1, f + i))
+                    i = i - 1
+                end
+            end
+            tables.drain(h)
+        end
+        return destination
     end
 end
 
@@ -2259,7 +2344,7 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         local n = native.word(integerValue(tables.get(pack, values.TAG_INTEGER)))
         return format(ctx, n + 1ULL, a, values.NIL, values.NIL, values.NIL, pack)
     elseif id == CONCAT then
-        return concat(ctx, count, a, b)
+        return concat(ctx, count, a, b, c, d)
     elseif id == GMATCH_NEXT then
         return gmatchNext(ctx, a)
     elseif id == CONCAT2 then
@@ -2283,7 +2368,9 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == CHAR then
         return char(ctx, a)
     elseif id == REP then
-        return rep(ctx, a, b)
+        return rep(ctx, a, b, c)
+    elseif id == REVERSE then
+        return reverse(ctx, a)
     elseif id == UPPER then
         return casing(ctx, a, true)
     elseif id == LOWER then
@@ -2310,6 +2397,18 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return tableUnpack(ctx, a, b, c, false)
     elseif id == TABLE_UNPACK_ALL then
         return tableUnpack(ctx, a, b, c, true)
+    elseif id == TABLE_MOVE then
+        return tableMove(ctx, a, b, c, d, values.NIL)
+    elseif id == TABLE_MOVE_PACK then
+        local pack = b & values.PAYLOAD
+        return tableMove(
+            ctx,
+            a,
+            tables.get(pack, values.TAG_INTEGER | 1ULL),
+            tables.get(pack, values.TAG_INTEGER | 2ULL),
+            tables.get(pack, values.TAG_INTEGER | 3ULL),
+            tables.get(pack, values.TAG_INTEGER | 4ULL)
+        )
     elseif id == TABLE_SORT then
         sortStep(ctx, sortBegin(ctx, a, values.NIL))
         return values.NIL

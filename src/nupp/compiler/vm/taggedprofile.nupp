@@ -132,13 +132,14 @@ local stringLibrary: {[string]: {integer}} = {
     ["string.sub"] = {11, 2, 3},
     ["string.byte"] = {12, 1, 3},
     ["string.char"] = {13, 1, 1},
-    ["string.rep"] = {14, 2, 2},
+    ["string.rep"] = {14, 2, 3},
     ["string.upper"] = {15, 1, 1},
     ["string.lower"] = {16, 1, 1},
     ["string.len"] = {17, 1, 1},
     ["string.find"] = {18, 2, 4},
     ["string.match"] = {19, 2, 3},
     ["string.gsub"] = {26, 3, 4},
+    ["string.reverse"] = {66, 1, 1},
     -- The math library calls guestlib implements.
     ["math.abs"] = {38, 1, 1},
     ["math.ceil"] = {39, 1, 1},
@@ -159,7 +160,8 @@ local stringLibrary: {[string]: {integer}} = {
     -- The table library calls guestlib implements, by the same shape.
     ["table.insert"] = {34, 2, 3},
     ["table.remove"] = {35, 1, 2},
-    ["table.unpack"] = {36, 1, 3}
+    ["table.unpack"] = {36, 1, 3},
+    ["table.move"] = {67, 4, 5}
 }
 
 local function stringSpec(library: string?): {integer}?
@@ -185,7 +187,7 @@ local function packSpec(library: string?): integer?
 end
 
 local gsubWith: function(any, any, any, boolean): integer
-local formatMany: function(any, any, any): integer
+local packedCall: function(any, any, any, integer): integer
 
 -- A core library call (guestlib): its arguments staged as values.
 local function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
@@ -193,8 +195,9 @@ local function libraryCall(ctx: any, node: any, id: integer, arguments: any): in
     if (id == 26 or id == 27) and graph.callbackArgument(node) ~= nil then
         return gsubWith(ctx, node, arguments, id == 27)
     end
-    if id == 2 and #arguments > 4 then
-        return formatMany(ctx, node, arguments)
+    -- string.format and table.move past four arguments take the rest packed.
+    if (id == 2 or id == 67) and #arguments > 4 then
+        return packedCall(ctx, node, arguments, id == 2 and 54 or 68)
     end
     need(#arguments >= 1 and #arguments <= 4, "core library calls take one to four arguments")
     need(arguments[#arguments].kind ~= "vararg", "a library call cannot spread `...` yet")
@@ -650,9 +653,10 @@ local function sortWith(ctx: any, node: any): integer
     return ctx.emit(node, "Nil", {}, "tagged") as integer
 end
 
--- string.format with more than three values: they go in a pack, its count
--- at key 0, beside the format.
-formatMany = function(ctx: any, node: any, arguments: any): integer
+-- A library call `id` with its first argument and the rest in a pack, the
+-- count at key 0: string.format with more than three values, table.move
+-- with a destination.
+packedCall = function(ctx: any, node: any, arguments: any, id: integer): integer
     need(arguments[#arguments].kind ~= "vararg", "a library call cannot spread `...` yet")
     local kinds = {}
     for index = 1, #arguments do
@@ -671,7 +675,7 @@ formatMany = function(ctx: any, node: any, arguments: any): integer
     local count = ctx.emit(node, "K", {pool(ctx, "int64", tostring(#operands - 1))}, "tagged")
     ctx.emit(node, "SetIdx", {pack, zero, count}, nil)
 
-    return ctx.emit(node, "LibCall", {54, operands[1], pack}, "tagged") as integer
+    return ctx.emit(node, "LibCall", {id, operands[1], pack}, "tagged") as integer
 end
 
 -- print(...): its values in a pack, the count at key 0, written as one line.
