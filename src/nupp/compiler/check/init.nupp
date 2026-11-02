@@ -1657,6 +1657,19 @@ function checkMod.check(
             end
             s = s.parent
         end
+        -- Prelude-owned types are complete before builtin implementations load.
+        -- Reading a file handle type must not initialize the I/O extension and
+        -- recursively load the provider that is currently being checked.
+        if extensionRoot and not shadowed and env and env.globalTypes then
+            local declared = apiidentity.lookup(env.globalTypes, name)
+            if declared then
+                local definitions = env.globalTypeDefs or {}
+                local canonical = apiidentity.canonical(name)
+                return declared, definitions[name]
+                    or definitions[canonical]
+                    or definitions[apiidentity.legacy(canonical)]
+            end
+        end
         if extensionRoot and env and env.globals then
             if shadowed then
                 return nil
