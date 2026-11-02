@@ -32,7 +32,7 @@ in this arena raises without changing its lease count.
 
 Storage comes from the `cstorage` capability, so the module is available on
 native LuaJIT and on the Wasm and browser backends, and refused by `portable`.
-Table-backed record instances are [](nupp.util.Pool).
+Table-backed record instances are [](table.Pool).
 ]]
 
 local storage = require("nupp.runtime.storage")

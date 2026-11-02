@@ -1,4 +1,4 @@
--- Behavioural tests for nupp.util.Bitset.
+-- Behavioral tests for binary.Bitset.
 --
 -- The set-algebra operations mark the population stale rather than tracking it
 -- per word, and `wordCount` is an upper bound rather than the exact high-water
@@ -8,7 +8,8 @@
 
 local check = require("assert")
 local bit = require("bit")
-local bitset = require("nupp.util")
+local bitset = require("binary")
+local WORD_BITS = require("nupp.util").WORD_BITS
 
 local FAR = bit.lshift(1, 20)
 
@@ -129,18 +130,34 @@ local function assertSame(set, want, label)
     local fromWords = 0
     for word = 0, set:wordCount() - 1 do
         local bits = set:wordAt(word)
-        for offset = 0, bitset.WORD_BITS - 1 do
+        for offset = 0, WORD_BITS - 1 do
             local mask = bit.lshift(1, offset)
             if bit.band(bits, mask) ~= 0 then
                 fromWords = fromWords + 1
                 check(
-                    want:get(word * bitset.WORD_BITS + offset),
+                    want:get(word * WORD_BITS + offset),
                     label .. ": word " .. word .. " bit " .. offset .. " unexpected"
                 )
             end
         end
     end
     check.eq(fromWords, #positions, label .. ": words hold exactly the set bits")
+end
+
+function M.publicBitsetPreservesItsTypeAndThirtyTwoBitWords()
+    local implementation = require("nupp.util.internal.bitset")
+    check.eq(bitset.Bitset, implementation.Bitset)
+    check.eq(require("nupp.util").Bitset, nil)
+    check.eq(WORD_BITS, 32)
+    local set = bitset.Bitset.__nuppCtor1(65)
+    for _, position in ipairs({31, 32, 63, 64}) do
+        set:set(position)
+    end
+    check.eq(set:count(), 4)
+    check.eq(set:wordCount(), 3)
+    check.eq(set:wordAt(0), -2147483648)
+    check.eq(set:wordAt(1), -2147483647)
+    check.eq(set:wordAt(2), 1)
 end
 
 function M.emptySet()
@@ -603,10 +620,10 @@ function M.wordAtIsBoundedAndSigned()
     check.eq(set:wordAt(-1), 0, "negative word index reads zero")
     check.eq(set:wordAt(FAR), 0, "word index past the end reads zero")
 
-    set:set(bitset.WORD_BITS - 1)
+    set:set(WORD_BITS - 1)
     check(set:wordAt(0) < 0, "the top bit of a word reads negative")
 
-    set:set(bitset.WORD_BITS)
+    set:set(WORD_BITS)
     check.eq(set:wordAt(1), 1, "the next word holds the next position")
 end
 
@@ -626,7 +643,7 @@ function M.wordCountBoundsEverySetBit()
         highest = index
         index = set:nextSetBit(index + 1)
     end
-    check(set:wordCount() * bitset.WORD_BITS > highest, "every set bit is below the bound")
+    check(set:wordCount() * WORD_BITS > highest, "every set bit is below the bound")
 end
 
 function M.positionsIntoMatchesTheWalk()

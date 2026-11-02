@@ -19,6 +19,7 @@ See [system services](docs/learn/runtime/system.md) for facts, clocks, and UUIDs
 local system = require("nupp.runtime.system")
 local clocks = require("nupp.runtime.clocks").selected
 local uuid = require("nupp.util.internal.uuid")
+local entropy = require("nupp.runtime.entropy")
 
 --- The executing ABI and the available parallelism at the time of a query.
 export record Info
@@ -52,6 +53,12 @@ export const uuid4: function(): string = uuid.uuid4
 --- Generates a time-ordered version 7 UUID using the retained host service.
 export const uuid7: function(): string = uuid.uuid7
 
+--- Returns cryptographically secure random bytes from the selected host.
+--- @param count the requested byte count, from zero through 1048576
+--- @return the generated raw bytes
+--- @raises string when the count is invalid or the host cannot supply randomness
+export const randombytes = entropy.randombytes
+
 --- The original host table with these shared implementations installed.
 --- @internal
 export const value: table = do
@@ -61,5 +68,6 @@ export const value: table = do
     original.walltime = walltime
     original.uuid4 = uuid4
     original.uuid7 = uuid7
+    original.randombytes = randombytes
     yield original
 end

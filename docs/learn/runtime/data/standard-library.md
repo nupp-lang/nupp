@@ -56,9 +56,9 @@ intrinsic namespaces and the declared modules:
   representations. [](serde.valuebuilder) supports codec authors.
 - [](utf8) validates and walks UTF-8 text.
 - [](serde) binds application types to reusable serialization schemas.
-- [](nupp.util) owns the small general-purpose types: [](nupp.util.Bitset) is a
-  growable set of bit positions. [](nupp.util.Pool) leases cleared record
-  instances of one declared type from a free list.
+- [](binary.Bitset) is a growable set of bit positions. [](table.Pool) leases
+  cleared record instances of one declared type from a free list;
+  [](table.newpool) creates one.
 - [](types.Store) is a bag of values indexed by the typed keys [](types.newkey)
   creates.
 - `os.info()` reports execution platform, architecture, endianness, pointer
@@ -84,8 +84,9 @@ intrinsic namespaces and the declared modules:
 - [](nupp.mem.arena) leases zero-filled struct rows from pages that never move.
 - [](gpu) owns resident buffers, generated kernel dispatches, and tensor views.
   [](gpu.layout) owns the checked layout algebra.
-- [](nupp.random) provides cryptographically secure random bytes and owns
-  deterministic pseudo-random sequences with explicit, serializable state.
+- [](os.randombytes) provides cryptographically secure random bytes.
+  [](nupp.random) owns deterministic pseudo-random sequences with explicit,
+  serializable state.
 - [](coroutine.suspension), [](coroutine), and [](coroutine.workers) provide
   waiting, application task scopes, and isolated worker lanes.
   [](coroutine.suspension.host) is the other side of waiting: what a host

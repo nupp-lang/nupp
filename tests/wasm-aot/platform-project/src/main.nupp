@@ -1,4 +1,3 @@
-local browserRandom = require("nupp.random")
 local browserTime = require("coroutine")
 local digest = require("binary.hash.digest")
 local mac = require("binary.hash.mac")
@@ -18,7 +17,7 @@ return json.encodevalue({
     endianness = system.endianness,
     parallelism = system.parallelism,
     elapsed = elapsed,
-    randomBytes = #browserRandom.randombytes(32),
+    randomBytes = #os.randombytes(32),
     md5 = digest.hexdigest("md5", "abc"),
     sha1 = digest.hexdigest("sha1", "abc"),
     sha256 = digest.hexdigest("sha256", "abc"),

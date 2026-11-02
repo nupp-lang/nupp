@@ -154,7 +154,9 @@ local MODULES: {[string]: {
     -- Reaches the recorder through nupp.profile, so it is available exactly where that
     -- is.
     ["debug.bench"] = {kind = "unavailable", capability = "cinterop"},
-    ["nupp.random"] = facility("host", "runtime.crypto"),
+    ["nupp.random"] = {kind = "common"},
+    ["nupp.runtime.entropy"] = facility("host", "runtime.crypto"),
+    ["binary"] = {kind = "unavailable", capability = "cstorage"},
     ["simd"] = {kind = "common"},
     ["nupp.suspension"] = {kind = "common"},
     ["nupp.suspension.host"] = {kind = "common"},

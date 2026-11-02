@@ -19,6 +19,9 @@ function M.preservesTheHostTableAndQueriesParallelismPerCall()
     end, function()
         return "uuid7"
     end
+    local randombytes = function(count)
+        return ("r"):rep(count)
+    end
     local load = providerstate.instance(
         {["nupp.runtime.standardos"] = true},
         {
@@ -34,6 +37,7 @@ function M.preservesTheHostTableAndQueriesParallelismPerCall()
             },
             ["nupp.runtime.clocks"] = {selected = {now = monotonic, wallTime = walltime}},
             ["nupp.util.internal.uuid"] = {uuid4 = uuid4, uuid7 = uuid7},
+            ["nupp.runtime.entropy"] = {randombytes = randombytes},
         },
         nil,
         {os = original}
@@ -55,6 +59,10 @@ function M.preservesTheHostTableAndQueriesParallelismPerCall()
     test.eq(original.walltime, walltime)
     test.eq(original.uuid4, uuid4)
     test.eq(original.uuid7, uuid7)
+    test.eq(surface.randombytes, randombytes)
+    test.eq(original.randombytes, randombytes)
+    test.eq(original.randombytes(3), "rrr")
+    test.eq(require("nupp.random").randombytes, nil)
     test.eq(original.clock(), 9)
 end
 
@@ -71,7 +79,8 @@ local monotonic: number = os.monotonic()
 local wall: number = os.walltime()
 local random: string = os.uuid4()
 local ordered: string = os.uuid7()
-return describe(facts), monotonic, wall, random, ordered
+local bytes: string = os.randombytes(7)
+return describe(facts), monotonic, wall, random, ordered, bytes
 ]]
     local parsed = parser.parse(source, "system-services.nupp")
     test.eq(#parsed.errors, 0)
@@ -80,13 +89,19 @@ return describe(facts), monotonic, wall, random, ordered
     local code, generated = gen.generate(parsed, "system-services.nupp")
     test.eq(#generated, 0)
     assert(code:find('require("nupp.runtime.standardos")', 1, true))
-    assert(parsed.effects["runtime.system"] and parsed.effects["runtime.clocks"] and parsed.effects["runtime.uuid"])
-    local platform, monotonic, wall, random, ordered = assert(loadstring(code))()
+    assert(
+        parsed.effects["runtime.system"]
+        and parsed.effects["runtime.clocks"]
+        and parsed.effects["runtime.uuid"]
+        and parsed.effects["runtime.crypto"]
+    )
+    local platform, monotonic, wall, random, ordered, bytes = assert(loadstring(code))()
     test.eq(platform, os.info().platform)
     test.eq(type(monotonic), "number")
     test.eq(type(wall), "number")
     test.eq(#random, 36)
     test.eq(#ordered, 36)
+    test.eq(#bytes, 7)
 end
 
 return M

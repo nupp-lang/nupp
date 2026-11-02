@@ -1,17 +1,15 @@
-const random = require("nupp.random")
 const digests = require("binary.hash.digest")
-const util = require("nupp.util")
 const time = require("coroutine")
 const json = require("serde.json")
 
 local started = os.monotonic()
 time.sleep(10)
 
-local digest = digests.hexdigest("sha256", random.randombytes(32))
+local digest = digests.hexdigest("sha256", os.randombytes(32))
 
 return json.encodevalue({
     project = "${name}",
     elapsedMilliseconds = os.monotonic() - started,
     digest = digest,
-    identifier = util.uuid4(),
+    identifier = os.uuid4(),
 })
