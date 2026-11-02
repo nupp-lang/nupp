@@ -301,6 +301,18 @@ function generate.program(seed, size)
             local items = expression(1) .. ", " .. expression(1) .. ", " .. expression(1)
             emit("local " .. name .. ": {integer} = {" .. items .. "}", "local " .. name .. " = {" .. items .. "}")
             emit(target() .. " = (" .. name .. "[1] + " .. name .. "[3] * 2 + #" .. name .. ") % 1000003")
+        elseif roll == 14 then
+            -- A table whose misses read through __index: its own keys, the
+            -- defaults behind them, and a change to a default.
+            local how = pick(3)
+            if how == 1 then
+                emit("cfg.n" .. pick(3) .. " = " .. expression(1) .. " % 1000")
+            elseif how == 2 then
+                emit("Defaults.bonus = " .. expression(1) .. " % 100")
+            else
+                local into = target()
+                emit(into .. " = (" .. into .. " + (cfg.bonus or 0) + (cfg.n1 or 0) * 3 + (cfg.n2 or 0)) % 1000003")
+            end
         elseif roll == 12 and depth > 0 and closures < 3 then
             -- A closure made in this block, capturing what is in scope here.
             closures = closures + 1
@@ -337,6 +349,11 @@ function generate.program(seed, size)
     emit("end")
     emit("local acc = new Acc(value = 0)", "local acc = setmetatable({value = 0}, {__index = Acc})")
     emit("local t: {[integer]: integer} = {}", "local t = {}")
+    emit("local Defaults: {[string]: integer} = {bonus = 5}", "local Defaults = {bonus = 5}")
+    emit(
+        "local cfg: {[string]: integer} = setmetatable({}, {__index = Defaults})",
+        "local cfg = setmetatable({}, {__index = Defaults})"
+    )
     emit("local c: integer = 0", "local c = 0")
     emit("local s: string = \"\"", "local s = \"\"")
     emit("local function bump(n: integer): integer", "local function bump(n)")

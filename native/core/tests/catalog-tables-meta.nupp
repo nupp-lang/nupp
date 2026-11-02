@@ -1,0 +1,32 @@
+module nupp.core.catalogtablesmeta
+
+-- Metatables: a read the table misses follows __index tables, a chain of
+-- them included; a write of a key the table lacks goes to the __newindex
+-- table, and one it holds stays; rawget and rawset pass by both, and
+-- getmetatable answers __metatable when the metatable sets one.
+local Base: {[string]: integer} = {bonus = 5, scale = 3}
+local Middle: {[string]: integer} = setmetatable({scale = 7}, {__index = Base})
+local obj: {[string]: integer} = setmetatable({}, {__index = Middle})
+local score: integer = 0
+score = score + (obj.bonus or 0) + (obj.scale or 0) * 10
+if rawget(obj, "bonus") == nil then
+    score = score + 100
+end
+local log: {[string]: integer} = {}
+local guarded: {[string]: integer} = setmetatable({}, {__newindex = log})
+guarded.hits = 4
+score = score + (log.hits or 0) * 1000
+if rawget(guarded, "hits") == nil then
+    score = score + 10000
+end
+rawset(guarded, "hits", 9)
+guarded.hits = 11
+score = score + (guarded.hits or 0) * 100000 + (log.hits or 0) * 10000000
+if getmetatable(obj) ~= nil and getmetatable(score) == nil then
+    score = score + 1
+end
+local locked: {[string]: integer} = setmetatable({}, {__metatable = "locked"})
+if getmetatable(locked) == "locked" then
+    score = score + 2
+end
+export = score

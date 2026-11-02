@@ -1166,6 +1166,19 @@ function tagged.forVersion(version: integer): any
                     return nil as any
                 end
                 return ctx.emit(node, "LibCall", {20, ctx.varargPack(), index}, "tagged") as integer
+            elseif library == "setmetatable"
+                or library == "getmetatable"
+                or library == "rawget"
+                or library == "rawset"
+            then
+                -- Metatables: __index and __newindex tables are followed by
+                -- GetIdx and SetIdx; the library calls set and read them.
+                local spec: {
+                    [string]: {integer}
+                } = {setmetatable = {28, 2}, getmetatable = {29, 1}, rawget = {30, 2}, rawset = {31, 3}}
+                local form: {integer} = need(spec[library as string], "metatable library call")
+                need(#(node.args.exprs or {}) == form[2], tostring(library) .. " argument count is not admitted")
+                return libraryCall(ctx, node, form[1], node.args.exprs)
             elseif library == "os.getenv" then
                 need(#(node.args.exprs or {}) == 1, "os.getenv takes one name")
                 return libraryCall(ctx, node, 10, node.args.exprs)
@@ -1221,7 +1234,9 @@ function tagged.forVersion(version: integer): any
                 invokeMethod(ctx, node, false)
             elseif graph.coreLibraryCall(node) == "pcall" then
                 invokeProtected(ctx, node, false)
-            elseif graph.coreLibraryCall(node) == "error" then
+            elseif node.kind == "call" and graph.coreLibraryCall(node) ~= nil then
+                -- error, setmetatable and the other library calls made for
+                -- their effect.
                 profile.call(ctx, node, nil)
             else
                 invoke(ctx, node, false, true)

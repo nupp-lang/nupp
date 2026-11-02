@@ -196,21 +196,181 @@ export function newTable(ctx: voidptr): uint64
     end
 end
 
--- Reads through coretables.lookup on the entry's heap.
-export function tableGet(ctx: voidptr, table: uint64, key: uint64): uint64
+export const META_INDEX: uint64 = 0ULL
+export const META_NEWINDEX: uint64 = 1ULL
+export const META_METATABLE: uint64 = 2ULL
+
+-- The interned name of a metatable field: "__index", "__newindex" or
+-- "__metatable".
+export function metaKey(ctx: voidptr, which: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        return tables.lookup(native.pointer(guestHeap(ctx)) as heap.Heap*, table, key)
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local builder = state as strings.Builder*
+        local refused: uint64 = 0ULL
+        if which == META_INDEX then
+            refused = strings.appendWord(h, builder, 0x7865646e695f5fULL, 7ULL)
+        elseif which == META_NEWINDEX then
+            refused = strings.appendWord(h, builder, 0x646e6977656e5f5fULL, 8ULL)
+                | strings.appendWord(h, builder, 0x7865ULL, 2ULL)
+        else
+            refused = strings.appendWord(h, builder, 0x61746174656d5f5fULL, 8ULL)
+                | strings.appendWord(h, builder, 0x656c62ULL, 3ULL)
+        end
+        if refused ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        local s = strings.finish(h, builder)
+        tables.drain(h)
+        return values.TAG_OBJ | s
     end
 end
 
--- Stores through coretables.set on the entry's heap; answers its status.
+-- The table a value names, or 0.
+local function tableOf(value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ then
+        return 0ULL
+    end
+    @unsafe do
+        local header = native.pointer(value & values.PAYLOAD)
+        if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_TABLE then
+            return 0ULL
+        end
+    end
+
+    return value & values.PAYLOAD
+end
+
+-- The `which` field of a table's metatable, nil when it has none.
+export function metaField(ctx: voidptr, table: uint64, which: uint64): uint64
+    local mt = tableOf(tables.meta(table))
+    if mt == 0ULL then
+        return values.NIL
+    end
+
+    return tables.get(mt, metaKey(ctx, which))
+end
+
+-- Lua's t[k]: the raw value, else through the metatable's __index while it
+-- names a table. An __index function is not yet called.
+export function tableGet(ctx: voidptr, table: uint64, key: uint64): uint64
+    @unsafe do
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local t = table
+        local depth: uint64 = 0ULL
+        while true do
+            local value = tables.lookup(h, t, key)
+            if value ~= values.NIL or tables.meta(t) == values.NIL then
+                return value
+            end
+            local index = metaField(ctx, t, META_INDEX)
+            if index == values.NIL then
+                return values.NIL
+            end
+            t = tableOf(index)
+            if t == 0ULL then
+                error("an __index that is not a table is not yet supported by the core")
+            end
+            depth = depth + 1ULL
+            if depth >= 2000ULL then
+                error("'__index' chain too long; possible loop")
+            end
+        end
+
+        return values.NIL
+    end
+end
+
+-- Lua's t[k] = v: a key the table holds, or one its metatable has no
+-- __newindex for, is stored in place; otherwise in the table __newindex
+-- names. Answers coretables.set's status.
 export function tableSet(ctx: voidptr, table: uint64, key: uint64, value: uint64): uint64
     @unsafe do
         local h = native.pointer(guestHeap(ctx)) as heap.Heap*
-        local status = tables.set(h, table, key, value)
+        local t = table
+        local depth: uint64 = 0ULL
+        while tables.meta(t) ~= values.NIL and tables.lookup(h, t, key) == values.NIL do
+            local newindex = metaField(ctx, t, META_NEWINDEX)
+            if newindex == values.NIL then
+                break
+            end
+            t = tableOf(newindex)
+            if t == 0ULL then
+                error("a __newindex that is not a table is not yet supported by the core")
+            end
+            depth = depth + 1ULL
+            if depth >= 2000ULL then
+                error("'__newindex' chain too long; possible loop")
+            end
+        end
+        local status = tables.set(h, t, key, value)
         tables.drain(h)
 
         return status
+    end
+end
+
+-- setmetatable(t, mt): answers t; a metatable with __metatable set is
+-- protected.
+export function setMetatable(ctx: voidptr, value: uint64, mt: uint64): uint64
+    local t = tableOf(value)
+    if t == 0ULL then
+        error("bad argument #1 to 'setmetatable' (table expected)")
+    end
+    if mt ~= values.NIL and tableOf(mt) == 0ULL then
+        error("bad argument #2 to 'setmetatable' (nil or table expected)")
+    end
+    if metaField(ctx, t, META_METATABLE) ~= values.NIL then
+        error("cannot change a protected metatable")
+    end
+    @unsafe do
+        tables.setMeta(native.pointer(guestHeap(ctx)) as heap.Heap*, t, mt)
+    end
+
+    return value
+end
+
+-- getmetatable(v): a table's metatable, or its __metatable field when it
+-- has one; nil for anything else.
+export function getMetatable(ctx: voidptr, value: uint64): uint64
+    local t = tableOf(value)
+    if t == 0ULL then
+        return values.NIL
+    end
+    local protected = metaField(ctx, t, META_METATABLE)
+    if protected ~= values.NIL then
+        return protected
+    end
+
+    return tables.meta(t)
+end
+
+-- rawset(t, k, v): stores past any metatable; answers t.
+export function rawSet(ctx: voidptr, value: uint64, key: uint64, item: uint64): uint64
+    local t = tableOf(value)
+    if t == 0ULL then
+        error("bad argument #1 to 'rawset' (table expected)")
+    end
+    @unsafe do
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        if tables.set(h, t, key, item) ~= tables.OK then
+            error("invalid key to 'rawset'")
+        end
+        tables.drain(h)
+    end
+
+    return value
+end
+
+-- rawget(t, k): the raw value.
+export function rawGet(ctx: voidptr, value: uint64, key: uint64): uint64
+    local t = tableOf(value)
+    if t == 0ULL then
+        error("bad argument #1 to 'rawget' (table expected)")
+    end
+    @unsafe do
+        return tables.lookup(native.pointer(guestHeap(ctx)) as heap.Heap*, t, key)
     end
 end
 
