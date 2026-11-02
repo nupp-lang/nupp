@@ -158,6 +158,12 @@ local function derive(g: any, catalog: any): any
                 maximumArguments = math.max(maximumArguments, #block.args[at] - 1) as integer
             elseif op == "LibCall" then
                 maximumArguments = math.max(maximumArguments, #block.args[at] - 1) as integer
+                -- .., /, //, tostring and unary minus may call a metamethod.
+                local id = block.args[at][1]
+                if catalog.schema.version >= 8 and (id == 1 or id == 5 or id == 6 or id == 7 or id == 33) then
+                    maximumArguments = math.max(maximumArguments, 3) as integer
+                    metaCalls = true
+                end
             elseif op == "GetIdx"
                 or op == "SetIdx"
                 or catalog.schema.version >= 8
@@ -186,6 +192,11 @@ local function derive(g: any, catalog: any): any
             -- and called from the four slots at the top of the window, above
             -- them all.
             local contract = catalog.contracts[block.term.contract + 1]
+            -- A dynamic call may reach a table with __call, which takes the
+            -- table as an extra first argument.
+            if contract and catalog.schema.version >= 8 and contract.target == catalog.schema.absent then
+                maximumArguments = math.max(maximumArguments, #block.term.args + 1) as integer
+            end
             if contract and contract.handled then
                 local results: integer = math.max(#block.term.args - 1, #(block.term.results or {}), 1) as integer
                 maximumArguments = math.max(maximumArguments, results + 5) as integer

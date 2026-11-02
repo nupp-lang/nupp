@@ -69,7 +69,8 @@ local CASES: {[string]: {
     errorsPositions = {fixture = "catalog-errors-positions", version = 8},
     tablesMeta = {fixture = "catalog-tables-meta", version = 8},
     errorsTexts = {fixture = "catalog-errors-texts", version = 8},
-    callsXpcall = {fixture = "catalog-calls-xpcall", version = 8}
+    callsXpcall = {fixture = "catalog-calls-xpcall", version = 8},
+    tablesMetaops = {fixture = "catalog-tables-metaops", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.

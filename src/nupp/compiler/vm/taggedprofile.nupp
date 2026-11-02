@@ -1192,6 +1192,9 @@ function tagged.forVersion(version: integer): any
                 local form: {integer} = need(spec[library as string], "metatable library call")
                 need(#(node.args.exprs or {}) == form[2], tostring(library) .. " argument count is not admitted")
                 return libraryCall(ctx, node, form[1], node.args.exprs)
+            elseif library == "type" then
+                need(#(node.args.exprs or {}) == 1, "type takes one value")
+                return libraryCall(ctx, node, 32, node.args.exprs)
             elseif library == "os.getenv" then
                 need(#(node.args.exprs or {}) == 1, "os.getenv takes one name")
                 return libraryCall(ctx, node, 10, node.args.exprs)
@@ -1279,6 +1282,12 @@ function tagged.forVersion(version: integer): any
                 local operand = ctx.expression(node.operand, "tagged")
                 if operand == nil then
                     return nil as any
+                end
+                -- An operand not known to be a number may be a table with
+                -- __unm, which the library call tries first.
+                local kind = typeKind(node.operand.inferredType)
+                if kind ~= "number" and kind ~= "float64" and kind ~= "int64" then
+                    return ctx.emit(node, "LibCall", {33, operand}, "tagged") as integer
                 end
                 local held = ctx.hold(operand)
                 local minusOne = ctx.emit(node, "K", {pool(ctx, "int64", "-1")}, "tagged")

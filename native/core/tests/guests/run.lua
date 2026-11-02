@@ -95,7 +95,8 @@ local CASES = {
     {"errorsPositions", 0x7FFF00000001B207},
     {"tablesMeta", 0x7FFF006F110BB14D},
     {"errorsTexts", 0x7FFF00000000007F},
-    {"callsXpcall", 0x7FFF000000005277}
+    {"callsXpcall", 0x7FFF000000005277},
+    {"tablesMetaops", 0x7FFF000000A98AC7}
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their
@@ -143,7 +144,8 @@ local NUMERIC = {
     errorsPositions = "catalog-errors-positions",
     tablesMeta = "catalog-tables-meta",
     errorsTexts = "catalog-errors-texts",
-    callsXpcall = "catalog-calls-xpcall"
+    callsXpcall = "catalog-calls-xpcall",
+    tablesMetaops = "catalog-tables-metaops"
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -392,7 +394,8 @@ local function oracle(lua, fixture)
     local program = OUT .. "/" .. fixture .. ".oracle.lua"
     write(
         program,
-        "local ok, v = pcall(function()\n"
+        -- On the twin's first line, so error positions keep their lines.
+        "local ok, v = pcall(function() "
         .. source
         .. "\nend)\n"
         .. "if not ok then io.write('E', tostring(v))\n"

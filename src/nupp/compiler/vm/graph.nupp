@@ -1544,6 +1544,7 @@ local coreLibrary: {
     error = true,
     setmetatable = true,
     getmetatable = true,
+    type = true,
     rawget = true,
     rawset = true,
     ["table.concat"] = true,

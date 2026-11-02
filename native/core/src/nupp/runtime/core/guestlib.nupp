@@ -49,6 +49,9 @@ export const SETMETATABLE: uint64 = 28ULL
 export const GETMETATABLE: uint64 = 29ULL
 export const RAWGET: uint64 = 30ULL
 export const RAWSET: uint64 = 31ULL
+export const TYPE: uint64 = 32ULL
+-- Unary minus of an operand not known to be a number (its __unm first).
+export const UNM: uint64 = 33ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -324,6 +327,21 @@ local function floatValue(bits: uint64): uint64
     end
 
     return bits
+end
+
+-- Lua's unary minus of a number: integers wrap, floats change sign.
+local function negate(ctx: voidptr, a: uint64): uint64
+    if ints.isInteger(a) then
+        return guestscope.integer(ctx, 0ULL - ints.bitsOf(a))
+    end
+    local x = floatOf(a)
+    if x == values.NIL then
+        error("attempt to perform arithmetic on a non-number value")
+    end
+
+    -- Times -1.0 (its bits, since a leaf has no unary minus), as Lua negates.
+
+    return floatValue(native.bits(native.fromBits(x) * native.fromBits(0xbff0000000000000ULL)))
 end
 
 -- Lua's /: always float.
@@ -1165,6 +1183,10 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return gsub(ctx, a, b, c, d, false)
     elseif id == GSUB_ALL then
         return gsub(ctx, a, b, c, d, true)
+    elseif id == TYPE then
+        return guestscope.typeName(ctx, a)
+    elseif id == UNM then
+        return negate(ctx, a)
     elseif id == SETMETATABLE then
         return guestscope.setMetatable(ctx, a, b)
     elseif id == GETMETATABLE then

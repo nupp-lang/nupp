@@ -231,6 +231,12 @@ export const META_LEN: uint64 = 7ULL
 export const META_LT: uint64 = 8ULL
 export const META_LE: uint64 = 9ULL
 export const META_EQ: uint64 = 10ULL
+export const META_CONCAT: uint64 = 11ULL
+export const META_DIV: uint64 = 12ULL
+export const META_IDIV: uint64 = 13ULL
+export const META_TOSTRING: uint64 = 14ULL
+export const META_UNM: uint64 = 15ULL
+export const META_CALL: uint64 = 16ULL
 
 -- The interned name of a metatable field: "__index", "__newindex" or
 -- "__metatable".
@@ -261,6 +267,19 @@ export function metaKey(ctx: voidptr, which: uint64): uint64
             refused = strings.appendWord(h, builder, 0x656c5f5fULL, 4ULL)
         elseif which == META_EQ then
             refused = strings.appendWord(h, builder, 0x71655f5fULL, 4ULL)
+        elseif which == META_CONCAT then
+            refused = strings.appendWord(h, builder, 0x7461636e6f635f5fULL, 8ULL)
+        elseif which == META_DIV then
+            refused = strings.appendWord(h, builder, 0x7669645f5fULL, 5ULL)
+        elseif which == META_IDIV then
+            refused = strings.appendWord(h, builder, 0x766964695f5fULL, 6ULL)
+        elseif which == META_TOSTRING then
+            refused = strings.appendWord(h, builder, 0x697274736f745f5fULL, 8ULL)
+                | strings.appendWord(h, builder, 0x676eULL, 2ULL)
+        elseif which == META_UNM then
+            refused = strings.appendWord(h, builder, 0x6d6e755f5fULL, 5ULL)
+        elseif which == META_CALL then
+            refused = strings.appendWord(h, builder, 0x6c6c61635f5fULL, 6ULL)
         else
             refused = strings.appendWord(h, builder, 0x61746174656d5f5fULL, 8ULL)
                 | strings.appendWord(h, builder, 0x656c62ULL, 3ULL)
@@ -744,6 +763,22 @@ end
 
 local function isNumber(value: uint64): boolean
     return typePhrase(value) == PHRASE_NUMBER
+end
+
+-- type(v): the name of a value's type, as an interned string.
+export function typeName(ctx: voidptr, value: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local builder = state as strings.Builder*
+        if appendPhrase(h, builder, typePhrase(value)) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        local s = strings.finish(h, builder)
+        tables.drain(h)
+        return values.TAG_OBJ | s
+    end
 end
 
 -- The message a handler's guest error carries, as Lua words it (without the
