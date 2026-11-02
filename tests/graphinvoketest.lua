@@ -368,7 +368,6 @@ function M.closedPacksAndScalarSignaturesAreRequired()
             ) .. ") return 1" .. string.rep(", 1", 16) .. " end; return target()",
             "one to sixteen checked scalar results"
         },
-        {"local function target(value: any): integer return 1 end; return target(1)", "checked scalar type"},
     }) do
         local owner, call = checked(case[1], true)
         refuses(
@@ -381,6 +380,10 @@ function M.closedPacksAndScalarSignaturesAreRequired()
     local owner, call = checked("local function target(): nil return nil end; return target()")
     local contract = graph.invokeContract(owner, call)
     assert(#contract.signature.rets == 1 and contract.signature.rets[1].tag == "nil")
+    -- `any` passes as a value, checked where it is used.
+    owner, call = checked("local function target(value: any): integer return 1 end; return target(1)", true)
+    contract = graph.invokeContract(owner, call)
+    assert(contract.signature.params[1].tag == "any")
 end
 
 -- A plain type parameter erases: its values pass as dynamic values.

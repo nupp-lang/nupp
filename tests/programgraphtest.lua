@@ -1075,12 +1075,8 @@ return require(name)]])
     local shadowed = describe([[local function require(name: any): any return name end
 return require("anything")]])
     test.eq(#shadowed.requires, 0)
-    refuses(
-        function()
-            program.compile(shadowed, tagged)
-        end,
-        "invoke requires a checked scalar type"
-    )
+    -- The shadowing function is an ordinary call; its `any` passes as a value.
+    assert(program.compile(shadowed, tagged), "the shadowed require is an ordinary call")
 end
 
 function M.taggedTypeOnlyRequireEmitsNoRuntimeLoader()
