@@ -303,7 +303,7 @@ select {
   font-family: var(--pg-font-mono);
   font-size: 13px;
 }
-.editor .cm-content { padding: 0 !important; }
+.editor .cm-content { padding: .75rem 0 !important; }
 .tooltip-layer {
   position: absolute;
   z-index: 3;
@@ -354,7 +354,7 @@ select {
   overflow: auto;
   max-height: 28rem;
   margin-top: .25rem;
-  padding: 0;
+  padding: .75rem 0;
   border: 1px solid var(--pg-border);
   border-radius: var(--pg-code-block-radius);
   background: transparent;

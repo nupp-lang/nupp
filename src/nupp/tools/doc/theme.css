@@ -480,8 +480,9 @@ input {
 
 .nuppdoc-content pre {
     overflow: auto;
-    padding: 0;
-    border: 0;
+    padding: .8rem .9rem;
+    border: 1px solid var(--nuppdoc-border);
+    border-radius: 8px;
     background: transparent;
     line-height: 1.55
 }

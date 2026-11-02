@@ -294,6 +294,11 @@
   display: block;
 }
 
+.nuppdoc-content pre {
+  padding: 1rem 1.1rem;
+  border-radius: 4px;
+}
+
 /* Headings are the text face throughout; the heading color is what marks
  * them out. */
 .nuppdoc-content h1,
@@ -385,6 +390,8 @@
 
 .nuppdoc-showcase-visual pre {
   margin: 0;
+  padding: 1.2rem 1.35rem;
+  border-radius: 6px;
 }
 
 .nuppdoc-showcase-visual img {
