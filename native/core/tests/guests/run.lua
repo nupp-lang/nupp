@@ -96,7 +96,8 @@ local CASES = {
     {"tablesMeta", 0x7FFF006F110BB14D},
     {"errorsTexts", 0x7FFF00000000007F},
     {"callsXpcall", 0x7FFF000000005277},
-    {"tablesMetaops", 0x7FFF000000A98AC7}
+    {"tablesMetaops", 0x7FFF000000A98AC7},
+    {"tablesLibrary", 0x7FFF000000CC9B63}
 }
 -- Heap-using cases that also run with a whole collection at every
 -- allocation. records and strings allocate per iteration, which makes their
@@ -145,7 +146,8 @@ local NUMERIC = {
     tablesMeta = "catalog-tables-meta",
     errorsTexts = "catalog-errors-texts",
     callsXpcall = "catalog-calls-xpcall",
-    tablesMetaops = "catalog-tables-metaops"
+    tablesMetaops = "catalog-tables-metaops",
+    tablesLibrary = "catalog-tables-library"
 }
 local FIXTURES = {
     "catalog-boolean",

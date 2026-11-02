@@ -91,9 +91,7 @@ end
 
 -- The string library calls guestlib implements: id and the argument counts
 -- admitted, the string itself included.
-local stringLibrary: {
-    [string]: {integer}
-} = {
+local stringLibrary: {[string]: {integer}} = {
     ["string.sub"] = {11, 2, 3},
     ["string.byte"] = {12, 1, 3},
     ["string.char"] = {13, 1, 1},
@@ -103,7 +101,11 @@ local stringLibrary: {
     ["string.len"] = {17, 1, 1},
     ["string.find"] = {18, 2, 4},
     ["string.match"] = {19, 2, 3},
-    ["string.gsub"] = {26, 3, 4}
+    ["string.gsub"] = {26, 3, 4},
+    -- The table library calls guestlib implements, by the same shape.
+    ["table.insert"] = {34, 2, 3},
+    ["table.remove"] = {35, 1, 2},
+    ["table.unpack"] = {36, 1, 3}
 }
 
 local function stringSpec(library: string?): {integer}?
@@ -118,7 +120,7 @@ end
 -- answers every result as a pack.
 local packLibrary: {
     [string]: integer
-} = {["string.find"] = 23, ["string.match"] = 24, ["string.byte"] = 25, ["string.gsub"] = 27}
+} = {["string.find"] = 23, ["string.match"] = 24, ["string.byte"] = 25, ["string.gsub"] = 27, ["table.unpack"] = 37}
 
 local function packSpec(library: string?): integer?
     if library == nil then

@@ -52,6 +52,10 @@ export const RAWSET: uint64 = 31ULL
 export const TYPE: uint64 = 32ULL
 -- Unary minus of an operand not known to be a number (its __unm first).
 export const UNM: uint64 = 33ULL
+export const TABLE_INSERT: uint64 = 34ULL
+export const TABLE_REMOVE: uint64 = 35ULL
+export const TABLE_UNPACK: uint64 = 36ULL
+export const TABLE_UNPACK_ALL: uint64 = 37ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -1071,6 +1075,111 @@ local function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64, 
     end
 end
 
+-- The table a library argument names, raising as Lua does when it is not one.
+local function tableArgument(value: uint64): uint64
+    if objectKind(value) ~= heap.KIND_TABLE then
+        error("bad argument #1 to table function (table expected)")
+    end
+
+    return value & values.PAYLOAD
+end
+
+local function storeAt(h: heap.Heap*, t: uint64, index: int64, value: uint64): nil
+    if tables.set(h, t, values.TAG_INTEGER | native.word(index), value) == tables.NO_MEMORY then
+        error("not enough memory")
+    end
+end
+
+local function loadAt(t: uint64, index: int64): uint64
+    return tables.get(t, values.TAG_INTEGER | native.word(index))
+end
+
+-- table.insert(t, v) appends; table.insert(t, pos, v) moves t[pos..#t] up
+-- one first. Raw, as the table's metatable is not consulted.
+local function tableInsert(ctx: voidptr, count: uint64, list: uint64, a: uint64, b: uint64): uint64
+    @unsafe do
+        local h = guestHeap(ctx)
+        local t = tableArgument(list)
+        local size = native.index(tables.length(t))
+        if count == 2ULL then
+            storeAt(h, t, size + 1, a)
+            tables.drain(h)
+            return values.NIL
+        end
+        local pos = integerArgument(a, 0, 2ULL)
+        if pos < 1 or pos > size + 1 then
+            error("bad argument #2 to 'insert' (position out of bounds)")
+        end
+        local at = size + 1
+        while at > pos do
+            storeAt(h, t, at, loadAt(t, at - 1))
+            at = at - 1
+        end
+        storeAt(h, t, pos, b)
+        tables.drain(h)
+        return values.NIL
+    end
+end
+
+-- table.remove(t [, pos]): removes t[pos] (the last by default), moving the
+-- rest down, and answers it.
+local function tableRemove(ctx: voidptr, count: uint64, list: uint64, a: uint64): uint64
+    @unsafe do
+        local h = guestHeap(ctx)
+        local t = tableArgument(list)
+        local size = native.index(tables.length(t))
+        local pos = size
+        if count >= 2ULL then
+            pos = integerArgument(a, size, 2ULL)
+            if pos ~= size and (pos < 1 or pos > size + 1) then
+                error("bad argument #2 to 'remove' (position out of bounds)")
+            end
+        end
+        local removed = loadAt(t, pos)
+        local at = pos
+        while at < size do
+            storeAt(h, t, at, loadAt(t, at + 1))
+            at = at + 1
+        end
+        if at >= 1 and at <= size then
+            storeAt(h, t, at, values.NIL)
+        end
+        tables.drain(h)
+        return removed
+    end
+end
+
+-- table.unpack(t [, i [, j]]): t[i] to t[j] (1 and #t by default). Alone,
+-- the first of them; with `all`, every one in a pack.
+local function tableUnpack(ctx: voidptr, list: uint64, a: uint64, b: uint64, all: boolean): uint64
+    @unsafe do
+        local pack: uint64 = 0ULL
+        if all then
+            pack = guestscope.newTable(ctx)
+        end
+        local h = guestHeap(ctx)
+        local t = tableArgument(list)
+        local i = integerArgument(a, 1, 2ULL)
+        local j = integerArgument(b, native.index(tables.length(t)), 3ULL)
+        if i > j then
+            return packed(h, pack, 0ULL, values.NIL)
+        end
+        if j - i >= 1000000 then
+            error("too many results to unpack")
+        end
+        local first = loadAt(t, i)
+        if pack == 0ULL then
+            return first
+        end
+        local k = i
+        while k <= j do
+            packPut(h, pack, native.word(k - i + 1), loadAt(t, k))
+            k = k + 1
+        end
+        return packed(h, pack, native.word(j - i + 1), first)
+    end
+end
+
 -- select(i, ...) over a variadic pack {[0] = n, ...}: the i-th value, from
 -- the end when negative; nil past the end.
 local function select(packValue: uint64, index: uint64): uint64
@@ -1183,6 +1292,14 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return gsub(ctx, a, b, c, d, false)
     elseif id == GSUB_ALL then
         return gsub(ctx, a, b, c, d, true)
+    elseif id == TABLE_INSERT then
+        return tableInsert(ctx, count, a, b, c)
+    elseif id == TABLE_REMOVE then
+        return tableRemove(ctx, count, a, b)
+    elseif id == TABLE_UNPACK then
+        return tableUnpack(ctx, a, b, c, false)
+    elseif id == TABLE_UNPACK_ALL then
+        return tableUnpack(ctx, a, b, c, true)
     elseif id == TYPE then
         return guestscope.typeName(ctx, a)
     elseif id == UNM then
