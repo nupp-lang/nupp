@@ -283,7 +283,8 @@ local function checkpoints(): nil
     local directory = scratch()
     local path = directory .. "/level.dat"
     assert2(host.write(path, "abcdefgh"))
-    with game = vm.spawn(reader, path) do
+    do
+        local game = vm.spawn(reader, path);
         local generation = game:generation()
 
         local function turn(at: string, now: number): (string?, string?)
@@ -325,7 +326,8 @@ local function checkpoints(): nil
         -- A changed asset refuses the restore, and the game stays usable.
         assert2(host.write(path, "abcdWXYZ"))
         local ok, problem = pcall(function(): nil
-            with candidate = game:prepareRestore(captured) do
+            do
+                local candidate = game:prepareRestore(captured);
             end
         end)
         refused(ok, problem, "contents changed")
@@ -335,7 +337,8 @@ local function checkpoints(): nil
     -- A writable file needs a strategy; "reopen" never truncates.
     local journal = directory .. "/journal.txt"
     for _, strategy in ipairs({"", "reopen"}) do
-        with game = vm.spawn(writer, journal, strategy) do
+        do
+            local game = vm.spawn(writer, journal, strategy);
             local generation = game:generation()
             for index = 1, 300 do
                 game:step(generation, 0)
@@ -349,7 +352,8 @@ local function checkpoints(): nil
                 refused(ok, problem, "open for writing")
             else
                 const captured = game:capture()
-                with candidate = game:prepareRestore(captured) do
+                do
+                    local candidate = game:prepareRestore(captured);
                 end
                 assert2(host.read(journal) == "head")
             end
@@ -357,7 +361,8 @@ local function checkpoints(): nil
     end
 
     -- Sockets are refused with what is open.
-    with game = vm.spawn(listener) do
+    do
+        local game = vm.spawn(listener);
         local generation = game:generation()
         for index = 1, 300 do
             game:step(generation, 0)

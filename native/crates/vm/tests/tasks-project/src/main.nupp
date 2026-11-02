@@ -28,7 +28,8 @@ function main.checkpointStart(): number
                 end
             )
             const handling = host.install(handler)
-            with scope = tasks.scope(timeoutms = 1000) do
+            do
+                local scope = tasks.scope(timeoutms = 1000);
                 local child = scope:spawn(function(): number
                     time.sleep(50)
                     return 42
@@ -111,15 +112,18 @@ end
 function main.run(): number
     local state: any = {closed = 0}
     local answer = 0
-    with scope = tasks.scope(limit = 1) do
+    do
+        local scope = tasks.scope(limit = 1);
         local first = scope:spawn(function(): number
-            with owned = resource(state) do
+            do
+                local owned = resource(state);
                 tasks.checkpoint()
                 return 20
             end
         end)
         local second = scope:spawn(function(): number
-            with owned = resource(state) do
+            do
+                local owned = resource(state);
                 return 22
             end
         end)
@@ -131,7 +135,8 @@ function main.run(): number
 end
 
 function main.cancellation(): number
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         local child = scope:spawn(function(): number
             error("a cancelled queued task must not start")
         end)
@@ -148,7 +153,8 @@ end
 
 function main.churn(): number
     local total = 0
-    with scope = tasks.scope(limit = 1) do
+    do
+        local scope = tasks.scope(limit = 1);
         for i = 1, 1000 do
             local child = scope:spawn(function(): number
                 return 1
@@ -166,7 +172,8 @@ function main.ownership(): number
     local state: any = {closed = 0}
     do
         local owned = resource(state)
-        with moved = owned do
+        do
+            local moved = owned;
             assert2(state.closed == 0)
         end
         assert2(state.closed == 1, "expected one cleanup: " .. tostring(state.closed))
@@ -174,13 +181,15 @@ function main.ownership(): number
     assert2(state.closed == 1, "expected one cleanup: " .. tostring(state.closed))
     local marker: any = {}
     local ok, reason = pcall(function()
-        with owned = resource(state) do
+        do
+            local owned = resource(state);
             error(marker)
         end
     end)
     assert2(not ok and reason == marker and state.closed == 2)
     local childOk, childReason = pcall(function()
-        with scope = tasks.scope() do
+        do
+            local scope = tasks.scope();
             local child = scope:spawn(function()
                 error(nil)
             end)
@@ -241,7 +250,8 @@ function main.captures(): number
         end
     end
     assert2(state.closed == 2, "expected two cleanups: " .. tostring(state.closed))
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         local owned = resource(state)
         local child = scope:spawn(function(): number takes (owned)
             error("cancelled closure")
@@ -256,7 +266,8 @@ end
 function main.workers(): number
     local source: any = {answer = 1}
     source.self = source
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         local child = scope:work(source, function(value: any): any
             value.answer = 42
             assert2(value.self == value)
@@ -272,7 +283,8 @@ end
 
 function main.workerSettlement(): number
     local failed, problem = pcall(function(): nil
-        with scope = tasks.scope() do
+        do
+            local scope = tasks.scope();
             scope:work(function(): number
                 error("worker settlement failure")
             end)
@@ -280,7 +292,8 @@ function main.workerSettlement(): number
     end)
     assert2(not failed and tostring(problem):find("worker settlement failure", 1, true) ~= nil)
     local completed, cancelled = pcall(function(): nil
-        with scope = tasks.scope(timeoutms = 10) do
+        do
+            local scope = tasks.scope(timeoutms = 10);
             local child = scope:work(function(): number
                 local total = 0
                 while true do
@@ -298,7 +311,8 @@ function main.workerSettlement(): number
 end
 
 function main.named(): number
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         local child = scope:spawn("named job", function(): number
             return 42
         end)
@@ -359,7 +373,8 @@ end
 function main.channels(): number
     do
         local channel = tasks.channel<number>(1)
-        with scope = tasks.scope() do
+        do
+            local scope = tasks.scope();
             local sender = scope:work(channel:share(), function(channel: any): number
                 channel:send(20)
                 channel:send(22)
@@ -378,12 +393,14 @@ end
 function main.generators(): number
     local generator = require("nupp.generator")
     local state: any = {closed = 0}
-    with values = generator.create<number>(function(emit: function(number): nil): nil
-        with owned = resource(state) do
-            emit(20)
-            emit(22)
-        end
-    end) do
+    do
+        local values = generator.create<number>(function(emit: function(number): nil): nil
+            do
+                local owned = resource(state);
+                emit(20)
+                emit(22)
+            end
+        end);
         local first, present = values:next()
         assert2(present and first == 20)
     end
@@ -396,7 +413,8 @@ function main.automaticClose(): number
     local state: any = {closed = 0}
     do
         local co = coroutine.create(function(): nil
-            with owned = resource(state) do
+            do
+                local owned = resource(state);
                 coroutine.yield(1)
                 coroutine.yield(2)
             end
@@ -407,7 +425,8 @@ function main.automaticClose(): number
     assert2(state.closed == 1, "coroutine scope exit must close its resources")
     do
         local step = coroutine.wrap(function(): nil
-            with owned = resource(state) do
+            do
+                local owned = resource(state);
                 coroutine.yield(1)
                 coroutine.yield(2)
                 coroutine.yield(3)
@@ -418,7 +437,8 @@ function main.automaticClose(): number
     assert2(state.closed == 2, "wrapped coroutine must close on scope exit")
     local ok = pcall(function(): nil
         local co = coroutine.create(function(): nil
-            with owned = resource(state) do
+            do
+                local owned = resource(state);
                 coroutine.yield(1)
             end
         end)

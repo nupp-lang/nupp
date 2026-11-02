@@ -5737,16 +5737,16 @@ function M.raceAcceptsBorrowedClosuresWithoutRetainingThem()
     )
 end
 
--- A task scope is a Closeable: its `with` closes it on the way out, and `own.drop`
+-- A task scope is a Closeable: its block closes it on the way out, and `own.drop`
 -- closes one held in an ordinary local early, settling its children there rather
 -- than where the block ends.
-function M.aTaskScopeClosesThroughItsWithAndThroughDrop()
+function M.aTaskScopeClosesThroughItsScopeAndThroughDrop()
     local order = runGenerated(
         table.concat(
             {
                 "local tasks = require(\"coroutine\")",
                 "local order: {string} = {}",
-                "with scope = tasks.scope() do",
+                "do local scope = tasks.scope() ;",
                 "   scope:spawn(function(): nil order[#order + 1] = 'child' end)",
                 "end",
                 "order[#order + 1] = 'after block'",
@@ -5769,7 +5769,7 @@ end
 -- runtime; `tasks.deadline()` is the absolute instant it becomes.
 function M.aTaskScopeTakesItsTimeoutInMilliseconds()
     assertClean(
-        "local tasks = require(\"coroutine\")\nwith scope = tasks.scope(limit = 2, timeoutms = 5) do\n   print(scope)\nend"
+        "local tasks = require(\"coroutine\")\ndo local scope = tasks.scope(limit = 2, timeoutms = 5) ;\n   print(scope)\nend"
     )
     local refused = codes(
         "local tasks = require(\"coroutine\")\nlocal scope = tasks.scope(deadline = 5)\nnupp.drop(scope)"
@@ -6404,7 +6404,7 @@ function M.taskHandlesRemainRootedInTheirScope()
             table.concat(
                 {
                     "local escaped: any = nil",
-                    "with scope = coroutine.scope() do",
+                    "do local scope = coroutine.scope() ;",
                     "   escaped = scope:spawn(function(): integer return 1 end)",
                     "end",
                     "print(escaped)",
@@ -6420,7 +6420,7 @@ function M.taskHandleAggregatesCarryTheirScopeProvenance()
     assertClean(
         table.concat(
             {
-                "with scope = coroutine.scope() do",
+                "do local scope = coroutine.scope() ;",
                 "   local handles = {scope:spawn(function(): integer return 1 end)}",
                 "   handles[2] = scope:spawn(function(): integer return 2 end)",
                 "   for _, handle in ipairs(handles) do print(handle:await()) end",
@@ -6434,7 +6434,7 @@ function M.taskHandleAggregatesCarryTheirScopeProvenance()
         table.concat(
             {
                 "local kept: any = nil",
-                "with scope = coroutine.scope() do",
+                "do local scope = coroutine.scope() ;",
                 "   kept = {scope:spawn(function(): integer return 1 end)}",
                 "end",
                 "return kept",
@@ -6454,7 +6454,7 @@ function M.returningTaskSpawnsRefuseBorrowedAffineCaptures()
                     "   function close(takes self): nil end",
                     "end",
                     "local resource = new Resource()",
-                    "with scope = coroutine.scope() do",
+                    "do local scope = coroutine.scope() ;",
                     "   local callback = function(): nil borrows (resource)",
                     "      print(resource ~= nil)",
                     "   end",
@@ -6477,7 +6477,7 @@ function M.aChildBodyMayBorrowTheScopeThatStartsIt()
         table.concat(
             {
                 "local seen = 0",
-                "with scope = coroutine.scope(limit = 4) do",
+                "do local scope = coroutine.scope(limit = 4) ;",
                 "   for index = 1, 3 do",
                 "      scope:spawn(function(): nil",
                 "         scope:spawn(function(): nil seen = seen + index end)",
@@ -6498,8 +6498,8 @@ function M.aChildBodyMayBorrowTheScopeThatStartsIt()
         codes(
             table.concat(
                 {
-                    "with outer = coroutine.scope() do",
-                    "   with inner = coroutine.scope() do",
+                    "do local outer = coroutine.scope() ;",
+                    "   do local inner = coroutine.scope() ;",
                     "      outer:spawn(function(): nil",
                     "         inner:spawn(function(): nil end)",
                     "      end)",
@@ -6519,8 +6519,8 @@ function M.aChildBodyMayBorrowTheScopeThatStartsIt()
                     "local record Resource is own.Closeable",
                     "   function close(takes self): nil end",
                     "end",
-                    "with resource = new Resource() do",
-                    "   with scope = coroutine.scope() do",
+                    "do local resource = new Resource() ;",
+                    "   do local scope = coroutine.scope() ;",
                     "      scope:spawn(function(): nil",
                     "         scope:cancel(tostring(resource ~= nil))",
                     "      end)",
@@ -6589,8 +6589,8 @@ end
 -- A one-argument affine(T) reads T's terminal as it resolves. Named above T's own
 -- declaration -- a field or method of an earlier record -- it used to resolve before
 -- T's `is` claim was read, and settled on a transfer-only owner with no terminal, so
--- `with` refused it (NUPP2615). The claim may come straight from the prelude, through
--- an interface declared further down, or onto a generic declaration.
+-- ordinary local ownership refused it (NUPP2615). The claim may come straight from the
+-- prelude, through an interface declared further down, or onto a generic declaration.
 function M.aClaimDeclaredBelowItsFirstUseStillGivesATerminal()
     local source = table.concat(
         {
@@ -6614,9 +6614,9 @@ function M.aClaimDeclaredBelowItsFirstUseStillGivesATerminal()
             "      return new Box<integer>(v = 2)",
             "   end",
             ")",
-            "with k = spec:compile() do end",
-            "with b = spec:box() do end",
-            "with m = spec:viaMethod() do end",
+            "do local k = spec:compile() ; end",
+            "do local b = spec:box() ; end",
+            "do local m = spec:viaMethod() ; end",
             "return closed",
         },
         "\n"
@@ -6655,8 +6655,8 @@ function M.aNestedClaimDeclaredBelowItsFirstUseStillGivesATerminal()
             "   end,",
             "   plain = function(borrows self: Outer.Spec): affine(Outer.Plain) return new Outer.Plain() end",
             ")",
-            "with k = spec:compile() do end",
-            "with p = spec:plain() do end",
+            "do local k = spec:compile() ; end",
+            "do local p = spec:plain() ; end",
             "return closed",
         },
         "\n"
@@ -6901,7 +6901,7 @@ function M.cancellingAQueuedTaskDropsItsTransferredCaptures()
             "local record Resource is own.Closeable",
             "   function close(takes self): nil drops = drops + 1 end",
             "end",
-            "with scope = coroutine.scope() do",
+            "do local scope = coroutine.scope() ;",
             "   local resource = new Resource()",
             "   local child = scope:spawn(function(): nil takes (resource)",
             "      resource:close()",
@@ -7237,7 +7237,7 @@ function M.anOwnedTemporaryThatIsBoundMovedOrReturnedIsAccepted()
                 "sink(pick(true))",
                 "local raw = @unsafe own.release(open(11))",
                 "print(raw.id)",
-                "with w = open(12) do print(w.id) end",
+                "do local w = open(12) ; print(w.id) end",
                 "own.drop(a)",
                 "own.drop(b)",
                 "own.drop(c)",

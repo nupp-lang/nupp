@@ -48,7 +48,7 @@ system](learn/language/types/index.md).
 ## Resources and foreign code
 
 Affine ownership records a cleanup obligation in the type. Borrowing, pinning,
-and exact scopes make C pointer lifetimes and deterministic cleanup visible to
+and lexical scopes make C pointer lifetimes and deterministic cleanup visible to
 the checker.
 
 ```nupp
@@ -84,7 +84,8 @@ local function waitFor(results: {number}, index: integer, milliseconds: number):
 end
 
 local results: {number} = {}
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope()
     scope:spawn(results, 1, 20, waitFor)
     scope:spawn(results, 2, 10, waitFor)
 end

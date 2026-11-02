@@ -833,7 +833,7 @@ values while scheduler slots are released and reused with fresh generations;
 the scope prunes settled handles on spawn/close. Wait edges carry full task IDs,
 are checked for cycles, and survive checkpoints.
 
-The emitter reads the checker's cleanup terminals for `with`, automatic local
+The emitter reads the checker's cleanup terminals for automatic local
 owners and explicit `drop`. `Defer`/`DeferMethod` register rooted receiver/callback
 pairs, `Unwind` closes lexical regions, and `DisarmAt` identifies a transferred
 owner by its frame-local slot. Equal values do not identify ownership. Return,
@@ -929,7 +929,7 @@ continuations; they require a whole-VM checkpoint. Nupp's VM declarations make
 suspended continuations and drains resources. A wrapped coroutine is a reusable
 owning callable. The typed
 `nupp.generator.create<T>(body)` facade returns an
-owner with `next(): (T?, boolean)` and `close`; its `with` scope closes a partially
+owner with `next(): (T?, boolean)` and `close`; its lexical scope closes a partially
 consumed body and drains its affine resources automatically.
 
 `aot IMAGE OBJECT --frames` emits the heap-frame ABI into ordinary object files.
@@ -3119,7 +3119,7 @@ the recorded outputs under full collector stress.
 | `__tostring` | `tostring` passes a non-string result through, as LuaJIT; `print` and `%s` accept a number and refuse anything else. |
 | `__pairs` | `pairs` returns the handler's triple. |
 | `__metatable` | `getmetatable` answers it, `setmetatable` refuses a protected metatable. |
-| `__gc`, `__close`, `__name`, bitwise | ordinary fields, as on LuaJIT; ownership and `with` are the close path. |
+| `__gc`, `__close`, `__name`, bitwise | ordinary fields, as on LuaJIT; lexical ownership is the close path. |
 
 **What a program that uses none pays.** The heap keeps one bit per
 metamethod name whose string was ever interned (`Heap::mm_seen`): a key that
@@ -3238,7 +3238,7 @@ still restores).
 worker can write it, and that exposed two gaps unrelated to copying: a
 worker runs none of its modules' bodies, so record shapes whose methods are
 set as a module loads (the span implementations a heap array's `read` and
-`write` return) had none, and `_G.__nuppCleanupRegistry`, which `with`
+`write` return) had none, and `_G.__nuppCleanupRegistry`, which lexical cleanup
 consults for an affine terminal, was empty. `src/worker_context.rs` finds
 what the body can reach -- its graph's objects, the functions they and their
 code name, the shapes those functions create or test, transitively through

@@ -6,7 +6,7 @@
 //! the methods a record shape dispatches (`SetMethod` as a module loads) and
 //! the cleanup registry modules fill in `_G` with their affine terminals. A
 //! record a library creates inside the worker -- a span over a moved array --
-//! would otherwise have no methods, and a `with` over it no terminal.
+//! would otherwise have no methods, and its local owner no terminal.
 //!
 //! `capture` finds what the body can reach: the objects its graph holds, the
 //! functions those objects and their code name, the shapes those functions

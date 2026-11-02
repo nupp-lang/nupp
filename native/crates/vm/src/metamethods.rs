@@ -14,7 +14,7 @@ use crate::interp::Interp;
 use crate::value::Value;
 
 /// The metamethods the runtime consults, in `NAMES` order. `__gc` is not
-/// among them: ownership and `with` are the close path (contracts 9), so a
+/// among them: lexical ownership is the close path (contracts 9), so a
 /// metatable's `__gc`, like `__close` and `__name`, is an ordinary field.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
 #[repr(u8)]

@@ -23,17 +23,20 @@ function main.run(): number
     for index = 1, 10000 do
         values[index] = new Entity(x = index, y = -index)
     end
-    with game = vm.spawn(sum, values) do
+    do
+        local game = vm.spawn(sum, values);
         const original = game:generation()
         const snapshot = game:capture()
         assert(#snapshot > 80000)
         const malformed = pcall(function(): nil
-            with candidate = game:prepareRestore("broken") do
+            do
+                local candidate = game:prepareRestore("broken");
             end
         end)
         assert(not malformed)
         assert(game:generation() == original)
-        with candidate = game:prepareRestore(snapshot) do
+        do
+            local candidate = game:prepareRestore(snapshot);
             const paused = pcall(function(): nil
                 game:step(original, 0)
             end)
@@ -49,7 +52,8 @@ function main.run(): number
             game:step(original, 0)
         end)
         assert(not stale)
-        with branch = game:fork(snapshot) do
+        do
+            local branch = game:fork(snapshot);
             const generation = game:generation()
             const branchGeneration = branch:generation()
             assert(generation ~= branchGeneration)
@@ -90,7 +94,8 @@ function main.captureTimes(): string
         values[index] = new Entity(x = index, y = -index)
     end
     local samples: {number} = {}
-    with game = vm.spawn(sum, values) do
+    do
+        local game = vm.spawn(sum, values);
         for sample = 1, 101 do
             const start = os.clock()
             const snapshot = game:capture()

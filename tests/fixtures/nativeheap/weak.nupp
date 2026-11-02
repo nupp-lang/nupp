@@ -172,7 +172,8 @@ end
 -- unrooted node and keeps the one naming the rooted node.
 local function weakValues(): uint64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.automatic = false
             local roots = words(a, 2)
@@ -207,7 +208,8 @@ end
 -- whose value survives once marking revisits the table.
 local function ephemerons(): uint64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.automatic = false
             local roots = words(a, 2)
@@ -243,7 +245,8 @@ end
 -- string side never makes an entry go.
 local function weakBoth(): uint64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.automatic = false
             local roots = words(a, 2)
@@ -270,7 +273,8 @@ end
 -- and one the sweep already passed and whitened is a hit.
 local function lookupBarrier(): uint64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.automatic = false
             -- The survivor and ten fillers are rooted and first in the chunk.
@@ -310,7 +314,8 @@ end
 -- table without parts is reclaimed at once.
 local function released(): uint64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.automatic = false
             local withParts = newTable(h, a, 4, 2, 0)
@@ -340,7 +345,8 @@ end
 -- table's surviving array entries.
 local function interleavedWeak(count: uint64): uint64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.interleave = true
             h.oracle = true
@@ -396,7 +402,8 @@ end
 -- An unchanged weak-value array keeps its existing logical extent.
 local function unchangedWeakExtent(): uint64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.automatic = false
             local roots = words(a, 1)
@@ -415,7 +422,8 @@ end
 -- The remembered mode belongs to this cycle even when the header changes.
 local function cycleModeSnapshot(): uint64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.automatic = false
             local t = newTable(h, a, 1, 0, gcweak.WEAK_VALUES)

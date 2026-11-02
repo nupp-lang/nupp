@@ -163,7 +163,8 @@ end
 export function workers(): number
     local species = simd.species(array.uint64, 3)
     local vector = species:iota(9007199254740993ULL, 1ULL)
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         local job = scope:work(vector, function(
             value: simd.Vector<uint64, simd.Fixed<3>>
         ): simd.Vector<uint64, simd.Fixed<3>>

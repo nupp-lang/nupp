@@ -17,7 +17,8 @@ function perf.cpu(): number
 end
 
 function perf.worker(): number
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         local child = scope:work(2000000, sum)
         return child:await()
     end

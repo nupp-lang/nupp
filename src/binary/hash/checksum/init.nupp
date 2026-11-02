@@ -10,7 +10,8 @@ const checksum = binary.hash.checksum
 
 print(checksum.value("crc32c", "hello"))
 
-with running = checksum.newchecksum("crc32") do
+do
+    local running = checksum.newchecksum("crc32")
     running:write("hel")
     running:write("lo")
     print(running:value())

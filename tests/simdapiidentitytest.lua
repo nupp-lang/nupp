@@ -91,7 +91,7 @@ function M.importAndGlobalRootKeepNativeVectorLoopOperations()
         )
             .. [[
 const values = array.scalar(array.float64, 5)
-with rows = values:write() do
+do local rows = values:write() ;
     for index = 1, 5 do rows[index] = index end
     scale(rows, 2.0)
 end

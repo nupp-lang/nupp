@@ -6,9 +6,9 @@ data: stacks, tables, gray stacks, parser arenas. Nothing here is collected or
 comes from a general allocator; an arena is pages the glue maps, handed out by
 bumping a cursor and given back all at once when the arena closes.
 
-An arena is opened for the extent of a `with`: `with a = arena.open(bytes) do`
-and what the body allocates from it borrows it, so the checker refuses a
-pointer that would outlive the arena. A fixed arena is one mapping and answers
+An ordinary local bound to `arena.open(bytes)` owns the mapping until its
+lexical scope ends. Allocations borrow that owner, so the checker refuses a
+pointer that would outlive the arena. A fixed arena is one mapping and returns
 nil once it is full; a growable one maps another chunk of the same size and
 chains it, which is what a stack of unknown depth wants. Following Goose, a
 function opens at most one growable arena, which the `one-growable-arena`

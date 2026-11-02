@@ -553,8 +553,10 @@ end
 -- Replays standard input; writes the counts and answers the disagreements.
 local function replayTrace(): int64
     @unsafe do
-        with a = arena.openGrowable(1048576) do
-            with small = arena.openGrowable(1048576) do
+        do
+            local a = arena.openGrowable(1048576);
+            do
+                local small = arena.openGrowable(1048576);
                 local raw = arena.alloc(a, 512, 8)
                 local input = os.mapPages(INPUT_BYTES)
                 local lists = arena.alloc(a, BUFFER_CLASSES * 8, 8)

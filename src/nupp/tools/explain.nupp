@@ -1300,17 +1300,6 @@ local ENTRIES: {any} = {
         docs = "docs/learn/runtime/concurrency/suspension.md#c-call-boundaries",
     },
     {
-        code = "NUPP2706",
-        summary = "Control cannot jump into a handled suspension region",
-        rule = "Entering a `with` body from outside would bypass owner "
-        .. "acquisition and its cleanup obligation. Move the label outside the scope "
-        .. "or move the jump inside it. Structured exits from the scope are allowed.",
-        wrong = "goto inside\nwith owner = acquire() do\n" .. "    ::inside::\nend\n",
-        right = "with owner = acquire() do\nend\n::outside::\n",
-        related = {"NUPP2701", "NUPP2702"},
-        docs = "docs/learn/runtime/concurrency/suspension.md#handler-scope-follows-the-coroutine",
-    },
-    {
         code = "NUPP2206",
         summary = "Only a record or a struct can be constructed",
         rule = "`new` names a type and builds a value of it, so the operand "

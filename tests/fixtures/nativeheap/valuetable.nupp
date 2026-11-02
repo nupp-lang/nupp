@@ -27,7 +27,8 @@ end
 
 export function ownedHashChurn(count: uint64): int64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             local t = descriptor(a)
             local wrong: int64 = 0
@@ -76,7 +77,8 @@ end
 
 export function ownedHashRefusalAndPoolReuse(): int64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             local t = descriptor(a)
             local wrong: int64 = 0

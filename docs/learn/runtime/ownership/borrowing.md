@@ -236,22 +236,6 @@ first = second
 second = held
 ```
 
-### Exact extents with `with`
-
-`with` gives an owner a stricter extent than its enclosing block. The
-acquisition moves into a hidden slot, the visible binding is a scoped borrow,
-and the same lexical cleanup machinery drops the hidden owner on every exit from
-the body:
-
-```nupp:fragment
-with file = new File(nativeOpen("notes.txt")) do
-    print(file:read(16))
-end -- the hidden owner is destroyed here, not at the end of the function
-```
-
-See [exact-affine-scopes.md](exact-scopes.md) for what the
-scoped binding may not do.
-
 ## Affine aggregates and closures
 
 An affine value may be stored inside another value, and the container inherits
@@ -519,7 +503,8 @@ loan can dangle across an edge that carries none:
 
 ```nupp:fragment
 local frame = heap.allocate(ffi.typeof<uint8>(), size)
-with scope = coroutine.scope() do
+do
+    local scope = coroutine.scope()
     for generation = 1, 60 do
         frame = scope:work(frame, generation, jobs.fill):await()
     end
@@ -547,7 +532,7 @@ end
 An arm whose value names an owner moves it: the name is spent on that arm, and
 the switch's value carries the obligation to whatever binds or consumes it.
 A block arm may `return` an owner under the ordinary return contract, or `yield`
-a value to the switch merge. When a yield leaves a `with` region, its automatic
+a value to the switch merge. When a yield leaves a lexical block, its automatic
 cleanup completes before evaluation resumes after the switch, as it does for
 other control flow.
 
@@ -674,8 +659,6 @@ capability.
 - [ownership.md](index.md) for the annotations a caller writes
 - [affine-types.md](affine-types.md) for constructing the types this page moves
   around
-- [exact-affine-scopes.md](exact-scopes.md) for `with` and
-  its exact extent
 - [c-interop.md](../c-interop/index.md#describe-lifetime-behavior) for the
   native side of a lifetime contract
 :::

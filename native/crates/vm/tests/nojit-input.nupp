@@ -211,7 +211,8 @@ end
 --- interleaved; the results do not depend on the interleaving.
 export function scheduled(): string
     local out: {string} = {}
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         local first = scope:spawn(function(): string
             return blockSum(37, 5)
         end)

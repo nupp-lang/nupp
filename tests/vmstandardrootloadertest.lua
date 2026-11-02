@@ -214,7 +214,7 @@ function M.managedCoroutineNamespacesRetainOwnedFunctionsAndExtendFinalMembers()
 local tasks = require("coroutine")
 local cancelled = tasks.iscancelled
 local scope = tasks.scope
-with child = coroutine.create(function(): nil end) do
+do local child = coroutine.create(function(): nil end) ;
     coroutine.resume(child)
 end
 return cancelled("ordinary reason"), scope
@@ -262,7 +262,7 @@ local worker = {}
 function worker.run(n: integer): (integer, string?, nil)
     return n, "forked", nil
 end
-with scope = coroutine.scope() do
+do local scope = coroutine.scope() ;
     local child = scope:spawn(7, work)
     local n: integer, text: string?, tail: nil = inspect(child)
     assert(n == 7 and text == "kept" and tail == nil)
@@ -277,7 +277,7 @@ end
     _, codes = checkedCoroutine(
         [[
 local type Work = function(): integer
-with scope = coroutine.scope() do
+do local scope = coroutine.scope() ;
     local task: coroutine.Task<Work> = scope:spawn(function(): integer return 7 end)
 end
 ]],
@@ -291,7 +291,7 @@ end
     _, codes = checkedCoroutine(
         [[
 local function escape(): coroutine.Task<function(): integer>
-    with scope = coroutine.scope() do
+    do local scope = coroutine.scope() ;
         return scope:spawn(function(): integer return 7 end)
     end
 end
@@ -316,7 +316,7 @@ end
 local function work(n: integer): (integer, string?, nil)
     return n, "kept", nil
 end
-with scope = coroutine.scope() do
+do local scope = coroutine.scope() ;
     local child = scope:spawn(7, work)
     local n, text, tail = inspect(child)
     assert(n == 7 and text == "kept" and tail == nil, "spawn preserves heterogeneous result positions")

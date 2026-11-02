@@ -15,13 +15,15 @@ other's operations to find its own.
 local host = require("coroutine.suspension.host")
 
 local function application(): nil
-    with installation = host.install(frameHandler) do
+    do
+        local installation = host.install(frameHandler)
         work()
     end
 end
 ```
 
-`install` puts a handler on the current coroutine for the extent of the `with`.
+`install` puts a handler on the current coroutine until its local installation
+leaves scope or is dropped.
 Driving the readiness pumps while it waits is [](coroutine.suspension)'s `poll`: the
 pumps are registered through that module and drained through it, by a scheduler
 here or by an embedding host that never installs a handler at all. `create`

@@ -17,7 +17,8 @@ local struct Position
 end
 
 local positions = soa.alloc(ffi.typeof<Position>(), 128)
-with rows = positions:write() do
+do
+    local rows = positions:write()
     for index = 1, #rows do
         rows[index].x += rows[index].velocity
     end
@@ -78,7 +79,8 @@ local struct Particle
 end
 
 local particles = soa.allocate(ffi.typeof<Particle>(), 2)
-with rows = particles:write() do
+do
+    local rows = particles:write()
     rows[1] = new Particle(1, 2, 3, 4)
     rows[2].x = 10
     rows[2].y = 20
@@ -94,10 +96,11 @@ does not mutate the row it came from.
 
 ### Ending an exclusive borrow
 
-Leaving the `with` scope ends the exclusive borrow, and `drop` on an ordinary
-writable view ends it early. Neither flushes or copies anything, because the
-stores already wrote the columns. Both forms use automatic [lexical
-destruction](../ownership/borrowing.md#consumption-and-lexical-destruction).
+Leaving the local writable view's scope ends the exclusive borrow, and `drop`
+ends it early. Neither flushes or copies anything, because the stores already
+wrote the columns. See [lexical
+destruction](../ownership/borrowing.md#consumption-and-lexical-destruction) for
+the cleanup order.
 
 ### Shared rows reject writes
 
@@ -148,8 +151,10 @@ indexes start at one, like the parent view.
 
 ```nupp:fragment
 local samples = soa.allocate(ffi.typeof<Position>(), 3)
-with rows = samples:write() do
-    with middle = rows:slice(2, 2) do
+do
+    local rows = samples:write()
+    do
+        local middle = rows:slice(2, 2)
         middle[1].x = 12.5
     end
 end
@@ -172,12 +177,14 @@ both ranges before moving bytes, then performs one contiguous copy per field.
 local source = soa.allocate(ffi.typeof<Particle>(), 2)
 local target = soa.allocate(ffi.typeof<Particle>(), 4)
 
-with rows = source:write() do
+do
+    local rows = source:write()
     rows[1] = new Particle(1, 2, 3, 4)
     rows[2] = new Particle(5, 6, 7, 8)
 end
 
-with rows = target:write() do
+do
+    local rows = target:write()
     rows:copyfrom(2, source:read(), 1, 2)
 end
 
@@ -238,7 +245,8 @@ matter on the selected target.
 Walk the rows with the canonical loop over `#rows`:
 
 ```nupp:fragment
-with rows = particles:write() do
+do
+    local rows = particles:write()
     for index = 1, #rows do
         rows[index].x += rows[index].dx
     end

@@ -3,7 +3,7 @@ module heapunits
 -- Collector unit fixtures executed on the owned backend. Each builds a fresh
 -- heap in its own arena and answers a count the driver computes on its own.
 -- Written in heap entry's idiom: errors raise, results return after the
--- arena's `with` scope closes.
+-- arena's lexical scope closes.
 const native = require("nupp.runtime.vm.intrinsics")
 const arena = require("nupp.runtime.vm.arena")
 const heap = require("nupp.runtime.vm.heap")

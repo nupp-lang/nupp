@@ -428,7 +428,7 @@ local struct Row
 end
 local owner = soa.alloc(ffi.typeof<Row>(), 2)
 local answer = false
-with rows = owner:write() do
+do local rows = owner:write() ;
     rows[1].value = 2.0
     rows[2].value = 40.0
     local index: integer = 1

@@ -5260,7 +5260,8 @@ function World.startup(exclusive self: World): nil
     self:commit()
     self.updating = true
     local succeeded, failure = pcall(function(): nil
-        with scope = tasks.scope() do
+        do
+            local scope = tasks.scope();
             if self.pipeline ~= nil then
                 runCustomPipeline(self, phases.StartupGroup, 0, scope)
             else
@@ -5288,7 +5289,8 @@ function World.shutdown(exclusive self: World): nil
     self:commit()
     self.updating = true
     local succeeded, failure = pcall(function(): nil
-        with scope = tasks.scope() do
+        do
+            local scope = tasks.scope();
             if self.pipeline ~= nil then
                 runCustomPipeline(self, phases.ShutdownGroup, 0, scope)
             else
@@ -5322,7 +5324,8 @@ function World.runPhase(exclusive self: World, phase: phases.Selection, dt: numb
     self:commit()
     self.updating = true
     local succeeded, failure = pcall(function(): nil
-        with scope = tasks.scope() do
+        do
+            local scope = tasks.scope();
             if self.pipeline ~= nil then
                 runCustomPipeline(self, phase, elapsed, scope)
             else
@@ -5360,7 +5363,8 @@ function World.update(exclusive self: World, dt: number): nil
     self:commit()
     self.updating = true
     local succeeded, failure = pcall(function(): nil
-        with scope = tasks.scope() do
+        do
+            local scope = tasks.scope();
             if self.pipeline ~= nil then
                 runCustomPipeline(self, nil, dt, scope)
             else

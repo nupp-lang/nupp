@@ -356,7 +356,8 @@ function parallelcheck.run(input: any): (any?, string?)
     end
 
     local scanned, scanProblem = pcall(function(): nil
-        with scope = tasks.scope(jobCount) do
+        do
+            local scope = tasks.scope(jobCount)
             for worker = 1, jobCount do
                 scope:spawn(worker, scanWorker)
             end
@@ -661,7 +662,8 @@ function parallelcheck.run(input: any): (any?, string?)
     end
 
     local ran, problem = pcall(function(): nil
-        with scope = tasks.scope(jobCount) do
+        do
+            local scope = tasks.scope(jobCount)
             for worker = 1, jobCount do
                 scope:spawn(worker, runWorker)
             end

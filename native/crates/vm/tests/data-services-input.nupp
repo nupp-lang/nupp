@@ -41,7 +41,9 @@ function tests.run(): integer
     local part = bytes:slice(7, 15)
     for index, name in ipairs(names) do
         assert(checksum.value(name, "123456789") == expected[index])
-        with first = checksum.newchecksum(name), second = checksum.newchecksum(name) do
+        do
+            local first = checksum.newchecksum(name);
+            local second = checksum.newchecksum(name);
             first:write("1234")
             second:writespan(part)
             first:write("56789")
@@ -64,7 +66,8 @@ function tests.run(): integer
 end
 
 function tests.worker(): integer
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         local child = scope:work(function(): uint64
             local sums = require("binary.hash.checksum")
             local ids = require("nupp.runtime.provider.nativeuuid")

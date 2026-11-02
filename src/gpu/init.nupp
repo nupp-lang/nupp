@@ -15,10 +15,15 @@ local gpu = require("gpu")
 local array = nupp.mem.array
 local kernels = require("kernels")
 
-with context = gpu.open() do
-    with input = context:buffer(array.float32, 1024), output = context:buffer(array.float32, 1024) do
-        with kernel = kernels.scale:compile(context) do
-            with scale = kernel:bind(output, input) do
+do
+    local context = gpu.open()
+    do
+        local input = context:buffer(array.float32, 1024)
+        local output = context:buffer(array.float32, 1024)
+        do
+            local kernel = kernels.scale:compile(context)
+            do
+                local scale = kernel:bind(output, input)
                 context:upload(input, values:read())
                 scale:dispatch(2.0)
             end
@@ -77,9 +82,8 @@ export const workgroups: function(
 
 --- Reports whether the selected provider can open a compute device now.
 ---
---- `open` raises when none can, and `with` needs the context it returns, so ask
---- this first where a program has another way to run. Answering it opens and
---- closes a device.
+--- `open` raises when none can, so ask this first where a program has another
+--- way to run. Checking availability opens and closes a device.
 export const available: function(): boolean = provider.available
 
 --- Opens a compute device through the selected provider.

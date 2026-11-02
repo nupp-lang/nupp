@@ -899,7 +899,7 @@ const jobs = require("jobs.hash")
 const tasks = require("coroutine")
 
 export function good(contents: string): uint64
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         const task = scope:work({name = "level1", bytes = contents}, jobs.hash)
 
         return task:await().hash
@@ -930,19 +930,19 @@ const jobs = require("jobs.hash")
 const tasks = require("coroutine")
 
 export function misspelled(): nil
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         print(scope:work(jobs.missing))
     end
 end
 
 export function wrongArgument(): nil
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         print(scope:work({name = "level1"}, jobs.hash))
     end
 end
 
 export function wrongResult(): nil
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         const task = scope:work({name = "a", bytes = "b"}, jobs.hash)
         print(task:await().nope)
     end
@@ -978,7 +978,7 @@ const jobs = require("jobs.hash")
 const tasks = require("coroutine")
 
 export function good(contents: string): boolean
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         const task = scope:work({name = "level1", bytes = contents}, 0, jobs.pair)
         local answer, verified = task:await()
         local name: string = answer.name
@@ -1069,7 +1069,7 @@ const jobs = require("jobs.copy")
 const tasks = require("coroutine")
 
 export function run(): nil
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         print(scope:work("a", 1, jobs.scalars):await())
         print(scope:work({name = "a", size = 1}, jobs.shaped):await())
         print(scope:work({x = 1, y = 2} as jobs.Point, jobs.record_):await())
@@ -1101,19 +1101,19 @@ const jobs = require("jobs.copy")
 const tasks = require("coroutine")
 
 export function nested(): nil
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         print(scope:work({name = "a", hook = || -> nil}, jobs.hooked))
     end
 end
 
 export function thread_(): nil
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         print(scope:work(coroutine.create(|| -> nil), jobs.threaded))
     end
 end
 
 export function result(): nil
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         print(scope:work("a", jobs.returnsFunction))
     end
 end
@@ -1150,7 +1150,7 @@ module main
 const tasks = require("coroutine")
 
 export function opened(): nil
-    with scope = tasks.scope() do
+    do local scope = tasks.scope() ;
         print(scope)
     end
 end

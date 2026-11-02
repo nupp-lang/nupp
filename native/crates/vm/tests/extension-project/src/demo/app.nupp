@@ -62,7 +62,8 @@ end
 --- Sibling tasks parked on native requests at once, and a failed completion
 --- raised at the call that parked.
 function app.concurrent(): number
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         local slow = scope:spawn(function(): string
             return counter.later("ba", 20)
         end)

@@ -27,7 +27,8 @@ directly through a reserve-and-commit pair, with no intermediate chunk string:
 const sharedbytes = nupp.mem.sharedbytes
 
 local builder = sharedbytes.newbuilder()
-with writer = builder:reserve(5) do
+do
+    local writer = builder:reserve(5)
     for index = 1, 5 do
         writer[index] = 64 + index
     end

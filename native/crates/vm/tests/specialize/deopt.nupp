@@ -44,7 +44,8 @@ local function weigh(p: Point, state: any, scale: number): number
     end
 
     local result = 0
-    with owned = lease(state) do
+    do
+        local owned = lease(state);
         local x = p.x
         result = x * factor + count + #bag + bump() + #label
         assert(owned.state.closed >= 0)

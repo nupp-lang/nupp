@@ -194,8 +194,8 @@ local lintFixtures = {
         reports = source(
             'const arena = require("nupp.runtime.vm.arena")',
             "local function work(): uint64",
-            "   with stack = arena.openGrowable(4096) do",
-            "      with scratch = arena.openGrowable(4096) do",
+            "   do local stack = arena.openGrowable(4096) ;",
+            "      do local scratch = arena.openGrowable(4096) ;",
             "         return arena.used(stack) + arena.used(scratch)",
             "      end",
             "   end",
@@ -205,8 +205,8 @@ local lintFixtures = {
         quiet = source(
             'const arena = require("nupp.runtime.vm.arena")',
             "local function work(): uint64",
-            "   with stack = arena.openGrowable(4096) do",
-            "      with scratch = arena.open(4096) do",
+            "   do local stack = arena.openGrowable(4096) ;",
+            "      do local scratch = arena.open(4096) ;",
             "         return arena.used(stack) + arena.used(scratch)",
             "      end",
             "   end",

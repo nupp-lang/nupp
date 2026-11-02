@@ -288,7 +288,7 @@ function M.yieldCompletesCleanupBeforeTheSwitchContinues()
                 "end",
                 "local value = switch 1 do",
                 "   case 1 -> do",
-                "      with resource = openResource() do",
+                "      do local resource = openResource() ;",
                 "         yield resource.name",
                 "      end",
                 "   end",

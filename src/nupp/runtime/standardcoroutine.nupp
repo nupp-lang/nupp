@@ -12,7 +12,8 @@ until every one of them has run, been cancelled, or unwound.
 ```nupp
 local greeting = ""
 
-with scope = coroutine.scope() do
+do
+    local scope = coroutine.scope()
     const hello = scope:spawn(function(): string
         return "hello"
     end)
@@ -34,7 +35,8 @@ cancelled or its deadline passed.
 ```nupp
 local total = 0
 
-with scope = coroutine.scope(timeoutms = 1000) do
+do
+    local scope = coroutine.scope(timeoutms = 1000)
     const sum = scope:spawn("sum values", function(): integer
         local answer: integer = 0
         for value = 1, 1000 do

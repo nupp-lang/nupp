@@ -39,7 +39,8 @@ local function heapArrays(): nil
     do
         local values = heap.alloc(ffi.typeof<int32>(), 4)
         assert2(values.count == 4)
-        with writable = values:write() do
+        do
+            local writable = values:write();
             for index = 1, #writable do
                 writable[index] = (index * 10) as int32
             end
@@ -54,7 +55,8 @@ local function heapArrays(): nil
     end
     do
         local wide = heap.alloc(ffi.typeof<number>(), 3)
-        with writable = wide:write() do
+        do
+            local writable = wide:write();
             writable[2] = 2.5
         end
         assert2(wide:read()[1] == 0 and wide:read()[2] == 2.5)
@@ -92,7 +94,8 @@ local function soaSlabs(): nil
 
     local bodies = soa.alloc(ffi.typeof<Body>(), 4)
     assert2(bodies.count == 4 and bodies.fingerprint == layout.fingerprint)
-    with rows = bodies:write() do
+    do
+        local rows = bodies:write();
         assert2(#rows == 4)
         for index = 1, #rows do
             rows[index].mass = index * 1.5
@@ -101,11 +104,13 @@ local function soaSlabs(): nil
         end
         rows[2].mass += 10
         rows[3] = new Body(new Vector(7, 8), 0.5, 9, 3)
-        with masses = rows.mass do
+        do
+            local masses = rows.mass;
             assert2(#masses == 4 and masses[2] == 13)
             masses[4] = 64
         end
-        with tail = rows:slice(3, 4) do
+        do
+            local tail = rows:slice(3, 4);
             assert2(#tail == 2 and tail[1].id == 9 and tail[2].mass == 64)
             tail[2].flags = 5
         end
@@ -121,10 +126,12 @@ local function soaSlabs(): nil
     assert2(#ids == 4 and ids[1] == 100 and ids[4] == 400)
 
     local copies = soa.alloc(ffi.typeof<Body>(), 2)
-    with rows = copies:write() do
+    do
+        local rows = copies:write();
         rows:copyfrom(1, bodies:read(), 3, 2)
     end
-    with rows = copies:write() do
+    do
+        local rows = copies:write();
         local copiedPast, why = pcall(copyPast, rows, bodies:read())
         assert2(not copiedPast and tostring(why):find("SoA copy range is out of bounds", 1, true), tostring(why))
     end
@@ -149,7 +156,8 @@ local function sharedRegions(): nil
     )
 
     local builder = sharedbytes.newbuilder()
-    with writer = builder:reserve(5) do
+    do
+        local writer = builder:reserve(5);
         for index = 1, 5 do
             writer[index] = 64 + index
         end
@@ -220,7 +228,8 @@ end
 
 --- Writes a moved array and moves it back.
 function test.fillMoved(takes frame: heap.Array<int32>, seed: integer): affine(heap.Array<int32>, heap.destroyArray)
-    with writable = frame:write() do
+    do
+        local writable = frame:write();
         for index = 1, #writable do
             writable[index] = (seed + index) as int32
         end
@@ -251,7 +260,8 @@ local function workerRegions(): nil
     builder:append("bytes")
     local built = builder:freeze()
     local large = sharedbytes.copy(string.rep("large", 200000))
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         const one = scope:work(region, test.regionPrefix)
         const two = scope:work(built, test.regionPrefix)
         assert2(one:await() == "hello")
@@ -277,7 +287,8 @@ end
 local function workerMoves(): nil
     local frame = heap.alloc(ffi.typeof<int32>(), 1024)
     const before = arrayAddress(frame)
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         frame = scope:work(frame, 5, test.fillMoved):await()
         -- Moved there and back: the same allocation, not a copy.
         assert2(arrayAddress(frame) == before, "a heap array moves rather than copies")

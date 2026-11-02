@@ -25,7 +25,8 @@ local DT = 1 / 60
 local function generatedSoA(_: any, _: Invocation): number
     local particles = soa.alloc(ffi.typeof<Particle>(), COUNT)
     local sink = 0.0
-    with rows = particles:write() do
+    do
+        local rows = particles:write();
         for i = 1, #rows do
             rows[i].x = i
             rows[i].y = i * 2

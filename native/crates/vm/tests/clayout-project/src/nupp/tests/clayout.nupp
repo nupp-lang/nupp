@@ -296,7 +296,8 @@ end
 
 local function counted(): nil
     const values = array.scalar(array.int32, 4)
-    with w = values:write() do
+    do
+        local w = values:write();
         for i = 1, 4 do
             w[i] = (i * 10) as int32
         end
@@ -306,7 +307,8 @@ local function counted(): nil
     equal(tonumber(clayout_sum(values:read():slice(1, 0))), 0, "an empty span")
 
     const scaled = array.scalar(array.int32, 4)
-    with w = scaled:write() do
+    do
+        local w = scaled:write();
         clayout_scale(w, values:read(), 3)
     end
     do
@@ -315,7 +317,8 @@ local function counted(): nil
     end
     const short = array.scalar(array.int32, 2)
     local ok: boolean, problem: any = true, nil
-    with w = short:write() do
+    do
+        local w = short:write();
         ok, problem = pcall(clayout_scale, w, values:read(), 3)
     end
     assert2(
@@ -324,7 +327,8 @@ local function counted(): nil
     )
 
     const items = array.newarray(new clayout_inner(), 3)
-    with w = items:write() do
+    do
+        local w = items:write();
         for i = 1, 3 do
             w[i].a = i
             w[i].b = i * 10
@@ -335,7 +339,8 @@ local function counted(): nil
     -- A caller's buffer, and the length C reports through an out parameter.
     const buffer = array.bytes(32)
     local status: int32, length: uint64 = 0, 0
-    with w = buffer:write() do
+    do
+        local w = buffer:write();
         status, length = clayout_describe(w)
     end
     equal(status, 0, "the description fit")
@@ -345,7 +350,8 @@ local function counted(): nil
         equal(r[1], string.byte("n"), "and C filled the buffer")
     end
     const tiny = array.bytes(4)
-    with w = tiny:write() do
+    do
+        local w = tiny:write();
         status, length = clayout_describe(w)
     end
     equal(status, 2, "a buffer too small")
@@ -429,13 +435,15 @@ local function sent(): nil
     -- A struct whose pointer field is set holds a process address, which
     -- another VM cannot keep.
     const ok, problem = pcall(function(): any
-        with scope = tasks.scope() do
+        do
+            local scope = tasks.scope();
             return scope:work(first, test.nodeValue):await()
         end
     end)
     assert2(not ok and tostring(problem):find("holds process addresses", 1, true) ~= nil, tostring(problem))
     first.next = nil
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope();
         equal(scope:work(first, test.nodeValue):await(), 1, "a cleared one is copied")
     end
 end

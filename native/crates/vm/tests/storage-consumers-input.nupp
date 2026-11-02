@@ -7,7 +7,8 @@ function probe.run(): integer
     local soa = require("nupp.mem.soa")
     local shared = require("nupp.mem.sharedbytes")
     local values = heap.alloc(ffi.typeof<int32>(), 2)
-    with writable = values:write() do
+    do
+        local writable = values:write();
         writable[1] = 11
         writable[2] = 31
     end
@@ -19,7 +20,8 @@ function probe.run(): integer
         x: int32
     end
     local rows = soa.alloc(ffi.typeof<Row>(), 2)
-    with writable = rows:write() do
+    do
+        local writable = rows:write();
         writable[1].x = 17
         writable[2].x = 25
     end

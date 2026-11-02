@@ -164,9 +164,8 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
 
     --- Registers a `@nosuspend` region.
     ---
-    --- What a region discharges -- an owner at its statement's boundary, a `with`
-    --- acquisition, an explicit `drop` -- runs a terminal no call names, so the region
-    --- is walked for those once inference can say whether each terminal parks.
+    --- Automatic owners and explicit `drop` operations run terminals beyond ordinary
+    --- calls, so the region is walked once inference can say whether each one parks.
     ---
     --- @param stat the region statement
     function ops.region(stat: any)
@@ -356,9 +355,8 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
     end
 
     -- Every terminal discharged inside a body, with where it is discharged: an owner
-    -- at the statement that bound it, a `with` acquisition at its expression, and an
-    -- explicit `drop` at the call. Nested functions run at a time the region does not
-    -- cover.
+    -- at the statement that bound it and an explicit `drop` at the call. Nested
+    -- functions run at a time the region does not cover.
     local function dischargedWithin(body: any, into: {any})
         if not body or cst.isToken(body) then
             return
@@ -370,13 +368,6 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
         for _, owner in ipairs(body.automaticOwners or {}) do
             for _, cleanup in ipairs(owner.cleanups or {}) do
                 into[#into + 1] = {cleanup = cleanup, at = body, ownerType = owner.entry and owner.entry.t}
-            end
-        end
-        if kind == "withStmt" then
-            for _, binding in ipairs(body.bindings or {}) do
-                for _, cleanup in ipairs(binding.ownerCleanups or {}) do
-                    into[#into + 1] = {cleanup = cleanup, at = binding.expr or body, ownerType = binding.acquiredType}
-                end
             end
         end
         if body.ownershipIntrinsic == "drop" or body.ownershipIntrinsic == "attemptAll" then
@@ -433,8 +424,8 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
                         ):format(token and ("`" .. token.text .. "`") or "this call", candidate.obligation),
                         nil,
                         {
-                            help = "suspend inside a `with` installation scope, where a "
-                            .. "handler is responsible for resuming or cancelling it",
+                            help = "suspend under an installed handler responsible for "
+                            .. "resuming or cancelling the operation",
                             related = chain(queries, info, "rawYields"),
                         }
                     )

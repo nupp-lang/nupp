@@ -2,7 +2,7 @@ local testAssert = require("assert")
 -- Application task scopes: what a scope owns, and when it says so.
 --
 -- A scope is opened with `open` and settled with its `close`, which is what leaving
--- its `with` block does in Nupp source; from Lua the two are called directly, and
+-- its owning local scope does in Nupp source; from Lua the two are called directly, and
 -- `scoped` below does what the block's cleanup does: the body's failure stays
 -- primary, and the scope settles either way.
 --
@@ -24,8 +24,8 @@ local function raises(body)
     return problem
 end
 
--- What `with scope = coroutine.scope(...) do ... end` lowers to: the body runs with
--- the scope, and the scope is settled on every exit, the body's failure first.
+-- What a `do` block with `local scope = coroutine.scope(...)` lowers to: the body runs
+-- with the scope, and the scope is settled on every exit, the body's failure first.
 local function scoped(options, body)
     local scope = tasks.scope(options and options.limit, options and options.deadline)
     local ok, problem = pcall(body, scope)

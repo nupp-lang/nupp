@@ -1330,7 +1330,7 @@ function declare.install(
                     condition.successors[#condition.successors + 1] = loop
                 end
                 return loop
-            elseif kind == "doStmt" or kind == "withStmt" then
+            elseif kind == "doStmt" then
                 return buildBlock(stat.body, nextNode, breakNode, continueNode)
             elseif kind == "callStmt" and c.alwaysRaises({kind = "block", stats = {stat}} as any) then
                 return point({}, nil)

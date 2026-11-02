@@ -10,7 +10,8 @@ const gcweak = require("nupp.runtime.vm.gcweak")
 
 export function ownedWeakIndexes(count: uint64): int64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             local wrong: int64 = 0
             local i: uint64 = 0ULL

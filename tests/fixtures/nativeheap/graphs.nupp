@@ -85,7 +85,8 @@ end
 -- after a whole cycle the list survives.
 local function listSurvives(kept: uint64, dropped: uint64): int64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             local roots = rootsIn(a, 1)
             collector.register(h, roots, 1)
@@ -114,7 +115,8 @@ end
 -- root slot; the unreachable rings go whatever their cycles say.
 local function rings(count: uint64, size: uint64): int64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             local roots = rootsIn(a, count)
             collector.register(h, roots, count)
@@ -151,7 +153,8 @@ end
 -- dropped before collecting.
 local function fanOut(width: uint64, bytes: uint64): int64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             local roots = rootsIn(a, 1)
             collector.register(h, roots, 1)
@@ -181,7 +184,8 @@ end
 -- `heap.rs`'s interleaved test. Every seventh node also takes a fresh leaf.
 local function interleaved(count: uint64): int64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.interleave = true
             h.oracle = true
@@ -220,7 +224,8 @@ end
 -- runs on the smaller tree.
 local function stressed(count: uint64): int64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.stress = true
             h.oracle = true
@@ -257,7 +262,8 @@ end
 -- the child survived.
 local function initializedBlack(): int64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.automatic = false
             local roots = rootsIn(a, 1)
@@ -302,7 +308,8 @@ end
 -- it survived.
 local function barrierKeeps(skip: boolean): int64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.automatic = false
             local roots = rootsIn(a, 2)
@@ -344,7 +351,8 @@ end
 -- survivors once the frames are the only roots.
 local function frames(): int64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.automatic = false
             local raw = arena.alloc(a, 512, 8)
@@ -408,7 +416,8 @@ end
 -- scope closed (the constant pool stays).
 local function handlesAndScopes(): int64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.automatic = false
             local pool = rootsIn(a, 2)
@@ -437,16 +446,18 @@ local function handlesAndScopes(): int64
     end
 end
 
--- A registration scoped by `with`: the node is kept inside the extent and
+-- A registration scoped by its local owner: the node stays inside the extent and
 -- freed after it.
 local function scopedRegistration(): int64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.automatic = false
             local record = rootsIn(a, 2)
             local inside: int64 = 0
-            with rooted = collector.rooted(h, record, 2) do
+            do
+                local rooted = collector.rooted(h, record, 2);
                 setRoot(record, 0, node(h, 1))
                 setRoot(record, 1, node(h, 1))
                 collector.fullCycle(h)
@@ -466,7 +477,8 @@ end
 -- live bytes must stay under twice the threshold's floor or it answers -1.
 local function paced(count: uint64, keep: uint64): int64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             local roots = rootsIn(a, 1)
             collector.register(h, roots, 1)
@@ -501,7 +513,8 @@ end
 -- on, every object garbage: nanoseconds per thousand allocations.
 local function allocNanos(count: uint64, slots: uint64): uint64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             local started = os.monotonicNanos()
             local i: uint64 = 0
@@ -520,7 +533,8 @@ end
 -- ones: nanoseconds per thousand objects marked or swept.
 local function collectNanos(live: uint64): uint64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.automatic = false
             local roots = rootsIn(a, 64)
@@ -545,7 +559,8 @@ end
 -- Null object tags are not candidates; stale nonnull tags still count.
 local function nonnullRootCandidates(): uint64
     @unsafe do
-        with a = arena.openGrowable(65536) do
+        do
+            local a = arena.openGrowable(65536);
             local h = heap.create(a)
             h.automatic = false
             local roots = rootsIn(a, 5ULL)

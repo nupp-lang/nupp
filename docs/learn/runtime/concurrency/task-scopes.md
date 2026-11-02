@@ -5,15 +5,17 @@ order: 145
 # Application task scopes
 
 `coroutine` owns the coroutine and worker work that belongs to one application
-operation. A scope is opened with `scope` and held by a `with`: the block is the
-scope's body, and leaving it settles the scope, so every child has run, been
-cancelled, or unwound before the block is left. The first child failure cancels
-unfinished siblings and becomes the scope's failure.
+operation. A local scope opened by `scope` settles when its block ends, so every
+child has run, been cancelled, or unwound before the block is left.
+
+The first child failure cancels unfinished siblings and becomes the scope's
+failure.
 
 ```nupp:fragment
 export function load(): string
     local loaded = ""
-    with scope = coroutine.scope() do
+    do
+        local scope = coroutine.scope()
         const atlas = scope:spawn("load atlas", function(): string
             return readAtlas()
         end)
@@ -67,7 +69,8 @@ holds a slot until its lane answers.
 
 ```nupp:fragment
 const sizes: {integer} = {}
-with scope = coroutine.scope(limit = 8) do
+do
+    local scope = coroutine.scope(limit = 8)
     for index, url in ipairs(urls) do
         scope:spawn(sizes, index, url, storeSize)
     end
@@ -80,7 +83,8 @@ in completion order by construction. A worker result comes back through the
 child that awaits it, which is the child that occupies the slot:
 
 ```nupp:fragment
-with scope = coroutine.scope(limit = os.info().parallelism) do
+do
+    local scope = coroutine.scope(limit = os.info().parallelism)
     for name, path in pairs(paths) do
         scope:spawn(function(): nil
             const size = scope:work(name, path, jobs.compress):await()
@@ -129,7 +133,8 @@ is how the first result wins:
 
 ```nupp:fragment
 local winner: string? = nil
-with scope = coroutine.scope(limit = 4) do
+do
+    local scope = coroutine.scope(limit = 4)
     for _, mirror in ipairs(mirrors) do
         if winner ~= nil then break end
         scope:spawn(function(): nil
@@ -191,7 +196,7 @@ Call `scope:cancel()` first where that is not wanted, or run the body with
 
 `coroutine.run` opens a scope, hands it to a body, and settles it however the
 body ends. Because it calls the body itself, it knows whether the body returned
-or failed, which a `with` block cannot tell its scope:
+or failed, which lexical cleanup alone cannot tell its scope:
 
 ```nupp:fragment
 const total = coroutine.run(limit = 8, body = function(borrows scope: coroutine.Scope): integer
@@ -269,7 +274,8 @@ and may not extend what its parent already promised. `coroutine.deadline()`
 returns the current absolute deadline, or nil outside a bounded scope.
 
 ```nupp:fragment
-with scope = coroutine.scope(timeoutms = 5000) do
+do
+    local scope = coroutine.scope(timeoutms = 5000)
     index(scope:spawn(url, fetch):await())
 end
 ```
@@ -287,11 +293,12 @@ Both arguments are named: `scope()`, `scope(limit = 8)`, `scope(timeoutms =
 
 ## Settlement
 
-A scope is a `own.Closeable`, and its `close` is what leaving the `with` calls.
+A scope is a `own.Closeable`, and leaving its local scope calls `close`.
 It is a settling terminal: it parks until every child has settled and the owned
 worker scope has been closed through the suspension-aware path, and so it is
-refused inside a `@nosuspend` region. A scope held in an ordinary local rather
-than a `with` is closed early by `own.drop(scope)`, and settles once. Operations on a settled scope raise. A close that raises before its
+refused inside a `@nosuspend` region. `own.drop(scope)` closes a local scope
+early, and it settles once. Operations on a settled scope raise. A close that
+raises before its
 children have settled, because nothing could complete a wait one of them is
 parked on, still gives the frame back and forgets the scope.
 

@@ -32,7 +32,8 @@ function main.run(): Answer
 
     useLease()
     assert2(state.closed == 1)
-    with owned = lease(state) do
+    do
+        local owned = lease(state);
         assert2(owned.state.closed == 1)
     end
     assert2(state.closed == 2)
@@ -68,7 +69,8 @@ function main.run(): Answer
         goto again
     end
     do
-        with owned = lease(state) do
+        do
+            local owned = lease(state);
             assert2(owned.state.closed == 3)
             goto cleaned
         end

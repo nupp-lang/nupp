@@ -853,18 +853,6 @@ local function inferFunction(info, byDefinition)
                 end
             end
         end
-        -- A `with` discharges its acquisition on every exit the same way, and the
-        -- terminal it runs may settle -- park until the resource's work is done -- so
-        -- it belongs to the summary exactly as an automatic owner's does.
-        if node.kind == "withStmt" and node.bindings then
-            for _, binding in ipairs(node.bindings) do
-                if cleanups = binding.ownerCleanups then
-                    for _, cleanup in ipairs(cleanups) do
-                        cleanupEffect(cleanup)
-                    end
-                end
-            end
-        end
         local childLimit: integer = #node
         local childIndex: integer = 1
         while childIndex <= childLimit do

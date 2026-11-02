@@ -10,37 +10,41 @@ function probe.run(): integer
     local parked: integer = 0
     local cancelled: integer = 0
     local answer: integer = 0
-    with installation = host.install(
-        new host.Handler(
-            canpark = function(_: host.Handler): boolean
-                return true
-            end,
-            park = function(_: host.Handler, waiting: host.Waiting, _: function(): nil): nil
-                parked = parked + 1
-                local arm: (function(): nil)? = nil
-                local derived = host.derive(
-                    waiting,
-                    function(): boolean
-                        return false
-                    end,
-                    function(wake: function(): nil): nil
-                        arm = wake
-                    end
-                )
-                derived:onresume(function(): nil
-                    woke = woke + 1
-                end)
-                assert(not derived:ready() and (derived as any).onResume == nil, "only canonical onresume is exposed")
-                const finish = assert(complete)
-                finish(42)
-                const notify = assert(arm)
-                notify()
-                assert(derived:ready() and woke == 1, "derived and base wake share one delivery")
-            end,
-            shutdown = function(_: host.Handler): nil
-            end
-        )
-    ) do
+    do
+        local installation = host.install(
+            new host.Handler(
+                canpark = function(_: host.Handler): boolean
+                    return true
+                end,
+                park = function(_: host.Handler, waiting: host.Waiting, _: function(): nil): nil
+                    parked = parked + 1
+                    local arm: (function(): nil)? = nil
+                    local derived = host.derive(
+                        waiting,
+                        function(): boolean
+                            return false
+                        end,
+                        function(wake: function(): nil): nil
+                            arm = wake
+                        end
+                    )
+                    derived:onresume(function(): nil
+                        woke = woke + 1
+                    end)
+                    assert(
+                        not derived:ready() and (derived as any).onResume == nil,
+                        "only canonical onresume is exposed"
+                    )
+                    const finish = assert(complete)
+                    finish(42)
+                    const notify = assert(arm)
+                    notify()
+                    assert(derived:ready() and woke == 1, "derived and base wake share one delivery")
+                end,
+                shutdown = function(_: host.Handler): nil
+                end
+            )
+        );
         answer = suspension.suspend("canonical-waiting", function(
             resume: function(integer): nil,
             _: suspension.Context

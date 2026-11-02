@@ -515,18 +515,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
         return false
     end
 
-    --- Whether contextual `with` begins an exact affine extent here.
-    local function startsWith(at: integer): boolean
-        local kw, name, after = tokens[at], tokens[at + 1], tokens[at + 2]
-        return kw ~= nil
-            and kw.kind == "name"
-            and kw.text == "with"
-            and name ~= nil
-            and name.kind == "name"
-            and after ~= nil
-            and (after.kind == "=" or after.kind == ":")
-    end
-
     ---------------------------------------------------------------------
     -- Types
     ---------------------------------------------------------------------
@@ -3199,32 +3187,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
             add(n, advance())
             return n
 
-        elseif startsWith(i) then
-            local n = new cst.WithStmt(bindings = {}, kind = "withStmt")
-            n.withTok = add(n, advance())
-
-            local function binding()
-                local b = new cst.WithBinding(kind = "withBinding")
-                b.name = add(b, expectName("in 'with' binding"))
-                if cur().kind == ":" then
-                    annotationColon(b, "in 'with' binding")
-                    b.type = add(b, parseType())
-                end
-                b.eq = add(b, expect("=", "in 'with' binding"))
-                b.expr = add(b, parseExp())
-                n.bindings[#n.bindings + 1] = add(n, b)
-            end
-
-            binding()
-            while cur().kind == "," do
-                add(n, advance())
-                binding()
-            end
-            n.doTok = add(n, expect("do", "after 'with' acquisitions"))
-            n.body = add(n, parseBlock())
-            n.endTok = add(n, expect("end", "to close 'with'"))
-            return n
-
         elseif kind == "if" then
             local n = new cst.IfStmt(clauses = {}, kind = "ifStmt")
 
@@ -3339,62 +3301,6 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
                     ("declare '%s' before the first continue, or test the condition without it"):format(name)
                 )
             end
-            return n
-
-        elseif kind == "name"
-            and cur().text == "handle"
-            and tokens[i + 1]
-            and tokens[i + 1].kind == "name"
-            and tokens[i + 1].text == "suspension"
-        then
-            -- Contextual in both words: `handle` is an ordinary name, and so is
-            -- `suspension`, so the construct is recognized by the pair rather than by
-            -- reserving either.
-            local n = new cst.ErrorStmt(kind = "errorStmt")
-            local handleTok = add(n, advance())
-            local suspensionTok = add(n, advance())
-            suspensionTok.contextualOp = true
-            local withTok = nil
-            if cur().kind == "name" and cur().text == "with" then
-                withTok = add(n, advance())
-                withTok.contextualOp = true
-            else
-                errAt(cur(), "'with' expected in 'handle suspension'", "NUPP1002")
-            end
-            local handler = add(n, parseExp())
-            local handlerFirst, handlerLast = cst.firstToken(handler), cst.lastToken(handler)
-            if withTok and handlerFirst and handlerLast then
-                errAt(
-                    handleTok,
-                    "handle suspension uses an owned with installation",
-                    "NUPP1005",
-                    "write with installation = coroutine.suspension.host.install(handler) do ... end",
-                    {
-                        {
-                            title = "install the handler with an owned scope",
-                            edits = {
-                                {
-                                    offset = handleTok.offset,
-                                    length = handlerLast.offset + #handlerLast.text - handleTok.offset,
-                                    newText = "with installation = coroutine.suspension.host.install(" .. sourceText(
-                                        handler
-                                    ) .. ")",
-                                }
-                            },
-                        }
-                    }
-                )
-            else
-                errAt(
-                    handleTok,
-                    "handle suspension uses an owned with installation",
-                    "NUPP1005",
-                    "write with installation = coroutine.suspension.host.install(handler) do ... end"
-                )
-            end
-            add(n, expect("do", "to open 'handle suspension'"))
-            add(n, parseBlock())
-            add(n, expect("end", "to close 'handle suspension'"))
             return n
 
         elseif startsTypedecl(i) then

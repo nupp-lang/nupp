@@ -2420,7 +2420,7 @@ function checkMod.check(
             return false
         elseif kind == "callStmt" then
             return not neverReturns(stat.expr)
-        elseif kind == "doStmt" or kind == "withStmt" then
+        elseif kind == "doStmt" then
             return fallsThrough(stat.body)
         elseif kind == "ifStmt" then
             if not stat.elseClause then
@@ -3509,58 +3509,6 @@ function checkMod.check(
     -- Audits after the walk
     ---------------------------------------------------------------------
 
-    -- A goto may leave an exact extent because lowering drops before dispatch, but it
-    -- may not enter one and bypass acquisition.
-    local function auditWithGotos(block)
-        local labels = {}
-        local gotos: {{
-            node: any,
-            regions: any
-        }} = {}
-
-        local function walk(node, regions)
-            if not node or cst.isToken(node) then
-                return
-            end
-            if node.kind == "funcbody" or node.kind == "shortfn" then
-                if node.body then
-                    auditWithGotos(node.body)
-                end
-                return
-            end
-            local active = regions
-            if node.kind == "withStmt" then
-                active = {}
-                for region in pairs(regions) do
-                    active[region] = true
-                end
-                active[node] = true
-            elseif node.kind == "labelStmt" and node.name then
-                labels[node.name.text] = labels[node.name.text] or {}
-                labels[node.name.text][#labels[node.name.text] + 1] = {node = node, regions = active}
-            elseif node.kind == "gotoStmt" and node.name then
-                gotos[#gotos + 1] = {node = node, regions = active}
-            end
-            for _, child in ipairs(node) do
-                walk(child, active)
-            end
-        end
-
-        walk(block, {})
-        for _, jump in ipairs(gotos) do
-            local targets = labels[jump.node.name.text]
-            local target = targets and targets[1]
-            if target then
-                for region in pairs(target.regions) do
-                    if not jump.regions[region] then
-                        c.diag("NUPP2706", jump.node, "goto cannot enter a 'with' scope")
-                        break
-                    end
-                end
-            end
-        end
-    end
-
     -- Said once, before anything is checked, so the answer does not depend on how far
     -- checking got.
     if filename and filename:match("%.lua$") then
@@ -3573,7 +3521,6 @@ function checkMod.check(
     -- can export them and module return types resolve.
     for _, block in ipairs(result.root.blocks) do
         c.checkBlock(block, true)
-        auditWithGotos(block)
     end
     if not opts.declarationFile then
         reportModuleLocals(c, result.root, declaredModuleName ~= nil)
@@ -3741,75 +3688,6 @@ function checkMod.check(
 
         return guarantee and guarantee.noRaise == true or false
     end
-
-    -- Direct `with` lowering is deliberately narrower than ordinary structured
-    -- control flow. Any outward completion would have to be rewritten to run cleanup
-    -- first, and a nested cleanup extent has its own failure composition. Keep both on
-    -- the general lowering until a dedicated CFG rewrite can preserve those rules.
-    local function straightforwardWithBody(body): boolean
-        local straightforward = true
-
-        local function walk(node, root)
-            if not node or not straightforward or cst.isToken(node) then
-                return
-            end
-            local kind = node.kind
-            if node ~= root
-                and (
-                    kind == "localFuncStmt"
-                    or kind == "funcStmt"
-                    or kind == "inlineMethod"
-                    or kind == "constructorDecl"
-                    or kind == "funcExpr"
-                    or kind == "shortfn"
-                )
-            then
-                return
-            end
-            local owners = node.automaticOwners or {}
-            if kind == "returnStmt"
-                or kind == "yieldStmt"
-                or kind == "breakStmt"
-                or kind == "continueStmt"
-                or kind == "gotoStmt"
-                or kind == "withStmt"
-                or #owners > 0
-            then
-                straightforward = false
-                return
-            end
-            for _, child in ipairs(node) do
-                walk(child, root)
-            end
-        end
-
-        walk(body, body)
-
-        return straightforward
-    end
-
-    local function markDirectWith(node)
-        if not node or cst.isToken(node) then
-            return
-        end
-        if node.kind == "withStmt" then
-            local bindings = node.bindings or {}
-            local direct = #bindings == 1
-                and straightforwardWithBody(node.body)
-                and c.effectRegions.free(node.body, "raises", effectQueries)
-            for _, cleanup in ipairs(bindings[1] and bindings[1].ownerCleanups or {}) do
-                direct = direct and cleanupNonRaising(cleanup)
-            end
-            if direct then
-                node.directCleanup = true
-            end
-        end
-        for _, child in ipairs(node) do
-            markDirectWith(child)
-        end
-    end
-
-    markDirectWith(result.root)
 
     for _, block in ipairs(analysisFacts.bodies or {}) do
         local owners = block.automaticOwners or {}

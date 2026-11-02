@@ -414,20 +414,6 @@
     "contextualKeywords": {
       "patterns": [
         {
-          "comment": "These words remain identifiers outside the exact forms below.",
-          "match": "\\b(handle)([ \\t]+)(suspension)([ \\t]+)(with)\\b",
-          "captures": {
-            "1": { "name": "keyword.control.nupp" },
-            "3": { "name": "keyword.control.nupp" },
-            "5": { "name": "keyword.control.nupp" }
-          }
-        },
-        {
-          "comment": "with opens an affine scope only when a binding follows.",
-          "name": "keyword.control.nupp",
-          "match": "\\bwith\\b(?=[ \\t]+[A-Za-z_][A-Za-z0-9_]*[ \\t]*(?::|=))"
-        },
-        {
           "comment": "drop is a bare ownership-drop statement, not a call to a name spelled the same way.",
           "name": "keyword.control.nupp",
           "match": "(?<![.:])\\bdrop\\b(?=[ \\t]*[A-Za-z_(])"

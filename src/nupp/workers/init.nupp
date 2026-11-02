@@ -15,7 +15,8 @@ const jobs = require("jobs")
 
 export function hashes(left: string, right: string): (string, string)
     local first, second = "", ""
-    with scope = coroutine.scope() do
+    do
+        local scope = coroutine.scope()
         const one = scope:work(left, jobs.hash)
         const two = scope:work(right, jobs.hash)
 

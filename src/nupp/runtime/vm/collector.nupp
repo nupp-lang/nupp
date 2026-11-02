@@ -13,7 +13,7 @@ white behind it (4.3), which `heap.allocRaw` decides.
 
 Roots (4.5, 4.7, 4.14, 5.1) are walked from the heap record: registered
 ranges of value words (the runtime's arena records with managed fields, for
-their `with` extent), registered handles with explicit release, the handle
+their lexical extent), registered handles with explicit release, the handle
 scope stack, immutable ranges (constant pools) walked when a cycle starts but
 not at the rescan, and task frame stacks followed through their frame
 headers. Every candidate is accepted only when it addresses a live slot, as
@@ -51,7 +51,7 @@ const UNBOUNDED: uint64 = 0x1fffffffffffffffULL
 -- ---- roots -----------------------------------------------------------------------
 
 --- Registers `words` value words at `base` as roots, until `unregister`.
---- Registrations nest: the last made is the first ended, as `with` extents
+--- Registrations nest: the last made is the first ended, as lexical scopes
 --- do (4.14).
 export function register(h: heap.Heap*, base: uint64, words: uint64): nil
     @unsafe do
@@ -67,9 +67,10 @@ export function unregister(takes h: heap.Heap*): nil
     end
 end
 
---- Registers a range for the extent of a `with`, which ends the
---- registration at every way out of its body:
---- `with rooted = collector.rooted(h, base, words) do ... end`.
+--- Registers a range until its local owner leaves scope.
+---
+--- `local rooted = collector.rooted(h, base, words)` retains the registration
+--- until the lexical scope ends or the owner is dropped.
 export function rooted(h: heap.Heap*, base: uint64, words: uint64): affine(heap.Heap*, unregister)
     register(h, base, words)
     return h

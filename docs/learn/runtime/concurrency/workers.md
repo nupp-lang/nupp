@@ -26,7 +26,8 @@ const jobs = require("jobs")
 const tasks = coroutine
 
 export function hashes(left: string, right: string): (string, string)
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope()
         const first = scope:work(left, jobs.hash)
         const second = scope:work(right, jobs.hash)
 
@@ -45,11 +46,12 @@ carries the scheduler, so nothing has to be configured to use them.
 ## Structured scopes
 
 Every worker task belongs to the task scope that forked it. Leaving the exact
-`with` extent waits for all of its children, including tasks the body never
+lexical extent waits for all of its children, including tasks the body never
 awaited and every path out by return or error.
 
 ```nupp:fragment
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope()
     scope:work(snapshot, jobs.rebuildIndex)
 end -- rebuildIndex has settled here
 ```
@@ -94,12 +96,14 @@ export function hashEach(inputs: {string}): {string}
     local hashed: {string} = {}
 
     local function hashInto(index: integer, bytes: string): nil
-        with lane = tasks.scope() do
+        do
+            local lane = tasks.scope()
             hashed[index] = lane:work(bytes, jobs.hash):await()
         end
     end
 
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope()
         for index, bytes in ipairs(inputs) do
             scope:spawn(index, bytes, hashInto)
         end
@@ -124,7 +128,8 @@ work divides:
 
 ```nupp:fragment
 export function bothHashes(left: string, right: string): (string, string)
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope()
         const task = scope:work(right, jobs.hash)
         const mine = jobs.hash(left)
 
@@ -144,12 +149,14 @@ export function hashChunks(inputs: {string}, size: integer): {string}
     local chunks: {{string}} = {}
 
     local function hashChunk(at: integer, chunk: {string}): nil
-        with lane = tasks.scope() do
+        do
+            local lane = tasks.scope()
             chunks[at] = lane:work(chunk, jobs.hashAll):await()
         end
     end
 
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope()
         local count = 0
         for first = 1, #inputs, size do
             local chunk: {string} = {}
@@ -208,7 +215,8 @@ const tasks = coroutine
 -- worker scope.
 export function countAll(shards: {{string}}): integer
     local total: integer = 0
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope()
         for _, paths in ipairs(shards) do
             total = total + scope:work(|| -> #paths):await()
         end
@@ -234,12 +242,14 @@ export function countAll(shards: {{string}}): number
     local total: number = 0
 
     local function countShard(paths: {string}): nil
-        with lane = tasks.scope() do
+        do
+            local lane = tasks.scope()
             total = total + lane:work(paths, indexJobs.count):await()
         end
     end
 
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope()
         for _, paths in ipairs(shards) do
             scope:spawn(paths, countShard)
         end
@@ -356,7 +366,8 @@ A rejection names the position it found, so the message says which argument and
 which field stopped the copy rather than that the message was untransferable:
 
 ```nupp:fragment
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope()
     const row = new jobs.Row(name = "a")
 
     -- The lane receives its own jobs.Row metatable, so its methods work there.
@@ -424,7 +435,8 @@ end
 
 ```nupp:fragment
 local frame = heap.alloc(ffi.typeof<uint8>(), 8 * 1048576)
-with scope = tasks.scope() do
+do
+    local scope = tasks.scope()
     for generation = 1, 60 do
         frame = scope:work(frame, generation, jobs.fill):await()
     end
@@ -464,7 +476,8 @@ raises it too, and so does any later task operation in the scope.
 ```nupp:fragment
 export function observed(): string
     local digest = ""
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope()
         const bad = scope:work("beta", jobs.refuse)
 
         -- false, "nupp: worker task failed: ...: cannot hash beta"
@@ -479,7 +492,8 @@ export function observed(): string
 end
 
 export function unobserved(): string
-    with scope = tasks.scope() do
+    do
+        local scope = tasks.scope()
         scope:work("beta", jobs.refuse)
 
         return jobs.hash("alpha") -- the failure is raised leaving the scope
