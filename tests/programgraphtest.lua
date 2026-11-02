@@ -153,9 +153,9 @@ own.drop(borrowed)
 ]]
     )
     test.eq(#owner(p, "close").captures, 0)
-    -- Constructing a plain record builds its value in place: the record's
-    -- name is a type use there, not a captured read of its runtime value.
-    test.eq(#owner(p, "open").captures, 0)
+    -- Constructing a plain record reads the record's table, which becomes
+    -- the instance's metatable: `open` captures the record's name.
+    test.eq(#owner(p, "open").captures, 1)
     local found = {}
     for _, f in ipairs(p.owners) do
         for _, capture in ipairs(f.captures) do
