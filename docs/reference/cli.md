@@ -441,7 +441,7 @@ Examples:
     nupp aot --emit ir src/kernel.nupp
     nupp aot --emit llvm src/kernel.nupp
     nupp aot --emit asm --function scale src/kernel.nupp
-    nupp aot --emit wgsl --function transform src/io.gpu.nupp
+    nupp aot --emit wgsl --function transform src/gpu.nupp
     nupp aot --format json src/kernel.nupp
 
 Usage:

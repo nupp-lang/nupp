@@ -358,9 +358,17 @@ export const processexit = processTypes.exited
 local original: any = rawget(_G, "io")
 local luaPopen = original.popen
 
+const _DYNAMIC_REQUIRES = "@requires-dynamically io.internal.process"
+
+-- The popen feature carries this implementation when a program uses it. Merely
+-- loading the byte I/O installer must not select a process provider.
+local function processImplementation(name: string): any
+    return require(name)
+end
+
 local function openProcess(command: any, ...: any): ...any
     if type(command) == "table" then
-        local implementation = require("io.internal.process") as any
+        local implementation = processImplementation("io.internal.process")
         return implementation.spawn(command)
     end
 

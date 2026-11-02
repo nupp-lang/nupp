@@ -9,7 +9,7 @@ if not HERE:match("^/") then
     pipe:close()
 end
 local ROOT = HERE .. "/.."
-local FEATURES = "lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers"
+local FEATURES = "lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-time,native-tls,workers"
 
 local M = {}
 
@@ -182,6 +182,7 @@ function M.staticApplicationHostLinksFromAKitAndRuns()
         [[
 assert(__nuppHost.hostFeatures.lpeg)
 assert(__nuppHost.hostFeatures["native-net"])
+assert(__nuppHost.hostFeatures["native-time"])
 assert(require("lpeg").P("x"):match("x") == 2)
 local ffi = require("ffi")
 ffi.cdef([=[

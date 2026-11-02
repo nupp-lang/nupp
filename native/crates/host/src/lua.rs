@@ -331,8 +331,9 @@ impl Lua {
     }
 
     pub(crate) fn install_compiled_features(&self, open_libraries: bool) -> Result<(), String> {
-        // CRCs are part of the base native provider in every host.
+        // CRCs and clocks are part of the base native provider in every host.
         self.add_feature(c"native-checksum")?;
+        self.add_feature(c"native-time")?;
         #[cfg(feature = "lpeg")]
         {
             self.add_feature(c"lpeg")?;

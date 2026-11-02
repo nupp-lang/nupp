@@ -222,6 +222,8 @@ function M.timeSelectsTheRustBaseProvider()
     testAssert.eq(feature.provider, "nupp_native", "time provider")
     testAssert.eq(feature.providerDriver, "native-rust", "time provider driver")
     testAssert.eq(feature.providerFeature, "base", "time provider feature")
+    testAssert.eq(feature.host, "native-time", "time is linked into every native host")
+    testAssert.deepeq(native.requiredHostFeatureNames({["native.time"] = true}), {"native-time"})
     local expanded = native.expand({["native.time"] = true})
     assert(expanded["runtime.native"], "time omitted the Rust ABI runtime")
 end

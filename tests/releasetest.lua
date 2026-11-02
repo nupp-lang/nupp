@@ -92,6 +92,7 @@ function M.recordsAndVerifiesACompleteStubCatalog()
             features[feature] = true
         end
         assert(features["native-gpu"], "released catalog hosts promise GPU support")
+        assert(features["native-time"], "released catalog hosts promise their base clocks")
     end
     assert(text:find('\n  "catalogRelease":', 1, true), "the immutable catalog is stable readable JSON")
 
@@ -163,6 +164,7 @@ function M.aKitThatFailsToUnpackLeavesNoStagingDirectory()
         elseif name == "NUPP_STUB_DIR" then
             return stubs
         end
+
         return getenv(name)
     end
     local ok, directory, problem = pcall(require("nupp.tools.build.kits").install, {
