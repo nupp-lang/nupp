@@ -4361,6 +4361,33 @@ function M.annotationReferencePointersUseGeneratedItemsAndProse()
     )
 end
 
+function M.generatedDeriveExampleUsesThePublicProvider()
+    local annotationapi = require("nupp.tools.doc.annotationapi")
+    local parser = require("nupp.compiler.syntax.parser")
+    local check = require("fragment")
+    local env = require("nupp.compiler.project.env").new(HERE .. "/..")
+    local example
+    for _, item in ipairs(annotationapi.items()) do
+        if item.name == "@derive" then
+            example = item.doc.text:match("```nupp\n(.-)\n```")
+        end
+    end
+    assert(example, "the generated derive reference has no runnable example")
+    local filename = "derive_documentation.nupp"
+    local parsed = parser.parse(
+        example .. "\nlocal point: types.Debug = new Point(x = 1, y = 2)\nreturn point:debug()\n",
+        filename
+    )
+    assert(#parsed.errors == 0, parsed.errors[1] and parsed.errors[1].msg)
+    local diagnostics = check.check(parsed, filename, env)
+    for _, diagnostic in ipairs(diagnostics) do
+        assert(
+            diagnostic.severity == "warning" or diagnostic.severity == "note",
+            diagnostic.code .. ": " .. diagnostic.msg
+        )
+    end
+end
+
 function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
     local stdlib = require("nupp.tools.doc.stdlib")
 
