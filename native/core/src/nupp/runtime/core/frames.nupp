@@ -113,6 +113,9 @@ export const CALLER_DESTINATION: uint64 = 1ULL
 -- A protected call's child (pcall): its caller gets true before its results,
 -- or false and the error when an error unwinds to it.
 export const PROTECTED_DESTINATION: uint64 = 3ULL
+-- A comparison metamethod's frame: its caller takes the first result as a
+-- boolean, false for nil and false and true for anything else.
+export const TRUTH_DESTINATION: uint64 = 4ULL
 -- The most results a caller frame may want from one call.
 export const MAX_RESULTS: uint64 = 16ULL
 
@@ -705,6 +708,7 @@ local function linked(state: voidptr, parent: voidptr, child: voidptr): uint64
     end
     if native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= CALLER_DESTINATION
         and native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= PROTECTED_DESTINATION
+        and native.load64(child, native.fieldOffset<Frame>("resultKind")) ~= TRUTH_DESTINATION
         or native.load64(child, native.fieldOffset<Frame>("resultOwner")) ~= native.address(parent)
         or native.load64(child, native.fieldOffset<Frame>("resultCount")) == 0ULL
         or native.load64(child, native.fieldOffset<Frame>("resultCount")) > MAX_RESULTS
@@ -935,7 +939,11 @@ export function returnScalar(state: voidptr, callee: voidptr, value: uint64): ui
         first = 1ULL
     end
     if first < wanted then
-        native.store64(slots, native.index((slot + first) * 8ULL), value)
+        local given = value
+        if native.load64(callee, native.fieldOffset<Frame>("resultKind")) == TRUTH_DESTINATION then
+            given = native.chooseWord(value == values.NIL or value == values.FALSE, values.FALSE, values.TRUE)
+        end
+        native.store64(slots, native.index((slot + first) * 8ULL), given)
     end
     local extra: uint64 = first + 1ULL
     while extra < wanted do
@@ -968,6 +976,9 @@ export function returnValues(state: voidptr, callee: voidptr, source: voidptr, c
         local value = values.NIL
         if i - first < count then
             value = native.load64(source, native.index((i - first) * 8ULL))
+        end
+        if i == 0ULL and native.load64(callee, native.fieldOffset<Frame>("resultKind")) == TRUTH_DESTINATION then
+            value = native.chooseWord(value == values.NIL or value == values.FALSE, values.FALSE, values.TRUE)
         end
         native.store64(slots, native.index((slot + i) * 8ULL), value)
         i = i + 1ULL
@@ -1369,6 +1380,7 @@ export function rootRangeCount(
             mark = native.offset(parent, native.fieldOffset<Frame>("childMark"))
             if native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= CALLER_DESTINATION
                 and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= PROTECTED_DESTINATION
+                and native.load64(frame, native.fieldOffset<Frame>("resultKind")) ~= TRUTH_DESTINATION
                 or native.load64(frame, native.fieldOffset<Frame>("resultOwner")) ~= previous
                 or native.load64(
                     frame,
@@ -1462,6 +1474,19 @@ export function rootRanges(state: voidptr, control: voidptr, serial: uint64, out
 end
 
 -- Marks a prepared child as a protected call's (pcall).
+-- Marks a prepared child as a comparison metamethod's (TRUTH_DESTINATION).
+export function truth(state: voidptr, child: voidptr): uint64
+    if validState(state) == 0ULL
+        or validFrame(state, child) == 0ULL
+        or native.load64(child, native.fieldOffset<Frame>("phase")) ~= PREPARED
+    then
+        return 0ULL
+    end
+    native.store64(child, native.fieldOffset<Frame>("resultKind"), TRUTH_DESTINATION)
+
+    return 1ULL
+end
+
 export function protect(state: voidptr, child: voidptr): uint64
     if validState(state) == 0ULL
         or validFrame(state, child) == 0ULL

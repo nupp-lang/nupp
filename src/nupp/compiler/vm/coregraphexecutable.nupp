@@ -161,7 +161,16 @@ local function derive(g: any, catalog: any): any
             elseif op == "GetIdx"
                 or op == "SetIdx"
                 or catalog.schema.version >= 8
-                and (op == "Add" or op == "Sub" or op == "Mul" or op == "Mod" or op == "Len")
+                and (
+                    op == "Add"
+                    or op == "Sub"
+                    or op == "Mul"
+                    or op == "Mod"
+                    or op == "Len"
+                    or op == "Lt"
+                    or op == "Le"
+                    or op == "Eq"
+                )
             then
                 -- A metamethod (__index, __newindex, __add, __len, ...) is
                 -- called from the top of the call window: its callee, then up

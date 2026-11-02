@@ -57,6 +57,15 @@ local vmeta = {
     end,
     __len = function(a)
         return (a.x or 0) * 2
+    end,
+    __lt = function(a, b)
+        return (a.x or 0) < (b.x or 0)
+    end,
+    __le = function(a, b)
+        return (a.x or 0) <= (b.x or 0)
+    end,
+    __eq = function(a, b)
+        return (a.x or 0) == (b.x or 0)
     end
 }
 local p = setmetatable({x = 3}, vmeta)
@@ -64,4 +73,19 @@ local q = setmetatable({x = 4}, vmeta)
 local sum = p + q
 local rest = p % 5
 score = (score % 1000003) * 10000 + sum * 100 + rest * 10 + #q
+local r = setmetatable({x = 3}, vmeta)
+local cmp = 0
+if p < q then
+    cmp = cmp + 1
+end
+if q <= p then
+    cmp = cmp + 2
+end
+if p == r then
+    cmp = cmp + 4
+end
+if p ~= q then
+    cmp = cmp + 8
+end
+score = score * 100 + cmp
 return score

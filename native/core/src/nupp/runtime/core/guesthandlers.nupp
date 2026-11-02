@@ -355,6 +355,19 @@ local function order(orEqual: boolean, left: uint64, right: uint64): uint64
     return native.asWord(x < y)
 end
 
+-- The header of a table value, or zero.
+local function tableHeader(value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ then
+        return 0ULL
+    end
+    local header = native.pointer(value & values.PAYLOAD)
+    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_TABLE then
+        return 0ULL
+    end
+
+    return value & values.PAYLOAD
+end
+
 -- Lua equality for scalars: numbers by value (NaN unequal, signed zeros
 -- equal, integers and floats exact), Booleans and nil by identity. 1 or 0.
 local function equal(left: uint64, right: uint64): uint64
@@ -415,7 +428,7 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             slots.writeValue(frame, regs, top, callee)
             slots.writeValue(frame, regs, top + 1, left)
             slots.writeValue(frame, regs, top + 2, right)
-            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst)) ~= 1ULL then
+            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst), 0ULL) ~= 1ULL then
                 return native.fail()
             end
             local s = native.pointer(ops.state(ctx))
@@ -483,7 +496,7 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             slots.writeValue(frame, regs, top, callee)
             slots.writeValue(frame, regs, top + 1, left)
             slots.writeValue(frame, regs, top + 2, right)
-            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst)) ~= 1ULL then
+            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst), 0ULL) ~= 1ULL then
                 return native.fail()
             end
             local s = native.pointer(ops.state(ctx))
@@ -551,7 +564,7 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             slots.writeValue(frame, regs, top, callee)
             slots.writeValue(frame, regs, top + 1, left)
             slots.writeValue(frame, regs, top + 2, right)
-            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst)) ~= 1ULL then
+            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst), 0ULL) ~= 1ULL then
                 return native.fail()
             end
             local s = native.pointer(ops.state(ctx))
@@ -619,7 +632,7 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             slots.writeValue(frame, regs, top, callee)
             slots.writeValue(frame, regs, top + 1, left)
             slots.writeValue(frame, regs, top + 2, right)
-            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst)) ~= 1ULL then
+            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst), 0ULL) ~= 1ULL then
                 return native.fail()
             end
             local s = native.pointer(ops.state(ctx))
@@ -679,6 +692,25 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         result = wideOrder(false, left, right)
     end
     if result > 1ULL then
+        -- A table operand's __lt decides, as a boolean.
+        local callee = guestscope.binaryMeta(ctx, guestscope.META_LT, left, right)
+        if callee ~= 0ULL then
+            local top = native.index(count - 4ULL)
+            slots.writeValue(frame, regs, top, callee)
+            slots.writeValue(frame, regs, top + 1, left)
+            slots.writeValue(frame, regs, top + 2, right)
+            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst), 1ULL) ~= 1ULL then
+                return native.fail()
+            end
+            local s = native.pointer(ops.state(ctx))
+            local current = native.pointer(access.active(s))
+            local currentValues = native.pointer(access.values(s, current))
+            local currentIntegers = native.pointer(access.integers(s, current))
+            local currentFloats = native.pointer(access.floats(s, current))
+            local currentPC = native.pointer(access.pc(s, current))
+            access.refresh(s, current, ctx)
+            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        end
         guestscope.fault(ctx, guestscope.FAULT_COMPARE, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
@@ -718,6 +750,25 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
         result = wideOrder(true, left, right)
     end
     if result > 1ULL then
+        -- A table operand's __le decides, as a boolean.
+        local callee = guestscope.binaryMeta(ctx, guestscope.META_LE, left, right)
+        if callee ~= 0ULL then
+            local top = native.index(count - 4ULL)
+            slots.writeValue(frame, regs, top, callee)
+            slots.writeValue(frame, regs, top + 1, left)
+            slots.writeValue(frame, regs, top + 2, right)
+            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst), 1ULL) ~= 1ULL then
+                return native.fail()
+            end
+            local s = native.pointer(ops.state(ctx))
+            local current = native.pointer(access.active(s))
+            local currentValues = native.pointer(access.values(s, current))
+            local currentIntegers = native.pointer(access.integers(s, current))
+            local currentFloats = native.pointer(access.floats(s, current))
+            local currentPC = native.pointer(access.pc(s, current))
+            access.refresh(s, current, ctx)
+            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        end
         guestscope.fault(ctx, guestscope.FAULT_COMPARE, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
@@ -753,6 +804,27 @@ export function Eq(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     end
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = equal(left, right)
+    -- Two distinct tables are equal when an __eq of theirs says so.
+    if result ~= 1ULL and tableHeader(left) ~= 0ULL and tableHeader(right) ~= 0ULL then
+        local callee = guestscope.binaryMeta(ctx, guestscope.META_EQ, left, right)
+        if callee ~= 0ULL then
+            local top = native.index(count - 4ULL)
+            slots.writeValue(frame, regs, top, callee)
+            slots.writeValue(frame, regs, top + 1, left)
+            slots.writeValue(frame, regs, top + 2, right)
+            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst), 1ULL) ~= 1ULL then
+                return native.fail()
+            end
+            local s = native.pointer(ops.state(ctx))
+            local current = native.pointer(access.active(s))
+            local currentValues = native.pointer(access.values(s, current))
+            local currentIntegers = native.pointer(access.integers(s, current))
+            local currentFloats = native.pointer(access.floats(s, current))
+            local currentPC = native.pointer(access.pc(s, current))
+            access.refresh(s, current, ctx)
+            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        end
+    end
     slots.writeValue(frame, regs, dst, native.chooseWord(result == 1ULL, values.TRUE, values.FALSE))
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
@@ -1052,19 +1124,6 @@ export function GetUpval(
     return native.dispatch(native.pointer(nextPC), regs, ints, floats, ctx, frame)
 end
 
--- The header of a table value, or zero.
-local function tableHeader(value: uint64): uint64
-    if value & values.TAG_MASK ~= values.TAG_OBJ then
-        return 0ULL
-    end
-    local header = native.pointer(value & values.PAYLOAD)
-    if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_TABLE then
-        return 0ULL
-    end
-
-    return value & values.PAYLOAD
-end
-
 export function NewTable(
     pc: voidptr,
     regs: voidptr,
@@ -1128,7 +1187,7 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         slots.writeValue(frame, regs, top, callee)
         slots.writeValue(frame, regs, top + 1, guestscope.metaSelf(ctx))
         slots.writeValue(frame, regs, top + 2, keyValue)
-        if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst)) ~= 1ULL then
+        if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst), 0ULL) ~= 1ULL then
             return native.fail()
         end
         local s = native.pointer(ops.state(ctx))
@@ -1188,7 +1247,7 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         slots.writeValue(frame, regs, top + 1, guestscope.metaSelf(ctx))
         slots.writeValue(frame, regs, top + 2, keyValue)
         slots.writeValue(frame, regs, top + 3, item)
-        if ops.metaCall(ctx, frame, pc, 3ULL, count - 1ULL) ~= 1ULL then
+        if ops.metaCall(ctx, frame, pc, 3ULL, count - 1ULL, 0ULL) ~= 1ULL then
             return native.fail()
         end
         local s = native.pointer(ops.state(ctx))
@@ -1241,7 +1300,7 @@ export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             slots.writeValue(frame, regs, top, callee)
             slots.writeValue(frame, regs, top + 1, value)
             slots.writeValue(frame, regs, top + 2, value)
-            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst)) ~= 1ULL then
+            if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst), 0ULL) ~= 1ULL then
                 return native.fail()
             end
             local s = native.pointer(ops.state(ctx))
