@@ -1561,6 +1561,13 @@ local coreLibrary: {
     setmetatable = true,
     getmetatable = true,
     type = true,
+    ["math.abs"] = true,
+    ["math.ceil"] = true,
+    ["math.max"] = true,
+    ["math.min"] = true,
+    ["math.tointeger"] = true,
+    ["math.type"] = true,
+    ["math.sqrt"] = true,
     rawget = true,
     rawset = true,
     ["table.concat"] = true,
@@ -1591,6 +1598,21 @@ local function stringType(t: any): boolean
         t = t.tag == "const" and t.inner or t.base
     end
     return t ~= nil and t.tag == "string"
+end
+
+-- The library constants the core folds: `math.huge` and its kin, by name.
+local coreConstants: {
+    [string]: boolean
+} = {["math.huge"] = true, ["math.pi"] = true, ["math.maxinteger"] = true, ["math.mininteger"] = true}
+
+--- The library constant a field read names (`math.pi`), or nil.
+function graph.coreLibraryField(node: any): string?
+    if node and node.kind == "dotIndex" and node.name and preludeName(node.obj) then
+        local name = node.obj.token.text .. "." .. node.name.text
+        return coreConstants[name] and name or nil
+    end
+
+    return nil
 end
 
 function graph.coreLibraryCall(call: any): string?

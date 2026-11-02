@@ -1,0 +1,28 @@
+module nupp.core.catalognumbersmath
+
+-- The math library: abs, ceil, max, min, tointeger, type and sqrt keep
+-- integers integers where Lua does, and math.huge, math.pi,
+-- math.maxinteger and math.mininteger fold to their values.
+local score: integer = 0
+if math.abs(-7) == 7 and math.abs(3) == 3 and math.abs(-2.5) == 2.5 then
+    score = score + 1
+end
+if math.ceil(2.1) == 3 and math.ceil(-2.9) == -2 and math.ceil(5) == 5 and math.type(math.ceil(2.5)) == "integer" then
+    score = score + 10
+end
+if math.max(3, 9, 4) == 9 and math.min(3, 9, 4) == 3 and math.max(2, 2.5) == 2.5 and math.min(-1) == -1 then
+    score = score + 100
+end
+if math.tointeger(4.0) == 4 and math.tointeger(4.5) == nil and math.tointeger(7) == 7 then
+    score = score + 1000
+end
+if math.type(1) == "integer" and math.type(1.0) == "float" and math.type("x") == nil then
+    score = score + 10000
+end
+if math.sqrt(16) == 4.0 and math.huge > 1e308 and math.pi > 3.14159 and math.pi < 3.1416 then
+    score = score + 100000
+end
+if math.maxinteger + 1 == math.mininteger and math.mininteger < 0 then
+    score = score + 1000000
+end
+export = score + math.abs(math.min(-3, 5))

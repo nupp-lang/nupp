@@ -73,7 +73,8 @@ local CASES: {[string]: {
     tablesMetaops = {fixture = "catalog-tables-metaops", version = 8},
     tablesLibrary = {fixture = "catalog-tables-library", version = 8},
     stringsFormat = {fixture = "catalog-strings-format", version = 8},
-    recordsConstructors = {fixture = "catalog-records-constructors", version = 8}
+    recordsConstructors = {fixture = "catalog-records-constructors", version = 8},
+    numbersMath = {fixture = "catalog-numbers-math", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.

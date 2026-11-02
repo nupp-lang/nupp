@@ -500,6 +500,10 @@ function program.describe(modules: {any}, entryModule: string): any
         if node.kind == "call" and graph.coreLibraryCall(node) then
             loopForms[node] = true
         end
+        -- So are the library constants it folds (math.pi).
+        if graph.coreLibraryField(node) then
+            loopForms[node] = true
+        end
         -- `new R(...)` of a plain record builds its value in place, so the
         -- record's name is a type use there, not a read of its runtime value.
         if node.kind == "newExpr" and node.call and node.call.recordFields and not node.call.constructorEntry then
