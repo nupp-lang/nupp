@@ -187,10 +187,12 @@ export function open(
         collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 6ULL)
         -- Collect-at-every-allocation (1): a whole cycle at every safepoint;
         -- interleaved (2): a small incremental step at every safepoint, the
-        -- oracle checking each cycle's survivors.
+        -- oracle checking each cycle's survivors. Both keep freed objects as
+        -- tombstones never reused.
         h.stress = stress == 1ULL
         h.interleave = stress == 2ULL
         h.oracle = stress == 2ULL
+        h.quarantine = stress == 2ULL
         native.store64(services, native.fieldOffset<Services>("oraclefailures"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("heap"), native.address(h))
         native.store64(services, native.fieldOffset<Services>("arena"), native.address(a))
