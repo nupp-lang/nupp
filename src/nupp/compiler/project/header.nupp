@@ -1,5 +1,3 @@
-module nupp.compiler.project.header
-
 --[[
 Extracts one file's exported declarations from its parse alone.
 
@@ -16,6 +14,7 @@ generator, and everything they reach. Editing any of them threw away every
 header in the project and made the next command reparse all of it. Here the
 answer is the parser and this file.
 ]]
+module nupp.compiler.project.header
 
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")

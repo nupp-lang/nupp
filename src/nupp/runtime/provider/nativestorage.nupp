@@ -1,6 +1,4 @@
 @!internal
-module nupp.runtime.provider.nativestorage
-
 --[[
 LuaJIT FFI implementation used as a built-in module fallback.
 
@@ -20,6 +18,7 @@ caller; `boundedCount` preserves the requested count without discovering native
 pointer bounds. Applications use
 public memory and buffer APIs rather than depending on these FFI objects.
 ]]
+module nupp.runtime.provider.nativestorage
 
 export const representation = "native"
 local ffi = require("ffi")

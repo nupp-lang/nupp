@@ -1,5 +1,3 @@
-module nupp.tools.hostreload
-
 --[[
 Hot reload for a program whose loop belongs to an embedding host.
 
@@ -18,6 +16,7 @@ See [embedding.md](docs/learn/projects/embedding.md) for the C functions this
 backs, and [hot-reload.md](docs/learn/projects/hot-reload.md) for what a commit
 preserves.
 ]]
+module nupp.tools.hostreload
 
 --- What a
 ---

@@ -1,11 +1,11 @@
-module nupp.tools.doc.markdown
-
 --[[
 The markdown rendering of a module.
 
 This is the format the site also writes beside every page as `llms.txt`, so it
 has to read as prose on its own rather than as a degraded version of the HTML.
 ]]
+module nupp.tools.doc.markdown
+
 const {type Links} = require("nupp.tools.doc.urls")
 const {type Item} = require("nupp.tools.doc.extract")
 const {type Module} = require("nupp.tools.doc.extract")

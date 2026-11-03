@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.suspension.cancellation
-
 --[[
 Canonical task-cancellation identity within one Lua state.
 
@@ -18,6 +16,7 @@ without loading the facade, exactly as it loads [](coroutine.sus.spi).
 Worker states reconstruct cancellation values locally; no metatable or Lua
 object identity is transferred between states.
 ]]
+module nupp.suspension.cancellation
 
 local TaskCancellationMT: any = {}
 TaskCancellationMT.__index = TaskCancellationMT

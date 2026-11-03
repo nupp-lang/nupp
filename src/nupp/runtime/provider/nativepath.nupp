@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.nativepath
-
 --[[
 Native filesystem environment for `host.path` API 1.
 
@@ -15,6 +13,7 @@ Lexical path operations live in [](io). This provider supplies
 only environmental facts and filesystem resolution to [](io). It does
 not register a second Path type or retain filesystem handles in returned paths.
 ]]
+module nupp.runtime.provider.nativepath
 
 const native = require("nupp.runtime.native")
 

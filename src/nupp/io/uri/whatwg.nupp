@@ -1,6 +1,4 @@
 @!internal
-module nupp.io.uri.whatwg
-
 --[[
 The WHATWG URL Standard's basic URL parser, for hosts without a URL parser of
 their own.
@@ -23,6 +21,7 @@ will read afterwards: the host is then kept as written.
 The percent-encode sets are the ones the `url` crate the native provider uses
 implements, so that the two agree byte for byte.
 ]]
+module nupp.io.uri.whatwg
 
 local contracts = require("io.spi")
 

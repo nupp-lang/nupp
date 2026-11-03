@@ -1,5 +1,3 @@
-module own
-
 --[[
 `own` provides checked ownership and managed aliases.
 Its operations preserve the cleanup and borrowing contracts of each resource.
@@ -14,6 +12,7 @@ cell:close()
 
 See [ownership](docs/learn/runtime/ownership/index.md) for moves and cleanup.
 ]]
+module own
 
 export type Copyable = own.Copyable
 export type Affine<const cleanup: function> = own.Affine<cleanup>

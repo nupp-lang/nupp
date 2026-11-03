@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.io.http
-
 --[[
 `io.http` sends HTTP requests through the selected host implementation
 without blocking the caller's frame. Reach for it when a program needs a client
@@ -100,6 +98,7 @@ also closes a reader body transferred into it.
 - [](io) for the URI values a request is addressed with
 :::
 ]]
+module nupp.io.http
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")

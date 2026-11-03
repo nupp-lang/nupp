@@ -1,6 +1,5 @@
-module nupp.compiler.types.consteval
-
 --[[Closed compile-time value domains used by generic binders and type terms.]]
+module nupp.compiler.types.consteval
 
 local T = require("nupp.compiler.types")
 local cst = require("nupp.compiler.syntax.cst")

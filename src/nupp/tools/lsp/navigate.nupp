@@ -1,5 +1,3 @@
-module nupp.tools.lsp.navigate
-
 --[[
 Where a name is declared, and everywhere it is used.
 
@@ -13,6 +11,7 @@ Members are the harder half. `m.f` is a field of a module rather than a binding,
 so it has no declaration site of its own until the module that defines it is
 found and asked.
 ]]
+module nupp.tools.lsp.navigate
 
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")

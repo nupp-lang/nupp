@@ -1,5 +1,3 @@
-module nupp.text
-
 --[[
 `nupp.text` creates mutable FIFO byte buffers through a shared provider contract.
 Append at one end and consume bytes from the other.
@@ -19,6 +17,7 @@ access and serialization are available only through `string.buffer`.
 
 Use [](utf8) to validate text and walk codepoints.
 ]]
+module nupp.text
 
 local spi = require("nupp.runtime.packages")
 

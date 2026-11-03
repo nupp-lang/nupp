@@ -1,5 +1,3 @@
-module nupp.tools.build.aotcheck
-
 --[[
 What a build would refuse about an `@aot` function, said by a check.
 
@@ -26,6 +24,7 @@ Lives in the tools layer, beside the build it mirrors. The checker knows nothing
 about targets, and `compiler/aot` does not require the checker, so the direction
 between them is unchanged.
 ]]
+module nupp.tools.build.aotcheck
 
 const {type ParseResult} = require("nupp.compiler.syntax.parser")
 const {type Artifacts} = require("nupp.compiler.aot.compile")

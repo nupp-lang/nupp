@@ -1,5 +1,3 @@
-module nupp.compiler.syntax.lexer
-
 --[[
 The lossless lexer.
 
@@ -20,6 +18,8 @@ text is `&&`.
 The lexer never throws. Malformed input becomes `error` tokens that still round
 trip, which is what lets an editor keep working in a file that is mid-edit.
 ]]
+module nupp.compiler.syntax.lexer
+
 const {type Arena} = require("nupp.compiler.syntax.triviaarena")
 
 local lexer = {}

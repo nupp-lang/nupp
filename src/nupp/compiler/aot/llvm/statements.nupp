@@ -1,5 +1,3 @@
-module nupp.compiler.aot.llvm.statements
-
 --[[
 Scalar IR statements as LLVM blocks.
 
@@ -14,6 +12,7 @@ progression, the counter is an int64 when both bounds are int32 and a binary64
 otherwise, and the LuaJIT and Lua 5.1 entry normalizations of a binary64
 counter are applied as the runtime would.
 ]]
+module nupp.compiler.aot.llvm.statements
 
 local builder = require("nupp.compiler.aot.llvm.builder")
 local context = require("nupp.compiler.aot.llvm.context")

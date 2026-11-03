@@ -1,6 +1,4 @@
 @!internal
-module nupp.cli.internal.table
-
 --[[
 Aligned columnar output for commands that print a list of things.
 
@@ -19,6 +17,7 @@ The cut happens only when the width is known and the output is going somewhere
 that has an edge. A pipe, a file, a redirect: those get every byte, because
 output nobody is watching gets read later by something that wanted all of it.
 ]]
+module nupp.cli.internal.table
 
 const {type Style} = require("nupp.cli.internal.terminal")
 

@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.suspension.selected
-
 --[[
 The chosen suspension implementation, selected once.
 
@@ -13,6 +11,7 @@ for the provider a library is already parking through.
 So selection lives here, with the conformance it insists on, and both views read
 it. Requiring either reaches the same provider, and the same refusal.
 ]]
+module nupp.suspension.selected
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")

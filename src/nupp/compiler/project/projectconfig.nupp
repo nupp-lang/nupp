@@ -1,5 +1,3 @@
-module nupp.compiler.project.projectconfig
-
 --[[
 What the compiler reads from a project's manifest before it checks a line: the
 target a command selected, and where the declarations the project's
@@ -15,6 +13,7 @@ The manifest's shapes are the build's, and the compiler does not depend on the
 build, so they are `any` here; the build hands in tables it has already
 validated and types what comes back (`nupp.tools.build.tasks`).
 ]]
+module nupp.compiler.project.projectconfig
 
 local fs = require("nupp.compiler.fs")
 local process = require("nupp.compiler.process")

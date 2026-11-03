@@ -1,5 +1,3 @@
-module nupp.compiler.check.functions
-
 --[[
 A function statement, named or local.
 
@@ -9,6 +7,7 @@ function` binds in the current scope, while `function m.f` and `function R:m`
 attach to whatever they qualify, which is what makes them a module member or a
 method.
 ]]
+module nupp.compiler.check.functions
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")

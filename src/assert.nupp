@@ -1,5 +1,3 @@
-module assert
-
 --[[Assertions and test-suite helpers.
 
 Call assert to require a truthy first argument and return the complete input pack.
@@ -12,6 +10,7 @@ local value, gap, count = assert("ready", nil, 2)
 assert(value == "ready" and gap == nil and count == 2)
 ```
 ]]
+module assert
 
 --- Callable assertions and test-suite operations.
 export type Assertion = assert.Assertion

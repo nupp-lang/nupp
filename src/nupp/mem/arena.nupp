@@ -1,5 +1,3 @@
-module nupp.mem.arena
-
 --[[
 Struct arenas allocate zero-filled rows from pages that never move.
 Released rows become reusable after an explicit reset.
@@ -35,6 +33,7 @@ Storage comes from the `cstorage` capability, so the module is available on
 native LuaJIT and on the Wasm and browser backends, and refused by `portable`.
 Table-backed record instances are [](table.Pool).
 ]]
+module nupp.mem.arena
 
 local storage = require("nupp.runtime.storage")
 

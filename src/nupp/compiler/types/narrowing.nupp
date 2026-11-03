@@ -1,5 +1,3 @@
-module nupp.compiler.types.narrowing
-
 --[[
 The type algebra that narrowing is built from.
 
@@ -9,6 +7,7 @@ types. This is the second. Removing a possibility from a type, and enumerating
 the values a type still admits, are questions about the types alone, so they are
 answerable, and testable, without a checker.
 ]]
+module nupp.compiler.types.narrowing
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")

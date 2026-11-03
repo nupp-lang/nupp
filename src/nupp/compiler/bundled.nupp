@@ -1,5 +1,3 @@
-module nupp.compiler.bundled
-
 --[[
 The declarations the compiler carries with it.
 
@@ -19,6 +17,7 @@ the compiler. The checker loads the prelude through it, and documentation render
 the same declarations through it; a shared leaf is what keeps the second from
 importing the first.
 ]]
+module nupp.compiler.bundled
 
 local bundled = {}
 

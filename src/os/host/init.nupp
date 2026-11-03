@@ -1,5 +1,3 @@
-module os.host
-
 --[[
 `os.host` asks whatever is running the program for something and waits for
 the answer: the page's JavaScript in a browser, or the C or Rust application
@@ -116,6 +114,7 @@ such as `tecs.image.decode`. Names under `nupp.` are reserved for the runtime.
 - [embedding.md](docs/learn/projects/embedding.md) for answering requests from C
 :::
 ]]
+module os.host
 
 local spi = require("nupp.runtime.packages")
 local events = require("events")

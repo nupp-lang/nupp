@@ -1,5 +1,3 @@
-module nupp.tools.build.toolruns
-
 --[[
 How many external toolchain processes a build started, and how many
 compilations it runs at once.
@@ -12,6 +10,7 @@ stays so that anything which ever does start one is seen.
 Width is bounded by the processor count rather than by the job count, because
 the constraint is the machine and not the work.
 ]]
+module nupp.tools.build.toolruns
 
 local windows = package.config:sub(1, 1) == "\\"
 

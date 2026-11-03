@@ -1,5 +1,3 @@
-module nupp.codec.json.internal.builder
-
 --[[
 The value-stream entry points only the JSON decoder uses.
 
@@ -10,6 +8,8 @@ positions a structural scan retained, and JSON's number grammar mean nothing
 to another format. They lower the same way inside `@aot`, and each works on a
 stream or scratch buffer that `serde.valuebuilder` made.
 ]]
+module nupp.codec.json.internal.builder
+
 const valuebuilder = require("serde.valuebuilder")
 
 --- Starts a bounded stream that materializes only one JSON pull shape.

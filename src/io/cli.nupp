@@ -1,5 +1,3 @@
-module io.cli
-
 --[[
 `io.cli` turns command-line arguments into typed options and commands.
 It also formats terminal styles and aligned tables.
@@ -41,6 +39,8 @@ Use `style` for terminal colors and `table` for aligned columns.
 See
 [command-line-applications.md](docs/learn/projects/command-line-applications.md).
 ]]
+module io.cli
+
 local cliModule = {}
 const {type Entry} = require("nupp.derive")
 

@@ -1,6 +1,4 @@
 @!internal
-module nupp.runtime.browser.webgpu.internal
-
 --[[
 The browser resident-compute implementation supplies the built-in WebGPU
 fallback.
@@ -20,6 +18,7 @@ The browser application must install WebGPU effects and memory before using
 [](io.gpu). Its facade binds `open` directly; dispatch and cleanup use
 retained context state without service lookups.
 ]]
+module nupp.runtime.browser.webgpu.internal
 
 local response = require("nupp.runtime.browser.response")
 local cancellation = require("coroutine.sus.cancellation")

@@ -1,6 +1,4 @@
 @!internal
-module nupp.runtime.packages
-
 --[[
 Package implementation discovery for the frozen toolchain and runtime facades.
 
@@ -8,6 +6,7 @@ Public callers use `package.providers` and `package.select`; see
 [spi.md](docs/learn/projects/spi.md). The private string contract also lets the
 pinned compiler build its own libraries before it understands the public call.
 ]]
+module nupp.runtime.packages
 
 const _DYNAMIC_REQUIRES = "@requires-dynamically package.nupp.index"
 

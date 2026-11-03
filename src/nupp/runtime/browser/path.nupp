@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.browser.path
-
 --[[
 Browser environment for the `host.path` API 1 contract.
 
@@ -14,6 +12,7 @@ returns only environmental operations checked against the canonical path Provide
 it introduces no alternate Path type and performs no browser request or native
 filesystem access when loaded.
 ]]
+module nupp.runtime.browser.path
 
 local contracts = require("io.spi")
 local provider = {}

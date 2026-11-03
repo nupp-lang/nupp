@@ -1,5 +1,3 @@
-module nupp.compiler.runtimesurface
-
 --[[
 The ambient Lua identities that have one contract across the portable runtime
 matrix.
@@ -14,6 +12,7 @@ Recognition is by the prelude definition, never by spelling. A local named
 `setfenv`, or a field named `loaders` on an ordinary table, is application code
 and does not belong to this table.
 ]]
+module nupp.compiler.runtimesurface
 
 -- Positive rather than negative: extending lua.d.nupp never widens the
 -- portable surface until the new identity is accounted for here.

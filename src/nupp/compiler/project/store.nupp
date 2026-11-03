@@ -1,5 +1,3 @@
-module nupp.compiler.project.store
-
 --[[
 A keyed blob of results that survives between commands.
 
@@ -26,6 +24,7 @@ misquoted on every run, or a check that crashed on every run, until somebody
 deleted the file by hand. The body is sealed with a digest of itself, and a
 body that does not match its seal is a miss like any other.
 ]]
+module nupp.compiler.project.store
 
 local loaded, nativeBuffer = pcall(require, "string.buffer")
 

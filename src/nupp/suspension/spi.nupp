@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.suspension.spi
-
 --[[
 Shared interfaces for scheduler integration.
 
@@ -30,6 +28,7 @@ which returns for the handler in force. Cancellation values must come from
 worker providers. State belongs to one Lua state; registrations and handlers are
 not copied into worker lanes.
 ]]
+module nupp.suspension.spi
 
 --- Readiness registration shared with callers and handlers.
 --- release must be idempotent and non-suspending; provider state tracks its lifetime.

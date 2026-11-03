@@ -1,5 +1,3 @@
-module nupp.tools.syntaxstyle
-
 --[[
 What colour a Nupp token is, independent of what the colour is written in.
 
@@ -14,6 +12,7 @@ contextual, because Nupp's syntax is: `record` is a keyword only where a
 declaration can start, and a bare name is a type, a call or a binding depending
 on what the semantic layer made of it.
 ]]
+module nupp.tools.syntaxstyle
 
 local lexer = require("nupp.compiler.syntax.lexer")
 local parser = require("nupp.compiler.syntax.parser")

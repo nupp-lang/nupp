@@ -1,11 +1,10 @@
-module nupp.tools.moduleexports
-
 --[[
 Convert a plain module table to direct export declarations.
 
 The same source edits serve editor actions and repository migrations. A table
 whose identity escapes, has a metatable, or has computed members needs review.
 ]]
+module nupp.tools.moduleexports
 
 local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")

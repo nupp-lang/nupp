@@ -1,8 +1,5 @@
 @!internal
 
---- @namespace table
-module nupp.runtime.standardtable
-
 --[[
 `table` provides sequence operations and reusable pools of record instances. Use
 `newpool` when a hot path repeatedly acquires and clears the same record type.
@@ -23,6 +20,9 @@ A [](Pool) retains cleared table-backed records, not C-storage struct rows.
 Its capacity bounds the free list, not the number of instances live at once.
 See [](nupp.mem.arena) for pooled struct storage.
 ]]
+
+--- @namespace table
+module nupp.runtime.standardtable
 
 local pool = require("nupp.util.internal.pool")
 

@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.scalarbitops
-
 --[[
 Portable implementation of the 32-bit bit-operation contract.
 
@@ -19,6 +17,7 @@ every target. It stays as the second implementation the shared contract vectors
 in `tests/integration/providers/contracts/bitops.nupp` are run against, and as the source
 `lua51compattest` holds to the stock Lua 5.1 surface.
 ]]
+module nupp.runtime.provider.scalarbitops
 
 local MODULUS = 4294967296
 local SIGN = 2147483648

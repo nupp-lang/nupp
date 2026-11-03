@@ -1,5 +1,3 @@
-module nupp.compiler.native
-
 --[[
 Compiler-provided native features.
 
@@ -7,6 +5,7 @@ A resolved language construct records an effect. Targets consume the union of
 those effects, rather than asking authors to mirror native-library switches in
 their manifests.
 ]]
+module nupp.compiler.native
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local native = {}

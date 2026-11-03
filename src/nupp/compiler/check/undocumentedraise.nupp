@@ -1,5 +1,3 @@
-module nupp.compiler.check.undocumentedraise
-
 --[[
 Whether a function that raises on purpose said so.
 
@@ -38,6 +36,7 @@ a claim the function never made. A type is resolved once the file is read
 through, because a raise may name a declaration written below the function that
 raises it.
 ]]
+module nupp.compiler.check.undocumentedraise
 
 local cst = require("nupp.compiler.syntax.cst")
 local docblock = require("nupp.compiler.syntax.docblock")

@@ -1,5 +1,3 @@
-module nupp.tools.doc.urls
-
 --[[
 Where everything lives in the built site, and how one page refers to another.
 
@@ -8,6 +6,8 @@ its own depth. The symbol index is what lets a name inside a highlighted code
 block become a link to its declaration; a name that two modules both export is
 dropped rather than guessed at.
 ]]
+module nupp.tools.doc.urls
+
 const {type Module} = require("nupp.tools.doc.extract")
 
 local filesMod = require("nupp.tools.doc.files")

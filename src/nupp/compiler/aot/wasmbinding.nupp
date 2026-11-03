@@ -1,6 +1,5 @@
-module nupp.compiler.aot.wasmbinding
-
 --[[Checked source wrappers that call a Wasm AOT function in its independent module.]]
+module nupp.compiler.aot.wasmbinding
 
 local binding = require("nupp.compiler.aot.binding")
 local scalarIR = require("nupp.compiler.aot.scalar")

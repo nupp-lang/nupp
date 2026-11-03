@@ -1,5 +1,3 @@
-module nupp.compiler.cinterop.cdecl
-
 --[[
 The shared, LuaJIT-backed model of C declarations.
 
@@ -9,6 +7,7 @@ structs, fields, functions, enum constants, and recursively decoded C types.
 Consumers either turn the model into compiler types or render it back as Nupp
 source.
 ]]
+module nupp.compiler.cinterop.cdecl
 
 local ffi = require("ffi")
 

@@ -1,5 +1,3 @@
-module events
-
 --[[
 `events` delivers synchronous events to observers at an address.
 
@@ -34,6 +32,8 @@ the same functions. Record events draw from a [](table.Pool) and struct
 events from a [](nupp.mem.arena), each created the first time an event type is
 emitted through a source; `setallocator` installs one the caller owns instead.
 ]]
+module events
+
 const derive2 = require("types.derive")
 const types2 = require("types")
 

@@ -1,5 +1,3 @@
-module math.random
-
 --[[
 `math.random` provides reproducible random sequences.
 Each generator keeps its own mutable state; calling `math.random(...)` retains
@@ -25,6 +23,7 @@ between workers; give each lane its own.
 portable checkpoint format: keep them and the next draw is exactly the one that
 was coming.
 ]]
+module math.random
 
 local implementation = require("math.internal.random")
 

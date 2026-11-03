@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.nativehttp
-
 --[[
 Native HTTP transport implementation used as a built-in module fallback.
 
@@ -21,6 +19,7 @@ The [](io.http) facade selects this module at require-time. Native transport
 support must be packaged for the target. Resource methods call the retained
 transport directly and do not revisit the service registry.
 ]]
+module nupp.runtime.provider.nativehttp
 
 local suspension = require("nupp.suspension")
 local tasks = require("coroutine")

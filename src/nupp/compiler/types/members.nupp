@@ -1,5 +1,3 @@
-module nupp.compiler.types.members
-
 --[[
 The immutable semantic view of ordinary value members.
 
@@ -14,6 +12,7 @@ Every consumer asks this module the same structural question.  In particular,
 intersections compose readable types covariantly and writable types
 contravariantly here rather than independently in relations and the checker.
 ]]
+module nupp.compiler.types.members
 
 local T = require("nupp.compiler.types")
 

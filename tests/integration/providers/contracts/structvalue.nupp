@@ -1,8 +1,7 @@
 @!internal
 
-module nupp.tests.providers.structvalue
-
 --[[Behavioral vectors for table-backed fixed-width struct values.]]
+module nupp.tests.providers.structvalue
 
 local suite = {}
 

@@ -1,6 +1,4 @@
 @!internal
-module nupp.runtime.browser.system
-
 --[[Browser implementation of [](package.nupp).
 
 The fixed facts describe the guest instruction set with 32-bit little-endian
@@ -10,6 +8,7 @@ worker lane count where it has a pool, and the browser's core estimate otherwise
 pool is opened. The public system facade retains this query and these values at
 module load.
 ]]
+module nupp.runtime.browser.system
 
 const response = require("nupp.runtime.browser.response")
 

@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.compiler.project.preludeimage
-
 --[[
 Hydrates the browser compiler's checked prelude graph.
 
@@ -18,6 +16,7 @@ therefore written down with its arena and key and put back there, along with the
 that number what comes next. `nupp.compiler.project.preludecache` keeps the same contract for the
 native compiler's own prelude cache.
 ]]
+module nupp.compiler.project.preludeimage
 
 local T = require("nupp.compiler.types")
 local bundled = require("nupp.compiler.bundled")

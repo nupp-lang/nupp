@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.suspension
-
 --[[
 LuaJIT suspension and readiness-source implementation.
 
@@ -22,6 +20,7 @@ contract declarations. Cancellation values come from
 same cancellation identity within a state. [](coroutine.sus) resolves this
 implementation at require-time; scheduling operations retain it directly.
 ]]
+module nupp.runtime.provider.suspension
 
 local contract = require("coroutine.sus.spi")
 local suspension = {}

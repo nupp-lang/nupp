@@ -1,6 +1,4 @@
 @!internal
-module nupp.runtime.browser.hostwire
-
 --[[
 The binary records a frame's [](os.host) traffic travels in.
 
@@ -30,6 +28,7 @@ values     u16 count | per value: u8 tag | payload
 A value tagged 7 is a byte result too large for the inbox: its result id names
 it for the fetches that bring it across.
 ]]
+module nupp.runtime.browser.hostwire
 
 local ffi = require("ffi")
 local bit = require("bit")

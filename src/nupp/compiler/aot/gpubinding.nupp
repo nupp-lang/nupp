@@ -1,5 +1,3 @@
-module nupp.compiler.aot.gpubinding
-
 --[[
 Checked host objects for one compiler-emitted GPU shader.
 
@@ -7,6 +5,7 @@ The public methods preserve the source signature as resident buffer and scalar
 types. Raw shader text, entrypoint names, binding order and uniform packing
 exist only in the generated implementation.
 ]]
+module nupp.compiler.aot.gpubinding
 
 local gpuartifact = require("nupp.compiler.aot.gpuartifact")
 local scalarIR = require("nupp.compiler.aot.scalar")

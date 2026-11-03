@@ -1,5 +1,3 @@
-module nupp.compiler.check.loopclosure
-
 --[[
 Whether a function written inside a loop had to be written there.
 
@@ -37,6 +35,7 @@ never hot.
 The walk reaches this through `c.loops`, and the three places that call it are
 the three places a function body is checked.
 ]]
+module nupp.compiler.check.loopclosure
 
 local state = require("nupp.compiler.check.state")
 

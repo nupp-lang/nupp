@@ -1,5 +1,3 @@
-module nupp.tools.cli.explain
-
 --[[
 `nupp explain`: what a diagnostic code means, with an example either way.
 
@@ -7,6 +5,7 @@ A diagnostic has room for what is wrong with one program. This has room for the
 rule behind it, a program that breaks the rule, and the same program corrected.
 The catalog is `nupp.tools.explain`; nothing here knows any of the content.
 ]]
+module nupp.tools.cli.explain
 
 const terminal = require("io.cli")
 

@@ -1,5 +1,3 @@
-module nupp.compiler.check.declare
-
 --[[
 Checking a declaration, and publishing what it declares.
 
@@ -12,6 +10,7 @@ according to what the declaration said about visibility.
 Struct declarations carry the extra requirement that every field be laid out in
 C memory, which is what makes them reifiable.
 ]]
+module nupp.compiler.check.declare
 
 local nativeonly = require("nupp.compiler.check.nativeonly")
 local T = require("nupp.compiler.types")

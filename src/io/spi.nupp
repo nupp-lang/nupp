@@ -1,8 +1,7 @@
-module io.spi
-
 --[[Implementation interfaces consumed during ordinary module initialization.
 Discover with package.providers; the consumer chooses the unique highest priority.
 Omitted priority is zero. Importing these declarations loads no implementation.]]
+module io.spi
 
 --- Environmental path facts, independent of lexical path manipulation.
 ---

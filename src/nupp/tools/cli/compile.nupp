@@ -1,5 +1,3 @@
-module nupp.tools.cli.compile
-
 --[[
 Parse, check, optimize, generate: the sequence `build` and `run` both need.
 
@@ -9,6 +7,7 @@ because one command runs per process. Here they are a value, read out of a parse
 and passed down, so what a compile was asked for is visible at the call rather
 than in whatever the argument loop happened to leave behind.
 ]]
+module nupp.tools.cli.compile
 
 local diagnosticMod = require("nupp.compiler.diagnostics")
 local fs = require("nupp.compiler.fs")

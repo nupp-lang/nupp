@@ -1,5 +1,3 @@
-module nupp.compiler.aot.relations
-
 --[[Difference constraints over the facts a kernel's guards state.
 
 Every admitted guard comparison normalizes to `left <= right + offset` over
@@ -11,6 +9,7 @@ states obligations, and this decides whether the first imply the second.
 
 A proof is the list of source relations on the path, so a bound established
 through an intermediate names every comparison that contributed to it.]]
+module nupp.compiler.aot.relations
 
 local scalarIR = require("nupp.compiler.aot.scalar")
 

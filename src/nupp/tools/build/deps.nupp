@@ -1,5 +1,3 @@
-module nupp.tools.build.deps
-
 --[[
 Building what a project depends on but did not write.
 
@@ -10,6 +8,7 @@ differs with what they produce -- a shared library and a binding from the native
 ones, a search path from a rock -- and agrees on a fingerprint that says whether
 any of it changed.
 ]]
+module nupp.tools.build.deps
 
 local hash = require("nupp.compiler.hash")
 local importc = require("nupp.compiler.cinterop.importc")

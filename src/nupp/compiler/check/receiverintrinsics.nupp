@@ -1,5 +1,3 @@
-module nupp.compiler.check.receiverintrinsics
-
 --[[
 Calls the checker recognizes by the module their receiver holds.
 
@@ -9,6 +7,7 @@ module, so whatever plans checks ahead of the checker -- the cold parallel check
 scheduling modules before any is checked -- must treat a call with one of these
 member names as a dependency on the module. Both read this one table.
 ]]
+module nupp.compiler.check.receiverintrinsics
 
 --- Member name -> the module its receiver must hold.
 local receiverintrinsics: {

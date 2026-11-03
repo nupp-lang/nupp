@@ -1,5 +1,3 @@
-module nupp.tools.cli.reference
-
 --[[
 `nupp reference`: Nupp, small enough to hand to a reader in one piece.
 
@@ -12,6 +10,7 @@ Three renderings of one document. `markdown` is the document; `skill` wraps it i
 the frontmatter an agent harness loads it by; `json` hands over the chapters and
 sections themselves, for a consumer that would rather render its own.
 ]]
+module nupp.tools.cli.reference
 
 local usageError = require("nupp.tools.cli.error").forCommand("reference")
 local cliModule = require("io.cli")

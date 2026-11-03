@@ -1,5 +1,3 @@
-module io.gpu.spi
-
 --[[
 `io.gpu.spi` defines the shared interfaces for GPU providers.
 
@@ -17,6 +15,8 @@ cannot change the representation compiled into a kernel. Device and artifact
 failures must be reported before incompatible operations are published or run.
 The facade exports the retained open function directly.
 ]]
+module io.gpu.spi
+
 local types = require("nupp.gpu.api")
 
 export interface Provider

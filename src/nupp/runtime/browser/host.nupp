@@ -1,6 +1,4 @@
 @!internal
-module nupp.runtime.browser.host
-
 --[[
 The page's answers to [](os.host) requests.
 
@@ -23,6 +21,7 @@ releases a result when its last byte is fetched, or when the guest abandons it;
 until then it is the page's. A caller cancelled before that point never
 received its result, so the page releases it rather than `late`.
 ]]
+module nupp.runtime.browser.host
 
 local effects = require("nupp.runtime.browser.effects")
 local suspension = require("nupp.suspension")

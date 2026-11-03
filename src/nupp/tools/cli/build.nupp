@@ -1,5 +1,3 @@
-module nupp.tools.cli.build
-
 --[[
 `nupp build`: source files, or a target the manifest configured.
 
@@ -8,6 +6,8 @@ require; naming none builds the manifest's default target. The manifest options
 and the file options describe different jobs, so asking for both is refused
 rather than resolved.
 ]]
+module nupp.tools.cli.build
+
 const files = require("io.files")
 
 local usageError = require("nupp.tools.cli.error").forCommand("build")

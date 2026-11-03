@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.compiler.project.preludecache
-
 --[[
 The checked prelude is stored as plain data a later command can read back.
 
@@ -102,6 +100,7 @@ An arena is a source string and a run of five-integer records, so it is written
 out as exactly that and built again by replaying the records into a new one. Two
 of them cover the whole prelude.
 ]]
+module nupp.compiler.project.preludecache
 
 local hash = require("nupp.compiler.hash")
 local triviaarena = require("nupp.compiler.syntax.triviaarena")

@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.browser.suspension
-
 --[[
 Browser-effect implementation of the `suspension` API 1 contract.
 
@@ -20,6 +18,8 @@ The browser host must install its effect transport before consumers load
 [](coroutine.sus). Handler, source, and waiting state stays local to each Lua
 state, and scheduling operations never resolve the service again.
 ]]
+module nupp.runtime.browser.suspension
+
 const assert2 = require("assert")
 
 local effects = require("nupp.runtime.browser.effects")

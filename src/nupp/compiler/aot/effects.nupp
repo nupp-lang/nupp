@@ -1,5 +1,3 @@
-module nupp.compiler.aot.effects
-
 --[[
 The observable behavior of scalar AOT operations.
 
@@ -12,6 +10,7 @@ These are root effects.  A consumer combines them with the effects of an
 operation's operands; keeping the two separate lets a rewrite replace operands
 without manufacturing a claim about the enclosing operation.
 ]]
+module nupp.compiler.aot.effects
 
 export record Facts
     observable: boolean

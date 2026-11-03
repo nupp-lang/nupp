@@ -1,5 +1,3 @@
-module nupp.compiler.aot.llvm.simd.lanes
-
 --[[
 What every SIMD lowering shares: constants, splats, moving a scalar into a lane
 and back, and the NaN-canonical extreme every min and max contract is.
@@ -8,6 +6,7 @@ A narrow integer lane is carried outside its vector as the 32-bit integer of
 its signedness, so a lane leaving a vector is sign- or zero-extended and a
 scalar entering one is truncated. Floats keep their type.
 ]]
+module nupp.compiler.aot.llvm.simd.lanes
 
 local context = require("nupp.compiler.aot.llvm.context")
 local expressions = require("nupp.compiler.aot.llvm.expressions")

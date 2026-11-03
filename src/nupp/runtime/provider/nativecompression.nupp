@@ -1,12 +1,11 @@
 @!internal
-module nupp.runtime.provider.nativecompression
-
 --[[Rust-native gzip, zlib, and raw DEFLATE provider for compression API 1.
 
 The fixed catalog forwards validated options and span bounds to the native ABI.
 Each encoder and decoder owns one native handle. Failed steps copy the native
 error into their reason, and closing surfaces a failed handle release.
 ]]
+module nupp.runtime.provider.nativecompression
 
 const contract = require("binary.compress.spi")
 const native = require("nupp.runtime.native")

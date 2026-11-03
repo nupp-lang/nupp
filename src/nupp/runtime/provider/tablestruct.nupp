@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.tablestruct
-
 --[[
 Reference-valued struct implementation using Lua tables.
 
@@ -19,6 +17,7 @@ Descriptor and row identities remain local to the module's Lua state. Public
 struct types are owned by their declarations; providers implement their storage
 without introducing competing nominal types.
 ]]
+module nupp.runtime.provider.tablestruct
 
 export const referencevalued = true
 

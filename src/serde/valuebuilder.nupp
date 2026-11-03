@@ -1,5 +1,3 @@
-module serde.valuebuilder
-
 --[[
 Builds ordinary Lua values straight out of parsed bytes.
 
@@ -49,6 +47,8 @@ ordinary call.
 See [ahead-of-time.md](docs/learn/performance/ahead-of-time/index.md) for what
 generated code is allowed to do.
 ]]
+module serde.valuebuilder
+
 local implementation = require("nupp.serde.internal.valuebuilder")
 
 --- Starts a direct stream of values.

@@ -1,5 +1,3 @@
-module nupp.mem
-
 --[[
 `nupp.mem` groups storage allocators with different lifetime contracts.
 Checked views make their elements safe to index.
@@ -38,3 +36,4 @@ C boundary costs, and
 [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the borrow rules
 these views are written against.
 ]]
+module nupp.mem

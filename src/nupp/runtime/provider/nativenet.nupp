@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.nativenet
-
 --[[
 Native reactor implementation used as a built-in module fallback.
 
@@ -23,6 +21,7 @@ stream are separate responsibilities. Address values use
 [](io.net.Address), and TLS implementations that consume these stream handles
 must agree with their native representation.
 ]]
+module nupp.runtime.provider.nativenet
 
 local contract = require("io.net.spi")
 local shared = require("nupp.io.net.types")

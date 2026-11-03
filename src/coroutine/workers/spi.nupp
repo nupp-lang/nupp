@@ -1,5 +1,3 @@
-module coroutine.workers.spi
-
 --[[
 `coroutine.workers.spi` defines the worker implementation contracts.
 
@@ -36,6 +34,8 @@ suspension implementation and must not discover implementations during settlemen
 Each lane uses the artifact's immutable SPI index and loads independent module
 instances. Provider objects and Lua closures are never transferred between lanes.
 ]]
+module coroutine.workers.spi
+
 local source1 = require("nupp.workers.spi")
 export type Provider = source1.Provider
 export type Scope = source1.Scope

@@ -1,5 +1,3 @@
-module nupp.compiler.syntax.cst
-
 --[[
 `nupp.compiler.syntax.cst` defines the lossless concrete syntax tree shared by
 the parser and later compiler passes.
@@ -18,6 +16,7 @@ There is one record per production and `Node` is their union, discriminated by
 to another kind is not readable at all: a pass that dispatches on `kind` is
 checked against the vocabulary rather than trusted with it.
 ]]
+module nupp.compiler.syntax.cst
 
 local lexer = require("nupp.compiler.syntax.lexer")
 

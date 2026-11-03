@@ -1,5 +1,3 @@
-module nupp.codec.json.internal.decoder.fused
-
 --[[
 The one fused JSON decoder, monomorphized per builder.
 
@@ -60,6 +58,7 @@ the lookup needs for the three bytes before each byte it judges, is read again
 instead of carried; before the first vector that load is out of range and
 returns zeros, which is what a scan that has seen nothing needs.
 ]]
+module nupp.codec.json.internal.decoder.fused
 
 local _valueBuilder = require("serde.valuebuilder")
 local _jsonBuilder = require("nupp.codec.json.internal.builder")

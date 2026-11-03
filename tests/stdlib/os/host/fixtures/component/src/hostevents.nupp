@@ -1,9 +1,8 @@
-module hostevents
-
 --[[
 The events the host channel's stream scenario routes: what a host would push
 for a pointer and a keyboard.
 ]]
+module hostevents
 
 local events = require("events")
 

@@ -1,5 +1,3 @@
-module nupp.compiler.check.ownership
-
 --[[
 The affine bookkeeping.
 
@@ -10,6 +8,7 @@ what has already happened to it, not what type an expression has.
 
 See `docs/learn/runtime/ownership/borrowing.md`.
 ]]
+module nupp.compiler.check.ownership
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")

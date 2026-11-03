@@ -1,11 +1,10 @@
-module nupp.tools.build.release
-
 --[[
 Release-only binary and stub-catalog operations.
 
 The compiler owns both formats, so release automation asks this module to read
 and write them instead of carrying another implementation in workflow scripts.
 ]]
+module nupp.tools.build.release
 
 local fs = require("nupp.compiler.fs")
 local hash = require("nupp.compiler.hash")

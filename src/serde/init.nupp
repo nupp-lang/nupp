@@ -1,5 +1,3 @@
-module serde
-
 --[[
 A binding selects how a value is read and constructed, separately from the
 codec that chooses its wire representation. See
@@ -41,6 +39,7 @@ implements [](Writer) and [](Reader). Neither imports the other, and the erased
 Failures are raised as an [](Error) carrying the logical path to the value, the
 byte offset when a decoder has one, and the original cause.
 ]]
+module serde
 
 local core = require("nupp.serde.internal.value")
 local declarations = require("nupp.serde.internal.declaration")

@@ -1,5 +1,3 @@
-module nupp.tools.rock
-
 --[[
 Developer-facing LuaRocks packaging for Nupp libraries.
 
@@ -9,6 +7,7 @@ parallel `nupp/` directory of module-shaped declarations. `pack` validates both 
 asking LuaRocks for a binary rock; `test` installs that rock into a new tree and checks
 it from a new consumer.
 ]]
+module nupp.tools.rock
 
 local fs = require("nupp.compiler.fs")
 local process = require("nupp.compiler.process")

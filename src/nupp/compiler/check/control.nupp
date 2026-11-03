@@ -1,5 +1,3 @@
-module nupp.compiler.check.control
-
 --[[
 The statements that branch, repeat, and leave.
 
@@ -9,6 +7,7 @@ of an `if` keeps only what every path agreed on. It is also where an affine valu
 can escape, by being returned, stored, or captured past its lexical source,
 so the ownership questions are asked here too.
 ]]
+module nupp.compiler.check.control
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")

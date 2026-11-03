@@ -1,5 +1,3 @@
-module utf8simd
-
 --[[
 UTF-8 validation a vector at a time, written on the general `simd`
 algebra: a byte species, three sixteen-entry nibble tables that are ordinary
@@ -22,6 +20,7 @@ maximal valid prefix -- the number the differential test compares -- is then
 found by an ordinary ladder from the last scalar start at or before that
 vector, which is also how the tail after the last whole vector is finished.
 ]]
+module utf8simd
 
 local array = require("nupp.mem.array")
 local simd = require("simd")

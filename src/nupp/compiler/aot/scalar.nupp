@@ -1,5 +1,3 @@
-module nupp.compiler.aot.scalar
-
 --[[
 The scalar half of the AOT IR.
 
@@ -23,6 +21,7 @@ for a width explicitly and the answer changes accordingly.
 `Program.usesSimd` records explicit vector work. Target legalization sets
 `Program.simdWidth` and `Program.vectorCeiling` before emission.
 ]]
+module nupp.compiler.aot.scalar
 
 --- What this vocabulary is on.
 ---

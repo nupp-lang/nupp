@@ -1,5 +1,3 @@
-module binary.compress
-
 --[[
 Compressing and decompressing a stream of bytes.
 
@@ -42,6 +40,8 @@ raw DEFLATE has no checksum at all. Trailing bytes are rejected in every case.
 A provider-added format keys its options by its own canonical name;
 `deflateraw` above is the built-in ergonomic spelling of `deflate-raw`.
 ]]
+module binary.compress
+
 const assert2 = require("assert")
 
 local spi = require("nupp.runtime.packages")

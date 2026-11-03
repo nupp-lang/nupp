@@ -1,5 +1,3 @@
-module nupp.compiler.diagnostics
-
 --[[
 Rendering a diagnostic for a person to read.
 
@@ -21,6 +19,7 @@ reader only ever sees the finished report anyway.
 See `docs/reference/diagnostics.md` for the shape of what is being rendered, and
 `nupp check --json` for the form meant for programs.
 ]]
+module nupp.compiler.diagnostics
 
 const terminal = require("io.cli")
 

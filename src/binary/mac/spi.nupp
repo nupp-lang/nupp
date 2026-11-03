@@ -1,5 +1,3 @@
-module binary.mac.spi
-
 --[[Implementation interfaces for keyed authentication algorithm catalogs.
 
 The facade chooses the unique highest priority during initialization. Its entries
@@ -16,6 +14,7 @@ success and failure. Cleanup consumes ownership without suspension. Providers
 define private records satisfying the canonical `State` interface rather than
 substituting its identity.
 ]]
+module binary.mac.spi
 
 local {type State} = require("binary.digest.spi")
 

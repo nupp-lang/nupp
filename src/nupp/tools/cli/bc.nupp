@@ -1,5 +1,3 @@
-module nupp.tools.cli.bc
-
 --[[
 `nupp bc`: the bytecode a file compiles to, beside the source that made it.
 
@@ -19,6 +17,7 @@ stay right, no test fails, and the loop simply runs interpreted forever. Reading
 the bytecode finds it without running anything, which is what makes it usable as
 a gate -- no quiet machine, no threshold, and the same answer every time.
 ]]
+module nupp.tools.cli.bc
 
 const terminal2 = require("io.cli")
 

@@ -12,6 +12,8 @@ local lints = require("nupp.compiler.lints")
 local trace = require("debug.profile.trace")
 local project = require("nupp.tools.build.project")
 local json = require("testjson")
+local parser = require("nupp.compiler.syntax.parser")
+local cst = require("nupp.compiler.syntax.cst")
 
 local HERE = require("helpers.paths").absoluteTests
 local NUPP = HERE .. "/../bin/nupp"
@@ -37,7 +39,7 @@ end
 --- directories the same way the compiler resolves it. Everything else is
 --- `sample`, which declares nothing and so can be called anything.
 local function examplePath(example)
-    local declared = example:match("^%s*module%s+([%w_%.]+)")
+    local declared = cst.declaredModule(parser.parse(example).root)
     if not declared then
         return "sample.nupp"
     end
@@ -78,6 +80,10 @@ local function diagnosticsFor(section)
     os.execute("rm -rf '" .. dir .. "'")
 
     return diagnostics
+end
+
+function M.documentedModuleExamplesUseTheirCanonicalPaths()
+    testAssert.eq(examplePath("--[[Shapes.]]\nmodule geom.shapes\n"), "geom/shapes.nupp")
 end
 
 function M.everyExampleChecksClean()

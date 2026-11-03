@@ -1,5 +1,3 @@
-module nupp.compiler.check.annotate
-
 --[[
 Whether an annotation is well formed, and what one defines.
 
@@ -11,6 +9,7 @@ it is installed on.
 
 See `docs/learn/language/annotations.md`.
 ]]
+module nupp.compiler.check.annotate
 
 local T = require("nupp.compiler.types")
 local cst = require("nupp.compiler.syntax.cst")

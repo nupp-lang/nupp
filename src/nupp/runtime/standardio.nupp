@@ -1,8 +1,5 @@
 @!internal
 
---- @namespace io
-module nupp.runtime.standardio
-
 --[[
 `io` provides paths, URIs, file streams, byte storage, and readers and writers.
 Its byte interfaces work over buffers, files, and HTTP response bodies.
@@ -396,6 +393,9 @@ empty leaves an empty queue rather than a released one.
   errors, ownership, and byte-position conventions every facility shares
 :::
 ]]
+
+--- @namespace io
+module nupp.runtime.standardio
 
 local source1 = require("nupp.io")
 const {type Path as NativePath} = require("io.internal.path")

@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.suspension
-
 --[[
 Waiting without blocking the thread.
 
@@ -46,6 +44,7 @@ by calling [](coroutine.suspend); nothing intercepts calls that do not.
 
 See [suspension.md](docs/learn/runtime/concurrency/suspension.md).
 ]]
+module nupp.suspension
 
 local contract = require("nupp.suspension.spi")
 local selected = require("nupp.suspension.selected")

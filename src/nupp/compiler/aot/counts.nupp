@@ -1,5 +1,3 @@
-module nupp.compiler.aot.counts
-
 --[[
 Which span counts a native entry receives, and which of them are one number.
 
@@ -7,6 +5,7 @@ Shared by every backend that writes an entry's private ABI, because the
 generated wrapper passes counts by these rules and a backend that disagreed
 would read the wrong one.
 ]]
+module nupp.compiler.aot.counts
 
 local scalarIR = require("nupp.compiler.aot.scalar")
 

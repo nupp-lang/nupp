@@ -1,9 +1,8 @@
-module nupp.tools.browser
-
 --[[
 The in-memory compiler API used by the browser Worker. It selects compiler-private
 providers directly and leaves JSON at the outer ABI boundary.
 ]]
+module nupp.tools.browser
 
 local triviaArena = require("nupp.compiler.syntax.triviaarena")
 triviaArena.install(require("nupp.compiler.syntax.triviaarena.table"))

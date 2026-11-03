@@ -1,5 +1,3 @@
-module nupp.mem.array
-
 --[[
 Managed contiguous arrays hold one scalar or struct type.
 Their shared and writable views use the checked [](binary.span) interface.
@@ -22,6 +20,8 @@ not promise immediate reclamation. Views retain their backing storage, and
 every index is checked against the count the view carries. For explicitly
 owned malloc-backed storage, see [](nupp.mem.heap).
 ]]
+module nupp.mem.array
+
 const {type Span, type Writable, type ByteSpan} = require("binary.span")
 
 -- Element witnesses name a representation without loading its allocator.

@@ -1,5 +1,3 @@
-module binary.mac
-
 --[[
 Keyed hashes, for bytes somebody could have tampered with.
 
@@ -37,6 +35,7 @@ signing scheme.
 A host may supply its own catalog through [](binary.mac.spi),
 chosen by priority when this module initializes. It is read once, at load.
 ]]
+module binary.mac
 
 local spi = require("nupp.runtime.packages")
 

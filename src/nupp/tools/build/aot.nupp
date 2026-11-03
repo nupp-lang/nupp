@@ -1,5 +1,3 @@
-module nupp.tools.build.aot
-
 --[[
 The build's ahead-of-time policy.
 
@@ -29,6 +27,8 @@ query graph the module build then uses: a parse says how a parameter, a call
 target or an annotation was spelled, and only a check says what each resolved
 to.
 ]]
+module nupp.tools.build.aot
+
 const assert2 = require("assert")
 
 const {type Session} = require("nupp.tools.build.modules")

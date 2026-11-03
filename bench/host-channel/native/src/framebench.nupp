@@ -1,5 +1,3 @@
-module framebench
-
 --[[
 One frame's boundary traffic three ways, for `bench.c` to time.
 
@@ -10,6 +8,7 @@ pushes input that a poll routes to a bus, and one frame export sends the packet
 on a stream. N3 is the channel answered later: the frame waits on a call the
 host answers from its loop, under `os.host.pump`.
 ]]
+module framebench
 
 local host = os.host
 local events = require("events")

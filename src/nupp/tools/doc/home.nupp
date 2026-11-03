@@ -1,5 +1,3 @@
-module nupp.tools.doc.home
-
 --[[
 The home page's hero and feature showcase, read from the page rather than configured
 beside it.
@@ -13,6 +11,7 @@ highlights and no formatter reaches.
 Two comment markers delimit the regions, because the home page has ordinary prose after
 them and a marker says where the shape stops without inventing a syntax to say it.
 ]]
+module nupp.tools.doc.home
 
 local pageMod = require("nupp.tools.doc.page")
 

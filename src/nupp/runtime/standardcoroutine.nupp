@@ -1,8 +1,5 @@
 @!internal
 
---- @namespace coroutine
-module nupp.runtime.standardcoroutine
-
 --[[
 Structured concurrency: a scope owns the tasks spawned into it.
 
@@ -65,6 +62,9 @@ then, in FIFO order, up to a bounded number of activations per host turn.
 Nesting divides that bound rather than multiplying it, because the token belongs
 to the turn.
 ]]
+
+--- @namespace coroutine
+module nupp.runtime.standardcoroutine
 
 local source1 = require("nupp.tasks")
 local suspension = require("nupp.suspension")

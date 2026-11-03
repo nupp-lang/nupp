@@ -1,5 +1,3 @@
-module base64bench
-
 --[[
 Base64 encoding, scalar, as an `@aot` entry.
 
@@ -15,6 +13,7 @@ Nothing here is on any hot path in the tree. `nupp.runtime.browser.base64` is
 the only base64 Nupp ships, it is browser-only, and its cost is the Lua layer
 rather than the codec.
 ]]
+module base64bench
 
 local valuebuilder = require("serde.valuebuilder")
 

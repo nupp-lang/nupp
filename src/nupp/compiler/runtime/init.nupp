@@ -1,10 +1,9 @@
-module nupp.compiler.runtime
-
 --[[
 Project `.nupp` and Lua modules load through the project's checker environment,
 with preloaded modules taking priority. A final loader compiles carried library
 sources only when the ordinary loader chain has no answer.
 ]]
+module nupp.compiler.runtime
 
 local envMod = require("nupp.compiler.project.env")
 

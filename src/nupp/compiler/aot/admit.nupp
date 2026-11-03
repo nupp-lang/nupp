@@ -1,5 +1,3 @@
-module nupp.compiler.aot.admit
-
 --[[
 This module defines the constructs admitted in an `@aot` body.
 
@@ -14,6 +12,7 @@ The checker recognizes those members by definition rather than by a source
 path. Keying on the identity keeps an alias of a standard member from meaning
 one thing to the checker and another to this backend.
 ]]
+module nupp.compiler.aot.admit
 
 local scalar = require("nupp.compiler.scalarintrinsics")
 local scalarIR = require("nupp.compiler.aot.scalar")

@@ -1,5 +1,3 @@
-module nupp.compiler.check.fixits
-
 --[[
 Machine-applicable edits, and the advice that carries them.
 
@@ -12,6 +10,7 @@ guess between them.
 None of this reads the checker's scopes, only the parse and the project index,
 so it is built once per file and asked, rather than threaded through the walk.
 ]]
+module nupp.compiler.check.fixits
 
 local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")

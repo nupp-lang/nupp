@@ -1,5 +1,3 @@
-module nupp.mem.soa
-
 --[[
 Structure-of-arrays storage for reified structs.
 
@@ -39,6 +37,7 @@ allocated. An escape or an opaque call materializes the same checked view.
 See [structure-of-arrays.md](docs/learn/runtime/data/structure-of-arrays.md) for when this layout is the one to
 reach for.
 ]]
+module nupp.mem.soa
 
 local ffi = require("ffi")
 local span = require("binary.span")

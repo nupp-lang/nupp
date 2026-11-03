@@ -1,5 +1,3 @@
-module nupp.mem.heap
-
 --[[
 Owned, malloc-backed C arrays.
 
@@ -32,6 +30,7 @@ See [c-interop.md](docs/learn/runtime/c-interop/index.md#c-arrays) for how this 
 `carray`, and [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the borrow rules
 the views are written against.
 ]]
+module nupp.mem.heap
 
 local heap = {}
 local ffi = require("ffi")

@@ -1,5 +1,3 @@
-module nupp.tools.build.package
-
 --[[
 One file that is the whole program.
 
@@ -9,6 +7,8 @@ with nothing beside it. A binary goes one step further: the bundle becomes a
 payload appended to a prebuilt host stub, found at run time by a magic trailer
 rather than by anything the filesystem has to be asked.
 ]]
+module nupp.tools.build.package
+
 const {type ModuleRecord as ModuleRecord2} = require("nupp.tools.build.cache")
 const {type Resource} = require("nupp.tools.build.manifest")
 

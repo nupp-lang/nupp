@@ -1,5 +1,3 @@
-module nupp.tools.build.modules
-
 --[[
 Compiling the modules a target reaches, and writing them out.
 
@@ -9,6 +7,8 @@ that is not already current, and copies the resources the target declared. What
 own text, the interfaces it imported, the compiler that would compile it -- so a
 change anywhere in that set rebuilds it and a change anywhere else does not.
 ]]
+module nupp.tools.build.modules
+
 const assert2 = require("assert")
 
 const files = require("io.files")

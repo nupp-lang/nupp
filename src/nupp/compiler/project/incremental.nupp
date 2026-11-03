@@ -1,5 +1,3 @@
-module nupp.compiler.project.incremental
-
 --[[
 The compiler's query graph.
 
@@ -16,6 +14,7 @@ interface, and then the dependents do recheck.
 Exported nominal declarations use project-index skeletons keyed by their
 declaration site, so a recheck preserves their identity.
 ]]
+module nupp.compiler.project.incremental
 
 local query = require("nupp.compiler.project.query")
 local parser = require("nupp.compiler.syntax.parser")

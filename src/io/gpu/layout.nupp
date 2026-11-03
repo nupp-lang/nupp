@@ -1,5 +1,3 @@
-module io.gpu.layout
-
 --[[
 `io.gpu.layout` computes tensor views from shapes, strides, and offsets.
 
@@ -22,6 +20,7 @@ refused rather than produced. A layout knows whether it is dense and whether
 its stride structure proves that writes use distinct element offsets. A false
 injectivity result can also mean the bounded stride proof was inconclusive.
 ]]
+module io.gpu.layout
 
 local function copied(values: {integer}): {integer}
     local out: {integer} = {}

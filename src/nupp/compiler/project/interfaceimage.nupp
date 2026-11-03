@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.compiler.project.interfaceimage
-
 --[[
 Versioned module interfaces for semantic workers.
 
@@ -15,6 +13,7 @@ The graph is `reflection.graph`'s, extended here with what a checker needs and a
 derive must never see: declaration keys, private and borrow state, overload entries,
 foreign-output contracts and the rest. None of it reaches the public descriptor.
 ]]
+module nupp.compiler.project.interfaceimage
 
 local generics = require("nupp.compiler.types.generics")
 local reflection = require("nupp.compiler.reflection")

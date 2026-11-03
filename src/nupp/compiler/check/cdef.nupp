@@ -1,5 +1,3 @@
-module nupp.compiler.check.cdef
-
 --[[
 Declaring C to the checker.
 
@@ -15,6 +13,7 @@ the type -- `affine(T, cleanup)` on the return, `out p: affine(T, cleanup)*` on 
 owning output slot, or `out p: T* borrows (source)` on a borrowed one -- and
 `Success<T, N>` on the return says which status means those outputs hold values.
 ]]
+module nupp.compiler.check.cdef
 
 local T = require("nupp.compiler.types")
 local generics = require("nupp.compiler.types.generics")

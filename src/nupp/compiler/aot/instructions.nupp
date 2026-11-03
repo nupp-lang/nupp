@@ -1,5 +1,3 @@
-module nupp.compiler.aot.instructions
-
 --[[
 The instructions one compiled unit became, by symbol.
 
@@ -28,6 +26,7 @@ over the mnemonic and the operand shape, stated in `ARM` and `X86` below, and
 they are deliberately coarse -- what they have to support is comparison between
 two runs of the same kernel, not a model of the machine.
 ]]
+module nupp.compiler.aot.instructions
 
 local instructions = {}
 

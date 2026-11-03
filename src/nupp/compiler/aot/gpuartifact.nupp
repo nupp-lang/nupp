@@ -1,5 +1,3 @@
-module nupp.compiler.aot.gpuartifact
-
 --[[
 Backend-neutral artifacts for the checked GPU kernel subset.
 
@@ -7,6 +5,7 @@ SPIR-V is the native WGPU artifact and WGSL is the browser WebGPU artifact.
 Both are emitted from the same verified scalar IR and share the compiler-owned
 buffer order, uniform layout, entrypoint and dispatch shape below.
 ]]
+module nupp.compiler.aot.gpuartifact
 
 local scalarIR = require("nupp.compiler.aot.scalar")
 local spirvemit = require("nupp.compiler.aot.spirvemit")

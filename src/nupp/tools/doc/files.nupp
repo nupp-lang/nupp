@@ -1,11 +1,10 @@
-module nupp.tools.doc.files
-
 --[[
 Paths and the filesystem.
 
 Documentation reads a source tree and writes a site, and both halves want the
 same normalized, forward-slashed paths regardless of platform.
 ]]
+module nupp.tools.doc.files
 
 local fs = require("nupp.compiler.fs")
 

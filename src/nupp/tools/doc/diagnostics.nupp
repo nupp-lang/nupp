@@ -1,5 +1,3 @@
-module nupp.tools.doc.diagnostics
-
 --[[
 The diagnostic index: every code the compiler reports, on one page.
 
@@ -22,6 +20,7 @@ Codes that resolve only through their family are left out. The family answers
 for all of them at once, and a section under a number that adds nothing to it
 would be padding.
 ]]
+module nupp.tools.doc.diagnostics
 
 local explainMod = require("nupp.tools.explain")
 local htmlMod = require("nupp.tools.doc.html")

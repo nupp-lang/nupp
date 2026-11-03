@@ -1,5 +1,3 @@
-module nupp.compiler.aot.visit
-
 --[[
 An exhaustive walk over the closed AOT vocabularies.
 
@@ -9,6 +7,7 @@ complete literal tag union with no `else`, and every arm names the node's typed
 children. Adding an opcode therefore fails this module's check until its shape
 is handled; adding a field cannot quietly disappear into a generic table walk.
 ]]
+module nupp.compiler.aot.visit
 
 local scalarIR = require("nupp.compiler.aot.scalar")
 

@@ -1,5 +1,3 @@
-module nupp.tools.doc.strings
-
 --[[
 Escaping and trimming.
 
@@ -7,6 +5,7 @@ Every renderer here writes into one of three grammars, markdown tables, HTML and
 a JavaScript string literal, and each of them has a character it cannot take
 literally.
 ]]
+module nupp.tools.doc.strings
 
 local strings = {}
 

@@ -1,6 +1,4 @@
 @!internal
-module nupp.digest.internal.context
-
 --[[Owned public digest contexts over canonical provider state.
 
 A context retains its algorithm name, output size, and one affine State. It is an
@@ -11,6 +9,7 @@ retains ownership of its destination. Dropping an unfinished context also closes
 its provider state. Allocation, encoding, and cleanup use retained module methods;
 context operations perform no provider resolution.
 ]]
+module nupp.digest.internal.context
 
 const span = require("binary.span")
 const storage = require("nupp.runtime.storage")

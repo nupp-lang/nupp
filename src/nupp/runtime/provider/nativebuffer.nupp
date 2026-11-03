@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.nativebuffer
-
 --[[
 LuaJIT `string.buffer` adapter for `text.buffer` API 1.
 
@@ -15,6 +13,7 @@ directly. Requiring the adapter needs the host buffer library but allocates no
 individual buffer. Each call constructs an independent buffer whose explicit
 `free` operation and garbage collection follow the host library's lifetime.
 ]]
+module nupp.runtime.provider.nativebuffer
 
 local native = require("string.buffer")
 local {type Buffer} = require("nupp.text.internal.buffer")

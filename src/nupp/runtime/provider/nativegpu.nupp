@@ -1,6 +1,4 @@
 @!internal
-module nupp.runtime.provider.nativegpu
-
 --[[
 Native resident-compute implementation used as a built-in module fallback.
 
@@ -19,6 +17,7 @@ Applications use [](io.gpu), which resolves the provider once and exports
 its `open` function directly. Uploads, dispatches, synchronization, and readback
 operate on the retained context without further service resolution.
 ]]
+module nupp.runtime.provider.nativegpu
 
 local native = require("nupp.runtime.native")
 local suspension = require("nupp.suspension")

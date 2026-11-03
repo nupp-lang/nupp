@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.io.net
-
 --[[
 `io.net` is the network as bytes: a listener, the connections it accepts,
 and connections this process opens itself.
@@ -27,6 +25,8 @@ A listener and a connection are owners. See
 [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract they are handed
 out under.
 ]]
+module nupp.io.net
+
 const assert2 = require("assert")
 
 local spi = require("nupp.runtime.packages")

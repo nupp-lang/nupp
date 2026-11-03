@@ -1,5 +1,3 @@
-module nupp.tools.jitlimits
-
 --[[
 LuaJIT's capacity limits, raised for the whole process before anything is traced.
 
@@ -33,6 +31,7 @@ repeats the measurement. A larger area buys nothing more (32 MB measured the
 same), and LuaJIT reprotects the whole area around each trace, so a much larger
 one costs compile time.
 ]]
+module nupp.tools.jitlimits
 
 --- The limits, each as its own `jit.opt.start` argument.
 ---

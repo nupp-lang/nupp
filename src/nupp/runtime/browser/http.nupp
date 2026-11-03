@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.browser.http
-
 --[[
 Browser Fetch implementation used as a built-in module fallback.
 
@@ -19,6 +17,7 @@ The [](io.http) facade resolves this provider once. The application must
 supply browser effects, suspension, and Wasm memory before consuming it. Operations
 use the retained client and effect transport directly.
 ]]
+module nupp.runtime.browser.http
 
 local effects = require("nupp.runtime.browser.effects")
 local span = require("binary.span")

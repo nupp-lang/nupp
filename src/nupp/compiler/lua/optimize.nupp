@@ -1,5 +1,3 @@
-module nupp.compiler.lua.optimize
-
 --[[
 Rewrites the checked tree before it is generated.
 
@@ -19,6 +17,7 @@ passes here rewrite where they stand, so attribution is unchanged.
 
 See `docs/learn/performance/index.md`.
 ]]
+module nupp.compiler.lua.optimize
 
 local inlinefacts = require("nupp.compiler.inlinefacts")
 local viewfacts = require("nupp.compiler.viewfacts")

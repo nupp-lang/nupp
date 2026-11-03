@@ -1,5 +1,3 @@
-module nupp.tools.doc.assets
-
 --[[
 The stylesheet, the script, and the icons the generated site ships.
 
@@ -9,6 +7,7 @@ The stylesheet is the one piece worth editing on its own -- plain CSS, in
 `theme.css` beside this module -- so it is carried like any other file the compiler
 carries (see `nupp.compiler.bundled`) instead of quoted into a string here.
 ]]
+module nupp.tools.doc.assets
 
 local bundled = require("nupp.compiler.bundled")
 

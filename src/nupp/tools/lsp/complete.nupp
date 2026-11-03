@@ -1,11 +1,10 @@
-module nupp.tools.lsp.complete
-
 --[[
 What may be written at a position, and which parameter a call is on.
 
 Completion reads the tokens around the cursor rather than the tree, because a
 half-written member access does not parse into one.
 ]]
+module nupp.tools.lsp.complete
 
 local T = require("nupp.compiler.types")
 local tree = require("nupp.tools.lsp.tree")

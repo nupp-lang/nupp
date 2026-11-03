@@ -1,5 +1,3 @@
-module debug.profile.trace
-
 --[[
 Stable identities shared by static trace checking and the opt-in runtime
 collector.
@@ -21,6 +19,7 @@ See [jit-trace-checking.md](docs/learn/performance/jit-trace-checking.md) for th
 static side of this, and
 [](debug.profile) for the collector that reports the runtime side.
 ]]
+module debug.profile.trace
 
 local vmdef = require("jit.vmdef")
 

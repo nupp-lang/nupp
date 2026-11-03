@@ -1,5 +1,3 @@
-module debug.profile.zone
-
 --[[
 Gated LuaJIT profiler zones: the stack work is skipped until a profiler asks for
 it.
@@ -38,6 +36,7 @@ call site, and every function below, still goes through the ordinary API.
 See [profiling.md](docs/learn/performance/profiling.md) for what a zone path does to a report, and
 [](debug.profile) for the sessions that read one.
 ]]
+module debug.profile.zone
 
 local zone = {}
 

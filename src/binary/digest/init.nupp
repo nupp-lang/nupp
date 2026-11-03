@@ -1,5 +1,3 @@
-module binary.digest
-
 --[[
 Cryptographic hashes: SHA-256 and the rest.
 
@@ -37,6 +35,7 @@ built-ins of the same name, the ones it does not name stay available, and a
 descriptor whose size disagrees with its algorithm is refused. The catalog is
 read once, at load, so no context operation resolves a service.
 ]]
+module binary.digest
 
 local spi = require("nupp.runtime.packages")
 

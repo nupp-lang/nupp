@@ -1,6 +1,4 @@
 @!internal
-module nupp.runtime.provider.nativehost
-
 --[[
 The embedding application's answers to [](os.host) requests.
 
@@ -16,6 +14,7 @@ so the host could never answer a request it did not answer at once. Such a
 request is refused rather than left to hang; run it under a handler, such as a
 [](os.host.pump), and drive it with `nupp_runtime_poll`.
 ]]
+module nupp.runtime.provider.nativehost
 
 local suspension = require("nupp.suspension")
 local suspensionHost = require("coroutine.sus.host")

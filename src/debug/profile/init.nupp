@@ -1,5 +1,3 @@
-module debug.profile
-
 --[[
 Two profiling channels: one for where the time went, one for whether it went
 there compiled.
@@ -39,6 +37,7 @@ See [profiling.md](docs/learn/performance/profiling.md) for reading a report, an
 [jit-trace-checking.md](docs/learn/performance/jit-trace-checking.md) for finding the same aborts without running
 the program.
 ]]
+module debug.profile
 
 local zone = require("debug.profile.zone")
 local jitProfile = require("jit.profile")

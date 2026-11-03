@@ -1,5 +1,3 @@
-module nupp.compiler.aot.wgslemit
-
 --[[
 WGSL emission for the exact integer browser profile.
 
@@ -8,6 +6,7 @@ scalar IR directly and never translates SPIR-V. The initial profile is a
 complete-span map kernel over 32-bit integer buffers and uniforms. More IR is
 added only after the corresponding WebGPU conformance case exists.
 ]]
+module nupp.compiler.aot.wgslemit
 
 local scalarIR = require("nupp.compiler.aot.scalar")
 

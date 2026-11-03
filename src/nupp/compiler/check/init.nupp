@@ -1,5 +1,3 @@
-module nupp.compiler.check
-
 --[[
 The checker: the walk, and the run it happens in.
 
@@ -19,6 +17,8 @@ the run through it.
 Diagnostics carry stable `NUPP2xxx` codes; `docs/reference/diagnostics.md` is the
 reference for their shape and their families.
 ]]
+module nupp.compiler.check
+
 const assert2 = require("assert")
 
 const {type Target} = require("nupp.compiler.analysis")

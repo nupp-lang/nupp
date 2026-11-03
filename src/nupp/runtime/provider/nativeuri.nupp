@@ -1,6 +1,4 @@
 @!internal
-module nupp.runtime.provider.nativeuri
-
 --[[
 Native URI parser for `host.uri` API 1.
 
@@ -14,6 +12,7 @@ with an FFI finalizer protecting interrupted extraction. Returned strings and
 records need no native cleanup. [](io) owns the public URI type and
 operations; provider selection does not create an alternative URI identity.
 ]]
+module nupp.runtime.provider.nativeuri
 
 local contracts = require("io.spi")
 const native = require("nupp.runtime.native")

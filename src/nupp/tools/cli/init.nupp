@@ -1,5 +1,3 @@
-module nupp.tools.cli
-
 --[[
 The command line: which commands exist, and what happens to an argument list.
 
@@ -14,6 +12,7 @@ malformed argument list, and never has to remember to check for `--help`.
 Command files require heavier compiler code inside `run`, so building the tree
 loads only their small declarations.
 ]]
+module nupp.tools.cli
 
 const terminal = require("io.cli")
 

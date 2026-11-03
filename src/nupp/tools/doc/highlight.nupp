@@ -1,5 +1,3 @@
-module nupp.tools.doc.highlight
-
 --[[
 Source code as coloured HTML.
 
@@ -28,6 +26,8 @@ a path no filesystem has, and the `loadfile` those lexers are found through is
 this module's rather than Lua's, which is all Scintillua's loader needs, since
 it looks a lexer up by asking `loadfile` for it and reading the answer.
 ]]
+module nupp.tools.doc.highlight
+
 const {type Links} = require("nupp.tools.doc.urls")
 const files = require("io.files")
 

@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.tools.build.parallelcheckprotocol
-
 --[[
 The versioned payload shared by the cold-check coordinator and its workers.
 
@@ -10,6 +8,7 @@ plain-data encoding. A host without it has no parallel checker: the coordinator
 plans a serial check rather than carrying a second encoding nothing would run.
 Framing belongs to the worker channel.
 ]]
+module nupp.tools.build.parallelcheckprotocol
 
 local hasBuffer, nativeBuffer = pcall(require, "string.buffer")
 

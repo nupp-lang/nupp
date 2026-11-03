@@ -1,5 +1,3 @@
-module nupp.compiler.compilerpacks
-
 --[[
 Resolving an installed, target-indexed native compiler pack.
 
@@ -9,6 +7,8 @@ runs one. `NUPP_COMPILER_PACK_DIR` points at the directory containing
 `<host>/<target>/pack.json`. A distribution may put the same tree beside its
 compiler and set that variable in its launcher.
 ]]
+module nupp.compiler.compilerpacks
+
 const {type Profile} = require("nupp.compiler.targetprofile")
 const json = require("nupp.serde.internal.json.values")
 

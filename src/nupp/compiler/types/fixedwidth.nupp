@@ -1,5 +1,3 @@
-module nupp.compiler.types.fixedwidth
-
 --[[
 The fixed-width vocabulary has two roles that must not be conflated.
 
@@ -9,6 +7,7 @@ the projection from a storage load to a value type, and the literal membership
 test used by the checker. It deliberately owns no flow state: establishment is
 a fact about one expression or binding, recorded by the checking run.
 ]]
+module nupp.compiler.types.fixedwidth
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")

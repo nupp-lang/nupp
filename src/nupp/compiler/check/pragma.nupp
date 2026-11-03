@@ -1,5 +1,3 @@
-module nupp.compiler.check.pragma
-
 --[[
 An annotation attached to a statement.
 
@@ -12,6 +10,7 @@ rest are validated and recorded for whatever reads them later.
 Nesting is allowed, so a statement may carry several, and the walk recurs
 through the chain to reach the declaration underneath.
 ]]
+module nupp.compiler.check.pragma
 
 local cst = require("nupp.compiler.syntax.cst")
 local generics = require("nupp.compiler.types.generics")

@@ -1,5 +1,3 @@
-module nupp.compiler.check.unused
-
 --[[
 Whether a `local` this file introduces is read anywhere.
 
@@ -28,6 +26,7 @@ free to correct. A name beginning with `_` says the binding is deliberate and
 the value is not wanted. See
 [lints.md](docs/reference/lints.md#unused-binding).
 ]]
+module nupp.compiler.check.unused
 
 local state = require("nupp.compiler.check.state")
 

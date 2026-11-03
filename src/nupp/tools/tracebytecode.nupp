@@ -1,5 +1,3 @@
-module nupp.tools.tracebytecode
-
 --[[
 Trace facts from the exact LuaJIT bytecode a generated module loaded as.
 
@@ -9,6 +7,7 @@ whether every repeatable path reaches the operation or only some do.  Keeping th
 axes separate is what lets a diagnostic say "this path aborts" without claiming that a
 different root trace cannot compile.
 ]]
+module nupp.tools.tracebytecode
 
 local trace = require("debug.profile.trace")
 local hash = require("nupp.compiler.hash")

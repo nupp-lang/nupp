@@ -1,5 +1,3 @@
-module binary.checksum
-
 --[[
 Numeric checksums, for noticing that bytes got corrupted.
 
@@ -45,6 +43,7 @@ loads. Its entries override the built-ins of the same name and may add others,
 and the ones it does not name stay available. The catalog is read once, at load,
 so no lookup or update resolves a service.
 ]]
+module binary.checksum
 
 local spi = require("nupp.runtime.packages")
 

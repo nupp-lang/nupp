@@ -1,10 +1,9 @@
 @!internal
 
-module nupp.runtime.native
-
 --[[
 The loader for the versioned Rust-native provider.
 ]]
+module nupp.runtime.native
 
 local ffi = require("ffi")
 

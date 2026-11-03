@@ -1,6 +1,4 @@
 @!internal
-module nupp.cli.internal.optparser
-
 --[[
 The syntax-only half of `io.cli`.
 
@@ -8,6 +6,7 @@ This parser knows how an argv word is shaped and, when the caller supplies an
 arity, whether the following word belongs to an option. It deliberately knows
 nothing about commands, field types, help, terminal policy, or process exits.
 ]]
+module nupp.cli.internal.optparser
 
 --- The kind of a classified argv word.
 export type TokenKind = "shortoption" | "longoption" | "argument" | "terminator"

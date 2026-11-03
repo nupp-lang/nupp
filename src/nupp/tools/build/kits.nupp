@@ -1,5 +1,3 @@
-module nupp.tools.build.kits
-
 --[[
 Link kits: what a standalone program with AOT code is linked against for one
 platform -- the runtime archive, stubs for the system libraries, and a
@@ -19,6 +17,7 @@ A kit is found, in order:
 
 Nothing is fetched until a build links for that platform.
 ]]
+module nupp.tools.build.kits
 
 local files = require("io.files")
 local fs = require("nupp.compiler.fs")

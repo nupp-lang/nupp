@@ -1,5 +1,3 @@
-module nupp.tools.cli.doc
-
 --[[
 `nupp doc`: the API documentation, generated from what the source already says.
 
@@ -7,6 +5,8 @@ What is produced is `--kind`, the same word `lsp artifact` uses, rather than a
 leading positional that a source path could be mistaken for. Everything else the
 manifest already configured; the options here override it for one run.
 ]]
+module nupp.tools.cli.doc
+
 const {type Config} = require("nupp.tools.build.manifest")
 const {type Target} = require("nupp.tools.build.manifest")
 

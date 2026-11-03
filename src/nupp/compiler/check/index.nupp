@@ -1,5 +1,3 @@
-module nupp.compiler.check.index
-
 --[[
 Reaching a field.
 
@@ -11,6 +9,7 @@ contract that says indexing means something else entirely.
 The safe forms `a?.b` and `a?.[k]` differ only in what a nil receiver means -- an
 answer of nil rather than a diagnostic -- so they are the same handler.
 ]]
+module nupp.compiler.check.index
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")

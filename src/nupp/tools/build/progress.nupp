@@ -1,5 +1,3 @@
-module nupp.tools.build.progress
-
 --[[
 What a build is doing while it does it, and where its time went afterwards.
 
@@ -25,6 +23,8 @@ terminal, because a build's output has been quiet on success for as long as
 there have been build scripts reading it, and `--quiet` and `NUPP_PROGRESS` are
 there to overrule the guess in either direction.
 ]]
+module nupp.tools.build.progress
+
 const terminal2 = require("io.cli")
 
 const terminal = require("io.cli")

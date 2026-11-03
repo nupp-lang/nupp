@@ -1,5 +1,3 @@
-module nupp.compiler.check.metatable
-
 --[[
 Checks what a metatable literal puts under its keys.
 
@@ -16,6 +14,7 @@ an ordinary field, so it keeps its name correction.
 Only literals. What a function returns cannot be seen from here, so a computed
 metatable stays gradual, which is what the documentation has always said.
 ]]
+module nupp.compiler.check.metatable
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")

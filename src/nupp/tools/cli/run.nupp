@@ -1,5 +1,3 @@
-module nupp.tools.cli.run
-
 --[[
 `nupp run`: compile a program and run it.
 
@@ -14,6 +12,8 @@ file has compiled and closes when it returns, so the work of getting there stays
 out of what is measured, and a program that fails still writes what was collected
 before it did.
 ]]
+module nupp.tools.cli.run
+
 const {type Session} = require("nupp.tools.cli.watch")
 
 local errors = require("nupp.tools.cli.error")

@@ -1,5 +1,3 @@
-module nupp.tools.doc.extract
-
 --[[
 Extracts one file's documented declarations from its CST.
 
@@ -7,6 +5,8 @@ Every question this asks is answered by the parse alone: what a declaration is
 called, what it is spelled like, which `---` run belongs to it. That is why
 documentation never invokes the checker.
 ]]
+module nupp.tools.doc.extract
+
 const {type LexError} = require("nupp.compiler.syntax.lexer")
 
 local cst = require("nupp.compiler.syntax.cst")
@@ -1683,37 +1683,12 @@ local function moduleName(path: string, root: string, includes: {string}?): stri
     return best
 end
 
--- A long comment at the top of a file, or immediately after its `module` declaration,
--- is its module documentation. It belongs to the file rather than to the declaration
--- that follows and survives as markdown untouched. An ordinary `--` header stays a
--- plain implementation note, and an explicit `@module` docblock still wins over both.
+-- A long comment above the module declaration is its documentation. Without a
+-- declared module, read the file header instead. Comments below a module belong
+-- to its contents; an explicit `@module` docblock still overrides the header.
 local function headerDoc(root, tokens)
-    local token = firstToken(root)
     local _, moduleNode = cst.declaredModule(root)
-    if moduleNode then
-        local following = nil
-        local found = false
-        for _, block in ipairs(root.blocks or {}) do
-            for index, stat in ipairs(block.stats or {}) do
-                if stat == moduleNode then
-                    following = block.stats[index + 1]
-                    found = true
-                    break
-                end
-            end
-            if found then
-                break
-            end
-        end
-        if following then
-            token = firstToken(following)
-        elseif found and tokens and #tokens > 0 then
-            -- A module that declares nothing still documents itself. Its header is the
-            -- last trivia in the file rather than the leading trivia of a statement
-            -- below it, so there is nothing under the module line to read it from.
-            token = tokens[#tokens]
-        end
-    end
+    local token = firstToken(moduleNode or root) or (tokens and tokens[#tokens])
     for index = 1, token and token.triviaCount or 0 do
         local text = lexer.triviaText(token, index)
         if lexer.triviaKind(token, index) ~= "comment" then

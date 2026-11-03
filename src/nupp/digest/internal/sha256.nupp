@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.digest.internal.sha256
-
 --[[
 SHA-256, written once, in Nupp.
 
@@ -31,6 +29,7 @@ holds the sixty-four schedule words, and the byte scratch is where the
 sixty-four hexadecimal digits are assembled before one copy publishes them as
 an ordinary Lua string.
 ]]
+module nupp.digest.internal.sha256
 
 local valuebuilder = require("serde.valuebuilder")
 

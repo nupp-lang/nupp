@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.nativetime
-
 --[[
 Native implementation of [](coroutine.spi).
 
@@ -18,6 +16,7 @@ waiting for its deadline. State and callbacks are local to one Lua state.
 The [](coroutine) facade retains these functions during module loading. Native
 clock support and [](coroutine.sus) must be available before it resolves.
 ]]
+module nupp.runtime.provider.nativetime
 
 local native = require("nupp.runtime.native")
 local suspension = require("nupp.suspension")

@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.io.net.spi
-
 --[[
 Implementation interface for network transports.
 
@@ -19,6 +17,7 @@ failures through the declared error result rather than disguising them as
 pending work. A TLS provider wrapping these streams must understand their handle
 representation; selection cannot make unrelated transport handles interoperable.
 ]]
+module nupp.io.net.spi
 
 local {type Address} = require("nupp.io.net.types")
 

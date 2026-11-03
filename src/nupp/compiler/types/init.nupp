@@ -1,5 +1,3 @@
-module nupp.compiler.types
-
 --[[
 Type representation, with content-addressed interning.
 
@@ -16,6 +14,7 @@ The recursion discipline follows from the keying: a structural type cannot be
 recursive, and recursion must pass through a nominal declaration, so building a
 key bottom-up never cycles.
 ]]
+module nupp.compiler.types
 
 local types = {}
 

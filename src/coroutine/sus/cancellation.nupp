@@ -1,5 +1,3 @@
-module coroutine.sus.cancellation
-
 --[[
 `coroutine.sus.cancellation` identifies cancellation within one Lua state.
 
@@ -22,6 +20,8 @@ without loading the facade, exactly as it loads [](coroutine.sus.spi).
 Worker states reconstruct cancellation values locally; no metatable or Lua
 object identity is transferred between states.
 ]]
+module coroutine.sus.cancellation
+
 local source1 = require("nupp.suspension.cancellation")
 export const create = source1.create
 export const is = source1.is

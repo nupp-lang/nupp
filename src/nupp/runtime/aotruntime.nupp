@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.aotruntime
-
 --[[
 The AOT runtime an LLVM-compiled Lua-builder module's registrar is handed.
 
@@ -10,6 +8,7 @@ declares that need where a build can see it: this module's native feature
 stages the provider the table lives in, which a registrar's own lookup, being
 native code, never could.
 ]]
+module nupp.runtime.aotruntime
 
 local native = require("nupp.runtime.native")
 

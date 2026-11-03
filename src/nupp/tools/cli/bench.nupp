@@ -1,5 +1,3 @@
-module nupp.tools.cli.bench
-
 --[[
 `nupp bench`: discover benchmark programs, isolate each named case, and merge
 their records.
@@ -8,6 +6,7 @@ The measured code still owns its loop through `debug.bench`. This command owns
 the process boundary around it: listing cases, selecting one per child, applying
 deadlines, comparing baselines, and retaining machine-readable history.
 ]]
+module nupp.tools.cli.bench
 
 local usageError = require("nupp.tools.cli.error").forCommand("bench")
 local cliModule = require("io.cli")

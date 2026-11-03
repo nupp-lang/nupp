@@ -1,5 +1,3 @@
-module nupp.tools.cli.aot
-
 --[[
 `nupp aot`: what an `@aot` function compiles to.
 
@@ -20,6 +18,8 @@ listing by kind so that two runs of the same kernel can be put side by side.
 With no `--emit`, one line per function reports scalar, explicit SIMD, or GPU
 execution.
 ]]
+module nupp.tools.cli.aot
+
 const {type Target} = require("nupp.compiler.aot.target")
 const {type Claim} = require("nupp.compiler.aot.instructions")
 const {type Listing} = require("nupp.compiler.aot.instructions")

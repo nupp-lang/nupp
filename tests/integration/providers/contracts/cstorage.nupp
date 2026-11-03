@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.tests.providers.cstorage
-
 --[[
 Byte-level vectors every physical storage family owes, run against the selected
 provider.
@@ -19,6 +17,7 @@ the table implementation -- descriptors from one and allocations from the other
 do not describe the same memory. [](nupp.tests.providers.structvalue) holds a
 struct provider to its own contract instead.
 ]]
+module nupp.tests.providers.cstorage
 
 local suite = {}
 

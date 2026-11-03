@@ -1,5 +1,3 @@
-module nupp.compiler.check.ffi
-
 --[[
 The calls that mean something to the compiler because they name a C type.
 
@@ -13,6 +11,7 @@ rewritten, while a spec built at run time yields cdata rather than any.
 that depends on what was passed rather than on what the callee was declared to
 return, and `cheader` reaches LuaJIT's own C parser to find out.
 ]]
+module nupp.compiler.check.ffi
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")

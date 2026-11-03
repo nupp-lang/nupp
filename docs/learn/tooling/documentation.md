@@ -62,17 +62,21 @@ independent of the host locale and of a native Unicode casing-table revision.
 
 Two forms document a file, and they are different.
 
-**A long comment at the very top of a file** is that file's module
-documentation, kept as Markdown. Only whitespace may precede it, and an
-ordinary `--` header does not count.
+**A long comment above the `module` declaration** documents that module,
+with its contents kept as Markdown. Put the block before any `---` tags
+attached to the module declaration:
 
 ```nupp
 --[[
-What this module is for.
-
-Prose here is rendered as Markdown.
+Shapes provide points in two dimensions.
 ]]
+module geom.shapes
 ```
+
+A file without a `module` declaration uses a long comment at the top of the
+file instead. Only whitespace may precede that header; an ordinary `--`
+comment does not count. Comments below a module declaration describe its
+contents, not the module.
 
 It is the same Markdown a page is written in, so headings, cross-references,
 admonitions and code groups all work, and its headings join the module page's

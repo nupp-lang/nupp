@@ -1,6 +1,4 @@
 @!internal
-module nupp.serde.internal.valuebuilder
-
 --[[
 Builds ordinary Lua values straight out of parsed bytes.
 
@@ -50,6 +48,8 @@ ordinary call.
 See [ahead-of-time.md](docs/learn/performance/ahead-of-time/index.md) for what
 generated code is allowed to do.
 ]]
+module nupp.serde.internal.valuebuilder
+
 const utf8 = require("utf8")
 const {type ByteSpan} = require("binary.span")
 

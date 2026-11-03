@@ -1,5 +1,3 @@
-module nupp.tools.build.stubs
-
 --[[
 Verified compiler-owned stub acquisition.
 
@@ -7,6 +5,7 @@ Phase 3 is intentionally local: an embedded or explicitly selected catalog
 authenticates bytes found in the project cache or NUPP_STUB_DIR. Network
 acquisition waits until the standalone compiler carries HTTP/TLS itself.
 ]]
+module nupp.tools.build.stubs
 
 local fs = require("nupp.compiler.fs")
 local hash = require("nupp.compiler.hash")

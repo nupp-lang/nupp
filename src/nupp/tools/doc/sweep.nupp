@@ -1,5 +1,3 @@
-module nupp.tools.doc.sweep
-
 --[[
 A tree of prose documents, published by being written.
 
@@ -12,6 +10,7 @@ A glob replaces the list. What a file's path cannot say, the file says in frontm
 `order` places it in the navigation, `title` names it when navigation should not call it
 what its heading does, and `redirects` carries the routes it used to answer at.
 ]]
+module nupp.tools.doc.sweep
 
 local filesMod = require("nupp.tools.doc.files")
 local frontmatterMod = require("nupp.tools.doc.frontmatter")

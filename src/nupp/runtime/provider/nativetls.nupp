@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.nativetls
-
 --[[
 Native TLS session implementation used as a built-in module fallback.
 
@@ -20,6 +18,7 @@ Session destruction releases TLS state and closes the owned stream. The
 public session controls that lifecycle through `destroy`. Requiring the facade
 fixes the implementation; individual TLS operations never perform SPI lookups.
 ]]
+module nupp.runtime.provider.nativetls
 
 local contract = require("io.net.spi")
 local ffi = require("ffi")

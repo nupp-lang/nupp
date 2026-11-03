@@ -1,5 +1,3 @@
-module nupp.tools.cli.check
-
 --[[
 `nupp check`: type-check without emitting anything.
 
@@ -18,6 +16,7 @@ A check run from a terminal says which module it is on and how far through the
 source set it is, on one line it rewrites in place. Nothing is written anywhere
 else, which is what keeps a scripted check as quiet as it has always been.
 ]]
+module nupp.tools.cli.check
 
 local usageError = require("nupp.tools.cli.error").forCommand("check")
 local cliModule = require("io.cli")

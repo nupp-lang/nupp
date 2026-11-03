@@ -1,5 +1,3 @@
-module nupp.tools.hotsession
-
 --[[
 Persistent compiler-side state for development hot reload.
 
@@ -7,6 +5,7 @@ The session deliberately owns the incremental query graph and advances its
 baseline only after the host acknowledges a runtime commit. Modules join that
 baseline lazily after their initial chunk has completed successfully.
 ]]
+module nupp.tools.hotsession
 
 local incremental = require("nupp.compiler.project.incremental")
 local diagnostics = require("nupp.compiler.diagnostics")

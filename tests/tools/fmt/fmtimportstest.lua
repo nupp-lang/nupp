@@ -147,9 +147,9 @@ end
 
 function M.keepsModuleDocumentationAheadOfImports()
     local output = userFormatted(
-        'module format\n\n--[[A documented module.]]\nexport function read(): (string?, string?)\nreturn app.files.read("a")\nend\n'
+        '--[[A documented module.]]\nmodule format\n\nexport function read(): (string?, string?)\nreturn app.files.read("a")\nend\n'
     )
-    assert(output:find('--[[A documented module.]]\nconst files', 1, true), output)
+    assert(output:find('--[[A documented module.]]\nmodule format\n\nconst files', 1, true), output)
     local documented = require("nupp.tools.doc.extract").extract(output, "format.nupp", "format")
     assert(documented.text == "A documented module.", documented.text)
 end

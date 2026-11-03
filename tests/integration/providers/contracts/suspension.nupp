@@ -1,7 +1,6 @@
 @!internal
-module nupp.tests.providers.suspension
-
 --[[Behavioral vectors shared by scheduler and event-loop adapters.]]
+module nupp.tests.providers.suspension
 
 local suite = {}
 

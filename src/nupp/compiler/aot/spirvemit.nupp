@@ -1,5 +1,3 @@
-module nupp.compiler.aot.spirvemit
-
 --[[
 Binary SPIR-V emission for the verified GPU scalar subset.
 
@@ -7,6 +5,7 @@ This module deliberately does not pass through a text shader language. It
 serializes the scalar IR's already-proved storage accesses and structured
 control flow into a compute module consumed directly by native WGPU.
 ]]
+module nupp.compiler.aot.spirvemit
 
 local scalarIR = require("nupp.compiler.aot.scalar")
 

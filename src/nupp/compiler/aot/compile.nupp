@@ -1,10 +1,9 @@
-module nupp.compiler.aot.compile
-
 --[[
 Compiling one `@aot` function, end to end. The source is lowered, verified,
 and emitted; LLVM does the optimizing. Explicit vector values are legalized for
 the selected target before emission.
 ]]
+module nupp.compiler.aot.compile
 
 local bindingRules = require("nupp.compiler.aot.binding")
 local hash = require("nupp.compiler.hash")

@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.workers.spi
-
 --[[
 Shared interfaces for structured worker implementations.
 
@@ -32,6 +30,8 @@ suspension implementation and must not discover implementations during settlemen
 Each lane uses the artifact's immutable SPI index and loads independent module
 instances. Provider objects and Lua closures are never transferred between lanes.
 ]]
+module nupp.workers.spi
+
 const types = require("types")
 
 --- What may actually be submitted: a module member, or an outlined literal whose

@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.browser.crypto
-
 --[[
 Browser Web Crypto supplies [](os.randombytes) and UUID generation.
 
@@ -18,6 +16,7 @@ The entropy and UUID services retain this module during initialization. Its
 values satisfy the interfaces in [](package.nupp) and [](package.nupp); no
 JavaScript function or provider instance is copied into a child Lua state.
 ]]
+module nupp.runtime.browser.crypto
 
 local binary = require("binary")
 local contracts = package.nupp

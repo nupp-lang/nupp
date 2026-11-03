@@ -1,11 +1,10 @@
 @!internal
 
-module nupp.runtime.uuidprovider
-
 --[[UUID operations come from one provider selected when this module loads.
 
 External implementations advertise the interface in [](package.nupp).
 Public utilities use the same retained functions.]]
+module nupp.runtime.uuidprovider
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")

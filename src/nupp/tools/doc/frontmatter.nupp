@@ -1,5 +1,3 @@
-module nupp.tools.doc.frontmatter
-
 --[[
 The `key: value` block a markdown document may open with.
 
@@ -12,6 +10,7 @@ The block is read as flat `key: value` lines rather than as YAML. Nothing here n
 nesting, and a parser that accepted it would be a second, worse YAML in a compiler that
 has no business carrying one.
 ]]
+module nupp.tools.doc.frontmatter
 
 --- The fields a document opened with, and the body below them.
 ---

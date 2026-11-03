@@ -550,8 +550,10 @@ local function openSession(id: uint64): affine(Session, closeSession)
 - `@raises <Type> [text]` says what it raises and what brings that about, one
   line per raise; the type is the value `error` is called with, and a name that
   resolves to nothing is `NUPP1010`.
-- Module blurbs, the `--[[ ]]` block at the top of a file, open with what the
+- Module blurbs use a `--[[ ]]` block immediately above the `module` declaration,
+  before any `---` tags attached to that declaration. They open with what the
   module is for, in one sentence, and link the page that owns the concept.
+  A file without a `module` declaration puts its blurb at the top of the file.
 
 ## Mechanics
 

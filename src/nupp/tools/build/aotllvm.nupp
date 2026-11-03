@@ -1,10 +1,9 @@
-module nupp.tools.build.aotllvm
-
 --[[
 The AOT build's code generator: emitting a unit as LLVM IR, compiling it in
 process, and linking the objects with lld. A build that needs it on a `nupp`
 built without it is refused.
 ]]
+module nupp.tools.build.aotllvm
 
 local codegen = require("nupp.compiler.aot.llvm.codegen")
 local facts = require("nupp.compiler.aot.llvm.facts")

@@ -106,8 +106,8 @@ end
 function M.moduleHeaderSeparation()
     testAssert.eq(fmt1("module sample\nlocal value=1"), "module sample\n\nlocal value = 1\n")
     testAssert.eq(
-        fmt1("module sample\n--[[Module documentation.]]\nexport const value:integer=1"),
-        "module sample\n\n--[[Module documentation.]]\nexport const value: integer = 1\n"
+        fmt1("--[[Module documentation.]]\nmodule sample\nexport const value:integer=1"),
+        "--[[Module documentation.]]\nmodule sample\n\nexport const value: integer = 1\n"
     )
     testAssert.eq(
         fmt1('module sample -- header\nconst dependency=require("dependency")'),

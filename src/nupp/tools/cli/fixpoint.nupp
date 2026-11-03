@@ -1,5 +1,3 @@
-module nupp.tools.cli.fixpoint
-
 --[[
 `nupp fixpoint`: the claim that the compiler reproduces itself.
 
@@ -9,6 +7,7 @@ two results must agree. `--binary` is about packaging: the stamped binary must
 stamp another identical to itself, which is what the payload format's
 determinism rests on.
 ]]
+module nupp.tools.cli.fixpoint
 
 local usageError = require("nupp.tools.cli.error").forCommand("fixpoint")
 local cliModule = require("io.cli")

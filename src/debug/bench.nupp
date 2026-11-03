@@ -1,5 +1,3 @@
-module debug.bench
-
 --[[
 `debug.bench` measures code from inside an ordinary program.
 A benchmark links this module, runs under `nupp run`, and reports its own cases:
@@ -27,6 +25,7 @@ is discarded and a run that did not raise exits zero. It writes the record
 first, so a case that trips the gate is still a case whose record the runner can
 merge.
 ]]
+module debug.bench
 
 local json = require("serde.json")
 local profile = require("debug.profile")

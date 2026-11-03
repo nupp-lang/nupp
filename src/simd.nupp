@@ -1,5 +1,3 @@
-module simd
-
 --[[
 `simd` runs explicit vector operations over typed spans.
 
@@ -43,6 +41,8 @@ See
 [simd-programming.md](docs/learn/performance/ahead-of-time/simd-programming.md)
 for the complete SIMD contract.
 ]]
+module simd
+
 const types = require("types")
 
 const {type Span, type WriteSpan} = require("binary.span")

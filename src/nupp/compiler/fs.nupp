@@ -1,5 +1,3 @@
-module nupp.compiler.fs
-
 --[[
 Filesystem operations shared by the compiler and its tools.
 
@@ -13,6 +11,8 @@ its native filesystem provider. Whole-file reads and writes stay on `io.open`
 because the provider's transfer lane would add a worker handoff to every small
 compiler file.
 ]]
+module nupp.compiler.fs
+
 const files2 = require("io.files")
 const path2 = require("io.internal.path")
 

@@ -1,5 +1,3 @@
-module nupp.util.internal.pool
-
 --[[
 A pool of record instances of one declared type.
 
@@ -29,6 +27,7 @@ Nothing here reaches C storage: the pool is ordinary tables, so it is available
 on every backend, which is why it sits here rather than beside the views in
 [](nupp.mem). Struct rows are [](nupp.mem.arena).
 ]]
+module nupp.util.internal.pool
 
 --- A pool of instances stamped with a record declaration.
 --- @export

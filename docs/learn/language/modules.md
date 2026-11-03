@@ -8,6 +8,9 @@ A declared module is one real source file and one real Lua module. The first
 declaration gives its canonical name, and `export` defines its public surface:
 
 ```nupp
+--[[
+Shapes provide points in two dimensions.
+]]
 module geom.shapes
 
 local type Coordinate = number
@@ -23,6 +26,9 @@ export function origin(): Point
     return new Point(x = 0, y = 0)
 end
 ```
+
+Module documentation goes above the `module` declaration. See
+[documentation.md](../tooling/documentation.md#doc-comments) for comment forms.
 
 The file has its own private lexical scope. It does not create a global `geom`,
 share locals with another file, or need a companion declaration file. There is

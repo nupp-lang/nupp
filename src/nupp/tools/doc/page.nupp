@@ -1,10 +1,10 @@
-module nupp.tools.doc.page
-
 --[[
 The chrome around a page: the module tree in the sidebar, the outline on the
 right, the breadcrumbs, the previous and next links, the hero on the home page,
 and the shell that holds them. What goes in the middle is somebody else's answer.
 ]]
+module nupp.tools.doc.page
+
 const {type Module} = require("nupp.tools.doc.extract")
 const {type Navigation} = require("nupp.tools.doc.stdlib")
 

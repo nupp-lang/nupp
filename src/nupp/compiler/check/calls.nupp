@@ -1,5 +1,3 @@
-module nupp.compiler.check.calls
-
 --[[
 Reaching a member, and checking a call against it.
 
@@ -10,6 +8,7 @@ checked, its generics instantiated, and its ownership transferred.
 Construction goes through here too, because `R{...}` is written as a call and
 the difference is only what the callee turns out to be.
 ]]
+module nupp.compiler.check.calls
 
 local T = require("nupp.compiler.types")
 local lexer = require("nupp.compiler.syntax.lexer")

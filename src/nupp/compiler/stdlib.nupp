@@ -1,11 +1,10 @@
-module nupp.compiler.stdlib
-
 --[[
 Runtime installers for compiler-provided standard facilities.
 
 They are kept as readable Lua here and compacted to one physical output line so
 prepending one never moves an application's source positions.
 ]]
+module nupp.compiler.stdlib
 
 local function compact(source: string): string
     return (source:gsub("[\r\n]+%s*", " "):gsub("%s+$", ""))

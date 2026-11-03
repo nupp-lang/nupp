@@ -1,5 +1,3 @@
-module nupp.tools.cli.test
-
 --[[
 `nupp test`: build, then run the bundled runner or the project's test command,
 optionally against a separate instrumented coverage build.
@@ -9,6 +7,7 @@ name is appended to `test.argv` from nupp.lua and belongs to the program that
 ends up running. Colour is the exception: it governs both the build this command
 performs and the configured runner, so it is read here and still passed along.
 ]]
+module nupp.tools.cli.test
 
 const terminal2 = require("io.cli")
 

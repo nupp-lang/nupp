@@ -1,6 +1,4 @@
 @!internal
-module nupp.digest.internal.builtin
-
 --[[Built-in incremental digest and keyed-state factories.
 
 The catalog adapter uses lookup and names to publish MD5, SHA-1, SHA-256, and
@@ -12,6 +10,7 @@ facade owns output allocation and consuming cleanup; these states write into
 the supplied destination. This module performs no SPI selection during
 operations.
 ]]
+module nupp.digest.internal.builtin
 
 const provider = require("binary.digest.spi")
 const streaming = require("nupp.digest.internal.streaming")

@@ -1,5 +1,3 @@
-module nupp.tools.bytecodecache
-
 --[[
 Compiled modules kept a second time, as bytecode.
 
@@ -28,6 +26,7 @@ a file at a path the build already knows, so the name is written in and a
 traceback out of a cached module reads exactly as one out of the source does --
 which is the point, since this is the compiler developers run.
 ]]
+module nupp.tools.bytecodecache
 
 -- Both halves of the format, kept together because they are one agreement. The
 -- version leads so that a reader of a later one stops at the first line.

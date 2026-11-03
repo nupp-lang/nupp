@@ -1,5 +1,3 @@
-module nupp.compiler.check.bindings
-
 --[[
 What a name is bound to, and what a write does to it.
 
@@ -11,6 +9,7 @@ operator and the assignment together.
 A write is also the thing that invalidates a narrowing, and, when the target is
 the module's own table, what publishes a member of it.
 ]]
+module nupp.compiler.check.bindings
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")

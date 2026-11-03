@@ -1,5 +1,3 @@
-module nupp.mem.sharedbytes
-
 --[[
 Shared-byte regions retain immutable engine-owned storage.
 They require the Nupp engine host supplied by a stamped binary.
@@ -39,6 +37,7 @@ builder:append("!")
 assert(builder:freeze():tostring() == "ABCDE!")
 ```
 ]]
+module nupp.mem.sharedbytes
 
 local span = require("binary.span")
 local spanImplementation = require("nupp.mem.span")

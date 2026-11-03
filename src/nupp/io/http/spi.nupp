@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.io.http.spi
-
 --[[
 Shared interfaces for HTTP implementations.
 
@@ -21,6 +19,7 @@ protocol observability. Unsupported options must follow the public HTTP API's
 error behavior. The facade selects the implementation at require-time; clients
 and resource methods retain direct provider operations.
 ]]
+module nupp.io.http.spi
 
 local {type Version, type Request, type Options, type Capabilities} = require("nupp.io.http.messages")
 local {type URI} = require("io.internal.uri")

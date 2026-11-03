@@ -1,5 +1,3 @@
-module utf8bench
-
 --[[
 UTF-8 validation as an `@aot` entry, beside the ordinary Nupp it would replace.
 
@@ -17,6 +15,7 @@ is not established as a fixed width, so the generated binding fails its own
 check. Every `@aot` entry in the tree today returns `any` or a Lua value, so
 nothing else has met this.
 ]]
+module utf8bench
 
 local valuebuilder = require("serde.valuebuilder")
 

@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.nativeprocess
-
 --[[The native process provider adapts the host ABI to `io.Process.Provider`.
 
 Loading requires the native process feature. Spawn translates the shared
@@ -20,6 +18,7 @@ The `io.popen` facade resolves this table once. Closing streams and
 reaping the child remain distinct operations. Cleanup releases every native
 handle even when a process is killed or a caller stops reading its output.
 ]]
+module nupp.runtime.provider.nativeprocess
 
 local contract = require("io.internal.process.spi")
 local shared = require("io.internal.process.types")

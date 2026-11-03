@@ -1,5 +1,3 @@
-module coroutine.workers
-
 --[[
 `coroutine.workers` runs functions in isolated Lua states on worker threads.
 A coroutine scope owns submitted work until every child settles.
@@ -40,5 +38,7 @@ own. `nupp reference --section
 sendable-callables` is the whole rule, and
 [workers.md](docs/learn/runtime/concurrency/workers.md) is the guide.
 ]]
+module coroutine.workers
+
 local source1 = require("nupp.workers")
 export type Submittable = source1.Submittable

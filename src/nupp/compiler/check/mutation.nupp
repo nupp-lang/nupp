@@ -1,5 +1,3 @@
-module nupp.compiler.check.mutation
-
 --[[
 What the functions a file declares may write to, read from the source alone.
 
@@ -23,6 +21,7 @@ at: `.kind` for `s.kind = v`, `.items*` for `s.items[i] = v`, where the star say
 anything beneath may have changed, and `*` alone for `s[k] = v`. The empty path
 is the binding itself, which only a captured name can be rebound by.
 ]]
+module nupp.compiler.check.mutation
 
 local cst = require("nupp.compiler.syntax.cst")
 

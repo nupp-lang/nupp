@@ -1,6 +1,4 @@
 @!internal
-module nupp.runtime.provider.nativefiles
-
 --[[
 `io.files` reads what the filesystem knows about a name: whether it
 resolves, what it refers to, what a directory contains, and where the platform
@@ -291,6 +289,7 @@ Scheduling a transfer costs more than those cost to run.
   scheduler, and how several compose
 :::
 ]]
+module nupp.runtime.provider.nativefiles
 
 ----------------------------------------------------------------------------
 -- The native binding

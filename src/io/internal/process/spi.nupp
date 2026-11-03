@@ -1,7 +1,5 @@
 @!internal
 
-module io.internal.process.spi
-
 --[[
 Implementation interface for process transports.
 
@@ -20,6 +18,7 @@ closed pipe. waitReady services the requested read/write interests and child
 completion for a bounded interval; now supplies its monotonic millisecond clock.
 Process cleanup must remain valid after cancellation, kill, and partial spawn.
 ]]
+module io.internal.process.spi
 
 local {type Options, type Exit, type Interest} = require("io.internal.process.types")
 

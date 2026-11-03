@@ -1,11 +1,10 @@
 @!internal
-module nupp.checksum.internal.builtin
-
 --[[Built-in Adler-32 and crc-fast algorithm descriptors.
 
 Each descriptor creates independent state. CRC updates borrow byte spans through
 crc-fast without retaining them; value reads the saved non-consuming snapshot.
 ]]
+module nupp.checksum.internal.builtin
 
 const provider = require("binary.checksum.spi")
 const span = require("binary.span")

@@ -1,5 +1,3 @@
-module binary.compress.spi
-
 --[[Implementation interfaces for compression stream catalogs.
 
 Providers expose retained format descriptors. A descriptor creates independent
@@ -14,6 +12,7 @@ Each format name agrees with its catalog key. Selected formats replace native
 formats with the same names and may add others. Discovery order never selects a
 provider.
 ]]
+module binary.compress.spi
 
 local {type ByteSpan, type ByteWriteSpan} = require("binary.span")
 

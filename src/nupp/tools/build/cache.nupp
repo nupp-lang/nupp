@@ -1,5 +1,3 @@
-module nupp.tools.build.cache
-
 --[[
 The build state, on disk.
 
@@ -14,6 +12,7 @@ which is what the canonical encoding here is for: a table's keys are visited in
 sorted order, so two runs that disagree about `pairs` order still agree about
 the digest.
 ]]
+module nupp.tools.build.cache
 
 local hash = require("nupp.compiler.hash")
 local json = require("serde.json")

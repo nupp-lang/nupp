@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.workers
-
 --[[
 Native structured-worker implementation used as a built-in module fallback.
 
@@ -18,6 +16,7 @@ identity, and scheduler operations retain their provider without SPI dispatch.
 Workers load the same immutable artifact and its SPI index in fresh Lua states.
 Each consumer chooses during initialization; provider state remains in its lane.
 ]]
+module nupp.runtime.provider.workers
 
 const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 

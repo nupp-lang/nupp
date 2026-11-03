@@ -1,5 +1,3 @@
-module nupp.compiler.aot.verify
-
 --[[
 What makes AOT IR well formed.
 
@@ -30,6 +28,7 @@ is checked against the species its arguments name rather than against a list of
 every width the backend knows. That is what keeps a binary64 value out of a
 32-bit vector that would change its results.
 ]]
+module nupp.compiler.aot.verify
 
 local admit = require("nupp.compiler.aot.admit")
 local reducers = require("nupp.compiler.aot.reducers")

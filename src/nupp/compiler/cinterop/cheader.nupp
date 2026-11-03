@@ -1,5 +1,3 @@
-module nupp.compiler.cinterop.cheader
-
 --[[
 Typing a C header at compile time, with no import step.
 
@@ -16,6 +14,7 @@ can pick its branch, so one is refused unless C itself settles it. Headers that
 pull in a system include closure, or branch, need `cc -E` first, which the caller
 asks for explicitly.
 ]]
+module nupp.compiler.cinterop.cheader
 
 local T = require("nupp.compiler.types")
 local cdecl = require("nupp.compiler.cinterop.cdecl")

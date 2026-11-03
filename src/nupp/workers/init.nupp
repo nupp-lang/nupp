@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.workers
-
 --[[
 Runs functions in parallel, on real threads.
 
@@ -42,6 +40,7 @@ reaches; it has no scope of its own. `nupp reference --section
 sendable-callables` is the whole rule, and
 [workers.md](docs/learn/runtime/concurrency/workers.md) is the guide.
 ]]
+module nupp.workers
 
 local contracts = require("nupp.workers.spi")
 local target = require("nupp.runtime.target")

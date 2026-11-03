@@ -1,5 +1,3 @@
-module nupp.compiler.aot.llvm.builder
-
 --[[
 Assembling LLVM IR text.
 
@@ -13,6 +11,7 @@ would reject.
 
 The builder knows LLVM's syntax and nothing about Nupp.
 ]]
+module nupp.compiler.aot.llvm.builder
 
 local text = require("nupp.compiler.aot.llvm.text")
 

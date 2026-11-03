@@ -1,5 +1,3 @@
-module nupp.tools.doc.collection
-
 --[[
 A directory of prose documents, rendered as one navigation section under a generated
 index.
@@ -15,6 +13,7 @@ Each document opens with a frontmatter block of `key: value` lines. `title` and
 is generated from those fields, so a status changed in the document it describes is
 changed everywhere it is shown.
 ]]
+module nupp.tools.doc.collection
 
 local filesMod = require("nupp.tools.doc.files")
 local frontmatterMod = require("nupp.tools.doc.frontmatter")

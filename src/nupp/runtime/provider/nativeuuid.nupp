@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.nativeuuid
-
 --[[
 Native implementation of [](package.nupp).
 
@@ -15,6 +13,7 @@ uses temporary output storage, copies the result into a Lua string, and leaves
 no owned native handle with the caller. Provider selection is state-local; UUID
 randomness is supplied by the operating system rather than Lua's random seed.
 ]]
+module nupp.runtime.provider.nativeuuid
 
 const native = require("nupp.runtime.native")
 

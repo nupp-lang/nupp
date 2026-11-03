@@ -1,5 +1,3 @@
-module nupp.compiler.aot.llvm.simd.reduce
-
 --[[
 Folding a vector's lanes: mask queries, prefix scans and horizontal reductions.
 
@@ -11,6 +9,7 @@ joined, its dot fused. None of them is `reassoc`, which would let LLVM pick the
 tree. Extremes return the same whatever the order; their `arg` forms keep the
 lowest lane among equals under the zero-sign and NaN rules.
 ]]
+module nupp.compiler.aot.llvm.simd.reduce
 
 local context = require("nupp.compiler.aot.llvm.context")
 local expressions = require("nupp.compiler.aot.llvm.expressions")

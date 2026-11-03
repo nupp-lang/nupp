@@ -1,5 +1,3 @@
-module package.nupp
-
 --[[
 `package.nupp` declares service-provider contracts for host facilities.
 Packages advertise implementations through `package.providers`; consumers select
@@ -15,6 +13,7 @@ Importing these declarations selects no provider. Each consumer retains its own
 selection and fallback policy. Omitted priorities are zero, and the unique
 highest priority wins where a consumer uses `package.select`.
 ]]
+module package.nupp
 
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 

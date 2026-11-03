@@ -1,10 +1,9 @@
-module nupp.compiler.types.indexedviews
-
 --[[
 The sealed standard indexed-view families, described once for checking, proofs and
 generation. Source metamethod names type the operators; this descriptor is the
 stronger compiler-owned fact connecting length, indexing and physical storage.
 ]]
+module nupp.compiler.types.indexedviews
 
 local T = require("nupp.compiler.types")
 

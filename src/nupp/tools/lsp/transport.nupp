@@ -1,5 +1,3 @@
-module nupp.tools.lsp.transport
-
 --[[
 The server's side of the stdio framing, apart from the pipe it reads.
 
@@ -15,6 +13,7 @@ decodes to something that is not a request, is answered with the protocol's
 error for it rather than ending the session; a frame larger than `MAX_FRAME` is
 the one thing that does end it, because the only way to skip one is to read it.
 ]]
+module nupp.tools.lsp.transport
 
 local json = require("serde.json")
 

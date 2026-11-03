@@ -1,5 +1,3 @@
-module nupp.compiler.syntax.parser
-
 --[[
 The error-tolerant recursive-descent parser.
 
@@ -14,6 +12,7 @@ missing tokens, and parsing continues to the end of the file.
 
 The grammar is `docs/grammar.abnf`, whose level 0 is the untyped LuaJIT 3.0 base.
 ]]
+module nupp.compiler.syntax.parser
 
 local lexer = require("nupp.compiler.syntax.lexer")
 local cst = require("nupp.compiler.syntax.cst")

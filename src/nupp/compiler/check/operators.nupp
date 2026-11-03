@@ -1,5 +1,3 @@
-module nupp.compiler.check.operators
-
 --[[
 Which operators are which, and what they dispatch to.
 
@@ -8,6 +6,7 @@ follow LuaJIT's primitive families rather than the grammar's precedence levels,
 because what matters here is which operands an operator accepts, not how tightly
 it binds.
 ]]
+module nupp.compiler.check.operators
 
 local apiidentity = require("nupp.compiler.apiidentity")
 

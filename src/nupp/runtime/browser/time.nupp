@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.browser.time
-
 --[[
 Browser implementation of [](coroutine.spi).
 
@@ -17,6 +15,7 @@ computes the remaining interval using the same monotonic clock.
 [](coroutine) binds these operations at require-time. Timer handles and callbacks
 belong to the current browser state and are not carried into worker lanes.
 ]]
+module nupp.runtime.browser.time
 
 local response = require("nupp.runtime.browser.response")
 local contracts = package.nupp

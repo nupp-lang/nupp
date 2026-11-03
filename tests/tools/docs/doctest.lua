@@ -74,6 +74,45 @@ local function renderMarkdownItem(out, item)
     )
 end
 
+function M.moduleDocumentationPrecedesItsDeclaration()
+    for _, source in ipairs({
+        "--[[Module description.]]\nmodule example\n",
+        "--[=[Module description.]=]\nmodule example\nexport const value = 1\n",
+        "@!internal\n\n--[[Module description.]]\nmodule example\nexport const value = 1\n",
+        "--[[Module description.]]\nmodule example\n--- A value.\nexport const value = 1\n",
+    }) do
+        local module, errors = doc.extract(source, "src/example.nupp", "example", {includePrivate = true})
+        assert(module, errors and errors[1] and errors[1].msg)
+        assert(#errors == 0)
+        assert(module.text == "Module description.", module.text)
+    end
+end
+
+function M.moduleDocumentationKeepsNamespaceTagsAttached()
+    local source = "@!internal\n\n--[[Public description.]]\n--- @namespace public\n"
+        .. "module implementation\nexport function value(): integer return 1 end\n"
+    local module, errors, projections = doc.extract(source, "src/implementation.nupp", "implementation")
+    assert(module, errors and errors[1] and errors[1].msg)
+    assert(#errors == 0)
+    assert(module.text == "Public description.", module.text)
+    assert(projections and #projections == 1)
+    assert(projections[1].name == "public")
+    assert(projections[1].text == "Public description.", projections[1].text)
+end
+
+function M.moduleDocumentationDoesNotConsumeFollowingComments()
+    -- This deliberately misplaced block is an implementation comment.
+    local source = "module example\n" .. "--[[Implementation note.]]\nexport const value = 1\n"
+    local module = assert(doc.extract(source, "src/example.nupp", "example"))
+    assert(module.text == "", module.text)
+    module = assert(doc.extract("-- Ordinary header.\nmodule example\n", "src/example.nupp", "example"))
+    assert(module.text == "", module.text)
+    module = assert(doc.extract("--[[Undeclared module.]]\nlocal value = 1\n", "src/example.nupp", "example"))
+    assert(module.text == "Undeclared module.", module.text)
+    module = assert(doc.extract("--[[Empty module.]]\n", "src/example.nupp", "example"))
+    assert(module.text == "Empty module.", module.text)
+end
+
 function M.apiOverviewUsesBalancedColumnsAndKindBadges()
     local markdown = require("nupp.tools.doc.markdown")
     local html = require("nupp.tools.doc.html")

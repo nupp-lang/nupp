@@ -1,5 +1,3 @@
-module nupp.tools.reference
-
 --[[
 This module is the whole `nupp reference` document, small enough to hand to a
 reader that cannot look anything up.
@@ -21,6 +19,7 @@ a lint added without a line here still appears. Every `example` is compiled by
 `tests/tools/docs/referencetest.lua`, and every code cited is required to resolve, so a
 construct cannot quietly stop working the way this says it does.
 ]]
+module nupp.tools.reference
 
 local lints = require("nupp.compiler.lints")
 local explain = require("nupp.tools.explain")

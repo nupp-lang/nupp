@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.mem.indexed
-
 --[[
 One inclusive range, checked once against every view a loop is about to index.
 
@@ -26,6 +24,7 @@ implementation carries.
 See [](binary.span) for the views this validates, and
 [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the borrow rules they are written against.
 ]]
+module nupp.mem.indexed
 
 --- Inclusive integer bounds validated once against every supplied indexed view.
 --- @export

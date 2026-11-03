@@ -1,5 +1,3 @@
-module nupp.tools.doc
-
 --[[
 Fast, CST-native API documentation.
 
@@ -10,6 +8,8 @@ checker would add work without improving the rendered API.
 A long comment at the very top of a file, this one included, is that file's module
 documentation, and is rendered as markdown.
 ]]
+module nupp.tools.doc
+
 const {type LexError} = require("nupp.compiler.syntax.lexer")
 const {type Module} = require("nupp.tools.doc.extract")
 const {type Page as Page2} = require("nupp.tools.doc.urls")

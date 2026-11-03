@@ -1,5 +1,3 @@
-module nupp.compiler.check.resolve
-
 --[[
 The type an annotation names.
 
@@ -13,6 +11,7 @@ because the useful thing to say is rarely "unknown type": it is that the name
 belongs to a module this file has not required, or that a declaration of it
 exists but is not visible here.
 ]]
+module nupp.compiler.check.resolve
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")

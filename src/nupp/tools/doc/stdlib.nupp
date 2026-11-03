@@ -1,5 +1,3 @@
-module nupp.tools.doc.stdlib
-
 --[[
 Extracts LuaJIT declarations into module documentation and a library index.
 
@@ -7,6 +5,7 @@ The module pages combine the compiler's builtin declarations with the APIs
 implemented in Nupp. The index keeps globals, intrinsic types, and links to
 those shared pages.
 ]]
+module nupp.tools.doc.stdlib
 
 local bundledMod = require("nupp.compiler.bundled")
 local extractMod = require("nupp.tools.doc.extract")

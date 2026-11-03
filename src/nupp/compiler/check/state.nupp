@@ -1,5 +1,3 @@
-module nupp.compiler.check.state
-
 --[[
 What one run of the checker carries, named where every pass can reach it.
 
@@ -13,6 +11,8 @@ Nothing is installed or constructed here. This is the shape the walk fills in
 and the passes read, so it says what a field is for rather than what to do with
 it. The walk itself is in nupp.compiler.check.
 ]]
+module nupp.compiler.check.state
+
 const {type AssociatedLookup} = require("nupp.compiler.types")
 
 local T = require("nupp.compiler.types")

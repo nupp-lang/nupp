@@ -1,8 +1,8 @@
-module nupp.tools.doc.api
-
 --[[
 Shared classification and signature formatting for generated API Markdown.
 ]]
+module nupp.tools.doc.api
+
 local extractMod = require("nupp.tools.doc.extract")
 
 local api = {}

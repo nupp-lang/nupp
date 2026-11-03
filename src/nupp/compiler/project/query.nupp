@@ -1,5 +1,3 @@
-module nupp.compiler.project.query
-
 --[[
 The incremental computation core.
 
@@ -16,6 +14,7 @@ interface is the interface-hash comparison, for free.
 A cycle resolves to nil for the re-entrant edge, which is how a `require` cycle
 between modules terminates.
 ]]
+module nupp.compiler.project.query
 
 --- A query a computation depended on, recorded while it ran.
 export type Dep = {

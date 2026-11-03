@@ -1,8 +1,7 @@
 @!internal
 
-module io.net.internal.tls
-
 --[[Private TLS transport implementation for `io.net`.]]
+module io.net.internal.tls
 
 const assert2 = require("assert")
 

@@ -1,5 +1,3 @@
-module binary.digest.spi
-
 --[[Implementation interfaces for `binary.digest` algorithm catalogs.
 
 The facade chooses the unique highest priority during module initialization.
@@ -20,6 +18,8 @@ The facade closes state on successful or failed finalization. Standard digest
 names retain their standard output sizes. MD5 and SHA-1 support interoperability;
 applications requiring collision resistance must choose an appropriate digest.
 ]]
+module binary.digest.spi
+
 local {type ByteSpan, type ByteWriteSpan} = require("binary.span")
 
 --- Independent incremental state; close consumes its ownership without suspension.

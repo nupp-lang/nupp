@@ -1,5 +1,3 @@
-module nupp.tools.version
-
 --[[
 What this compiler calls itself.
 
@@ -16,6 +14,7 @@ worth more than a number that looks official in a bug report.
 Nothing here loads anything, so `nupp --version` returns without the compiler
 behind it -- which is also what makes it usable to check that an install works.
 ]]
+module nupp.tools.version
 
 --- The release this source is, without a leading "v"; the tag adds one.
 export const VERSION = "0.0.14-dev"

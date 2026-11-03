@@ -1,5 +1,3 @@
-module types.derive
-
 --[[
 `types.derive` provides closed recipes for checked derive providers.
 Providers inspect a declaration and return forwarding recipes for its members.
@@ -12,6 +10,7 @@ end
 
 See [derives.md](docs/reference/derives.md) for provider contracts.
 ]]
+module types.derive
 
 export type Provider = types.derive.Provider
 export type EventOptions = types.derive.EventOptions

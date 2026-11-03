@@ -1,5 +1,3 @@
-module nupp.compiler.aot.text
-
 --[[
 The readable form of an AOT program.
 
@@ -10,6 +8,7 @@ the machine code under it. It is the one place the whole program appears at once
 -- the signature, what ownership proved, and explicit vector operations.
 
 ]]
+module nupp.compiler.aot.text
 
 local relations = require("nupp.compiler.aot.relations")
 local scalarIR = require("nupp.compiler.aot.scalar")

@@ -1,5 +1,3 @@
-module serde.json
-
 --[==[
 JSON encoding supports typed [](serde.Binding) values and ordinary tables.
 Use [](encode) and [](decode) for bindings, or [](encodevalue) and
@@ -117,6 +115,7 @@ Both return a value that `write` appends without another walk or validation.
 string-only form accepted by both `key` and `write`; these handles are interned,
 so repeated schema keys share their encoded representation.
 ]==]
+module serde.json
 
 local core = require("nupp.serde.internal.value")
 local publication = require("nupp.serde.internal.publication")

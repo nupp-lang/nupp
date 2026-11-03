@@ -1,5 +1,3 @@
-module nupp.compiler.check.narrow
-
 --[[
 What a condition proves, and where it holds.
 
@@ -13,6 +11,7 @@ A reference is narrowable when it has a key: a plain name, or a chain of field
 accesses rooted at one. Anything computed has no key, since the checker cannot
 tell two evaluations of it apart.
 ]]
+module nupp.compiler.check.narrow
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")

@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.tablebuffer
-
 --[[
 Portable FIFO buffer implementation for `text.buffer` API 1.
 
@@ -19,6 +17,7 @@ The [](nupp.text) facade retains `new` at load time. Each constructed
 buffer owns its Lua pieces; `free` clears the retained contents, and subsequent
 operations follow the buffer's ordinary reset semantics.
 ]]
+module nupp.runtime.provider.tablebuffer
 
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 

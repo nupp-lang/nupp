@@ -1,7 +1,6 @@
 @!internal
-module nupp.runtime.system
-
 --[[Retains the current system provider and its executing ABI facts.]]
+module nupp.runtime.system
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")

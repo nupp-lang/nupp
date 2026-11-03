@@ -1,5 +1,3 @@
-module nupp.tools.cli.report
-
 --[[
 Diagnostics as JSON, for the reader that is a program.
 
@@ -11,6 +9,8 @@ is read once and walked to turn offsets into positions.
 
 See `docs/reference/diagnostics.md` for what the fields mean.
 ]]
+module nupp.tools.cli.report
+
 const json = require("serde.json")
 
 local fs = require("nupp.compiler.fs")

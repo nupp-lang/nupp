@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.tasks
-
 --[[
 Structured concurrency: a scope owns the tasks spawned into it.
 
@@ -64,6 +62,8 @@ then, in FIFO order, up to a bounded number of activations per host turn.
 Nesting divides that bound rather than multiplying it, because the token belongs
 to the turn.
 ]]
+module nupp.tasks
+
 const types = require("types")
 
 const {type Task as Task2} = require("nupp.workers.spi")

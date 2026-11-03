@@ -1,5 +1,3 @@
-module nupp.compiler.types.constrain
-
 --[[
 Building a constrained scalar type, in one place.
 
@@ -12,6 +10,7 @@ So this validates and constructs, and reports by returning a sentence rather
 than raising a diagnostic: the resolver has a source position to attach one to
 and the blueprint decoder has a node, and neither wants the other's.
 ]]
+module nupp.compiler.types.constrain
 
 local T = require("nupp.compiler.types")
 local predicate = require("nupp.compiler.types.predicate")

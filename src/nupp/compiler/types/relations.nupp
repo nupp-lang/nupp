@@ -1,5 +1,3 @@
-module nupp.compiler.types.relations
-
 --[[
 The subtyping relation over interned types.
 
@@ -11,6 +9,7 @@ on identity pairs.
 The doctrine is structural for shape and nominal for provenance. It is gradual:
 `any` is compatible in both directions.
 ]]
+module nupp.compiler.types.relations
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")

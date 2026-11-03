@@ -1,5 +1,3 @@
-module nupp.compiler.check.nosuspend
-
 --[[
 Regions in which suspending is refused.
 
@@ -27,6 +25,7 @@ a foreign one has no summary here.
 
 See `docs/learn/runtime/concurrency/suspension.md`.
 ]]
+module nupp.compiler.check.nosuspend
 
 local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")

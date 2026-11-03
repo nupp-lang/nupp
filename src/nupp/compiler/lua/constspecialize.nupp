@@ -1,5 +1,3 @@
-module nupp.compiler.lua.constspecialize
-
 --[[
 Finds closed applications of scalar const-generic runtime functions.
 
@@ -9,6 +7,7 @@ they never rediscover a tuple from source text. Collection is deliberately
 side-effect free. A consumer decides which bodies fit its budget and annotates
 the calls it will rewrite.
 ]]
+module nupp.compiler.lua.constspecialize
 
 local cst = require("nupp.compiler.syntax.cst")
 local hash = require("nupp.compiler.hash")

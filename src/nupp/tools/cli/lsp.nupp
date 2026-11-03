@@ -1,5 +1,3 @@
-module nupp.tools.cli.lsp
-
 --[[
 `nupp lsp`: the language server, and its operations asked one at a time.
 
@@ -13,6 +11,7 @@ The root and every operation are derived command records in one tree. An option
 is therefore unknown to operations that do not take it, rather than known
 everywhere and rejected afterwards.
 ]]
+module nupp.tools.cli.lsp
 
 local json = require("serde.json")
 local fs = require("nupp.compiler.fs")

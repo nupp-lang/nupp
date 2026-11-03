@@ -1,5 +1,3 @@
-module contract
-
 --[[
 Runs one of the host channel's contract scenarios under `os.host.pump`, for
 the embedding application in `tests/stdlib/os/host/fixtures/driver.c` to drive.
@@ -7,6 +5,7 @@ the embedding application in `tests/stdlib/os/host/fixtures/driver.c` to drive.
 The scenarios are the plain Lua the browser half runs too, loaded at run time;
 requiring what they use here is what puts it in the component.
 ]]
+module contract
 
 local pump = os.host.pump
 local json = require("serde.json")

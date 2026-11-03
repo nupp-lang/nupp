@@ -1,5 +1,3 @@
-module warn
-
 --[[
 `warn` joins its arguments and sends warnings through `debug.log`'s sink and
 formatter.
@@ -9,6 +7,7 @@ Warnings start enabled; `warn("@off")` disables them and `warn("@on")` enables t
 warn("cannot read ", "settings.json")
 ```
 ]]
+module warn
 
 local log = require("debug.log")
 local output = log.formodule("warn")

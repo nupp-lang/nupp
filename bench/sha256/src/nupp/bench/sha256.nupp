@@ -1,5 +1,3 @@
-module nupp.bench.sha256
-
 --[[
 What the benchmark measures, behind one name.
 
@@ -8,6 +6,7 @@ implementation it is depends on the target: `sha256` compiles the `@aot` entry
 and calls it, `sha256-scalar` runs the same source on LuaJIT. Nothing here
 chooses; the manifest does.
 ]]
+module nupp.bench.sha256
 
 local digest = require("nupp.digest.internal.sha256")
 

@@ -1,5 +1,3 @@
-module nupp.tools.cli.watch
-
 --[[
 `nupp run --watch`: the entry built once, and every module after it kept live.
 
@@ -10,6 +8,7 @@ and commits a new generation, and seal or abort each module as it finishes
 loading. This is that wiring, apart from `run`, so `run` sees the same two loader
 callbacks whether it is watching or not and one finishing step when it is.
 ]]
+module nupp.tools.cli.watch
 
 local watch = {}
 

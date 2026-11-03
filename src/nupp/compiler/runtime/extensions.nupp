@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.compiler.runtime.extensions
-
 --[[
 Typed, lazy derived data for immutable run-time descriptors.
 
@@ -11,6 +9,7 @@ so neither the provider nor its process-local result becomes a public field on t
 host. Schema and binding use this directly; reflection delegates to the same state
 machine while retaining its existing public descriptor surface.
 ]]
+module nupp.compiler.runtime.extensions
 
 local store = require("nupp.util.internal.store")
 

@@ -1,8 +1,7 @@
 @!internal
 
-module nupp.tests.providers.bitops
-
 --[[Behavioral contract vectors for the `numeric.bitops` contract.]]
+module nupp.tests.providers.bitops
 
 local bitopsSuite = {}
 

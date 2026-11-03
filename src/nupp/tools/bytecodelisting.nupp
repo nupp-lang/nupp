@@ -1,5 +1,3 @@
-module nupp.tools.bytecodelisting
-
 --[[
 The human listing `nupp bc` prints, and where each of its lines came from.
 
@@ -13,6 +11,7 @@ module is the one place that writes it.
 `bc` renders to stdout and an editor renders into a read-only document. Both
 ask for the same bytes, so both ask here.
 ]]
+module nupp.tools.bytecodelisting
 
 --- What a listing line stands for, which is what a client synchronizing a cursor
 --- across the two views has to know.

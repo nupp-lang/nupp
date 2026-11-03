@@ -1,5 +1,3 @@
-module nupp.compiler.check.prefercomptime
-
 --[[
 Identifies closed runtime functions whose work the comptime evaluator can erase.
 
@@ -10,6 +8,7 @@ explicit `comptime do` uses instead of maintaining a weaker syntactic imitation 
 environment. It is opt-in and first applies cheap shape filters: only no-input
 functions containing real work reach evaluation.
 ]]
+module nupp.compiler.check.prefercomptime
 
 local cst = require("nupp.compiler.syntax.cst")
 local lints = require("nupp.compiler.lints")

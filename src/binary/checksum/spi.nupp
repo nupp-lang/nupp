@@ -1,5 +1,3 @@
-module binary.checksum.spi
-
 --[[Implementation interfaces for `binary.checksum` algorithm catalogs.
 
 The facade chooses the unique highest priority during module initialization.
@@ -19,6 +17,8 @@ value returns a non-consuming uint64 snapshot; width specifies its meaningful
 bits from 1 through 64. Standard names retain their standard widths and exact
 CRC parameters. Checksums detect corruption and provide no authentication.
 ]]
+module binary.checksum.spi
+
 local {type ByteSpan} = require("binary.span")
 
 --- Independent incremental state; close consumes its ownership without suspension.

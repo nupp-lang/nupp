@@ -1,6 +1,5 @@
-module nupp.tools.cli.ownershipaudit
-
 --[[ Enumerates the ownership claims that make up a project's trusted FFI surface. ]]
+module nupp.tools.cli.ownershipaudit
 
 local cliModule = require("io.cli")
 

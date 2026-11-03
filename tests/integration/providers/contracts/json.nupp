@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.tests.providers.json
-
 --[[
 Behavioral contract vectors for the `data.json` contract.
 
@@ -9,6 +7,7 @@ The runtime contract loads this checked module only when its explicit `test` met
 runs. Keeping the suite separate makes the adapter and its evidence independently
 checkable without putting test-vector construction on the install path.
 ]]
+module nupp.tests.providers.json
 
 local jsonSuite = {}
 

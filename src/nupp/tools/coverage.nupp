@@ -1,5 +1,3 @@
-module nupp.tools.coverage
-
 --[[
 Coverage aggregation and the self-contained static report.
 
@@ -8,6 +6,7 @@ hot path. It reads the coverage build state and the one shard the built-in
 runner wrote, turns them into one aggregate model, then writes JSON, LCOV, and
 HTML from that model.
 ]]
+module nupp.tools.coverage
 
 local json = require("serde.json")
 local fs = require("nupp.compiler.fs")

@@ -1,5 +1,3 @@
-module nupp.tools.build.manifest
-
 --[[
 Reading `nupp.lua`, and refusing to build from a bad one.
 
@@ -9,6 +7,7 @@ through on the first field that turns out to be the wrong shape, and every
 message names the path to what was wrong -- `build.targets.nupp.compiler.entries[2]`
 -- because that is what the author has to go and edit.
 ]]
+module nupp.tools.build.manifest
 
 local aotTargets = require("nupp.compiler.aot.target")
 local check = require("nupp.compiler.check")

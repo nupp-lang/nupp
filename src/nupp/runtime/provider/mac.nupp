@@ -1,6 +1,4 @@
 @!internal
-module nupp.runtime.provider.mac
-
 --[[Built-in HMAC-SHA256 catalog for `binary.mac` API 1.
 
 Initialization creates only the immutable 32-byte algorithm descriptor. Each
@@ -10,6 +8,7 @@ and consuming cleanup. No keyed state, provider instance, or closure crosses a
 worker boundary; each Lua state loads this module independently. Operations use
 retained implementation functions without further SPI resolution.
 ]]
+module nupp.runtime.provider.mac
 
 local contract = require("binary.mac.spi")
 local {type State} = require("binary.digest.spi")

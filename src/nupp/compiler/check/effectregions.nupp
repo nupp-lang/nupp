@@ -1,5 +1,3 @@
-module nupp.compiler.check.effectregions
-
 --[[
 Lexical regions which require an allocation- or raising-free operation graph.
 
@@ -8,6 +6,7 @@ until that analysis reaches its fixed point. Calls outside the file are answered
 through an exact exported-definition sidecar observation. There is deliberately no
 function-type qualifier and no second effect inference here.
 ]]
+module nupp.compiler.check.effectregions
 
 local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")

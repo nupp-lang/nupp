@@ -70,7 +70,7 @@ return io.files.read("notes.txt"), count
 :::
 
 References to user modules become local bindings. Their imports follow the
-`module` header and its module documentation when present. Repeated references
+`module` declaration; module documentation stays above it. Repeated references
 share one binding. Existing module bindings are reused when they are initialized,
 unmodified and unshadowed. A simple local type alias becomes a type selection
 with the same name and position. A name already used in the file gets a numeric

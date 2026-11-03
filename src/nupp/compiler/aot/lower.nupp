@@ -1,5 +1,3 @@
-module nupp.compiler.aot.lower
-
 --[[
 Turning admitted source into AOT IR.
 
@@ -13,6 +11,7 @@ rather than arithmetic types -- so a value crosses between them only at a
 conversion this module writes down, never as a side effect of an operator. A
 narrowing that is not in the IR is a narrowing that did not happen.
 ]]
+module nupp.compiler.aot.lower
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local admit = require("nupp.compiler.aot.admit")
