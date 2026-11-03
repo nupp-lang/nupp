@@ -127,15 +127,15 @@ local function itemGroups(items: {extractMod.Item}): {api.ItemGroup}
     local groups: {
         api.ItemGroup
     } = {
-        {title = "Types", path = "types", kinds = true, items = {}},
         {title = "Functions", path = "functions", kinds = true, items = {}},
+        {title = "Types", path = "types", kinds = true, items = {}},
         {title = "Values", path = "values", kinds = true, items = {}},
         {title = "Annotations", path = "annotations", kinds = true, items = {}},
     }
     for _, item in ipairs(items) do
-        local group = groups[1]
+        local group = groups[2]
         if item.kind == "function" or item.kind == "method" then
-            group = groups[2]
+            group = groups[1]
         elseif item.kind == "variable" then
             group = groups[3]
         elseif item.kind == "annotation" then

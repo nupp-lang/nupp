@@ -808,11 +808,12 @@ export function callback(): function(): nil end
     assert(api.memberSpelling(members.pair):find(": nil, string", 1, true))
     local markdown = doc.markdown({module})
     assert(markdown:find('`self` - `example.Box<T>`', 1, true), markdown)
-    local free = assert(markdown:match("<a id=\"example.free\"></a>(.*)"))
+    local free = markdown:match("<a id=\"example.free\"></a>(.-)\n## ")
+        or assert(markdown:match("<a id=\"example.free\"></a>(.*)"))
     assert(not free:find("Returns", 1, true), free)
     local rendered = {}
     api.renderHtmlItem(rendered, items.free)
-    assert(not table.concat(rendered):find(">Returns<", 1, true))
+    assert(not table.concat(rendered):find(">Returns<a", 1, true))
 end
 
 local NESTED_DECLARATIONS = table.concat(
@@ -3970,7 +3971,8 @@ function M.siteMatchesTheNuppdocPageModel()
     local functionsAt = assert(module:find('<section class="nuppdoc-api-group"><h2 id="functions">Functions', 1, true))
     local pointAt = assert(module:find('<section class="nuppdoc-api-item" id="math.Point"><h3>', typesAt, true))
     local addAt = assert(module:find('<section class="nuppdoc-api-item" id="math.add"><h3>', functionsAt, true))
-    assert(typesAt < pointAt and pointAt < functionsAt and functionsAt < addAt, module)
+    assert(functionsAt < addAt and addAt < typesAt and typesAt < pointAt, module)
+    assert(module:find("<h3>Functions</h3>", 1, true) < module:find("<h3>Types</h3>", 1, true), module)
     assert(not module:find('<section class="nuppdoc-api-item" id="math.add"><h2>', 1, true), module)
     assert(
         module:find('<a href="#math.Point.x"><code>x</code></a>', 1, true),
@@ -4002,11 +4004,13 @@ function M.siteMatchesTheNuppdocPageModel()
         module
     )
     assert(module:find('id="nuppdoc-outline" aria-label="On this page"', 1, true), module)
+    local outline = assert(module:match('<aside class="nuppdoc%-outline"(.-)</aside>'))
+    assert(outline:find('href="#functions"', 1, true) < outline:find('href="#types"', 1, true), outline)
     local moduleMarkdown = readFile(dir .. "/site/modules/math.md")
-    local markdownTypesAt = assert(moduleMarkdown:find("\n## Types\n", 1, true))
-    local markdownFunctionsAt = assert(moduleMarkdown:find("\n## Functions\n", markdownTypesAt, true))
-    assert(moduleMarkdown:find("\n### `Point`", markdownTypesAt, true) < markdownFunctionsAt, moduleMarkdown)
-    assert(moduleMarkdown:find("\n### `add`", markdownFunctionsAt, true), moduleMarkdown)
+    local markdownFunctionsAt = assert(moduleMarkdown:find("\n## Functions\n", 1, true))
+    local markdownTypesAt = assert(moduleMarkdown:find("\n## Types\n", markdownFunctionsAt, true))
+    assert(moduleMarkdown:find("\n### `add`", markdownFunctionsAt, true) < markdownTypesAt, moduleMarkdown)
+    assert(moduleMarkdown:find("\n### `Point`", markdownTypesAt, true), moduleMarkdown)
     assert(not moduleMarkdown:find("\n## Records\n", 1, true), moduleMarkdown)
     assert(not moduleMarkdown:find("\n## Variables\n", 1, true), moduleMarkdown)
     assert(module:find("Functions", 1, true), module)
