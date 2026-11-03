@@ -8964,4 +8964,18 @@ scalar:writeuint8(1)
     assert(got:find("NUPP2607", 1, true), got)
 end
 
+function M.scalarWriterReborrowsKeepTheirImmediateHolder()
+    assertClean(
+        [[
+local function append(borrows writer: io.ScalarWriter): nil
+    writer:writeuint8(33)
+end
+local buffer = io.newbuffer()
+local writer = buffer:writer():scalar()
+append(writer:writebytes(":"))
+writer:writebytes(":"):writeuint8(33)
+]]
+    )
+end
+
 return M

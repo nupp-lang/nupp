@@ -3316,7 +3316,9 @@ function calls.install(c: state.Checker): calls.Ops
                         end
                         sharedRegions[#sharedRegions + 1] = {root = regionRoot, path = regionPath}
                     end
-                    local roots = entry and {entry} or c.own.provenanceOwners(argNodes[j])
+                    local roots = entry and {entry}
+                        or c.own.capabilityFacts(argNodes[j], nil, false).roots
+                        or c.own.provenanceOwners(argNodes[j])
                     local base = entry or c.own.pathBase(argNodes[j])
                     for _, root in ipairs(roots) do
                         if not reborrowsExclusiveView(argNodes[j], c.borrowRoot(root))

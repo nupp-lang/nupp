@@ -2469,7 +2469,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 entry = c.ownershipState(entry)
                 local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
                 local regionRoot, regionPath = c.regionOf(receiver)
-                local roots = entry and {entry} or c.own.provenanceOwners(receiver)
+                local roots = entry and {entry}
+                    or c.own.capabilityFacts(receiver, nil, false).roots
+                    or c.own.provenanceOwners(receiver)
                 local base = entry or c.own.pathBase(receiver)
                 if #roots == 0 and c.ownershipKind(ot) ~= "affine" then
                     c.diag("NUPP2602", receiver, "an exclusive receiver requires a named or rooted value")
@@ -2503,7 +2505,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 entry = c.ownershipState(entry)
                 local entryFacts = entry and c.own.capabilityFacts(entry, nil, false) or nil
                 local regionRoot, regionPath = c.regionOf(receiver)
-                local roots = entry and {entry} or c.own.provenanceOwners(receiver)
+                local roots = entry and {entry}
+                    or c.own.capabilityFacts(receiver, nil, false).roots
+                    or c.own.provenanceOwners(receiver)
                 local base = entry or c.own.pathBase(receiver)
                 for _, root in ipairs(roots) do
                     if c.own.regionBlocked(root, base, entryFacts, regionRoot, regionPath, true) then
