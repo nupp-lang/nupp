@@ -964,6 +964,7 @@ local function loadModules(root, config, settings, requested)
         local expanded = copy(candidate)
         projectedAliases[expanded] = true
         expanded.name, expanded.path, expanded.module, expanded.line = item.name, item.path, item.module, item.line
+        expanded.readOnly = item.readOnly
         local binders = {}
         for _, generic in ipairs(candidate.typeargs or {}) do
             binders[generic.name] = true

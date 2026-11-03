@@ -100,7 +100,7 @@ local function markdownArguments(out, params, heading)
 end
 
 local function markdownReturns(out, returns, heading)
-    if #returns == 0 then
+    if not apiMod.hasReturns(returns) then
         return
     end
     out[#out + 1] = heading .. " Returns"
@@ -200,6 +200,10 @@ local function renderMarkdownItem(out, item, level, bodyOnly)
     out[#out + 1] = displaySignature(item)
     out[#out + 1] = "```"
     out[#out + 1] = ""
+    if item.kind == "function" and item.readOnly then
+        out[#out + 1] = "**Read-only binding.**"
+        out[#out + 1] = ""
+    end
     markdownAnnotations(out, item.annotations)
     if item.doc.text ~= "" then
         out[#out + 1] = prose(item.doc.text);

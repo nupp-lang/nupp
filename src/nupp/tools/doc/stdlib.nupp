@@ -458,6 +458,9 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
                     local declaredGlobals = only(module.items, isGlobal)
                     anchorByName(declaredGlobals)
                     for _, item in ipairs(declaredGlobals) do
+                        if item.kind == "function" and item.signature:match("^const%s") then
+                            item.readOnly = true
+                        end
                         globals[#globals + 1] = item
                     end
                     for _, entry in ipairs(navigationItems(declaredGlobals)) do

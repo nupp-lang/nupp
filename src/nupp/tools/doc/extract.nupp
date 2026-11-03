@@ -103,6 +103,9 @@ type extract.Item = {
     typeargs: {extract.TypeArg},
     annotations: {string}?,
 
+    --- The published binding is explicitly constant, not merely its implementation.
+    readOnly: boolean?,
+
     --- The compiler-only value kind, when this declaration exists only during
     --- comptime. Kept apart from `kind`, so functions retain their ordinary API
     --- grouping while renderers can distinguish when they are callable.
@@ -1041,11 +1044,28 @@ end
 -- recursively: a nested `record`/`interface`/`struct` becomes a member carrying its own
 -- members rather than a row flattened to its raw AST kind, so its fields and methods
 -- stay reachable instead of disappearing into the parent's Fields table.
+local function receiverName(path, generics)
+    local arguments = {}
+    for index, generic in ipairs(generics and generics.names or {}) do
+        arguments[#arguments + 1] = generic.text .. (generics.packs and generics.packs[index] and "..." or "")
+    end
+
+    return path .. (#arguments > 0 and "<" .. table.concat(arguments, ", ") .. ">" or "")
+end
+
+local function setReceiver(details, body, receiver)
+    local first = body and body.params and body.params[1]
+    if receiver and first and first.name and first.name.text == "self" and details.params[1] then
+        details.params[1].type = (first.type and first.type.kind == "tconst" and "const " or "") .. receiver
+    end
+end
+
 local function buildMembers(
     entries: {any}?,
     basePath: string,
     includePrivate: boolean,
-    fieldTextOverrides: {[string]: string}?
+    fieldTextOverrides: {[string]: string}?,
+    receiver: string?
 ): {extract.Member}
     local members = {}
     for _, entry in ipairs(entries or {}) do
@@ -1092,6 +1112,7 @@ local function buildMembers(
         elseif entry.kind == "inlineMethod" and entryVisible then
             local methodInfo = entryInfo
             local details = functionDetails(entry, methodInfo)
+            setReceiver(details, entry.body, receiver)
             members[
                 #members + 1
             ] = new extract.Member(
@@ -1111,6 +1132,7 @@ local function buildMembers(
             -- what it says about its parameters has somewhere to be read.
             local constructorInfo = entryInfo
             local details = functionDetails(entry, constructorInfo)
+            setReceiver(details, entry.body, receiver)
             members[
                 #members + 1
             ] = new extract.Member(
@@ -1137,7 +1159,13 @@ local function buildMembers(
                 returns = {},
                 raises = {},
                 isType = true,
-                members = buildMembers(entry.entries, nestedPath, includePrivate, entryInfo.fields),
+                members = buildMembers(
+                    entry.entries,
+                    nestedPath,
+                    includePrivate,
+                    entryInfo.fields,
+                    receiverName(nestedPath, entry.generics)
+                ),
                 annotations = annotationsOf(entry)
             )
         elseif entry.kind == "typeAlias" and entryVisible then
@@ -1423,6 +1451,12 @@ declarationItem = function(
         typeargs = {},
         annotations = #applied > 0 and applied or nil,
         comptimeKind = itemComptimeKind,
+        readOnly = (
+            explicitlyExported and (stat.kind == "localStmt" or stat.kind == "localFuncStmt") and stat.isConst
+            or stat.kind == "assignStmt" and stat.isConst
+        )
+        and true
+        or nil,
     }
     if annotationDefinition and stat.kind == "recordDecl" then
         item.kind = "annotation"
@@ -1464,7 +1498,13 @@ declarationItem = function(
     elseif stat.kind == "typeAlias" and stat.value and stat.value.kind == "tshape" then
         item.members = buildMembers(stat.value.fields, item.path, includePrivate, info.fields)
     elseif stat.kind == "recordDecl" or stat.kind == "cdefStruct" then
-        item.members = buildMembers(stat.entries, item.path, includePrivate, info.fields)
+        item.members = buildMembers(
+            stat.entries,
+            item.path,
+            includePrivate,
+            info.fields,
+            receiverName(item.path, stat.generics)
+        )
     end
     if item.annotation then
         for _, member in ipairs(item.members) do

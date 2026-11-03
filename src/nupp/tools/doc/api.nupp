@@ -101,7 +101,36 @@ end
 -- alone, so `...` stands where its entries were and the members table below expands
 -- them. A declaration with no members has nothing elided and so carries no mark, which
 -- is every function, value and type alias as well as an empty structure.
+local function hasReturns(returns): boolean
+    return #returns > 0 and not (#returns == 1 and returns[1].type == "nil")
+end
+
+local function omitNilResult(signature, returns): string
+    if #returns == 1 and returns[1].type == "nil" and not signature:find(" & ", 1, true) then
+        return (signature:gsub(":%s*nil%s*$", ""))
+    end
+    return signature
+end
+
 local function displaySignature(item: extractMod.Item): string
+    if item.kind == "function" then
+        local signature = item.signature
+        local typed = signature:match("^local%s+[%w_%.]+:%s*(.*)$") or signature:match("^const%s+[%w_%.]+:%s*(.*)$")
+        if typed then
+            return omitNilResult(item.path .. ": " .. typed, item.returns)
+        end
+        local prefix, suffix = signature:match("^(.-)local%s+function%s+[%w_%.:]+(.*)$")
+        if not prefix then
+            prefix, suffix = signature:match("^(.-)const%s+function%s+[%w_%.:]+(.*)$")
+        end
+        if prefix then
+            return omitNilResult(prefix .. "function " .. item.path .. suffix, item.returns)
+        end
+        if item.path ~= item.name and signature:sub(1, #item.name + 1) == item.name .. "(" then
+            return omitNilResult(item.path .. signature:sub(#item.name + 1), item.returns)
+        end
+        return omitNilResult(signature, item.returns)
+    end
     if #item.members == 0 or item.kind == "annotation" and item.name:sub(1, 1) == "@" then
         return item.signature
     end
@@ -249,7 +278,7 @@ local function argumentsHtml(params, heading, links)
 end
 
 local function returnsHtml(returns, heading, links)
-    if #returns == 0 then
+    if not hasReturns(returns) then
         return ""
     end
     local out = {"<" .. heading .. ">Returns</" .. heading .. '><dl class="nuppdoc-api-details">'}
@@ -312,7 +341,7 @@ local function memberSpelling(member: extractMod.Member): string
         return "type " .. member.name .. (member.generics or "") .. " = " .. member.type
     end
 
-    return member.name .. ": " .. member.type
+    return member.name .. ": " .. (member.isFunction and omitNilResult(member.type, member.returns) or member.type)
 end
 
 local function memberCode(source: string, links: Links?): string
@@ -410,6 +439,11 @@ local function renderHtmlItem(out: {string}, item: extractMod.Item, links: Links
         path
     ) .. '" aria-label="Link to ' .. htmlEscape(item.name) .. '">#</a></h3>'
     out[#out + 1] = memberCode(displaySignature(item), links)
+    if item.kind == "function" and item.readOnly then
+        out[
+            #out + 1
+        ] = '<div class="nuppdoc-annotations"><span class="nuppdoc-annotation">Read-only binding</span></div>'
+    end
     out[#out + 1] = annotationBadges(item.annotations)
     out[#out + 1] = markdownHtml(item.doc.text, links, nil, path)
     if #item.typeargs > 0 then
@@ -435,5 +469,6 @@ api.displayKind = displayKind
 api.displaySignature = displaySignature
 api.memberKind = memberKind
 api.memberSpelling = memberSpelling
+api.hasReturns = hasReturns
 
 export = api

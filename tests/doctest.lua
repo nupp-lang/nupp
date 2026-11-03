@@ -748,6 +748,50 @@ export function identity(value: string): string return value end
     assert(html:find("<dd><p>The value again.</p>", 1, true), html)
 end
 
+function M.documentsReceiversAndOmitsNilOnlyReturns()
+    local module = assert(
+        doc.extract(
+            [[
+export record Box<T>
+    constructor(self, value: T) end
+    function clear(self): nil end
+    function explicit(self: any): nil end
+    function readonly(self: const Box<T>): nil end
+    function pair(self): nil, string return nil, "value" end
+end
+export function free(self: any): nil end
+export function callback(): function(): nil end
+]],
+            "src/example.nupp",
+            "example"
+        )
+    )
+    local items = {}
+    for _, item in ipairs(module.items) do
+        items[item.name] = item
+    end
+    local members = {}
+    for _, member in ipairs(items.Box.members) do
+        members[member.name] = member
+    end
+    assert(members.constructor.params[1].type == "example.Box<T>")
+    assert(members.clear.params[1].type == "example.Box<T>")
+    assert(members.explicit.params[1].type == "example.Box<T>")
+    assert(members.readonly.params[1].type == "const example.Box<T>")
+    assert(items.free.params[1].type == "any")
+    local api = require("nupp.tools.doc.api")
+    assert(not api.displaySignature(items.free):find(": nil", 1, true))
+    assert(api.displaySignature(items.callback):find("function(): nil", 1, true))
+    assert(not api.memberSpelling(members.clear):find(": nil", 1, true))
+    assert(api.memberSpelling(members.pair):find(": nil, string", 1, true))
+    local markdown = doc.markdown({module})
+    local free = assert(markdown:match("<a id=\"example.free\"></a>(.*)"))
+    assert(not free:find("Returns", 1, true), free)
+    local rendered = {}
+    api.renderHtmlItem(rendered, items.free)
+    assert(not table.concat(rendered):find(">Returns<", 1, true))
+end
+
 local NESTED_DECLARATIONS = table.concat(
     {
         "--- Holds a nested type.",
@@ -1112,7 +1156,7 @@ function M.explicitSelfReceiversUseMethodSyntaxInSignatures()
     local destroy = assert(module.items[2], "function missing")
     assert(destroy.signature == "function job.destroy<T>(takes self: T): nil", destroy.signature)
     local markdown = doc.markdown({module})
-    assert(markdown:find(send.signature, 1, true), markdown)
+    assert(markdown:find("function job.Worker:send(exclusive self: job.Worker, value: any)", 1, true), markdown)
     assert(not markdown:find("function job.Worker.send", 1, true), markdown)
 end
 
@@ -1405,6 +1449,10 @@ end
     assert(maker.doc.text:find("Keeps its generic value", 1, true), "the original declaration prose was lost")
     assert(not items["facade.api.make"] and not items["facade._secret"], "private or local table names leaked")
     assert(not items["facade.hidden.leak"] and not items["facade.mutable"], "an unrelated assignment was projected")
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "site", output = "site"}) == 0)
+    local facade = readFile(dir .. "/site/modules/facade/index.html")
+    local make = assert(facade:match('<section class="nuppdoc%-api%-item" id="facade%.make">(.-)</section>'))
+    assert(make:find("Read-only binding", 1, true), "the public const alias lost its restriction")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -4722,11 +4770,40 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
     assert(format.doc.text ~= "" and format.returns[1].type == "string")
     local rendered = doc.markdown({libraries.string})
     assert(
-        rendered:find(format.signature, 1, true) and rendered:find(format.doc.text, 1, true),
+        rendered:find(require("nupp.tools.doc.api").displaySignature(format), 1, true)
+        and rendered:find(format.doc.text, 1, true),
         "the module page lost the builtin signature or documentation"
     )
     assert(page.markdown:find("### `print`", 1, true), "no ambient global")
+    local globals = {}
+    for _, item in ipairs(page.globalItems) do
+        globals[item.name] = item
+    end
+    local api = require("nupp.tools.doc.api")
+    assert(api.displaySignature(globals.dofile) == "dofile: function(path: string?): any")
+    assert(not globals.dofile.readOnly, "a mutable global was marked read-only")
+    assert(globals.ipairs.readOnly, "the const global lost its read-only status")
+    assert(api.displaySignature(globals.ipairs):find("ipairs: @nosuspend function", 1, true))
+    assert(page.markdown:find("**Read-only binding.**", 1, true), "the Markdown reference lost the const restriction")
     assert(not page.markdown:find("### `io.File`", 1, true), "file type leaked into the root index")
+end
+
+function M.publicFunctionSignaturesDoNotExposeImplementationBindings()
+    local module = assert(
+        doc.extract(
+            [[
+module example
+const implementation: function(value: string): string = function(value: string): string return value end
+export = {call = implementation}
+]],
+            "src/example.nupp",
+            "example"
+        )
+    )
+    local item = assert(module.items[1])
+    local signature = require("nupp.tools.doc.api").displaySignature(item)
+    assert(signature == "example.call: function(value: string): string", signature)
+    assert(not item.readOnly, "a const implementation does not make the exported field read-only")
 end
 
 function M.tableBuiltinsUseFunctionCategoriesAndLuaBadges()
@@ -4878,6 +4955,8 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
     assert(page:find("API reference", 1, true), page:sub(1, 400))
     assert(page:find("modules/string/index.html", 1, true), "the API index lost a builtin module")
     local dofile = assert(page:match('<section class="nuppdoc%-api%-item" id="dofile">(.-)</section>'))
+    assert(not dofile:find("keyword%-local"), "dofile is not a local binding")
+    assert(not dofile:find("Read%-only binding"), "dofile is not declared const")
     assert(dofile:find('<h4>Arguments</h4><dl class="nuppdoc-api-details">', 1, true), dofile)
     assert(dofile:find('<h4>Returns</h4><dl class="nuppdoc-api-details">', 1, true), dofile)
     assert(dofile:find("the file to run", 1, true) and dofile:find("whatever the chunk returns", 1, true), dofile)
@@ -4885,10 +4964,21 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
     assert(page:find('href="#dofile-function-lua"', 1, true), "the outline or search anchor was lost")
     assert(page:find('id="g-variable"', 1, true), "the _G heading anchor was lost")
     assert(page:find('id="version-variable"', 1, true), "the _VERSION heading anchor was lost")
+    local ipairs = assert(page:match('<section class="nuppdoc%-api%-item" id="ipairs">(.-)</section>'))
+    assert(ipairs:find("Read-only binding", 1, true), "ipairs lost its const restriction")
     local markdown = readFile(dir .. "/site/reference/luajit/llms.txt")
     assert(markdown:find("### `dofile`", 1, true), "the Markdown reference lost dofile")
     local stringPage = readFile(dir .. "/site/modules/string/index.html")
     assert(stringPage:find('id="string.format"', 1, true), "the module page rendered without its declarations")
+    local packagePage = readFile(dir .. "/site/modules/package/index.html")
+    local loadlib = assert(
+        packagePage:match('<section class="nuppdoc%-api%-item" id="package%.loadlib">(.-)</section>')
+    )
+    assert(not loadlib:find("keyword%-local"), "package.loadlib is not a local binding")
+    assert(not loadlib:find("Read%-only binding"), "package.loadlib is not declared read-only")
+    local packageMarkdown = readFile(dir .. "/site/modules/package/llms.txt")
+    assert(packageMarkdown:find("package.loadlib: function", 1, true), packageMarkdown)
+    assert(packageMarkdown:find("package.providers(Interface)", 1, true), packageMarkdown)
     local sidebar = assert(page:match('<aside class="nuppdoc%-sidebar".-</aside>'), "the page has a sidebar")
     assert(
         sidebar:find(
@@ -5236,7 +5326,7 @@ end
         assert(text:find('<a id="' .. name .. '"></a>', 1, true), "missing global declaration on " .. name)
         local _, anchors = text:gsub('<a id="' .. name .. '"></a>', '')
         assert(anchors == 1, "global and module headings duplicate their anchor")
-        assert(text:find("local " .. name .. ":", 1, true), "global signature missing from " .. name)
+        assert(text:find(name .. ":", 1, true), "global signature missing from " .. name)
     end
     local ffi = readFile(dir .. "/site/modules/ffi/index.html")
     assert(ffi:find('id="ffi.new"', 1, true), "returned record was not projected into the library")
