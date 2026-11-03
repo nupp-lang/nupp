@@ -109,6 +109,60 @@ function M.apiOverviewUsesBalancedColumnsAndKindBadges()
     )
 end
 
+function M.typeMemberOverviewsShareModuleColumnsAndGroupKinds()
+    local module, errors = doc.extract(
+        [[
+export record Catalog
+    zeta: string
+    alpha: string
+    constructor(self) end
+    function zetaMethod(self): nil end
+    function alphaMethod(self, value: string): nil end
+    function alphaMethod(self, value: number): nil end
+    metamethod __len: function(self): integer
+    type Mode = "small" | "large"
+    record Entry
+        value: string
+    end
+end
+]],
+        "src/catalog.nupp",
+        "catalog"
+    )
+    assert(module, errors and errors[1] and errors[1].msg)
+    local markdown = doc.markdown({module})
+    local overview = assert(markdown:match("#### Members\n\n(::: api%-overview.-\n:::)"), markdown)
+    local last = 0
+    for _, title in ipairs({"Methods", "Constructors", "Metamethods", "Types", "Fields"}) do
+        local position = assert(overview:find("**" .. title .. "**", 1, true), title)
+        assert(position > last, "member groups out of order")
+        last = position
+    end
+    assert(
+        overview:find(
+            "- [`alphaMethod`](#catalog.Catalog.alphaMethod)\n- [`alphaMethod`](#catalog.Catalog.alphaMethod-overload-2)",
+            1,
+            true
+        ),
+        overview
+    )
+    assert(
+        overview:find("[`alphaMethod`]", 1, true) < overview:find("[`zetaMethod`]", 1, true),
+        "methods must be alphabetized"
+    )
+    assert(overview:find("[`alpha`]", 1, true) < overview:find("[`zeta`]", 1, true), "fields must be alphabetized")
+    assert(overview:find("[`Entry`](#catalog.Catalog.Entry)", 1, true), overview)
+    assert(overview:find('title="Record">R</abbr>', 1, true), overview)
+    assert(overview:find('title="Type alias">T</abbr>', 1, true), overview)
+    assert(not markdown:find("| Name | Kind | Description |", 1, true), "member overview still uses a table")
+    local rendered = require("nupp.tools.doc.html").markdownHtml(overview)
+    assert(
+        rendered:find('class="nuppdoc-overview nuppdoc-overview-2"', 1, true),
+        "nine members must use the shared two-column layout"
+    )
+    assert(rendered:find('href="#catalog.Catalog.alphaMethod-overload-2"', 1, true), rendered)
+end
+
 function M.extractsStructuredDocsFromTheParserCST()
     local module, errors = doc.extract(SOURCE, "src/math.nupp", "math")
     assert(module, errors and errors[1] and errors[1].msg)
@@ -803,9 +857,9 @@ function M.documentsFunctionTypedRecordFieldsAsMethods()
     assert(html:find('>Returns<a', 1, true), html)
     assert(html:find("How much to add.", 1, true) and html:find("The counter itself.", 1, true), html)
     local markdown = doc.markdown({module})
-    assert(markdown:find("#### Members", 1, true), "members table missing")
-    assert(markdown:find("| [`step`](#num.Counter.step) | method |", 1, true), markdown)
-    assert(markdown:find("| [`count`](#num.Counter.count) | field |", 1, true), markdown)
+    assert(markdown:find("#### Members", 1, true), "member overview missing")
+    assert(markdown:find("**Methods**\n\n- [`step`](#num.Counter.step)", 1, true), markdown)
+    assert(markdown:find("**Fields**\n\n- [`count`](#num.Counter.count)", 1, true), markdown)
     assert(markdown:find("#### `step` _method_", 1, true), "method sub-heading missing")
     assert(markdown:find("##### Arguments", 1, true), "method arguments missing")
     assert(markdown:find('<a id="num.Counter.count"></a>', 1, true), "field anchor missing")
@@ -951,10 +1005,10 @@ function M.documentsNestedTypesAsTheirOwnSubHeadingWithMembers()
     assert(apply.returns[1] and apply.returns[1].text == "The result.", apply.returns[1] and apply.returns[1].text)
     local markdown = doc.markdown({module})
     assert(markdown:find("#### `Settings` _record_", 1, true), "nested type heading missing")
-    assert(markdown:find("##### Members", 1, true), "nested type's own members table missing")
+    assert(markdown:find("##### Members", 1, true), "nested type's own overview missing")
     assert(
-        markdown:find("| [`apply`](#config.Config.Settings.apply) | method |", 1, true),
-        "nested type's own method row missing"
+        markdown:find("**Methods**\n\n- [`apply`](#config.Config.Settings.apply)", 1, true),
+        "nested type's own method list missing"
     )
     assert(markdown:find("##### `enabled` _field_", 1, true), "nested type's own field sub-heading missing")
     assert(
@@ -4086,7 +4140,7 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(not module:find('<section class="nuppdoc-api-item" id="math.add"><h2>', 1, true), module)
     assert(
         module:find('<a href="#math.Point.x"><code>x</code></a>', 1, true),
-        "the members table must link each member to its own section"
+        "the member overview must link each member to its own section"
     )
     -- A declaration that documents members is a section of the outline in its own
     -- right, closed until the reader is inside it, so a record's fields and methods

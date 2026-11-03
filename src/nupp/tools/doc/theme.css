@@ -2030,6 +2030,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-overview p { margin: 0 0 .25rem; break-after: avoid; }
 .nuppdoc-overview ul { margin: 0 0 .85rem; padding: 0; list-style: none; }
 .nuppdoc-overview li { break-inside: avoid; }
+.nuppdoc-overview li:has(.nuppdoc-overview-badge) { overflow-wrap: anywhere; }
 /* Long qualified names stop at their column edge; short labels keep their color. */
 .nuppdoc-overview li:not(:has(.nuppdoc-overview-badge)) {
     overflow: hidden;
