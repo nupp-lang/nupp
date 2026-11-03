@@ -31,6 +31,9 @@ local platformLibraries = {
         return os.randombytes
     end,
     function()
+        return require("nupp.util.internal.uuid")
+    end,
+    function()
         return require("assert")
     end,
     function()
@@ -142,7 +145,7 @@ _G.__nuppPlaygroundRun = function(source: string): string
     then
         error("nupp: derive runtime did not load", 0)
     end
-    assert2(#platformLibraries == 25, "nupp: browser library loaders are missing")
+    assert2(#platformLibraries == 26, "nupp: browser library loaders are missing")
     lines = {}
     outputBytes = 0
     local chunk, problem = loadstring(source, "@playground.nupp")

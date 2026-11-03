@@ -368,6 +368,9 @@ if package.config:sub(1, 1) == "\\" then
     end
 
     io.popen = function(command, mode)
+        if type(command) ~= "string" then
+            return rawPopen(command, mode)
+        end
         if command:sub(1, #nativeMarker) == nativeMarker then
             return rawPopen(command:sub(#nativeMarker + 1), mode)
         end

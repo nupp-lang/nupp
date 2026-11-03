@@ -9,7 +9,7 @@ set -eu
 
 ROOT=$(CDPATH= cd -- "$(dirname "$0")/../.." && pwd)
 FEATURES=lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-time,native-tls,workers
-HOST_FEATURES=lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-time,native-tls,workers
+HOST_FEATURES=lpeg,native-checksum,native-compression,native-files,native-gpu,native-net,native-process,native-tls,workers
 
 cd "$ROOT"
 
