@@ -847,15 +847,21 @@ function M.comptimeTypeIntrinsicsCompleteOnTheirCanonicalNamespaces()
         members[item.label] = true
     end
     assert(
-        not members.reflect and members.sizeof and members.alignof and members.offsetof,
-        "C ABI layout queries remain under nupp and reflection has moved"
+        not members.reflect and not members.sizeof and not members.alignof and not members.offsetof,
+        "reflection and C ABI layout queries no longer complete under nupp"
     )
 
     local reflectionMembers = {}
     for _, item in ipairs(responseWithId(out, 12).result) do
         reflectionMembers[item.label] = true
     end
-    assert(reflectionMembers.reflect, "reflection is completed under types")
+    assert(
+        reflectionMembers.reflect
+        and reflectionMembers.sizeof
+        and reflectionMembers.alignof
+        and reflectionMembers.offsetof,
+        "reflection and C ABI layout queries complete under types"
+    )
 
     local globals = {}
     for _, item in ipairs(responseWithId(out, 11).result) do
