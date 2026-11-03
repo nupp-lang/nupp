@@ -35,7 +35,7 @@
   /* The sidebar and header use a teal-black panel; active and soft panel
    * states use a different near-black. */
   --nuppdoc-dark-background: #161412;
-  --nuppdoc-dark-api-heading-background: #1f1b17;
+  --nuppdoc-dark-api-heading-background: #1f1b19;
   --nuppdoc-dark-background-alt: #1b2626;
   --nuppdoc-dark-border: color-mix(in srgb, #50676c 65%, black);
   --nuppdoc-dark-code-background: #1a1d1d;
@@ -308,11 +308,18 @@
   color: var(--nuppdoc-feature-heading);
 }
 
+.nuppdoc-content h2 {
+  --heading-rule-color: var(--nuppdoc-border);
+  border-top-color: var(--heading-rule-color);
+  border-image: linear-gradient(to right, transparent, var(--heading-rule-color) 25%, var(--heading-rule-color) 75%, transparent) 1;
+}
+
 .nuppdoc-content h3:not(:first-child),
 .nuppdoc-api-group:has(> #types) > .nuppdoc-api-item + .nuppdoc-api-item > h3 {
   margin-top: 2.5rem;
   padding-top: 2.5rem;
   border-top: 1px solid var(--nuppdoc-border);
+  border-image: linear-gradient(to right, transparent, var(--nuppdoc-border) 25%, var(--nuppdoc-border) 75%, transparent) 1;
 }
 
 
@@ -342,13 +349,22 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .nuppdoc-content h2,
+  .nuppdoc-content h2 {
+    --heading-rule-color: #c7913d;
+  }
   .nuppdoc-content hr {
     border-top-color: #c7913d;
   }
 }
 
-:root[data-theme="dark"] .nuppdoc-content h2,
+:root[data-theme="dark"] .nuppdoc-content h2 {
+  --heading-rule-color: #c7913d;
+}
+
+:root[data-theme="light"] .nuppdoc-content h2 {
+  --heading-rule-color: var(--nuppdoc-border);
+}
+
 :root[data-theme="dark"] .nuppdoc-content hr {
   border-top-color: #c7913d;
 }
