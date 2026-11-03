@@ -37,6 +37,19 @@ local function walk(node: any, visit: function(any): nil): nil
     end
 end
 
+local function signatureFailure(stat: any, name: string): string?
+    if not stat.body.rets and not stat.body.returnPack then
+        return "function needs an explicit result type: " .. name
+    end
+    for _, param in ipairs(stat.body.params) do
+        if not param.type then
+            return "function needs explicit parameter types: " .. name
+        end
+    end
+
+    return nil
+end
+
 --- Preview direct exports, or explain why the module needs review.
 export function plan(source: string): any
     local parsed = parser.parse(source)
@@ -68,6 +81,14 @@ export function plan(source: string): any
     local edits: {any} = {}
     local ignored: {[integer]: boolean} = {}
     local failure: string? = nil
+    local localFunctions: {[string]: any} = {}
+    local promoted: {[string]: any} = {}
+
+    for _, stat in ipairs(stats) do
+        if stat.kind == "localFuncStmt" and not stat.isConst then
+            localFunctions[stat.name.text] = stat
+        end
+    end
 
     local function edit(offset: integer, length: integer, text: string): nil
         edits[#edits + 1] = {offset = offset, length = length, newText = text}
@@ -114,13 +135,9 @@ export function plan(source: string): any
         elseif stat.kind == "funcStmt" then
             local ts = tokens(stat.name)
             if ts[1].text == alias and #ts == 3 and ts[2].text == "." then
-                if not stat.body.rets and not stat.body.returnPack then
-                    return {reason = "function needs an explicit result type: " .. ts[3].text}
-                end
-                for _, param in ipairs(stat.body.params) do
-                    if not param.type then
-                        return {reason = "function needs explicit parameter types: " .. ts[3].text}
-                    end
+                local reason = signatureFailure(stat, ts[3].text)
+                if reason then
+                    return {reason = reason}
                 end
                 addMember(ts[3].text, stat)
                 local start = tokens(stat)[1]
@@ -144,7 +161,22 @@ export function plan(source: string): any
                     return {reason = "deep const field needs review"}
                 end
                 addMember(ts[3].text, stat)
-                if stat.isConst then
+                local name = ts[3].text
+                local value = stat.exprs[1]
+                local implementation = localFunctions[name]
+                if implementation and value.kind == "name" and value.token.text == name then
+                    if implementation.name.offset >= ts[1].offset then
+                        return {reason = "function is published before its declaration: " .. name}
+                    end
+                    local reason = signatureFailure(implementation, name)
+                    if reason then
+                        return {reason = reason}
+                    end
+                    promoted[name] = implementation
+                    local start = tokens(implementation)[1]
+                    edit(start.offset, #start.text, "export")
+                    remove(stat)
+                elseif stat.isConst then
                     edit(tokens(stat)[1].offset, 0, "export ")
                 else
                     edit(ts[1].offset, 0, "export const ")
@@ -163,8 +195,9 @@ export function plan(source: string): any
     end
     remove(assignment)
 
-    -- Removing a qualifier must not capture a parameter, local, or free name.
-    -- Refuse ambiguous files rather than infer scope from token text.
+    -- A promoted function keeps its local name and accepts uses after its
+    -- declaration. Competing bindings still need review: exported functions
+    -- become constants, which nested bindings cannot redeclare.
     walk(parsed.root, function(node: any): nil
         if node == declaration then
             return
@@ -181,7 +214,7 @@ export function plan(source: string): any
         elseif node.binding then
             names = {node.binding}
         elseif node.kind == "localFuncStmt" or node.kind == "param" then
-            if node.name then
+            if node.name and promoted[node.name.text] ~= node then
                 names = {node.name}
             end
         elseif (node.kind == "typeAlias" or node.kind == "recordDecl") and not node.qualifiers then
@@ -205,12 +238,22 @@ export function plan(source: string): any
                 failure = "local binding would collide: " .. name.text
             end
         end
-        if node.kind == "name" and members[node.token.text] then
-            failure = "unqualified name would change binding: " .. node.token.text
+        if node.kind == "name"
+            and node.token.text ~= alias
+            and members[node.token.text]
+            and not ignored[node.token.offset]
+        then
+            local implementation = promoted[node.token.text]
+            if not implementation or node.token.offset < implementation.name.offset then
+                failure = "unqualified name would change binding: " .. node.token.text
+            end
         end
         if node.kind == "assignStmt" then
             for _, target in ipairs(node.targets) do
                 local ts = tokens(target)
+                if #ts == 1 and promoted[ts[1].text] then
+                    failure = "published local function is reassigned: " .. ts[1].text
+                end
                 if #ts == 3 and ts[1].text == alias and members[ts[3].text] ~= node then
                     failure = "member is mutated: " .. ts[3].text
                 end
@@ -231,6 +274,9 @@ export function plan(source: string): any
             local dot, member = all[i + 1], all[i + 2]
             if not dot or dot.text ~= "." or not member or not members[member.text] then
                 return {reason = "module value escapes or has a computed member"}
+            end
+            if promoted[member.text] and tok.offset < tokens(members[member.text])[1].offset then
+                return {reason = "module member is read before its publication: " .. member.text}
             end
             -- Trivia between the qualifier and member may carry a comment.
             if source:sub(tok.offset + #tok.text, member.offset - 1):find("%-%-") then

@@ -54,6 +54,10 @@ nupp lsp actions --only refactor.rewrite --json src/example.nupp 1 1
 The action preserves comments and public names. It is offered only when removing
 the table qualifier leaves bindings and table identity unchanged. Callable
 module values, computed members, and ambiguous names need an explicit rewrite.
+Local functions published under their own names become `export function`
+declarations when their signatures are explicit and their bindings do not
+change. Reassignment, competing bindings, and reads before publication prevent
+that conversion.
 
 For repository migrations, build the compiler once and run the same refactor
 across files. The script previews by default; `--write` applies eligible edits

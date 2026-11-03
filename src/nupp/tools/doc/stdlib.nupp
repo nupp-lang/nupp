@@ -14,34 +14,32 @@ local stringsMod = require("nupp.tools.doc.strings")
 local urlsMod = require("nupp.tools.doc.urls")
 local annotationapi = require("nupp.tools.doc.annotationapi")
 
-local stdlib = {}
-
 --- A declaration and its nested members, linked to the generated index.
-record stdlib.Entry
+export record Entry
     name: string
     path: string
-    items: {stdlib.Entry}?
+    items: {Entry}?
     module: string?
     kind: string?
 end
 
 --- The builtin libraries, globals, and intrinsic types extracted for navigation.
-type stdlib.Navigation = {
-    libraries: {stdlib.Entry},
-    globals: {stdlib.Entry},
-    types: {stdlib.Entry},
-    annotations: {stdlib.Entry}?
+export type Navigation = {
+    libraries: {Entry},
+    globals: {Entry},
+    types: {Entry},
+    annotations: {Entry}?
 }
 
 --- The generated page: the route it is written to, its title, and its markdown.
-type stdlib.Page = {
+export type Page = {
     markdown: string,
     path: string,
     redirects: {string}?,
     source: string?,
     symbols: {[string]: string}?,
     title: string,
-    navigation: stdlib.Navigation?,
+    navigation: Navigation?,
     modules: {extractMod.Module},
     indexModules: {extractMod.Module}?,
     globalItems: {extractMod.Item},
@@ -50,7 +48,7 @@ type stdlib.Page = {
 }
 
 --- Where a manifest asked the page to live, and what to call it.
-type stdlib.Settings = {
+export type Settings = {
     path: string?,
     title: string?
 }
@@ -329,31 +327,26 @@ local function withoutRedeclaredBindings(items: {extractMod.Item}): {extractMod.
 end
 
 --- A section of the generated index, with declarations kept as structured items.
-type stdlib.IndexPart = {
+export type IndexPart = {
     markdown: string,
     items: {extractMod.Item}?
 }
 
 -- Keep declaration paths beside the labels before qualification changes their
 -- displayed names. The same extracted items write the body and the navigation.
-local function navigationItems(items: {any}): {stdlib.Entry}
-    local entries: {stdlib.Entry} = {}
+local function navigationItems(items: {any}): {Entry}
+    local entries: {Entry} = {}
     for _, item in ipairs(items) do
         entries[
             #entries + 1
-        ] = new stdlib.Entry(
-            name = item.name,
-            path = item.path,
-            items = navigationItems(item.members or {}),
-            kind = item.kind
-        )
+        ] = new Entry(name = item.name, path = item.path, items = navigationItems(item.members or {}), kind = item.kind)
     end
 
     return entries
 end
 
-local function libraryEntry(module: extractMod.Module): stdlib.Entry
-    return new stdlib.Entry(
+local function libraryEntry(module: extractMod.Module): Entry
+    return new Entry(
         name = module.name,
         path = stringsMod.headingId(module.name),
         items = navigationItems(module.items),
@@ -361,11 +354,11 @@ local function libraryEntry(module: extractMod.Module): stdlib.Entry
     )
 end
 
-local function indexParts(page: stdlib.Page): {stdlib.IndexPart}
-    local parts: {stdlib.IndexPart} = {{markdown = "# " .. page.title .. "\n\n" .. INTRO .. "\n"}}
-    local prefix = urlsMod.relativePrefix(urlsMod.routeFile(page.path))
+export function indexParts(document: Page): {IndexPart}
+    local parts: {IndexPart} = {{markdown = "# " .. document.title .. "\n\n" .. INTRO .. "\n"}}
+    local prefix = urlsMod.relativePrefix(urlsMod.routeFile(document.path))
     local owners, kinds = {}, {}
-    for _, entry in ipairs(page.navigation and page.navigation.globals or {}) do
+    for _, entry in ipairs(document.navigation and document.navigation.globals or {}) do
         kinds[entry.name] = entry.kind
         if entry.module then
             owners[entry.name] = entry.module
@@ -373,7 +366,7 @@ local function indexParts(page: stdlib.Page): {stdlib.IndexPart}
     end
     local functions, globals = {}, {}
     local functionLinks, globalLinks = {}, {}
-    for _, item in ipairs(page.globalItems) do
+    for _, item in ipairs(document.globalItems) do
         local owner = owners[item.name]
         local isFunction = item.kind == "function" or kinds[item.name] == "function"
         local items = isFunction and functions or globals
@@ -392,7 +385,7 @@ local function indexParts(page: stdlib.Page): {stdlib.IndexPart}
         entries: {string}
     }} = {}
     local moduleEntries: {string} = {}
-    for _, module in ipairs(page.indexModules or page.modules) do
+    for _, module in ipairs(document.indexModules or document.modules) do
         moduleEntries[
             #moduleEntries + 1
         ] = "[`" .. module.name .. "`](" .. prefix .. urlsMod.moduleFile(module.name) .. ")"
@@ -417,16 +410,16 @@ local function indexParts(page: stdlib.Page): {stdlib.IndexPart}
         overview[#overview + 1] = {title = title, entries = entries}
     end
 
-    overviewItems("Functions", page.globalItems, function(item: extractMod.Item): boolean
+    overviewItems("Functions", document.globalItems, function(item: extractMod.Item): boolean
         return item.kind == "function" or kinds[item.name] == "function"
     end)
-    overviewItems("Globals", page.globalItems, function(item: extractMod.Item): boolean
+    overviewItems("Globals", document.globalItems, function(item: extractMod.Item): boolean
         return item.kind ~= "function" and kinds[item.name] ~= "function"
     end)
-    overviewItems("Types", page.typeItems, function(): boolean
+    overviewItems("Types", document.typeItems, function(): boolean
         return true
     end)
-    overviewItems("Annotations", page.annotationItems, function(): boolean
+    overviewItems("Annotations", document.annotationItems, function(): boolean
         return true
     end)
     parts[#parts + 1] = {markdown = markdownMod.overview(overview)}
@@ -443,20 +436,20 @@ local function indexParts(page: stdlib.Page): {stdlib.IndexPart}
 
     addSection("Functions", FUNCTIONS, functions, functionLinks)
     addSection("Globals", GLOBALS, globals, globalLinks)
-    addSection("Types", TYPES, page.typeItems)
+    addSection("Types", TYPES, document.typeItems)
     addSection(
         "Annotations",
         "Annotations carry checked, type-erased metadata. "
         .. "File directives use `@!name` and occupy a separate namespace.",
-        page.annotationItems
+        document.annotationItems
     )
 
     return parts
 end
 
-local function indexMarkdown(page: stdlib.Page): string
+local function indexMarkdown(document: Page): string
     local out = {}
-    for _, part in ipairs(indexParts(page)) do
+    for _, part in ipairs(indexParts(document)) do
         out[#out + 1] = part.markdown
         if part.items then
             out[#out + 1] = markdownMod.items(part.items, nil, nil, true)
@@ -466,10 +459,8 @@ local function indexMarkdown(page: stdlib.Page): string
     return table.concat(out, "\n")
 end
 
-stdlib.indexParts = indexParts
-
 --- Extracts the standard libraries and their index from the compiler's declarations.
-function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
+export function page(settings: Settings?): Page?
     if not settings then
         return nil
     end
@@ -478,7 +469,7 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
     local modules: {extractMod.Module} = {}
     local qualified: {extractMod.Item} = {}
     local annotationItems = annotationapi.items()
-    local navigation: stdlib.Navigation = {
+    local navigation: Navigation = {
         libraries = {},
         globals = {},
         types = {},
@@ -577,7 +568,7 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
     for _, item in ipairs(annotationItems) do
         symbols[item.name] = item.path
     end
-    local page: stdlib.Page = {
+    local document: Page = {
         path = settings.path or "api",
         title = settings.title or "API reference",
         markdown = "",
@@ -588,14 +579,14 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
         typeItems = types,
         annotationItems = annotationItems
     }
-    page.markdown = indexMarkdown(page)
+    document.markdown = indexMarkdown(document)
 
-    return page
+    return document
 end
 
 --- Combines builtin declarations with the source-owned module for the same name.
-function stdlib.merge(modules: {extractMod.Module}, page: stdlib.Page?): nil
-    if not page then
+export function merge(modules: {extractMod.Module}, document: Page?): nil
+    if not document then
         return
     end
     local byName = {}
@@ -666,18 +657,18 @@ function stdlib.merge(modules: {extractMod.Module}, page: stdlib.Page?): nil
 
     -- Globals with an owned facade retain their actual callable or array declaration
     -- on that page. The index and the Globals navigation only link to it.
-    for _, item in ipairs(page.globalItems) do
+    for _, item in ipairs(document.globalItems) do
         local owner = byName[item.name]
         if owner and not owner.namespace then
             mergeItems(owner.items, {item})
-            for _, entry in ipairs(page.navigation and page.navigation.globals or {}) do
+            for _, entry in ipairs(document.navigation and document.navigation.globals or {}) do
                 if entry.name == item.name then
                     entry.module = owner.name
                 end
             end
         end
     end
-    for _, builtin in ipairs(page.modules) do
+    for _, builtin in ipairs(document.modules) do
         local owned = byName[builtin.name]
         if owned then
             mergeItems(owned.items, builtin.items)
@@ -706,8 +697,6 @@ function stdlib.merge(modules: {extractMod.Module}, page: stdlib.Page?): nil
     table.sort(modules, function(left, right)
         return left.name < right.name
     end)
-    page.indexModules = modules
-    page.markdown = indexMarkdown(page)
+    document.indexModules = modules
+    document.markdown = indexMarkdown(document)
 end
-
-export = stdlib
