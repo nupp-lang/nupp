@@ -207,6 +207,10 @@
   border-top: 1px solid var(--nuppdoc-border);
 }
 
+.nuppdoc-content .nuppdoc-overview + hr {
+  margin-top: 1rem;
+}
+
 .nuppdoc-home-hero + h2 {
   /* The playground toolbar sits 2rem above its editor. Include that offset
    * so the heading keeps a visible 1rem gap instead of touching the toolbar. */
