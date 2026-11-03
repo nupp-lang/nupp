@@ -42,6 +42,9 @@ type ownership.Ops = {
     --- The authoritative mutable facts from which `capabilityOf` is projected.
     capabilityFacts: function(entry: any, result: integer?, create: boolean?): T.CapabilityFacts,
 
+    -- Carry foreign loans through an opaque consuming transformation.
+    retainConsumedLoans: function(node: any, roots: {any}, results: {Type}, exclusive: boolean?),
+
     --- The entry an ownership fact is recorded on, following a narrowed copy back.
     ownershipState: function(entry: any): any,
 
@@ -924,6 +927,32 @@ function ownership.install(c: state.Checker): ownership.Ops
         end
 
         return out
+    end
+
+    function own.retainConsumedLoans(node, roots, results, exclusive)
+        if #roots == 0 then
+            return
+        end
+        -- Taking a wrapper transfers its dependencies too. Its result must keep
+        -- foreign storage alive, without becoming a borrow of the moved wrapper.
+        -- An opaque call can retain any taken input in any owned result.
+        for result, t in ipairs(results) do
+            local kind = own.ownershipKind(t)
+            if kind == "affine" or kind == "pinned" then
+                local facts = own.capabilityFacts(node, result)
+                local combined, seen = {}, {}
+                for _, root in ipairs(facts.roots or {}) do
+                    seen[root], combined[#combined + 1] = true, root
+                end
+                for _, root in ipairs(roots) do
+                    if not seen[root] then
+                        seen[root], combined[#combined + 1] = true, root
+                    end
+                end
+                facts.roots = combined
+                facts.exclusive = facts.exclusive or exclusive
+            end
+        end
     end
 
     function own.provenanceOwner(expr)

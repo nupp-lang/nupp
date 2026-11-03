@@ -1947,9 +1947,8 @@ failure with the rest suppressed. A local name shadows a helper.
 managed cell. The unique `managed(T)` value owns the cell; copyable `alias(T)`
 values provide checked callback borrows, exclusive callback borrows, one-time
 ownership recovery, and closure. Closed and taken cells remain tombstones, so
-an old alias can never select a later resource. `own.ManagedGroup` implements
-runtime-sized heterogeneous custody as ordinary library code over aliases.
-`nupp.mem.heap.Array<T>` remains the typed homogeneous owning container.
+an old alias can never select a later resource.
+`nupp.mem.heap.Array<T>` is the typed homogeneous owning container.
 
 See [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete contract
 reference, and [affine-types.md](docs/learn/runtime/ownership/affine-types.md) for the
@@ -2218,11 +2217,11 @@ which is what admits them inside `@noraise` code. Arbitrary
 indexes, held frames, and accesses outside the same-function witness stay
 checked.
 
-See the `nupp.mem.span` module reference for the complete span contracts.
+See the `binary.span` module reference for the complete span contracts.
 ]=],
         example = [=[
-local span = require("binary.span")
-local indexed = require("binary.span")
+local span = binary.span
+local indexed = binary.span
 local m = {}
 
 local struct Value
@@ -2648,8 +2647,8 @@ cancellation, and the protocol a waiting library subscribes through, and
         example = [=[
 local m = {}
 
-local http = require("io.http")
-local tasks = require("coroutine")
+local http = io.http
+local tasks = coroutine
 
 function m.statuses(urls: {string}): {integer}
     local function storeStatus(codes: {integer}, index: integer, url: string): nil

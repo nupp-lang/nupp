@@ -1,9 +1,0 @@
-module demo.managedgroup
-
-const own2 = require("own")
-
-export function run(): integer
-    local group = own2.managedgroup()
-    own.drop(group)
-    return 42
-end

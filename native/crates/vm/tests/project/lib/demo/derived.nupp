@@ -117,8 +117,7 @@ local function managedOwnership(): boolean
         local other = own.manage(open(2))
     end
     do
-        local group = own2.managedgroup()
-        local held = group:adopt(own.manage(open(4)))
+        local held = own.manage(open(4))
         assert2(
             held:with(function(borrows value)
                 return value.value

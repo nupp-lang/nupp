@@ -571,26 +571,6 @@ function M.partialFieldMovesAndReinitializationKeepExactObligations()
     testAssert.eq(chunk(), "abc")
 end
 
-function M.managedGroupAdoptionTransfersAutomaticResponsibility()
-    local chunk = compile(
-        PRELUDE .. table.concat(
-            {
-                "",
-                "do",
-                "   local group = own.managedgroup()",
-                "   local value = open_resource('q')",
-                "   local handle = group:adopt(own.manage(value))",
-                "   local name = handle:with(function(borrows item) return item.name end)",
-                "   print(name)",
-                "end",
-                "return calls",
-            },
-            "\n"
-        )
-    )
-    testAssert.eq(chunk(), "q")
-end
-
 function M.structuredExitsRunCleanup()
     local chunk = compile(
         PRELUDE .. table.concat(

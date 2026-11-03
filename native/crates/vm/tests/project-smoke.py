@@ -103,18 +103,6 @@ with tempfile.TemporaryDirectory() as directory:
                                 env=flags, capture_output=True, text=True, check=True)
         assert result.stdout.strip() == "42", result.stdout
     print("Lua binding kinds, missing globals, and empty return values passed", flush=True)
-    managed = output / "managed.image"
-    managed.write_text(json.loads(run(seed, "emit", fixture, "demo.managedgroup").stdout))
-    for mode in ("threaded", "observed", "jit"):
-        flags = dict(env, GC_INTERLEAVE="1", GC_ORACLE="1", GC_QUARANTINE="1")
-        if mode == "observed":
-            flags["NO_THREADED"] = "1"
-        if mode == "jit":
-            flags.pop("NO_JIT", None)
-        result = subprocess.run([binary, "run", str(managed), "demo.managedgroup", "run"],
-                                env=flags, capture_output=True, text=True, check=True)
-        assert result.stdout.strip() == "42", result.stdout
-    print("Managed group installs its runtime without another managed operation", flush=True)
     switches = output / "switches.image"
     switches.write_text(json.loads(run(seed, "emit", fixture, "demo.switches").stdout))
     for mode in ("threaded", "observed", "jit"):

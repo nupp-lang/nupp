@@ -1,6 +1,6 @@
-//! Markdown for `nupp doc`: CommonMark with pipe tables, rendered to HTML by
-//! `pulldown-cmark`, installed as `nupp.vm.markdown` (the `nmarkdown.`
-//! builtins). The documentation generator owns everything around the
+//! Markdown for `nupp doc`: CommonMark with pipe tables and definition lists,
+//! rendered to HTML by `pulldown-cmark`, installed as `nupp.vm.markdown` (the
+//! `nmarkdown.` builtins). The documentation generator owns everything around the
 //! rendering -- fenced blocks, containers, heading ids -- and hands this only
 //! the Markdown left once those are lifted out.
 use crate::{
@@ -19,7 +19,8 @@ fn render(it: &mut Interp, args: &[Value]) -> Outs {
     if !it.is_stringish(v) { it.err(&format!("bad argument #1 to 'render' (string expected, got {})", type_name(it, v))); }
     let text = String::from_utf8_lossy(it.bytes_of(v)).into_owned();
     let mut out = String::with_capacity(text.len() + text.len() / 2);
-    html::push_html(&mut out, Parser::new_ext(&text, Options::ENABLE_TABLES));
+    let options = Options::ENABLE_TABLES | Options::ENABLE_DEFINITION_LIST;
+    html::push_html(&mut out, Parser::new_ext(&text, options));
     let result = it.string_of(out.as_bytes());
     [result].into_iter().collect()
 }

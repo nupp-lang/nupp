@@ -10,7 +10,7 @@ HTTP response body.
 
 ```nupp
 local bytes = io.newbuffer("hello")
-local reader = bytes:newreader()
+local reader = bytes:reader()
 assert(reader:read(5) == "hello")
 ```
 
@@ -104,7 +104,7 @@ buffer.
 ## Readers
 
 A `io.Reader` is a forward-only byte source. `newreader(text)` reads
-a string; `buffer:newreader()` reads a snapshot of the buffer's current
+a string; `buffer:reader()` reads a snapshot of the buffer's current
 contents. A reader owns its close obligation and closes automatically at the
 end of its scope unless `close()` consumes it earlier.
 
@@ -144,7 +144,7 @@ assert(text == nil and reason ~= nil)
 
 ## Writers
 
-`buffer:newwriter()` clears the buffer and returns a forward-only writer
+`buffer:writer()` clears the buffer and returns a forward-only writer
 targeting it. A writer likewise closes automatically; `flush()` publishes
 pending work without consuming that ownership. The writer holds its buffer
 exclusively for as long as it is live, so the buffer is read once the writer is
@@ -153,7 +153,7 @@ gone:
 ```nupp
 local destination = io.newbuffer()
 do
-    local writer = destination:newwriter()
+    local writer = destination:writer()
     assert(writer:write("prefix:"))
 
     local payload = io.newbuffer("body")
@@ -190,64 +190,51 @@ with a reason. Closing or dropping the line reader closes the source it took.
 
 ## Typed scalars
 
-A reader and a writer move bytes. `newsreader` and `newswriter` add
-the missing piece, a sized integer or float landing on those bytes without
-decoding it by hand at every call site.
+`Reader:scalar()` and `Writer:scalar()` add fixed-width numeric operations to
+byte handles. Multi-byte values use the machine's byte order.
 
 ```nupp
-local writer = io.newswriter()
-writer:writeuint32(1447383632):writefloat64(1.5)
-
-local stored = writer:buffer()
-assert(stored ~= nil)
-local reader = io.newsreader(stored)
+local stored = io.newbuffer()
+do
+    local writer = stored:writer():scalar()
+    writer:writeuint32(1447383632):writefloat64(1.5)
+end
+local reader = stored:reader():scalar()
 assert(reader:readuint32() == 1447383632)
 assert(reader:readfloat64() == 1.5)
 assert(reader:atend())
 ```
 
-Every write returns the writer, so calls chain. A short read raises rather than
-answering a reason, which is the one place this pair departs from the reader and
-writer contracts above: a scalar either landed whole or the source was not what
-the format said, and there is no partial value to hand back.
+The scalar adapter takes its byte handle and closes it when dropped or closed.
+A short scalar read raises. Writes return the scalar writer so calls chain.
 
 ### Scalar sources
 
-`newsreader` takes whatever holds the bytes. A string, a `ByteView` or a
-`Buffer` is read from a copy taken there and then, so `remaining()` knows the
-count:
+Create a byte reader over a string, buffer, view, or queue, then adapt it:
 
 ```nupp
-local reader = io.newsreader("\1\2\3\4")
+local reader = io.newreader("\1\2\3\4"):scalar()
 assert(reader:remaining() == 4)
 ```
 
-A `Reader` is consumed as it goes, which is what lets a file or an HTTP body be
-read a field at a time. It cannot say how much is left, so `remaining()` returns
-nil and `atend()` is the question to ask instead. The scalar adapter takes that
-reader: closing the adapter, by hand or at the end of its scope, closes the
-reader exactly once.
+`remaining()` reports the bytes left in built-in string and queue readers,
+including bytes buffered by the adapter. Open-ended readers return nil.
+`atend()` checks whether a scalar reader has reached the end.
 
 ### Scalar destinations
 
-`newswriter` appends to a `Buffer`, keeping what that buffer already
-holds, or writes through a `Writer`. Given nothing it starts a buffer of its
-own, which `buffer()` hands back:
+A scalar writer writes at its byte writer's current position. Creating a
+buffer writer clears the buffer; adapting that writer preserves its position.
+The caller retains the buffer and reads it after the writer is dropped:
 
 ```nupp
-local destination = io.newbuffer("header:")
+local destination = io.newbuffer()
 do
-    local scalars = io.newswriter(destination)
-    scalars:writeuint8(33)
+    local writer = destination:writer():scalar()
+    writer:writeuint8(33)
 end
-assert(destination:getstring() == "header:!")
+assert(destination:getstring() == "!")
 ```
-
-A writer pointed at somebody else's `Writer` returns nil from `buffer()`, since
-the bytes are already gone. That writer is taken, so closing the scalar adapter
-closes it exactly once. A buffer supplied by the caller is only borrowed. The
-buffer created by the no-argument form belongs to the scalar writer; `buffer()`
-borrows it for as long as the scalar writer remains live.
 
 ## Failures
 
@@ -274,7 +261,7 @@ buffer or a string reader returns through the same contract.
 ## Byte queues
 
 A [`nupp.text`](nupp.text) buffer is a byte queue: `put` appends to the back
-and `get` consumes from the front. `newsreader` accepts one directly, so
+and `get` consumes from the front. `io.newreader(queue):scalar()` adapts one, so
 bytes assembled there are read without copying everything in it first, and the
 queue's own `get` stays usable over the same bytes.
 
@@ -283,7 +270,7 @@ local queue = nupp.text.newbuffer()
 queue:put("header:")
 queue:put("!")
 
-local reader = io.newsreader(queue)
+local reader = io.newreader(queue):scalar()
 assert(reader:readbytes(7) == "header:")
 assert(queue:tostring() == "!")
 assert(reader:readuint8() == 33)
@@ -300,7 +287,7 @@ local queue = nupp.text.newbuffer()
 queue:put("payload")
 do
     local reader = io.newreader(queue)
-    assert(reader:transferto(destination:newwriter()) == 7)
+    assert(reader:transferto(destination:writer()) == 7)
 end
 assert(destination:getstring() == "payload")
 ```
@@ -321,7 +308,6 @@ empty leaves an empty queue rather than a released one.
 -- Public names are direct aliases; calls reach the implementation without
 -- adapters.
 const bytes = require("nupp.io.internal.bytes")
-const scalars = require("nupp.io.internal.scalars")
 
 --- A forward-only byte source.
 ---
@@ -342,6 +328,9 @@ export const Reader = bytes.readerdefaults
 --- against the contract fills any of them.
 --- @export
 export type Writer = bytes.Writer
+
+--- @internal
+export const Writer = bytes.writerdefaults
 
 --- A queue of bytes something else is filling, which a reader may be opened
 --- over without owning it.
@@ -503,11 +492,14 @@ end
 
 --- Reads fixed-width numbers from a source of bytes.
 --- @export
-export type ScalarReader = scalars.ScalarReader
+export type ScalarReader = bytes.ScalarReader
 
 --- Writes fixed-width numbers into a destination.
 --- @export
-export type ScalarWriter = scalars.ScalarWriter
+export type ScalarWriter = bytes.ScalarWriter
+
+--- Scalar reads and writes over one byte handle.
+export type ScalarStream = bytes.ScalarStream
 
 --- A reader taken apart into lines.
 ---
@@ -574,48 +566,6 @@ export const newWriter = bytes.newWriter
 --- @raises string when source is not a byte queue
 --- @export
 export const newQueueReader = bytes.newQueueReader
-
---- Opens a cursor for sized integer and float reads.
----
---- A string, snapshot or buffer is read from a copy of its bytes taken here,
---- and reports its `remaining` count. A reader or a queue is consumed in place:
---- the reader returns no count, the queue returns what it still holds.
----
---- What the source is decides what happens to it. A snapshot or a buffer is
---- borrowed and outlives the cursor; a reader is taken, and closing the cursor
---- closes it; a string or a queue carries no obligation either way.
----
---- ```nupp:fragment
---- local cursor = io.newsreader(header)
---- local magic = cursor:readuint32()
---- local count = cursor:readuint16()
---- ```
----
---- @param source the bytes, snapshot, buffer, reader or queue to read
---- @return the new reader, owned by the caller
---- @raises string when source is none of those
---- @export
-export const newScalarReader = scalars.newScalarReader
-
---- Opens a cursor for sized integer and float writes.
----
---- A buffer is appended to, keeping what it already holds. A writer receives
---- the bytes as they are written. Omitting the destination starts a fresh
---- buffer, which `ScalarWriter:buffer` hands back.
----
---- ```nupp
---- local cursor = io.newswriter()
---- cursor:writeuint32(0x4d495355):writeuint16(2)
---- local bytes = cursor:buffer()
---- assert(bytes ~= nil and bytes:getstring() ~= "")
---- ```
----
---- @param destination the buffer or writer to append to, or nothing for a
----     fresh buffer
---- @return the new writer, owned by the caller
---- @raises string when destination is neither a buffer nor a writer
---- @export
-export const newScalarWriter = scalars.newScalarWriter
 
 --- Reads a reader to its end and returns everything it held as a string.
 ---

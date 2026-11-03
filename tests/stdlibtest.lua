@@ -102,8 +102,8 @@ end
 local FORMER_DROP_OWNERS = {
     "local owner = io.newbuffer('bytes')",
     "local source = io.newbuffer('bytes')\nlocal owner = source:view()",
-    "local owner = io.newsreader('abcd')",
-    "local owner = io.newswriter()",
+    "local owner = io.newreader('abcd'):scalar()",
+    "local destination = io.newbuffer(); local owner = destination:writer():scalar()",
     "local owner = io.newreader('one'):lines()",
     "local owner = assert(io.files.open('input.bin'))",
     "local owner = assert(io.files.tmpfile())",
@@ -186,9 +186,8 @@ function M.formerResultClosesAnswerNothing()
     local io = require("io")
     local buffer = io.newbuffer("abc")
     testAssert.eq(select("#", buffer:view():close()), 0, "ByteView:close answers nothing")
-    testAssert.eq(select("#", io.newsreader("abcd"):close()), 0, "ScalarReader:close answers nothing")
-    testAssert.eq(select("#", io.newswriter():close()), 0, "ScalarWriter:close answers nothing")
-    testAssert.eq(select("#", io.newswriter(buffer):close()), 0, "a borrowing ScalarWriter answers nothing")
+    testAssert.eq(select("#", io.newreader("abcd"):scalar():close()), 0, "ScalarReader:close answers nothing")
+    testAssert.eq(select("#", buffer:writer():scalar():close()), 0, "a borrowing ScalarWriter answers nothing")
     testAssert.eq(buffer:isreleased(), false, "a borrowing scalar writer leaves its buffer open")
     testAssert.eq(select("#", buffer:close()), 0, "Buffer:close answers nothing")
     testAssert.eq(select("#", buffer:close()), 0, "a second close is safe")
@@ -742,7 +741,7 @@ function M.browserCryptoRejectsMalformedHostValues()
             return returned[kind]
         end,
     })
-    local base64 = require("serde.base64")
+    local base64 = require("binary.base64")
 
     returned.random = {bytesBase64 = base64.encode("\0")}
     testAssert.eq(browser.randombytes(1), "\0")
@@ -1923,17 +1922,17 @@ function M.compilerProvidedPureLibraries()
       local io = require("io")
       local buffer = io.newbuffer("hello")
       do
-          local writer = buffer:newwriter()
+          local writer = buffer:writer()
           assert(writer:write("world"))
       end
       assert(buffer:getstring() == "world")
       do
           local view = buffer:view()
-          local viewReader = view:newreader()
+          local viewReader = view:reader()
           assert(not pcall(function() viewReader:read(0) end))
           assert(viewReader:read(1) == "w")
       end
-      local reader = buffer:newreader()
+      local reader = buffer:reader()
       assert(reader:read(3) == "wor")
       assert(reader:read(8) == "ld")
       assert(reader:read(1) == "")
@@ -2162,7 +2161,7 @@ end
 function M.bufferAppendsInAmortizedConstantTime()
     local io = require("io")
     local buffer = io.newbuffer()
-    local writer = buffer:newwriter()
+    local writer = buffer:writer()
     local piece = string.rep("x", 64)
     for _ = 1, 100000 do
         assert(writer:write(piece))
@@ -2903,8 +2902,10 @@ function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
     for _, names in ipairs({
         {"getString", "getstring"},
         {"setString", "setstring"},
-        {"newReader", "newreader"},
-        {"newWriter", "newwriter"},
+        {"newReader", "reader"},
+        {"newreader", "reader"},
+        {"newWriter", "writer"},
+        {"newwriter", "writer"},
         {"reserveWrite", "reservewrite"},
         {"readSpan", "readspan"},
         {"isReleased", "isreleased"},
@@ -2919,7 +2920,7 @@ function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
     assert(storage:capacity() >= 64)
     testAssert.eq(storage:getstring(), "abcd")
     storage:close()
-    local scalar = io.newsreader(string.char(1, 0, 0, 0))
+    local scalar = io.newreader(string.char(1, 0, 0, 0)):scalar()
     testAssert.eq(type(scalar.readuint32), "function")
     testAssert.eq(scalar.readUint32, nil)
     testAssert.eq(scalar:readuint32(), 1)
@@ -2946,6 +2947,44 @@ print(source:read(1))]])
         local diagnostics = diagsOf(source)
         assert(diagnostics:find("NUPP2004", 1, true), diagnostics)
     end
+end
+
+function M.scalarDuplexUsesOneCursorAndClosesOnce()
+    local adapters = require("nupp.io.internal.scalars")
+    local bytes, cursor, closes = string.char(1, 0, 0, 0), 1, 0
+    local source = {
+        read = function(_, count)
+            local result = bytes:sub(cursor, cursor + count - 1)
+            cursor = cursor + #result
+            return result
+        end,
+        write = function(_, value)
+            bytes = bytes:sub(1, cursor - 1) .. value .. bytes:sub(cursor + #value)
+            cursor = cursor + #value
+            return true
+        end,
+        flush = function()
+            return true
+        end,
+        close = function()
+            closes = closes + 1
+        end,
+    }
+    local scalar = adapters.duplex(source)
+    testAssert.eq(scalar:readuint32(), 1)
+    testAssert.eq(cursor, 5)
+    testAssert.eq(scalar:writeuint8(9), scalar)
+    testAssert.eq(bytes, string.char(1, 0, 0, 0, 9))
+    testAssert.eq(scalar:flush(), true)
+    scalar:close()
+    scalar:close()
+    testAssert.eq(closes, 1)
+    testAssert.eq(
+        pcall(function()
+            scalar:readuint8()
+        end),
+        false
+    )
 end
 
 return M

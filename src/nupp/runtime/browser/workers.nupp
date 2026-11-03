@@ -22,7 +22,7 @@ Each consumer chooses during initialization; provider state remains in its lane.
 @allow("unused-binding")
 const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 
-local base64 = require("serde.base64")
+local base64 = require("binary.base64")
 local browserEffects = require("nupp.runtime.browser.effects")
 local codec = require("nupp.runtime.browser.workercodec")
 local suspension = require("coroutine.suspension")

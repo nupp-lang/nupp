@@ -121,7 +121,7 @@ function main.run(): integer
     assert(facts.pointerbits == 32 or facts.pointerbits == 64)
     assert(facts.parallelism >= 1)
     local bytes = io.newbuffer("abc")
-    local reader: io.Reader = bytes:newreader()
+    local reader: io.Reader = bytes:reader()
     assert(reader:read(3) == "abc")
     local algorithm = digest.algorithm("sha256")
     assert(algorithm.digestsize == 32)

@@ -412,13 +412,17 @@ local function headingSlugs(text, headingScope: string?)
     local slugs, out = {}, {}
     local used: {[string]: boolean} = {}
     local namedAnchor, anchorAt = nil, nil
+    local activeScope = headingScope
     for line in (text .. "\n"):gmatch("(.-)\n") do
         local hashes, heading = line:match("^(#+)%s+(.+)$")
         if hashes then
             local name, badge, lua = headingBadge(heading)
             local base = headingId(heading)
-            local id = uniqueHeading(headingScope and headingScope .. "." .. base or base, used)
-            if namedAnchor == base and anchorAt then
+            if namedAnchor then
+                activeScope = namedAnchor
+            end
+            local id = uniqueHeading(namedAnchor or (activeScope and activeScope .. "." .. base or base), used)
+            if namedAnchor and anchorAt then
                 -- The heading already owns this exact anchor. Keeping the empty
                 -- anchor before it would give the document two identical IDs.
                 out[anchorAt] = ""
@@ -466,6 +470,34 @@ local function rewriteHeadings(rendered: string, headings: {any}, shift: integer
     end))
 end
 
+-- An API page's definition lists: the class that styles them, and each term's last
+-- code span, its declaration, highlighted as Nupp source.
+local function apiDefinitionHtml(rendered: string, links: Links?): string
+    local styled = rendered:gsub("<dl>", '<dl class="nuppdoc-api-details">')
+
+    return (styled:gsub("<dt>(.-)</dt>", function(term: string): string
+        local _, count = term:gsub("<code>.-</code>", "")
+        local index = 0
+        local highlighted = term:gsub("<code>(.-)</code>", function(value: string): string
+            index = index + 1
+            if index ~= count then
+                return "<code>" .. value .. "</code>"
+            end
+            -- Decode the renderer's escapes once before highlighting. Ampersands
+            -- go last so an original literal entity is not decoded twice.
+            local source = value:gsub("&lt;", "<")
+                :gsub("&gt;", ">")
+                :gsub("&quot;", '"')
+                :gsub("&#39;", "'")
+                :gsub("&amp;", "&")
+
+            return "<code>" .. highlightMod.nuppSource(source, links) .. "</code>"
+        end)
+
+        return "<dt>" .. highlighted .. "</dt>"
+    end))
+end
+
 markdownHtml = function(text: string?, links: Links?, headingShift: integer?, headingScope: string?): string
     -- A Windows checkout hands the page to us with CRLF endings. The fenced-block
     -- pass is line-oriented and rebuilds its input with LF, so normalize before it
@@ -490,6 +522,9 @@ markdownHtml = function(text: string?, links: Links?, headingShift: integer?, he
         error("nupp doc cannot render Markdown: " .. tostring(problem), 0)
     end
     local out = rewriteHeadings(document, slugs, headingShift == nil and 1 or headingShift)
+    if headingScope ~= nil then
+        out = apiDefinitionHtml(out, links)
+    end
     if headingScope then
         local targets: {[string]: string} = {}
         for _, slug in ipairs(slugs) do

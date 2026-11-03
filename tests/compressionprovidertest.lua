@@ -143,7 +143,7 @@ function M.rejectsMalformedUntypedOptions()
     rejects({maxexpansionratio = "1"}, "maxexpansionratio must be positive and finite")
 
     local destination = io2.newbuffer()
-    local sink = destination:newwriter()
+    local sink = destination:writer()
     local ok, problem = pcall(format.newwriter, format, sink, false)
     if ok then
         problem:close()

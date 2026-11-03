@@ -697,7 +697,7 @@ export record Format
         exclusive destination: io.Buffer,
         options: WriterOptions?
     ): nil
-        local sink = destination:newwriter()
+        local sink = destination:writer()
         local compressed = makeWriter(self.implementation, self.name, sink, options)
         local written, reason = compressed:writespan(bytes)
         if written == nil then
@@ -747,7 +747,7 @@ export record Format
     ): nil
         local source = io.newreader(storage.string(bytes:ref(), #bytes))
         local reader = self:newreader(source, options)
-        local writer = destination:newwriter()
+        local writer = destination:writer()
         local _, reason = reader:transferto(writer)
         reader:close()
         writer:close()

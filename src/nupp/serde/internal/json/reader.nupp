@@ -7,7 +7,7 @@ local plans = require("nupp.serde.internal.json.plan")
 local syntax = require("nupp.serde.internal.json.syntax")
 local documents = require("nupp.serde.internal.json.document")
 local numbers = require("nupp.serde.internal.numbers")
-local base64 = require("serde.base64")
+local base64 = require("binary.base64")
 local json = require("nupp.serde.internal.json.values")
 
 export record Input<M is core.Member> is core.Reader<M>

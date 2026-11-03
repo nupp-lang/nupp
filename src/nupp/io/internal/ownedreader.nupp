@@ -15,7 +15,7 @@ local integer_ = bytes.validateInteger
 local DEFAULT_READ = 65536
 
 -- A completed host transfer can give its allocation to a reader directly.
--- Unlike Buffer:newreader's snapshot, this consumes the owner and copies no bytes.
+-- Unlike Buffer:reader's snapshot, this consumes the owner and copies no bytes.
 local record MemoryReader is Reader
     @private _data: uint8[?]
     @private _length: integer

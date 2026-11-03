@@ -10,6 +10,7 @@ local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 
 const io = require("nupp.io")
+local scalarAdapters = require("nupp.io.internal.scalars")
 const {type Reader} = require("nupp.io")
 const {type Writer} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
@@ -121,7 +122,12 @@ end
 --- Owns the connection it encrypts over. Closing the session sends
 --- `close_notify`, drains it, and closes the socket.
 --- @export
-record tls.TlsSession is io.Reader, Writer
+record tls.TlsSession is io.Reader, io.Writer
+    --- Takes both directions as one owned scalar stream.
+    function scalar(takes self): affine(io.ScalarStream)
+        return scalarAdapters.duplex(self)
+    end
+
     @private _provider: contract.TlsProvider
     @private _session: any
 

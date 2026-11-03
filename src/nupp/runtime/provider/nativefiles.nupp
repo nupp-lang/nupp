@@ -12,6 +12,7 @@ they return, so `pendingTransfers` is always zero.
 const host = require("nupp.vm.files")
 const paths = require("io.internal.path")
 const io = require("io")
+local scalarAdapters = require("nupp.io.internal.scalars")
 local privateIo = require("nupp.io")
 const span = require("binary.span")
 const messages = require("io.files.messages")
@@ -91,6 +92,13 @@ local function payload(borrows value: string | io.ByteView, what: string, level:
 end
 
 export record File is io.Reader, io.Writer
+    --- Takes this file and adds scalar reads and writes at its shared cursor.
+    --- @param self the file to take
+    --- @return the scalar stream, owned by the caller
+    function scalar(takes self): affine(io.ScalarStream)
+        return scalarAdapters.duplex(self)
+    end
+
     @private _handle: integer
     @private _closed: boolean
 

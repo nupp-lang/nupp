@@ -5,7 +5,7 @@ local io = require("io")
 local hash = require("binary")
 local array = require("nupp.mem.array")
 local span = require("binary.span")
-local hex = require("serde.hex")
+local hex = require("binary.hex")
 local test = require("assert")
 local M = {}
 

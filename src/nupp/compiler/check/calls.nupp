@@ -2662,6 +2662,8 @@ function calls.install(c: state.Checker): calls.Ops
         -- it with the adjusted argument pack so substituting a generic pack can carry a
         -- borrowed slot back out without detaching it from its owner.
         local argumentBorrowOwners = {}
+        local consumedRoots = {}
+        local consumedExclusive = false
         local exclusiveRegions: {{
             path: string,
             root: any
@@ -3032,6 +3034,14 @@ function calls.install(c: state.Checker): calls.Ops
                     )
                 elseif takenKind == "affine" or takenKind == "pinned" then
                     local movedNode = cst.isToken(argNodes[j]) and node or argNodes[j]
+                    local consumedEntry = c.ownershipEntry(movedNode)
+                    consumedExclusive = consumedExclusive
+                        or c.own.capabilityFacts(movedNode, nil, false).exclusive
+                        or consumedEntry and c.own.capabilityFacts(consumedEntry, nil, false).exclusive
+                        or false
+                    for _, root in ipairs(c.own.rootsOf(movedNode)) do
+                        consumedRoots[#consumedRoots + 1] = root
+                    end
                     local sourceArg = args[j]
                     if movedNode.affineAggregate then
                         node.automaticOwnerMoves = node.automaticOwnerMoves or {}
@@ -3251,7 +3261,9 @@ function calls.install(c: state.Checker): calls.Ops
                         end
                         sharedRegions[#sharedRegions + 1] = {root = regionRoot, path = regionPath}
                     end
-                    local roots = entry and {entry} or c.own.provenanceOwners(argNodes[j])
+                    local roots = entry and {entry}
+                        or c.own.capabilityFacts(argNodes[j], nil, false).roots
+                        or c.own.provenanceOwners(argNodes[j])
                     local base = entry or c.own.pathBase(argNodes[j])
                     for _, root in ipairs(roots) do
                         if not reborrowsExclusiveView(argNodes[j], c.borrowRoot(root))
@@ -3496,6 +3508,7 @@ function calls.install(c: state.Checker): calls.Ops
                 end
             end
         end
+        c.own.retainConsumedLoans(node, consumedRoots, rets, consumedExclusive)
         node.signatureType = T.func(
             params,
             rets,

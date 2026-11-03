@@ -191,11 +191,6 @@ tombstone. `own.recoveralias(value)` validates the brand of an alias that
 crossed `any`, and `alias:downcast<T>()` then validates its erased payload and
 cleanup policy.
 
-For runtime-sized heterogeneous shutdown, `own.ManagedGroup` adopts managed
-cells and closes them in reverse order. Create one with `own.managedgroup()`.
-It is ordinary library code over
-aliases, not a compiler-recognized container.
-
 A structural `function drop(takes self): nil` may replace that behavior, but it
 must discharge every affine field on every path. See
 [ownership.md](borrowing.md#affine-aggregates-and-closures) for

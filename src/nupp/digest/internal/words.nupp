@@ -13,7 +13,7 @@ and performs no SPI resolution itself. MD5 and SHA-1 serve interoperability uses
 
 const bit = require("nupp.runtime.bitops")
 const span = require("binary.span")
-const hex = require("serde.hex")
+const hex = require("binary.hex")
 const streaming = require("nupp.digest.internal.streaming")
 const constants = require("nupp.digest.internal.constants")
 

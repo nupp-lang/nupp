@@ -87,7 +87,7 @@ end
 
 function tests.scalarReadersAcceptStructuralQueues(): nil
     local queue = new Queue(bytes = "\1\2\3\4")
-    local reader = standard.newsreader(queue)
+    local reader = standard.newreader(queue):scalar()
     assert2(reader:remaining() == 4)
     assert2(reader:readuint32() == 67305985)
     assert2(reader:remaining() == 0)

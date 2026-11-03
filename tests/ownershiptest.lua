@@ -1401,24 +1401,6 @@ function M.aDiscardedOwnershipIntrinsicEmitsLoadableLua()
     assert(chunk, tostring(loadErr))
 end
 
-function M.managedGroupsUseOrdinaryLibraryCalls()
-    local source = table.concat(
-        {
-            RESOURCE,
-            "do",
-            "   local group = own.managedgroup()",
-            "   local handle = group:adopt(own.manage(resource_new()))",
-            "   local value = handle:with(function(borrows item) return item.value end)",
-            "   print(value)",
-            "end",
-        },
-        "\n"
-    )
-    local result, diags = checked(source)
-    testAssert.eq(#diags, 0, diags[1] and diags[1].msg or "check")
-    program.image(result, "ownership-test")
-end
-
 function M.manageRejectsTransferOnlyOwners()
     testAssert.eq(
         codes(
@@ -1434,23 +1416,6 @@ function M.manageRejectsTransferOnlyOwners()
             )
         ),
         "NUPP2612"
-    )
-end
-
-function M.managedGroupsCanTransferARegistrationBackOutExactlyOnce()
-    assertClean(
-        table.concat(
-            {
-                RESOURCE,
-                "do",
-                "   local group = own.managedgroup()",
-                "   local handle = group:adopt(own.manage(resource_new()))",
-                "   local returned = group:remove(handle)",
-                "   own.drop(returned)",
-                "end",
-            },
-            "\n"
-        )
     )
 end
 
@@ -8728,6 +8693,75 @@ local function close(takes value: Resource): nil own.attemptall(value, take, las
 ]]
         ),
         "NUPP2615"
+    )
+end
+
+function M.consumingScalarAdaptersKeepTheirBuffersAlive()
+    for _, expression in ipairs({"buffer:writer():scalar()",}) do
+        local target = expression:find("writer", 1, true) and "ScalarWriter" or "ScalarReader"
+        local source = "local function escape(): affine(io."
+            .. target
+            .. ")\n"
+            .. "    local buffer = io.newbuffer()\n"
+            .. "    return "
+            .. expression
+            .. "\nend"
+        testAssert.eq(codes(source), "NUPP2608", expression)
+    end
+end
+
+function M.scalarReadersCanOwnIndependentBufferSnapshots()
+    assertClean(
+        [[
+local function snapshot(): affine(io.ScalarReader)
+    local buffer = io.newbuffer()
+    return buffer:reader():scalar()
+end
+]]
+    )
+end
+
+function M.consumingFunctionsKeepForeignLoansInOwnedResults()
+    testAssert.eq(
+        codes(
+            [[
+local function wrap(takes writer: io.Writer): affine(io.ScalarWriter)
+    return writer:scalar()
+end
+local function escape(): affine(io.ScalarWriter)
+    local buffer = io.newbuffer()
+    local writer = buffer:writer()
+    return wrap(writer)
+end
+]]
+        ),
+        "NUPP2608"
+    )
+end
+
+function M.consumingScalarWritersKeepExclusiveBufferLoans()
+    local got = codes(
+        [[
+local buffer = io.newbuffer()
+local scalar = buffer:writer():scalar()
+local overlapping = buffer:writer()
+scalar:writeuint8(1)
+]]
+    )
+    assert(got:find("NUPP2607", 1, true), got)
+end
+
+function M.scalarWriterReborrowsKeepTheirImmediateHolder()
+    assertClean(
+        [[
+local function append(borrows writer: io.ScalarWriter): nil
+    writer:writeuint8(33)
+end
+local buffer = io.newbuffer()
+local writer = buffer:writer():scalar()
+append(writer:writebytes(":"))
+writer:writebytes(":"):writeuint8(33)
+]]
     )
 end
 

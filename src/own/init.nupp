@@ -1,7 +1,7 @@
 module own
 
 --[[
-`own` provides checked ownership, managed aliases, and resource groups.
+`own` provides checked ownership and managed aliases.
 Its operations preserve the cleanup and borrowing contracts of each resource.
 
 ```nupp
@@ -19,7 +19,6 @@ export type Copyable = own.Copyable
 export type Affine<const cleanup: function> = own.Affine<cleanup>
 export type Closeable = own.Closeable
 export type AliasError = own.AliasError
-export type ManagedGroup = own.ManagedGroup
 export type Managed<T> = own.Managed<T>
 export type Alias<T> = own.Alias<T>
 
@@ -27,6 +26,3 @@ local runtime = rawget(_G, "nupp") as any
 
 --- Recovers an erased alias after checking its managed-cell brand.
 export const recoveralias: function(value: any): ((alias(unknown), nil) | (nil, AliasError)) = runtime.__recoverAlias
-
---- Creates a group that closes remaining resources in reverse adoption order.
-export const managedgroup: function(): ManagedGroup = runtime.__managedGroup
