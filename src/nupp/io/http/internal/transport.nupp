@@ -362,7 +362,7 @@ local record Client is NativeClient
         end
         local handle, problem, capacity = host.clientSend(
             self._handle,
-            descriptor.uri:toString(),
+            descriptor.uri:tostring(),
             descriptor.method,
             descriptor.headers or {},
             body,
