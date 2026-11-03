@@ -1647,6 +1647,41 @@ local function appendOutline(items: {pageMod.Entry}, markdown: string?)
     end
 end
 
+-- The index keeps Markdown for its downloadable reference, but its declarations
+-- use the same HTML renderer as module pages. Keep the old heading anchors too:
+-- search results and existing links may still name those rather than item paths.
+local function renderStdlibIndex(
+    page: stdlibMod.Page,
+    markdown: string,
+    links: Links?,
+    candidate: Page2,
+    pages: {Page2},
+    file: string
+): string
+    local out, legacy = {}, {}
+    for _, heading in ipairs(markdownOutline(markdown)) do
+        if heading.level == 3 then
+            legacy[heading.name] = heading.path
+        end
+    end
+    local anchors = {}
+    for _, part in ipairs(stdlibMod.indexParts(page)) do
+        out[#out + 1] = markdownHtml(rewriteConfiguredPageLinks(part.markdown, candidate, pages, file), links, 0)
+        if part.items then
+            rewriteModuleDocLinks({name = "", text = "", items = part.items}, pages, file)
+            for _, item in ipairs(part.items) do
+                local old = legacy[item.name:gsub("[`*_]", "")]
+                if old and old ~= item.path then
+                    out[#out + 1] = '<span id="' .. htmlEscape(old) .. '"></span>'
+                end
+                renderHtmlItem(out, item, links, anchors)
+            end
+        end
+    end
+
+    return table.concat(out, "\n")
+end
+
 ----------------------------------------------------------------------------
 -- Rendering the site
 ----------------------------------------------------------------------------
@@ -1847,7 +1882,9 @@ local function renderSite(root, outDir, modules, title, settings, standardLibrar
                 -- interactive introduction, before its lower-priority link sections.
                 featureStart, featureEnd = markdown:find("<!-- nupp:features -->", 1, true)
             end
-            if featureStart and featureEnd then
+            if candidate.api and standardLibrary then
+                body[#body + 1] = renderStdlibIndex(standardLibrary, markdown, links, linkCandidate, linkPages, file)
+            elseif featureStart and featureEnd then
                 local introduction = rewriteConfiguredPageLinks(
                     markdown:sub(1, featureStart - 1),
                     linkCandidate,

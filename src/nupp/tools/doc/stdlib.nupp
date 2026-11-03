@@ -324,20 +324,11 @@ local function withoutRedeclaredBindings(items: {extractMod.Item}): {extractMod.
     end)
 end
 
-local function section(out: {string}, title: string, text: string?, items: {extractMod.Item}?)
-    if items and #items == 0 then
-        return
-    end
-    out[#out + 1] = "## " .. title
-    out[#out + 1] = ""
-    if text and text ~= "" then
-        out[#out + 1] = text
-        out[#out + 1] = ""
-    end
-    if items then
-        out[#out + 1] = markdownMod.items(items)
-    end
-end
+--- A section of the generated index, with declarations kept as structured items.
+type stdlib.IndexPart = {
+    markdown: string,
+    items: {extractMod.Item}?
+}
 
 -- Keep declaration paths beside the labels before qualification changes their
 -- displayed names. The same extracted items write the body and the navigation.
@@ -361,8 +352,8 @@ local function libraryEntry(module: extractMod.Module): stdlib.Entry
     )
 end
 
-local function indexMarkdown(page: stdlib.Page): string
-    local out = {"# " .. page.title, "", INTRO, ""}
+local function indexParts(page: stdlib.Page): {stdlib.IndexPart}
+    local parts: {stdlib.IndexPart} = {{markdown = "# " .. page.title .. "\n\n" .. INTRO .. "\n"}}
     local prefix = urlsMod.relativePrefix(urlsMod.routeFile(page.path))
     local owners = {}
     for _, entry in ipairs(page.navigation and page.navigation.globals or {}) do
@@ -376,12 +367,22 @@ local function indexMarkdown(page: stdlib.Page): string
             globals[#globals + 1] = item
         end
     end
-    section(out, "Modules", nil, nil)
+    local out = {"## Modules", ""}
     for _, module in ipairs(page.indexModules or page.modules) do
         out[#out + 1] = "- [`" .. module.name .. "`](" .. prefix .. urlsMod.moduleFile(module.name) .. ")"
     end
     out[#out + 1] = ""
-    section(out, "Globals", GLOBALS, globals)
+    parts[#parts + 1] = {markdown = table.concat(out, "\n")}
+
+    local function addSection(title: string, text: string, items: {extractMod.Item}): nil
+        if #items == 0 then
+            return
+        end
+        parts[#parts + 1] = {markdown = "## " .. title .. "\n\n" .. text .. "\n", items = items}
+    end
+
+    addSection("Globals", GLOBALS, globals)
+    out = {}
     for _, item in ipairs(page.globalItems) do
         local owner = owners[item.name]
         if owner then
@@ -391,17 +392,31 @@ local function indexMarkdown(page: stdlib.Page): string
             ] = "- [`" .. item.name .. "`](" .. prefix .. urlsMod.moduleFile(owner) .. "#" .. item.path .. ")"
         end
     end
-    section(out, "Types", TYPES, page.typeItems)
-    section(
-        out,
+    parts[#parts + 1] = {markdown = table.concat(out, "\n")}
+    addSection("Types", TYPES, page.typeItems)
+    addSection(
         "Annotations",
         "Annotations carry checked, type-erased metadata. "
         .. "File directives use `@!name` and occupy a separate namespace.",
         page.annotationItems
     )
 
+    return parts
+end
+
+local function indexMarkdown(page: stdlib.Page): string
+    local out = {}
+    for _, part in ipairs(indexParts(page)) do
+        out[#out + 1] = part.markdown
+        if part.items then
+            out[#out + 1] = markdownMod.items(part.items)
+        end
+    end
+
     return table.concat(out, "\n")
 end
+
+stdlib.indexParts = indexParts
 
 --- Extracts the standard libraries and their index from the compiler's declarations.
 function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
