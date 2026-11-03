@@ -1993,3 +1993,27 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-outline-section summary::after {
     opacity: .75
 }
+
+/* Group API entries with surfaces derived from the current theme. */
+.nuppdoc-api-group:has(> :is(#functions, #values, #annotations)) > .nuppdoc-api-item,
+.nuppdoc-content > #functions ~ .nuppdoc-api-item:not(#globals ~ .nuppdoc-api-item):not(#types ~ .nuppdoc-api-item):not(#annotations ~ .nuppdoc-api-item),
+.nuppdoc-content > #globals ~ .nuppdoc-api-item:not(#types ~ .nuppdoc-api-item):not(#annotations ~ .nuppdoc-api-item),
+.nuppdoc-content > #annotations ~ .nuppdoc-api-item {
+    --api-section-background: color-mix(in srgb, var(--nuppdoc-background) 97%, var(--nuppdoc-text));
+    --api-section-border: color-mix(in srgb, var(--api-section-background) 70%, black);
+    margin: 1.35rem 0;
+    padding: 0 1rem .7rem;
+    border: 1px solid var(--api-section-border);
+    border-radius: 4px;
+    overflow: clip;
+    background: var(--api-section-background);
+}
+.nuppdoc-api-group:has(> :is(#functions, #values, #annotations)) > .nuppdoc-api-item > h3,
+.nuppdoc-content > #functions ~ .nuppdoc-api-item:not(#globals ~ .nuppdoc-api-item):not(#types ~ .nuppdoc-api-item):not(#annotations ~ .nuppdoc-api-item) > h3,
+.nuppdoc-content > #globals ~ .nuppdoc-api-item:not(#types ~ .nuppdoc-api-item):not(#annotations ~ .nuppdoc-api-item) > h3,
+.nuppdoc-content > #annotations ~ .nuppdoc-api-item > h3 {
+    margin: 0 -1rem .8rem;
+    padding: .55rem 1rem;
+    border-bottom: 1px solid var(--api-section-border);
+    background: color-mix(in srgb, var(--nuppdoc-background) 91%, var(--nuppdoc-text));
+}
