@@ -42,7 +42,7 @@ function M.compressionNamesUseCanonicalKeysOnly()
     local format = load("binary.compress").format("gzip")
     assert(type(format.newreader) == "function" and format.newReader == nil)
     assert(type(format.newwriter) == "function" and format.newWriter == nil)
-    local native = nativeProvider()
+    local native = require("nupp.runtime.provider.nativecompression")
     local implementation = native.formats.gzip
     assert(type(implementation.createencoder) == "function" and implementation.createEncoder == nil)
     assert(type(implementation.createdecoder) == "function" and implementation.createDecoder == nil)
