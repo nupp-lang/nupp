@@ -4769,7 +4769,7 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
     local page = assert(stdlib.page({path = "luajit"}))
     assert(page.path == "luajit")
     assert(page.title == "API reference")
-    local sections = {"Globals", "Modules", "Annotations"}
+    local sections = {"Functions", "Globals", "Modules", "Annotations"}
     for _, section in ipairs(sections) do
         assert(page.markdown:find("\n## " .. section .. "\n", 1, true), "no section for " .. section)
     end
@@ -4797,6 +4797,13 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
         "the module page lost the builtin signature or documentation"
     )
     assert(page.markdown:find("### `print`", 1, true), "no ambient global")
+    local functions = assert(page.markdown:match("\n## Functions\n(.-)\n## Globals\n"))
+    local globalsSection = assert(page.markdown:match("\n## Globals\n(.-)\n## "))
+    assert(functions:find('### `print`', 1, true) and not functions:find('### `_G`', 1, true))
+    assert(functions:find('### `assert`', 1, true), "a callable global is missing from functions")
+    assert(globalsSection:find('### `_G`', 1, true) and globalsSection:find('### `_VERSION`', 1, true))
+    assert(not globalsSection:find('### `print`', 1, true))
+    assert(not globalsSection:find('### `assert`', 1, true))
     local globals = {}
     for _, item in ipairs(page.globalItems) do
         globals[item.name] = item
@@ -5220,7 +5227,8 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
     for _, name in ipairs({"string.buffer", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
         assert(api:find('data-module="' .. name .. '"', 1, true), "missing nested builtin " .. name)
     end
-    assert(api:find('>Globals</a>', 1, true), "standalone functions need their own group")
+    assert(api:find('>Functions</a>', 1, true), "global functions need their own group")
+    assert(api:find('>Globals</a>', 1, true), "global variables need their own group")
     assert(not api:find('>Intrinsic types</a>', 1, true), "empty root type category")
     assert(not api:find('>Layout reflection</a>', 1, true), "retired root reflection category")
     assert(api:find('<code>types</code>', 1, true), "the public types root disappeared")
@@ -5235,11 +5243,12 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
     for _, name in ipairs({"example", "example.tools", "example.tools.widget"}) do
         assert(api:find('data-module="' .. name .. '"', 1, true), "a qualified namespace disappeared: " .. name)
     end
-    local sectionAnchors = {globals = true, types = true, annotations = true}
+    local sectionAnchors = {functions = true, globals = true, types = true, annotations = true}
     for anchor in api:gmatch('href="[^\"]*#([^\"]+)"') do
         assert(sectionAnchors[anchor], "a declaration became a left navigation leaf: " .. anchor)
     end
     assert(api:find('href="../../../reference/lua/index.html#globals"', 1, true), "global content link missing")
+    assert(api:find('href="../../../reference/lua/index.html#functions"', 1, true), "function content link missing")
     local tableNode = assert(api:match('<li data%-module="table">(.-)</li>'), "a leaf module is not a plain link")
     assert(tableNode:find('href="../../../modules/table/index.html"', 1, true), "a leaf module lost its page")
     assert(not tableNode:find("<details", 1, true), "a leaf module has an empty expander")

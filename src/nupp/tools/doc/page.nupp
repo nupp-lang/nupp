@@ -145,7 +145,13 @@ local function moduleTree(modules, pages)
                 node.href = target .. "#" .. anchor
             end
 
-            category("@globals", "Globals", "globals", catalog.globals)
+            local functions, globals = {}, {}
+            for _, entry in ipairs(catalog.globals) do
+                local group = entry.kind == "function" and functions or globals
+                group[#group + 1] = entry
+            end
+            category("@functions", "Functions", "functions", functions)
+            category("@globals", "Globals", "globals", globals)
             category("@intrinsic-types", "Intrinsic types", "types", catalog.types)
             category("@annotations", "Annotations", "annotations", catalog.annotations or {})
 
