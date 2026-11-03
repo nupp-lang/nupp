@@ -90,9 +90,24 @@ local UNITS = {
     {
         name = "heapunits",
         modules = {"heapunits", "unitentry"},
-        entries = {{"heapunits", "chain", 2}, {"heapunits", "garbage", 2}, {"heapunits", "alternate", 2}},
+        entries = {
+            {"heapunits", "chain", 2},
+            {"heapunits", "garbage", 2},
+            {"heapunits", "alternate", 2},
+            {"heapunits", "representable", 2}
+        },
         cases = function()
-            local cases = {}
+            local limit = 1 << 48
+            -- The highest admitted extent, one that crosses the bound, one
+            -- whose end overflows 64 bits, and the whole payload range.
+            local cases = {
+                {"representable", {limit - 4096, 4096}, 1},
+                {"representable", {limit - 4096, 8192}, 0},
+                {"representable", {-4096, 8192}, 0},
+                {"representable", {0, limit}, 1},
+                {"representable", {1, limit}, 0},
+                {"representable", {0, limit + 1}, 0}
+            }
             for _, stress in ipairs({0, 1}) do
                 for _, n in ipairs(stress == 0 and {1, 10, 1000} or {1, 7, 64}) do
                     cases[#cases + 1] = {"chain", {n, stress}, n * 1000000}

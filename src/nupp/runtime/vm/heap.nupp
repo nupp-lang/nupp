@@ -445,6 +445,14 @@ local function pageRound(bytes: uint64): uint64
     end
 end
 
+--- Whether an extent of `bytes` at `base` holds only addresses a tagged
+--- value's 48-bit payload represents: its end, `base + bytes`, at most 2^48,
+--- worked out without overflow. Object pages are mapped only where it is.
+export function representable(base: uint64, bytes: uint64): boolean
+    local limit = values.PAYLOAD + 1ULL
+    return bytes <= limit and base <= limit - bytes
+end
+
 local function mapOrFail(bytes: uint64): uint64
     @unsafe do
         if bytes == 0ULL then
@@ -455,9 +463,11 @@ local function mapOrFail(bytes: uint64): uint64
         if base == nil then
             error("heap: the system refused a mapping")
         end
-        if native.address(base) > MAXIMUM - mapped then
+        -- The tagged-allocation gate: no object is published from an extent
+        -- a tagged value cannot address. The mapping goes back first.
+        if not representable(native.address(base), mapped) then
             os.unmapPages(base, mapped)
-            error("heap: mapped extent overflows")
+            error("heap: mapped extent is past a tagged value's reach")
         end
         return native.address(base)
     end

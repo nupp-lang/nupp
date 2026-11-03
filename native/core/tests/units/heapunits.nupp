@@ -128,3 +128,13 @@ export function alternate(count: uint64, stress: uint64): uint64
 
     return answer
 end
+
+-- The tagged-allocation gate's bound: 1 when an extent of `bytes` at `base`
+-- ends at or below 2^48, else 0.
+export function representable(base: uint64, bytes: uint64): uint64
+    if heap.representable(base, bytes) then
+        return 1ULL
+    end
+
+    return 0ULL
+end
