@@ -1052,11 +1052,11 @@ function M.browserCryptoRejectsMalformedHostValues()
             return returned[kind]
         end,
     })
-    local base64 = require("binary.base64")
+    local binary = require("binary")
 
-    returned.random = {bytesBase64 = base64.encode("\0")}
+    returned.random = {bytesBase64 = binary.base64encode("\0")}
     testAssert.eq(browser.randombytes(1), "\0")
-    returned.random = {bytesBase64 = base64.encode("short")}
+    returned.random = {bytesBase64 = binary.base64encode("short")}
     local ok, problem = pcall(browser.randombytes, 6)
     assert(not ok and tostring(problem):find("bytesBase64", 1, true), tostring(problem))
     returned.random = {bytesBase64 = "not base64"}
@@ -1069,16 +1069,16 @@ function M.browserCryptoRejectsMalformedHostValues()
     ok, problem = pcall(browser.sha256, "value")
     assert(not ok and tostring(problem):find("SHA-256", 1, true), tostring(problem))
 
-    returned["hmac-sha256"] = {digestBase64 = base64.encode(string.rep("x", 32))}
+    returned["hmac-sha256"] = {digestBase64 = binary.base64encode(string.rep("x", 32))}
     testAssert.eq(#browser.digest("key", "value"), 32)
-    returned["hmac-sha256"] = {digestBase64 = base64.encode("short")}
+    returned["hmac-sha256"] = {digestBase64 = binary.base64encode("short")}
     ok, problem = pcall(browser.digest, "key", "value")
     assert(not ok and tostring(problem):find("digestBase64", 1, true), tostring(problem))
 
-    returned.random = {bytesBase64 = base64.encode(string.rep("\0", 10)), wallTimeMs = 1.5}
+    returned.random = {bytesBase64 = binary.base64encode(string.rep("\0", 10)), wallTimeMs = 1.5}
     ok, problem = pcall(browser.uuid7)
     assert(not ok and tostring(problem):find("wall time", 1, true), tostring(problem))
-    returned.random = {bytesBase64 = base64.encode(string.rep("\0", 10)), wallTimeMs = 281474976710656}
+    returned.random = {bytesBase64 = binary.base64encode(string.rep("\0", 10)), wallTimeMs = 281474976710656}
     ok, problem = pcall(browser.uuid7)
     assert(not ok and tostring(problem):find("wall time", 1, true), tostring(problem))
 end

@@ -151,9 +151,9 @@ end
 
 local AOT_SCOPE_MODEL = [[
 module model
-local codec = require("binary.base64")
+local binary = require("binary")
 export type Shape = {value: integer}
-export const encoding = codec.encode
+export const encoding = binary.base64encode
 @aot
 local function twice(value: number): number
     return value * 2.0
@@ -242,7 +242,7 @@ export const value = model.doubled(2.0)
 ]]
     )
     assert(scope[fs.normalize(dir .. "/src/model.nupp")], "the value-imported AOT body is executable")
-    for _, name in ipairs({"binary.base64", "serde.valuebuilder"}) do
+    for _, name in ipairs({"binary", "serde.valuebuilder"}) do
         local path = session.inc.modulePath(name)
         assert(path and scope[fs.normalize(path)], name .. " remains in the actual runtime closure")
     end

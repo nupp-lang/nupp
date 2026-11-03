@@ -5,7 +5,6 @@ local io = require("io")
 local hash = require("binary")
 local array = require("nupp.mem.array")
 local span = require("binary.span")
-local hex = require("binary.hex")
 local test = require("assert")
 local M = {}
 
@@ -245,16 +244,16 @@ function M.hexCodecIsStrictAndRoundTripsBytes(): nil
         parts[#parts + 1] = string.char(byte)
     end
     local input = table.concat(parts)
-    local encoded = hex.encode(input)
+    local encoded = binary.hexencode(input)
     test(#encoded == 512 and not encoded:find("[^0-9a-f]"))
-    test(hex.decode(encoded) == input)
-    test(hex.decode(encoded:upper()) == input)
-    test(hex.decode("") == "")
-    local decoded, reason = hex.decode("0")
+    test(binary.hexdecode(encoded) == input)
+    test(binary.hexdecode(encoded:upper()) == input)
+    test(binary.hexdecode("") == "")
+    local decoded, reason = binary.hexdecode("0")
     test(decoded == nil and reason == "hex input must contain an even number of digits")
-    decoded, reason = hex.decode("0x")
+    decoded, reason = binary.hexdecode("0x")
     test(decoded == nil and reason == "hex input contains a non-hexadecimal digit")
-    decoded, reason = hex.decode("00 1")
+    decoded, reason = binary.hexdecode("00 1")
     test(decoded == nil and reason == "hex input contains a non-hexadecimal digit")
 end
 

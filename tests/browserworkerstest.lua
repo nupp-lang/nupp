@@ -208,7 +208,7 @@ end
 function M.laneFailuresKeepTheirStackAndCancellationIdentity()
     local effects = require("nupp.runtime.browser.effects")
     local cancellation = require("coroutine.suspension.cancellation")
-    local base64 = require("binary.base64")
+    local binary = require("binary")
     local moduleName = "browser-worker-failure-fixture"
     local providerName = "nupp.runtime.browser.workers"
     local previousModule = package.loaded[moduleName]
@@ -250,7 +250,7 @@ function M.laneFailuresKeepTheirStackAndCancellationIdentity()
                     module = moduleName,
                     member = member,
                     task = frames,
-                    payload = base64.encode(codec.encode(packed())),
+                    payload = binary.base64encode(codec.encode(packed())),
                 }
                 or nil
             })

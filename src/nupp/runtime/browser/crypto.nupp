@@ -19,7 +19,7 @@ values satisfy the interfaces in [](nupp.spi) and [](nupp.spi); no
 JavaScript function or provider instance is copied into a child Lua state.
 ]]
 
-local base64 = require("binary.base64")
+local binary = require("binary")
 local contracts = require("nupp.spi")
 local response = require("nupp.runtime.browser.response")
 local crypto = {}
@@ -32,7 +32,7 @@ local function decoded(value: any, field: string, count: integer): string
     if type(value) ~= "table" or type(value[field]) ~= "string" then
         invalid(field)
     end
-    local bytes = base64.decode(value[field])
+    local bytes = binary.base64decode(value[field])
     if bytes == nil or #bytes ~= count then
         invalid(field)
     end
@@ -66,7 +66,7 @@ function crypto.randombytes(count: integer): string
 end
 
 function crypto.sha256(value: string): string
-    local digest = response.await("sha256", {bytesBase64 = base64.encode(value),})
+    local digest = response.await("sha256", {bytesBase64 = binary.base64encode(value),})
     if type(digest) ~= "string" or #digest ~= 64 or digest:find("[^0-9a-f]") ~= nil then
         invalid("SHA-256 digest")
     end
@@ -76,8 +76,8 @@ end
 
 function crypto.digest(key: string, message: string): string
     local value = response.await("hmac-sha256", {
-        keyBase64 = base64.encode(key),
-        messageBase64 = base64.encode(message),
+        keyBase64 = binary.base64encode(key),
+        messageBase64 = binary.base64encode(message),
     })
 
     return decoded(value, "digestBase64", 32)

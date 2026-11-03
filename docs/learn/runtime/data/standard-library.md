@@ -52,7 +52,7 @@ intrinsic namespaces and the declared modules:
   as numeric values; protocols choose their serialization byte order.
 - [](binary.mac) provides keyed authentication, including HMAC-SHA256.
 - [](binary.fnv1a64) hashes bytes with FNV-1a.
-- [](serde.json), [](binary.base64) and [](binary.hex) encode and decode
+- [](serde.json) and [](binary) encode and decode
   representations. [](serde.valuebuilder) supports codec authors.
 - [](utf8) validates and walks UTF-8 text.
 - [](serde) binds application types to reusable serialization schemas.

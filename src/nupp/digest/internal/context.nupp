@@ -14,7 +14,7 @@ context operations perform no provider resolution.
 
 const span = require("binary.span")
 const storage = require("nupp.runtime.storage")
-const hex = require("binary.hex")
+const binary = require("binary")
 const provider = require("binary.digest.spi")
 
 export interface Digest is io.Writer
@@ -126,7 +126,7 @@ local record Context is Digest
             local output = span.writecarray(bytes, size)
             owner.state:finish(output)
             own.drop(output)
-            return hex.encode(storage.string(bytes, size))
+            return binary.hexencode(storage.string(bytes, size))
         end
     end
 

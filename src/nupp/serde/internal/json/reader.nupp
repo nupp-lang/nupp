@@ -7,7 +7,7 @@ local plans = require("nupp.serde.internal.json.plan")
 local syntax = require("nupp.serde.internal.json.syntax")
 local documents = require("nupp.serde.internal.json.document")
 local numbers = require("nupp.serde.internal.numbers")
-local base64 = require("binary.base64")
+local binary = require("binary")
 local json = require("nupp.serde.internal.json.values")
 
 export record Input<M is core.Member> is core.Reader<M>
@@ -147,7 +147,7 @@ export record Input<M is core.Member> is core.Reader<M>
 
     function readbytes(exclusive self, member: M): string
         self:live()
-        local value, problem = base64.decode(self.cursor:readString())
+        local value, problem = binary.base64decode(self.cursor:readString())
         if value == nil then
             error(problem, 2)
         end

@@ -1,5 +1,5 @@
 -- Holds the vector encoder to the scalar reference on one corpus, and both
--- to `binary.base64`, so a shared misreading of the format cannot agree
+-- to `binary.base64encode`, so a shared misreading of the format cannot agree
 -- its way past the check.
 --
 -- The corpus is built from the cases the vector encoder branches on: every
@@ -15,7 +15,7 @@
 local math = arg[1] == "--time" and _G.math or assert(loadfile("../../tests/simd/corpusmath.lua"))()
 local simd = require("base64simd")
 local reference = require("base64reference")
-local shipped = require("binary.base64")
+local shipped = require("binary")
 
 local proveNative = assert(loadfile("../../tests/simd/nativeproof.lua"))()
 proveNative("base64simd", function()
@@ -38,8 +38,8 @@ local function agree(value, what)
             0
         )
     end
-    if shipped.encode(value) ~= want then
-        error(("reference disagrees with binary.base64 on %s (%d bytes)"):format(what, #value), 0)
+    if shipped.base64encode(value) ~= want then
+        error(("reference disagrees with binary.base64encode on %s (%d bytes)"):format(what, #value), 0)
     end
     checks = checks + 1
 end
@@ -95,7 +95,7 @@ for _ = 1, 2000 do
     agree(random(math.random(0, 4096)), "a long random string")
 end
 
-print(("ok - %d base64 differential checks: vector path, scalar reference and binary.base64 agree"):format(checks))
+print(("ok - %d base64 differential checks"):format(checks))
 
 print("SIMD_CHECKS=" .. checks)
 if math.fingerprint then
@@ -118,12 +118,12 @@ if arg[1] == "--time" then
     end
 
     print("")
-    print(("%10s %12s %12s %12s"):format("bytes", "nupp-simd", "reference", "binary.base64"))
+    print(("%10s %12s %12s %12s"):format("bytes", "nupp-simd", "reference", "binary.base64encode"))
     for _, size in ipairs({64, 1024, 65536, 1048576}) do
         local value = random(size)
         local vec = measure(simd.encode, value, 0.5) / size * 1e9
         local ref = measure(reference.encode, value, 0.5) / size * 1e9
-        local ship = measure(shipped.encode, value, 0.5) / size * 1e9
+        local ship = measure(shipped.base64encode, value, 0.5) / size * 1e9
         print(("%10d %9.3f ns/B %9.3f ns/B %9.3f ns/B"):format(size, vec, ref, ship))
     end
 end

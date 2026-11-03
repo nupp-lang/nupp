@@ -4,7 +4,6 @@ const io2 = require("io")
 
 local span = require("binary.span")
 local array = require("nupp.mem.array")
-local base64 = require("binary.base64")
 local valuebuilder = require("serde.valuebuilder")
 
 local function u32(value: integer): uint32
@@ -33,8 +32,8 @@ end
 
 assert2(copyString("Lua-builder in Wasm", nil) == "Lua-builder in Wasm")
 assert2(copyString("", nil) == "")
-assert2(base64.encode("browser bytes\0\255") == "YnJvd3NlciBieXRlcwD/")
-assert2(base64.decode("YnJvd3NlciBieXRlcwD/") == "browser bytes\0\255")
+assert2(binary.base64encode("browser bytes\0\255") == "YnJvd3NlciBieXRlcwD/")
+assert2(binary.base64decode("YnJvd3NlciBieXRlcwD/") == "browser bytes\0\255")
 local description = describe("wasm", 3)
 assert2(description.name == "wasm" and description.count == 3 and description.values[3] == 3)
 
