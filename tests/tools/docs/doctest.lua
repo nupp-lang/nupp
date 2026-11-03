@@ -119,7 +119,7 @@ export record Catalog
     function zetaMethod(self): nil end
     function alphaMethod(self, value: string): nil end
     function alphaMethod(self, value: number): nil end
-    metamethod __len: function(self): integer
+    metamethod __call: function(self): integer
     type Mode = "small" | "large"
     record Entry
         value: string
@@ -152,6 +152,7 @@ end
     )
     assert(overview:find("[`alpha`]", 1, true) < overview:find("[`zeta`]", 1, true), "fields must be alphabetized")
     assert(overview:find("[`Entry`](#catalog.Catalog.Entry)", 1, true), overview)
+    assert(overview:find("[`__call`](#catalog.Catalog.__call)", 1, true), overview)
     assert(overview:find('title="Record">R</abbr>', 1, true), overview)
     assert(overview:find('title="Type alias">T</abbr>', 1, true), overview)
     assert(not markdown:find("| Name | Kind | Description |", 1, true), "member overview still uses a table")
@@ -161,6 +162,7 @@ end
         "nine members must use the shared two-column layout"
     )
     assert(rendered:find('href="#catalog.Catalog.alphaMethod-overload-2"', 1, true), rendered)
+    assert(rendered:find('<a href="#catalog.Catalog.__call"><code>__call</code></a>', 1, true), rendered)
 end
 
 function M.extractsStructuredDocsFromTheParserCST()
@@ -5392,8 +5394,8 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
     for _, name in ipairs({"string.buffer", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
         assert(api:find('data-module="' .. name .. '"', 1, true), "missing nested builtin " .. name)
     end
-    assert(api:find('>Functions</a>', 1, true), "global functions need their own group")
-    assert(api:find('>Globals</a>', 1, true), "global variables need their own group")
+    assert(api:find('>functions</a>', 1, true), "global functions need their own group")
+    assert(api:find('>globals</a>', 1, true), "global variables need their own group")
     assert(not api:find('>Intrinsic types</a>', 1, true), "empty root type category")
     assert(not api:find('>Layout reflection</a>', 1, true), "retired root reflection category")
     assert(api:find('<code>types</code>', 1, true), "the public types root disappeared")

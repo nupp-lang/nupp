@@ -150,10 +150,10 @@ local function moduleTree(modules, pages)
                 local group = entry.kind == "function" and functions or globals
                 group[#group + 1] = entry
             end
-            category("@functions", "Functions", "functions", functions)
-            category("@globals", "Globals", "globals", globals)
+            category("@functions", "functions", "functions", functions)
+            category("@globals", "globals", "globals", globals)
             category("@intrinsic-types", "Intrinsic types", "types", catalog.types)
-            category("@annotations", "Annotations", "annotations", catalog.annotations or {})
+            category("@annotations", "annotations", "annotations", catalog.annotations or {})
 
         end
     end
