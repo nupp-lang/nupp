@@ -191,8 +191,6 @@ See [tooling](learn/tooling/index.md) for the guided map and
 
 - [Getting started](getting-started/index.md)
 - [Tour of Nupp](getting-started/tour.md)
-- [Feature map](getting-started/features.md)
-- [Why use Nupp](getting-started/why.md)
 - [Installation](getting-started/installation.md)
 
 ## Learn
