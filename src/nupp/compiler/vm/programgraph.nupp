@@ -667,7 +667,10 @@ function program.describe(modules: {any}, entryModule: string): any
             -- function declaration introduces its own checked binding.
             reference(node.base, owner)
         end
-        local loader = node.kind == "call" and node.runtimeLoader == "require"
+        local loader = node.kind == "call" and node.runtimeLoader == "require" and not graph.dynamicRequire(node)
+        if graph.dynamicRequire(node) then
+            p.dynamicRequires = true
+        end
         if loader then
             local target = node.requiredModule and moduleNames[node.requiredModule]
             local item = {

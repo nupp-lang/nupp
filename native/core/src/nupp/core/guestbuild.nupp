@@ -114,6 +114,7 @@ local CASES: {[string]: {
     modulespattern = {fixture = "catalog-modules-pattern", version = 8, modules = {"catalog-modules-geometry"}},
     modulesrecords = {fixture = "catalog-modules-records", version = 8, modules = {"catalog-modules-boxes"}},
     modulesqualified = {fixture = "catalog-modules-qualified", version = 8, modules = {"catalog-atlas-geometry"},},
+    modulesdynamic = {fixture = "catalog-modules-dynamic", version = 8, modules = {"catalog-modules-geometry"},},
     modulescycle = {
         fixture = "catalog-modules-cycle",
         version = 8,

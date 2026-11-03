@@ -1,0 +1,23 @@
+module nupp.core.catalogmodulesdynamic
+
+-- A module required by a name computed at run time, or through `_G`, is
+-- the one the image holds by that name, loaded once and cached as a
+-- static require of it is.
+const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.core.catalogmodulesgeometry"
+
+local suffix = "geometry"
+local name = "nupp.core.catalogmodules" .. suffix
+local loaded: any = require(name)
+local again: any = _G.require("nupp.core.catalogmodulesgeometry")
+local score: any = loaded.scale(3) + loaded.unit
+if loaded == again then
+    score = score + 1000
+end
+local missing = "nupp.core.absent"
+local found, reason = pcall(function(): any
+    return require(missing)
+end)
+if not found and string.find(tostring(reason), "module 'nupp.core.absent' not found", 1, true) ~= nil then
+    score = score + 10000
+end
+export = score

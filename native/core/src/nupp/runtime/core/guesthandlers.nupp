@@ -1581,8 +1581,51 @@ export function LibCall(
         end
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
+    -- `require` of a computed name: the module the image holds by it, as a
+    -- static require of it answers or starts it.
+    if libraryId == modules.LIB_REQUIRE then
+        guestscope.nameLibrary(ctx, texts.NAME_REQUIRE)
+        if strings.header(a) == 0ULL then
+            texts.argumentError(ctx, 1ULL, texts.TEXT_STRING, 0ULL, a)
+        end
+        local found = modules.named(ctx, a)
+        if found == 0ULL then
+            texts.moduleNotFound(ctx, a)
+        end
+        local target = found - 1ULL
+        local loaded = modules.cached(ctx, target)
+        if loaded == 0ULL then
+            ops.checkpoint(ctx, frame, pc)
+            if modules.begin(ctx, frame, pc, target, native.word(dst)) ~= 1ULL then
+                if texts.overflow(ctx) == 1ULL then
+                    ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+                else
+                    ops.failure(ctx, ops.INVALID)
+                end
+                return native.fail()
+            end
+            local s = native.pointer(ops.state(ctx))
+            local current = native.pointer(access.active(s))
+            local currentValues = native.pointer(access.values(s, current))
+            local currentIntegers = native.pointer(access.integers(s, current))
+            local currentFloats = native.pointer(access.floats(s, current))
+            local currentPC = native.pointer(access.pc(s, current))
+            access.refresh(s, current, ctx)
+            return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
+        end
+        slots.writeValue(frame, regs, dst, loaded)
+        local after = ops.branch(ctx, frame, pc, 0)
+        if after == 0ULL then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
+    end
     if libraryId == guestio.LIB_WRITE then
         slots.writeValue(frame, regs, dst, guestio.write(ctx, a))
+    elseif libraryId == modules.LIB_NAMES then
+        modules.register(ctx, a)
+        slots.writeValue(frame, regs, dst, values.NIL)
     elseif libraryId == modules.LIB_PUBLISH then
         modules.store(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")), a)
         slots.writeValue(frame, regs, dst, a)

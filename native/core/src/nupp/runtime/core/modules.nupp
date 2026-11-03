@@ -18,6 +18,10 @@ const tables = require("nupp.runtime.core.coretables")
 -- table is published as its value before its body runs, so a module it
 -- requires that requires it back sees the exports made so far.
 export const LIB_PUBLISH: uint64 = 84ULL
+-- `require` of a name computed at run time, and the entry's registration of
+-- the image's modules by name that it looks the name up in.
+export const LIB_REQUIRE: uint64 = 85ULL
+export const LIB_NAMES: uint64 = 86ULL
 
 local function services(ctx: voidptr): voidptr
     return native.loadPointer(ctx, context.SERVICE_SCOPE)
@@ -32,6 +36,26 @@ export function lazy(ctx: voidptr): uint64
     end
 
     return 0ULL
+end
+
+-- Keeps `names`, a table of the image's module names to their chunks.
+export function register(ctx: voidptr, names: uint64): nil
+    native.store64(services(ctx), native.fieldOffset<guestscope.Services>("modulenames"), names)
+end
+
+-- The chunk the image holds module `name` in, plus one; 0 when it holds none
+-- by that name or `name` is not a string.
+export function named(ctx: voidptr, name: uint64): uint64
+    local names = native.load64(services(ctx), native.fieldOffset<guestscope.Services>("modulenames"))
+    if names == 0ULL then
+        return 0ULL
+    end
+    local chunk = tables.get(names & values.PAYLOAD, name)
+    if chunk == values.NIL then
+        return 0ULL
+    end
+
+    return (chunk & values.PAYLOAD) + 1ULL
 end
 
 -- The value module chunk `target` answered, or 0 before it has run.

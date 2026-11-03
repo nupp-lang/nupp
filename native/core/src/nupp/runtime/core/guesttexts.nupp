@@ -117,6 +117,7 @@ export const NAME_WRITE: uint64 = 103ULL
 export const TEXT_STACK_OVERFLOW: uint64 = 104ULL
 export const TEXT_LENGTH_INTEGER: uint64 = 105ULL
 export const TEXT_YIELD_ACROSS: uint64 = 106ULL
+export const NAME_REQUIRE: uint64 = 107ULL
 
 export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
     if id == TEXT_BAD then
@@ -512,6 +513,9 @@ export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64
             | strings.appendWord(h, b, 0x7369206874676e65ULL, 8ULL)
             | strings.appendWord(h, b, 0x206e6120746f6e20ULL, 8ULL)
             | strings.appendWord(h, b, 0x72656765746e69ULL, 7ULL)
+    elseif id == NAME_REQUIRE then
+        -- "require"
+        return strings.appendWord(h, b, 0x65726975716572ULL, 7ULL)
     elseif id == TEXT_YIELD_ACROSS then
         -- "attempt to yield across a C-call boundary"
         return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
@@ -577,6 +581,25 @@ export function overflow(ctx: voidptr): uint64
 end
 
 -- Raises one of the library's whole
+-- Raises "module 'name' not found" for a `require` of a name the image
+-- holds no module by.
+export function moduleNotFound(ctx: voidptr, name: uint64): nil
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestHeap(ctx)
+        local builder = state as strings.Builder*
+        raiseText(
+            ctx,
+            h,
+            builder,
+            strings.appendWord(h, builder, 0x2720656c75646f6dULL, 8ULL)
+            | strings.appendString(h, builder, strings.header(name))
+            | strings.appendWord(h, builder, 0x6f6620746f6e2027ULL, 8ULL)
+            | strings.appendWord(h, builder, 0x646e75ULL, 3ULL)
+        )
+    end
+end
+
 export function libraryError(ctx: voidptr, text: uint64): nil
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do

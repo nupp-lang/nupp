@@ -1614,9 +1614,7 @@ end
 -- suspend, so the value's unknown body cannot either.
 -- The library function a call names, when the final core implements it as
 -- an operation: `math.floor` on the prelude's `math`. Otherwise nil.
-local coreLibrary: {
-    [string]: boolean
-} = {
+local coreLibrary: {[string]: boolean} = {
     ["math.floor"] = true,
     tostring = true,
     tonumber = true,
@@ -1676,12 +1674,32 @@ local coreLibrary: {
     ["coroutine.running"] = true,
     ["coroutine.isyieldable"] = true,
     ["coroutine.close"] = true,
-    ["io.write"] = true
+    ["io.write"] = true,
+    -- `require` of a computed name, or through `_G`.
+    ["require.dynamic"] = true
 }
 
 local function preludeName(node: any): boolean
     local definition = node and node.kind == "name" and node.token and node.token.definition
     return type(definition) == "table" and definition.filename == "nupp:lua.d.nupp"
+end
+
+-- A `require` whose module the checker could not name: of a computed name,
+-- or of any name through `_G`. The core looks it up among the image's.
+function graph.dynamicRequire(call: any): boolean
+    local obj = call and call.kind == "call" and call.obj
+    if not obj or call.typeOnlyRequire then
+        return false
+    end
+    if call.runtimeLoader == "require" then
+        return call.requiredModule == nil
+    end
+
+    return obj.kind == "dotIndex"
+        and obj.name ~= nil
+        and obj.name.text == "require"
+        and preludeName(obj.obj)
+        and obj.obj.token.text == "_G"
 end
 
 local function stringType(t: any): boolean
@@ -1707,6 +1725,9 @@ function graph.coreLibraryField(node: any): string?
 end
 
 function graph.coreLibraryCall(call: any): string?
+    if graph.dynamicRequire(call) then
+        return "require.dynamic"
+    end
     local name
     if call and call.kind == "methodCall" and call.name and stringType(call.obj and call.obj.inferredType) then
         name = "string." .. call.name.text

@@ -78,6 +78,9 @@ export struct Services
     scratch: uint64
     -- The metamethod names as strings, by META_ id, each made once.
     metanames: uint64
+    -- The image's modules by name, each to its chunk, once the entry
+    -- registers them for `require` of a computed name (`modules`).
+    modulenames: uint64
     -- 1 while coroutine.close unwinds a suspended thread: its error lands at
     -- every frame that owns affine values, and no protected call takes it.
     closing: uint64
@@ -176,6 +179,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("replays"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("scratch"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("metanames"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("modulenames"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("closing"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replay"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replaycursor"), 0ULL)
@@ -184,7 +188,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("replaykey"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replayvalue"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("libraryanswer"), 0ULL)
-        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 6ULL)
+        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 7ULL)
         -- Collect-at-every-allocation (1): a whole cycle at every safepoint;
         -- interleaved (2): a small incremental step at every safepoint, the
         -- oracle checking each cycle's survivors. Both keep freed objects as

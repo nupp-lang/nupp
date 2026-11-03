@@ -470,7 +470,11 @@ end
 local function requireSite(ctx: any, node: any): any
     local item = need(catalog(ctx).requireByNode[node], "only checked static require calls are supported")
     need(item.owner == ctx.fn.id and node.runtimeLoader == "require", "foreign require callsite")
-    need(type(item.module) == "string" and item.target ~= nil, "dynamic or missing require target is unsupported")
+    need(
+        type(item.module) == "string" and item.target ~= nil,
+        "dynamic or missing require target is unsupported: " .. tostring(item.module)
+    )
+
     return item
 end
 
@@ -1354,6 +1358,20 @@ function tagged.forVersion(version: integer): any
     -- The modules a chunk's qualified paths name load as it starts, before
     -- its own exports are made, as one hidden require each.
     profile.qualifiedLoads = function(ctx: any, node: any): nil
+        -- A program that requires a computed name has its entry register the
+        -- image's modules by name before anything runs.
+        local p = catalog(ctx)
+        local entry = p.modules[#p.modules]
+        if p.dynamicRequires and entry and entry.chunk == ctx.fn.id then
+            local names = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+            for _, module in ipairs(p.modules) do
+                local key = ctx.emit(node, "K", {pool(ctx, "str", module.name)}, "tagged")
+                local chunk = ctx.emit(node, "K", {pool(ctx, "int64", tostring(module.chunk))}, "tagged")
+                ctx.emit(node, "SetIdx", {ctx.readHeld(names), key, chunk}, nil)
+            end
+            ctx.emit(node, "LibCall", {86, ctx.readHeld(names)}, "tagged")
+            ctx.release(names)
+        end
         for _, site in ipairs(catalog(ctx).qualifiedLoads[ctx.fn.id] or {}) do
             ctx.emit(site.node, "Require", {pool(ctx, "str", site.module)}, "tagged")
         end
@@ -2083,6 +2101,11 @@ function tagged.forVersion(version: integer): any
             ctx.block = nil
         end
         profile.call = function(ctx: any, node: any, expected: string?): integer
+            -- `require` of a computed name: the module the image holds by it.
+            if graph.dynamicRequire(node) then
+                need(#(node.args.exprs or {}) == 1, "require takes one module name")
+                return libraryCall(ctx, node, 85, node.args.exprs)
+            end
             if node.runtimeLoader == "require" then
                 return tagged.call(ctx, node, expected)
             end
@@ -2239,7 +2262,9 @@ function tagged.forVersion(version: integer): any
         end
         profile.statementCall = function(ctx: any, node: any): nil
             local site = catalog(ctx).callByNode[node]
-            if node.runtimeLoader == "require" then
+            if graph.dynamicRequire(node) then
+                profile.call(ctx, node, nil)
+            elseif node.runtimeLoader == "require" then
                 tagged.statementCall(ctx, node)
             elseif node.kind == "methodCall" and site and site.method then
                 invokeMethod(ctx, node, false)

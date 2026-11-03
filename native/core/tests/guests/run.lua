@@ -135,6 +135,7 @@ local CASES = {
     {"modulespattern", 0x7FFF0000000000E6},
     {"modulesrecords", 0x7FFF000000002BD9},
     {"modulescycle", 0x7FFF000000000017},
+    {"modulesdynamic", 0x7FFF000000002B20},
     {"modulesqualified", 0x7FFF0000000000E6},
     {"callsoverflow", 0x7FFF000000000003}
 }
@@ -243,6 +244,7 @@ local NUMERIC = {
     modulespattern = "catalog-modules-pattern",
     modulesrecords = "catalog-modules-records",
     modulescycle = "catalog-modules-cycle",
+    modulesdynamic = "catalog-modules-dynamic",
     modulesqualified = "catalog-modules-qualified",
     callsoverflow = "catalog-calls-overflow"
 }
@@ -465,7 +467,8 @@ local function stage()
             "catalog-modules-ping",
             "catalog-modules-pong",
             "catalog-modules-cycle",
-            "catalog-modules-qualified"
+            "catalog-modules-qualified",
+            "catalog-modules-dynamic"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",
