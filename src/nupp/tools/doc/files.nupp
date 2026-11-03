@@ -10,9 +10,6 @@ local fs = require("nupp.compiler.fs")
 
 local files = {}
 
--- `nupp.compiler.fs` carries no annotations, so these arrive untyped. They are
--- re-exported below, and a module boundary is where a type has to be written down, so
--- each one's shape is spelled out here instead.
 local normalize: (
     function(path: string): string
 ), join: (

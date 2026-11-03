@@ -39,11 +39,9 @@ local filesMod = require("nupp.tools.doc.files")
 local htmlEscape = stringsMod.htmlEscape
 local join, dirname, exists = filesMod.join, filesMod.dirname, filesMod.exists
 
-local highlight = {}
-
 --- What the generator was configured with, of the parts that decide highlighting: where
 --- the bundled Scintillua lexers were unpacked to.
-type highlight.Settings = {lexers: string?}
+export type Settings = {lexers: string?}
 
 local function tokenClasses(style, text)
     if style == "type" then
@@ -120,7 +118,7 @@ local function highlightNuppLines(source)
     return out.lines
 end
 
-local function highlightNupp(source: string): string
+export function nuppSource(source: string): string
     return table.concat(highlightNuppLines(source), "\n")
 end
 
@@ -204,7 +202,7 @@ local function installedLexers()
     return nil
 end
 
-local function configureScintillua(root: string?, settings: highlight.Settings?): nil
+export function configureScintillua(root: string?, settings: Settings?): nil
     -- `lexer.lua` itself always loads from the installed rock, found the way `require`
     -- would find it, or from the bundle when there is no rock; a project's
     -- `settings.lexers` only extends the path a loaded lexer searches for another,
@@ -364,12 +362,12 @@ end
 --- Highlights a source with Scintillua even when the language also has a native
 --- highlighter. This keeps custom lexer integration testable without changing the
 --- public `nupp` fence, which uses the parser for contextual colors.
-local function highlightScintillua(source: string, language: string): string?
+export function scintilluaSource(source: string, language: string): string?
     local lines = highlightScintilluaLines(source, language)
     return lines and table.concat(lines, "\n") or nil
 end
 
-local function codeLines(source: string, language: string?): {string}
+export function codeLines(source: string, language: string?): {string}
     if language == "nupp" then
         return highlightNuppLines(source)
     end
@@ -386,14 +384,6 @@ local function codeLines(source: string, language: string?): {string}
     return out.lines
 end
 
-local function codeHtml(source: string, language: string?): string
+export function codeHtml(source: string, language: string?): string
     return table.concat(codeLines(source, language), "\n")
 end
-
-highlight.nuppSource = highlightNupp
-highlight.scintilluaSource = highlightScintillua
-highlight.codeHtml = codeHtml
-highlight.codeLines = codeLines
-highlight.configureScintillua = configureScintillua
-
-export = highlight
