@@ -1,8 +1,8 @@
-module nupp.compiler.check.derive
-
 --[[
 Declaration derives use one closed provider and recipe pipeline.
 ]]
+module nupp.compiler.check.derive
+
 const assert2 = require("assert")
 
 local apiidentity = require("nupp.compiler.apiidentity")

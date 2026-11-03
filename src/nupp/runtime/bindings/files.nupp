@@ -1,0 +1,13 @@
+@!internal
+module nupp.runtime.bindings.files
+
+local contracts = require("io.files.internal.contracts")
+local target = require("nupp.runtime.target")
+local implementation: contracts.Provider = do
+    if target.host == "native" then
+        yield _G.require("nupp.runtime.provider.nativefiles") as contracts.Provider
+    end
+    yield _G.require("nupp.runtime.browser.files") as contracts.Provider
+end
+
+export = implementation

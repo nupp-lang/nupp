@@ -8,15 +8,13 @@ module nupp.compiler.comptime.generatorworker
 local fs = require("nupp.compiler.fs")
 local json = require("nupp.serde.internal.json.values")
 
-local worker = {}
-
 local function contained(root, path)
     root = fs.absolute(root)
     path = fs.absolute(path)
     return path == root or path:sub(1, #root + 1) == root .. "/"
 end
 
-function worker.main(argv: {string}): integer
+export function main(argv: {string}): integer
     local requestPath, resultPath = argv[1], argv[2]
     local text = requestPath and fs.readFile(requestPath)
     local wire: any = nil
@@ -86,5 +84,3 @@ function worker.main(argv: {string}): integer
 
     return succeeded and 0 or 1
 end
-
-export = worker

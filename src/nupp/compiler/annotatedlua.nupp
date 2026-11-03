@@ -1,5 +1,3 @@
-module nupp.compiler.annotatedlua
-
 --[[
 Imports LuaCATS, EmmyLua, and typed LuaDoc comments as checker facts.
 
@@ -8,6 +6,7 @@ through semantic fields (`block.stats`, `local.types`, `param.type`, and funcbod
 returns) without adding them to the CST's ordered children. The checker therefore
 sees them while formatting and code generation continue to reproduce the Lua source.
 ]]
+module nupp.compiler.annotatedlua
 
 local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")

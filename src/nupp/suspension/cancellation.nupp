@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.suspension.cancellation
-
 --[[
 Canonical task-cancellation identity within one Lua state.
 
@@ -13,11 +11,12 @@ string conversion produces a contextual cancellation message.
 This is an ordinary declaration/helper module, not a selectable service. It sits
 beside [](coroutine.sus) rather than inside it because the providers that
 mint these values are what the facade selects: a provider loads this module
-without loading the facade, exactly as it loads [](coroutine.sus.spi).
+without loading the facade, exactly as it loads [](nupp.suspension.contracts).
 
 Worker states reconstruct cancellation values locally; no metatable or Lua
 object identity is transferred between states.
 ]]
+module nupp.suspension.cancellation
 
 local TaskCancellationMT: any = {}
 TaskCancellationMT.__index = TaskCancellationMT

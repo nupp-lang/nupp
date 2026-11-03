@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.bitops
-
 --[[
 The bit operations the standard library and the compiler reach by name.
 
@@ -14,5 +12,6 @@ implementation on every target is a seam in name only.
 Every operand is normalized to a signed 32-bit word first, so a wider integer
 has to be split into limbs by whoever holds it.
 ]]
+module nupp.runtime.bitops
 
 export = require("bit")

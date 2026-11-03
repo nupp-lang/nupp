@@ -1,0 +1,148 @@
+local testAssert = require("assert")
+local project = require("nupp.tools.build.project")
+local process = require("nupp.compiler.process")
+local fs = require("nupp.compiler.fs")
+local M = {}
+
+local function write(path, text)
+    assert(fs.writeFile(path, text))
+end
+
+local function read(path)
+    return assert(fs.readFile(path))
+end
+
+local function tempProject(files)
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(fs.mkdir(dir))
+    for name, text in pairs(files) do
+        write(fs.join(dir, name), text)
+    end
+
+    return dir
+end
+
+local function remove(dir)
+    assert(require("io.files").remove(dir, true))
+end
+
+function M.capabilityDescriptorsRejectUnknownAndDuplicateEntries()
+    local capabilities = require("nupp.tools.build.capabilities")
+    local dir = tempProject({
+        [
+            "capabilities.json"
+        ] = [[
+{"schema":2,"capabilities":[
+ {"kind":"generator","name":"codegen","api":1,"entry":"provider.codegen"}
+]}
+]],
+    })
+    local record = {typeRoot = dir}
+    local entry = assert(capabilities.find(record, "provider", "generator", "codegen"))
+    testAssert.eq(entry.entry, "provider.codegen", "the selected entry is returned")
+
+    write(dir .. "/capabilities.json", '{"schema":2,"capabilities":[],"extra":true}\n')
+    local _, unknown = capabilities.find(record, "provider", "generator", "codegen")
+    assert(unknown:find("unknown key extra", 1, true), unknown)
+
+    write(
+        dir .. "/capabilities.json",
+        [[{"schema":2,"capabilities":[
+ {"kind":"generator","name":"codegen","api":1,"entry":"provider.first"},
+ {"kind":"generator","name":"codegen","api":1,"entry":"provider.second"}
+]}
+]]
+    )
+    local _, duplicate = capabilities.find(record, "provider", "generator", "codegen")
+    assert(duplicate:find("duplicates capability codegen", 1, true), duplicate)
+    remove(dir)
+end
+
+function M.namedManifestTargetsCarryTheSelectedHostAndVm()
+    local source = [[
+local text = require("nupp.text")
+local time = require("coroutine")
+local array = require("nupp.mem.array")
+return {newBuffer = text.newbuffer, now = os.monotonic, bytes = array.bytes}
+]]
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include = {"src"}, build = {
+            kind = "modules", entries = {"main"}, default = "browser",
+            targets = {
+                browser = {host = "browser", outDir = "out/browser"},
+                native = {host = "native", outDir = "out/native"},
+            }
+        }}]],
+        ["src/main.nupp"] = source,
+    })
+    local ok, why = pcall(function()
+        -- An editor opens the manifest directly, without build's private _target.
+        local environment = require("nupp.compiler.project.env").new(dir, {cache = false})
+        local path = dir .. "/src/main.nupp"
+        local parsed = require("nupp.compiler.syntax.parser").parse(source, path)
+        assert(#parsed.errors == 0)
+        local diagnostics = require("helpers.fragment").check(parsed, path, environment)
+        for _, diagnostic in ipairs(diagnostics) do
+            assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
+        end
+        testAssert.eq(parsed.host, "browser", "the editor honors the named default target")
+        testAssert.eq(project.check(dir), 0, "the default browser target checks")
+    end)
+    remove(dir)
+    assert(ok, why)
+end
+
+local function checkDocumentedSpi(page)
+    local files = {
+        [
+            "nupp.lua"
+        ] = [[return {include = {"src"}, build = {
+            kind = "binary", stub = "nupp", outDir = "out", entries = {"main"}
+        }}]],
+        [
+            "src/main.nupp"
+        ] = [[local codec = require("example.codec")
+assert(codec.encode("hello") == "hello")
+io.write(codec.encode == require("example.fastcodec").encode and "provider" or "fallback")
+]],
+    }
+    local moduleCount = 0
+    -- A fence carries the file it is, as `json [nupp/spi.json]`, so the page can
+    -- show other JSON without it becoming the descriptor this project builds.
+    for language, caption, source in page:gmatch("```([%w]+)([^\r\n]*)\r?\n(.-)\r?\n```") do
+        if language == "nupp" then
+            local name = assert(source:match("^module ([%w.]+)"), "the guide example needs a module name")
+            local suffix = name == "example.codec" and "/init.nupp" or ".nupp"
+            files["src/" .. name:gsub("%.", "/") .. suffix] = source .. "\n"
+            moduleCount = moduleCount + 1
+        elseif language == "json" and caption:find("nupp/spi.json", 1, true) then
+            files["nupp/spi.json"] = source .. "\n"
+        end
+    end
+    testAssert.eq(moduleCount, 4, "the guide's interface, implementations, and consumer")
+    assert(files["nupp/spi.json"], "the guide includes a discovery descriptor")
+    local dir = tempProject(files)
+    local executable = dir .. "/out/binary" .. (package.config:sub(1, 1) == "\\" and ".exe" or "")
+    for _, expected in ipairs({"provider", "fallback"}) do
+        testAssert.eq(project.build(dir), 0, "the documented SPI example builds")
+        local status, output = process.capture({executable}, {cwd = dir})
+        testAssert.eq(status, 0, output)
+        testAssert.eq(output, expected, "the documented consumer chooses its implementation")
+        write(dir .. "/nupp/spi.json", "{}\n")
+    end
+    remove(dir)
+end
+
+function M.documentedSpiModulesSelectAnImplementationAndFallBack()
+    checkDocumentedSpi(read("docs/learn/projects/spi.md"))
+end
+
+function M.documentedSpiModulesAcceptWindowsLineEndings()
+    local page = read("docs/learn/projects/spi.md"):gsub("\r\n", "\n"):gsub("\n", "\r\n")
+    checkDocumentedSpi(page)
+end
+
+return M

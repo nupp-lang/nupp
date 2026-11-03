@@ -1,5 +1,3 @@
-module nupp.compiler.comptime.materialize.ir
-
 --[[
 The closed runtime-expression IR used by comptime materializers.
 
@@ -9,6 +7,7 @@ statement, declaration, or source fragment into generated code. A type-object pa
 the one parent-validated binding reference. Local references are integer slots; their
 names are allocated here and therefore cannot collide with a source binding.
 ]]
+module nupp.compiler.comptime.materialize.ir
 
 local numbertext = require("nupp.compiler.numbertext")
 

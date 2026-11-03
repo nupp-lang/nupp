@@ -1,5 +1,3 @@
-module nupp.tools.lsp.wire
-
 --[[
 The shapes the protocol expects on the wire.
 
@@ -7,6 +5,7 @@ An empty Lua table defaults to an object, while the protocol cares which
 containers are lists. Everything the server sends back as a list is marked
 here.
 ]]
+module nupp.tools.lsp.wire
 
 local json = require("serde.json")
 

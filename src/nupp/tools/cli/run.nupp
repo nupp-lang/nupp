@@ -1,5 +1,3 @@
-module nupp.tools.cli.run
-
 --[[
 `nupp run`: compile a program and run it.
 
@@ -7,6 +5,8 @@ The one command whose argument list has two halves. Everything up to the file
 name is the compiler's; everything after it belongs to the program, which is why
 this grammar stops at the first argument that is not an option.
 ]]
+module nupp.tools.cli.run
+
 const {type Session} = require("nupp.tools.cli.watch")
 
 local errors = require("nupp.tools.cli.error")

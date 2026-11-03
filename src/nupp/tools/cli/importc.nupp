@@ -1,5 +1,3 @@
-module nupp.tools.cli.importc
-
 --[[
 `nupp import-c`: a C header, as typed Nupp declarations.
 
@@ -7,6 +5,7 @@ What comes out is a module rather than a declaration file: its cdef statements
 generate the ffi bindings at runtime, so the result is something a program
 requires, not something the checker merely reads.
 ]]
+module nupp.tools.cli.importc
 
 local usageError = require("nupp.tools.cli.error").forCommand("import-c")
 local cliModule = require("io.cli")

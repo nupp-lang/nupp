@@ -502,25 +502,7 @@ function imports.new(environment: any?, enabled: boolean?): any
                 return source
             end
             insertion = afterHeader(last)
-            -- A leading long comment after `module` is the module's public
-            -- documentation. Keep it ahead of imports so it stays a header.
-            for _, token in ipairs(parsed.tokens) do
-                if token.offset >= insertion then
-                    for index = 1, token.triviaCount do
-                        local kind, text, offset = lexer.triviaFields(token, index)
-                        if offset >= insertion and kind == "comment" then
-                            if text:match("^%-%-%[=*%[") then
-                                insertion = offset + #text
-                                if source:sub(insertion, insertion) == "\n" then
-                                    insertion = insertion + 1
-                                end
-                            end
-                            break
-                        end
-                    end
-                    break
-                end
-            end
+
         else
             local first = parsed.tokens[1]
             for index = 1, first.triviaCount do

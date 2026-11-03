@@ -1,10 +1,9 @@
 @!internal
 
-module nupp.derive
-
 --[[
 The private declaration registry and runtime helpers used by derive recipes.
 ]]
+module nupp.derive
 
 local derive = {}
 

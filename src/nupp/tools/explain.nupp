@@ -1,5 +1,3 @@
-module nupp.tools.explain
-
 --[[
 What a diagnostic code means, at more length than a diagnostic has room for.
 
@@ -17,6 +15,7 @@ A code with no entry of its own still resolves, through its family: the rule and
 the reference are the family's, and what is missing is the pair of examples. The
 result states what is known instead of inventing a program to fit a code.
 ]]
+module nupp.tools.explain
 
 local explain = {}
 

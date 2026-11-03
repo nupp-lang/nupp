@@ -1,5 +1,3 @@
-module nupp.compiler.check.expr
-
 --[[
 The type an expression has.
 
@@ -12,6 +10,7 @@ The FFI intrinsics live here too. `ffi.new<T>` and the rest take a type rather
 than a value, and the constant type strings that ordinary LuaJIT code is written
 with are read the same way, so existing code types without being rewritten.
 ]]
+module nupp.compiler.check.expr
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")

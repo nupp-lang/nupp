@@ -1,7 +1,7 @@
 # Portable Lua libraries
 
-Nupp libraries are ordinary Nupp modules. What varies by host is chosen at
-require time through SPI providers rather than by building a library twice.
+Nupp libraries are ordinary Nupp modules. What varies by host is bound to the
+selected target by the build, so a library is written once for every host.
 
 ## LuaJIT library modules
 
@@ -14,52 +14,39 @@ fails at run time.
 print(bit.tohex(bit.bswap(0x11223344))) -- 44332211
 ```
 
-## Require-time selection
+## Target implementations
 
-SPI covers operations whose implementation varies. Fixed hashing, scalar SIMD,
-layout arithmetic, and other ordinary helpers are normal modules.
+The build binds builtin implementations for the selected native or browser
+host. Standard-library calls use those bindings; package descriptors do not
+replace them. Fixed hashing, scalar SIMD, and layout arithmetic remain ordinary
+modules.
 
-Library-specific interfaces live beside their consuming library in `.spi`
-modules. Shared core provider contracts live in the declarations-only
-[](package.nupp) module. Importing a declaration loads no implementation. Packages
-advertise their modules in `nupp/spi.json`; `package.providers(Interface)` lazily
-iterates them in dependency order. The consumer decides what wins.
-
-Standard-library facades choose with `package.select`: the unique highest
-`priority`, with an omitted priority counting as zero. A highest-priority tie
-fails initialization. Empty discovery uses the facade's explicit
-target-dependent fallback. Each facade binds
-its actual operations during module initialization, so calls perform no SPI lookup.
-
-## Runtime interfaces
-
-[SPI](../spi.md#standard-library-providers) lists each interface and its owning
-module. `package.nupp.CstorageProvider` and `package.nupp.StructvalueProvider`
-describe shared storage and struct operations. Their layouts and scalar codecs
-must agree with the representation compiled into the program.
-
+Storage and struct operations use private runtime contracts. Their layouts and
+scalar codecs agree with the representation compiled into the program.
 `nupp.text` owns the portable buffer surface and one shared `Buffer` type.
 Its native adapter uses `string.buffer`. Explicitly native pointer and
 serialization facilities remain on the native `string.buffer` surface.
 
-GPU providers use the shared interfaces in `io.gpu.spi`. Each context retains its
-device methods. CPU workgroups and tensor layout operations are ordinary code.
-HTTP clients are created with `io.http.newclient(options)` and retain their
-response and body cleanup responsibilities.
+Each GPU context retains its device methods. CPU workgroups and tensor layout
+operations are ordinary code. HTTP clients are created with
+`io.http.newclient(options)` and retain their response and body cleanup
+responsibilities.
 
-Host code pumps network events with `io.net.pump(milliseconds)`. Process
-providers return plain `io.Process.Exit` data containing `exitcode`, `killed`,
-and `timedout`.
+Host code pumps network events with `io.net.pump(milliseconds)`. Processes
+return plain `io.Process.Exit` data containing `exitcode`, `killed`, and
+`timedout`.
 
 ## Dependency providers
 
-A runtime dependency lists qualified interface names and implementation modules
-in `nupp/spi.json`. The build checks ordinary assignment compatibility, including
-generic signatures, ownership, and suspension. Lua implementations need a matching
-`.d.nupp` declaration or typed adapter. Discovery never executes provider code.
+A runtime dependency lists its own qualified interface names and implementation
+modules in `nupp/spi.json`. The build checks ordinary assignment compatibility,
+including generic signatures, ownership, and suspension. Lua implementations
+need a matching `.d.nupp` declaration or typed adapter. Discovery never executes
+provider code.
 
-Only target runtime dependencies contribute implementations. See [SPI](../spi.md)
-for metadata and examples.
+Only target runtime dependencies contribute implementations. The selected host
+determines which builtin adapters the build includes. See [SPI](../spi.md) for
+metadata and examples.
 
 ## Workers
 
@@ -69,8 +56,8 @@ not cross lane boundaries; each consumer chooses during its own initialization.
 
 ## Validation
 
-Type-check provider exports and run behavioral conformance tests on each supported
-host. Exercise signed bit operations, JSON markers, buffer ownership, storage
-interoperability, and resource lifecycles. Tests using different selections should
-initialize separate states. Instrument resolution during module loading and verify
-that repeated exported operations leave that count unchanged.
+Run behavioral conformance tests on each supported host. Exercise signed bit
+operations, JSON markers, buffer ownership, storage interoperability, and
+resource lifecycles. Type-check package provider exports against the interfaces
+they implement, and test each implementation directly as well as through its
+consumer.

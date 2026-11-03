@@ -1,5 +1,3 @@
-module nupp.tools.build.native
-
 --[[
 Staging compiler-provided native features.
 
@@ -7,6 +5,8 @@ This consumes effects recorded by the checker.  It deliberately does not read
 the manifest: project dependencies and compiler-native features have different
 owners and must not be conflated.
 ]]
+module nupp.tools.build.native
+
 const {type Config} = require("nupp.tools.build.manifest")
 const {type Target} = require("nupp.tools.build.manifest")
 

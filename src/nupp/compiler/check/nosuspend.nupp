@@ -1,5 +1,3 @@
-module nupp.compiler.check.nosuspend
-
 --[[
 Regions in which suspending is refused.
 
@@ -27,12 +25,11 @@ a foreign one has no summary here.
 
 See `docs/learn/runtime/concurrency/suspension.md`.
 ]]
+module nupp.compiler.check.nosuspend
 
 local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 local T = require("nupp.compiler.types")
-
-local nosuspend = {}
 
 --- How deep a chain a diagnostic will describe before it stops naming links. A caller
 --- four modules from the suspension needs the path; one that needs forty is being told
@@ -40,7 +37,7 @@ local nosuspend = {}
 local MAX_CHAIN = 8
 
 --- What `install` returns.
-type nosuspend.Ops = {
+export type Ops = {
     @readonly region: function(any),
     @readonly call: function(any),
     @readonly obligation: function(any),
@@ -55,7 +52,7 @@ type nosuspend.Ops = {
 ---
 --- @param c the run's state
 --- @return the operations the walk and the end of the file call
-function nosuspend.install(c: state.Checker): nosuspend.Ops
+export function install(c: state.Checker): Ops
     local ops = {}
 
     -- Calls made inside a region, in source order, judged once inference has settled.
@@ -515,7 +512,5 @@ function nosuspend.install(c: state.Checker): nosuspend.Ops
         end
     end
 
-    return ops as nosuspend.Ops
+    return ops as Ops
 end
-
-export = nosuspend

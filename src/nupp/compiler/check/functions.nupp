@@ -1,5 +1,3 @@
-module nupp.compiler.check.functions
-
 --[[
 A function statement, named or local.
 
@@ -9,6 +7,7 @@ function` binds in the current scope, while `function m.f` and `function R:m`
 attach to whatever they qualify, which is what makes them a module member or a
 method.
 ]]
+module nupp.compiler.check.functions
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
@@ -22,8 +21,6 @@ local rawType = T.unwrapOwnership
 
 --- A type, as types builds them.
 local type Type = T.Type
-
-local functions = {}
 
 --- Whether a spelled receiver asks for a read-only one: `self: const T`. The
 --- spelling is the only thing read off the annotation; the receiver's type is
@@ -98,7 +95,7 @@ end
 ---
 --- @param c the run's state
 --- @return the statement kinds this family answers
-function functions.install(c: state.Checker): state.StatHandlers
+export function install(c: state.Checker): state.StatHandlers
 
     local ownershipState, pointerShaped = c.ownershipState, c.pointerShaped
     local expectedFuncbodies: {[any]: Type} = {}
@@ -2099,5 +2096,3 @@ function functions.install(c: state.Checker): state.StatHandlers
 
     return handlers
 end
-
-export = functions

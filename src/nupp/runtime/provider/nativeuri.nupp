@@ -1,14 +1,13 @@
 @!internal
-module nupp.runtime.provider.nativeuri
-
 --[[
 The VM's native URI parser for `host.uri` API 1: the same parse as the LuaJIT
 provider, over the VM's `nupp.vm.uri` primitive rather than the native
 library's C ABI. Absent components stay distinct from present empty strings,
 and parsing errors return `nil, message`.
 ]]
+module nupp.runtime.provider.nativeuri
 
-local contracts = require("io.spi")
+local contracts = require("io.internal.contracts")
 const host = require("nupp.vm.uri")
 
 local function parse(text: string): (contracts.UriParts?, string?)

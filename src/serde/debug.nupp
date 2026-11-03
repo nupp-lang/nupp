@@ -1,5 +1,3 @@
-module serde.debug
-
 --[[
 Debug rendering turns any bound value into readable text for logs, assertions,
 and error messages. See [derives.md](docs/reference/derives.md#debug) for the
@@ -21,6 +19,8 @@ format may change. [](binding) honours the `Debug` derive's field annotations
 and a declaration's own `debug` method; any other binding renders through its
 adapter as written, so a model library's values render without a derive.
 ]]
+module serde.debug
+
 const assert2 = require("assert")
 
 const reflect = require("types.reflect")

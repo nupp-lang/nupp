@@ -1,5 +1,3 @@
-module nupp.compiler.types.associated
-
 --[[
 Associated type lookup: the one semantic answer about a projection.
 
@@ -14,6 +12,7 @@ Requirements carry identity. A name cannot tell "the same contract reached twice
 through a diamond" from "two contracts chose the same name", and those differ in
 whether one answer is owed or two, and in what it has to satisfy.
 ]]
+module nupp.compiler.types.associated
 
 local T = require("nupp.compiler.types")
 local generics = require("nupp.compiler.types.generics")

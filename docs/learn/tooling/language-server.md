@@ -34,12 +34,40 @@ it.
 | Folding ranges | Any multi-line node |
 | Selection ranges | The enclosing node chain |
 | Formatting | Whole document and range |
-| Code actions | Quick fixes |
+| Code actions | Quick fixes and direct module exports |
 | Code lenses | One `Inspect` lens over every checked function, for a client that asked |
 | Go to implementation | Registered service members |
 
 Document sync is full text. Inlay hints, call hierarchy and type hierarchy have
 no handler, and an unknown request is answered `method not found` (-32601).
+
+## Direct module exports
+
+The **Convert module table to direct exports** action replaces a plain local
+module table and its final `export =` with exported declarations. Preview it
+from the command line:
+
+```bash
+nupp lsp actions --only refactor.rewrite --json src/example.nupp 1 1
+```
+
+The action preserves comments and public names. It is offered only when removing
+the table qualifier leaves bindings and table identity unchanged. Callable
+module values, computed members, and ambiguous names need an explicit rewrite.
+Local functions published under their own names become `export function`
+declarations when their signatures are explicit and their bindings do not
+change. Reassignment, competing bindings, and reads before publication prevent
+that conversion.
+
+For repository migrations, build the compiler once and run the same refactor
+across files. The script previews by default; `--write` applies eligible edits
+and reports files that need review:
+
+```bash
+./bin/nupp build --target compiler
+luajit scripts/module-exports.lua src/example.nupp
+luajit scripts/module-exports.lua --write src/example.nupp
+```
 
 ## Lifecycle and framing
 

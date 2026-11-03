@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.bench.internal.record
-
 --[[
 The schema4 wire names and public benchmark names describe the same measurements.
 Only measurement slots are translated; parameter maps and compiler payloads stay intact.
@@ -10,8 +8,8 @@ read consumes a wire document; write consumes a public document. Neither operati
 an idempotent normalizer. The runner retains wire records and crosses this boundary
 once at each public library call. User payloads are never recursively traversed.
 ]]
+module nupp.bench.internal.record
 
-local recordio = {}
 local names: {
     {string}
 } = {
@@ -131,16 +129,14 @@ local function document(value: any, reading: boolean): any
     return result
 end
 
-function recordio.read(value: any): any
+export function read(value: any): any
     return document(value, true)
 end
 
-function recordio.write(value: any): any
+export function write(value: any): any
     return document(value, false)
 end
 
-function recordio.writemeasurement(value: any): any
+export function writemeasurement(value: any): any
     return measurement(value, false)
 end
-
-export = recordio

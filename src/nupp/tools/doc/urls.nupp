@@ -1,13 +1,12 @@
-module nupp.tools.doc.urls
-
 --[[
 Where everything lives in the built site, and how one page refers to another.
 
 Pages are written as `route/index.html`, so every link out of one is relative to
-its own depth. The symbol index is what lets a name inside a highlighted code
-block become a link to its declaration; a name that two modules both export is
-dropped rather than guessed at.
+its own depth. The symbol index resolves Markdown references to declarations.
+A name that two modules both export is dropped rather than guessed at.
 ]]
+module nupp.tools.doc.urls
+
 const {type Module} = require("nupp.tools.doc.extract")
 
 local filesMod = require("nupp.tools.doc.files")
@@ -15,27 +14,25 @@ local syntax = require("nupp.compiler.syntax.docsyntax")
 
 local normalize, join, dirname = filesMod.normalize, filesMod.join, filesMod.dirname
 
-local urls = {}
-
---- A name to the page it is declared on, for every name a code block might
---- mention. Reading a name the index does not hold returns nil, which is how a
---- highlighted token decides whether it becomes a link.
-type urls.Links = {[string]: string}
+--- Maps a documented name to the page that declares it.
+---
+--- Names absent from the index do not resolve to a documentation link.
+export type Links = {[string]: string}
 
 --- What a link rewrite needs to know about a configured page: the file its markdown was
 --- read from, the route it was written to, and what the page is called.
-type urls.Page = {
+export type Page = {
     source: string?,
     path: string,
     title: string?,
     api: boolean?
 }
 
-local function moduleFile(name: string): string
+export function moduleFile(name: string): string
     return "modules/" .. name:gsub("[^%w._-]", "-"):gsub("%.", "/") .. "/index.html"
 end
 
-local function relativePrefix(file: string): string
+export function relativePrefix(file: string): string
     local _, count = file:gsub("/", "")
     return string.rep("../", count)
 end
@@ -131,13 +128,13 @@ end
 --- Where documentation lives, for a module and optionally a declaration on it.
 --- The site returns a page and a fragment; the single markdown document returns
 --- a fragment alone, because everything it documents is on the one page.
-type urls.Target = function(string, string?): string
+export type Target = function(string, string?): string
 
 local function defaultTarget(module: string, path: string?): string
     return moduleFile(module) .. (path and "#" .. path or "")
 end
 
-local function symbolLinkIndex(modules: {Module}, target: urls.Target?, extra: urls.Links?): urls.Links
+export function symbolLinkIndex(modules: {Module}, target: Target?, extra: Links?): Links
     local target = target or defaultTarget
     local links, ambiguous = {}, {}
     for _, module in ipairs(modules) do
@@ -196,7 +193,7 @@ end
 --- @param resolve a name to the URL documenting it, "" when nothing here does, or nil
 ---     when the name is not documented at all
 --- @return the same text with every resolved reference rewritten
-local function rewriteSymbolLinks(markdown: string, resolve: function(string): string?): string
+export function rewriteSymbolLinks(markdown: string, resolve: function(string): string?): string
     local function rewrite(prose: string): string
         return (prose:gsub("%[([^%[%]]*)%]%(([^%s%(%)]+)%)", function(text: string, target: string): string
             local name, fragment = target:match("^([^#]*)(#.*)$")
@@ -220,7 +217,7 @@ local function rewriteSymbolLinks(markdown: string, resolve: function(string): s
     return rewriteOutsideBackticks(markdown, rewrite)
 end
 
-local function symbolLinks(index: urls.Links, module: Module?, prefix: string): urls.Links
+export function symbolLinks(index: Links, module: Module?, prefix: string): Links
     local links = {}
     if module then
         for _, item in ipairs(module.items) do
@@ -243,11 +240,11 @@ local function symbolLinks(index: urls.Links, module: Module?, prefix: string): 
     })
 end
 
-local function routeFile(route: string): string
+export function routeFile(route: string): string
     return route == "" and "index.html" or route .. "/index.html"
 end
 
-local function cleanRoute(route: string?): string?
+export function cleanRoute(route: string?): string?
     route = normalize(tostring(route or "")):gsub("^/", "")
     route = route:gsub("/index%.html$", ""):gsub("%.html$", "")
     if route == "." then
@@ -262,7 +259,7 @@ local function cleanRoute(route: string?): string?
     return route
 end
 
-local function pageLink(prefix: string, route: string): string
+export function pageLink(prefix: string, route: string): string
     return prefix .. routeFile(route)
 end
 
@@ -300,7 +297,7 @@ local function linkText(text: string, path: string, title: string?): string
     return text
 end
 
-local function routesBySource(pages: {urls.Page}): {[string]: urls.Page}
+local function routesBySource(pages: {Page}): {[string]: Page}
     local routes = {}
     for _, page in ipairs(pages) do
         if page.source then
@@ -320,7 +317,7 @@ end
 -- target, an anchor on the current page, or one that names no configured page.
 local function resolveRoutedLink(
     target: string,
-    routes: {[string]: urls.Page},
+    routes: {[string]: Page},
     sourceDirectory: string?,
     file: string
 ): string?, string?
@@ -338,12 +335,7 @@ local function resolveRoutedLink(
     return relativePrefix(file) .. routeFile(destination.path) .. fragment, destination.title
 end
 
-local function rewriteConfiguredPageLinks(
-    markdown: string,
-    candidate: urls.Page,
-    pages: {urls.Page},
-    file: string
-): string
+export function rewriteConfiguredPageLinks(markdown: string, candidate: Page, pages: {Page}, file: string): string
     local routes = routesBySource(pages)
     -- A generated page has no file of its own, so a link out of one cannot be relative
     -- to where it was written. It names the repository path instead, which the second
@@ -369,22 +361,9 @@ end
 -- caller holding one bare href instead -- a hero action's, say. Answers the target
 -- unchanged when it names no configured page, matching what the markdown rewrite
 -- leaves behind.
-local function resolvePageHref(target: string, candidate: urls.Page, pages: {urls.Page}, file: string): string
+export function resolvePageHref(target: string, candidate: Page, pages: {Page}, file: string): string
     local routes = routesBySource(pages)
     local sourceDirectory = candidate.source and dirname(normalize(candidate.source)) or nil
 
     return (resolveRoutedLink(target, routes, sourceDirectory, file)) or target
 end
-
-urls.moduleFile = moduleFile
-urls.relativePrefix = relativePrefix
-urls.symbolLinkIndex = symbolLinkIndex
-urls.symbolLinks = symbolLinks
-urls.rewriteSymbolLinks = rewriteSymbolLinks
-urls.routeFile = routeFile
-urls.cleanRoute = cleanRoute
-urls.pageLink = pageLink
-urls.resolvePageHref = resolvePageHref
-urls.rewriteConfiguredPageLinks = rewriteConfiguredPageLinks
-
-export = urls

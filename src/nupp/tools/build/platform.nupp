@@ -1,5 +1,3 @@
-module nupp.tools.build.platform
-
 --[[
 The distribution platforms Nupp can stamp from a compiler-owned stub catalog.
 
@@ -7,6 +5,7 @@ A C layout model is necessary but not sufficient: this list means a native
 runner publishes a host for the triple and the compiler knows its executable
 and archive rules. Keep it smaller than targetLayout.keys().
 ]]
+module nupp.tools.build.platform
 
 local platform = {}
 

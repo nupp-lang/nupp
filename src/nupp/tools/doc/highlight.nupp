@@ -1,15 +1,13 @@
-module nupp.tools.doc.highlight
-
 --[[
-Source code as coloured HTML.
+Source code as colored HTML.
 
-Nupp and Lua are highlighted by the compiler's own parser and lexer, which agree
-about both tokens and contextual syntax and know enough to turn a Nupp name into
-a link. The other languages a document fences -- shell, JSON, C and a few more
--- are coloured by the small tables in [](nupp.tools.doc.lexers), and a fence in
-anything else renders as plain escaped text.
+Nupp and Lua are highlighted by the compiler's parser and lexer, which agree
+about tokens and contextual syntax. The other languages a document fences --
+shell, JSON, C and a few more -- are colored by the small tables in
+[](nupp.tools.doc.lexers), and a fence in anything else renders as plain escaped
+text.
 ]]
-const {type Links} = require("nupp.tools.doc.urls")
+module nupp.tools.doc.highlight
 
 local lexer = require("nupp.compiler.syntax.lexer")
 local parser = require("nupp.compiler.syntax.parser")
@@ -19,19 +17,6 @@ local stringsMod = require("nupp.tools.doc.strings")
 local lexers = require("nupp.tools.doc.lexers")
 
 local htmlEscape = stringsMod.htmlEscape
-
-local highlight = {}
-
-local function qualifiedName(tokens, index)
-    local name = tokens[index].text
-    local cursor = index - 1
-    while cursor > 1 and tokens[cursor].text == "." and tokens[cursor - 1].kind == "name" do
-        name = tokens[cursor - 1].text .. "." .. name
-        cursor = cursor - 2
-    end
-
-    return name
-end
 
 local function tokenClasses(style, text)
     if style == "type" then
@@ -45,14 +30,6 @@ local function tokenClasses(style, text)
     end
 
     return "token " .. style .. " nuppdoc-token-" .. style
-end
-
-local function declarationName(tokens, index)
-    local previous = tokens[index - 1]
-    return previous
-        and (
-            previous.kind == "function" or previous.text == "metamethod" or syntaxstyle.TYPE_DECLARATIONS[previous.text]
-        )
 end
 
 --- Builds one valid HTML fragment per source line. Syntax tokens may cross a line
@@ -74,7 +51,7 @@ local function lineWriter(source)
     local lines = {}
     local pieces = {}
 
-    local function append(text, class, href)
+    local function append(text, class)
         local start = 1
         while true do
             local finish = text:find("\n", start, true)
@@ -82,14 +59,6 @@ local function lineWriter(source)
             local rendered = htmlEscape(piece)
             if class and piece ~= "" then
                 rendered = '<span class="' .. class .. '">' .. rendered .. "</span>"
-                if href then
-                    rendered = '<a class="nuppdoc-code-link nuppdoc-code-link-'
-                        .. href.style
-                        .. '" href="'
-                        .. htmlEscape(
-                            href.url
-                        ) .. '">' .. rendered .. "</a>"
-                end
             end
             pieces[#pieces + 1] = rendered
             if not finish then
@@ -112,41 +81,11 @@ local function lineWriter(source)
     return {append = append, finish = finish}
 end
 
--- A complete record or interface signature is parsed as one top-level declaration.
--- Its entry tokens are unambiguous even when their bare names are not: `length` here
--- means this container's `length`, not every member with that common name elsewhere.
-local function containerMemberUrls(parsed, memberLinks)
-    local urls = {}
-    if not memberLinks then
-        return urls
-    end
-    for _, block in ipairs(parsed.root.blocks or {}) do
-        for _, outer in ipairs(block.stats or {}) do
-            local declaration = outer
-            while declaration.kind == "pragmaStmt" and declaration.stat do
-                declaration = declaration.stat
-            end
-            if declaration.kind == "recordDecl" then
-                for _, entry in ipairs(declaration.entries or {}) do
-                    local name = entry.name
-                    local url = name and memberLinks[name.text]
-                    if url then
-                        urls[name] = url
-                    end
-                end
-            end
-        end
-    end
-
-    return urls
-end
-
-local function highlightNuppLines(source, links, memberLinks)
+local function highlightNuppLines(source)
     local out = lineWriter(source)
     local parsed = parser.parse(source, "documentation-code-block.nupp")
     local tokens = parsed.tokens
     local syntaxKinds = semantic.syntaxKinds(parsed)
-    local memberUrls = containerMemberUrls(parsed, memberLinks)
     for index, token in ipairs(tokens) do
         for index = 1, token.triviaCount do
             local kind = lexer.triviaKind(token, index)
@@ -159,11 +98,7 @@ local function highlightNuppLines(source, links, memberLinks)
         end
         if token.kind ~= "eof" then
             local style = syntaxstyle.token(tokens, index, syntaxKinds)
-            local url = memberUrls[token]
-            if not url and links and token.kind == "name" and not declarationName(tokens, index) then
-                url = links[qualifiedName(tokens, index)] or links[token.text]
-            end
-            out.append(token.text, tokenClasses(style, token.text), url and {url = url, style = style} or nil)
+            out.append(token.text, tokenClasses(style, token.text))
         end
     end
     local lines = out.finish()
@@ -174,8 +109,8 @@ local function highlightNuppLines(source, links, memberLinks)
     return lines
 end
 
-local function highlightNupp(source: string, links: Links?, memberLinks: Links?): string
-    return table.concat(highlightNuppLines(source, links, memberLinks), "\n")
+export function nuppSource(source: string): string
+    return table.concat(highlightNuppLines(source), "\n")
 end
 
 -- What a table-driven language looks like, as lines.
@@ -201,13 +136,10 @@ local function highlightSpanLines(source: string, language: string): {string}?
     return lines
 end
 
-local function codeLines(source: string, language: string?, links: Links?): {string}
-    if language == "nupp" then
-        return highlightNuppLines(source, links)
-    elseif language == "lua" then
-        -- Lua is a subset Nupp's lexer reads exactly; a Lua name is not a Nupp
-        -- declaration, so nothing in it links.
-        return highlightNuppLines(source, nil)
+export function codeLines(source: string, language: string?): {string}
+    -- Lua is a subset Nupp's lexer reads exactly.
+    if language == "nupp" or language == "lua" then
+        return highlightNuppLines(source)
     end
     local highlighted = language and highlightSpanLines(source, language) or nil
     if highlighted then
@@ -223,12 +155,6 @@ local function codeLines(source: string, language: string?, links: Links?): {str
     return lines
 end
 
-local function codeHtml(source: string, language: string?, links: Links?): string
-    return table.concat(codeLines(source, language, links), "\n")
+export function codeHtml(source: string, language: string?): string
+    return table.concat(codeLines(source, language), "\n")
 end
-
-highlight.nuppSource = highlightNupp
-highlight.codeHtml = codeHtml
-highlight.codeLines = codeLines
-
-export = highlight

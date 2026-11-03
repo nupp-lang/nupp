@@ -4,9 +4,8 @@ module nupp.compiler.syntax.checkpoint
 -- optimization fact changes. Restore syntax and view hints without copying types
 -- or resetting shared semantic definitions belonging to other modules.
 local cst = require("nupp.compiler.syntax.cst")
-local checkpoint = {}
 
-function checkpoint.restore(result: any): nil
+export function restore(result: any): nil
     local saved = result.optimizationSyntax
     if not saved then
         return
@@ -34,10 +33,10 @@ function checkpoint.restore(result: any): nil
     end
 end
 
-function checkpoint.prepare(result: any): nil
+export function prepare(result: any): nil
     local saved = result.optimizationSyntax
     if saved then
-        checkpoint.restore(result)
+        restore(result)
         return
     end
     local nodes, seen, views = {}, {}, {}
@@ -74,5 +73,3 @@ function checkpoint.prepare(result: any): nil
     end
     result.optimizationSyntax = {nodes = nodes, views = views, bodies = bodies}
 end
-
-export = checkpoint

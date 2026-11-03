@@ -1,5 +1,3 @@
-module nupp.tools.doc.sweep
-
 --[[
 A tree of prose documents, published by being written.
 
@@ -12,13 +10,12 @@ A glob replaces the list. What a file's path cannot say, the file says in frontm
 `order` places it in the navigation, `title` names it when navigation should not call it
 what its heading does, and `redirects` carries the routes it used to answer at.
 ]]
+module nupp.tools.doc.sweep
 
 local filesMod = require("nupp.tools.doc.files")
 local frontmatterMod = require("nupp.tools.doc.frontmatter")
 local urlsMod = require("nupp.tools.doc.urls")
 local syntax = require("nupp.compiler.shellsyntax")
-
-local sweep = {}
 
 local join, readFile, normalize = filesMod.join, filesMod.readFile, filesMod.normalize
 local listMarkdown = filesMod.listMarkdown
@@ -28,7 +25,7 @@ local cleanRoute = urlsMod.cleanRoute
 ---
 --- Everything here is either the file's path or something the file said about itself,
 --- which is the point: the manifest supplied none of it.
-record sweep.Page
+export record Page
     layout: string?
     markdown: string
     order: number?
@@ -44,7 +41,7 @@ end
 --- the directory routes are named from, and defaults to the fixed prefix the first
 --- pattern opens with, so `docs/**.md` publishes `docs/learn/projects/build.md` at
 --- `guides/build`. `exclude` drops files the tree holds and the site does not publish.
-type sweep.Settings = {
+export type Settings = {
     base: string?,
     exclude: {string}?,
     glob: string | {string}
@@ -52,7 +49,7 @@ type sweep.Settings = {
 
 local INDEX = "index.md"
 
-local function patterns(settings: sweep.Settings): {string}
+local function patterns(settings: Settings): {string}
     local glob = settings.glob
 
     return type(glob) == "string" and {glob as string} or glob as {string}
@@ -110,7 +107,7 @@ local function below(directory: string, path: string): string
     return path
 end
 
-local function expandOne(root: string, base: string, file: string): sweep.Page?, string?
+local function expandOne(root: string, base: string, file: string): Page?, string?
     local source, err = readFile(file)
     if not source then
         return nil, err
@@ -122,7 +119,7 @@ local function expandOne(root: string, base: string, file: string): sweep.Page?,
     end
     local fields, body = frontmatterMod.parse(source)
 
-    return new sweep.Page(
+    return new Page(
         layout = fields.layout,
         markdown = body,
         order = tonumber(fields.order),
@@ -138,14 +135,14 @@ end
 --- Order is what a document's `order` field says, and files that name none follow the
 --- ones that do in the order the directory lists them. Returns nil and a message when a
 --- file cannot be read or does not name a route.
-function sweep.expand(root: string, settings: sweep.Settings): {sweep.Page}?, string?
+export function expand(root: string, settings: Settings): {Page}?, string?
     local base = settings.base or anchor(patterns(settings)[1] as string)
     local excluded: {function(string): boolean} = {}
     for _, pattern in ipairs(settings.exclude or {}) do
         excluded[#excluded + 1] = syntax.glob(normalize(pattern))
     end
     local seen: {[string]: boolean} = {}
-    local pages: {sweep.Page} = {}
+    local pages: {Page} = {}
     for _, glob in ipairs(patterns(settings)) do
         local matches = syntax.glob(normalize(glob))
         for _, file in ipairs(listMarkdown(join(root, anchor(glob)))) do
@@ -167,11 +164,11 @@ function sweep.expand(root: string, settings: sweep.Settings): {sweep.Page}?, st
     -- A stable sort, because two pages that name the same order -- or name none -- are
     -- left in the order the directory listed them rather than swapped by whichever
     -- comparison the sort happened to make.
-    local positions: {[sweep.Page]: integer} = {}
+    local positions: {[Page]: integer} = {}
     for index, page in ipairs(pages) do
         positions[page] = index
     end
-    table.sort(pages, function(left: sweep.Page, right: sweep.Page): boolean
+    table.sort(pages, function(left: Page, right: Page): boolean
         local leftOrder, rightOrder = left.order, right.order
         if leftOrder ~= rightOrder then
             if not leftOrder then
@@ -188,5 +185,3 @@ function sweep.expand(root: string, settings: sweep.Settings): {sweep.Page}?, st
 
     return pages
 end
-
-export = sweep

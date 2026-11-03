@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.tasks
-
 --[[
 Structured concurrency: a scope owns the tasks spawned into it.
 
@@ -64,16 +62,18 @@ then, in FIFO order, up to a bounded number of activations per host turn.
 Nesting divides that bound rather than multiplying it, because the token belongs
 to the turn.
 ]]
+module nupp.tasks
+
 const types = require("types")
 
-const {type Task as Task2} = require("nupp.workers.spi")
-const {type Status as Status2} = require("nupp.workers.spi")
+const {type Task as Task2} = require("nupp.workers.contracts")
+const {type Status as Status2} = require("nupp.workers.contracts")
 
 local suspension = require("nupp.suspension")
 -- A scope is a driver: it installs a handler in front of whoever hosts the frame.
 local suspensionHost = require("nupp.suspension.host")
 local coroutines = require("nupp.suspension.internal.coroutines")
-local {type Submittable} = require("nupp.workers.spi")
+local {type Submittable} = require("nupp.workers.contracts")
 local workerModule = require("nupp.runtime.workersprovider").provider
 local taskownership = require("nupp.runtime.taskownership")
 -- The canonical state-local cancellation identity, taken from the module that owns
@@ -294,7 +294,7 @@ record tasks.Scope is own.Closeable
     work: function<F is Submittable>(
         borrows self: tasks.Scope,
         F,
-        ...: unpackof nupp.workers.spi.Submitted(F)
+        ...: unpackof nupp.workers.contracts.Submitted(F)
     ): tasks.Task<F> borrows (self)
 
     --- Requests cancellation of every child.
@@ -1284,7 +1284,7 @@ local spawnNamedSurface: function<F is Nullary>(
 local forkSurface: function<F is Submittable>(
     borrows self: tasks.Scope,
     F,
-    ...: unpackof nupp.workers.spi.Submitted(F)
+    ...: unpackof nupp.workers.contracts.Submitted(F)
 ): tasks.Task<F> borrows (self)
 local cancelSurface: function(borrows self: tasks.Scope, reason: string?): nil
 @unsafe do

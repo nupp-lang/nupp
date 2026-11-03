@@ -1,10 +1,10 @@
-module nupp.tools.doc.page
-
 --[[
 The chrome around a page: the module tree in the sidebar, the outline on the
 right, the breadcrumbs, the previous and next links, the hero on the home page,
 and the shell that holds them. What goes in the middle is somebody else's answer.
 ]]
+module nupp.tools.doc.page
+
 const {type Module} = require("nupp.tools.doc.extract")
 const {type Navigation} = require("nupp.tools.doc.stdlib")
 
@@ -19,13 +19,11 @@ local relativePrefix = urlsMod.relativePrefix
 local markdownHtml = htmlMod.markdownHtml
 local ICONS = assetsMod.ICONS
 
-local page = {}
-
 --- The documentation settings the chrome reads. `nupp.tools.doc` owns the whole
 --- table;
 --- these
 --- are the parts a header, a brand, and a `<head>` are built out of.
-type page.Settings = {
+export type Settings = {
     description: string?,
     favicon: string?,
     github: string?,
@@ -34,14 +32,14 @@ type page.Settings = {
 }
 
 --- A call to action beside the hero copy.
-type page.HeroAction = {
+export type HeroAction = {
     path: string?,
     text: string,
     theme: string?
 }
 
 --- An illustrated capability on a home page.
-type page.Feature = {
+export type Feature = {
     code: string?,
     codeLanguage: string?,
     details: string?,
@@ -52,9 +50,9 @@ type page.Feature = {
 }
 
 --- The home page's hero, as the configured page describes it.
-type page.Hero = {
-    features: {page.Feature}?,
-    heroActions: {page.HeroAction}?,
+export type Hero = {
+    features: {Feature}?,
+    heroActions: {HeroAction}?,
     heroContent: string?,
     heroImage: string?,
     heroImageAlt: string?,
@@ -66,7 +64,7 @@ type page.Hero = {
 
 --- A page in the site's navigation: where it lives, what it is called, and the module
 --- it documents when it documents one.
-type page.Nav = {
+export type Nav = {
     module: Module?,
     navigationTitle: string?,
     navigation: Navigation?,
@@ -80,10 +78,10 @@ type page.Nav = {
 --- Nesting repeats: a group holds its declarations and a declaration holds the
 --- members it documents, so a record's methods are reachable from the outline
 --- rather than only from the page body.
-record page.Entry
+export record Entry
     name: string
     path: string
-    items: {page.Entry}?
+    items: {Entry}?
 end
 
 -- A `public`-relative asset path is served from the site root, so it needs the page's
@@ -150,10 +148,10 @@ local function moduleTree(modules, pages)
                 local group = entry.kind == "function" and functions or globals
                 group[#group + 1] = entry
             end
-            category("@functions", "Functions", "functions", functions)
-            category("@globals", "Globals", "globals", globals)
+            category("@functions", "functions", "functions", functions)
+            category("@globals", "globals", "globals", globals)
             category("@intrinsic-types", "Intrinsic types", "types", catalog.types)
-            category("@annotations", "Annotations", "annotations", catalog.annotations or {})
+            category("@annotations", "annotations", "annotations", catalog.annotations or {})
 
         end
     end
@@ -364,7 +362,7 @@ local function sidebar(modules, current, prefix, pages, currentPath)
     return table.concat(out)
 end
 
-local outlineEntries: function({page.Entry}, integer): string
+local outlineEntries: function({Entry}, integer): string
 
 -- One level of the outline. A declaration that documents members is a section of its
 -- own, the same shape a group of declarations is, so the list nests for as long as the
@@ -373,7 +371,7 @@ local outlineEntries: function({page.Entry}, integer): string
 -- The top level opens with the page; a declaration's own members do not, because every
 -- method of every record at once is a list nobody reads. The script opens whichever one
 -- holds the heading being read.
-outlineEntries = function(items: {page.Entry}, depth: integer): string
+outlineEntries = function(items: {Entry}, depth: integer): string
     local out = {}
     for _, item in ipairs(items or {}) do
         local children = item.items or {}
@@ -396,7 +394,7 @@ outlineEntries = function(items: {page.Entry}, depth: integer): string
     return table.concat(out)
 end
 
-local function outline(items: {page.Entry}?): string
+local function outline(items: {Entry}?): string
     local out = {
         '<aside class="nuppdoc-outline" id="nuppdoc-outline" aria-label="On this page">'
         .. '<div class="nuppdoc-outline-title">On this page</div><ol>'
@@ -508,7 +506,7 @@ local function pageNavigation(route, pages, prefix)
     return table.concat(out)
 end
 
-local function homeHero(config: page.Hero, links: urlsMod.Links?, resolveHref: (function(string): string)?): string
+export function homeHero(config: Hero, links: urlsMod.Links?, resolveHref: (function(string): string)?): string
     if config.layout ~= "home" then
         return ""
     end
@@ -531,7 +529,7 @@ local function homeHero(config: page.Hero, links: urlsMod.Links?, resolveHref: (
         out[#out + 1] = '<div class="nuppdoc-hero-actions">'
         -- The length test above already ruled out a hero that configured none of these,
         -- but it reads the field rather than a local, which is not a narrowing.
-        for _, action in ipairs(config.heroActions as {page.HeroAction}) do
+        for _, action in ipairs(config.heroActions as {HeroAction}) do
             local href = tostring(action.path or "")
             if resolveHref then
                 href = resolveHref(href)
@@ -564,13 +562,13 @@ end
 
 --- The alternating showcase belongs after the home's introductory Markdown, where the
 --- page author decides what the reader should try first.
-local function homeFeatures(config: page.Hero, links: urlsMod.Links?): string
+export function homeFeatures(config: Hero, links: urlsMod.Links?): string
     if config.layout ~= "home" or #(config.features or {}) == 0 then
         return ""
     end
 
     local out = {'<section class="nuppdoc-feature-showcase" aria-label="Nupp features">'}
-    for _, feature in ipairs(config.features as {page.Feature}) do
+    for _, feature in ipairs(config.features as {Feature}) do
         out[#out + 1] = '<article class="nuppdoc-showcase-feature">'
         out[#out + 1] = '<div class="nuppdoc-showcase-visual">'
         if feature.image then
@@ -620,16 +618,16 @@ local function brand(settings, siteTitle, prefix)
     return table.concat(out)
 end
 
-function page.render(
+export function render(
     title: string,
     siteTitle: string,
     body: string,
     modules: {Module},
     current: string?,
-    items: {page.Entry},
+    items: {Entry},
     file: string,
-    settings: page.Settings,
-    pages: {page.Nav},
+    settings: Settings,
+    pages: {Nav},
     route: string,
     layout: string?
 ): string
@@ -750,8 +748,3 @@ function page.render(
             prefix .. 'assets/search-index.js'
         ) .. '<script src="' .. prefix .. 'assets/site.js"></script></body></html>\n'
 end
-
-page.homeHero = homeHero
-page.homeFeatures = homeFeatures
-
-export = page

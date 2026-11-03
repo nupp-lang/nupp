@@ -9,7 +9,6 @@ local tree = require("nupp.tools.lsp.tree")
 local fs = require("nupp.compiler.fs")
 local bundled = require("nupp.compiler.bundled")
 local json = require("serde.json")
-local spi = {}
 
 local function declaration(inc: any, name: string): (any, string?)
     local path = inc.modulePath(name)
@@ -115,7 +114,7 @@ local function sameDefinition(left: any, right: any): boolean
 end
 
 --- Navigates advertised implementations without requiring their modules.
-function spi.implementations(inc: any, member: any, token: any): {any}
+export function implementations(inc: any, member: any, token: any): {any}
     local locations, seen, interfaces = wire.array({}), {}, {}
     local name = member and member.name or token and token.text
     local definition = token and token.definition
@@ -164,5 +163,3 @@ function spi.implementations(inc: any, member: any, token: any): {any}
 
     return locations
 end
-
-export = spi

@@ -1,5 +1,3 @@
-module nupp.tools.hotsession
-
 --[[
 Persistent compiler-side state for development hot reload.
 
@@ -14,6 +12,7 @@ that image behind a map the runtime's `vm.hotPatch` reads, so a matched
 function keeps its id and every closure, method and direct call takes the new
 body on its next call (`native/crates/vm/src/hotpatch.rs`).
 ]]
+module nupp.tools.hotsession
 
 local incremental = require("nupp.compiler.project.incremental")
 local diagnostics = require("nupp.compiler.diagnostics")

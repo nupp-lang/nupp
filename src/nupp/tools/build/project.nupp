@@ -1,5 +1,3 @@
-module nupp.tools.build.project
-
 --[[
 Building what the manifest describes.
 
@@ -8,6 +6,8 @@ modules it reaches, compiles what has changed, copies the resources it declares,
 and writes the result. What counts as changed is answered by the content hashes
 in the build cache, not by timestamps.
 ]]
+module nupp.tools.build.project
+
 const {type Stats} = require("nupp.tools.build.modules")
 
 local process = require("nupp.compiler.process")

@@ -1,5 +1,3 @@
-module nupp.compiler.check.comptimefunction
-
 --[[
 A compile-time-only function declaration.
 
@@ -8,14 +6,13 @@ annotations: this module validates the declaration, registers its body with the
 compile-time evaluator, checks it in a compile-time context, and publishes a sealed
 program when it is a direct module member. The generator erases the declaration.
 ]]
+module nupp.compiler.check.comptimefunction
 
 local cst = require("nupp.compiler.syntax.cst")
 local hash = require("nupp.compiler.hash")
 local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
 local state = require("nupp.compiler.check.state")
-
-local comptimeFunction = {}
 
 --- Checks a declaration around the ordinary function-statement handler.
 ---
@@ -184,7 +181,7 @@ local function check(c: state.Checker, helper: any, checkOrdinary: function(any)
     c.moduleExports.comptimeFunctions[markedName.text] = sealedProgram
 end
 
-function comptimeFunction.checkLocal(
+export function checkLocal(
     c: state.Checker,
     helper: cst.LocalFuncStmt,
     checkOrdinary: function(cst.LocalFuncStmt): nil
@@ -192,12 +189,6 @@ function comptimeFunction.checkLocal(
     check(c, helper, checkOrdinary as any)
 end
 
-function comptimeFunction.checkQualified(
-    c: state.Checker,
-    helper: cst.FuncStmt,
-    checkOrdinary: function(cst.FuncStmt): nil
-): nil
+export function checkQualified(c: state.Checker, helper: cst.FuncStmt, checkOrdinary: function(cst.FuncStmt): nil): nil
     check(c, helper, checkOrdinary as any)
 end
-
-export = comptimeFunction

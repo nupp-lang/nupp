@@ -1,5 +1,3 @@
-module utf8
-
 --[[
 `utf8` reads Unicode scalars out of strings and
 [](io.ByteView) values. Reach for it to count, decode,
@@ -83,6 +81,8 @@ accept a string or a byte view.
 - [](serde.json) for JSON encoding and decoding
 :::
 ]]
+module utf8
+
 const {type ByteView} = require("nupp.io.internal.bytes")
 
 -- `string.byte` by name rather than as a method. Written `source:byte(at)` the
@@ -212,8 +212,6 @@ local function scan(source: string, limit: integer): integer
     return limit
 end
 
-local utf8 = {}
-
 --- Counts the codepoints in the value.
 ---
 --- A malformed byte counts as one.
@@ -225,7 +223,7 @@ local utf8 = {}
 ---
 --- @param value the bytes to measure
 --- @return the codepoint count
-function utf8.len(borrows value: string | ByteView): integer
+export function len(borrows value: string | ByteView): integer
     local source = bytes(value)
     local count: integer = 0
     local at: integer = 1
@@ -258,7 +256,7 @@ end
 --- @return the codepoint, or nil at the end of the value
 --- @return the byte the next codepoint starts at
 --- @raises string when byteoffset is not an integer, or is outside the value
-function utf8.decodeat(borrows value: string | ByteView, byteoffset: integer): (integer?, integer)
+export function decodeat(borrows value: string | ByteView, byteoffset: integer): (integer?, integer)
     local source = bytes(value)
 
     return decode(source, offset(source, byteoffset, true))
@@ -283,7 +281,7 @@ end
 --- @return the codepoint, or nil at the start of the value
 --- @return the byte that codepoint starts at
 --- @raises string when byteoffset is not an integer, or is outside the value
-function utf8.decodebefore(borrows value: string | ByteView, byteoffset: integer): (integer?, integer)
+export function decodebefore(borrows value: string | ByteView, byteoffset: integer): (integer?, integer)
     local source = bytes(value)
     local at = offset(source, byteoffset, true)
     if at == 1 then
@@ -318,7 +316,7 @@ end
 --- @param codepoint the codepoint to encode
 --- @return its encoding
 --- @raises string when the codepoint is not an integer, or is outside Unicode
-function utf8.encode(codepoint: integer): string
+export function encode(codepoint: integer): string
     if codepoint ~= math.floor(codepoint) or codepoint < 0 or codepoint > 1114111 then
         error("nupp: UTF-8 codepoint is out of range", 2)
     end
@@ -354,7 +352,7 @@ end
 ---
 --- @param value the bytes to test
 --- @return whether every sequence is well formed
-function utf8.isvalid(borrows value: string | ByteView): boolean
+export function isvalid(borrows value: string | ByteView): boolean
     local source = bytes(value)
 
     return scan(source, #source) == #source
@@ -373,7 +371,7 @@ end
 --- @param maxbytes the most bytes the prefix may use
 --- @return the prefix length, in bytes
 --- @raises string when maxbytes is not an integer
-function utf8.validprefixlen(borrows value: string | ByteView, maxbytes: integer): integer
+export function validprefixlen(borrows value: string | ByteView, maxbytes: integer): integer
     local source = bytes(value)
     if maxbytes ~= math.floor(maxbytes) or maxbytes == math.huge or maxbytes == -math.huge then
         error("nupp: UTF-8 byte limit must be an integer", 2)
@@ -393,8 +391,6 @@ end
 --- @param maxbytes the most bytes the answer may use
 --- @return the cut text
 --- @raises string when maxbytes is not an integer
-function utf8.truncate(text: string, maxbytes: integer): string
-    return text:sub(1, utf8.validprefixlen(text, maxbytes))
+export function truncate(text: string, maxbytes: integer): string
+    return text:sub(1, validprefixlen(text, maxbytes))
 end
-
-export = utf8

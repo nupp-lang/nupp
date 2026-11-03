@@ -235,8 +235,8 @@ nupp: the VM program runtime needs compiler source; use a source checkout
 one.
 
 Built-in message digests are written in Nupp and need no native facility.
-Installed digest implementations may bring their own declared native
-dependencies.
+The build binds builtin services to the selected target implementation;
+package descriptors do not replace them.
 
 What decides is the modules the image carries, so a facility reached only
 through a computed `require` is not linked.

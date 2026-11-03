@@ -1,5 +1,3 @@
-module nupp.compiler.check.fixedwidth
-
 --[[
 Establishment facts for fixed-width values.
 
@@ -8,13 +6,12 @@ whether checked execution established that claim. An erased `as` can therefore
 change the static type without granting the fact consumed by assignments,
 returns, records, calls, and later AOT work.
 ]]
+module nupp.compiler.check.fixedwidth
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 local fixed = require("nupp.compiler.types.fixedwidth")
 local state = require("nupp.compiler.check.state")
-
-local fixedCheck = {}
 
 local isA = relations.isA
 
@@ -44,7 +41,7 @@ local function copyFacts(facts): any
     return out
 end
 
-function fixedCheck.install(c: state.Checker): Ops
+export function install(c: state.Checker): Ops
     local ops = {}
 
     ops.markLiteral = function(node, value)
@@ -313,5 +310,3 @@ function fixedCheck.install(c: state.Checker): Ops
 
     return ops
 end
-
-export = fixedCheck

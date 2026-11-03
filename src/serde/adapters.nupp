@@ -1,5 +1,3 @@
-module serde.adapters
-
 --[[
 These builders give a model library that owns its schema adapters over its own
 [](serde.Member) type. See
@@ -85,6 +83,7 @@ Every builder takes the member the value sits at, so the same scalar adapter
 type serves a top-level value, a structure field, and a list element. Wrap the
 finished adapter in [](serde.Bound) to pass it to a codec.
 ]]
+module serde.adapters
 
 local core = require("nupp.serde.internal.value")
 local scalars = require("nupp.serde.internal.scalar")

@@ -1,5 +1,3 @@
-module nupp.compiler.types.generics
-
 --[[
 Substitution and instantiation over interned types.
 
@@ -12,6 +10,7 @@ decides when to ask for them.
 Applying the same arguments to the same declaration yields the identical type, so
 `Box<number>` is `Box<number>` everywhere.
 ]]
+module nupp.compiler.types.generics
 
 local T = require("nupp.compiler.types")
 local members = require("nupp.compiler.types.members")

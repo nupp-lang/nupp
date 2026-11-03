@@ -1,11 +1,10 @@
-module nupp.tools.lsp.semantic
-
 --[[
 The token kinds an editor colours by.
 
 The checker marks what it resolved; everything else is read from the token
 stream, so a file that does not check is still highlighted.
 ]]
+module nupp.tools.lsp.semantic
 
 local cst = require("nupp.compiler.syntax.cst")
 local tree = require("nupp.tools.lsp.tree")

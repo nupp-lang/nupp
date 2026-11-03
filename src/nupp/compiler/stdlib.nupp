@@ -1,13 +1,10 @@
-module nupp.compiler.stdlib
-
 --[[
 Runtime installers for compiler-provided standard facilities.
 
 They are kept as readable Lua here and compacted to one physical output line so
 prepending one never moves an application's source positions.
 ]]
-
-local stdlib = {}
+module nupp.compiler.stdlib
 
 local function compact(source: string): string
     return (source:gsub("[\r\n]+%s*", " "):gsub("%s+$", ""))
@@ -60,7 +57,7 @@ local DERIVES = compact([=[
 require("nupp.derive").install(__nupp)
 ]=])
 
-function stdlib.bootstrap(effects: {[string]: any}?, watch: boolean?, installingManaged: boolean?): string
+export function bootstrap(effects: {[string]: any}?, watch: boolean?, installingManaged: boolean?): string
     local out = {watch and HOT_BASE or BASE}
     if not installingManaged then
         out[#out + 1] = 'require("nupp.runtime.managed").install(__nupp,_G);'
@@ -93,12 +90,10 @@ end
 --- field codec. The VM has its own math, managed runtime, reflection and
 --- derives, so the base and those pieces are left out; what remains binds the
 --- `__nupp` local the pieces address.
-function stdlib.vmInstallers(effects: {[string]: any}): string?
+export function vmInstallers(effects: {[string]: any}): string?
     if not effects["stdlib.fieldcodec"] then
         return nil
     end
 
     return "local __nupp=_G.nupp or {};_G.nupp=__nupp " .. FIELDCODEC
 end
-
-export = stdlib

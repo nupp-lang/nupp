@@ -1,5 +1,3 @@
-module nupp.compiler.fs
-
 --[[
 Filesystem operations shared by the compiler and its tools.
 
@@ -13,10 +11,10 @@ its native filesystem provider. Whole-file reads and writes stay on `io.open`
 because the provider's transfer lane would add a worker handoff to every small
 compiler file.
 ]]
+module nupp.compiler.fs
+
 const files2 = require("io.files")
 const path2 = require("io.internal.path")
-
-local fs = {}
 
 -- A compiler command never changes its own working directory. Remember the one its
 -- relative paths are rooted in instead of crossing the native-provider boundary once
@@ -32,7 +30,7 @@ local function currentDirectory(): string
     return workingDirectory as string
 end
 
-local function normalize(path: string): string
+export function normalize(path: string): string
     path = path:gsub("\\", "/"):gsub("/+", "/")
     path = path:gsub("^%./", ""):gsub("/%./", "/")
     if path == "/" or path:match("^[A-Za-z]:/$") then
@@ -42,7 +40,7 @@ local function normalize(path: string): string
     return (path:gsub("/$", ""))
 end
 
-local function join(left: string?, right: string): string
+export function join(left: string?, right: string): string
     if not right then
         return normalize(left or "")
     end
@@ -60,7 +58,7 @@ local function join(left: string?, right: string): string
     return normalize(left .. "/" .. right)
 end
 
-local function dirname(path: string): string
+export function dirname(path: string): string
     local normalized = normalize(path)
     if normalized == "/" or normalized:match("^[A-Za-z]:/$") then
         return normalized
@@ -76,14 +74,14 @@ local function dirname(path: string): string
     return parent or "."
 end
 
-local function basename(path: string): string
+export function basename(path: string): string
     return normalize(path):match("([^/]+)$") or path
 end
 
 --- An absolute, lexically normalized spelling. Unlike `canonical`, this also
 --- answers for a path that does not exist yet, which is required when a watcher
 --- retains a deleted input.
-local function absolute(path: string): string
+export function absolute(path: string): string
     path = normalize(path)
     if path:sub(1, 1) ~= "/" and not path:match("^[A-Za-z]:/") then
         path = join(currentDirectory(), path)
@@ -144,7 +142,7 @@ end
 --- directory came back long -- two spellings of one file that compare unequal,
 --- which is the whole of what this is asked for. A caller passing a short path
 --- to `nupp run` lost its entry's package identity that way.
-local function canonical(path: string): string
+export function canonical(path: string): string
     local fallback = absolute(path)
     local ok, resolved = pcall(function(): string?
         local real = path2.newpath(fallback):canonicalize()
@@ -161,7 +159,7 @@ local function canonical(path: string): string
     return fallback
 end
 
-local function readFile(path: string): string?, string?
+export function readFile(path: string): string?, string?
     local f, err = io.open(path, "rb")
     if not f then
         -- A directory fails to open outright on Windows, with an OS message that
@@ -196,11 +194,11 @@ end
 --- absent. A `sources` entry naming a directory then matched nothing, a
 --- checkout had no `.git`, and a types root was missing -- three different
 --- reports of one answer.
-local function exists(path: string): boolean
+export function exists(path: string): boolean
     return files2.info(path) ~= nil
 end
 
-local function mkdir(path: string): boolean
+export function mkdir(path: string): boolean
     if path == "" or path == "." then
         return true
     end
@@ -228,7 +226,7 @@ local hostpid = require("nupp.compiler.hostpid")
 local stagingToken = tostring(hostpid.get() or 0)
 
 --- This process's id, or nil where the runtime cannot say.
-local function processId(): number?
+export function processId(): number?
     if stagingToken == "0" then
         return nil
     end
@@ -239,12 +237,12 @@ end
 local staged = 0
 
 --- A process-local suffix for staging files that may be created concurrently.
-local function stagingSuffix(): string
+export function stagingSuffix(): string
     staged = staged + 1
     return stagingToken .. "-" .. tostring(staged)
 end
 
-local function writeFile(path: string, text: string): boolean?, string?
+export function writeFile(path: string, text: string): boolean?, string?
     if not mkdir(dirname(path)) then
         return nil, "cannot create " .. dirname(path)
     end
@@ -296,7 +294,7 @@ local function writeFile(path: string, text: string): boolean?, string?
     return true
 end
 
-local function copyFile(source: string, destination: string): boolean?, string?
+export function copyFile(source: string, destination: string): boolean?, string?
     local text, err = readFile(source)
     if not text then
         return nil, err
@@ -324,7 +322,7 @@ end
 --- compiler the unpruned walk found eight hundred files to keep a hundred,
 --- because a checkout's own root holds a version-control store and possibly a
 --- nest of worktrees.
-local function listFiles(path: string, skipDirectory: (function(name: string, path: string): boolean?)?): {string}
+export function listFiles(path: string, skipDirectory: (function(name: string, path: string): boolean?)?): {string}
     local files: {string} = {}
     local pending = {path}
     local parent: {[string]: string} = {}
@@ -371,7 +369,7 @@ end
 --- removes it, and writes the output. A tool writes beside its output so that a
 --- failure leaves the last good artifact untouched, and this is the one step that
 --- replaces it.
-local function installStaged(staged: string, output: string): boolean, string?
+export function installStaged(staged: string, output: string): boolean, string?
     local bytes, readErr = readFile(staged)
     os.remove(staged)
     if bytes == nil then
@@ -387,28 +385,9 @@ end
 
 --- Writes only when contents differ, so an unchanged file keeps its modification
 --- time and anything watching it stays quiet.
-local function writeFileIfChanged(path: string, text: string): boolean?, string?
+export function writeFileIfChanged(path: string, text: string): boolean?, string?
     if readFile(path) == text then
         return true
     end
     return writeFile(path, text)
 end
-
-fs.normalize = normalize
-fs.join = join
-fs.dirname = dirname
-fs.basename = basename
-fs.absolute = absolute
-fs.canonical = canonical
-fs.readFile = readFile
-fs.exists = exists
-fs.mkdir = mkdir
-fs.stagingSuffix = stagingSuffix
-fs.writeFile = writeFile
-fs.installStaged = installStaged
-fs.writeFileIfChanged = writeFileIfChanged
-fs.copyFile = copyFile
-fs.listFiles = listFiles
-fs.processId = processId
-
-export = fs

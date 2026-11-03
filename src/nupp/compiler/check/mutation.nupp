@@ -1,5 +1,3 @@
-module nupp.compiler.check.mutation
-
 --[[
 What the functions a file declares may write to, read from the source alone.
 
@@ -23,10 +21,9 @@ at: `.kind` for `s.kind = v`, `.items*` for `s.items[i] = v`, where the star say
 anything beneath may have changed, and `*` alone for `s[k] = v`. The empty path
 is the binding itself, which only a captured name can be rebound by.
 ]]
+module nupp.compiler.check.mutation
 
 local cst = require("nupp.compiler.syntax.cst")
-
-local mutation = {}
 
 --- The bytes a path is spelled with: the separator, and the star that stands for
 --- anything beneath.
@@ -38,7 +35,7 @@ const STAR = 42
 local type Paths = {[string]: boolean}
 
 --- What a
-record mutation.Summary
+export record Summary
     --- Parameter positions written through, and the paths written beneath each.
     params: {[integer]: Paths}
 
@@ -61,16 +58,16 @@ record mutation.Summary
 end
 
 --- Everything the pass worked out for a file.
-record mutation.Summaries
+export record Summaries
     --- By the callee path a call uses: a name, or a dotted path.
-    byKey: {[string]: mutation.Summary}
+    byKey: {[string]: Summary}
 
     --- By method name, for a call through a receiver, merged over every method of
     --- that name in the file.
-    byMethod: {[string]: mutation.Summary}
+    byMethod: {[string]: Summary}
 
     --- By the function literal itself: its `funcbody`, or the `shortfn`.
-    byBody: {[any]: mutation.Summary}
+    byBody: {[any]: Summary}
 
     --- Every name some function literal in the file writes to as a capture.
     capturedAnywhere: {[string]: boolean}
@@ -84,8 +81,8 @@ local INVOKERS: {
     [string]: integer
 } = {pcall = 1, xpcall = 1, ["coroutine.wrap"] = 1, ["coroutine.create"] = 1, ["table.sort"] = 2, ["string.gsub"] = 3,}
 
-local function newSummary(): mutation.Summary
-    return new mutation.Summary(
+local function newSummary(): Summary
+    return new Summary(
         params = {},
         paramNames = {},
         self = false,
@@ -107,7 +104,7 @@ local ARITHMETIC: {[string]: boolean} = {["+"] = true, ["-"] = true, ["*"] = tru
 --- @param expr the expression between the brackets
 --- @param integers names known to hold integers
 --- @return the shape, and the field name when it is a literal
-function mutation.indexShape(expr: any, integers: {[string]: boolean}?): string, string?
+export function indexShape(expr: any, integers: {[string]: boolean}?): string, string?
     while expr and not cst.isToken(expr) and (expr.kind == "paren" or expr.kind == "castExpr") do
         expr = expr.expr
     end
@@ -143,7 +140,7 @@ end
 --- @param node the reference
 --- @param integers names known to hold integers
 --- @return the root name, and the path beneath it
-local function splitPath(node: any, integers: {[string]: boolean}?): string?, string
+export function splitPath(node: any, integers: {[string]: boolean}?): string?, string
     local segments = {}
     local deep = false
     while node and not cst.isToken(node) do
@@ -170,7 +167,7 @@ local function splitPath(node: any, integers: {[string]: boolean}?): string?, st
             segments[#segments + 1] = node.name.text
             node = node.obj
         elseif kind == "bracketIndex" or kind == "safeBracket" then
-            local shape, literal = mutation.indexShape(node.expr, integers)
+            local shape, literal = indexShape(node.expr, integers)
             if shape == "field" then
                 segments[#segments + 1] = literal
             elseif shape == "integer" then
@@ -199,7 +196,7 @@ local MAX_PATH_DEPTH = 3
 
 --- Joins a path beneath a binding onto a path that reaches the binding: a write
 --- of `.kind` through `s.inner` is a write of `.inner.kind` through `s`.
-local function joinPaths(prefix: string, suffix: string): string
+export function joinPaths(prefix: string, suffix: string): string
     if prefix:byte(-1) == STAR then
         return prefix
     end
@@ -240,7 +237,7 @@ end
 --- the callee is computed.
 ---
 --- @param node the called expression
-local function keyOf(node: any): string?
+export function keyOf(node: any): string?
     while node and not cst.isToken(node) and (node.kind == "paren" or node.kind == "castExpr") do
         node = node.expr
     end
@@ -259,7 +256,7 @@ local function keyOf(node: any): string?
 end
 
 --- The node a function literal's summary is filed under, or nil for anything else.
-local function bodyOf(node: any): any
+export function bodyOf(node: any): any
     while node and not cst.isToken(node) and (node.kind == "paren" or node.kind == "castExpr") do
         node = node.expr
     end
@@ -276,14 +273,9 @@ local function bodyOf(node: any): any
     return nil
 end
 
-mutation.splitPath = splitPath
-mutation.joinPaths = joinPaths
-mutation.keyOf = keyOf
-mutation.bodyOf = bodyOf
-
 --- A function being scanned: its summary and what it will need to fold in.
 local type Context = {
-    summary: mutation.Summary,
+    summary: Summary,
 
     --- Names the function declares: parameters, locals, loop variables.
     locals: {[string]: boolean},
@@ -444,7 +436,7 @@ end
 --- Merges what `callee` may write into `ctx`, through the arguments of a call.
 ---
 --- @return whether anything changed
-local function fold(ctx: Context, call: any, callee: mutation.Summary): boolean
+local function fold(ctx: Context, call: any, callee: Summary): boolean
     local summary = ctx.summary
     local changed = false
 
@@ -536,16 +528,16 @@ end
 ---
 --- @param root the parsed chunk
 --- @return what every function it declares may write
-function mutation.prescan(root: any): mutation.Summaries
-    local byKey: {[string]: mutation.Summary} = {}
-    local byMethod: {[string]: mutation.Summary} = {}
-    local byBody: {[any]: mutation.Summary} = {}
+export function prescan(root: any): Summaries
+    local byKey: {[string]: Summary} = {}
+    local byMethod: {[string]: Summary} = {}
+    local byBody: {[any]: Summary} = {}
     local assignedAnywhere: {[string]: boolean} = {}
     local contexts: {Context} = {}
     -- A body filed under a path another body already answers to.
     local merges: {any} = {}
 
-    local function file(summary: mutation.Summary, key: string?, method: string?): nil
+    local function file(summary: Summary, key: string?, method: string?): nil
         if key then
             local existing = byKey[key]
             if existing and existing ~= summary then
@@ -916,7 +908,7 @@ function mutation.prescan(root: any): mutation.Summaries
         end
     end
 
-    return new mutation.Summaries(
+    return new Summaries(
         byKey = byKey,
         byMethod = byMethod,
         byBody = byBody,
@@ -941,7 +933,7 @@ end
 --- @param token the binding's declaring token
 --- @param offset where the literal begins
 --- @param path the path read, from the binding's name
-function mutation.writtenAfter(token: any, offset: integer, path: string): boolean
+export function writtenAfter(token: any, offset: integer, path: string): boolean
     for _, write in ipairs(token and token.writes or {}) do
         local later = write.offset > offset
             or (write.loopFrom ~= nil and write.loopFrom <= offset and offset <= write.loopTo)
@@ -970,7 +962,7 @@ end
 --- @param summaries what the pass built for the file
 --- @param node the call
 --- @return the callee's summary, or nil when the pass could not name it
-function mutation.calleeSummary(summaries: mutation.Summaries, node: any): mutation.Summary?
+export function calleeSummary(summaries: Summaries, node: any): Summary?
     if node.kind == "methodCall" then
         local name = node.name and node.name.text or nil
         return name and summaries.byMethod[name] or nil
@@ -998,11 +990,11 @@ end
 --- @param summaries what the pass built for the file
 --- @param node the call
 --- @return a summary for the call, and whether the callee itself was found
-function mutation.callEffects(summaries: mutation.Summaries, node: any): mutation.Summary?, boolean
-    local callee = mutation.calleeSummary(summaries, node)
+export function callEffects(summaries: Summaries, node: any): Summary?, boolean
+    local callee = calleeSummary(summaries, node)
     local args = node.args
     local exprs = args and args.kind == "args" and args.exprs or {}
-    local handed: {mutation.Summary} = {}
+    local handed: {Summary} = {}
     for _, argument in ipairs(exprs) do
         if not cst.isToken(argument) then
             local value = (argument.kind == "namedArg" or argument.kind == "pluckArg") and argument.value or argument
@@ -1062,12 +1054,8 @@ end
 --- @param node the call
 --- @param note told each written path
 --- @return whether the pass had anything to say about the call
-function mutation.eachWrite(
-    summaries: mutation.Summaries,
-    node: any,
-    note: function(key: string, below: boolean)
-): boolean
-    local callee = mutation.callEffects(summaries, node)
+export function eachWrite(summaries: Summaries, node: any, note: function(key: string, below: boolean)): boolean
+    local callee = callEffects(summaries, node)
     if not callee then
         return false
     end
@@ -1138,7 +1126,7 @@ end
 --- @param summaries what the pass built for the file
 --- @param block the loop body, or the statements a backward jump repeats
 --- @return the paths written, and the paths written beneath
-function mutation.writtenRoots(summaries: mutation.Summaries, block: any): {[string]: boolean}, {[string]: boolean}
+export function writtenRoots(summaries: Summaries, block: any): {[string]: boolean}, {[string]: boolean}
     local whole: {[string]: boolean} = {}
     local below: {[string]: boolean} = {}
 
@@ -1186,7 +1174,7 @@ function mutation.writtenRoots(summaries: mutation.Summaries, block: any): {[str
         elseif kind == "compoundAssign" then
             direct(node.target)
         elseif kind == "call" or kind == "methodCall" or kind == "safeCall" then
-            mutation.eachWrite(summaries, node, note)
+            eachWrite(summaries, node, note)
         end
         for _, child in ipairs(node) do
             if not cst.isToken(child) then
@@ -1199,5 +1187,3 @@ function mutation.writtenRoots(summaries: mutation.Summaries, block: any): {[str
 
     return whole, below
 end
-
-export = mutation

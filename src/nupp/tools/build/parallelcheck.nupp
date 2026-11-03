@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.tools.build.parallelcheck
-
 --[[
 Cold whole-project checking across worker processes.
 
@@ -17,6 +15,8 @@ reuses them as it would records from an earlier run, so anything this checker ge
 wrong is caught there or rechecked serially, and any failure here returns the whole
 check to the serial checker before a partial record is published.
 ]]
+module nupp.tools.build.parallelcheck
+
 const arg2 = io.cli.args
 
 local envMod = require("nupp.compiler.project.env")

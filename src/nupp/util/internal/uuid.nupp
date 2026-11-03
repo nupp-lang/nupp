@@ -1,11 +1,11 @@
-module nupp.util.internal.uuid
-
 --[[UUID generation uses the implementation retained when this module loads.
 
 UUIDs are lowercase, hyphenated strings. Setup selects the canonical UUID service
 before requiring this module. The built-in default uses the native or browser host.
 Each call checks the retained provider's result before returning it.
 ]]
+module nupp.util.internal.uuid
+
 local provider = require("nupp.runtime.uuidprovider")
 
 local function canonical(value: any, version: string): string

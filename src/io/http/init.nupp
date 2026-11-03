@@ -1,5 +1,3 @@
-module io.http
-
 --[[
 `io.http` sends HTTP requests through the selected host implementation
 without blocking the caller's frame. Reach for it when a program needs a client
@@ -98,6 +96,8 @@ also closes a reader body transferred into it.
 - [](io) for the URI values a request is addressed with
 :::
 ]]
+module io.http
+
 local source1 = require("nupp.io.http")
 export type Body = source1.Body
 export type Capabilities = source1.Capabilities

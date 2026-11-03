@@ -6,9 +6,10 @@
 -- the cost of running too much is runner minutes while the cost of running too
 -- little is a defect reaching `main` with a green tick beside it.
 --
--- Plain Lua 5.1 with no dependencies, because this runs in the cheap gate before
--- any toolchain is provisioned, and because `tests/cichangeclassifiertest.lua`
--- has to be able to require it and assert on representative files.
+-- Plain Lua 5.1 with no dependencies, because this runs in the cheap gate before any
+-- toolchain is provisioned, and because
+-- `tests/tools/repository/cichangeclassifiertest.lua` has to be able to require it and
+-- assert on representative files.
 
 local classifier = {}
 
@@ -38,6 +39,7 @@ local rules = {
     -- The tools are built with the compiler, ship in its binary and are verified by
     -- its suite and its fixpoint, so they select what compiler source does.
     {"^src/nupp/tools/", {"compiler"}},
+    {"^scripts/module%-exports%.lua$", {"compiler"}},
     {"^src/nupp/compiler/", {"compiler"}},
     {"^src/simd%.nupp$", {"library", "aot", "browser"}},
     {"^src/simd/", {"library", "aot", "browser"}},
@@ -50,10 +52,10 @@ local rules = {
     {"^src/debug/log%.nupp$", {"library"}},
     {"^src/warn%.nupp$", {"library"}},
     {"^src/io/", {"library", "native"}},
-    {"^src/assert/", {"library"}},
-    {"^src/io/cli/", {"library", "cli"}},
+    {"^src/assert%.nupp$", {"library"}},
+    {"^src/io/cli%.nupp$", {"library", "cli"}},
     {"^src/types/", {"compiler", "library"}},
-    {"^src/own/", {"compiler", "library"}},
+    {"^src/own%.nupp$", {"compiler", "library"}},
     {"^src/nupp/gpu/", {"library", "gpu"}},
     {"^src/debug/bench%.nupp$", {"library", "measurement"}},
     {"^src/nupp/bench/internal/", {"library", "measurement"}},
@@ -83,10 +85,10 @@ local rules = {
     {"^bench/", {"measurement"}},
     {"^evals/", {"evals"}},
 
-    {"^tests/benchrunnertest%.lua$", {"tests", "measurement"}},
-    {"^tests/jsonfuseddifferentialtest%.lua$", {"tests", "aot"}},
-    {"^tests/simd[^/]*%.lua$", {"tests", "aot"}},
-    {"^tests/acceptance/", {"tests"}},
+    {"^tests/tools/bench/benchrunnertest%.lua$", {"tests", "measurement"}},
+    {"^tests/stdlib/serde/json/jsonfuseddifferentialtest%.lua$", {"tests", "aot"}},
+    {"^tests/integration/simd/", {"tests", "aot"}},
+    {"^tests/integration/acceptance/", {"tests"}},
     {"^tests/", {"tests"}},
 
     -- Everything below decides how the whole tree is built, tested or released,
@@ -103,8 +105,9 @@ local rules = {
 }
 
 -- Every job `required-ci` can wait on. Adding one here without adding it to the
--- workflow, or the other way round, is what `tests/cichangeclassifiertest.lua`
--- and `.github/ci-coverage.json` exist to catch.
+-- workflow, or the other way round, is what
+-- `tests/tools/repository/cichangeclassifiertest.lua` and `.github/ci-coverage.json`
+-- exist to catch.
 classifier.jobs = {
     "docs-site",
     "fast-checks",

@@ -1,0 +1,1009 @@
+local testAssert = require("assert")
+local parser = require("nupp.compiler.syntax.parser")
+local check = require("helpers.fragment")
+local program = require("program")
+local fmt = require("nupp.tools.fmt")
+local envMod = require("nupp.compiler.project.env")
+
+local HERE = require("helpers.paths").tests
+local env = envMod.new(HERE .. "/..")
+
+local function parsed(source)
+    local result = parser.parse(source, "test.nupp")
+    testAssert.eq(#result.errors, 0, result.errors[1] and result.errors[1].msg or "unexpected syntax error")
+    return result
+end
+
+local function diagnostics(source)
+    local result = parsed(source)
+    local out = {}
+    for j, diagnostic in ipairs(check.check(result, "test.nupp", env)) do
+        out[j] = diagnostic.code
+    end
+
+    return table.concat(out, " ")
+end
+
+local function clean(source)
+    testAssert.eq(diagnostics(source), "", "expected clean check for:\n" .. source)
+end
+
+local function run(source)
+    local result = parsed(source)
+    local checked = check.check(result, "test.nupp", env)
+    testAssert.eq(#checked, 0, checked[1] and checked[1].msg or "unexpected check diagnostic")
+
+    return program.run(result, "argument_pluck_test")
+end
+
+local vector = table.concat({"local record Vec3", "   x: number", "   y: number", "   z: number", "end",}, "\n")
+
+local M = {}
+
+function M.finalProtocolOrderKeepsCoroutineExecution()
+    for _, signature in ipairs({"yields(number) resumes(boolean): string",}) do
+        local answer = run(
+            (
+                [[
+local function worker(start: number) %s
+    local again: boolean = coroutine.yield(start)
+    return tostring(again)
+end
+local co = coroutine.create(worker)
+local ok, first = coroutine.resume(co, 3)
+assert(ok)
+local done, final = coroutine.resume(co, true)
+assert(done)
+return tostring(first) .. tostring(final)
+]]
+            ):format(signature)
+        )
+        testAssert.eq(answer, "3true")
+    end
+end
+
+function M.aFinalFunctionLiteralBindsAnExplicitConstructorCallback()
+    local answer = run(
+        [[
+local record Task
+    result: string
+    constructor(self, name: string, option: string?, callback: function(string): string)
+        self.result = callback(name) .. ':' .. tostring(option)
+    end
+end
+return (new Task(name = 'load', function(name: string): string return name .. '!' end)).result
+]]
+    )
+    testAssert.eq(answer, "load!:nil")
+end
+
+function M.aFinalFunctionLiteralFillsTheFinalParameterAfterNamedArguments()
+    local answer = run(
+        [[
+local function invoke(name: string, option: string?, callback: function(string, string?): string): string
+    return callback(name, option)
+end
+return invoke(name = 'load', function(name, option): string
+    return name .. ':' .. tostring(option)
+end)
+]]
+    )
+    testAssert.eq(answer, "load:nil")
+end
+
+function M.aFinalShortFunctionKeepsGenericCallbackInference()
+    local answer = run(
+        [[
+local function invoke<T, U>(value: T, callback: function(T): U): U
+    return callback(value)
+end
+return invoke(value = 'load', |value| -> value .. '!')
+]]
+    )
+    testAssert.eq(answer, "load!")
+end
+
+function M.aFinalFunctionLiteralPreservesMethodAndNamedEvaluationOrder()
+    local answer = run(
+        [[
+local events: {string} = {}
+local function mark(value: string): string
+    events[#events + 1] = value
+    return value
+end
+local record Runner
+    function invoke(self, name: string, option: string?, callback: function(): string): string
+        mark('invoke')
+        return name .. ':' .. tostring(option) .. ':' .. callback()
+    end
+end
+local function receiver(): Runner
+    mark('receiver')
+    return new Runner()
+end
+local result = receiver():invoke(name = mark('name'), function(): string
+    mark('callback')
+    return table.concat(events, ',')
+end)
+return result
+]]
+    )
+    testAssert.eq(answer, "name:nil:receiver,name,invoke,callback")
+end
+
+function M.onlyOneFinalFunctionLiteralMayFollowNamedArguments()
+    local declaration = [[
+local function invoke(name: string, callback: function(): string): string
+    return callback()
+end
+local callback = function(): string return 'done' end
+]]
+    for _, arguments in ipairs({
+        "name = 'load', callback",
+        "name = 'load', (function(): string return 'done' end)",
+        "name = 'load', function(): string return 'done' end, 'extra'",
+        "name = 'load', function(): string return 'done' end, function(): string return 'done' end",
+    }) do
+        local found = diagnostics(declaration .. "return invoke(" .. arguments .. ")")
+        assert(found:find("NUPP2006", 1, true), arguments .. ": " .. found)
+    end
+    local duplicate = diagnostics(
+        declaration .. "return invoke(name = 'load', callback = callback, function(): string return 'done' end)"
+    )
+    assert(duplicate:find("NUPP2125", 1, true), duplicate)
+end
+
+function M.aTrailingFunctionLiteralRequiresAClosedParameterList()
+    local found = diagnostics(
+        [[
+local function invoke(name: string, ...: any): nil end
+invoke(name = 'load', function(): nil end)
+]]
+    )
+    assert(found:find("NUPP2125", 1, true), found)
+end
+
+function M.syntaxRoundTripsAndRecordsArgumentKinds()
+    local source = vector .. "\ndraw({x} = position, {y} = position, color = 'red')"
+    local result = parsed(source)
+    testAssert.eq(require("nupp.compiler.syntax.cst").textOf(result.root), source)
+    local call = result.root.blocks[1].stats[2].expr
+    testAssert.eq(call.args.exprs[1].kind, "pluckArg")
+    testAssert.eq(#call.args.exprs[1].names, 1)
+    testAssert.eq(call.args.exprs[2].kind, "pluckArg")
+    testAssert.eq(call.args.exprs[3].kind, "namedArg")
+end
+
+function M.aPluckIsSugarForReadingTheFieldTheParameterNames()
+    local answer = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local function draw(x: number, y: number, color: string?): string",
+                "   return tostring(x) .. tostring(y) .. (color or '')",
+                "end",
+                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "return draw({x} = position, {y} = position, color = 'r')",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, "12r")
+end
+
+function M.aGroupBindsWhatTheSingleFormBinds()
+    local answer = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local function draw(x: number, y: number, color: string?): string",
+                "   return tostring(x) .. tostring(y) .. (color or '')",
+                "end",
+                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "return draw({x, y} = position, color = 'r')",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, "12r")
+end
+
+-- The names of a group are a set. Every read is a field of one path, so no
+-- order among them is observable and the group binds in parameter order.
+function M.aGroupsNamesAreUnordered()
+    local _, straight = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local function draw(x: number, y: number): number return x * 10 + y end",
+                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "return draw({x, y} = position)",
+            },
+            "\n"
+        )
+    )
+    local answer, reversed = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local function draw(x: number, y: number): number return x * 10 + y end",
+                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "return draw({y, x} = position)",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, 12)
+    testAssert.eq(reversed, straight, "a reordered group generates the same call")
+end
+
+function M.aPluckReachesAnyRecordWithTheField()
+    clean(
+        table.concat(
+            {
+                "local record Reading",
+                "   x: number",
+                "   y: number",
+                "   celsius: number",
+                "end",
+                "local function draw(x: number, y: number): nil end",
+                "local reading = new Reading(x = 1, y = 2, celsius = 20)",
+                "draw({x, y} = reading)",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.dottedPathPluckLowersThroughEmbeddedRecords()
+    local answer = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local record Body",
+                "   position: Vec3",
+                "end",
+                "local record Entity",
+                "   body: Body",
+                "end",
+                "local function draw(x: number, y: number, color: string?): string",
+                "   return tostring(x) .. tostring(y) .. (color or '')",
+                "end",
+                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "local body = new Body(position = position)",
+                "local entity = new Entity(body = body)",
+                "return draw({x, y} = entity.body.position, color = 'r')",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, "12r")
+end
+
+function M.sharedPrefixesAreBoundWithoutOneUseLeafTemporaries()
+    local answer = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local record Size",
+                "   w: number",
+                "   h: number",
+                "end",
+                "local record Body",
+                "   position: Vec3",
+                "   size: Size",
+                "end",
+                "local record Entity",
+                "   body: Body",
+                "end",
+                "local events = ''",
+                "local function note(value: string): nil events = events .. value end",
+                "local position = setmetatable({}, {__index = function(_, key)",
+                "   note(key == 'x' and 'x' or 'y')",
+                "   return key == 'x' and 1 or 2",
+                "end}) as Vec3",
+                "local size = setmetatable({}, {__index = function(_, key)",
+                "   note(key == 'w' and 'W' or 'H')",
+                "   return key == 'w' and 3 or 4",
+                "end}) as Size",
+                "local body = setmetatable({}, {__index = function(_, key)",
+                "   note(key == 'position' and 'P' or 'S')",
+                "   return key == 'position' and position or size",
+                "end}) as Body",
+                "local entity = setmetatable({}, {__index = function(_, _)",
+                "   note('B')",
+                "   return body",
+                "end}) as Entity",
+                "local function head(): string note('H') return 'h' end",
+                "local function tail(): string note('T') return 't' end",
+                "local function update(head: string, x: number, y: number,",
+                "   w: number, h: number, tail: string): nil",
+                "   note('U')",
+                "end",
+                "update(head(), {x, y} = entity.body.position,",
+                "   {w, h} = entity.body.size, tail = tail())",
+                "return events",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, "HBPSxyWHTU")
+end
+
+function M.nestedPluckBindsThePathInsideTheGuardWithoutAWrapper()
+    local answer = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local record Entity",
+                "   position: Vec3",
+                "end",
+                "local reads = 0",
+                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "local entity = setmetatable({}, {__index = function(_, _)",
+                "   reads = reads + 1",
+                "   return position",
+                "end}) as Entity",
+                "local function draw(x: number, y: number): boolean return true end",
+                "local enabled = false",
+                "local skipped = enabled and draw({x, y} = entity.position)",
+                "enabled = true",
+                "local called = enabled and draw({x, y} = entity.position)",
+                "return reads",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, 1)
+end
+
+function M.nestedSafePluckBindsThePathInsideTheGuardWithoutAWrapper()
+    local answer = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local record Entity",
+                "   position: Vec3",
+                "end",
+                "local reads = 0",
+                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "local entity = setmetatable({}, {__index = function(_, _)",
+                "   reads = reads + 1",
+                "   return position",
+                "end}) as Entity",
+                "local function add(x: number, y: number): number return x + y end",
+                "local maybe: function(x: number, y: number) | nil = nil",
+                "local skipped = maybe?.({x, y} = entity.position)",
+                "maybe = add",
+                "local called = maybe?.({x, y} = entity.position)",
+                "return tostring(reads) .. tostring(skipped) .. tostring(called)",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, "1nil3")
+end
+
+local nestedFixture = vector
+    .. [[
+
+local record Body position: Vec3 end
+local record Entity body: Body end
+local reads = 0
+local position = new Vec3(x = 2, y = 3, z = 4)
+local body = setmetatable({}, {__index = function(_, _)
+    reads = reads + 1
+    return position
+end}) as Body
+local entity = new Entity(body = body)
+local function draw(x: number, y: number): number return x + y end
+]]
+
+local function nestedBoth(source, expected)
+    local answer = run(nestedFixture .. source)
+    testAssert.eq(answer, expected, "nested pluck")
+end
+
+function M.lazyPlucksPreserveFalseNilAndSelectedBranches()
+    nestedBoth(
+        [[
+local function apply(enabled: boolean?): string
+    local a = enabled and draw({x, y} = entity.body.position)
+    local b = enabled or draw({x, y} = entity.body.position)
+    local c = enabled ?? draw({x, y} = entity.body.position)
+    local d = enabled ? draw({x, y} = entity.body.position) : 0
+    return tostring(a) .. ':' .. tostring(b) .. ':' .. tostring(c) .. ':' .. tostring(d)
+end
+local a, b, c = apply(false), apply(nil), apply(true)
+return a .. '/' .. b .. '/' .. c .. '/' .. tostring(reads)
+]],
+        "false:5:false:0/nil:5:5:0/5:true:true:5/5"
+    )
+end
+
+function M.nestedPlucksPreserveCalleeArgumentsAndInitializerScope()
+    nestedBoth(
+        [[
+local moved = 7
+local delta = 11
+local function update(first: number, delta: number, x: number, y: number): number
+    return first + delta + x + y
+end
+body = setmetatable({}, {__index = function(_, _)
+    delta = 100
+    update = function(first: number, delta: number, x: number, y: number): number return 999 end
+    reads = reads + 1
+    return position
+end}) as Body
+entity.body = body
+local moved = true and update(moved, delta, {x, y} = entity.body.position)
+return tostring(moved) .. ':' .. tostring(reads) .. ':' .. tostring(delta)
+]],
+        "23:1:100"
+    )
+end
+
+function M.nestedPlucksKeepEagerPrefixesAndTrailingResults()
+    nestedBoth(
+        [[
+local events = ''
+local function head(): number events = events .. 'H' return 1 end
+local function pair(x: number, y: number): number, nil, number
+    events = events .. 'P'
+    return x, nil, y
+end
+local function take(a: number, x: number, empty: nil, y: number): number
+    return a + x + y
+end
+local total = take(head(), pair({x, y} = entity.body.position))
+local function values(): number, number, nil, number
+    return head(), pair({x, y} = entity.body.position)
+end
+local a, x, empty, y = values()
+return tostring(total) .. ':' .. events .. ':' .. tostring(a + x + y) .. ':' .. tostring(reads)
+]],
+        "6:HPHP:6:2"
+    )
+end
+
+function M.nestedPlucksCaptureFieldsBeforeABlockArgument()
+    nestedBoth(
+        [[
+local function take(x: number, y: number, tail: number): number
+    return x + y + tail
+end
+local value = true and take({x, y} = entity.body.position, tail = do
+    position.x = 50
+    yield draw({x, y} = entity.body.position)
+end)
+return tostring(value) .. ':' .. tostring(reads)
+]],
+        "58:2"
+    )
+end
+
+function M.siblingPlucksFinishEarlierCallsBeforeReadingLaterPaths()
+    nestedBoth(
+        [[
+local function first(x: number, y: number): number
+    position.x = 20
+    return x + y
+end
+local function add(a: number, b: number): number return a + b end
+local value = add(first({x, y} = entity.body.position), draw({x, y} = entity.body.position))
+return tostring(value) .. ':' .. tostring(reads)
+]],
+        "28:2"
+    )
+end
+
+function M.nestedPlucksReevaluateLoopConditionsAndStayInsideFunctions()
+    nestedBoth(
+        [[
+local function step(x: number, y: number): boolean return reads < 3 end
+while step({x, y} = entity.body.position) do end
+local callback = || -> draw({x, y} = entity.body.position)
+local before = reads
+local value = callback()
+repeat value = value - 1 until value == 3 and draw({x, y} = entity.body.position) == 5
+return tostring(before) .. ':' .. tostring(reads) .. ':' .. tostring(value)
+]],
+        "3:5:3"
+    )
+end
+
+function M.nestedSafePlucksKeepSkippedArgumentsAndMultipleResults()
+    nestedBoth(
+        [[
+local function pair(x: number, y: number): number, nil, number return x, nil, y end
+local maybe: function(x: number, y: number): (number, nil, number) | nil = nil
+local skipped = maybe?.({x, y} = entity.body.position)
+maybe = pair
+local a, empty, b = maybe?.({x, y} = entity.body.position)
+return tostring(skipped) .. ':' .. tostring(a) .. ':' .. tostring(empty) .. ':' .. tostring(b) .. ':' .. tostring(reads)
+]],
+        "nil:2:nil:3:1"
+    )
+end
+
+function M.nestedMethodsGuardArgumentsAndSharePluckPrefixes()
+    nestedBoth(
+        [[
+local record Drawer
+    draw: function(self: Drawer, x: number, y: number) | nil
+end
+local drawer: Drawer | nil = nil
+local missingReceiver = drawer?.:draw?.({x, y} = entity.body.position)
+drawer = new Drawer(draw = nil)
+local missingMethod = drawer?.:draw?.({x, y} = entity.body.position)
+drawer.draw = function(_, x: number, y: number): number return x + y end
+local value = true and drawer:draw?.({x} = entity.body.position, {y} = entity.body.position)
+return tostring(missingReceiver) .. ':' .. tostring(missingMethod) .. ':' .. tostring(value) .. ':' .. tostring(reads)
+]],
+        "nil:nil:5:1"
+    )
+end
+
+function M.nestedPlucksPreserveAssignmentTargetsAndTableFields()
+    nestedBoth(
+        [[
+local target: {number} = {0}
+local original = target
+local function replace(x: number, y: number): number
+    target = {99}
+    return x + y
+end
+target[1] = true and replace({x, y} = entity.body.position)
+local values = {draw({x, y} = entity.body.position), draw({x, y} = entity.body.position)}
+return tostring(original[1]) .. ':' .. tostring(target[1]) .. ':' .. tostring(values[1] + values[2]) .. ':' .. tostring(reads)
+]],
+        "5:99:10:3"
+    )
+end
+
+function M.safeCallStatementUsesGuardsWithoutAnExpressionWrapper()
+    local answer = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local record Entity",
+                "   position: Vec3",
+                "end",
+                "local reads = 0",
+                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "local entity = setmetatable({}, {__index = function(_, _)",
+                "   reads = reads + 1",
+                "   return position",
+                "end}) as Entity",
+                "local function take(x: number, y: number): nil end",
+                "local maybe: function(x: number, y: number) | nil = nil",
+                "maybe?.({x, y} = entity.position)",
+                "maybe = take",
+                "maybe?.({x, y} = entity.position)",
+                "return reads",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, 1)
+end
+
+function M.returnedSafePluckUsesEarlyReturnsWithoutAWrapper()
+    local answer = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local record Entity",
+                "   position: Vec3",
+                "end",
+                "local function add(x: number, y: number): number return x + y end",
+                "local maybe: function(x: number, y: number) | nil = add",
+                "local position = new Vec3(x = 5, y = 6, z = 7)",
+                "local entity = new Entity(position = position)",
+                "return maybe?.({x, y} = entity.position)",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, 11)
+end
+
+function M.safeReceiverAndMethodPluckUsesStagedGuards()
+    local answer = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local record Entity",
+                "   position: Vec3",
+                "end",
+                "local record Drawer",
+                "   draw: function(self: Drawer, x: number, y: number) | nil",
+                "end",
+                "local reads = 0",
+                "local calls = 0",
+                "local position = new Vec3(x = 2, y = 3, z = 4)",
+                "local entity = setmetatable({}, {__index = function(_, _)",
+                "   reads = reads + 1",
+                "   return position",
+                "end}) as Entity",
+                "local drawer: Drawer | nil = nil",
+                "drawer?.:draw?.({x, y} = entity.position)",
+                "drawer = new Drawer(draw = function(_, x: number, y: number): number",
+                "   calls = calls + 1",
+                "   return x + y",
+                "end)",
+                "drawer?.:draw?.({x, y} = entity.position)",
+                "return reads * 10 + calls",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, 11)
+end
+
+function M.constructorCallsReuseTheSamePlan()
+    local answer = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local record Entity",
+                "   position: Vec3",
+                "end",
+                "local record Point",
+                "   x: number",
+                "   y: number",
+                "   constructor(self, x: number, y: number)",
+                "      self.x = x",
+                "      self.y = y",
+                "   end",
+                "end",
+                "local position = new Vec3(x = 7, y = 8, z = 9)",
+                "local entity = new Entity(position = position)",
+                "local point = new Point({x, y} = entity.position)",
+                "return point.x * 10 + point.y",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, 78)
+end
+
+function M.callableObjectsReuseTheOrdinaryPlan()
+    local answer = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local record Entity",
+                "   position: Vec3",
+                "end",
+                "local record Adder",
+                "   metamethod __call: function(self, x: number, y: number): number",
+                "end",
+                "local adder = setmetatable({}, {__call = function(_, x: number, y: number): number",
+                "   return x + y",
+                "end}) as Adder",
+                "local position = new Vec3(x = 4, y = 5, z = 6)",
+                "local entity = new Entity(position = position)",
+                "return adder({x, y} = entity.position)",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, 9)
+end
+
+function M.methodReceiverAndDottedOperandAreEachEvaluatedOnce()
+    local answer = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local record Entity",
+                "   position: Vec3",
+                "end",
+                "local record Drawer",
+                "   function draw(self, x: number, y: number): nil end",
+                "end",
+                "local receiverReads = 0",
+                "local positionReads = 0",
+                "local drawer = new Drawer()",
+                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "local entity = setmetatable({}, {__index = function(_, _)",
+                "   positionReads = positionReads + 1",
+                "   return position",
+                "end}) as Entity",
+                "local function getDrawer(): Drawer",
+                "   receiverReads = receiverReads + 1",
+                "   return drawer",
+                "end",
+                "getDrawer():draw({x, y} = entity.position)",
+                "return receiverReads * 10 + positionReads",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, 11)
+end
+
+function M.pluckRejectsEffectfulAndComputedPlaceOperands()
+    local declaration = vector .. "\n" .. table.concat(
+        {
+            "local function draw(x: number, y: number): nil end",
+            "local function make(): Vec3",
+            "   return new Vec3(x = 1, y = 2, z = 3)",
+            "end",
+        },
+        "\n"
+    )
+    testAssert.eq(diagnostics(declaration .. "\ndraw({x, y} = make())"), "NUPP2006")
+    testAssert.eq(
+        diagnostics(
+            declaration .. "\n" .. table.concat(
+                {"local positions: {Vec3} = {make()}", "draw({x, y} = positions[1])",},
+                "\n"
+            )
+        ),
+        "NUPP2006"
+    )
+end
+
+function M.namedArgumentsCanFillAnOptionalGap()
+    local answer = run(
+        table.concat(
+            {
+                "local function label(value: number, prefix: string?, suffix: string?): string",
+                "   return tostring(prefix) .. tostring(value) .. tostring(suffix)",
+                "end",
+                "return label(value = 2, suffix = '!')",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, "nil2!")
+end
+
+-- A record carrying more fields than the call needs is the ordinary case: the
+-- callee picks the subset, and the extra field is simply never read.
+function M.aCalleePicksTheSubsetItNeeds()
+    local answer = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local function consume(x: number, y: number, tag: string): string",
+                "   return tostring(x) .. tostring(y) .. tag",
+                "end",
+                "local position = new Vec3(x = 1, y = 2, z = 3)",
+                "return consume({x, y} = position, tag = 'k')",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, "12k")
+end
+
+function M.aTrailingOrdinaryCallStillSuppliesItsResultPack()
+    local answer = run(
+        vector .. "\n" .. table.concat(
+            {
+                "local function pair(): number, number return 3, 4 end",
+                "local function total(x: number, y: number, c: number, d: number): number",
+                "   return x + y + c + d",
+                "end",
+                "local position = new Vec3(x = 1, y = 2, z = 9)",
+                "return total(position.x, position.y, pair())",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, 10)
+end
+
+-- A call keeps its several results only as the last argument, so one ahead of a
+-- pluck is adjusted to a single value and leaves the next parameter unfilled.
+function M.aCallAheadOfAPluckIsAdjustedToOneValue()
+    testAssert.eq(
+        diagnostics(
+            vector .. "\n" .. table.concat(
+                {
+                    "local function pair(): number, number return 3, 4 end",
+                    "local function total(a: number, b: number, x: number, y: number): number",
+                    "   return a + b + x + y",
+                    "end",
+                    "local position = new Vec3(x = 1, y = 2, z = 9)",
+                    "return total(pair(), {x, y} = position)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2125"
+    )
+end
+
+-- Plucking is field access, so a bounded type parameter plucks through its
+-- bound without the bound declaring any projection.
+function M.aBoundedTypeParameterPlucksThroughItsBound()
+    clean(
+        table.concat(
+            {
+                "local interface XY",
+                "   @readonly x: number",
+                "   @readonly y: number",
+                "end",
+                "local record Point is XY",
+                "   x: number",
+                "   y: number",
+                "   z: number",
+                "end",
+                "local function draw(x: number, y: number, color: string?): nil end",
+                "local function render<T is XY>(point: T, color: string): nil",
+                "   draw({x, y} = point, color = color)",
+                "end",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.aStaticInterfaceViewExposesOnlyItsOwnFields()
+    testAssert.eq(
+        diagnostics(
+            table.concat(
+                {
+                    "local interface XY",
+                    "   x: number",
+                    "   y: number",
+                    "end",
+                    "local function take3(x: number, y: number, z: number): nil end",
+                    "local point: XY = {x = 1, y = 2}",
+                    "take3({x, y, z} = point)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2004"
+    )
+end
+
+function M.namedLabelsParticipateInOverloadSelection()
+    clean(
+        table.concat(
+            {
+                "local type Parse = function(value: number): string",
+                "   & function(text: string): boolean",
+                "local parse: Parse = nil as any",
+                "local word: string = parse(value = 1)",
+                "local accepted: boolean = parse(text = 'yes')",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.namedLabelsSelectMethodBodiesWithoutADispatcher()
+    local answer = run(
+        table.concat(
+            {
+                "local record Decoder",
+                "   function decode(self, value: number): string return 'n' end",
+                "   function decode(self, text: string): string return 's' end",
+                "end",
+                "local decoder = new Decoder()",
+                "return decoder:decode(value = 1) .. decoder:decode(text = 'x')",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, "ns")
+end
+
+function M.invalidPluckAndArgumentBindingAreRejected()
+    -- A name that is not a field of the operand.
+    testAssert.eq(
+        diagnostics(
+            vector .. "\n" .. table.concat(
+                {
+                    "local function draw(x: number, w: number): nil end",
+                    "local position = new Vec3(x = 1, y = 2, z = 3)",
+                    "draw({x, w} = position)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2004"
+    )
+    -- A name that is not a parameter of the callee.
+    testAssert.eq(
+        diagnostics(
+            vector .. "\n" .. table.concat(
+                {
+                    "local function draw(x: number): nil end",
+                    "local position = new Vec3(x = 1, y = 2, z = 3)",
+                    "draw({x} = position, {y} = position)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2125"
+    )
+    -- A field whose type does not fit the parameter it fills.
+    testAssert.eq(
+        diagnostics(
+            table.concat(
+                {
+                    "local record Tagged",
+                    "   x: string",
+                    "   y: number",
+                    "end",
+                    "local function draw(x: number, y: number): nil end",
+                    "local tagged = new Tagged(x = 'a', y = 2)",
+                    "draw({x, y} = tagged)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2125"
+    )
+    -- One parameter filled twice.
+    testAssert.eq(
+        diagnostics(
+            vector .. "\n" .. table.concat(
+                {
+                    "local function draw(x: number, y: number): nil end",
+                    "local position = new Vec3(x = 1, y = 2, z = 3)",
+                    "draw({x, y} = position, x = 5)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2125"
+    )
+    -- A group naming one parameter twice.
+    testAssert.eq(
+        diagnostics(
+            vector .. "\n" .. table.concat(
+                {
+                    "local function draw(x: number, y: number): nil end",
+                    "local position = new Vec3(x = 1, y = 2, z = 3)",
+                    "draw({x, x} = position)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2125 NUPP2006"
+    )
+    -- A positional argument after a pluck.
+    testAssert.eq(
+        diagnostics(
+            vector .. "\n" .. table.concat(
+                {
+                    "local function draw(x: number, y: number): nil end",
+                    "local position = new Vec3(x = 1, y = 2, z = 3)",
+                    "draw({x} = position, 5)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2125 NUPP2006"
+    )
+    testAssert.eq(
+        diagnostics(table.concat({"local function f(x: number, y: number): nil end", "f(y = 2, x = 1)",}, "\n")),
+        "NUPP2125"
+    )
+    testAssert.eq(diagnostics("local unknown: any = nil\nunknown(x = 1)"), "NUPP2006")
+end
+
+-- A construction fills fields rather than parameters, so there is nothing to
+-- pluck into even when the names would line up.
+function M.constructionHasNoParametersToPluckInto()
+    testAssert.eq(
+        diagnostics(
+            vector .. "\n" .. table.concat(
+                {
+                    "local record Point",
+                    "   x: number",
+                    "   y: number",
+                    "end",
+                    "local position = new Vec3(x = 1, y = 2, z = 3)",
+                    "local point = new Point(x = 1, y = 2, {x, y} = position)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2202"
+    )
+end
+
+function M.formattingKeepsPluckGroupsReadable()
+    testAssert.eq(fmt.format("draw( {x} =  position,color='red')"), "draw({x} = position, color = 'red')\n")
+    testAssert.eq(fmt.format("draw({x,y} =position,color='red')"), "draw({x, y} = position, color = 'red')\n")
+    testAssert.eq(
+        fmt.format("draw({x,y} =entity.body.position,color='red')"),
+        "draw({x, y} = entity.body.position, color = 'red')\n"
+    )
+end
+
+return M

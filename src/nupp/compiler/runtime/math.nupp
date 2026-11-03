@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.compiler.runtime.math
-
 --[[
 The Lua half of `math`, for every read the compiler did not inline.
 
@@ -22,6 +20,7 @@ Programs reach all of it as `math`, whose declaration stays in the prelude
 because the compiler answers most of it directly. What the bootstrap installs is
 `install`, below.
 ]]
+module nupp.compiler.runtime.math
 
 local bitops: any = require("nupp.runtime.bitops")
 

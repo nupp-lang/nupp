@@ -35,6 +35,8 @@
   /* The sidebar and header use a teal-black panel; active and soft panel
    * states use a different near-black. */
   --nuppdoc-dark-background: #161412;
+  --nuppdoc-dark-api-heading-background: #1f1b19;
+  --nuppdoc-dark-api-border: color-mix(in srgb, var(--nuppdoc-dark-api-heading-background) 91.7%, var(--nuppdoc-dark-text));
   --nuppdoc-dark-background-alt: #1b2626;
   --nuppdoc-dark-border: color-mix(in srgb, #50676c 65%, black);
   --nuppdoc-dark-code-background: #1a1d1d;
@@ -186,6 +188,10 @@
   border-top: 1px solid var(--nuppdoc-border);
 }
 
+.nuppdoc-home-content hr {
+  mask-image: linear-gradient(to right, transparent, black 25%, black 75%, transparent);
+}
+
 .nuppdoc-home-hero + h2 {
   margin: 0 0 3rem;
   padding: 0;
@@ -276,12 +282,53 @@
   border-radius: 4px;
 }
 
+/* Thin, unobtrusive scrollbars use the same border colors as the site. */
+@media (forced-colors: none) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--nuppdoc-border) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--nuppdoc-border);
+    border-radius: 4px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--nuppdoc-border) 60%, var(--nuppdoc-text));
+  }
+}
+
 /* Headings are the text face throughout; the heading color is what marks
  * them out. */
 .nuppdoc-content h1,
 .nuppdoc-content h2,
 .nuppdoc-content h3 {
   color: var(--nuppdoc-feature-heading);
+}
+
+.nuppdoc-content h2 {
+  --heading-rule-color: var(--nuppdoc-border);
+  border-top-color: var(--heading-rule-color);
+  border-image: linear-gradient(to right, transparent, var(--heading-rule-color) 25%, var(--heading-rule-color) 75%, transparent) 1;
+}
+
+.nuppdoc-content h3:not(:first-child),
+.nuppdoc-api-group:has(> #types) > .nuppdoc-api-item + .nuppdoc-api-item > h3 {
+  margin-top: 2.5rem;
+  padding-top: 2.5rem;
+  border-top: 1px solid var(--nuppdoc-border);
+  border-image: linear-gradient(to right, transparent, var(--nuppdoc-border) 25%, var(--nuppdoc-border) 75%, transparent) 1;
 }
 
 
@@ -299,6 +346,10 @@
   border-top: 2px solid var(--nuppdoc-border);
 }
 
+.nuppdoc-home-content .nuppdoc-columns {
+  border-image: linear-gradient(to right, transparent, var(--nuppdoc-border) 25%, var(--nuppdoc-border) 75%, transparent) 1;
+}
+
 .nuppdoc-column {
   min-width: 0;
   overflow-wrap: anywhere;
@@ -311,13 +362,22 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  .nuppdoc-content h2,
+  .nuppdoc-content h2 {
+    --heading-rule-color: #c7913d;
+  }
   .nuppdoc-content hr {
     border-top-color: #c7913d;
   }
 }
 
-:root[data-theme="dark"] .nuppdoc-content h2,
+:root[data-theme="dark"] .nuppdoc-content h2 {
+  --heading-rule-color: #c7913d;
+}
+
+:root[data-theme="light"] .nuppdoc-content h2 {
+  --heading-rule-color: var(--nuppdoc-border);
+}
+
 :root[data-theme="dark"] .nuppdoc-content hr {
   border-top-color: #c7913d;
 }

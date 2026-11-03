@@ -11,8 +11,6 @@ local hash = require("nupp.compiler.hash")
 local process = require("nupp.compiler.process")
 local json = require("serde.json")
 
-local generators = {}
-
 local function removeTree(path)
     if fs.exists(path) then
         files2.remove(path, true)
@@ -49,7 +47,7 @@ local function inputsFor(root, patterns): {string}?, string?
     return selected
 end
 
-function generators.run(root, outDir, config, records, previous): ({[string]: any}?, string?)
+export function run(root: string, outDir: string, config: any, records: any, previous: any): ({[string]: any}?, string?)
     local result = {}
     local names: {string} = {}
     for name in pairs(config.generators or {}) do
@@ -187,5 +185,3 @@ function generators.run(root, outDir, config, records, previous): ({[string]: an
 
     return result
 end
-
-export = generators

@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.time
-
 --[[
 `coroutine` schedules cooperative waits and wakeups. Deadlines use the
 `os.monotonic` clock.
@@ -11,6 +9,7 @@ const time = coroutine
 time.sleep(50)
 ```
 ]]
+module nupp.time
 
 local provider = require("nupp.runtime.clocks").selected
 

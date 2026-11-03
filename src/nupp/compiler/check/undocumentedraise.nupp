@@ -1,5 +1,3 @@
-module nupp.compiler.check.undocumentedraise
-
 --[[
 Whether a function that raises on purpose said so.
 
@@ -38,15 +36,14 @@ a claim the function never made. A type is resolved once the file is read
 through, because a raise may name a declaration written below the function that
 raises it.
 ]]
+module nupp.compiler.check.undocumentedraise
 
 local cst = require("nupp.compiler.syntax.cst")
 local docblock = require("nupp.compiler.syntax.docblock")
 local state = require("nupp.compiler.check.state")
 
-local undocumentedraise = {}
-
 --- Defines the operations the walk uses for documented function bodies.
-type undocumentedraise.Ops = {
+export type Ops = {
     --- Reports an @param name that the documented callable does not declare, and
     --- takes down this declaration's `@raises` types for `sweep` to resolve.
     checkParams: function(stat: any, params: {any}),
@@ -92,7 +89,7 @@ end
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
+export function install(c: state.Checker): Ops
     local ops = {}
     -- One entry per `@raises` line seen, with the scope it was written in. Resolving
     -- during the walk would ask about declarations the file has not reached yet, and a
@@ -275,5 +272,3 @@ function undocumentedraise.install(c: state.Checker): undocumentedraise.Ops
 
     return ops
 end
-
-export = undocumentedraise

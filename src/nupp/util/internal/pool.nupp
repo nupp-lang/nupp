@@ -1,5 +1,3 @@
-module nupp.util.internal.pool
-
 --[[
 A pool of record instances of one declared type.
 
@@ -29,12 +27,11 @@ Nothing here reaches C storage: the pool is ordinary tables, so it is available
 on every backend, which is why it sits here rather than beside the views in
 [](nupp.mem). Struct rows are [](nupp.mem.arena).
 ]]
-
-local pool = {}
+module nupp.util.internal.pool
 
 --- A pool of instances stamped with a record declaration.
 --- @export
-record pool.Pool<T is table>
+export record Pool<T is table>
     @private @readonly witness: any
 
     --- How many released instances the pool retains for reuse.
@@ -73,7 +70,7 @@ end
 --- @param self the pool
 --- @return the instance, live until it is released
 --- @export
-function pool.Pool.acquire<T is table>(exclusive self: pool.Pool<T>): T
+function Pool.acquire<T is table>(exclusive self: Pool<T>): T
     self.liveCount = self.liveCount + 1
     local count = self.freeCount
     local value: T
@@ -100,7 +97,7 @@ end
 --- @raises string when nothing is live, or value was not stamped by the pool's
 ---     declaration
 --- @export
-function pool.Pool.release<T is table>(exclusive self: pool.Pool<T>, value: T): nil
+function Pool.release<T is table>(exclusive self: Pool<T>, value: T): nil
     if self.liveCount == 0 then
         error("nupp: pool release without a live instance", 2)
     end
@@ -130,7 +127,7 @@ end
 --- @param count how many free instances to have waiting
 --- @raises string when count is negative
 --- @export
-function pool.Pool.reserve<T is table>(exclusive self: pool.Pool<T>, count: integer): nil
+function Pool.reserve<T is table>(exclusive self: Pool<T>, count: integer): nil
     if count < 0 then
         error("nupp: pool reserve count cannot be negative", 2)
     end
@@ -146,7 +143,7 @@ end
 --- @param self the pool
 --- @return the live count
 --- @export
-function pool.Pool.live<T is table>(self: pool.Pool<T>): integer
+function Pool.live<T is table>(self: Pool<T>): integer
     return self.liveCount
 end
 
@@ -154,7 +151,7 @@ end
 --- @param self the pool
 --- @return the free count
 --- @export
-function pool.Pool.free<T is table>(self: pool.Pool<T>): integer
+function Pool.free<T is table>(self: Pool<T>): integer
     return self.freeCount
 end
 
@@ -167,7 +164,7 @@ end
 --- @param self the pool
 --- @raises string when any instance is live
 --- @export
-function pool.Pool.reset<T is table>(exclusive self: pool.Pool<T>): nil
+function Pool.reset<T is table>(exclusive self: Pool<T>): nil
     if self.liveCount > 0 then
         error("nupp: pool reset with " .. tostring(self.liveCount) .. " live instances", 2)
     end
@@ -192,22 +189,20 @@ end
 --- @return the pool, warmed to capacity
 --- @raises string when capacity is negative
 --- @export
-function pool.new<T is table>(witness: Type<T>, capacity: integer?): pool.Pool<T>
+export function new<T is table>(witness: Type<T>, capacity: integer?): Pool<T>
     local retained = capacity or 32
     if retained < 0 then
         error("nupp: pool capacity cannot be negative", 2)
     end
-    local created = new pool.Pool(
+    local created = new Pool(
         witness = witness,
         capacity = retained,
         freeList = {} as {T},
         freeCount = 0,
         liveCount = 0,
         liveValues = {}
-    ) as pool.Pool<T>
+    ) as Pool<T>
     created:reserve(retained)
 
     return created
 end
-
-export = pool

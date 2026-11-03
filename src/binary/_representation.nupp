@@ -1,16 +1,9 @@
 @!internal
 
-local spi = require("nupp.runtime.packages")
-local contracts = package.nupp
+local contracts = require("nupp.runtime.contracts")
 local nativeStorage = require("nupp.vm.storagebinding")
 
-local storage: contracts.CstorageProvider? = do
-    const chosen = spi.select(spi.providers<contracts.CstorageProvider>("package.nupp.CstorageProvider"))
-    if chosen ~= nil then
-        yield chosen
-    end
-    yield nativeStorage
-end
+local storage: contracts.CstorageProvider? = nativeStorage
 if storage ~= nil then
     assert(storage.representation == "native", "nupp.runtime.storage: target requires native pointer storage")
 end

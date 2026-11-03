@@ -1,15 +1,14 @@
 @!internal
 
-module nupp.runtime.provider.nativetls
-
 --[[
 The VM's native TLS provider for [](io.net): the same polling protocol as
 the LuaJIT provider, written over the VM's `nupp.vm.net` primitives. Sessions
 take the stream handles of [](nupp.runtime.provider.nativenet), whose readiness
 pump also drives them, and destroying a session closes the stream it owns.
 ]]
+module nupp.runtime.provider.nativetls
 
-local contract = require("io.net.spi")
+local contract = require("io.net.internal.contracts")
 const host = require("nupp.vm.net")
 
 local function reason(prefix: string, problem: string?): string

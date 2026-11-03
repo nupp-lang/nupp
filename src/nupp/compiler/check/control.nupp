@@ -1,5 +1,3 @@
-module nupp.compiler.check.control
-
 --[[
 The statements that branch, repeat, and leave.
 
@@ -9,6 +7,7 @@ of an `if` keeps only what every path agreed on. It is also where an affine valu
 can escape, by being returned, stored, or captured past its lexical source,
 so the ownership questions are asked here too.
 ]]
+module nupp.compiler.check.control
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
@@ -24,8 +23,6 @@ local packIsA = relations.packIsA
 local rawType = T.unwrapOwnership
 local memberSet = narrowing.memberSet
 local subtract = narrowing.subtract
-
-local control = {}
 
 local LITERAL_KINDS: {
     [string]: boolean
@@ -119,7 +116,7 @@ end
 ---
 --- @param c the run's state
 --- @return the statement kinds this family answers
-function control.install(c: state.Checker): state.StatHandlers
+export function install(c: state.Checker): state.StatHandlers
     -- A type constructor cannot in general prove the exact bound of the handle it
     -- builds. The closed evaluator validates the generated type against the declared
     -- bound at the type-function call boundary, so a broad `type` result is sound here.
@@ -2274,5 +2271,3 @@ function control.install(c: state.Checker): state.StatHandlers
 
     return handlers
 end
-
-export = control

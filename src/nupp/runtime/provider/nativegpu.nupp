@@ -1,7 +1,4 @@
 @!internal
-
-module nupp.runtime.provider.nativegpu
-
 --[[
 The VM's [](nupp.gpu) provider: no device yet.
 
@@ -12,6 +9,7 @@ replaces that buffer API with storage residency and dispatch as a host
 request rather than porting it, so this provider reports no device: `available`
 is false and `open` refuses by name. A CPU-only program records no GPU costs.
 ]]
+module nupp.runtime.provider.nativegpu
 
 local api = require("nupp.gpu.api")
 

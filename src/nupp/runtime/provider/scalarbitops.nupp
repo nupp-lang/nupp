@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.scalarbitops
-
 --[[
 Portable implementation of the 32-bit bit-operation contract.
 
@@ -16,8 +14,10 @@ prioritize portability over native instruction throughput.
 
 On the VM [](nupp.runtime.bitops) is the builtin `bit`; the native core,
 which has no builtin, answers `require("bit")` with this module. The shared
-contract vectors in `tests/provider-contracts/bitops.nupp` run against both.
+contract vectors in `tests/integration/providers/contracts/bitops.nupp` run
+against both.
 ]]
+module nupp.runtime.provider.scalarbitops
 
 local MODULUS = 4294967296
 local SIGN = 2147483648

@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.io.http
-
 --[[
 `io.http` sends HTTP requests through the selected host implementation
 without blocking the caller's frame. Reach for it when a program needs a client
@@ -100,25 +98,14 @@ also closes a reader body transferred into it.
 - [](io) for the URI values a request is addressed with
 :::
 ]]
+module nupp.io.http
 
-local spi = require("nupp.runtime.packages")
-local target = require("nupp.runtime.target")
-
-local contracts = require("nupp.io.http.spi")
+local contracts = require("nupp.io.http.contracts")
 local messages = require("nupp.io.http.messages")
 const {type Path} = require("io.files")
 const paths = require("io.internal.path")
 const appPaths = require("io.files.internal.path")
-local provider: contracts.Provider = do
-    const chosen = spi.select(spi.providers<contracts.Provider>("nupp.io.http.spi.Provider"))
-    if chosen ~= nil then
-        yield chosen
-    end
-    if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativehttp") as contracts.Provider
-    end
-    yield _G.require("nupp.runtime.browser.http") as contracts.Provider
-end
+local provider: contracts.Provider = require("nupp.runtime.bindings.http")
 local http = {}
 
 type http.Client = contracts.Client

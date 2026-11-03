@@ -1,9 +1,8 @@
 @!internal
 module nupp.runtime.provider.workers
 
--- The VM's worker lanes. `nupp.workers` selects them through
--- `nupp.runtime.workersprovider` like any native provider, so a program's own
--- provider still wins.
+-- The VM's worker lanes. `nupp.workers` reaches them through
+-- `nupp.runtime.bindings.workers`, which binds them on native targets.
 
 local core: any = require("nupp.vm.tasks")
 local clock = require("nupp.vm.clock")

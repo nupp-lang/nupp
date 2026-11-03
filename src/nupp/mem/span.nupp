@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.mem.span
-
 --[[
 `binary.span` gives a C array a rooted, one-based, bounds-checked view. A
 shared `Span<T>` reads contiguous elements; a writable span adds exclusive
@@ -172,6 +170,7 @@ projects the physical pointer and count arguments automatically.
   `countedBy` sit on
 :::
 ]]
+module nupp.mem.span
 
 local physical = require("nupp.runtime.storage")
 local span = {}

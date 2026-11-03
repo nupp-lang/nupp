@@ -2,9 +2,7 @@
 
 module io.net.internal.tlstypes
 
-local tls = {}
-
-type tls.ClientOptions = {
+export type ClientOptions = {
     --- The DNS name or IP address to expect on the peer's certificate. A DNS
     --- name is also sent as SNI. Given whenever `verify` is on, because a
     --- certificate verified against no name is a certificate belonging to
@@ -29,7 +27,7 @@ type tls.ClientOptions = {
 
 }
 
-type tls.ServerOptions = {
+export type ServerOptions = {
     --- The certificate chain to present, as PEM.
     certificate: string,
 
@@ -45,5 +43,3 @@ type tls.ServerOptions = {
     protocols: {string}?
 
 }
-
-export = tls

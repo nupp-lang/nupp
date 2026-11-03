@@ -1,8 +1,5 @@
 @!internal
 
---- @namespace coroutine
-module nupp.runtime.standardcoroutine
-
 --[[
 Structured concurrency: a scope owns the tasks spawned into it.
 
@@ -66,10 +63,13 @@ Nesting divides that bound rather than multiplying it, because the token belongs
 to the turn.
 ]]
 
+--- @namespace coroutine
+module nupp.runtime.standardcoroutine
+
 local source1 = require("nupp.tasks")
 local suspension = require("nupp.suspension")
-local suspensionContract = require("nupp.suspension.spi")
-local clockContract = package.nupp
+local suspensionContract = require("nupp.suspension.contracts")
+local clockContract = require("nupp.runtime.contracts")
 local selectedTime = require("nupp.runtime.timeprovider").provider
 
 local function missingClock(...: any): never

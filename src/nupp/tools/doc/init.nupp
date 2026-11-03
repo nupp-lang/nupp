@@ -1,5 +1,3 @@
-module nupp.tools.doc
-
 --[[
 Fast, CST-native API documentation.
 
@@ -10,6 +8,8 @@ checker would add work without improving the rendered API.
 A long comment at the very top of a file, this one included, is that file's module
 documentation, and is rendered as markdown.
 ]]
+module nupp.tools.doc
+
 const {type LexError} = require("nupp.compiler.syntax.lexer")
 const {type Module} = require("nupp.tools.doc.extract")
 const {type Page as Page2} = require("nupp.tools.doc.urls")
@@ -307,6 +307,7 @@ function doc.json(modules: {extractMod.Module}, annotationItems: {extractMod.Ite
             isFunction = value.isFunction,
             isMetamethod = value.isMetamethod,
             isType = value.isType,
+            supertypes = value.supertypes and array(value.supertypes) or nil,
             comptimeKind = value.comptimeKind,
             lua = value.lua,
             annotationMember = value.annotationMember,
@@ -324,6 +325,7 @@ function doc.json(modules: {extractMod.Module}, annotationItems: {extractMod.Ite
             comptimeKind = value.comptimeKind,
             lua = value.lua,
             signature = value.signature,
+            supertypes = value.supertypes and array(value.supertypes) or nil,
             annotation = value.annotation,
             path = value.path,
             module = value.module,
@@ -568,6 +570,7 @@ local function loadModules(root, config, settings, requested)
                         typeargs = {}
                     },
                     members = member.members or {},
+                    supertypes = member.supertypes,
                     params = {},
                     returns = {},
                     raises = {},
@@ -957,13 +960,22 @@ local function loadModules(root, config, settings, requested)
 
     local projectedAliases = {}
 
+    local function needsProjection(value: any): boolean
+        if value.isAlias or value.supertypes then
+            return true
+        end
+        for _, member in ipairs(value.members or {}) do
+            if needsProjection(member) then
+                return true
+            end
+        end
+
+        return false
+    end
+
     local function projected(item: any, module: any): any
         local candidate = original(item, {})
-        local hasAliases = false
-        for _, member in ipairs(candidate.members or {}) do
-            hasAliases = hasAliases or member.isAlias == true
-        end
-        if candidate == item and not hasAliases then
+        if candidate == item and not needsProjection(candidate) then
             return item
         end
         local context = declaringModule[candidate]
@@ -991,8 +1003,15 @@ local function loadModules(root, config, settings, requested)
 
         local expanding = {}
 
-        local function fields(value: any, path: string, sourceContext: any): nil
+        local function fields(value: any, path: string, sourceContext: any, parentBinders: any): nil
+            local binders = copy(parentBinders)
+            for _, generic in ipairs(value.typeargs or {}) do
+                binders[generic.name] = true
+            end
             value.type = value.type and references(value.type, sourceContext, module, binders, nil) or nil
+            for index, supertype in ipairs(value.supertypes or {}) do
+                value.supertypes[index] = references(supertype, sourceContext, module, binders, nil)
+            end
             for _, key in ipairs({"params", "returns", "raises"}) do
                 for _, field in ipairs(value[key] or {}) do
                     field.type = references(field.type, sourceContext, module, binders, nil)
@@ -1009,24 +1028,25 @@ local function loadModules(root, config, settings, requested)
                     if field.text == "" then
                         field.text = target.doc.text
                     end
-                    if #(target.members or {}) > 0 then
+                    if #(target.members or {}) > 0 or #(target.supertypes or {}) > 0 then
                         field.isAlias, field.isType = nil, true
                         field.type = target.kind
                         field.members = copy(target.members)
                         field.typeargs = copy(target.typeargs)
+                        field.supertypes = copy(target.supertypes)
                     elseif target.aliasSource then
                         field.type = target.aliasSource
                     end
                 end
                 field.path = path .. "." .. field.name
-                fields(field, field.path, fieldContext)
+                fields(field, field.path, fieldContext, binders)
                 if entered then
                     expanding[target] = nil
                 end
             end
         end
 
-        fields(expanded, item.path, context)
+        fields(expanded, item.path, context, binders)
         for _, raised in ipairs(expanded.doc.raises or {}) do
             raised.type = references(raised.type, context, module, binders, nil)
         end
@@ -1252,9 +1272,7 @@ local function rewriteModuleDocLinks(module: Module, pages: {Page2}, file: strin
         for _, result in ipairs(returns) do
             result.text = rewrite(result.text)
         end
-        -- Only the condition. The type beside it is a type rather than prose, and the
-        -- link it deserves is the one the highlighter makes out of the declaration it
-        -- names, not one a page path configured for prose would invent.
+        -- The condition is prose; the type beside it is not a page path.
         for _, raise in ipairs(raises) do
             raise.text = rewrite(raise.text)
         end

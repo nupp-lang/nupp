@@ -219,9 +219,10 @@ make it reloadable, so a watched program behaves as an ordinary run of the same
 source does.
 
 The guarantees on this page are indexed to executable compiler-session, runtime,
-and standalone-command cases in `tests/hotreloadguaranteetest.lua`, and the
-runtime's half to `native/crates/vm/tests/hot_patch.rs`. The standalone cases
-edit a required module inside `nupp run --watch` processes.
+and standalone-command cases in
+`tests/integration/reload/hotreloadguaranteetest.lua`, and the runtime's half
+to `native/crates/vm/tests/hot_patch.rs`. The standalone cases edit a required
+module inside `nupp run --watch` processes.
 
 ## FAQ
 

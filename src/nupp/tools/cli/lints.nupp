@@ -1,5 +1,3 @@
-module nupp.tools.cli.lints
-
 --[[
 `nupp lints`: the lints, and the level each one runs at here.
 
@@ -7,6 +5,7 @@ The levels reported are the project's own, not the defaults, so what prints is
 what would be enforced in this tree. A lint whose level a project moved says so
 beside its summary, since the difference is the thing worth noticing.
 ]]
+module nupp.tools.cli.lints
 
 const terminal2 = require("io.cli")
 

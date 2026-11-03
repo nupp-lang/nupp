@@ -1,5 +1,3 @@
-module nupp.tools.lsp.diagnostics
-
 --[[
 Publishing what the checker found.
 
@@ -13,6 +11,7 @@ Rechecking is per document and reaches the modules that depend on it, because a
 name whose type just changed is wrong in the files that use it, not in the one
 that defines it.
 ]]
+module nupp.tools.lsp.diagnostics
 
 local text = require("nupp.tools.lsp.text")
 local wire = require("nupp.tools.lsp.wire")

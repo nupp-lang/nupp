@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.compiler.syntax.triviaarena
-
 --[[
 The compiler-private storage contract for lexer trivia.
 
@@ -10,8 +8,7 @@ creates an arena. Ordinary native compiler entry points need no setup and resolv
 LuaJIT provider lazily, or the table provider where there is no LuaJIT FFI. Selection therefore costs one branch per parsed file and no
 branch per token or trivia record.
 ]]
-
-local triviaarena = {}
+module nupp.compiler.syntax.triviaarena
 
 export interface Arena
     @readonly source: string
@@ -31,7 +28,7 @@ local selected: Provider?
 
 --- Selects a provider before the first arena is constructed.
 --- @raises string when a different provider was already selected
-function triviaarena.install(provider: Provider): nil
+export function install(provider: Provider): nil
     if selected ~= nil and selected ~= provider then
         error("nupp: compiler trivia arena provider is already selected", 2)
     end
@@ -72,8 +69,6 @@ local function provider(): Provider
     return selected as Provider
 end
 
-function triviaarena.new(source: string): Arena
+export function new(source: string): Arena
     return provider().new(source)
 end
-
-export = triviaarena

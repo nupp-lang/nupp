@@ -63,10 +63,33 @@ function tier2.changedFiles(repo: string, commit: string): {string}
     return paths
 end
 
+local function suiteName(path: string): string?
+    local relative = path:match("^tests/(.+)$")
+    if relative == nil then
+        return nil
+    end
+    for directory in relative:gmatch("([^/]+)/") do
+        if directory == "fixtures"
+            or directory == "corpus"
+            or directory == "sessions"
+            or directory == "helpers"
+            or directory == "data"
+            or directory == "build"
+            or directory == "node_modules"
+            or directory == ".git"
+            or directory == ".rocks"
+        then
+            return nil
+        end
+    end
+
+    return relative:match("([^/]+test)%.lua$") or relative:match("([^/]+test)%.nupp$")
+end
+
 function tier2.splitPaths(paths: {string}): ({string}, {string})
     local suites, rest = {}, {}
     for _, path in ipairs(paths) do
-        if path:match("^tests/[%w_]+test%.lua$") then
+        if suiteName(path) ~= nil then
             suites[#suites + 1] = path
         else
             rest[#rest + 1] = path
@@ -167,7 +190,7 @@ end
 function tier2.suiteNames(suites: {string}): {string}
     local names: {string} = {}
     for _, path in ipairs(suites) do
-        local name = path:match("^tests/([%w_]+test)%.lua$")
+        local name = suiteName(path)
         if name ~= nil then
             names[#names + 1] = name
         end

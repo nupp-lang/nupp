@@ -1,5 +1,3 @@
-module types
-
 --[[
 `types` provides type builders, constraint validation, target layout queries,
 typed keys, stores, and generated debug formatting. Compiler-only builders run
@@ -19,6 +17,7 @@ block against the selected build's `layoutTarget`.
 See [derives.md](docs/reference/derives.md) for [](Debug),
 [](types.derive) for recipes, and [](types.reflect) for reflection.
 ]]
+module types
 
 local store = require("nupp.util.internal.store")
 local runtime = require("nupp.derive")

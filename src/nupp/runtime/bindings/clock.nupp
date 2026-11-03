@@ -1,0 +1,16 @@
+@!internal
+module nupp.runtime.bindings.clock
+
+local contracts = require("nupp.runtime.contracts")
+local target = require("nupp.runtime.target")
+local optional = require("nupp.runtime.optional")
+
+export const provider: contracts.ClockProvider? = do
+    if target.host == "native" then
+        yield optional.load("nupp.runtime.provider.nativetime")
+    end
+    if rawget(_G, "__nuppBrowser") ~= nil then
+        yield optional.load("nupp.runtime.browser.time")
+    end
+    yield nil
+end

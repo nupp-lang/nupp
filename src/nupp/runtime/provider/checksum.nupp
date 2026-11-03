@@ -1,6 +1,4 @@
 @!internal
-module nupp.runtime.provider.checksum
-
 --[[Built-in incremental checksum catalog for `binary.checksum` API 1.
 
 Module initialization retains the fixed algorithm descriptors from the ordinary
@@ -9,8 +7,9 @@ independent affine contexts; updates keep bounded state and do not retain spans.
 The public facade selects and validates this catalog during module initialization.
 Calls through retained descriptors perform no service resolution.
 ]]
+module nupp.runtime.provider.checksum
 
-local contract = require("binary.checksum.spi")
+local contract = require("binary.checksum.internal.contracts")
 local builtin = require("nupp.checksum.internal.builtin")
 local algorithms: {[string]: contract.Algorithm} = {}
 for _, name in ipairs(builtin.names()) do

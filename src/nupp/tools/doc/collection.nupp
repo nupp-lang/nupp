@@ -1,5 +1,3 @@
-module nupp.tools.doc.collection
-
 --[[
 A directory of prose documents, rendered as one navigation section under a generated
 index.
@@ -15,12 +13,11 @@ Each document opens with a frontmatter block of `key: value` lines. `title` and
 is generated from those fields, so a status changed in the document it describes is
 changed everywhere it is shown.
 ]]
+module nupp.tools.doc.collection
 
 local filesMod = require("nupp.tools.doc.files")
 local frontmatterMod = require("nupp.tools.doc.frontmatter")
 local urlsMod = require("nupp.tools.doc.urls")
-
-local collection = {}
 
 local join, readFile, listMarkdown = filesMod.join, filesMod.readFile, filesMod.listMarkdown
 local normalize = filesMod.normalize
@@ -34,7 +31,7 @@ local cleanRoute = urlsMod.cleanRoute
 --- `source` is the file the page was read from, which is what link rewriting resolves a
 --- relative link against: a document names its neighbours the way it would in any other
 --- directory of markdown, and the rendered site follows the same names.
-record collection.Page
+export record Page
     markdown: string
     name: string
     number: string?
@@ -51,7 +48,7 @@ end
 --- The directory a manifest asked for, the route it publishes under, and the name its
 --- navigation section carries. The section name also prefixes a numbered document's
 --- title, singularised, so a section called `ADRs` titles its pages `ADR 3`.
-type collection.Settings = {
+export type Settings = {
     directory: string?,
     path: string,
     title: string?
@@ -114,7 +111,7 @@ end
 -- named as. They differ whenever the project root is not the working directory, and a
 -- page records the second: a link out of a document is written against the repository,
 -- and so is the anchor a diagnostic carries.
-local function expandOne(base: string, settings: collection.Settings, file: string): collection.Page?, string?
+local function expandOne(base: string, settings: Settings, file: string): Page?, string?
     local source, err = readFile(file)
     if not source then
         return nil, err
@@ -134,7 +131,7 @@ local function expandOne(base: string, settings: collection.Settings, file: stri
         title = prefix .. " " .. number .. ": " .. name
     end
 
-    return new collection.Page(
+    return new Page(
         markdown = header(title, fields) .. body,
         name = name,
         number = number,
@@ -151,7 +148,7 @@ end
 --- Returns nil and a message when the directory cannot be read or holds a document
 --- whose name does not make a route. An empty directory is not an error: a collection
 --- nothing has been written into yet publishes its index and nothing else.
-function collection.expand(root: string, settings: collection.Settings): {collection.Page}?, string?
+export function expand(root: string, settings: Settings): {Page}?, string?
     local directory = settings.directory
     if not directory or directory == "" then
         return nil, "a documentation page directory must be named"
@@ -161,7 +158,7 @@ function collection.expand(root: string, settings: collection.Settings): {collec
         return nil, "invalid documentation page path"
     end
     local base = normalize(join(root, directory))
-    local pages: {collection.Page} = {}
+    local pages: {Page} = {}
     for _, file in ipairs(listMarkdown(base)) do
         if normalize(file) ~= join(base, INDEX) then
             local page, err = expandOne(base, settings, file)
@@ -171,7 +168,7 @@ function collection.expand(root: string, settings: collection.Settings): {collec
             pages[#pages + 1] = page
         end
     end
-    table.insert(pages, 1, collection.index(base, settings, route, pages))
+    table.insert(pages, 1, index(base, settings, route, pages))
 
     return pages
 end
@@ -181,12 +178,7 @@ end
 --- The prose is where the collection explains itself and the rows are where it lists
 --- itself, and only the second one is regenerated, so the explanation is written once
 --- and the list is never written by hand.
-function collection.index(
-    base: string,
-    settings: collection.Settings,
-    route: string,
-    pages: {collection.Page}
-): collection.Page
+export function index(base: string, settings: Settings, route: string, pages: {Page}): Page
     local preamble, title = "", settings.title or route
     local indexFile = join(base, INDEX)
     local source = readFile(indexFile)
@@ -211,7 +203,7 @@ function collection.index(
         end
     end
 
-    return new collection.Page(
+    return new Page(
         markdown = table.concat(out, "\n"),
         name = title,
         path = route,
@@ -219,5 +211,3 @@ function collection.index(
         title = title
     )
 end
-
-export = collection

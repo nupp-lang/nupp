@@ -1,5 +1,3 @@
-module nupp.compiler.annotations
-
 --[[
 Extensible, typed annotation definitions.
 
@@ -7,6 +5,7 @@ Names are open through `Registry:define()`, but every name must be registered
 before checking begins. Targets are named as semantic language categories rather
 than CST kind strings, so the registry stays stable when the parser changes.
 ]]
+module nupp.compiler.annotations
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local annotations = {}

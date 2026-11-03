@@ -1,4 +1,4 @@
--- Minimal test runner: loads tests/*test.lua and compiles tests/*test.nupp,
+-- Minimal test runner: discovers nested *test.lua and *test.nupp suites,
 -- runs every function in the returned table, and reports failures with their
 -- assert message. A suite may also define beforeAll, afterAll, beforeEach,
 -- and afterEach lifecycle hooks.
@@ -419,6 +419,9 @@ if package.config:sub(1, 1) == "\\" then
     end
 
     io.popen = function(command, mode)
+        if type(command) ~= "string" then
+            return rawPopen(command, mode)
+        end
         if command:sub(1, #nativeMarker) == nativeMarker then
             return rawPopen(command:sub(#nativeMarker + 1), mode)
         end
@@ -1258,27 +1261,55 @@ local byName = {}
 local discovered = {}
 local suiteCatalog = {}
 do
-    local function found(f)
-        local name, extension = f:match("^(.*test)%.([^.]+)$")
+    local excludedDirectories = {
+        fixtures = true,
+        corpus = true,
+        sessions = true,
+        helpers = true,
+        data = true,
+        node_modules = true,
+        [".git"] = true,
+        [".rocks"] = true,
+        build = true,
+    }
+
+    local function found(path)
+        path = path:gsub("\\", "/"):gsub("^%./", "")
+        for component in path:gmatch("([^/]+)/") do
+            if excludedDirectories[component] then
+                return
+            end
+        end
+        local filename = path:match("([^/]+)$") or path
+        local name, extension = filename:match("^(.*test)%.([^.]+)$")
         if name and (extension == "lua" or extension == "nupp") then
-            local info = {name = name, extension = extension}
+            if byName[name] then
+                io.stderr:write(("nupp: duplicate test suite %s: %s and %s\n"):format(name, byName[name].path, path))
+                os.exit(2)
+            end
+            local info = {name = name, extension = extension, path = path}
             byName[name] = info
             discovered[#discovered + 1] = info
-            suiteCatalog[#suiteCatalog + 1] = f
+            suiteCatalog[#suiteCatalog + 1] = path
         end
     end
 
     local inherited = rawget(_G, "__NUPP_TEST_SUITE_CATALOG")
     if type(inherited) == "string" then
-        for f in inherited:gmatch("[^\n]+") do
-            found(f)
+        for path in inherited:gmatch("[^\n]+") do
+            found(path)
         end
     else
-        local p = assert(io.popen("ls '" .. dir .. "'"), "cannot list test directory")
-        for f in p:lines() do
-            found(f)
+        local fs = require("nupp.compiler.fs")
+        local root = fs.absolute(dir)
+        local prefix = root:sub(-1) == "/" and root or root .. "/"
+        for _, path in ipairs(
+            fs.listFiles(root, function(name)
+                return excludedDirectories[name] == true
+            end)
+        ) do
+            found(path:sub(#prefix + 1))
         end
-        p:close()
     end
 end
 table.sort(suiteCatalog)
@@ -1404,7 +1435,7 @@ end)
 local sharedWorkers = workerHost and "Nupp workers" or engine == "vm" and "VM processes" or "Nupp workers"
 
 local function loadSuite(suite)
-    local path = dir .. "/" .. suite.name .. "." .. suite.extension
+    local path = dir .. "/" .. suite.path
     installVmModules()
     if suite.extension == "lua" then
         return dofile(path)
@@ -2654,7 +2685,7 @@ local PROCESS_ISOLATED = {
     deriveprovidertest = true,
     derivetest = true,
     eventschecktest = true,
-    loggingtest = true,
+    logtest = true,
     runtimereflectiontest = true,
     serdetest = true,
     typeleveltest = true,
@@ -2668,7 +2699,7 @@ local PROCESS_ISOLATED = {
     -- These execute generated ownership cleanups. Their providers are registered
     -- in process-global runtime tables, so a reused worker state is not their
     -- isolation boundary even though the cases themselves do not shell out.
-    ioscalarstest = true,
+    streamadapterstest = true,
     nativefoundationstest = true,
     -- Rebuilds the math runtime through the process root and exercises LuaJIT's
     -- wide FFI operations. A long-lived shell worker can retain JIT and FFI
@@ -2709,7 +2740,7 @@ local function suiteSource(suiteInfo)
     if cached ~= nil then
         return cached
     end
-    local file = io.open(dir .. "/" .. suiteInfo.name .. "." .. suiteInfo.extension, "rb")
+    local file = io.open(dir .. "/" .. suiteInfo.path, "rb")
     if not file then
         return nil
     end

@@ -1,5 +1,3 @@
-module coroutine.sus
-
 --[[
 `coroutine.sus` connects readiness sources to suspension handlers.
 Use [](coroutine.suspend) to wait for a value from a callback.
@@ -41,7 +39,9 @@ by calling [](coroutine.suspend); nothing intercepts calls that do not.
 
 See [suspension.md](docs/learn/runtime/concurrency/suspension.md).
 ]]
-local contract = require("nupp.suspension.spi")
+module coroutine.sus
+
+local contract = require("nupp.suspension.contracts")
 local source1 = require("nupp.suspension")
 export type Context = source1.Context
 export type Source = source1.Source

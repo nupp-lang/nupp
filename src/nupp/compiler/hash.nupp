@@ -1,5 +1,3 @@
-module nupp.compiler.hash
-
 --[[
 The digests the toolchain computes, which are several because they answer
 different questions.
@@ -28,6 +26,7 @@ two `uint32` halves, high first, combined through `nupp.compiler.bitops`.
 Reading input with `string.byte` and assembling little-endian words preserves
 identical digests across host representations.
 ]]
+module nupp.compiler.hash
 
 local digest = require("nupp.digest.internal.sha256")
 local bitops = require("nupp.compiler.bitops")
@@ -200,8 +199,8 @@ end
 
 --- XXH64 of `input` under `seed`, as two `uint32` halves, high then low.
 ---
---- The published algorithm, so `tests/projecttest.lua` can hold its published
---- results rather than whatever this happens to compute.
+--- The published algorithm, so `tests/compiler/project/projecttest.lua` can hold its
+--- published results rather than whatever this happens to compute.
 local function xxh64(input: string, seedHi: number, seedLo: number): (number, number)
     local size = #input
     local at = 0
@@ -296,12 +295,11 @@ end
 
 --- The eight bytes a stamped binary records in its trailer, little-endian.
 ---
---- XXH64 of the payload under seed zero. This is the one number in this file
---- that a *reader elsewhere* has to arrive at: the stub recomputes it in
---- the statically linked Rust base provider before handing a byte of the payload
---- to Lua, so
---- the two implementations are one contract and `tests/hostbinarytest.lua` is
---- what holds them to it.
+--- XXH64 of the payload under seed zero. This is the one number in this file that a
+--- *reader elsewhere* has to arrive at: the stub recomputes it in the statically linked
+--- Rust base provider before handing a byte of the payload to Lua, so the two
+--- implementations are one contract and `tests/integration/native/hostbinarytest.lua`
+--- is what holds them to it.
 ---
 --- Not a cryptographic digest, deliberately. The file is unsigned and only
 --- these eight bytes are recorded, so anyone who can rewrite the payload can

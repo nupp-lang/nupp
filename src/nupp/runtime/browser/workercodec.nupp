@@ -23,8 +23,6 @@ module nupp.runtime.browser.workercodec
 @allow("unused-binding")
 const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 
-local codec = {}
-
 local SENDABLE: {[string]: boolean} = {["nil"] = true, boolean = true, number = true, string = true,}
 local MAX_DEPTH: integer = 32
 
@@ -51,7 +49,7 @@ end
 ---
 --- The walk is `next` rather than `pairs`, matching the native codec: transfer
 --- copies stored data rather than invoking a record's own iteration behaviour.
-function codec.unsendable(value: any, path: string, depth: integer, state: TransferState): string?
+export function unsendable(value: any, path: string, depth: integer, state: TransferState): string?
     local kind = type(value)
     if SENDABLE[kind] then
         return nil
@@ -98,7 +96,7 @@ function codec.unsendable(value: any, path: string, depth: integer, state: Trans
             return ("%s has a %s key"):format(path, keyKind)
         end
         if not SENDABLE[type(item)] then
-            local rejected = codec.unsendable(item, ("%s[%s]"):format(path, tostring(key)), depth + 1, state)
+            local rejected = unsendable(item, ("%s[%s]"):format(path, tostring(key)), depth + 1, state)
             if rejected ~= nil then
                 return rejected
             end
@@ -110,13 +108,13 @@ end
 
 --- Validates the captures and arguments of a submission together.
 --- @raises string where either names a value no copy could reproduce
-function codec.validate(captures: Packed, arguments: Packed): TransferState
+export function validate(captures: Packed, arguments: Packed): TransferState
     local transfer: TransferState = {seen = {}, records = nil, addresses = nil}
-    local rejectedCaptures = codec.unsendable(captures.values, "captures", 0, transfer)
+    local rejectedCaptures = unsendable(captures.values, "captures", 0, transfer)
     if rejectedCaptures ~= nil then
         error("nupp: cannot copy task captures: " .. rejectedCaptures, 3)
     end
-    local rejected = codec.unsendable(arguments.values, "arguments", 0, transfer)
+    local rejected = unsendable(arguments.values, "arguments", 0, transfer)
     if rejected ~= nil then
         error("nupp: cannot copy task arguments: " .. rejected, 3)
     end
@@ -236,7 +234,7 @@ local function writeValue(out: {string}, value: any): nil
 end
 
 --- Encodes a value pack, retaining its nil positions, into opaque bytes.
-function codec.encode(packed: Packed): string
+export function encode(packed: Packed): string
     local out: {string} = {("%d:"):format(packed.count)}
     for index = 1, packed.count do
         writeValue(out, packed.values[index])
@@ -341,7 +339,7 @@ end
 
 --- Decodes a value pack, retaining its nil positions.
 --- @raises string where the bytes are not a pack this codec wrote
-function codec.decode(bytes: string): Packed
+export function decode(bytes: string): Packed
     local cursor: Cursor = {at = 1}
     local count = readLength(bytes, cursor)
     local values: {any} = {}
@@ -354,5 +352,3 @@ function codec.decode(bytes: string): Packed
 
     return {values = values, count = count}
 end
-
-export = codec

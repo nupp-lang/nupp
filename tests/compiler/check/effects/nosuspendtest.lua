@@ -1,0 +1,810 @@
+local testAssert = require("assert")
+-- S1: `@nosuspend` regions.
+--
+-- Lexical, static, and erased. What is asserted here is the verdict and the erasure:
+-- a call that may suspend is refused, one that provably cannot is silent, and the
+-- program is the same either way because the region has no run-time component.
+local parser = require("nupp.compiler.syntax.parser")
+local program = require("program")
+local check = require("helpers.fragment")
+local envMod = require("nupp.compiler.project.env")
+
+local HERE = require("helpers.paths").tests
+
+-- One environment for the whole suite.
+--
+-- Every case checks against an environment built exactly this way, and
+-- building one means checking the prelude from source. Per case that was
+-- most of what this suite cost; the cases share it the way the other
+-- checker suites do.
+local sharedEnv = envMod.new(HERE)
+
+local function diagnose(src)
+    local env = sharedEnv
+    local result = parser.parse(src, "test.nupp")
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
+    local diags = check.check(result, "test.nupp", env)
+    local refusals = {}
+    for _, diag in ipairs(diags) do
+        if diag.code == "NUPP2701" then
+            refusals[#refusals + 1] = diag
+        end
+    end
+
+    return refusals, diags, result
+end
+
+local QUIET = "local function quiet(): nil\n    local n = 1\nend\n"
+local NOISY = "local function noisy(): nil\n    coroutine.yield()\nend\n"
+
+local M = {}
+
+function M.refusesACallThatSuspends()
+    local refusals = diagnose(NOISY .. "@nosuspend do\n    noisy()\nend")
+    testAssert.eq(#refusals, 1, "one refusal")
+    assert(refusals[1].msg:find("noisy", 1, true) ~= nil, "it names the callee: " .. refusals[1].msg)
+end
+
+function M.directSuspendIsRefusedInANonsuspendingRegion()
+    local refusals, diagnostics = diagnose(
+        [[
+local function subscribe(resume: function(integer)): function()?
+    resume(42)
+    return nil
+end
+@nosuspend do
+    coroutine.suspend("ready", subscribe)
+end
+]]
+    )
+    testAssert.eq(#refusals, 1)
+    for _, diagnostic in ipairs(diagnostics) do
+        if diagnostic.severity == "error" then
+            testAssert.eq(diagnostic.code, "NUPP2701", diagnostic.msg)
+        end
+    end
+end
+
+function M.allowsACallThatCannot()
+    local refusals = diagnose(QUIET .. "@nosuspend do\n    quiet()\nend")
+    testAssert.eq(#refusals, 0, "a proved-quiet callee is silent")
+end
+
+function M.followsTheCallGraph()
+    -- The suspension is two functions away. A region that only caught a direct
+    -- `coroutine.yield` would catch almost nothing real.
+    local src = NOISY .. "local function middle(): nil\n    noisy()\nend\n" .. "@nosuspend do\n    middle()\nend"
+    local refusals = diagnose(src)
+    testAssert.eq(#refusals, 1, "the transitive call is refused")
+    assert(refusals[1].msg:find("middle", 1, true) ~= nil, "reported at the call that was written")
+end
+
+function M.namesThePathToTheSuspension()
+    local src = NOISY .. "local function middle(): nil\n    noisy()\nend\n" .. "@nosuspend do\n    middle()\nend"
+    local refusals = diagnose(src)
+    local related = refusals[1] and refusals[1].related
+    assert(related ~= nil and #related > 0, "a one-line refusal is not actionable when the yield is not here")
+end
+
+function M.reachesAcrossAModuleBoundary()
+    -- The fact rides on the type, so an export is answered without this file having
+    -- seen its body.
+    local refusals = diagnose(
+        table.concat(
+            {'local B = require("fixtures.effects")', "@nosuspend do", "    B.safe()", "    B.waits()", "end",},
+            "\n"
+        )
+    )
+    testAssert.eq(#refusals, 1, "only the yielding export is refused")
+    assert(refusals[1].msg:find("waits", 1, true) ~= nil, "and it is the right one: " .. refusals[1].msg)
+end
+
+function M.refusesAnUnresolvableCall()
+    -- A call the compiler cannot follow is exactly what a region exists to be careful
+    -- about, so silence would be the wrong default.
+    local refusals = diagnose("@nosuspend do\n    someUnknownGlobal()\nend")
+    testAssert.eq(#refusals, 1, "an unresolved callee is refused")
+end
+
+function M.constructsARecordWithoutSuspending()
+    -- A construction runs its declared constructor and nothing else. Without one it
+    -- is a table and a metatable; with one, the constructor's body answers.
+    local plain = "local record P\n    x: integer\nend\n"
+    testAssert.eq(
+        #diagnose(plain .. "@nosuspend do\n    local p = new P(x = 1)\nend"),
+        0,
+        "a record with no constructor cannot suspend"
+    )
+    testAssert.eq(
+        #diagnose(
+            plain
+            .. "local function make(): P\n    return new P(x = 1)\nend\n"
+            .. "@nosuspend do\n    local p = make()\nend"
+        ),
+        0,
+        "a helper that constructs one is answered by its summary"
+    )
+    local quiet = "local record Q\n    x: integer\n    constructor(self, x: integer)\n"
+        .. "        self.x = x\n    end\nend\n"
+    testAssert.eq(
+        #diagnose(quiet .. "@nosuspend do\n    local q = new Q(1)\nend"),
+        0,
+        "a constructor that cannot suspend is silent"
+    )
+    local noisy = "local record R\n    x: integer\n    constructor(self, x: integer)\n"
+        .. "        coroutine.yield()\n        self.x = x\n    end\nend\n"
+    local refusals = diagnose(noisy .. "@nosuspend do\n    local r = new R(1)\nend")
+    testAssert.eq(#refusals, 1, "a constructor that suspends is refused")
+    assert(refusals[1].msg:find("R", 1, true) ~= nil, "it names the record: " .. refusals[1].msg)
+end
+
+function M.judgesTheIteratorOfAGenericFor()
+    -- The loop calls the iterator itself, once per step: a call nobody wrote, judged
+    -- by the type the header answered because its body is never visible here.
+    local plain = "local function iter(): function(): integer?\n"
+        .. "    return function(): integer?\n        coroutine.yield()\n        return nil\n    end\nend\n"
+    local refusals = diagnose(plain .. "@nosuspend do\n    for v in iter() do\n        print(v)\n    end\nend")
+    testAssert.eq(#refusals, 1, "an iterator that may suspend is refused")
+    assert(refusals[1].msg:find("iterator", 1, true) ~= nil, "it says what was judged: " .. refusals[1].msg)
+    local quiet = "local function iter(): @nosuspend function(): integer?\n"
+        .. "    return function(): integer?\n        return nil\n    end\nend\n"
+    testAssert.eq(
+        #diagnose(quiet .. "@nosuspend do\n    for v in iter() do\n        print(v)\n    end\nend"),
+        0,
+        "an iterator that cannot suspend is silent"
+    )
+    -- The prelude's traversals answer the same way.
+    testAssert.eq(
+        #diagnose(
+            table.concat(
+                {
+                    "local t: {[string]: integer} = {}",
+                    "local a: {integer} = {}",
+                    "@nosuspend do",
+                    "    for k, v in pairs(t) do print(k, v) end",
+                    "    for i, v in ipairs(a) do print(i, v) end",
+                    "    for k, v in next, t do print(k, v) end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        0,
+        "pairs, ipairs and next cannot suspend"
+    )
+end
+
+function M.judgesCallableRecordIteratorsByTheirContract()
+    local quiet = table.concat(
+        {
+            "local record Quiet",
+            "    metamethod __call: @nosuspend function(self): integer?",
+            "end",
+            "@nosuspend do",
+            "    for value in new Quiet() do print(value) end",
+            "end",
+        },
+        "\n"
+    )
+    testAssert.eq(#diagnose(quiet), 0, "a nonsuspending callable record iterator is accepted")
+
+    local noisy = table.concat(
+        {
+            "local record Noisy",
+            "    metamethod __call: function(self): integer?",
+            "end",
+            "@nosuspend do",
+            "    for value in new Noisy() do print(value) end",
+            "end",
+        },
+        "\n"
+    )
+    local refusals = diagnose(noisy)
+    testAssert.eq(#refusals, 1, "a callable record iterator that may suspend is refused")
+    assert(refusals[1].msg:find("iterator", 1, true) ~= nil, refusals[1].msg)
+end
+
+function M.judgesADispatchedMetamethod()
+    -- An operator reaching a declared contract is a call nobody wrote, judged by the
+    -- contract's type exactly as a callable slot is.
+    local function operand(contract)
+        return table.concat(
+            {
+                "local record V",
+                "    x: integer",
+                "    metamethod __add: " .. contract,
+                "end",
+                "local a, b: V, V = new V(x = 1), new V(x = 2)",
+                "@nosuspend do",
+                "    local c = a + b",
+                "end",
+            },
+            "\n"
+        )
+    end
+
+    local refusals = diagnose(operand("function(left: V, right: V): V"))
+    testAssert.eq(#refusals, 1, "a contract that may suspend is refused")
+    assert(refusals[1].msg:find("__add", 1, true) ~= nil, "it names the metamethod: " .. refusals[1].msg)
+    testAssert.eq(
+        #diagnose(operand("@nosuspend function(left: V, right: V): V")),
+        0,
+        "a contract that cannot suspend is silent"
+    )
+end
+
+function M.resolvesTheSelectedOverload()
+    -- An overload set is several signatures; the one the arguments selected is the
+    -- one that runs, and the one whose guarantee is asked for.
+    local src = table.concat(
+        {
+            "local f: @nosuspend function(n: integer): (nil) & function(s: string): (nil) = nil as any",
+            "@nosuspend do",
+            "    f(1)",
+            "    f('x')",
+            "end",
+        },
+        "\n"
+    )
+    local refusals = diagnose(src)
+    testAssert.eq(#refusals, 1, "only the arm that may suspend is refused")
+    testAssert.eq(refusals[1].line, 4, "and it is the string arm")
+end
+
+function M.judgesTheTerminalsARegionDischarges()
+    -- A terminal runs where an owner is discharged, and no call names it: at the
+    -- statement that bound the owner, a block boundary, or an explicit `drop`. Each is
+    -- judged where it stands, and the terminal is reported once per region.
+    local resource = table.concat(
+        {
+            "local record Resource value: integer end",
+            "local park: function(): nil = nil as any",
+            "local function settling(takes value: Resource): nil",
+            "    park()",
+            "end",
+            "local function quiet(takes value: Resource): nil",
+            "end",
+            "local function openSettling(): affine(Resource, settling)",
+            "    return new Resource(value = 1)",
+            "end",
+            "local function openQuiet(): affine(Resource, quiet)",
+            "    return new Resource(value = 1)",
+            "end",
+        },
+        "\n"
+    ) .. "\n"
+    local refusals = diagnose(
+        resource .. table.concat({"@nosuspend do", "    local value = openSettling()", "end",}, "\n")
+    )
+    testAssert.eq(#refusals, 1, "an owner discharged at its scope boundary is judged")
+    assert(refusals[1].msg:find("settling", 1, true) ~= nil, "it names the terminal: " .. refusals[1].msg)
+    refusals = diagnose(
+        resource .. table.concat(
+            {"@nosuspend do", "    do local value = openSettling() ;", "        print(value.value)", "    end", "end",},
+            "\n"
+        )
+    )
+    testAssert.eq(#refusals, 1, "a scoped acquisition is judged")
+    refusals = diagnose(
+        resource .. table.concat(
+            {"@nosuspend do", "    local value = openSettling()", "    own.drop(value)", "end",},
+            "\n"
+        )
+    )
+    testAssert.eq(#refusals, 1, "an explicit drop is the same obligation, reported once")
+    testAssert.eq(
+        #diagnose(
+            resource .. table.concat(
+                {
+                    "@nosuspend do",
+                    "    local value = openQuiet()",
+                    "    do local other = openQuiet() ;",
+                    "        print(other.value)",
+                    "    end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        0,
+        "a terminal that cannot suspend is silent"
+    )
+    testAssert.eq(
+        #diagnose(
+            resource .. table.concat(
+                {
+                    "local function later(): nil",
+                    "    local value = openSettling()",
+                    "end",
+                    "@nosuspend do",
+                    "    local keep = later",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        0,
+        "a nested function's owners run outside the region"
+    )
+end
+
+function M.nestsAndEnds()
+    local src = QUIET .. NOISY .. table.concat({"@nosuspend do", "    quiet()", "end", "noisy()",}, "\n")
+    testAssert.eq(#diagnose(src), 0, "the region ends where it closes")
+end
+
+function M.erasesToAPlainBlock()
+    local src = "local calls = 0\nlocal function quiet(): nil\n    calls += 1\nend\n"
+        .. "@nosuspend do\n    quiet()\nend\nreturn calls\n"
+    local _, _, result = diagnose(src)
+    local image = program.image(result, "test")
+    testAssert.eq(image:find("nosuspend", 1, true), nil, "nothing of the region survives")
+    testAssert.eq(program.run(result, "test"), 1, "the block remains")
+end
+
+function M.staysAName()
+    -- Contextual on the same rule as `unsafe`: a name followed by `do`.
+    local refusals, diags = diagnose("local nosuspend = 1\nreturn nosuspend")
+    testAssert.eq(#refusals, 0, "no region was opened")
+    for _, diag in ipairs(diags) do
+        assert(diag.severity == "warning" or diag.severity == "note", "an ordinary name still checks: " .. diag.code)
+    end
+end
+
+function M.acceptsAnAnnotatedPreludeCall()
+    -- The prelude is not special-cased. Its pure members say `@nosuspend function(...)`
+    -- in the declaration like anything else would, and that is what admits them.
+    local refusals = diagnose(
+        table.concat(
+            {
+                "@nosuspend do",
+                "    local n = math.floor(1.5)",
+                "    local s = string.rep('-', n)",
+                "    local t = table.concat({'a'}, ',')",
+                "    local b = bit.band(1, 2)",
+                "    local now = os.time()",
+                "    print(n, s, t, b, now)",
+                "end",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(#refusals, 1, "only the unannotated one is refused")
+    assert(
+        refusals[1].msg:find("time", 1, true) ~= nil,
+        "and it is `os.time`, which says nothing about its effects: " .. refusals[1].msg
+    )
+end
+
+function M.aBodylessAnnotatedDeclarationIsAccepted()
+    -- The case the modifier exists for: a binding whose body this compiler never sees.
+    local refusals = diagnose(
+        table.concat(
+            {
+                "local host: {quiet: @nosuspend function(n: integer): integer} = nil as any",
+                "@nosuspend do",
+                "    host.quiet(1)",
+                "end",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(#refusals, 0, "a declared guarantee is a guarantee")
+end
+
+function M.aBodylessUnannotatedDeclarationIsRefused()
+    local refusals = diagnose(
+        table.concat(
+            {"local host: {loud: function(): nil} = nil as any", "@nosuspend do", "    host.loud()", "end",},
+            "\n"
+        )
+    )
+    testAssert.eq(#refusals, 1, "silence is not a guarantee")
+end
+
+function M.theModifierSurvivesAnAlias()
+    local refusals = diagnose(
+        table.concat(
+            {
+                "local host: {quiet: @nosuspend function(n: integer): integer} = nil as any",
+                "local f = host.quiet",
+                "@nosuspend do",
+                "    f(1)",
+                "end",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(#refusals, 0, "the fact is the type's, so renaming does not lose it")
+end
+
+function M.aNoSuspendFunctionSatisfiesAnOrdinarySlot()
+    -- A guarantee only has to hold where one was asked for.
+    local refusals, diags = diagnose(
+        table.concat(
+            {
+                "local host: {quiet: @nosuspend function(n: integer): integer} = nil as any",
+                "local slot: function(n: integer): integer = host.quiet",
+                "return slot",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(#refusals, 0, "no region here")
+    for _, diag in ipairs(diags) do
+        assert(
+            diag.severity == "warning" or diag.severity == "note",
+            "it fits the wider slot: " .. diag.code .. " " .. diag.msg
+        )
+    end
+end
+
+function M.anOrdinaryFunctionDoesNotSatisfyANoSuspendSlot()
+    local _, diags = diagnose(
+        table.concat(
+            {
+                "local host: {loud: function(n: integer): integer} = nil as any",
+                "local slot: @nosuspend function(n: integer): integer = host.loud",
+                "return slot",
+            },
+            "\n"
+        )
+    )
+    local refused = nil
+    for _, diag in ipairs(diags) do
+        if diag.code == "NUPP2001" then
+            refused = diag
+        end
+    end
+    assert(refused ~= nil, "a may-yield function cannot fill a slot that forbids it")
+    assert(refused.msg:find("suspend", 1, true) ~= nil, "and the refusal says why: " .. refused.msg)
+end
+
+function M.theModifierSurvivesGenericSubstitution()
+    local T = require("nupp.compiler.types")
+    local generics = require("nupp.compiler.types.generics")
+    local tv = T.typevar("T")
+    local safe = T.withYields(T.func({tv}, {tv}), false)
+    local concrete = generics.materialize(safe, {[tv] = T.string})
+    testAssert.eq(concrete.noYield, true, "substitution rewrites types, not effects")
+    testAssert.eq(concrete.params[1], T.string, "and the substitution happened")
+end
+
+function M.aHandleRegionInstallsAndRestores()
+    local src = table.concat(
+        {
+            'local s = require("coroutine.sus")',
+            "local h = {park = function() end}",
+            "local before = s.handled()",
+            "local inside = false",
+            "do local installation = require(\"coroutine.sus.host\").install(h) ;",
+            "    inside = s.handled()",
+            "end",
+            "return before, inside, s.handled()",
+        },
+        "\n"
+    )
+    local refusals, diags, result = diagnose(src)
+    testAssert.eq(#refusals, 0, "no region check here")
+    for _, diag in ipairs(diags) do
+        assert(diag.severity == "warning" or diag.severity == "note", "it checks: " .. diag.code .. " " .. diag.msg)
+    end
+    local before, inside, after = program.run(result, "test")
+    testAssert.eq(before, false, "no handler before the region")
+    testAssert.eq(inside, true, "it installs a handler")
+    testAssert.eq(after, false, "and closes it")
+end
+
+local function runGenerated(src)
+    local _, diags, result = diagnose(src)
+    for _, diag in ipairs(diags) do
+        assert(
+            diag.severity == "warning" or diag.severity == "note",
+            "source checks before execution: " .. diag.code .. " " .. diag.msg
+        )
+    end
+
+    return program.run(result, "handled_exit")
+end
+
+function M.aReturnLeavesAHandleRegionAfterReleasingIt()
+    local first, second, released = runGenerated(
+        table.concat(
+            {
+                "local released: integer = 0",
+                "local h = {shutdown = function() released = released + 1 end}",
+                "local function f(): integer, integer",
+                "    do local installation = require(\"coroutine.sus.host\").install(h) ;",
+                "        return 1, released",
+                "    end",
+                "end",
+                "local answer, beforeRelease = f()",
+                "return answer, beforeRelease, released",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(first, 1, "the first return survives the protected boundary")
+    testAssert.eq(second, 0, "return values are evaluated before release")
+    testAssert.eq(released, 1, "the installation is released exactly once")
+end
+
+function M.aBodyAndReleaseFailureAreBothPreserved()
+    local ok, problem = runGenerated(
+        table.concat(
+            {
+                "local h = {shutdown = function() error('release failed') end}",
+                "local ok, problem = pcall(function()",
+                "    do local installation = require(\"coroutine.sus.host\").install(h) ;",
+                "        error('body failed')",
+                "    end",
+                "end)",
+                "return ok, tostring(problem)",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(ok, false, "the handled body still raises")
+    assert(problem:find("body failed", 1, true) ~= nil, "the body failure remains primary: " .. problem)
+    assert(problem:find("release failed", 1, true) ~= nil, "the release failure is retained: " .. problem)
+end
+
+function M.loopControlCanLeaveAHandleRegion()
+    local continued, broken = runGenerated(
+        table.concat(
+            {
+                "local h = {}",
+                "local total = 0",
+                "for index = 1, 3 do",
+                "    do local installation = require(\"coroutine.sus.host\").install(h) ;",
+                "        if index == 2 then continue end",
+                "        total = total + index",
+                "    end",
+                "end",
+                "while true do",
+                "    do local installation = require(\"coroutine.sus.host\").install(h) ;",
+                "        break",
+                "    end",
+                "end",
+                "return total, true",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(continued, 4, "continue reaches the enclosing loop")
+    testAssert.eq(broken, true, "break reaches the enclosing loop")
+end
+
+function M.aGotoCanLeaveAHandleRegion()
+    local answer = runGenerated(
+        table.concat(
+            {
+                "local h = {}",
+                "local answer = 0",
+                "do local installation = require(\"coroutine.sus.host\").install(h) ;",
+                "    answer = 1",
+                "    goto done",
+                "end",
+                "answer = 2",
+                "::done::",
+                "return answer",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(answer, 1, "goto resumes outside after releasing the installation")
+end
+
+function M.aHandleRegionRequiresAHandler()
+    local _, diags = diagnose("do local installation = require(\"coroutine.sus.host\").install(42) ;\nend")
+    local found = false
+    for _, diag in ipairs(diags) do
+        if diag.code == "NUPP2006" and diag.msg:find("Handler", 1, true) then
+            found = true
+        end
+    end
+    assert(found, "a concrete non-handler is rejected at the construct")
+end
+
+function M.allowsABreakInsideAnInstallationScope()
+    -- A `break` bound by a loop inside the region never crosses the closure boundary.
+    local _, diags = diagnose(
+        table.concat(
+            {
+                "local h = {park = function() end, canpark = function() return true end, shutdown = function() end}",
+                "do local installation = require(\"coroutine.sus.host\").install(h) ;",
+                "    for index = 1, 3 do",
+                "        if index == 2 then",
+                "            break",
+                "        end",
+                "    end",
+                "end",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(#diags, 0, "a loop can break within an ordinary installation scope")
+end
+
+function M.handleIsContextualInBothWords()
+    local _, diags = diagnose(
+        table.concat({"local handle = 1", "local suspension = 2", "return handle + suspension",}, "\n")
+    )
+    for _, diag in ipairs(diags) do
+        assert(diag.severity == "warning" or diag.severity == "note", "both stay ordinary names: " .. diag.code)
+    end
+end
+
+function M.refusesASuspendingSortComparator()
+    -- The boundary belongs to the invocation: `table.sort` has a C frame on the stack
+    -- while the comparator runs, so the comparator cannot yield.
+    local _, diags = diagnose(
+        table.concat(
+            {
+                "local function noisy(): nil",
+                "    coroutine.yield()",
+                "end",
+                "local t = {3, 1, 2}",
+                "table.sort(t, function(a: integer, b: integer): boolean",
+                "    noisy()",
+                "    return a < b",
+                "end)",
+                "return t",
+            },
+            "\n"
+        )
+    )
+    local found = nil
+    for _, diag in ipairs(diags) do
+        if diag.code == "NUPP2702" then
+            found = diag
+        end
+    end
+    assert(found ~= nil, "the comparator is refused")
+    assert(found.msg:find("table.sort", 1, true) ~= nil, "and it names what reaches it: " .. found.msg)
+end
+
+function M.refusesASuspendingGsubReplacement()
+    local _, diags = diagnose(
+        table.concat(
+            {
+                "local function noisy(): string",
+                "    coroutine.yield()",
+                "    return 'x'",
+                "end",
+                "local out = string.gsub('aaa', 'a', function(): string",
+                "    return noisy()",
+                "end)",
+                "return out",
+            },
+            "\n"
+        )
+    )
+    local found = nil
+    for _, diag in ipairs(diags) do
+        if diag.code == "NUPP2702" then
+            found = diag
+        end
+    end
+    assert(found ~= nil, "the replacement is refused")
+    assert(found.msg:find("string.gsub", 1, true) ~= nil, "and names the call: " .. found.msg)
+end
+
+function M.allowsAQuietComparator()
+    local _, diags = diagnose(
+        table.concat(
+            {
+                "local t = {3, 1, 2}",
+                "table.sort(t, function(a: integer, b: integer): boolean",
+                "    return tostring(a) < tostring(b)",
+                "end)",
+                "return t",
+            },
+            "\n"
+        )
+    )
+    for _, diag in ipairs(diags) do
+        assert(diag.code ~= "NUPP2702", "a comparator that cannot suspend is left alone: " .. diag.msg)
+    end
+end
+
+function M.doesNotMistakeALocalNamedTableForThePrelude()
+    -- Definition identity, never spelling.
+    local _, diags = diagnose(
+        table.concat(
+            {
+                "local function noisy(): nil",
+                "    coroutine.yield()",
+                "end",
+                "local tbl = {sort = function(_t: {integer}, fn: function(): nil): nil",
+                "    fn()",
+                "end}",
+                "tbl.sort({1}, function(): nil",
+                "    noisy()",
+                "end)",
+                "return tbl",
+            },
+            "\n"
+        )
+    )
+    for _, diag in ipairs(diags) do
+        assert(diag.code ~= "NUPP2702", "somebody else's sort is not the prelude's: " .. diag.msg)
+    end
+end
+
+-- A record's method is qualified only once the file's effects have settled, so what
+-- an interface asks of it on that score is compared then: an implementation that
+-- provably suspends does not satisfy a member the interface declared `@nosuspend`.
+function M.anImplementationOfANoSuspendMemberMayNotSuspend()
+    local iface = table.concat({"local interface Flusher", "    flush: @nosuspend function(self): nil", "end",}, "\n")
+    local _, diags = diagnose(
+        NOISY .. iface .. table.concat(
+            {
+                "",
+                "local record Bad is Flusher",
+                "    function flush(self): nil",
+                "        noisy()",
+                "    end",
+                "end",
+                "return Bad",
+            },
+            "\n"
+        )
+    )
+    local refused = nil
+    for _, diag in ipairs(diags) do
+        if diag.code == "NUPP2118" then
+            refused = diag
+        end
+    end
+    assert(refused ~= nil, "a suspending body does not implement a nosuspend member")
+    testAssert.eq(refused.line, 8, "reported at the method")
+    assert(refused.msg:find("nosuspend", 1, true) ~= nil, "and the refusal says why: " .. refused.msg)
+    local _, quietDiags = diagnose(
+        QUIET .. iface .. table.concat(
+            {
+                "",
+                "local record Good is Flusher",
+                "    function flush(self): nil",
+                "        quiet()",
+                "    end",
+                "end",
+                "return Good",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(
+        #quietDiags,
+        0,
+        "a proved-quiet body is silent" .. (quietDiags[1] and (": " .. quietDiags[1].msg) or "")
+    )
+end
+
+function M.aMetamethodIsNotARegionByItself()
+    -- The boundary is the invocation, not the kind of body. An ordinary metamethod may
+    -- yield on this baseline, so declaring one is not a reason to refuse anything.
+    local _, diags = diagnose(
+        table.concat(
+            {
+                "local function noisy(): nil",
+                "    coroutine.yield()",
+                "end",
+                "local record Thing",
+                "    n: integer",
+                "end",
+                "function Thing.__tostring(_self: Thing): string",
+                "    noisy()",
+                "    return 'thing'",
+                "end",
+                "return Thing",
+            },
+            "\n"
+        )
+    )
+    for _, diag in ipairs(diags) do
+        assert(diag.code ~= "NUPP2702", "a metamethod is not implicitly a region: " .. diag.msg)
+    end
+end
+
+return M

@@ -1,5 +1,3 @@
-module nupp.compiler.comptime.materialize.typeprovider
-
 --[[
 The worker-side provider for compiler-only type and type-pack handles.
 
@@ -7,6 +5,7 @@ Handles contain only immutable blueprint nodes. They never contain checker objec
 nominal allocation identities, scopes or CST nodes. The parent validates and interns
 the finalized graph through `nupp.compiler.types.typeblueprint`.
 ]]
+module nupp.compiler.comptime.materialize.typeprovider
 
 local hash = require("nupp.compiler.hash")
 local reflection = require("nupp.compiler.reflection")

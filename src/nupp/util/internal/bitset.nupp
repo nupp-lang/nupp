@@ -1,6 +1,5 @@
 module nupp.util.internal.bitset
 
-local data = {}
 local bit: any = require("nupp.runtime.bitops")
 const band: function(number, number): integer = bit.band
 const bnot: function(number): integer = bit.bnot
@@ -114,7 +113,7 @@ end
 --- Setting one grows, which reallocates private storage; nothing observable
 --- survives that, because the storage is never handed out.
 --- @export
-record data.Bitset
+export record Bitset
     --- Zero-based words, lowest bit first. Every word from `used` up to
     --- `capacity` is zero, which is the invariant every word loop relies on.
     @private words: uint32[?]
@@ -727,5 +726,3 @@ record data.Bitset
         self.stale = true
     end
 end
-
-export = data

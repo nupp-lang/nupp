@@ -1,9 +1,7 @@
 @!internal
 
-module nupp.runtime.provider.nativeuuid
-
 --[[
-Native implementation of [](package.nupp).
+Native implementation of [](nupp.runtime.contracts).
 
 Loading requires the native UUID feature. Version 4 uses system randomness;
 version 7 combines time ordering with randomness. Both functions return the
@@ -15,6 +13,7 @@ uses temporary output storage, copies the result into a Lua string, and leaves
 no owned native handle with the caller. Provider selection is state-local; UUID
 randomness is supplied by the operating system rather than Lua's random seed.
 ]]
+module nupp.runtime.provider.nativeuuid
 
 const native = require("nupp.runtime.native")
 

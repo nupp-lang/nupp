@@ -7,9 +7,7 @@ module nupp.tools.build.capabilities
 local fs = require("nupp.compiler.fs")
 local json = require("serde.json")
 
-local capabilities = {}
-
-type capabilities.Entry = {
+export type Entry = {
     kind: string,
     name: string,
     api: integer,
@@ -22,7 +20,7 @@ local function identifier(value)
     return type(value) == "string" and value:match("^[A-Za-z0-9][A-Za-z0-9_.-]*$") ~= nil
 end
 
-local function readDescriptor(record, dependencyName): {capabilities.Entry}?, string?
+local function readDescriptor(record, dependencyName): {Entry}?, string?
     if not record or not record.typeRoot then
         return nil, "dependency " .. dependencyName .. " does not install Nupp capability metadata"
     end
@@ -75,7 +73,7 @@ local function readDescriptor(record, dependencyName): {capabilities.Entry}?, st
             return nil, label .. " duplicates capability " .. raw.name
         end
         seen[identity] = true
-        entries[#entries + 1] = raw as capabilities.Entry
+        entries[#entries + 1] = raw as Entry
     end
     if #entries ~= #document.capabilities then
         return nil, path .. ".capabilities must be a dense array"
@@ -84,7 +82,7 @@ local function readDescriptor(record, dependencyName): {capabilities.Entry}?, st
     return entries
 end
 
-function capabilities.find(record, dependencyName: string, kind: string, name: string): capabilities.Entry?, string?
+export function find(record: any, dependencyName: string, kind: string, name: string): Entry?, string?
     local entries, err = readDescriptor(record, dependencyName)
     if not entries then
         return nil, err
@@ -97,5 +95,3 @@ function capabilities.find(record, dependencyName: string, kind: string, name: s
 
     return nil, "dependency " .. dependencyName .. " provides no " .. kind .. " named " .. name
 end
-
-export = capabilities

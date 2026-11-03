@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.suspension.host
-
 --[[
 Deciding what runs while something waits.
 
@@ -38,8 +36,9 @@ its host a turn.
 See [suspension.md](docs/learn/runtime/concurrency/suspension.md) for the handler
 contract and a worked frame handler.
 ]]
+module nupp.suspension.host
 
-local contract = require("nupp.suspension.spi")
+local contract = require("nupp.suspension.contracts")
 local selected = require("nupp.suspension.selected")
 
 local provider = selected.provider

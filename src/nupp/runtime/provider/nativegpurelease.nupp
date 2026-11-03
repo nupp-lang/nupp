@@ -1,6 +1,4 @@
 @!internal
-module nupp.runtime.provider.nativegpurelease
-
 --[[
 Non-suspending teardown for native GPU context state.
 
@@ -13,6 +11,7 @@ no-op. It implements the provider's destruction callback behind the canonical
 The callback accepts only state created by the native GPU implementation and
 must not be used with browser contexts or arbitrary public context values.
 ]]
+module nupp.runtime.provider.nativegpurelease
 
 local native = require("nupp.runtime.native")
 export function destroy(state: any): nil

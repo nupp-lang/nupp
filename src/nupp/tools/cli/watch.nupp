@@ -1,5 +1,3 @@
-module nupp.tools.cli.watch
-
 --[[
 `nupp run --watch`: the entry built once, and every module after it kept live.
 
@@ -13,6 +11,7 @@ callbacks whether it is watching or not and one finishing step when it is.
 Everything here runs on the VM: modules are VM images, and a commit hands the
 runtime one body patch per changed module (`vm.hotPatch`).
 ]]
+module nupp.tools.cli.watch
 
 local watch = {}
 

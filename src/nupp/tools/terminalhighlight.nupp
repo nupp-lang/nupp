@@ -1,5 +1,3 @@
-module nupp.tools.terminalhighlight
-
 --[[
 Nupp source and LuaJIT bytecode, coloured for a terminal.
 
@@ -25,6 +23,7 @@ Nothing here decides whether to colour. A palette is asked for with the answer,
 which the CLI takes from `io.cli`, so redirected output is plain by the same
 rule every other command follows.
 ]]
+module nupp.tools.terminalhighlight
 
 local syntaxstyle = require("nupp.tools.syntaxstyle")
 

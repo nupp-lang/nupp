@@ -1,5 +1,3 @@
-module nupp.compiler.check.bindings
-
 --[[
 What a name is bound to, and what a write does to it.
 
@@ -11,6 +9,7 @@ operator and the assignment together.
 A write is also the thing that invalidates a narrowing, and, when the target is
 the module's own table, what publishes a member of it.
 ]]
+module nupp.compiler.check.bindings
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
@@ -30,13 +29,11 @@ local type Type = T.Type
 --- A node of the tree being checked.
 local type Node = cst.Node
 
-local bindings = {}
-
 --- Installs the binding and assignment statements on a run.
 ---
 --- @param c the run's state
 --- @return the statement kinds this family answers
-function bindings.install(c: state.Checker): state.StatHandlers
+export function install(c: state.Checker): state.StatHandlers
     local apply, facts = c.apply, c.facts
     local applyContract, metamethodOf = apply.applyContract, apply.metamethodOf
     local clearNarrowed, clearAliases = facts.clearNarrowed, facts.clearAliases
@@ -1635,5 +1632,3 @@ function bindings.install(c: state.Checker): state.StatHandlers
 
     return handlers
 end
-
-export = bindings

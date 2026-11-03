@@ -1,5 +1,3 @@
-module nupp.tools.cli.clean
-
 --[[
 `nupp clean`: remove what a build wrote.
 
@@ -7,6 +5,7 @@ The refusal to delete anything outside the project, or the project root itself,
 lives in `nupp.tools.build.project` rather than here, being a property of cleaning,
 not of the command line, and a caller reaching it another way should meet it too.
 ]]
+module nupp.tools.cli.clean
 
 local usageError = require("nupp.tools.cli.error").forCommand("clean")
 local cliModule = require("io.cli")

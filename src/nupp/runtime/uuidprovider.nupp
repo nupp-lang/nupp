@@ -1,20 +1,13 @@
 @!internal
 
+--[[UUID operations use the implementation bound for the selected target.
+
+Public utilities use the same retained functions.]]
 module nupp.runtime.uuidprovider
 
---[[UUID operations come from one provider selected when this module loads.
-
-External implementations advertise the interface in [](package.nupp).
-Public utilities use the same retained functions.]]
-
-local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
-local contracts = package.nupp
+local contracts = require("nupp.runtime.contracts")
 local provider: contracts.UuidProvider = do
-    const chosen = spi.select(spi.providers<contracts.UuidProvider>("package.nupp.UuidProvider"))
-    if chosen ~= nil then
-        yield chosen
-    end
     if target.host == "native" then
         yield _G.require("nupp.runtime.provider.nativeuuid") as contracts.UuidProvider
     end

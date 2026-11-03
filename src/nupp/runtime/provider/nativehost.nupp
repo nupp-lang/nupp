@@ -1,7 +1,4 @@
 @!internal
-
-module nupp.runtime.provider.nativehost
-
 --[[
 The VM's answer to [](os.host) requests: none yet.
 
@@ -13,6 +10,7 @@ and has no host channel today. A program on the VM is therefore run by nothing
 that answers requests, as a program `nupp run` starts under LuaJIT is: every
 request and route is refused by name, and `attached` says so up front.
 ]]
+module nupp.runtime.provider.nativehost
 
 local provider = {}
 

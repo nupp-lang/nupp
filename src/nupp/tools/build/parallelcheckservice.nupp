@@ -1,13 +1,12 @@
 @!internal
 
-module nupp.tools.build.parallelcheckservice
-
 --[[
 The persistent child process for cold semantic checking.
 
 One frame in is one request and one frame out is its answer, carrying the request's
 id back so the coordinator can tell an answer from a stale one.
 ]]
+module nupp.tools.build.parallelcheckservice
 
 local envMod = require("nupp.compiler.project.env")
 local fingerprint = require("nupp.compiler.project.fingerprint")
@@ -18,8 +17,6 @@ local workerchannel = require("nupp.compiler.workerchannel")
 
 local normalize, join = fs.normalize, fs.join
 local readFile = fs.readFile
-
-local service = {}
 
 -- Workers never run under an ahead-of-time policy, so lowering refuses nothing.
 local function noRefusals(_: string, _: string, _: any): ({any}, boolean)
@@ -374,7 +371,7 @@ local function injectedCrash(request: any): boolean
     return failure == "crash" or failure == "crash-once" and request.initializer == 1
 end
 
-function service.main(): integer
+export function main(): integer
     local failure = os.getenv("NUPP_TEST_PARALLEL_CHECK_FAILURE")
     note(os.getenv("NUPP_TEST_PARALLEL_CHECK_PID_FILE"))
     if failure == "exit" then
@@ -420,5 +417,3 @@ function service.main(): integer
 
     return 0
 end
-
-export = service

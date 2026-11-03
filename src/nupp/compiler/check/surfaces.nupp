@@ -1,11 +1,10 @@
-module nupp.compiler.check.surfaces
-
 --[[
 The call surfaces the compiler owns on the standard library's behalf.
 
 The checker reads them to rotate a call and record its effect; the documentation
 generator reads them to print a rotated member in the order a caller writes it.
 ]]
+module nupp.compiler.check.surfaces
 
 --- What a
 local type CompilerSurface = {
@@ -41,7 +40,7 @@ local workerSurface: CompilerSurface = {effect = "runtime.workers", rotate = tru
 local COMPILER_SURFACES: {
     [string]: {[string]: {[string]: CompilerSurface}}
 } = {
-    ["nupp.workers.spi"] = {Scope = {spawn = {rotate = true, sendableLast = true,},},},
+    ["nupp.workers.contracts"] = {Scope = {spawn = {rotate = true, sendableLast = true,},},},
     [
         "nupp.tasks"
     ] = {

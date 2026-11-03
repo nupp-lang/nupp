@@ -1,0 +1,17 @@
+@!internal
+module nupp.runtime.optional
+
+export function load(name: string): any
+    if package.loaded[name] ~= nil or package.preload[name] ~= nil then
+        return require(name)
+    end
+    local loaders = (package as any).searchers or (package as any).loaders
+    assert(type(loaders) == "table", "nupp: module loaders are unavailable")
+    for _, search in ipairs(loaders) do
+        if type(search(name)) == "function" then
+            return require(name)
+        end
+    end
+
+    return nil
+end

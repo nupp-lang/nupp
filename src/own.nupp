@@ -1,0 +1,27 @@
+--[[
+`own` provides checked ownership and managed aliases.
+Its operations preserve the cleanup and borrowing contracts of each resource.
+
+```nupp
+local record Resource is own.Closeable
+    function close(takes self): nil end
+end
+local cell = own.manage(new Resource())
+cell:close()
+```
+
+See [ownership](docs/learn/runtime/ownership/index.md) for moves and cleanup.
+]]
+module own
+
+export type Copyable = own.Copyable
+export type Affine<const cleanup: function> = own.Affine<cleanup>
+export type Closeable = own.Closeable
+export type AliasError = own.AliasError
+export type Managed<T> = own.Managed<T>
+export type Alias<T> = own.Alias<T>
+
+local runtime = rawget(_G, "nupp") as any
+
+--- Recovers an erased alias after checking its managed-cell brand.
+export const recoveralias: function(value: any): ((alias(unknown), nil) | (nil, AliasError)) = runtime.__recoverAlias

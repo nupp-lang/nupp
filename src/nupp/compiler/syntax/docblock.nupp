@@ -1,5 +1,3 @@
-module nupp.compiler.syntax.docblock
-
 --[[
 The `---` run above a declaration, read as its tags.
 
@@ -13,19 +11,18 @@ its tags are, is answered by the parse alone: a `@raises` type is recorded as th
 word it was spelled with, and whether that word names anything is the checker's
 question, asked once the file's declarations are all in.
 ]]
+module nupp.compiler.syntax.docblock
 
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local syntax = require("nupp.compiler.syntax.docsyntax")
-
-local docblock = {}
 
 --- An `@raises` entry: what a function raises, and when.
 ---
 --- A raise is written `@raises Type when the condition holds`. The type is the value
 --- `error` is called with, so a caller reading the page knows what a `pcall` around
 --- the call will hand back, not only that something can come back.
-record docblock.Raise
+export record Raise
     --- The type, exactly as it was spelled. Empty when the line named none.
     type: string
 
@@ -34,7 +31,7 @@ record docblock.Raise
 end
 
 --- A `---` run, read as its prose and its tags.
-record docblock.Doc
+export record Doc
     --- The prose, with every tag line taken out of it.
     text: string
 
@@ -45,7 +42,7 @@ record docblock.Doc
     returns: {string}
 
     --- `@raises`, one entry per occurrence, in the order written.
-    raises: {docblock.Raise}
+    raises: {Raise}
 
     --- `@field name description`, by the field it names.
     fields: {[string]: string}
@@ -65,11 +62,11 @@ end
 -- because a raise names a declaration rather than writing a type expression: a union
 -- of two is two lines, which is also how the page wants to list them. A line with no
 -- words at all keeps both halves empty and lets the checker say so.
-local function splitRaise(text: string): docblock.Raise
+local function splitRaise(text: string): Raise
     local written = trim(text)
     local name, rest = written:match("^(%S+)%s*(.*)$")
 
-    return new docblock.Raise(type = name or "", text = trim(rest or ""))
+    return new Raise(type = name or "", text = trim(rest or ""))
 end
 
 -- The first token under a node, trying every child rather than only the first, so a
@@ -99,7 +96,7 @@ end
 ---
 --- @param node the node whose leading trivia to read
 --- @return the run's lines, empty when the node carries no documentation
-function docblock.linesOf(node: cst.Child?): {string}
+export function linesOf(node: cst.Child?): {string}
     local token = firstToken(node)
     local lines: {string} = {}
     local pending: {string} = {}
@@ -134,12 +131,12 @@ end
 ---
 --- @param lines the run's lines, as `linesOf` returns them
 --- @return what the run said
-function docblock.parse(lines: {string}): docblock.Doc
+export function parse(lines: {string}): Doc
     local params: {[string]: string} = {}
     local fields: {[string]: string} = {}
     local typeargs: {[string]: string} = {}
     local returns: {string} = {}
-    local raises: {docblock.Raise} = {}
+    local raises: {Raise} = {}
     local tags: {[string]: any} = {}
     -- A tag is routed by where its value goes rather than by its own name, so the
     -- three shapes a tag can have each have one table: named, listed, and the raises
@@ -227,7 +224,7 @@ function docblock.parse(lines: {string}): docblock.Doc
         table.remove(body)
     end
 
-    return new docblock.Doc(
+    return new Doc(
         text = table.concat(body, "\n"),
         params = params,
         returns = returns,
@@ -244,9 +241,7 @@ end
 --- @return what the run said
 --- @return whether the node carried a run at all, which is how a caller tells an
 ---     empty docblock from an absent one
-function docblock.of(node: cst.Child?): docblock.Doc, boolean
-    local lines = docblock.linesOf(node)
-    return docblock.parse(lines), #lines > 0
+export function of(node: cst.Child?): Doc, boolean
+    local lines = linesOf(node)
+    return parse(lines), #lines > 0
 end
-
-export = docblock

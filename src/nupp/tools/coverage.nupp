@@ -1,5 +1,3 @@
-module nupp.tools.coverage
-
 --[[
 Coverage aggregation and the self-contained static report.
 
@@ -8,6 +6,7 @@ hot path. It reads the coverage build state and the one shard the built-in
 runner wrote, turns them into one aggregate model, then writes JSON, LCOV, and
 HTML from that model.
 ]]
+module nupp.tools.coverage
 
 local json = require("serde.json")
 local fs = require("nupp.compiler.fs")
@@ -15,7 +14,6 @@ local cache = require("nupp.tools.build.cache")
 local highlight = require("nupp.tools.doc.highlight")
 local report = require("nupp.tools.cli.report")
 
-local coverage = {}
 local readFile, writeFile, normalize = fs.readFile, fs.writeFile, fs.normalize
 
 local function percent(covered, total)
@@ -99,7 +97,7 @@ end
 --- so an unloaded source module remains visibly uncovered. The report a run produced:
 --- every file it saw, and whatever the runner could not account for. `version` is the
 --- shard format, not the report's.
-type coverage.Model = {
+export type Model = {
     version: integer,
     files: {any},
     warnings: {string},
@@ -108,7 +106,7 @@ type coverage.Model = {
     summary: {[string]: any}?
 }
 
-function coverage.collect(statePath: string, shardPath: string): coverage.Model
+export function collect(statePath: string, shardPath: string): Model
     local state = cache.loadState(statePath)
     local shard, shardErr = readShard(shardPath)
     local hits = {}
@@ -581,12 +579,12 @@ end
 --- Writes all report formats and returns the root roll-up for terminal/JSON callers.
 --- The format of `coverage.json`. `nupp test --coverage --report-json` and CI read
 --- it back, so a reader checks it exactly and refuses any other, naming both.
-coverage.SCHEMA_VERSION = 1
+export const SCHEMA_VERSION = 1
 
 --- Reads a `coverage.json` a run wrote, refusing one in another format.
 ---
 --- @return the report's text and its decoded value, or nil and why it cannot be used
-function coverage.read(path: string): (string?, any, string?)
+export function read(path: string): (string?, any, string?)
     local text, readErr = readFile(path)
     if not text then
         return nil, nil, "cannot read coverage report " .. path .. ": " .. tostring(readErr)
@@ -596,22 +594,22 @@ function coverage.read(path: string): (string?, any, string?)
         return nil, nil, path .. " is not a coverage report: " .. tostring(decodeErr or "not a JSON object")
     end
     local found = (value as {[string]: any}).schemaVersion
-    if found ~= coverage.SCHEMA_VERSION then
+    if found ~= SCHEMA_VERSION then
         return nil, nil, (
             "%s has schemaVersion %s, and this compiler reads %d; run the coverage again"
-        ):format(path, tostring(found), coverage.SCHEMA_VERSION)
+        ):format(path, tostring(found), SCHEMA_VERSION)
     end
 
     return text, value, nil
 end
 
-function coverage.write(model: coverage.Model, outDir: string): {[string]: any}
+export function write(model: Model, outDir: string): {[string]: any}
     local summary = aggregate(model.files, "")
     model.summary = summary
     -- Source text belongs in its HTML pages, not in the machine
     -- report. Keeping the JSON to metrics/sites makes it practical for CI to read.
     local public = {
-        schemaVersion = coverage.SCHEMA_VERSION,
+        schemaVersion = SCHEMA_VERSION,
         warnings = model.warnings,
         files = {},
         summary = {
@@ -692,5 +690,3 @@ function coverage.write(model: coverage.Model, outDir: string): {[string]: any}
 
     return summary
 end
-
-export = coverage

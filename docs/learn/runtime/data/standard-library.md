@@ -49,7 +49,7 @@ The standard surface is deliberately small. These pages cover both the
 intrinsic namespaces and the declared modules:
 
 - [](binary.digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512
-  with provider lookup, output-size metadata and consuming finalization.
+  with algorithm lookup, output-size metadata and consuming finalization.
 - [](binary.checksum) provides Adler-32 and explicitly named CRC variants
   as numeric values; protocols choose their serialization byte order.
 - [](binary.mac) provides keyed authentication, including HMAC-SHA256.
@@ -103,7 +103,8 @@ scheduler and sendable values.
 
 Compiler namespaces and builtin-table extensions use canonical declarations.
 Use builtin libraries through their qualified names. The compiler inserts the
-module loads those references need. Providers resolve while their facades load.
+module loads those references need. The build binds builtin implementations for
+the selected target.
 
 ### Selection follows use
 
@@ -120,20 +121,19 @@ the HTTP client, only when the program's image reaches a module that needs it;
 see [Native runtime](../../../reference/native-runtime.md#facility-selection).
 SHA-256 needs none: it is Nupp rather than a native provider.
 
-### Provider initialization
+### Target bindings
 
-A module selects its implementation while it is required and retains the actual
-functions. Exported operations perform no SPI lookup.
+The build binds each builtin service to the implementation for the target's
+host, native or browser. Exported operations perform no provider discovery.
 
-Implementations satisfy interfaces in the library's `.spi` module or the shared
-[](package.nupp) contracts and are advertised in `nupp/spi.json`. Standard-library
-consumers choose the unique highest priority, or use their built-in fallback
-when discovery is empty. See
-[SPI](../../projects/spi.md) for ordinary selection code and package discovery.
+Packages can discover implementations of their own interfaces with
+`package.providers` and `package.select`. Those descriptors do not replace
+builtin services. See [SPI](../../projects/spi.md) for package discovery.
 
-The public surface does not expose the JSON provider module, a provider's own
-handles, or native pointers. Those are implementation details, so application code
-keeps the same Nupp API when a provider changes.
+Runtime implementation contracts are private. The public surface does not expose
+the JSON provider module, a provider's own handles, or native pointers. Those are
+implementation details, so application code keeps the same Nupp API when a
+provider changes.
 
 ## Byte positions
 

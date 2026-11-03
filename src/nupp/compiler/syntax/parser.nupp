@@ -1,5 +1,3 @@
-module nupp.compiler.syntax.parser
-
 --[[
 The error-tolerant recursive-descent parser.
 
@@ -14,12 +12,11 @@ missing tokens, and parsing continues to the end of the file.
 
 The grammar is `docs/grammar.abnf`, whose level 0 is the untyped LuaJIT 3.0 base.
 ]]
+module nupp.compiler.syntax.parser
 
 local lexer = require("nupp.compiler.syntax.lexer")
 local cst = require("nupp.compiler.syntax.cst")
 local fileDirectives = require("nupp.compiler.syntax.filedirectives")
-
-local parser = {}
 
 --- A token, as the lexer produced it or the parser inserted it.
 local type Token = lexer.Token
@@ -28,7 +25,7 @@ local type Token = lexer.Token
 local type Node = cst.Node
 
 --- What parsing a file yields.
-type parser.ParseResult = {
+export type ParseResult = {
     --- The root node, which is always a chunk. Printing it reproduces the source
     --- exactly.
     root: cst.Chunk,
@@ -139,7 +136,7 @@ local TOO_DEEP = {}
 --- @param source the file's bytes
 --- @param filename what to call it in diagnostics
 --- @raises string when the parser itself fails, which is a bug in the compiler
-function parser.parse(source: string, filename: string?): parser.ParseResult
+export function parse(source: string, filename: string?): ParseResult
     local tokens, errors = lexer.lex(source, filename)
     local i: integer = 1
     local hasDeclaredModule = false
@@ -3743,5 +3740,3 @@ function parser.parse(source: string, filename: string?): parser.ParseResult
 
     return {root = root as cst.Chunk, tokens = tokens, errors = errors, source = source}
 end
-
-export = parser

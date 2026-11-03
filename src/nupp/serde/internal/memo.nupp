@@ -1,5 +1,3 @@
-module nupp.serde.internal.memo
-
 --[[
 A bounded cache of the work a codec selects once per binding and direction.
 
@@ -11,6 +9,7 @@ used entry, never one whose build is running.
 Building is split into `start` and `finish` around the caller's own protected
 call, so a lookup that hits allocates nothing and a miss allocates no closure.
 ]]
+module nupp.serde.internal.memo
 
 local core = require("nupp.serde.internal.value")
 

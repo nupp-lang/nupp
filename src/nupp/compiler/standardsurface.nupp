@@ -1,7 +1,5 @@
 module nupp.compiler.standardsurface
 
-local surface = {}
-
 local function facility(kind: string, effect: string): any
     return {kind = kind, effect = effect}
 end
@@ -22,31 +20,31 @@ local MODULES: {[string]: {
     ["nupp.runtime.clocks"] = facility("host", "runtime.clocks"),
     ["nupp.runtime.standardos"] = {kind = "common"},
     ["nupp.runtime.packages"] = {kind = "common"},
-    ["package.nupp"] = {kind = "common"},
+    ["nupp.runtime.contracts"] = {kind = "common"},
     ["types"] = {kind = "common"},
     ["types.derive"] = {kind = "common"},
     ["types.reflect"] = {kind = "common"},
     ["own"] = {kind = "common"},
     ["binary.digest"] = facility("runtime", "runtime.bitops"),
-    ["binary.mac.spi"] = {kind = "common"},
+    ["binary.mac.internal.contracts"] = {kind = "common"},
     ["os.host"] = facility("host", "runtime.host"),
     ["os.host.pump"] = {kind = "common"},
     ["nupp.host.internal.values"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.runtime.provider.nativehost"] = facility("runtime", "native.host"),
     ["nupp.runtime.browser.host"] = facility("runtime", "runtime.host"),
     ["nupp.runtime.browser.hostwire"] = {kind = "unavailable", capability = "cinterop"},
-    ["binary.digest.spi"] = {kind = "common"},
+    ["binary.digest.internal.contracts"] = {kind = "common"},
     ["nupp.digest.internal.context"] = {kind = "common"},
     ["nupp.digest.internal.builtin"] = facility("runtime", "runtime.bitops"),
     ["nupp.digest.internal.words"] = facility("runtime", "runtime.bitops"),
     ["nupp.digest.internal.constants"] = {kind = "common"},
     ["binary.checksum"] = {kind = "common"},
-    ["binary.checksum.spi"] = {kind = "common"},
+    ["binary.checksum.internal.contracts"] = {kind = "common"},
     ["nupp.checksum.internal.builtin"] = {kind = "common"},
     ["nupp.runtime.provider.nativecrc"] = facility("runtime", "native.crc"),
     ["binary.mac"] = facility("runtime", "runtime.bitops"),
     ["binary.compress"] = facility("runtime", "runtime.compression"),
-    ["binary.compress.spi"] = {kind = "common"},
+    ["binary.compress.internal.contracts"] = {kind = "common"},
     ["nupp.runtime.provider.nativecompression"] = facility("runtime", "native.compression"),
     ["nupp.util.internal.hash"] = facility("runtime", "runtime.bitops"),
     ["nupp.util.internal.uuid"] = facility("runtime", "runtime.uuid"),
@@ -122,7 +120,7 @@ local MODULES: {[string]: {
     ["io.files"] = facility("host", "runtime.files"),
     ["io.files.messages"] = {kind = "common"},
     ["io.files.internal.path"] = {kind = "common"},
-    ["io.files.spi"] = {kind = "common"},
+    ["io.files.internal.contracts"] = {kind = "common"},
     ["nupp.runtime.provider.nativefiles"] = facility("runtime", "native.files"),
     ["nupp.runtime.browser.files"] = facility("runtime", "runtime.files"),
     ["nupp.io.http"] = facility("host", "runtime.http"),
@@ -180,7 +178,7 @@ local BROWSER_IMPLEMENTATIONS = {
 }
 
 --- Whether this implementation module belongs to the artifact's runtime.
-function surface.supports(moduleName: string, host: string?): boolean
+export function supports(moduleName: string, host: string?): boolean
     local selectedHost = host or "native"
     if BROWSER_IMPLEMENTATIONS[moduleName] then
         return selectedHost == "browser"
@@ -211,11 +209,11 @@ function surface.supports(moduleName: string, host: string?): boolean
     return true
 end
 
-function surface.classify(moduleName: string): any?
+export function classify(moduleName: string): any?
     return MODULES[moduleName]
 end
 
-function surface.all(): {[string]: any}
+export function all(): {[string]: any}
     local copy = {}
     for name, classification in pairs(MODULES) do
         copy[name] = classification
@@ -225,7 +223,7 @@ function surface.all(): {[string]: any}
 end
 
 --- Whether a runtime module can participate in stock-Lua compatibility output.
-function surface.compatible(moduleName: string): boolean
+export function compatible(moduleName: string): boolean
     local classification = MODULES[moduleName]
     if classification and classification.kind == "unavailable" then
         return false
@@ -242,7 +240,7 @@ function surface.compatible(moduleName: string): boolean
 end
 
 local function reach(checker: any, moduleName: string, at: any?): boolean
-    if not surface.supports(moduleName, checker.env and checker.env.artifactHost) then
+    if not supports(moduleName, checker.env and checker.env.artifactHost) then
         if at ~= nil then
             checker.diag(
                 "NUPP3006",
@@ -258,25 +256,23 @@ local function reach(checker: any, moduleName: string, at: any?): boolean
     return true
 end
 
-function surface.reachable(checker: any, moduleName: string): boolean
+export function reachable(checker: any, moduleName: string): boolean
     return reach(checker, moduleName, nil)
 end
 
-function surface.accelerators(moduleName: string): {string}?
+export function accelerators(moduleName: string): {string}?
     local classification = MODULES[moduleName]
 
     return classification and classification.accelerators or nil
 end
 
-function surface.requireModule(checker: any, moduleName: string, at: any): string?
+export function requireModule(checker: any, moduleName: string, at: any): string?
     if not reach(checker, moduleName, at) then
         return nil
     end
     return nil
 end
 
-function surface.requireMember(checker: any, moduleName: string, member: string, at: any): string?
+export function requireMember(checker: any, moduleName: string, member: string, at: any): string?
     return nil
 end
-
-export = surface

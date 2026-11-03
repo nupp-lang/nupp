@@ -1,5 +1,3 @@
-module io.files.messages
-
 --[[
 `io.files.messages` defines filesystem metadata and capability contracts.
 Providers and callers share the same entry and information types.
@@ -11,6 +9,8 @@ local function isfile(info: messages.Info): boolean
 end
 ```
 ]]
+module io.files.messages
+
 local paths = require("io.internal.path")
 
 export type Kind = "file" | "directory" | "symlink" | "other"

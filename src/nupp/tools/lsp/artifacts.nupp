@@ -1,5 +1,3 @@
-module nupp.tools.lsp.artifacts
-
 --[[
 What a source file compiles to, answered for the buffer rather than the file.
 
@@ -22,6 +20,7 @@ the lowering records for every instruction.
 Only the VM-hosted compiler answers either: the image is what that compiler
 produces, so a LuaJIT-hosted session says so rather than guessing.
 ]]
+module nupp.tools.lsp.artifacts
 
 local text = require("nupp.tools.lsp.text")
 local tree = require("nupp.tools.lsp.tree")

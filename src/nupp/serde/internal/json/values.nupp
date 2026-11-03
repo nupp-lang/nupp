@@ -1,5 +1,3 @@
-module nupp.serde.internal.json.values
-
 --[==[
 `serde.json` is a strict Nupp JSON codec. Its performance provider is
 SIMD-accelerated through `@aot`; compiler and browser targets select a
@@ -122,11 +120,13 @@ assert(json.encode(users, value) == '{"id":41}')
 See [serde.md](docs/learn/runtime/data/serde.md) for mappings, documents, and
 external models.
 ]==]
+module nupp.serde.internal.json.values
+
 const {type Buffer} = require("nupp.text")
 
 const native = require("nupp.codec.json.provider")
 
-const contracts = require("serde.json.spi")
+const contracts = require("serde.json.internal.contracts")
 
 --- A complete JSON value whose immutable bytes have already been encoded or
 --- validated.

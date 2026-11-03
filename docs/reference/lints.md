@@ -689,12 +689,12 @@ editor does with it.
 
 ### Lint tests
 
-`tests/allowtest.lua` has the harness for level resolution.
+`tests/compiler/check/allowtest.lua` has the harness for level resolution.
 `checkOf(src, {lints = ...})` returns the diagnostics with a project
 configuration applied, which is how the level, the category override and
 `@allow` are covered. A lint that spans files wants
-`tests/projectlinktest.lua`'s `withProject`, and one whose editor severity
-differs wants an LSP session in `tests/lsptest.lua`.
+`tests/compiler/project/projectlinktest.lua`'s `withProject`, and one whose editor severity
+differs wants an LSP session in `tests/tools/lsp/lsptest.lua`.
 
 Assert the `severity` as well as the code. A lint that reports at the wrong
 level is a lint that fails the wrong builds.

@@ -1,7 +1,7 @@
 @!internal
 module io.internal.uritypes
 
-local contracts = require("io.spi")
+local contracts = require("io.internal.contracts")
 
 const _FACTORY_REQUIRES = "@requires-dynamically io.internal.uri"
 const _PARSER_REQUIRES = "@requires-dynamically nupp.io.uri.whatwg"

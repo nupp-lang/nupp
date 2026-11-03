@@ -68,9 +68,7 @@ local PILOT_FORKS: integer = 5
 --- Where the machine identity is cached, relative to the toolchain cache.
 local MACHINE_KEY_FILE = "bench-machine-key"
 
-local runner = {}
-
-type runner.Options = {
+export type Options = {
     executable: string?,
     baseline: string?,
     accept: boolean?,
@@ -867,9 +865,12 @@ end
 --- needs each process's ordered samples, neither of which can be recovered from a
 --- median.
 ---
+--- The merge checks agreement between counters and can withhold an interval.
+--- These rules define what a benchmark run may claim.
+---
 --- The third result is what fails the run rather than annotating it: forks of one
 --- benchmark that computed different checksums.
-local function mergeForks(name: string, path: string, forks: {any}): (any, {string}, {string})
+export function mergeForks(name: string, path: string, forks: {any}): (any, {string}, {string})
     local notes: {string} = {}
     local problems: {string} = {}
     local first = forks[1]
@@ -1360,7 +1361,7 @@ local function writeRunDocument(document: {[string]: any}, code: integer, proble
     return code
 end
 
-function runner.run(options: runner.Options): integer
+export function run(options: Options): integer
     local executable = options.executable or "nupp"
     local baselinePath = options.baseline
     local accept = options.accept == true
@@ -1964,11 +1965,3 @@ function runner.run(options: runner.Options): integer
 
     return finish((#executionFailures > 0 or #regressions > 0) and 1 or 0)
 end
-
---- The fork merge, exposed because it is the contract rather than an implementation
---- detail: which counters must agree across processes, which may differ, and when an
---- interval is withheld. Those rules decide what a run is allowed to claim, so they are
---- tested directly rather than inferred from a table somewhere downstream.
-runner.mergeForks = mergeForks
-
-export = runner

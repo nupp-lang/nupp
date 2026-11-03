@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.io.path.pathtext
-
 --[[
 Path text, as rules about characters.
 
@@ -32,6 +30,7 @@ Normalization has one ordinary Nupp body. An AOT build lowers its fresh table,
 rooted string reads and string construction through the VM-aware construction
 IR; an AOT-off or portable build runs those same authored operations as Lua.
 ]]
+module nupp.io.path.pathtext
 
 local pathtext = {}
 

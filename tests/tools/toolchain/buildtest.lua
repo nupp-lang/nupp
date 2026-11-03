@@ -1,0 +1,771 @@
+local testAssert = require("assert")
+-- `nupp build` and `nupp run` over multi-file projects, driven through the
+-- real binary so the CLI, the runtime loader, and the program a build stamps are
+-- all in the loop.
+local HERE = require("helpers.paths").absoluteTests
+local NUPP = HERE .. "/../bin/nupp"
+local json = require("testjson")
+
+local function tempProject(files)
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "'") == 0)
+    for name, text in pairs(files) do
+        local sub = name:match("^(.*)/[^/]+$")
+        if sub then
+            assert(os.execute("mkdir -p '" .. dir .. "/" .. sub .. "'") == 0)
+        end
+        local f = assert(io.open(dir .. "/" .. name, "wb"))
+        f:write(text)
+        f:close()
+    end
+
+    return dir
+end
+
+local function capture(cmd)
+    local p = assert(io.popen(cmd .. " 2>&1"))
+    local out = p:read("*a")
+    p:close()
+    return out
+end
+
+-- See lspclitest: a JSON capture reads stdout alone, because the launcher's
+-- cold-cache progress line goes to stderr and would arrive in front of it.
+local function captureJson(cmd)
+    local p = assert(io.popen(cmd))
+    local out = p:read("*a")
+    p:close()
+    return out
+end
+
+local function exists(path)
+    local f = io.open(path, "rb")
+    if f then
+        f:close()
+        return true
+    end
+
+    return false
+end
+
+-- A manifest whose default target is a program binary named `app`, stamped in
+-- `build/`, with `fields` spliced into the target.
+local function binaryManifest(fields)
+    return (
+        'return {include = {"."}, build = {default = "app", targets = {app = {\n'
+        .. '   kind = "binary", stub = "nupp", entries = {"main"}, %s\n}}}}\n'
+    ):format(fields or "")
+end
+
+-- What a binary named `app` is called on this platform.
+local APP_FILE = package.config:sub(1, 1) == "\\" and "app.exe" or "app"
+
+local M = {}
+
+function M.bundleResourcesPreserveEveryByte()
+    local bytes = {}
+    for byte = 0, 255 do
+        bytes[#bytes + 1] = string.char(byte)
+    end
+    local payloads = {"\r\n\n\r\r\0" .. table.concat(bytes), "\0\n[[binary]]\255", "before\026after"}
+    local files = {
+        [
+            "nupp.lua"
+        ] = binaryManifest(
+            'resources = {{source = "1.bin", output = "1.bin"}, {source = "2.bin", output = "2.bin"},'
+            .. ' {source = "3.bin", output = "3.bin"}},'
+        ),
+        [
+            "main.nupp"
+        ] = 'local embedded = require("nupp.embedded") as {[string]: string}\n'
+        .. 'local args = rawget(_G, "arg") as {[integer]: string}\n'
+        .. 'io.write(embedded["/" .. assert(args[1]) .. ".bin"])\n',
+    }
+    for index, payload in ipairs(payloads) do
+        files[index .. ".bin"] = payload
+    end
+    local dir = tempProject(files)
+    local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
+    testAssert.eq(out, "", "the resource program builds: " .. out)
+    for index, payload in ipairs(payloads) do
+        -- Read back from a file rather than a pipe: a pipe is text on Windows, and
+        -- its CRLF reads as one newline there.
+        os.execute(("cd '%s' && ./build/app %d > out.bin"):format(dir, index))
+        local ran = assert(io.open(dir .. "/out.bin", "rb")):read("*a")
+        testAssert.eq(ran, payload, "bundled resources preserve binary bytes and line endings")
+    end
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+local LIB = table.concat(
+    {"local function double(n: number): number", "    return n * 2", "end", "return {double = double}",},
+    "\n"
+)
+
+local APP = table.concat({"local lib = require('lib')", "print(lib.double(21))",}, "\n")
+
+function M.buildEmitsTheDependencyClosure()
+    local dir = tempProject({["nupp.lua"] = binaryManifest(), ["lib.nupp"] = LIB, ["main.nupp"] = APP,})
+    local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
+    testAssert.eq(out, "", "build is quiet on success: " .. out)
+    assert(exists(dir .. "/build/" .. APP_FILE), "the program is stamped")
+    assert(not exists(dir .. "/main.lua"), "building leaves authored directories untouched")
+    -- and the result runs with the module it requires, with no toolchain present
+    local ran = capture(("cd '%s' && ./build/app"):format(dir))
+    testAssert.eq(ran, "42\n", "built output runs standalone")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.buildCarriesThePublicTestModule()
+    local dir = tempProject({
+        ["nupp.lua"] = binaryManifest(),
+        ["main.nupp"] = [[
+local test = require("assert")
+test.eq(42, 42)
+]],
+    })
+    local out = capture(("cd %q && %q build"):format(dir, NUPP))
+    testAssert.eq(out, "", "the public assertion module builds: " .. out)
+    local ran = capture(("cd %q && ./build/app && echo passed"):format(dir))
+    testAssert.eq(ran, "passed\n", "the linked assertion module runs in the program")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.explicitBuildCreatesItsOutputDirectory()
+    local dir = tempProject({["nupp.lua"] = binaryManifest(), ["main.nupp"] = "return 42\n",})
+    local out = capture(("cd '%s' && '%s' build -o nested/out"):format(dir, NUPP))
+    testAssert.eq(out, "", "explicit build creates its output directory: " .. out)
+    assert(exists(dir .. "/nested/out/" .. APP_FILE), "explicit build writes beneath the requested directory")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.projectOutDirOverrideBundlesResourcesFromTheOverride()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
+return {
+   include = {"src"},
+   build = {
+      targets = {
+         app = {
+            kind = "binary",
+            stub = "nupp",
+            outDir = "build/default",
+            output = "build/default/application",
+            entries = {"main"},
+            resources = {{source = "asset.txt", output = "asset.txt"}},
+         },
+      },
+      default = "app",
+   },
+}
+]],
+        ["asset.txt"] = "resource from overridden output",
+        [
+            "src/main.nupp"
+        ] = [[
+local embedded = (package.preload["nupp.embedded"] as any)()
+print(embedded["/asset.txt"])
+]],
+    })
+    local out = capture(("cd %q && %q build --output alternate"):format(dir, NUPP))
+    testAssert.eq(out, "", "project output override builds a resource bundle")
+    local ran = capture(("cd %q && ./alternate/application"):format(dir))
+    testAssert.eq(ran, "resource from overridden output\n", "the overridden bundle carries its staged resource")
+    os.execute("rm -rf " .. string.format("%q", dir))
+end
+
+function M.runLoadsModulesFromSource()
+    local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["lib.nupp"] = LIB, ["main.nupp"] = APP,})
+    -- no build step: the runtime loader compiles requires on demand
+    local ran = capture(("cd '%s' && '%s' run main.nupp"):format(dir, NUPP))
+    testAssert.eq(ran, "42\n", "multi-file program runs straight from source")
+    assert(not exists(dir .. "/build/lib.lua"), "running leaves no artifacts")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.buildReportsErrorsInDependencies()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}}\n',
+        [
+            "lib.nupp"
+        ] = "local function double(n: number): string\n"
+        .. "    return n * 2\n"
+        .. "end\n"
+        .. "return {double = double}\n",
+        ["main.nupp"] = APP,
+    })
+    local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
+    assert(out:find("NUPP2002", 1, true), "a type error inside a dependency is reported: " .. out)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.declarationFilesPreservePropertyCapabilities()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}}\n',
+        [
+            "cell.d.nupp"
+        ] = table.concat(
+            {
+                "local cell: {",
+                "    @readonly value: string,",
+                "    @writeonly value: string | integer,",
+                "    @readonly [string]: string,",
+                "    @writeonly [string]: string | integer",
+                "}",
+                "return cell",
+            },
+            "\n"
+        ),
+        [
+            "main.nupp"
+        ] = table.concat(
+            {
+                "local cell = require('cell')",
+                "cell.value = 42",
+                "local value: string = cell.value",
+                "cell['answer'] = 42",
+                "local indexed: string? = cell['answer']",
+                "local input: {@readonly value: string | integer} = cell",
+                "local output: {@writeonly value: string} = cell",
+                "return {value, indexed, input, output}",
+            },
+            "\n"
+        ),
+    })
+    local out = capture(("cd '%s' && '%s' check main.nupp"):format(dir, NUPP))
+    testAssert.eq(out, "", "property capabilities survive declaration files: " .. out)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.importCWritesAModule()
+    -- import-c output carries cdef statements, which generate bindings at
+    -- runtime, so it is a module and must be built like one
+    local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n'})
+    local out = capture(("cd '%s' && '%s' import-c '%s/fixtures/mini.h' --lib mini"):format(dir, NUPP, HERE))
+    assert(out:find("mini.nupp", 1, true), "names the module it wrote: " .. out)
+    assert(exists(dir .. "/mini.nupp"), "output is a module, not a .d.nupp")
+    assert(not exists(dir .. "/mini.d.nupp"), "no declaration file written")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- A build names its target with `--target` and takes no source files, so a
+-- target's name in first position is refused with a pointer to the help.
+function M.buildTakesNoPositionalArguments()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {
+   include = {"src"},
+   build = {targets = {docs = {kind = "docs", sources = {"src"}, outDir = "site"}}},
+}]],
+        ["src/mini.nupp"] = "function value(): number return 1 end\n",
+        ["docs/home.md"] = "# Home\n",
+    })
+
+    local named = capture(("cd '%s' && '%s' build docs"):format(dir, NUPP))
+    assert(named:find("docs", 1, true), "the stray argument is named: " .. named)
+    assert(named:find("nupp help build", 1, true), "validation errors point to command help: " .. named)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- Every failure carries a reason. A directory opens on POSIX and reads as nothing, so
+-- the read used to fail with no second result and the command printed the word "nil"
+-- where the path belonged.
+function M.readingSomethingThatIsNotAFileSaysWhy()
+    local dir = tempProject({["src/mini.nupp"] = "function value(): number return 1 end\n"})
+
+    local directory = capture(("cd '%s' && '%s' check src"):format(dir, NUPP))
+    assert(directory:find("src is a directory", 1, true), "a directory says it is one: " .. directory)
+    assert(not directory:find("nupp: nil", 1, true), "no failure reports itself as nil: " .. directory)
+
+    local missing = capture(("cd '%s' && '%s' check nosuch.nupp"):format(dir, NUPP))
+    assert(missing:find("nosuch.nupp", 1, true), "a missing file is named: " .. missing)
+    assert(not missing:find("nupp: nil", 1, true), "no failure reports itself as nil: " .. missing)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.cliProvidesCommandHelpAndValidatesOptions()
+    local help = capture(("'%s' help build"):format(NUPP))
+    assert(help:find("Build a configured project target", 1, true), "build help has a command summary: " .. help)
+    assert(help:find("--target NAME", 1, true), "build help documents target selection: " .. help)
+
+    local missing = capture(("'%s' build --target"):format(NUPP))
+    assert(missing:find("option --target requires a value", 1, true), "missing option values are rejected: " .. missing)
+    assert(missing:find("nupp help build", 1, true), "validation errors point to command help: " .. missing)
+
+    local unknown = capture(("'%s' check --wat"):format(NUPP))
+    assert(unknown:find("unknown option --wat", 1, true), "unknown options are rejected: " .. unknown)
+end
+
+-- There is one lowering, so there is no axis to select it: the flag, the manifest
+-- key and the report field are all gone rather than kept with one legal value.
+function M.theLoweringDialectIsNotAnOptionAKeyOrAField()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}, build = {entries = {"main"}}}\n',
+        ["main.nupp"] = "return 42\n",
+    })
+    local built = require("testjson").decode(captureJson(("cd '%s' && '%s' build --json"):format(dir, NUPP)))
+    testAssert.eq(built.ok, true)
+    testAssert.eq(built.dialect, nil, "the build report has no dialect")
+    local checked = require("testjson").decode(captureJson(("cd '%s' && '%s' check --json"):format(dir, NUPP)))
+    testAssert.eq(checked.ok, true)
+    testAssert.eq(checked.dialect, nil, "the check report has no dialect")
+    for _, command in ipairs({"check main.nupp", "build"}) do
+        local refused = capture(("cd '%s' && '%s' %s --dialect luajit"):format(dir, NUPP, command))
+        assert(refused:find("unknown option --dialect", 1, true), command .. ": " .. refused)
+    end
+    local keyed = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}, build = {entries = {"main"}, dialect = "luajit"}}\n',
+        ["main.nupp"] = "return 42\n",
+    })
+    local refused = capture(("cd '%s' && '%s' check"):format(keyed, NUPP))
+    assert(refused:find('has no key "dialect"', 1, true), refused)
+    os.execute("rm -rf '" .. dir .. "' '" .. keyed .. "'")
+end
+
+function M.cliProvidesHelpForMainAndEverySubcommand()
+    local main = capture(("'%s' --help"):format(NUPP))
+    assert(main:find("Usage:\n  nupp <command>", 1, true), "--help prints main help: " .. main)
+    assert(main:find("Commands:", 1, true), "main help lists commands: " .. main)
+
+    local commands = {
+        "ast",
+        "check",
+        "fmt",
+        "build",
+        "clean",
+        "bench",
+        "task",
+        "test",
+        "doc",
+        "fixpoint",
+        "run",
+        "import-c",
+        "lsp",
+        "help",
+    }
+    for _, command in ipairs(commands) do
+        local out = capture(("'%s' %s --help"):format(NUPP, command))
+        assert(out:find("Usage:", 1, true), command .. " --help did not print command help: " .. out)
+        assert(not out:find("No such file", 1, true), command .. " --help was interpreted as an input: " .. out)
+    end
+
+    local removed = capture(("'%s' tasks"):format(NUPP))
+    assert(removed:find("unknown command tasks", 1, true), "the standalone tasks command still exists: " .. removed)
+end
+
+function M.astCommandDumpsJsonSyntaxTrees()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}}\n',
+        ["sample.nupp"] = "local answer: number = 20 + 22\nreturn answer\n",
+    })
+    local encoded = captureJson(("cd '%s' && '%s' ast sample.nupp"):format(dir, NUPP))
+    testAssert.eq(select(2, encoded:gsub("\n", "")), 1, "the default report is one line")
+    local decoded = require("testjson").decode(encoded)
+    testAssert.eq(decoded.file, "sample.nupp", "JSON identifies the input")
+    testAssert.eq(decoded.root.tag, "node", "JSON distinguishes nodes")
+    testAssert.eq(decoded.root.kind, "chunk", "JSON includes the root production")
+    testAssert.eq(#decoded.diagnostics, 0, "valid input has no parse errors")
+    testAssert.eq(decoded.ok, true, "and says so")
+
+    local function containsKind(value, kind)
+        if value.kind == kind then
+            return true
+        end
+        for _, child in ipairs(value.children or {}) do
+            if containsKind(child, kind) then
+                return true
+            end
+        end
+
+        return false
+    end
+
+    assert(containsKind(decoded.root, "binop"), "JSON includes structural expression children")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- The indented form is the same document with whitespace in it, so it is checked
+-- by decoding both and comparing what they describe rather than by matching text.
+function M.astJsonPrettyIndentsTheSameDocument()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}}\n',
+        -- The string literal carries a quote, a brace and a comma, which is what
+        -- says the indenter steps over strings instead of punctuating inside them.
+        ["sample.nupp"] = 'local answer: string = "a {brace}, a quote \\" and more"\nreturn answer\n',
+    })
+    local json = require("testjson")
+    local compact = captureJson(("cd '%s' && '%s' ast sample.nupp"):format(dir, NUPP))
+    local pretty = captureJson(("cd '%s' && '%s' ast --json-pretty sample.nupp"):format(dir, NUPP))
+    assert(select(2, pretty:gsub("\n", "")) > 10, "the pretty report spans lines: " .. pretty)
+    assert(pretty:find('{\n  "', 1, true), "the pretty report indents members: " .. pretty)
+    assert(pretty:find('"diagnostics": []', 1, true), "an empty list stays on one line: " .. pretty)
+
+    local function same(a, b)
+        if type(a) ~= type(b) then
+            return false
+        end
+        if type(a) ~= "table" then
+            return a == b
+        end
+        for key, value in pairs(a) do
+            if not same(value, b[key]) then
+                return false
+            end
+        end
+        for key in pairs(b) do
+            if a[key] == nil then
+                return false
+            end
+        end
+
+        return true
+    end
+
+    assert(same(json.decode(pretty), json.decode(compact)), "both forms describe one tree:\n" .. pretty)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.astCommandDumpsRecoveredTreesOnParseErrors()
+    local dir = tempProject({["nupp.lua"] = 'return {include = {"."}}\n', ["broken.nupp"] = "local = 1\nreturn 2\n",})
+    local decoded = require("testjson").decode(captureJson(("cd '%s' && '%s' ast broken.nupp"):format(dir, NUPP)))
+    testAssert.eq(decoded.root.kind, "chunk", "recovered tree is printed")
+    assert(#decoded.diagnostics > 0, "parse diagnostics are reported")
+    assert(decoded.diagnostics[1].message ~= nil, "a reported parse error carries its message")
+    assert(decoded.diagnostics[1].code and decoded.diagnostics[1].range, "with its code and range")
+    assert(decoded.ok == false, "and the document says the parse failed")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.cleanRemovesConfiguredOutputsSafely()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
+return {
+   build = {
+      default = "app",
+      targets = {
+         app = {kind = "modules", entries = {"app.main"}, outDir = "out"},
+         docs = {kind = "docs", sources = {"src"}, outDir = "site"},
+      },
+   },
+   test = {build = "app", argv = {"luajit", "tests/run.lua"},
+      env = {MODE = "test"}},
+   selfHost = {target = "app", bootstrap = "scripts/find-stage0"},
+}
+]],
+        ["out/app/main.lua"] = "return true\n",
+        ["site/index.html"] = "<h1>API</h1>\n",
+    })
+    local dry = capture(("cd '%s' && '%s' clean --target docs --dry-run"):format(dir, NUPP))
+    testAssert.eq(dry, "would remove site\n", "dry run reports the selected output")
+    assert(exists(dir .. "/site/index.html"), "dry run preserves the output")
+
+    local one = capture(("cd '%s' && '%s' clean --target docs"):format(dir, NUPP))
+    testAssert.eq(one, "removed site\n", "target clean reports the removed output")
+    assert(not exists(dir .. "/site/index.html"), "target clean removes its output")
+    assert(exists(dir .. "/out/app/main.lua"), "target clean preserves other outputs")
+
+    local all = capture(("cd '%s' && '%s' clean"):format(dir, NUPP))
+    assert(all:find("removed out", 1, true), "clean reports all outputs: " .. all)
+    assert(not exists(dir .. "/out/app/main.lua"), "clean removes module outputs")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.cleanRefusesPathsOutsideTheProject()
+    local dir = tempProject({["nupp.lua"] = [[
+return {build = {entries = {"main"}, outDir = "../outside"}}
+]],})
+    local out = capture(("cd '%s' && '%s' clean"):format(dir, NUPP))
+    assert(out:find("refusing to clean unsafe build output path", 1, true), "clean rejects parent traversal: " .. out)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.cliListsAndDescribesBuildTasks()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
+return {
+   include = {"src"},
+   build = {
+      outDir = "out",
+      default = "app",
+      targets = {
+         tools = {kind = "modules", entries = {"tools.main"}},
+         app = {kind = "modules", description = "Build the application",
+            entries = {"app.main"}, resources = {"src/app/*.d.nupp"}},
+      },
+   },
+   test = {build = "app", argv = {"luajit", "tests/run.lua"},
+      env = {MODE = "test"}},
+   tasks = {release = {
+      description = "Run the release tool", cwd = "tools",
+      argv = {"nupp", "run", "release.nupp"},
+   }},
+   selfHost = {target = "app", bootstrap = "scripts/find-stage0"},
+}
+]],
+    })
+    local listed = capture(("cd '%s' && '%s' task -l"):format(dir, NUPP))
+
+    -- The listing is a table, so a row is a name, a kind and a description separated
+    -- by runs of padding rather than by a fixed " - ".
+    local function row(name)
+        for line in listed:gmatch("[^\r\n]+") do
+            if line:match("^" .. name:gsub("%p", "%%%0") .. "%f[%s]") then
+                return line
+            end
+        end
+
+        return nil
+    end
+
+    assert(row("app (default)"), "text listing marks the default: " .. listed)
+    assert(
+        row("app (default)"):find("Build the application", 1, true),
+        "text listing includes the default's description: " .. listed
+    )
+    assert(row("tools"), "text listing includes every task: " .. listed)
+    assert(
+        row("test") and row("test"):find("Build and run", 1, true),
+        "text listing includes the configured test task: " .. listed
+    )
+    assert(
+        row("fixpoint") and row("fixpoint"):find("Verify", 1, true),
+        "text listing includes the configured self-host task: " .. listed
+    )
+    assert(
+        row("release") and row("release"):find("Run the release tool", 1, true),
+        "text listing includes custom tasks: " .. listed
+    )
+    assert(row("app (default)"):find("modules", 1, true), "and says what kind of entry each one is: " .. listed)
+    assert(
+        listed:find("app", 1, true) < listed:find("tools", 1, true),
+        "text listing is sorted by task name: " .. listed
+    )
+
+    local detail = capture(("cd '%s' && '%s' task --list --text app"):format(dir, NUPP))
+    assert(detail:find("Output directory: out", 1, true), "text detail includes inherited configuration: " .. detail)
+    assert(detail:find("  - app.main", 1, true), "text detail includes entries: " .. detail)
+
+    local encoded = capture(("cd '%s' && '%s' task --list --json app"):format(dir, NUPP))
+    local decoded = require("testjson").decode(encoded)
+    testAssert.eq(decoded.name, "app", "JSON detail identifies the task")
+    testAssert.eq(decoded.outDir, "out", "JSON detail includes effective defaults")
+    testAssert.eq(decoded.entries[1], "app.main", "JSON detail includes entries")
+
+    encoded = capture(("cd '%s' && '%s' task --list --json test"):format(dir, NUPP))
+    decoded = require("testjson").decode(encoded)
+    testAssert.eq(decoded.kind, "test", "JSON identifies the configured action kind")
+    testAssert.eq(decoded.buildTarget, "app", "JSON includes the prerequisite target")
+    testAssert.eq(decoded.argv[2], "tests/run.lua", "JSON includes the configured argv")
+    testAssert.eq(decoded.env.MODE, "test", "JSON includes the configured environment")
+
+    local fixpoint = capture(("cd '%s' && '%s' task --list --text fixpoint"):format(dir, NUPP))
+    assert(
+        fixpoint:find("Stage zero: scripts/find-stage0", 1, true),
+        "text detail includes self-host configuration: " .. fixpoint
+    )
+    local release = capture(("cd '%s' && '%s' task --list --text release"):format(dir, NUPP))
+    assert(
+        release:find("Working directory: tools", 1, true),
+        "text detail includes the configured working directory: " .. release
+    )
+    encoded = capture(("cd '%s' && '%s' task --list --json release"):format(dir, NUPP))
+    decoded = require("testjson").decode(encoded)
+    testAssert.eq(decoded.cwd, "tools", "JSON detail includes the configured working directory")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.cliListsTheDefaultTestAction()
+    local dir = tempProject({
+        ["nupp.lua"] = [[
+return {
+   include = {"src"},
+   build = {entries = {"main"}},
+}
+]],
+        ["src/main.nupp"] = "return true\n",
+    })
+    local encoded = capture(("cd '%s' && '%s' task --list --json test"):format(dir, NUPP))
+    local decoded = require("testjson").decode(encoded)
+    testAssert.eq(decoded.kind, "test", "JSON identifies the default test action")
+    testAssert.eq(decoded.argv[1], "nupp", "the default test action uses Nupp")
+    testAssert.eq(decoded.argv[2], "test", "the default test action stays under the test command")
+    testAssert.eq(decoded.argv[3], "--internal-runner", "the default test action uses the bundled runner")
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.cliReportsManifestValidationErrorsWhenListingTasks()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
+return {
+   build = {
+      default = "missing",
+      targets = {app = {entries = {"app.main"}}},
+   },
+}
+]],
+    })
+    local out = capture(("cd '%s' && '%s' task --list"):format(dir, NUPP))
+    assert(
+        out:find("build.default references unknown target missing", 1, true),
+        "task discovery validates the manifest: " .. out
+    )
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- A build compiles the project's source set, not the closure of its entries.
+--
+-- The two things reachability got wrong, kept honest here: a module nothing
+-- requires is still checked, and a module reached only through a computed
+-- `require` is still in the build for it to find.
+
+local SOURCE_SET_MANIFEST = [[
+return {
+   include = { "src" },
+   build = {
+      outDir = "build",
+      default = "app",
+      targets = { app = {kind = "binary", stub = "nupp", entries = {"app.main"}} },
+   },
+}
+]]
+
+-- The one that used to fail in front of a user rather than at build time.
+function M.aComputedRequireFindsItsModule()
+    local dir = tempProject({
+        ["nupp.lua"] = SOURCE_SET_MANIFEST,
+        -- A computed name resolves to no module the checker can see, so the
+        -- result is `unknown` until the program says what it expects.
+        [
+            "src/app/main.nupp"
+        ] = 'local which = "app.plugin"\n'
+        .. 'local plugin = require(which) as {hi: function(): string}\n'
+        .. "print(plugin.hi())\n",
+        [
+            "src/app/plugin.nupp"
+        ] = "local plugin = {}\n\nfunction plugin.hi(): string\n" .. '    return "found"\nend\n\nreturn plugin\n',
+    })
+    local out = capture(("cd '%s' && '%s' build"):format(dir, NUPP))
+    testAssert.eq(out, "", "the program builds: " .. out)
+    local built = capture(("cd '%s' && ./build/app"):format(dir))
+    assert(built:find("found", 1, true), "the module named only by a computed require is in the build: " .. built)
+    local ran = capture(("cd '%s' && '%s' run src/app/main.nupp"):format(dir, NUPP))
+    assert(ran:find("found", 1, true), "and the program finds it at run time: " .. ran)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+-- Checking is the same source set, so an unrequired module cannot hide a type
+-- error. This is the half that makes `nupp check` mean what it says.
+function M.checksModulesNothingRequires()
+    local dir = tempProject({
+        ["nupp.lua"] = SOURCE_SET_MANIFEST,
+        ["src/app/main.nupp"] = "print('main')\n",
+        [
+            "src/app/orphan.nupp"
+        ] = "local orphan = {}\n\nfunction orphan.wrong(): string\n" .. "    return 42\nend\n\nreturn orphan\n",
+    })
+    local out = capture(("cd '%s' && '%s' check"):format(dir, NUPP))
+    assert(out:find("NUPP2002", 1, true), "the orphan's type error is reported: " .. out)
+    assert(out:find("orphan.nupp", 1, true), "and named: " .. out)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.targetSourcesSelectARecursiveModuleSet()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[
+return {
+   include = {"src"},
+   build = {targets = {app = {
+      kind = "binary", stub = "nupp", entries = {"app.main"}, sources = {"src/app"},
+   }}},
+}
+]],
+        ["src/app/main.nupp"] = "return require('shared.answer')\n",
+        ["src/app/plugin.nupp"] = "return {name = 'selected'}\n",
+        -- A static dependency is part of the target even when its file sits outside the
+        -- selected directory.
+        ["src/shared/answer.nupp"] = "return 42\n",
+        ["src/other/orphan.nupp"] = "local value: string = 42\nreturn value\n",
+    })
+    local out = capture(("cd '%s' && '%s' build --target app"):format(dir, NUPP))
+    testAssert.eq(out, "", "a scoped target ignores source outside its set: " .. out)
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.targetSourcesRejectEmptyAndEscapingSelections()
+    local missing = tempProject({
+        ["nupp.lua"] = [[return {include = {"src"}, build = {
+   entries = {"main"}, sources = {"src/missing"},
+}}]],
+        ["src/main.nupp"] = "return 1\n",
+    })
+    local missingOut = capture(("cd '%s' && '%s' build"):format(missing, NUPP))
+    assert(
+        missingOut:find("build.sources matched nothing: src/missing", 1, true),
+        "a misspelled source set fails: " .. missingOut
+    )
+    os.execute("rm -rf '" .. missing .. "'")
+
+    local escaping = tempProject({
+        ["nupp.lua"] = [[return {include = {"src"}, build = {
+   entries = {"main"}, sources = {"../outside"},
+}}]],
+        ["src/main.nupp"] = "return 1\n",
+    })
+    local escapingOut = capture(("cd '%s' && '%s' build"):format(escaping, NUPP))
+    assert(
+        escapingOut:find("build.sources must stay inside the project", 1, true),
+        "a source set cannot escape its project: " .. escapingOut
+    )
+    os.execute("rm -rf '" .. escaping .. "'")
+end
+
+function M.jsonBuildReportsColdAndWarmDeriveObservations()
+    local dir = tempProject({
+        ["nupp.lua"] = 'return {include = {"."}}\n',
+        ["model.nupp"] = [[
+@derive(types.debug)
+local record Model
+    value: integer = 0
+end
+return new Model()
+]],
+    })
+    local first = require("testjson").decode(captureJson(("cd '%s' && '%s' build --json"):format(dir, NUPP)))
+    assert(first.ok and #first.derives == 1, "cold build reports all derives")
+    local byProvider = {}
+    for _, observation in ipairs(first.derives) do
+        byProvider[observation.provider] = observation
+    end
+    assert(byProvider["types.debug"], "build observations name every provider")
+    local json = byProvider["types.debug"]
+    assert(
+        json.generatedMembers == 1 and json.canonicalBytes > 0 and json.renderedBytes > 0,
+        "build observations expose bounded generation facts"
+    )
+
+    local second = require("testjson").decode(captureJson(("cd '%s' && '%s' build --json"):format(dir, NUPP)))
+    assert(second.ok and #second.derives == 1, "cached build preserves derive observations")
+    for index, observation in ipairs(first.derives) do
+        testAssert.eq(
+            second.derives[index].semanticFingerprint,
+            observation.semanticFingerprint,
+            "cached/cold derive fingerprint"
+        )
+        testAssert.eq(second.derives[index].canonicalBytes, observation.canonicalBytes, "cached/cold derive size")
+    end
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
+return M

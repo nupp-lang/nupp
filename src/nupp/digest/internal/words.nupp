@@ -1,6 +1,4 @@
 @!internal
-module nupp.digest.internal.words
-
 --[[Incremental MD5, SHA-1, and SHA-512 word implementations.
 
 RFC 1321 and RFC 6234 operations use single 32-bit words or high/low word pairs,
@@ -10,6 +8,7 @@ counts. Finalization applies the algorithm's padding and writes the fixed-size
 result into the supplied byte span. This module uses the retained bit operations
 and performs no SPI resolution itself. MD5 and SHA-1 serve interoperability uses.
 ]]
+module nupp.digest.internal.words
 
 const bit = require("nupp.runtime.bitops")
 const span = require("binary.span")

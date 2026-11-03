@@ -1,0 +1,1484 @@
+local testAssert = require("assert")
+-- Comptime, C1: expression blocks.
+--
+-- The property that matters is not that a literal appears in the output but that the
+-- literal is the value the block computed, so the interesting tests run the program
+-- and compare it against the same answer reached another way. The rest are the
+-- guard rails, which are worth more here than usual: a block that quietly read the
+-- clock or quietly shared a table would produce a program that builds differently
+-- tomorrow.
+local parser = require("nupp.compiler.syntax.parser")
+local program = require("program")
+local check = require("helpers.fragment")
+local envMod = require("nupp.compiler.project.env")
+local T = require("nupp.compiler.types")
+local comptime = require("nupp.compiler.comptime")
+local typeblueprint = require("nupp.compiler.types.typeblueprint")
+local hash = require("nupp.compiler.hash")
+local stable = require("nupp.compiler.stable")
+
+local HERE = require("helpers.paths").tests
+local env = envMod.new(HERE .. "/..")
+
+-- Checks. Comptime runs during checking, so a diagnostic it produced is in the list
+-- this returns.
+local function compile(src, selectedEnv, opts)
+    local filename = opts and opts.moduleName and opts.moduleName .. ".nupp" or "test.nupp"
+    local result = parser.parse(src, filename)
+    testAssert.eq(#result.errors, 0, "syntax errors in test source")
+    local diags = check.check(result, filename, selectedEnv or env, opts)
+
+    return result, diags
+end
+
+-- The image a source lowers to.
+local function image(src)
+    return program.image((compile(src, nil, {moduleName = "test"})), "test")
+end
+
+local function runIn(moduleName, src, selectedEnv)
+    local result, diags = compile(src, selectedEnv, {moduleName = moduleName})
+    for _, diag in ipairs(diags) do
+        if diag.severity ~= "warning" and diag.severity ~= "note" then
+            error(("unexpected %s: %s\n---\n%s"):format(diag.code, diag.msg, src), 2)
+        end
+    end
+
+    return program.run(result, moduleName)
+end
+
+-- A refused block has no value to type, so a fixture returning it would also be
+-- told its module's value needs an annotation. That is a consequence of the
+-- refusal, not what these cases are about, so they check without the floor.
+local function errorsOf(src)
+    local _, diags = compile(src, nil, {strict = false})
+    local codes = {}
+    for _, diag in ipairs(diags) do
+        if diag.severity ~= "warning" and diag.severity ~= "note" then
+            codes[#codes + 1] = diag.code
+        end
+    end
+
+    return codes, diags
+end
+
+-- Compiles, loads and runs, so that what is asserted is the program's behaviour rather
+-- than the shape of the text that produced it.
+local function run(moduleName, src, ...)
+    local result, diags = compile(src, nil, {moduleName = moduleName})
+    for _, diag in ipairs(diags) do
+        if diag.severity ~= "warning" and diag.severity ~= "note" then
+            error(("unexpected %s: %s\n---\n%s"):format(diag.code, diag.msg, src), 2)
+        end
+    end
+
+    return program.run(result, moduleName, nil, ...)
+end
+
+local function firstLocalBinding(result)
+    local declaration = result.root.blocks[1].stats[1]
+    assert(declaration.kind == "localStmt")
+    return declaration.names[1].definition.type
+end
+
+local function evaluateTypeBlueprint(body)
+    local result = parser.parse("return comptime do " .. body .. " end", "type-blueprint-test.nupp")
+    testAssert.eq(#result.errors, 0, "type blueprint source parses")
+    local returned = result.root.blocks[1].stats[1]
+    assert(returned.kind == "returnStmt")
+    local node = returned.exprs[1]
+    assert(node.kind == "comptimeExpr")
+    local _, _, failure, envelope = comptime.evaluateDirect(node, node.body, {}, {}, {})
+    if failure then
+        error(("unexpected %s: %s"):format(failure.code, failure.message), 2)
+    end
+    assert(envelope ~= nil, "a type handle finalizes as an envelope")
+    local value, invalid = typeblueprint.validate(envelope)
+    if invalid then
+        error(("invalid %s: %s"):format(invalid.code, invalid.message), 2)
+    end
+
+    return value, envelope
+end
+
+local function typeBlueprintFailure(body)
+    local result = parser.parse("return comptime do " .. body .. " end", "type-blueprint-failure-test.nupp")
+    testAssert.eq(#result.errors, 0, "type blueprint source parses")
+    local returned = result.root.blocks[1].stats[1]
+    assert(returned.kind == "returnStmt")
+    local node = returned.exprs[1]
+    assert(node.kind == "comptimeExpr")
+    local _, _, failure = comptime.evaluateDirect(node, node.body, {}, {}, {})
+    if not failure then
+        error("expected the type blueprint to fail", 2)
+    end
+
+    return failure
+end
+
+local M = {}
+
+function M.lowercaseBuilderPathsRespectLocalBindings()
+    local nominal, open = run(
+        [[
+local types = {
+    samenominal = function(left: integer, right: integer): boolean return left ~= right end,
+    nonexhaustive = function(): integer return 17 end,
+}
+local nominal: boolean = types.samenominal(1, 2)
+local open: integer = types.nonexhaustive()
+return nominal, open
+]]
+    )
+    testAssert.eq(nominal, true)
+    testAssert.eq(open, 17)
+end
+
+function M.lowercaseFieldcodecKeepsTheExistingMaterializationContract()
+    local left, right = run(
+        [[
+local record Item
+    value: integer
+end
+const old: types.reflect.FieldCodec<Item> = comptime do
+    return types.reflect.fieldcodec(types.reflect(Item))
+end
+const current: types.reflect.FieldCodec<Item> = comptime do
+    return types.reflect.fieldcodec(types.reflect(Item))
+end
+local value = new Item(value = 23)
+local left: integer = old:encode(value).value
+local decoded, reason = current:decode(current:encode(value))
+if decoded == nil then error(reason) end
+local right: integer = decoded.value
+return left, right
+]]
+    )
+    testAssert.eq(left, 23)
+    testAssert.eq(right, 23)
+end
+
+function M.internsStructurallyDistinctTypesApart()
+    local value = evaluateTypeBlueprint(
+        [[
+      const a = types.indexer(types.union({types.niltype, types.number}), types.integer)
+      const b = types.union({types.niltype, types.indexer(types.number, types.integer)})
+      if a == b or types.kind(a) ~= "indexer" or types.kind(b) ~= "union" then
+         return types.error("distinct types interned as one")
+      end
+      const pair = types.tuple({types.string, types.integer})
+      const nested = types.tuple({types.tuple({types.string}), types.integer})
+      if pair == nested then
+         return types.error("nested tuple interned as flat")
+      end
+      return b
+   ]]
+    )
+    testAssert.eq(value.tag, "union", "the union survives the indexer built before it")
+end
+
+function M.flattensOptionalIntoTheUnionItNames()
+    local value = evaluateTypeBlueprint(
+        [[
+      const direct = types.union({types.string, types.number, types.niltype})
+      const viaOptional = types.optional(types.union({types.string, types.number}))
+      if direct ~= viaOptional then
+         return types.error("optional of a union is not the flat union")
+      end
+      const once = types.optional(types.string)
+      if types.optional(once) ~= once then
+         return types.error("optional of optional is not optional")
+      end
+      return viaOptional
+   ]]
+    )
+    testAssert.eq(value, T.union({T.string, T.number, T.nil_}), "the flattened union reconstructs")
+end
+
+function M.rejectsANonHandleMapWriteSide()
+    local failure = typeBlueprintFailure([[
+      return types.map(types.string, types.number, 42)
+   ]])
+    testAssert.eq(failure.code, "NUPP2415", "a stray write key fails at the call")
+    assert(failure.message:find("types.map", 1, true), failure.message)
+end
+
+function M.finalizesAndValidatesStructuralTypeHandles()
+    local value = evaluateTypeBlueprint(
+        [[
+      const name = types.literal("id")
+      const maybeInteger = types.optional(types.integer)
+      return types.tuple({name, maybeInteger})
+   ]]
+    )
+    testAssert.eq(value.tag, "tuple", "the parent interns the structural result")
+    testAssert.eq(value.elems[1].constant, "id", "literal payload survives validation")
+    testAssert.eq(value.elems[2], T.optional(T.integer), "builder results use ordinary interning")
+end
+
+function M.finalizesAndValidatesTypePackHandles()
+    local value = evaluateTypeBlueprint(
+        [[
+      return types.pack(
+         {types.string, types.integer},
+         types.any,
+         {"plain", "borrowed"}
+      )
+   ]]
+    )
+    testAssert.eq(value.tag, "pack", "the parent interns a pack result")
+    testAssert.eq(value.head[1], T.string, "pack head keeps its first type")
+    testAssert.eq(value.modes[2], "borrowed", "pack modes survive validation")
+    testAssert.eq(value.tail.type, T.any, "pack homogeneous tail survives validation")
+end
+
+function M.preservesStructuralFieldAndIndexerCapabilities()
+    local value = evaluateTypeBlueprint(
+        [[
+      const indexer = types.indexer(
+         types.string,
+         types.number,
+         types.string,
+         types.integer
+      )
+      return types.shape({
+         {name = "read", read = types.string},
+         {name = "write", write = types.integer},
+         {name = "both", read = types.number, write = types.number}
+      }, indexer)
+   ]]
+    )
+    testAssert.eq(value.tag, "shape", "the shape is interned structurally")
+    testAssert.eq(value.byname.read, T.string, "read-only capability survives")
+    testAssert.eq(value.writeByname.read, nil, "read-only field grants no write")
+    testAssert.eq(value.byname.write, nil, "write-only field grants no read")
+    testAssert.eq(value.writeByname.write, T.integer, "write-only capability survives")
+    testAssert.eq(value.indexReadValue, T.number, "read indexer survives")
+    testAssert.eq(value.indexWriteValue, T.integer, "write indexer survives")
+end
+
+function M.reconstructsWrappersCArrayIntersectionsAndFunctions()
+    local wrapped = evaluateTypeBlueprint(
+        [[
+      return types.intersection({
+         types.pointer(types.uint8),
+         types.constof(types.carray(types.uint8, 16))
+      })
+   ]]
+    )
+    testAssert.eq(
+        wrapped,
+        T.intersection({
+            T.ptr(T.uint8),
+            T.constOf(T.carray(T.uint8, 16))
+        }),
+        "wrappers and C arrays use canonical constructors"
+    )
+
+    local callable = evaluateTypeBlueprint(
+        [[
+      const parameters = types.pack({types.string}, types.any)
+      const results = types.pack({types.bool})
+      return types.functiontype(parameters, results)
+   ]]
+    )
+    testAssert.eq(callable.tag, "func", "function blueprint interns as an ordinary function")
+    testAssert.eq(callable.paramPack.head[1], T.string, "function parameters survive")
+    testAssert.eq(callable.paramPack.tail.type, T.any, "function vararg tail survives")
+    testAssert.eq(callable.retPack.head[1], T.boolean, "function results survive")
+end
+
+function M.scansFormatArgumentsWithOrdinaryComptimeControlFlow()
+    local value = evaluateTypeBlueprint(
+        [[
+      const format = "%s=%04d %% %q"
+      local arguments = {}
+      local cursor = 1
+      while cursor <= #format do
+         if format:sub(cursor, cursor) == "%" then
+            cursor = cursor + 1
+            if format:sub(cursor, cursor) ~= "%" then
+               while format:sub(cursor, cursor):match("[-+ #0]") do
+                  cursor = cursor + 1
+               end
+               while format:sub(cursor, cursor):match("[0-9]") do
+                  cursor = cursor + 1
+               end
+               if format:sub(cursor, cursor) == "." then
+                  cursor = cursor + 1
+                  while format:sub(cursor, cursor):match("[0-9]") do
+                     cursor = cursor + 1
+                  end
+               end
+               const conversion = format:sub(cursor, cursor)
+               if conversion == "s" or conversion == "q" then
+                  arguments[#arguments + 1] = types.any
+               elseif conversion == "d" or conversion == "i" then
+                  arguments[#arguments + 1] = types.number
+               else
+                  return types.error("unsupported format conversion %" .. conversion)
+               end
+            end
+         end
+         cursor = cursor + 1
+      end
+      return types.pack(arguments)
+   ]]
+    )
+    testAssert.eq(#value.head, 3, "the ordinary scanner computes format arity")
+    testAssert.eq(value.head[1], T.any, "%s accepts the gradual printable input")
+    testAssert.eq(value.head[2], T.number, "%d accepts a numeric input")
+    testAssert.eq(value.head[3], T.any, "%q accepts the gradual printable input")
+end
+
+function M.separatesAuthoredTypeFailureFromEvaluatorFailure()
+    local result = parser.parse(
+        [[
+      return comptime do
+         return types.error("expected a literal format")
+      end
+   ]],
+        "type-error-test.nupp"
+    )
+    testAssert.eq(#result.errors, 0, "authored type error source parses")
+    local returned = result.root.blocks[1].stats[1]
+    assert(returned.kind == "returnStmt")
+    local node = returned.exprs[1]
+    assert(node.kind == "comptimeExpr")
+    local _, _, failure = comptime.evaluateDirect(node, node.body, {}, {}, {})
+    if not failure then
+        error("expected an authored type failure", 2)
+    end
+    testAssert.eq(failure.code, "NUPP2420", "authored type rejection has its own diagnostic")
+    testAssert.eq(failure.message, "expected a literal format", "authored message is preserved")
+end
+
+function M.rejectsTamperedTypeBlueprints()
+    local _, envelope = evaluateTypeBlueprint([[return types.array(types.string)]])
+    envelope.payload.nodes[1].element = 999
+    envelope.fingerprint = hash.sha256("nupp.types\0v1\0" .. stable(envelope.payload))
+    local _, invalid = typeblueprint.validate(envelope)
+    if not invalid then
+        error("expected a rejected blueprint", 2)
+    end
+    testAssert.eq(invalid.code, "NUPP2415", "the parent rejects a forged graph edge")
+end
+
+function M.rejectsMalformedTypeBlueprintPayloads()
+    local function rejected(envelope, label)
+        envelope.fingerprint = hash.sha256("nupp.types\0v1\0" .. stable(envelope.payload))
+        local value, invalid = typeblueprint.validate(envelope)
+        testAssert.eq(value, nil, label)
+        assert(invalid and invalid.code == "NUPP2415", label)
+    end
+
+    local _, tuple = evaluateTypeBlueprint([[
+      return types.tuple({types.string, types.integer})
+   ]])
+    local tupleNode = tuple.payload.nodes[tuple.payload.root]
+    tupleNode.members[3] = tupleNode.members[2]
+    tupleNode.members[2] = nil
+    rejected(tuple, "a sparse member array is not truncated")
+
+    local _, constraint = evaluateTypeBlueprint([[
+      return types.range(types.integer, 1, 2)
+   ]])
+    constraint.payload.nodes[constraint.payload.root].low = "1"
+    rejected(constraint, "non-numeric bounds do not reach the constructor")
+
+    local _, literal = evaluateTypeBlueprint([[return types.literal("name")]])
+    local literalNode = literal.payload.nodes[literal.payload.root]
+    literal.payload.nodes[literalNode.base].name = "integer"
+    rejected(literal, "a literal must retain its value's primitive base")
+
+    local _, pack = evaluateTypeBlueprint([[
+      return types.pack({types.string, types.integer})
+   ]])
+    pack.payload.nodes[pack.payload.root].names = {[3] = "extra"}
+    rejected(pack, "pack metadata cannot name a missing slot")
+end
+
+local LAYOUT_SOURCE = [[
+local struct Inner
+    small: int16
+    whole: int32
+end
+
+local struct Packet
+    tag: int8
+    value: float64
+    next: Inner*
+    inner: Inner
+    samples: float32[3]
+end
+
+local type PacketAlias = Packet
+
+local type Pair<T> = T[2]
+
+return comptime do
+    const INNER = "inner"
+    return {
+        types.sizeof(Packet),
+        types.alignof(Packet),
+        types.offsetof(Packet, "value"),
+        types.offsetof(Packet, INNER),
+        types.sizeof(int32),
+        types.sizeof(Inner*),
+        types.sizeof(PacketAlias),
+        types.sizeof(Pair<int16>)
+    }
+end
+]]
+
+local function layoutEnv(target)
+    return envMod.new(HERE .. "/..", {cache = false, config = {build = {entries = {"main"}, layoutTarget = target}}})
+end
+
+function M.computesLayoutForTheDeclaredTargetRatherThanTheHost()
+    local lp64 = runIn(
+        "comptimetest.computesLayoutForTheDeclaredTargetRatherThanTheHost.fragment_1",
+        LAYOUT_SOURCE,
+        layoutEnv("aarch64-unknown-linux-gnu")
+    )
+    testAssert.eq(table.concat(lp64, ","), "48,8,8,24,4,8,48,4", "LP64 layout")
+
+    local ilp32 = runIn(
+        "comptimetest.computesLayoutForTheDeclaredTargetRatherThanTheHost.fragment_2",
+        LAYOUT_SOURCE,
+        layoutEnv("i686-unknown-linux-gnu")
+    )
+    testAssert.eq(table.concat(ilp32, ","), "36,4,4,16,4,4,36,4", "i686 SysV layout")
+
+    local wasm32 = runIn(
+        "comptimetest.computesLayoutForTheDeclaredTargetRatherThanTheHost.fragment_3",
+        LAYOUT_SOURCE,
+        layoutEnv("wasm32-unknown-emscripten")
+    )
+    testAssert.eq(table.concat(wasm32, ","), "40,8,8,20,4,4,40,4", "wasm32 layout")
+end
+
+function M.layoutNamesRespectShadowedTypesAtRuntimeAndComptime()
+    local source = [[
+local types: {
+    sizeof: function(integer): number,
+    alignof: function(integer): number,
+    offsetof: function(string): integer
+} = {sizeof = math.abs, alignof = math.abs, offsetof = string.len}
+local size: number = types.sizeof(-9)
+local alignment: number = types.alignof(-4)
+local offset: integer = types.offsetof("field")
+return {size, alignment, offset}
+]]
+    testAssert.eq(table.concat(run(source), ","), "9,4,5")
+    testAssert.eq(table.concat(run("return comptime do " .. source .. " end"), ","), "9,4,5")
+end
+
+function M.layoutNamespaceAliasesKeepTheDeclaredTarget()
+    local values = runIn(
+        [[
+local struct Value
+    tag: int8
+    value: int32
+end
+return comptime do
+    local query = types
+    return {query.sizeof(Value), query.alignof(Value), query.offsetof(Value, "value")}
+end
+]],
+        layoutEnv("x86_64-unknown-linux-gnu")
+    )
+    testAssert.eq(table.concat(values, ","), "8,4,4")
+end
+
+function M.compilerTypeIntrinsicsRequireTheTypesNamespace()
+    for _, name in ipairs({"reflect", "sizeof", "alignof", "offsetof"}) do
+        local argument = name == "offsetof" and 'int32, "value"' or "int32"
+        local codes = errorsOf(("return comptime do return %s(%s) end"):format(name, argument))
+        -- "reflect" also names a module of this repository, reported at the same
+        -- position; diagnostics at one position have no order to rely on.
+        assert(table.concat(codes, ","):find("NUPP2410", 1, true), name .. " is not a bare comptime global")
+    end
+end
+
+function M.layoutIntrinsicsRequireATargetAndAReifiableType()
+    local codes, diags = errorsOf(
+        [[
+local struct Value
+    n: int32
+end
+return comptime do return types.sizeof(Value) end
+]]
+    )
+    testAssert.eq(codes[1], "NUPP2419", "missing target")
+    assert(diags[1].help and diags[1].help:find("layoutTarget", 1, true), "the diagnostic names the manifest selection")
+
+    local _, invalid = compile(
+        [[
+local record Value
+    n: int32
+end
+return comptime do return types.sizeof(Value) end
+]],
+        layoutEnv("x86_64-unknown-linux-gnu")
+    )
+    testAssert.eq(invalid[1].code, "NUPP2419", "records have no C layout")
+    assert(invalid[1].msg:find("no runtime layout", 1, true), invalid[1].msg)
+end
+
+function M.offsetofRequiresAKnownExistingField()
+    local _, unknown = compile(
+        [[
+local struct Value
+    n: int32
+end
+return comptime do return types.offsetof(Value, "missing") end
+]],
+        layoutEnv("x86_64-unknown-linux-gnu")
+    )
+    testAssert.eq(unknown[1].code, "NUPP2419", "unknown field")
+    assert(unknown[1].msg:find('no field "missing"', 1, true), unknown[1].msg)
+
+    local _, dynamic = compile(
+        [[
+local struct Value
+    n: int32
+end
+local name: string = "n"
+return comptime do return types.offsetof(Value, name) end
+]],
+        layoutEnv("x86_64-unknown-linux-gnu"),
+        {strict = false}
+    )
+    local dynamicCodes = {}
+    for _, diag in ipairs(dynamic) do
+        dynamicCodes[#dynamicCodes + 1] = diag.code
+    end
+    -- The layout query refuses the unknown field at the same position.
+    assert(table.concat(dynamicCodes, ","):find("NUPP2410", 1, true), "runtime locals remain unavailable")
+end
+
+function M.evaluatesAnArithmeticBlock()
+    testAssert.eq(
+        run("comptimetest.evaluatesAnArithmeticBlock", "return comptime do return (2 + 3) * 4 end"),
+        20,
+        "block result"
+    )
+end
+
+function M.keepsAScalarComptimeLiteralOnAConstBinding()
+    local result = parser.parse(
+        [[const banner = comptime do
+    return "NUPP COMPILES THIS ONCE ========"
+end]],
+        "test.nupp"
+    )
+    testAssert.eq(#result.errors, 0, "const comptime source parses")
+    testAssert.eq(#check.check(result, "test.nupp", env), 0, "const comptime source checks")
+    local binding = firstLocalBinding(result)
+    testAssert.eq(binding.tag, "literal", "const comptime binding keeps its literal type")
+    testAssert.eq(binding.constant, "NUPP COMPILES THIS ONCE ========", "const comptime literal value")
+end
+
+function M.buildsATableWithALoop()
+    -- The case nothing else can reach: a loop that accumulates. Folding rewrites
+    -- expressions and will never produce this.
+    local src = [[
+const SQUARES = comptime do
+    const entries = {}
+    for index = 1, 5 do
+        entries[index] = index * index
+    end
+    return entries
+end
+return SQUARES[4], #SQUARES
+]]
+    local value, count = run("comptimetest.buildsATableWithALoop", src)
+    testAssert.eq(value, 16, "the fourth square")
+    testAssert.eq(count, 5, "the table's length")
+end
+
+function M.widensComptimeArrayElements()
+    local result = parser.parse([[const values = comptime do
+    return {1, 2, 3}
+end]], "test.nupp")
+    testAssert.eq(#result.errors, 0, "comptime array source parses")
+    testAssert.eq(#check.check(result, "test.nupp", env), 0, "comptime array source checks")
+    local binding = firstLocalBinding(result)
+    testAssert.eq(T.tostring(binding), "{integer}", "comptime array elements widen")
+end
+
+function M.matchesAnIndependentComputationOfTheSameTable()
+    -- A CRC table is the motivating case, and it is worth checking against a
+    -- computation that shares no code with the evaluator rather than against itself.
+    local src = [[
+const CRC = comptime do
+    const entries = {}
+    for byte = 0, 255 do
+        local acc = byte
+        for _ = 1, 8 do
+            acc = acc & 1 ~= 0 and 0xedb88320 ~ (acc >> 1) or acc >> 1
+        end
+        entries[byte + 1] = acc
+    end
+    return entries
+end
+return CRC
+]]
+    local got = run("comptimetest.matchesAnIndependentComputationOfTheSameTable", src)
+    local want = {}
+    for byte = 0, 255 do
+        local acc = byte
+        for _ = 1, 8 do
+            if bit.band(acc, 1) ~= 0 then
+                acc = bit.bxor(0xedb88320, bit.rshift(acc, 1))
+            else
+                acc = bit.rshift(acc, 1)
+            end
+        end
+        want[byte + 1] = acc
+    end
+    testAssert.eq(#got, 256, "entry count")
+    for index = 1, 256 do
+        testAssert.eq(got[index], want[index], "entry " .. index)
+    end
+end
+
+function M.worksAtEveryOptimizationLevel()
+    -- Comptime is semantics, not an optimization: `-O0` must still produce the value.
+    -- `compile` never optimizes, so reaching the value at all is the assertion.
+    testAssert.eq(
+        run("comptimetest.worksAtEveryOptimizationLevel", "return comptime do return 7 end"),
+        7,
+        "result at -O0"
+    )
+end
+
+function M.staysAName()
+    -- `comptime` opens a block only when `do` follows it on the same line. Everywhere
+    -- else it is the identifier it always was.
+    testAssert.eq(
+        run("comptimetest.staysAName.fragment_1", "local comptime = 3\nreturn comptime"),
+        3,
+        "a local of that name"
+    )
+    testAssert.eq(
+        run("comptimetest.staysAName.fragment_2", "local function f(comptime) return comptime end\nreturn f(9)"),
+        9,
+        "a parameter of that name"
+    )
+end
+
+function M.typesTheResultAgainstItsContext()
+    local codes = errorsOf("const N: string = comptime do return 5 end\nreturn N")
+    testAssert.eq(codes[1], "NUPP2001", "an integer result is refused where a string is declared")
+end
+
+function M.readsNoRuntimeBinding()
+    local codes = errorsOf("local n = 5\nreturn comptime do return n end")
+    testAssert.eq(codes[1], "NUPP2410", "a runtime local is unavailable")
+end
+
+function M.writesNoRuntimeBinding()
+    local codes = errorsOf("local n = 5\nreturn comptime do n = 6 return n end")
+    testAssert.eq(codes[1], "NUPP2410", "a runtime local cannot be assigned")
+end
+
+function M.reachesNoAmbientLibrary()
+    for _, name in ipairs({
+        "io",
+        "os",
+        "package",
+        "require",
+        "loadstring",
+        "debug",
+        "jit",
+        "print",
+        "_G",
+        "collectgarbage"
+    }) do
+        local codes = errorsOf(("return comptime do return %s end"):format(name))
+        testAssert.eq(codes[1], "NUPP2410", name .. " is not in the environment")
+    end
+end
+
+function M.reachesTheAllowlistedLibraries()
+    testAssert.eq(
+        run(
+            "comptimetest.reachesTheAllowlistedLibraries.fragment_1",
+            'return comptime do return string.rep("-", 3) end'
+        ),
+        "---",
+        "string.rep"
+    )
+    testAssert.eq(
+        run(
+            "comptimetest.reachesTheAllowlistedLibraries.fragment_2",
+            "return comptime do return math.floor(7 / 2) end"
+        ),
+        3,
+        "math.floor"
+    )
+    testAssert.eq(
+        run(
+            "comptimetest.reachesTheAllowlistedLibraries.fragment_3",
+            'return comptime do return table.concat({"a", "b"}, ",") end'
+        ),
+        "a,b",
+        "table.concat"
+    )
+    -- The compiler runs on a LuaJIT with no table.clone of its own, so this is the
+    -- evaluator's own copy answering, not one borrowed from the host.
+    testAssert.eq(
+        run(
+            "comptimetest.reachesTheAllowlistedLibraries.fragment_4",
+            "return comptime do local t = table.clone({n = 4}) t.n = 5 return t.n end"
+        ),
+        5,
+        "table.clone"
+    )
+    testAssert.eq(
+        run(
+            "comptimetest.reachesTheAllowlistedLibraries.fragment_5",
+            "return comptime do return bit.band(0xff, 0x0f) end"
+        ),
+        15,
+        "bit.band"
+    )
+    testAssert.eq(
+        run("comptimetest.reachesTheAllowlistedLibraries.fragment_6", 'return comptime do return ("x"):upper() end'),
+        "X",
+        "a string method"
+    )
+end
+
+function M.preservesFalseAndNilFromLogicalAnd()
+    testAssert.eq(
+        run(
+            "comptimetest.preservesFalseAndNilFromLogicalAnd.fragment_1",
+            "return comptime do return true and false end"
+        ),
+        false,
+        "a false right operand survives and"
+    )
+    testAssert.eq(
+        run(
+            "comptimetest.preservesFalseAndNilFromLogicalAnd.fragment_2",
+            "return comptime do local value = true and nil return value == nil end"
+        ),
+        true,
+        "a nil right operand survives and"
+    )
+end
+
+function M.refusesTheNondeterministicLibraries()
+    -- Absent for a reason each: libm differs between platforms, so a transcendental
+    -- would fold to a different constant elsewhere, and a clock differs between two
+    -- runs on one machine.
+    --
+    -- The two codes are the two shapes of absence, and the difference is worth keeping.
+    -- A member the allowlist leaves out is NUPP2402 and names itself; a library that is
+    -- not in the environment at all is NUPP2401, the same answer a runtime local gets.
+    for _, expr in ipairs({"math.random()", "math.sin(1)"}) do
+        local codes = errorsOf(("return comptime do return %s end"):format(expr))
+        testAssert.eq(codes[1], "NUPP2411", expr .. " is left out of the allowlist")
+    end
+    for _, expr in ipairs({"os.clock()", "os.time()"}) do
+        local codes = errorsOf(("return comptime do return %s end"):format(expr))
+        testAssert.eq(codes[1], "NUPP2410", expr .. " has no library to reach")
+    end
+end
+
+function M.namesTheAbsentMemberRatherThanItsSymptom()
+    local _, diags = compile("return comptime do return math.random() end")
+    local found
+    for _, diag in ipairs(diags) do
+        if diag.code == "NUPP2411" then
+            found = diag.msg
+        end
+    end
+    testAssert.eq(
+        found,
+        "math.random is unavailable at comptime",
+        "the diagnostic says which member, not that a nil was called"
+    )
+end
+
+function M.refusesTostringOfATable()
+    -- `tostring(t)` is a process address, so a block using it would produce a different
+    -- constant on the next build of the same source.
+    local codes = errorsOf("return comptime do return tostring({}) end")
+    testAssert.eq(codes[1], "NUPP2412", "tostring of a table is refused")
+end
+
+-- An operand the checker typed loosely reaches the evaluator as whatever it turned out
+-- to be, and every operator here is a raw Lua one. Without a guard the host raises and
+-- that error escapes as a NUPP2415 quoting a line in the generated compiler, which
+-- names Nupp's own sources rather than the program at fault.
+function M.refusesAnOperandTheOperatorHasNoMeaningFor()
+    local cases = {
+        {"nil .. \"a\"", "t.missing .. \"a\"", "the left operand of '..' is nil, and '..' needs strings or numbers"},
+        {"nil + 1", "t.missing + 1", "the left operand of '+' is nil, and '+' needs numbers"},
+        {"1 < nil", "1 < t.missing", "'<' orders two numbers or two strings, and these are number and nil"},
+        {"nil & 1", "t.missing & 1", "the left operand of '&' is nil, and '&' needs numbers"},
+        {"-nil", "-t.missing", "the operand of '-' is nil, and '-' needs a number"},
+        {"#nil", "#t.missing", "the operand of '#' is nil, and '#' needs a string or a table"},
+    }
+    for _, case in ipairs(cases) do
+        local label, expression, message = case[1], case[2], case[3]
+        local src = ("return comptime do local t = {} return %s end"):format(expression)
+        local codes, diags = errorsOf(src)
+        testAssert.eq(codes[1], "NUPP2412", label .. " is refused")
+        local found = nil
+        for _, diag in ipairs(diags) do
+            if diag.code == "NUPP2412" then
+                found = diag.msg
+            end
+        end
+        testAssert.eq(found, message, label .. " names the operator and what it needs")
+    end
+end
+
+-- The coercion Lua itself performs stays performed, so a block and the runtime do not
+-- disagree about the same expression.
+function M.keepsLuaOperandCoercion()
+    testAssert.eq(
+        run("comptimetest.keepsLuaOperandCoercion.fragment_1", "return comptime do return (\"10\" as any) + 1 end"),
+        11,
+        "a numeric string still converts for arithmetic"
+    )
+    testAssert.eq(
+        run("comptimetest.keepsLuaOperandCoercion.fragment_2", "return comptime do return 1 .. 2 end"),
+        "12",
+        "a number still spells itself for concatenation"
+    )
+end
+
+function M.iteratesDeterministically()
+    -- Two orders would be two programs. The keys come back sorted, so the string a
+    -- block builds by walking a table is the same one every build.
+    local src = [[
+const KEYS = comptime do
+    local out = {}
+    for key in pairs({zebra = 1, apple = 2, mango = 3}) do
+        out[#out + 1] = key
+    end
+    return table.concat(out, ",")
+end
+return KEYS
+]]
+    testAssert.eq(
+        run("comptimetest.iteratesDeterministically", src),
+        "apple,mango,zebra",
+        "pairs answers in sorted order"
+    )
+end
+
+function M.stopsEndlessRecursionOfBlocks()
+    local codes = errorsOf("return comptime do return comptime do return 1 end end")
+    testAssert.eq(codes[1], "NUPP2411", "a nested block is refused")
+end
+
+function M.boundsAnEndlessLoop()
+    local codes, diags = errorsOf("return comptime do while true do end end")
+    testAssert.eq(codes[1], "NUPP2412", "the evaluator budget stops an endless loop")
+    local found
+    for _, diag in ipairs(diags) do
+        if diag.code == "NUPP2412" then
+            found = diag.msg
+        end
+    end
+    assert(
+        found and (found:find("steps", 1, true) or found:find("timeout", 1, true)),
+        "the diagnostic names the bound: " .. tostring(found)
+    )
+end
+
+function M.recoversWhenTheWorkerCrashes()
+    if (require("nupp.compiler.targetlayout").hostKey() or ""):find("windows", 1, true) then
+        return
+    end
+    local root = os.tmpname()
+    os.remove(root)
+    testAssert.eq(os.execute(("mkdir -p %q/bin"):format(root)), 0)
+    local launcher = assert(io.open(root .. "/bin/nupp", "wb"))
+    launcher:write("#!/bin/sh\nkill -9 $$\n")
+    launcher:close()
+    testAssert.eq(os.execute(("chmod +x %q/bin/nupp"):format(root)), 0)
+    local worker = require("nupp.compiler.comptime.worker")
+    local _, failure = worker.evaluate("comptime do return 1 end", root .. "/bin/nupp")
+    os.execute(("rm -rf %q"):format(root))
+    assert(failure and failure.message:find("crashed", 1, true), "the parent converts a worker crash into one failure")
+end
+
+--- The worker protocol carries bytes, because a string is bytes.
+---
+--- JSON is a UTF-8 document format and a string literal's value is whatever the
+--- program spelled -- lunajson writes `'[^\32-\255]'`, whose bytes are not text in
+--- any encoding. Both directions are covered here: the result of this block
+--- crosses back as data the parent decodes, and a checked project whose pattern
+--- is that one crosses out as a type-function argument.
+function M.theWorkerProtocolCarriesBytesNoEncodingWouldRead()
+    local worker = require("nupp.compiler.comptime.worker")
+    local bytes = string.char(0, 31, 128, 255)
+    local quoted, failure = worker.evaluate(
+        ("comptime do return string.char(%d, %d, %d, %d) end"):format(bytes:byte(1, 4)),
+        HERE .. "/../bin/nupp"
+    )
+    testAssert.eq(failure and failure.message or nil, nil, "the response decodes")
+    local chunk = loadstring("return " .. tostring(quoted))
+    assert(chunk ~= nil, "the quoted result is a value: " .. tostring(quoted))
+    testAssert.eq(chunk(), bytes, "and it is the bytes the block returned")
+end
+
+function M.aTypeFunctionArgumentCarriesBytesNoEncodingWouldRead()
+    local dir = os.tmpname()
+    os.remove(dir)
+    testAssert.eq(os.execute(("mkdir -p %q"):format(dir)), 0)
+    local source = assert(io.open(dir .. "/patterns.lua", "wb"))
+    -- The shape lunajson has: one local bound to a control-byte pattern on one
+    -- branch and a high-byte one on the other, then matched. Both literal types
+    -- reach `string.find`'s type function, which is evaluated in the worker.
+    source:write(
+        "local find = string.find\nlocal pattern\n"
+        .. "if _VERSION == 'Lua 5.1' then\n  pattern = '[^\\32-\\255]'\n"
+        .. "else\n  pattern = '[\\0-\\31]'\nend\n"
+        .. "local function search(text) return find(text, pattern) end\nreturn search\n"
+    )
+    source:close()
+    local pipe = assert(io.popen(("NO_COLOR= %q check %q 2>&1"):format(HERE .. "/../bin/nupp", dir .. "/patterns.lua")))
+    local out = pipe:read("*a")
+    pipe:close()
+    os.execute(("rm -rf %q"):format(dir))
+    testAssert.eq(out, "", "the pattern reaches the worker and back unchanged")
+end
+
+function M.workerCancellationStopsIsolatedEvaluation()
+    local worker = require("nupp.compiler.comptime.worker")
+    local pumped = 0
+    local _, failure = worker.evaluate("comptime do while true do end end", HERE .. "/../bin/nupp", {}, {}, {}, {
+        pump = function()
+            pumped = pumped + 1
+        end,
+        cancelled = function()
+            return true
+        end,
+    })
+    assert(failure and failure.message:find("canceled", 1, true), "canceled worker reports a cancellation failure")
+    assert(pumped > 0, "the host is serviced while the worker is in flight")
+end
+
+function M.boundsAComptimeStringSizeBomb()
+    local codes, diags = errorsOf([[return comptime do return string.rep("x", 600000) end]])
+    assert(codes[1] == "NUPP2412" or codes[1] == "NUPP2416", "the string allocation is bounded")
+    local message = diags[1] and diags[1].msg or ""
+    assert(message:find("limit", 1, true) ~= nil, "the diagnostic names the size limit: " .. message)
+end
+
+function M.boundsAComptimeResultGraph()
+    local codes = errorsOf(
+        [[
+return comptime do
+    local values = {}
+    for index = 1, 12000 do values[index] = index end
+    return values
+end
+]]
+    )
+    testAssert.eq(codes[1], "NUPP2416", "the final value graph has an item limit")
+end
+
+-- The parser fills `names` for `local {x, y} = t` as it does for a plain local, but
+-- the values live on `patternSource`, which the evaluator used to ignore, so every
+-- pattern-bound name was silently nil.
+function M.bindsAPatternFromItsSource()
+    local x, z = run(
+        "comptimetest.bindsAPatternFromItsSource",
+        [[
+local v = comptime do
+    local t: {x: integer, y: integer} = {x = 1, y = 2}
+    local {x, y as z} = t
+    return {x = x, z = z}
+end
+return v.x, v.z
+]]
+    )
+    testAssert.eq(x, 1, "the first pattern field")
+    testAssert.eq(z, 2, "an aliased pattern field")
+end
+
+function M.exportedComptimeFunctionsStayErasedWithoutChangingGlobals()
+    local source = [[
+module phaseexports
+@comptime
+export function debug(value: integer): integer
+    return value + 1
+end
+export const answer: integer = comptime do return 42 end
+export function run(value: integer): integer
+    return value + 2
+end
+]]
+    local checked = parser.parse(source, "phaseexports.nupp")
+    testAssert.eq(#checked.errors, 0)
+    local diagnostics = check.check(checked, "phaseexports.nupp", envMod.new(HERE .. "/..", {cache = false}))
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    testAssert.eq(type(checked.moduleExports.comptimeFunctions.debug), "table")
+    local code, generated = gen.generate(checked, "phaseexports.nupp")
+    testAssert.eq(#generated, 0)
+    local originalDebug = rawget(_G, "debug")
+    local priorModule = package.loaded.phaseexports
+    local ok, exported = pcall(assert(loadstring(code, "@phaseexports.nupp")))
+    local after = rawget(_G, "debug")
+    rawset(_G, "debug", originalDebug)
+    package.loaded.phaseexports = priorModule
+    testAssert(ok, exported)
+    testAssert.eq(after, originalDebug, "an erased provider must not replace the debug library")
+    testAssert.eq(type(originalDebug.getinfo), "function")
+    testAssert.eq(exported.debug, nil, "the provider has no runtime export")
+    testAssert.eq(exported.answer, 42, "compile-time expressions still evaluate")
+    testAssert.eq(exported.run(40), 42, "ordinary exported functions still run")
+end
+
+function M.thePublicTypeFacadeDoesNotReplaceTheHostDebugLibrary()
+    local originalDebug = rawget(_G, "debug")
+    local priorModule = package.loaded.types
+    package.loaded.types = nil
+    local ok, exported = pcall(require, "types")
+    local after = rawget(_G, "debug")
+    rawset(_G, "debug", originalDebug)
+    package.loaded.types = priorModule
+    testAssert(ok, exported)
+    testAssert.eq(after, originalDebug, "loading types must preserve the host debug library")
+    testAssert.eq(type(originalDebug.getinfo), "function")
+    testAssert.eq(exported.debug, nil, "the checked provider is erased from the runtime facade")
+    testAssert.eq(type(exported.newstore), "function", "runtime facade members remain available")
+    local store = require("nupp.util.internal.store")
+    testAssert.eq(exported.Key, store.Key, "the public constructor keeps its original identity")
+    testAssert.eq(exported.newkey, store.newKey, "the public key factory keeps its original handle")
+    testAssert.eq(exported.newstore, store.newStore, "the public store factory keeps its original handle")
+end
+
+-- A helper's optional parameter may be left out, exactly as the checker admits it:
+-- the missing argument is nil, and only a required one omitted is a mistake.
+function M.callableAssertionsKeepTheirTableAndResultPack()
+    local value = run(
+        [[
+return comptime do
+    local verify = assert
+    local first, gap, third, tail = verify(true, nil, false, nil)
+    verify.eq(first, true)
+    verify.ne(third, true)
+    verify.deepeq({first, third}, {true, false})
+    return {
+        kind = type(assert), aliasKind = type(verify), same = verify == assert,
+        first = first, gap = gap == nil, third = third, tail = tail == nil,
+        count = select("#", verify("ready", nil, 7, nil)),
+        matched = verify.matches("ready", "^ready$")
+    }
+end
+]]
+    )
+    testAssert.eq(value.kind, "table", "the public assertion keeps its table type")
+    testAssert.eq(value.aliasKind, "table", "an alias keeps the same table type")
+    testAssert.eq(value.same, true, "aliases share one evaluator capability")
+    testAssert.eq(value.first, true, "the first result survives")
+    testAssert.eq(value.gap, true, "an interior nil survives")
+    testAssert.eq(value.third, false, "a later false result survives")
+    testAssert.eq(value.tail, true, "the trailing nil survives")
+    testAssert.eq(value.count, 4, "the full result arity survives")
+    testAssert.eq(value.matched, "ready", "pure helpers use the shared implementation")
+end
+
+function M.callableAssertionFailuresKeepTheLuaErrorContract()
+    for _, value in ipairs({"false", "nil"}) do
+        local codes, diags = errorsOf(
+            "return comptime do local verify = assert; verify(" .. value .. ", \"assertion marker\"); return 1 end"
+        )
+        testAssert.eq(codes[1], "NUPP2412", "a falsy assertion raises through the call boundary")
+        assert(diags[1].msg:find("assertion marker", 1, true), diags[1].msg)
+    end
+    local codes = errorsOf("return comptime do assert(); return 1 end")
+    testAssert.eq(codes[1], "NUPP2412", "omitting the condition keeps the Lua argument error")
+end
+
+function M.callableAssertionCapabilitiesDoNotAdmitOtherTables()
+    local codes, diags = errorsOf([[
+return comptime do
+    local assert: any = {}
+    return assert(true)
+end
+]])
+    testAssert.eq(codes[1], "NUPP2411", "a shadowed table is not the registered callable")
+    assert(diags[1].msg:find("a table is not callable", 1, true), diags[1].msg)
+    testAssert.eq(
+        run([[
+return comptime do
+    local assert = math.abs
+    return assert(-4)
+end
+]]),
+        4,
+        "a shadowed function retains its ordinary meaning"
+    )
+    for _, member in ipairs({"suite.fixture", "raises"}) do
+        local unavailable, failures = errorsOf("return comptime do return assert." .. member .. " end")
+        testAssert.eq(unavailable[1], "NUPP2411", "effectful and callback helpers stay outside the allowlist")
+        assert(failures[1].msg:find("assert.", 1, true), failures[1].msg)
+    end
+end
+
+function M.callsAHelperWithoutItsOptionalArgument()
+    testAssert.eq(
+        run(
+            "comptimetest.callsAHelperWithoutItsOptionalArgument",
+            [[
+@comptime local function pick(a: integer, b: integer?): integer
+    return a + (b or 10)
+end
+local v = comptime do
+    return pick(5)
+end
+return v
+]]
+        ),
+        15,
+        "the omitted optional argument is nil"
+    )
+    local codes = errorsOf(
+        [[
+@comptime local function pick(a: integer, b: integer): integer
+    return a + b
+end
+return comptime do return pick(5) end
+]]
+    )
+    assert(codes[1] ~= nil, "omitting a required argument is still refused")
+end
+
+function M.boundsComptimeHelperRecursion()
+    local codes, diags = errorsOf(
+        [[
+@comptime local function descend(value: number): number
+    if value == 0 then return 0 end
+    return descend(value - 1)
+end
+return comptime do return descend(200) end
+]]
+    )
+    testAssert.eq(codes[1], "NUPP2412", "helper recursion has a frame limit")
+    local message = diags[1] and diags[1].msg or ""
+    assert(message:find("128 frames", 1, true) ~= nil, "the diagnostic names the recursion bound: " .. message)
+end
+
+function M.materializesACyclicOpaqueGraphAtAnExplicitBoundary()
+    local src = [[
+const graph: nupp.__MaterializedTest = comptime do
+    const first = nupp.__materializationTest.node(7)
+    const second = nupp.__materializationTest.node(11)
+    first:link(second)
+    second:link(first)
+    return first
+end
+return graph.value, graph.nodes
+]]
+    local value, nodes = run("comptimetest.materializesACyclicOpaqueGraphAtAnExplicitBoundary", src)
+    testAssert.eq(value, 18, "the provider lowers its canonical payload")
+    testAssert.eq(nodes, 2, "the cyclic graph crosses the worker as flat data")
+    testAssert.eq(image(src):find("__materializationTest", 1, true), nil, "no opaque construction reaches runtime")
+end
+
+function M.materializesAFactoryWithOrdinaryRuntimeInputs()
+    local src = [[
+const build: function(nupp.__MaterializationTestInput): nupp.__MaterializedTest = comptime do
+    return nupp.__materializationTest.factory()
+end
+const made = build({value = 37} as nupp.__MaterializationTestInput)
+return made.value, made.nodes
+]]
+    local value, nodes = run("comptimetest.materializesAFactoryWithOrdinaryRuntimeInputs", src)
+    testAssert.eq(value, 37, "the generated factory reads its declared runtime input")
+    testAssert.eq(nodes, 1, "the generated result keeps its provider data")
+end
+
+function M.callsTypedComptimeHelpersAndErasesThem()
+    local src = [[
+@comptime local function double(value: integer): integer
+    return value * 2
+end
+@comptime local function addDouble(left: integer, right: integer): integer
+    return left + double(right)
+end
+const ANSWER: integer = comptime do
+    return addDouble(2, 20)
+end
+return ANSWER
+]]
+    testAssert.eq(run("comptimetest.callsTypedComptimeHelpersAndErasesThem", src), 42, "comptime helpers compose")
+    local _, diags = compile(src)
+    testAssert.eq(#diags, 0, "typed helpers check")
+    testAssert.eq(image(src):find("double", 1, true), nil, "a comptime helper has no runtime declaration")
+end
+
+function M.recursesWithinTheSharedEvaluationBudget()
+    local src = [[
+@comptime local function factorial(value: number): number
+    if value <= 1 then return 1 end
+    return value * factorial(value - 1)
+end
+return comptime do return factorial(6) end
+]]
+    testAssert.eq(run("comptimetest.recursesWithinTheSharedEvaluationBudget", src), 720, "recursive comptime helper")
+end
+
+function M.keepsComptimeHelpersOutOfRuntimeValues()
+    local codes = errorsOf(
+        [[
+@comptime local function answer(): integer return 42 end
+local escaped = answer
+return escaped()
+]]
+    )
+    testAssert.eq(codes[1], "NUPP2415", "a comptime helper cannot escape to runtime")
+end
+
+function M.reportsAComptimeCallStack()
+    local _, diags = compile(
+        [[
+@comptime local function explode(value: integer): integer
+    return error("builder failed")
+end
+return comptime do return explode(1) end
+]]
+    )
+    local message
+    for _, diag in ipairs(diags) do
+        if diag.code == "NUPP2412" then
+            message = diag.msg
+        end
+    end
+    assert(
+        message and message:find("called explode", 1, true),
+        "the failure retains its comptime call frame: " .. tostring(message)
+    )
+end
+
+function M.requiresAnExplicitTypeForAnOpaqueResult()
+    local codes = errorsOf([[
+const graph = comptime do
+    return nupp.__materializationTest.node(1)
+end
+]])
+    testAssert.eq(codes[1], "NUPP2414", "an inferred binding is not a materialization boundary")
+end
+
+function M.rejectsAnUnregisteredOpaqueTypePair()
+    local codes = errorsOf([[
+const graph: table = comptime do
+    return nupp.__materializationTest.node(1)
+end
+]])
+    testAssert.eq(codes[1], "NUPP2415", "the expected type selects a closed provider relation")
+end
+
+function M.rejectsOpaqueValuesNestedInOrdinaryTables()
+    local codes = errorsOf([[
+const graph = comptime do
+    return {nupp.__materializationTest.node(1)}
+end
+]])
+    testAssert.eq(codes[1], "NUPP2414", "an opaque handle cannot escape through quoted data")
+end
+
+function M.fingerprintsEquivalentOpaqueGraphsIdentically()
+    local worker = require("nupp.compiler.comptime.worker")
+    local executable = assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/bin/nupp"
+    local first = [[comptime do
+       const a = nupp.__materializationTest.node(1)
+       const b = nupp.__materializationTest.node(2)
+       a:link(b)
+       b:link(a)
+       return a
+   end]]
+    local second = [[comptime do
+       const b = nupp.__materializationTest.node(2)
+       const a = nupp.__materializationTest.node(1)
+       b:link(a)
+       a:link(b)
+       return a
+   end]]
+    local _, failureA, envelopeA = worker.evaluate(first, executable)
+    local _, failureB, envelopeB = worker.evaluate(second, executable)
+    testAssert.eq(failureA, nil, "first graph finalizes")
+    testAssert.eq(failureB, nil, "second graph finalizes")
+    testAssert.eq(envelopeA.fingerprint, envelopeB.fingerprint, "construction order does not enter the fingerprint")
+end
+
+function M.requiresAResult()
+    local codes = errorsOf("return comptime do local a = 1 end")
+    testAssert.eq(codes[1], "NUPP2412", "a block with no return is refused")
+end
+
+function M.refusesMoreThanOneResult()
+    local codes = errorsOf("return comptime do return 1, 2 end")
+    testAssert.eq(codes[1], "NUPP2411", "multi-value results are deferred, not silent")
+end
+
+function M.refusesAnUnquotableResult()
+    local codes = errorsOf("return comptime do return ipairs end")
+    testAssert.eq(codes[1], "NUPP2413", "a function is not a quotable result")
+end
+
+function M.refusesATableValuedKey()
+    -- Keys are written in sorted order, and two table keys have no order between
+    -- them, so a result holding them was not written the same way twice.
+    local codes, diags = errorsOf("return comptime do local a, b = {}, {} return {[a] = 1, [b] = 2} end")
+    testAssert.eq(codes[1], "NUPP2413", "a table key is refused")
+    assert(
+        (diags[1] and diags[1].msg or ""):find("quotable key", 1, true) ~= nil,
+        "and named as a key: " .. tostring(diags[1] and diags[1].msg)
+    )
+end
+
+function M.compoundAssignmentAgreesWithItsOperator()
+    local floored, joined = run(
+        "comptimetest.compoundAssignmentAgreesWithItsOperator",
+        [[
+local v = comptime do
+    local q = 7
+    q //= 2
+    local s = "a"
+    s ..= "b"
+    return {q = q, s = s}
+end
+return v.q, v.s
+]]
+    )
+    testAssert.eq(floored, 3, "floor division through the compound form")
+    testAssert.eq(joined, "ab", "concatenation through the compound form")
+end
+
+function M.refusesASharedTable()
+    -- Quoting it twice would build two tables where the block had one. Refusing leaves
+    -- the author a decision rather than a difference to discover at run time.
+    local codes = errorsOf("return comptime do local s = {1} return {s, s} end")
+    testAssert.eq(codes[1], "NUPP2413", "a table on two paths is refused")
+end
+
+function M.refusesAFunctionDeclaration()
+    -- C3, and named as such rather than mis-reported as something else.
+    local codes = errorsOf("return comptime do local function f() return 1 end return f() end")
+    testAssert.eq(codes[1], "NUPP2411", "declaring a function is not yet available")
+end
+
+function M.quotesNumbersThatReadBackUnchanged()
+    -- `%.14g` is LuaJIT's default and loses the last bits, so the quoted spelling is
+    -- searched for rather than assumed.
+    for _, value in ipairs({0.1, 1 / 3, 2 ^ 0.5, 1e300, 5e-324, 123456789.123456789}) do
+        local src = ("return comptime do return %.17g end"):format(value)
+        testAssert.eq(
+            run("comptimetest.quotesNumbersThatReadBackUnchanged", src),
+            value,
+            "round trip for " .. tostring(value)
+        )
+    end
+end
+
+function M.quotesExactIntegerAndFloatSubtypes()
+    for _, text in ipairs({
+        "9007199254740993",
+        "9223372036854775807",
+        "-9223372036854775808",
+        "-9223372036854775807",
+        "1",
+        "1.0",
+        "0",
+        "0.0",
+        "-0.0",
+    }) do
+        local expected = assert(tonumber(text))
+        local answer = run(
+            "comptimetest.quotesExactIntegerAndFloatSubtypes",
+            "return comptime do return tonumber(" .. string.format("%q", text) .. ") end"
+        )
+        testAssert.eq(math.type(answer), math.type(expected), "comptime preserves numeric subtype for " .. text)
+        testAssert.eq(answer, expected, "comptime preserves exact value for " .. text)
+        if expected == 0 then
+            testAssert.eq(1 / answer, 1 / expected, "comptime preserves zero sign")
+        end
+    end
+end
+
+function M.infersComptimeNumericSubtypes()
+    for _, text in ipairs({"9007199254740993", "9223372036854775807", "-9223372036854775808", "1.0", "0.0", "-0.0"}) do
+        local expected = assert(tonumber(text))
+        local result, diagnostics = compile(
+            "const VALUE = comptime do return tonumber(" .. string.format("%q", text) .. ") end\nreturn VALUE"
+        )
+        testAssert.eq(#diagnostics, 0, "numeric comptime value checks")
+        local literal = firstLocalBinding(result)
+        testAssert.eq(literal.tag, "literal", "comptime result retains literal type")
+        testAssert.eq(
+            literal.base,
+            math.type(expected) == "integer" and T.integer or T.float64,
+            "comptime result retains numeric base"
+        )
+    end
+end
+
+function M.quotesNegativeZeroApart()
+    local answer = run("comptimetest.quotesNegativeZeroApart", "return comptime do return -0.0 end")
+    testAssert.eq(1 / answer, -math.huge, "negative zero keeps its sign")
+end
+
+function M.refusesNaNAndInfinity()
+    for _, src in ipairs({"return comptime do return 0 / 0 end", "return comptime do return 1 / 0 end"}) do
+        local codes = errorsOf(src)
+        testAssert.eq(codes[1], "NUPP2413", "no literal spelling for " .. src)
+    end
+end
+
+function M.spellsASparseTableOneWay()
+    -- The array part runs to the first hole; everything past it is a keyed entry, so
+    -- how the table was built does not change how it is written down.
+    local src = [[
+const T: {[integer]: string} = comptime do
+    local out = {}
+    out[1] = "a"
+    out[2] = "b"
+    out[4] = "d"
+    return out
+end
+return T[1], T[2], T[4], T[3]
+]]
+    local one, two, four, three = run("comptimetest.spellsASparseTableOneWay", src)
+    testAssert.eq(one, "a", "first")
+    testAssert.eq(two, "b", "second")
+    testAssert.eq(four, "d", "fourth")
+    testAssert.eq(three, nil, "the hole stays a hole")
+end
+
+function M.buildsTheSameBytesTwice()
+    local src = [[
+const T = comptime do
+    local out = {}
+    for _, key in ipairs({"c", "a", "b"}) do
+        out[key] = #key
+    end
+    return out
+end
+return T.a
+]]
+    local first = image(src)
+    local second = image(src)
+    testAssert.eq(first, second, "two builds of one source agree")
+end
+
+function M.reportsInsideTheBlockWithOrdinaryChecking()
+    -- The body is checked by the ordinary machinery, so a type error in it is the
+    -- diagnostic it would be anywhere else rather than an evaluation failure.
+    local codes = errorsOf('return comptime do local n: integer = "x" return n end')
+    testAssert.eq(codes[1], "NUPP2001", "an ordinary type error inside the block")
+end
+
+return M

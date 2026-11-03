@@ -1,7 +1,5 @@
 @!internal
-module nupp.runtime.provider.nativecrypto
-
---[[Native implementation of [](package.nupp).
+--[[Native implementation of [](nupp.runtime.contracts).
 
 The native host fills a fresh temporary byte allocation from its secure random
 source. The result is copied into an owned Lua string; no pointer escapes. Counts
@@ -10,6 +8,7 @@ Native failure raises with the host diagnostic. This module is carried only by
 native targets and is selected by the private entropy service for
 `os.randombytes`.
 ]]
+module nupp.runtime.provider.nativecrypto
 
 const native = require("nupp.runtime.native")
 native.ffi.cdef[[

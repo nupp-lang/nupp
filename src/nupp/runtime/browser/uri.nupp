@@ -1,6 +1,4 @@
 @!internal
-module nupp.runtime.browser.uri
-
 --[[
 The browser implementation parses absolute URIs for the `host.uri` API 1
 contract, as the WHATWG URL Standard does.
@@ -16,8 +14,9 @@ with the reasons the native provider gives. Parsing performs no network or
 effect request. [](io) retains the parser during module initialization
 and constructs its shared public URI values from the returned components.
 ]]
+module nupp.runtime.browser.uri
 
-local contracts = require("io.spi")
+local contracts = require("io.internal.contracts")
 const whatwg = require("nupp.io.uri.whatwg")
 local browserHost: any = rawget(_G, "__nuppBrowser")
 local provider = {}

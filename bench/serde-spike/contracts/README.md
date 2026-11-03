@@ -41,7 +41,7 @@ The compiler previously materialized the enclosing result binder of a generic
 method as `any`. The concrete failure was
 `Bound<T, M>.accept<S, R>` calling `Consumer<T, S, R>.apply<M>` and trying to
 return `R`. The v0.0.13 bootstrap compiler reports `NUPP2002`; the corresponding
-checker regression is in `tests/substitutiontest.lua`. The dispatch prerequisites shipped in v0.0.14.
+checker regression is in `tests/compiler/types/substitutiontest.lua`. The dispatch prerequisites shipped in v0.0.14.
 
 `rich.nupp` exercises record and indexed storage through the same external
 model. Two JSON policies choose different names and timestamp representations.

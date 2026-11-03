@@ -1,5 +1,3 @@
-module nupp.compiler.targetprofile
-
 --[[
 What a target can be asked to do, as distinct from what it can hold.
 
@@ -27,6 +25,7 @@ could assert a loader into existence would only move the failure later. And it
 carries no toolchain: `nupp.compiler.compilerpacks` owns where `cc` is,
 and a profile that also named one would give two answers to one question.
 ]]
+module nupp.compiler.targetprofile
 
 local layouts = require("nupp.compiler.targetlayout")
 

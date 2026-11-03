@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.tools.build.parallelcheckprotocol
-
 --[[
 The versioned payload shared by the cold-check coordinator and its workers.
 
@@ -9,6 +7,7 @@ Both ends use the same compiler and its host's plain-data encoding. A host
 without that codec selects serial checking. Framing belongs to the worker
 channel.
 ]]
+module nupp.tools.build.parallelcheckprotocol
 
 local nativeBuffer: any = rawget(_G, "__nupp_plain_codec")
 local hasBuffer = nativeBuffer ~= nil
@@ -16,19 +15,17 @@ if not hasBuffer then
     hasBuffer, nativeBuffer = pcall(require, "string.buffer")
 end
 
-local protocol = {}
-
 --- Whether this host can encode a payload at all.
-protocol.available = hasBuffer
+export const available = hasBuffer
 
 --- The longest frame either end accepts.
-protocol.MAX_FRAME = 268435456
+export const MAX_FRAME = 268435456
 
-function protocol.encode(value: any): string
+export function encode(value: any): string
     return nativeBuffer.encode({schema = 1, value = value})
 end
 
-function protocol.decode(text: string): (any?, string?)
+export function decode(text: string): (any?, string?)
     if not hasBuffer then
         return nil, "parallel-check payloads are unavailable on this host"
     end
@@ -39,5 +36,3 @@ function protocol.decode(text: string): (any?, string?)
 
     return envelope.value, nil
 end
-
-export = protocol

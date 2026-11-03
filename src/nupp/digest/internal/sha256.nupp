@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.digest.internal.sha256
-
 --[[
 SHA-256, written once, in Nupp.
 
@@ -31,10 +29,9 @@ holds the sixty-four schedule words, and the byte scratch is where the
 sixty-four hexadecimal digits are assembled before one copy publishes them as
 an ordinary Lua string.
 ]]
+module nupp.digest.internal.sha256
 
 local valuebuilder = require("serde.valuebuilder")
-
-local digest = {}
 
 -- Short names for the fixed-width intrinsics. `@aot` admits these by the
 -- identity the checker gives the member rather than by the path the source
@@ -343,11 +340,9 @@ end
 --- @return the digest, as sixty-four lowercase hexadecimal digits
 --- @raises string when the input is too long to address as a single buffer
 --- @export
-function digest.sha256(value: string): string
+export function sha256(value: string): string
     if #value > 0x7FFFFFFF then
         error("nupp: SHA-256 input is too long", 2)
     end
     return digestHex(value, NEVER_NULL) as string
 end
-
-export = digest

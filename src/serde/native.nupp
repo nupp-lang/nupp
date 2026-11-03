@@ -1,5 +1,3 @@
-module serde.native
-
 --[[
 The native codec saves values as a compact binary frame on a native host.
 See [serde.md](docs/learn/runtime/data/serde.md#native-persistence) for
@@ -30,6 +28,7 @@ The frame is versioned and a reader rejects any version it does not know.
 It needs the native runtime: this module raises on any other host before it
 selects a binding. Use [](serde.json) for data that leaves the machine.
 ]]
+module serde.native
 
 local core = require("nupp.serde.internal.value")
 local target = require("nupp.runtime.target")

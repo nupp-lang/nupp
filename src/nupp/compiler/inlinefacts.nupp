@@ -4,7 +4,7 @@ module nupp.compiler.inlinefacts
 -- identities, and are reconstructed only for an optimizer which asks for the body.
 local cst = require("nupp.compiler.syntax.cst")
 local T = require("nupp.compiler.types")
-local inlinefacts = {}
+
 local SCALARS = {number = true, int64 = true, float32 = true, float64 = true, boolean = true, string = true}
 local OPERATORS = {
     ["+"] = true,
@@ -25,7 +25,7 @@ local OPERATORS = {
     ["#"] = true
 }
 
-function inlinefacts.infer(body: any): any
+export function infer(body: any): any
     local stats = body and body.body and body.body.stats or {}
     local returned = #stats == 1 and stats[1]
     if not returned
@@ -104,7 +104,7 @@ function inlinefacts.infer(body: any): any
     return {version = 1, params = params, expression = expression, size = size}
 end
 
-function inlinefacts.instantiate(artifact: any, at: any): any
+export function instantiate(artifact: any, at: any): any
     if not artifact or artifact.version ~= 1 or not artifact.expression or #(artifact.params or {}) > 16 then
         return nil
     end
@@ -186,5 +186,3 @@ function inlinefacts.instantiate(artifact: any, at: any): any
 
     return {params = params, definitions = definitions, expr = expression, free = {}, prefix = {}, imported = true}
 end
-
-export = inlinefacts

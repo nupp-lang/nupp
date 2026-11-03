@@ -1,5 +1,3 @@
-module nupp.tools.cli.ast
-
 --[[
 `nupp ast`: the parse, as the parser saw it.
 
@@ -12,6 +10,7 @@ It prints as JSON, because a tree this literal is read by a program far more
 often than by a person; `--json-pretty` indents the same document for the
 times it is a person.
 ]]
+module nupp.tools.cli.ast
 
 local usageError = require("nupp.tools.cli.error").forCommand("ast")
 local cliModule = require("io.cli")

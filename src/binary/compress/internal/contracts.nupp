@@ -1,0 +1,88 @@
+@!internal
+
+--[[Implementation interfaces for compression stream catalogs.
+
+Providers expose retained format descriptors. A descriptor creates independent
+encoder and decoder state, and every state operation is span based. Input steps
+return input consumed, output written and one of the integer status constants
+below. Flush and finalization steps return output written and a status. A failed
+step returns nil numeric fields and a reason. Implementations retain neither
+span and perform no discovery from a state operation.
+
+The facade uses the target-bound format catalog. Each format name agrees with
+its catalog key.
+]]
+module binary.compress.internal.contracts
+
+local {type ByteSpan, type ByteWriteSpan} = require("binary.span")
+
+--- The step needs another input chunk.
+export const needinput = 1
+
+--- The step filled its output and must be called with more space.
+export const needoutput = 2
+
+--- The complete stream and its wrapper trailer have been processed.
+export const finished = 3
+
+--- The selected format's structural option block.
+export type FormatOptions = {@readonly [string]: any}
+
+--- Independent incremental compression state.
+export interface Encoder is own.Closeable
+    --- Releases encoder state without producing a trailer.
+    close: @nosuspend function(takes self: Encoder): nil
+
+    --- Consumes input and produces output. `needinput` consumes the whole
+    --- input; `needoutput` fills the whole output span.
+    write: function(
+        exclusive self: Encoder,
+        borrows input: ByteSpan,
+        exclusive output: ByteWriteSpan
+    ): (integer?, integer?, integer?, string?)
+
+    --- Flushes pending output. `needinput` completes the flush; `needoutput`
+    --- fills the whole output span.
+    flush: function(exclusive self: Encoder, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
+
+    --- Produces the trailer. `finished` completes the stream; `needoutput`
+    --- fills the whole output span and requires another call.
+    finish: function(exclusive self: Encoder, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
+end
+
+--- Independent incremental decompression state.
+export interface Decoder is own.Closeable
+    --- Releases decoder state.
+    close: @nosuspend function(takes self: Decoder): nil
+
+    --- Consumes input and produces output. `needinput` consumes the whole
+    --- input; `needoutput` fills the output; `finished` completes the stream.
+    read: function(
+        exclusive self: Decoder,
+        borrows input: ByteSpan,
+        exclusive output: ByteWriteSpan
+    ): (integer?, integer?, integer?, string?)
+
+    --- Reports source EOF. `finished` completes the stream, `needoutput` fills
+    --- the output and `needinput` reports a truncated stream.
+    finishinput: function(exclusive self: Decoder, exclusive output: ByteWriteSpan): (integer?, integer?, string?)
+end
+
+--- Immutable format identity and state factories.
+export interface Format
+    --- Canonical format name, matching the catalog map key.
+    @readonly name: string
+
+    --- Creates independent encoder state for checked format options.
+    createencoder: function(self: Format, options: FormatOptions?): Encoder
+
+    --- Creates independent decoder state for checked format options.
+    createdecoder: function(self: Format, options: FormatOptions?): Decoder
+end
+
+--- A selectable implementation catalog.
+export interface Provider
+
+    --- Canonical names mapped to checked, independent-state factories.
+    @readonly formats: {[string]: Format}
+end

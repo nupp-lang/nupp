@@ -49,17 +49,21 @@ renderer stops with a message instead of rendering.
 
 Two forms document a file, and they are different.
 
-**A long comment at the very top of a file** is that file's module
-documentation, kept as Markdown. Only whitespace may precede it, and an
-ordinary `--` header does not count.
+**A long comment above the `module` declaration** documents that module,
+with its contents kept as Markdown. Put the block before any `---` tags
+attached to the module declaration:
 
 ```nupp
 --[[
-What this module is for.
-
-Prose here is rendered as Markdown.
+Shapes provide points in two dimensions.
 ]]
+module geom.shapes
 ```
+
+A file without a `module` declaration uses a long comment at the top of the
+file instead. Only whitespace may precede that header; an ordinary `--`
+comment does not count. Comments below a module declaration describe its
+contents, not the module.
 
 It is the same Markdown a page is written in, so headings, cross-references,
 admonitions and code groups all work, and its headings join the module page's
@@ -469,9 +473,8 @@ so it cannot drift from the file it documents.
 ### Highlighting
 
 Use `nupp` as the language for Nupp source. It is highlighted by the compiler's
-own parser and lexer, which agree about tokens and contextual syntax and can
-turn a name into a link into the API reference. `lua` goes through the same
-lexer, without links. Shell (`bash`, `sh`, `console`), PowerShell, JSON, TOML,
+parser and lexer, which agree about tokens and contextual syntax. `lua` goes
+through the same lexer. Shell (`bash`, `sh`, `console`), PowerShell, JSON, TOML,
 C, Rust, ABNF and `diff` are coloured by small keyword-and-delimiter tables;
 any other language renders as plain escaped text.
 
@@ -615,8 +618,7 @@ A target that reads as a URL or has a slash is left alone, so ordinary links are
 never captured. A name nothing documents is left alone too, except that empty
 link text still renders the name, so a reference to something that has moved
 reads as the name it used to have rather than as an invisible link. References
-inside a code block are code, though a highlighted Nupp block can link names
-into the API reference.
+inside a code block are code.
 
 In `markdown` output the same references resolve to anchors within the
 document. A module's own `llms.txt` holds one module, so a reference to a

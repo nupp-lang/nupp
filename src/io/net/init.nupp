@@ -1,5 +1,3 @@
-module io.net
-
 --[[
 `io.net` is the network as bytes: a listener, the connections it accepts,
 and connections this process opens itself.
@@ -68,6 +66,8 @@ worker lanes. It is not persistent across processes. Resumption never sends
 application data before the handshake: TLS 1.3 early data is deliberately not
 enabled because accepting it requires an application-level replay policy.
 ]]
+module io.net
+
 local source1 = require("nupp.io.net")
 export type Address = source1.Address
 export type ConnectOptions = source1.ConnectOptions

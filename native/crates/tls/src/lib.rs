@@ -768,8 +768,8 @@ mod tests {
     };
     use std::time::{Duration, Instant};
 
-    const CERTIFICATE: &[u8] = include_bytes!("../../../../tests/data/localhost-cert.pem");
-    const PRIVATE_KEY: &[u8] = include_bytes!("../../../../tests/data/localhost-key.pem");
+    const CERTIFICATE: &[u8] = include_bytes!("../../../../tests/stdlib/io/net/fixtures/localhost-cert.pem");
+    const PRIVATE_KEY: &[u8] = include_bytes!("../../../../tests/stdlib/io/net/fixtures/localhost-key.pem");
 
     fn pair(listener: &Arc<nupp_native_net::Listener>) -> (Arc<Stream>, Arc<Stream>) {
         let connect = connect_tcp("127.0.0.1", listener.port(), Duration::from_secs(5)).unwrap();

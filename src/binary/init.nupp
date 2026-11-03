@@ -1,5 +1,3 @@
-module binary
-
 --[[
 `binary` provides byte encodings, hashes, and bitsets. Use `hexencode` and
 `base64encode` to encode bytes as text, and `Bitset` for a mutable set of bits.
@@ -18,6 +16,7 @@ are added, and clearing it retains capacity for reuse.
 See [](binary.span) for checked storage views, [](binary.digest) for digests,
 and [](binary.compress) for compression streams.
 ]]
+module binary
 
 local bitset = require("nupp.util.internal.bitset")
 

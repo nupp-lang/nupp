@@ -11,7 +11,6 @@ local span = require("binary.span")
 local suspension = require("nupp.suspension")
 local memory = require("nupp.runtime.browser.memory") as any
 
-local files = {}
 local pending: integer = 0
 local READ_SIZE: integer = 65536
 local ORIGINS = {set = 0, current = 1, ["end"] = 2,}
@@ -113,7 +112,7 @@ local function effect(operation: string, path: any?, extra: any?, discard: (func
     return answer.value, nil
 end
 
-function files.capabilities(): messages.Capabilities
+export function capabilities(): messages.Capabilities
     local value = effect("capabilities", nil)
     local available = type(value) == "table" and value.available == true
     return new messages.Capabilities(
@@ -133,7 +132,7 @@ function files.capabilities(): messages.Capabilities
     )
 end
 
-function files.apppath(kind: string, organization: string, app: string): (appPaths.AppPath?, string?)
+export function apppath(kind: string, organization: string, app: string): (appPaths.AppPath?, string?)
     if APP_KINDS[kind] == nil then
         return nil, "unknown app path kind"
     end
@@ -149,7 +148,7 @@ function files.apppath(kind: string, organization: string, app: string): (appPat
     return path, nil
 end
 
-function files.info(path: any): (messages.Info?, string?)
+export function info(path: any): (messages.Info?, string?)
     local value, reason = effect("info", path)
     if value == nil then
         return nil, reason
@@ -176,43 +175,43 @@ function files.info(path: any): (messages.Info?, string?)
     return new messages.Info(kind = kind, size = size, modified = (modified as number) * 1000, readonly = false), nil
 end
 
-function files.exists(path: any): boolean
-    local value = files.info(path)
+export function exists(path: any): boolean
+    local value = info(path)
     return value ~= nil
 end
 
-function files.isFile(path: any): boolean
-    local value = files.info(path)
+export function isFile(path: any): boolean
+    local value = info(path)
     return value ~= nil and value.kind == "file"
 end
 
-function files.isDirectory(path: any): boolean
-    local value = files.info(path)
+export function isDirectory(path: any): boolean
+    local value = info(path)
     return value ~= nil and value.kind == "directory"
 end
 
-function files.isSymlink(path: any): boolean
+export function isSymlink(path: any): boolean
     descriptor(path, 2)
     return false
 end
 
-function files.readLink(path: any): (nil, string?)
+export function readLink(path: any): (nil, string?)
     descriptor(path, 2)
     return nil, unavailable("symbolic links")
 end
 
-function files.createSymlink(target: any, link: any, kind: any): (boolean, string?)
+export function createSymlink(target: any, link: any, kind: any): (boolean, string?)
     descriptor(target, 2)
     descriptor(link, 2)
     return false, unavailable("symbolic links")
 end
 
-function files.setReadOnly(path: any, readOnly: boolean): (boolean, string?)
+export function setReadOnly(path: any, readOnly: boolean): (boolean, string?)
     descriptor(path, 2)
     return false, unavailable("read-only attributes")
 end
 
-function files.createDirectory(path: any): (boolean, string?)
+export function createDirectory(path: any): (boolean, string?)
     local value, reason = effect("create-directory", path)
     if value == nil then
         return false, reason
@@ -222,7 +221,7 @@ function files.createDirectory(path: any): (boolean, string?)
         or "browser file host returned an invalid create result"
 end
 
-function files.remove(path: any, recursive: boolean?): (boolean, string?)
+export function remove(path: any, recursive: boolean?): (boolean, string?)
     local value, reason = effect("remove", path, {recursive = recursive == true,})
     if value == nil then
         return false, reason
@@ -232,13 +231,13 @@ function files.remove(path: any, recursive: boolean?): (boolean, string?)
         or "browser file host returned an invalid remove result"
 end
 
-function files.rename(from: any, to: any): (boolean, string?)
+export function rename(from: any, to: any): (boolean, string?)
     descriptor(from, 2)
     descriptor(to, 2)
     return false, unavailable("rename")
 end
 
-function files.list(path: any): ({messages.Entry}?, string?)
+export function list(path: any): ({messages.Entry}?, string?)
     local value, reason = effect("list", path)
     if value == nil then
         return nil, reason
@@ -261,7 +260,7 @@ function files.list(path: any): ({messages.Entry}?, string?)
     return entries, nil
 end
 
-function files.glob(pattern: string): (nil, string?)
+export function glob(pattern: string): (nil, string?)
     if type(pattern) ~= "string" then
         error("nupp: io.files glob pattern must be a string", 2)
     end
@@ -503,7 +502,7 @@ local function closeOrphan(response: any): nil
     end
 end
 
-function files.open(path: any, mode: messages.Mode?): (affine(File?), string?)
+export function open(path: any, mode: messages.Mode?): (affine(File?), string?)
     local selected = mode or "r"
     if MODES[selected] == nil then
         error("nupp: io.files has no mode named " .. tostring(mode), 2)
@@ -522,7 +521,7 @@ end
 
 local function wholeRead(path: any): (string?, string?)
     pending = pending + 1
-    local opened, reason = files.open(path, "r")
+    local opened, reason = open(path, "r")
     if opened == nil then
         pending = pending - 1
         return nil, reason
@@ -547,7 +546,7 @@ local function wholeRead(path: any): (string?, string?)
     return table.concat(pieces), nil
 end
 
-function files.read(path: any): (string?, string?)
+export function read(path: any): (string?, string?)
     return wholeRead(path)
 end
 
@@ -557,7 +556,7 @@ local function wholeWrite(path: any, bytes: any, mode: messages.Mode): (boolean,
     end
     local text = type(bytes) == "string" and bytes or bytes:getstring()
     pending = pending + 1
-    local opened, reason = files.open(path, mode)
+    local opened, reason = open(path, mode)
     if opened == nil then
         pending = pending - 1
         return false, reason
@@ -570,20 +569,20 @@ local function wholeWrite(path: any, bytes: any, mode: messages.Mode): (boolean,
     return wrote, failure
 end
 
-function files.write(path: any, bytes: any): (boolean, string?)
+export function write(path: any, bytes: any): (boolean, string?)
     return wholeWrite(path, bytes, "w")
 end
 
-function files.append(path: any, bytes: any): (boolean, string?)
+export function append(path: any, bytes: any): (boolean, string?)
     return wholeWrite(path, bytes, "a")
 end
 
-function files.writeAtomic(path: any, bytes: any): (boolean, string?)
+export function writeAtomic(path: any, bytes: any): (boolean, string?)
     descriptor(path, 2)
     return false, unavailable("atomic replacement")
 end
 
-function files.copy(from: any, to: any): (boolean, string?)
+export function copy(from: any, to: any): (boolean, string?)
     local bytes, reason = wholeRead(from)
     if bytes == nil then
         return false, reason
@@ -592,27 +591,27 @@ function files.copy(from: any, to: any): (boolean, string?)
     return wholeWrite(to, bytes, "w")
 end
 
-function files.pendingTransfers(): integer
+export function pendingTransfers(): integer
     return pending
 end
 
-function files.createTemporaryFile(options: messages.TemporaryOptions?): (nil, string?)
+export function createTemporaryFile(options: messages.TemporaryOptions?): (nil, string?)
     return nil, unavailable("temporary paths")
 end
 
-function files.createTemporaryDirectory(options: messages.TemporaryOptions?): (nil, string?)
+export function createTemporaryDirectory(options: messages.TemporaryOptions?): (nil, string?)
     return nil, unavailable("temporary paths")
 end
 
-function files.userFolder(which: messages.UserFolder): (nil, string?)
+export function userFolder(which: messages.UserFolder): (nil, string?)
     return nil, unavailable("user folders")
 end
 
-function files.executableDirectory(): (nil, string?)
+export function executableDirectory(): (nil, string?)
     return nil, unavailable("an executable directory")
 end
 
-function files.requestPersistentStorage(): (boolean, string?)
+export function requestPersistentStorage(): (boolean, string?)
     local value, reason = effect("persist", nil)
     if value == nil then
         return false, reason
@@ -623,5 +622,3 @@ function files.requestPersistentStorage(): (boolean, string?)
 
     return value.granted == true, value.granted == true and nil or "persistent storage was not granted"
 end
-
-export = files

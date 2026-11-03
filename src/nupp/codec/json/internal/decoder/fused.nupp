@@ -1,5 +1,3 @@
-module nupp.codec.json.internal.decoder.fused
-
 --[[
 The one fused JSON decoder, monomorphized per builder.
 
@@ -60,14 +58,13 @@ the lookup needs for the three bytes before each byte it judges, is read again
 instead of carried; before the first vector that load is out of range and
 returns zeros, which is what a scan that has seen nothing needs.
 ]]
+module nupp.codec.json.internal.decoder.fused
 
 local _valueBuilder = require("serde.valuebuilder")
 local _jsonBuilder = require("nupp.codec.json.internal.builder")
 local array = require("nupp.mem.array")
 local simd = require("simd")
 local {type Buffer} = require("nupp.text")
-
-local fused = {}
 
 --- A sixteen-entry nibble table, as the vector `swizzle` looks up in.
 ---
@@ -782,7 +779,7 @@ local function decodeFused<const Variant: integer>(
 end
 
 --- The pull entry `nupp.codec.json.internal.decode` exports.
-function fused.decodePull(
+export function decodePull(
     source: string,
     nullValue: unknown,
     arrayMarker: unknown?,
@@ -797,7 +794,7 @@ end
 --- The serde entry `nupp.codec.json.internal.decoder.serde` exports. The schema
 --- argument carries compiled field targets; the native builder consumes those directly
 --- instead of resolving scalar shapes through Lua.
-function fused.decodeSerde(
+export function decodeSerde(
     borrows source: string | Buffer,
     nullValue: unknown,
     arrayMarker: unknown?,
@@ -810,7 +807,7 @@ function fused.decodeSerde(
 end
 
 --- The eager entry `nupp.codec.json.internal.decoder.eager` exports.
-function fused.decodeEager(
+export function decodeEager(
     source: string,
     nullValue: unknown,
     arrayMarker: unknown?,
@@ -821,5 +818,3 @@ function fused.decodeEager(
 ): (unknown, uint32, uint32)
     return decodeFused(source, 2, nullValue, arrayMarker, objectMarker, shape, arrayShapeMarker, serdeMarkers)
 end
-
-export = fused

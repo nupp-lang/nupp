@@ -1,5 +1,3 @@
-module nupp.compiler.check.unused
-
 --[[
 Whether a `local` this file introduces is read anywhere.
 
@@ -28,13 +26,12 @@ free to correct. A name beginning with `_` says the binding is deliberate and
 the value is not wanted. See
 [lints.md](docs/reference/lints.md#unused-binding).
 ]]
+module nupp.compiler.check.unused
 
 local state = require("nupp.compiler.check.state")
 
-local unused = {}
-
 --- Defines the operations the walk uses to judge unread bindings.
-type unused.Ops = {
+export type Ops = {
     --- Registers a binding to judge once the file is read.
     declared: function(tok: any, entry: any, kind: string),
 
@@ -46,7 +43,7 @@ type unused.Ops = {
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function unused.install(c: state.Checker): unused.Ops
+export function install(c: state.Checker): Ops
     local ops = {}
 
     -- Definitions something has read. Keyed by the definition rather than the entry,
@@ -125,5 +122,3 @@ function unused.install(c: state.Checker): unused.Ops
 
     return ops
 end
-
-export = unused

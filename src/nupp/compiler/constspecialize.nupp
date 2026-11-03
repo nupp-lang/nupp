@@ -1,5 +1,3 @@
-module nupp.compiler.constspecialize
-
 --[[
 Finds closed applications of scalar const-generic runtime functions.
 
@@ -9,14 +7,13 @@ they never rediscover a tuple from source text. Collection is deliberately
 side-effect free. A consumer decides which bodies fit its budget and annotates
 the calls it will rewrite.
 ]]
+module nupp.compiler.constspecialize
 
 local cst = require("nupp.compiler.syntax.cst")
 local hash = require("nupp.compiler.hash")
 local types = require("nupp.compiler.types")
 
-local constspecialize = {}
-
-constspecialize.maxBodiesPerModule = 8
+export const maxBodiesPerModule = 8
 
 local function walk(node: any, visit: function(any): nil): nil
     if node == nil or cst.isToken(node) then
@@ -159,18 +156,18 @@ end
 --- Collects every same-source declaration and every checked direct application.
 --- Imported declarations are collected by the deliverable planner, which has their
 --- source trees; a single-file optimization cannot emit a private body it cannot see.
-function constspecialize.collect(result: any, filename: string?): {any}
+export function collect(result: any, filename: string?): {any}
     filename = filename or "<source>"
     local candidates, plans = {}, {}
-    constspecialize.collectCandidates(result, filename as string, candidates, plans)
-    constspecialize.collectCalls(result, filename as string, candidates)
+    collectCandidates(result, filename as string, candidates, plans)
+    collectCalls(result, filename as string, candidates)
 
-    constspecialize.sort(plans)
+    sort(plans)
 
     return plans
 end
 
-function constspecialize.collectCandidates(
+export function collectCandidates(
     result: any,
     filename: string,
     candidates: {[any]: any},
@@ -241,7 +238,7 @@ function constspecialize.collectCandidates(
     end
 end
 
-function constspecialize.collectCalls(result: any, filename: string, candidates: {[any]: any}): nil
+export function collectCalls(result: any, filename: string, candidates: {[any]: any}): nil
     walk(result.root, function(node): nil
         if node.kind ~= "call" or node.obj == nil then
             return
@@ -323,7 +320,7 @@ function constspecialize.collectCalls(result: any, filename: string, candidates:
     end)
 end
 
-function constspecialize.sort(plans: {any}): nil
+export function sort(plans: {any}): nil
     for _, plan in ipairs(plans) do
         table.sort(plan.specializations, byKey)
     end
@@ -336,15 +333,15 @@ function constspecialize.sort(plans: {any}): nil
 end
 
 --- Collects a whole checked deliverable before either backend emits it.
-function constspecialize.collectGraph(checked: {any}): {any}
+export function collectGraph(checked: {any}): {any}
     local candidates, plans = {}, {}
     for _, module in ipairs(checked) do
-        constspecialize.collectCandidates(module.result, module.filename, candidates, plans, module.module)
+        collectCandidates(module.result, module.filename, candidates, plans, module.module)
     end
     for _, module in ipairs(checked) do
-        constspecialize.collectCalls(module.result, module.filename, candidates)
+        collectCalls(module.result, module.filename, candidates)
     end
-    constspecialize.sort(plans)
+    sort(plans)
 
     return plans
 end
@@ -377,8 +374,8 @@ end
 
 --- Chooses a deterministic prefix of body classes and annotates only its calls.
 --- Optional Lua emission declines the rest; required AOT emission diagnoses it.
-function constspecialize.select(plans: {any}, maximum: integer?): ({any}, {any})
-    maximum = maximum or constspecialize.maxBodiesPerModule
+export function select(plans: {any}, maximum: integer?): ({any}, {any})
+    maximum = maximum or maxBodiesPerModule
     local all = {}
     for _, plan in ipairs(plans) do
         for _, specialization in ipairs(plan.specializations) do
@@ -391,8 +388,8 @@ function constspecialize.select(plans: {any}, maximum: integer?): ({any}, {any})
     return accepted, declined
 end
 
-function constspecialize.selectGraph(plans: {any}, maximum: integer?): ({any}, {any})
-    maximum = maximum or constspecialize.maxBodiesPerModule
+export function selectGraph(plans: {any}, maximum: integer?): ({any}, {any})
+    maximum = maximum or maxBodiesPerModule
     local modules: {[string]: {any}} = {}
     for _, plan in ipairs(plans) do
         local bodies = modules[plan.filename]
@@ -413,5 +410,3 @@ function constspecialize.selectGraph(plans: {any}, maximum: integer?): ({any}, {
 
     return accepted, declined
 end
-
-export = constspecialize

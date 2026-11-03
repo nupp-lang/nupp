@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.io
-
 --[[
 `io` is bytes: storage for them, and the readers and writers that move
 them. Reach for it when a program needs a growable buffer, an immutable
@@ -304,6 +302,7 @@ empty leaves an empty queue rather than a released one.
   errors, ownership, and byte-position conventions every facility shares
 :::
 ]]
+module nupp.io
 
 -- Public names are direct aliases; calls reach the implementation without
 -- adapters.

@@ -1,0 +1,318 @@
+--[[
+Convert a plain module table to direct export declarations.
+
+The same source edits serve editor actions and repository migrations. A table
+whose identity escapes, has a metatable, or has computed members needs review.
+]]
+module nupp.tools.moduleexports
+
+local parser = require("nupp.compiler.syntax.parser")
+local cst = require("nupp.compiler.syntax.cst")
+
+local function tokens(node: any): {any}
+    local out: {any} = {}
+
+    local function visit(value: any): nil
+        if cst.isToken(value) then
+            out[#out + 1] = value
+        else
+            for _, child in ipairs(value) do
+                visit(child)
+            end
+        end
+    end
+
+    visit(node)
+
+    return out
+end
+
+local function walk(node: any, visit: function(any): nil): nil
+    if cst.isToken(node) then
+        return
+    end
+    visit(node)
+    for _, child in ipairs(node) do
+        walk(child, visit)
+    end
+end
+
+local function signatureFailure(stat: any, name: string): string?
+    if not stat.body.rets and not stat.body.returnPack then
+        return "function needs an explicit result type: " .. name
+    end
+    for _, param in ipairs(stat.body.params) do
+        if not param.type then
+            return "function needs explicit parameter types: " .. name
+        end
+    end
+
+    return nil
+end
+
+--- Preview direct exports, or explain why the module needs review.
+export function plan(source: string): any
+    local parsed = parser.parse(source)
+    if #parsed.errors > 0 then
+        return {reason = "source has syntax errors"}
+    end
+    if not cst.declaredModule(parsed.root) then
+        return {reason = "no module declaration"}
+    end
+    local assignment = cst.exportAssignment(parsed.root)
+    if not assignment then
+        return {reason = "no export assignment"}
+    end
+    if not assignment.value or assignment.value.kind ~= "name" or not assignment.value.token then
+        return {reason = "export value is computed or has a metatable"}
+    end
+    local alias = assignment.value.token.text
+    local stats: {any} = {}
+    for _, block in ipairs(parsed.root.blocks) do
+        for _, stat in ipairs(block.stats) do
+            stats[#stats + 1] = stat
+        end
+    end
+    if stats[#stats] ~= assignment then
+        return {reason = "export assignment is not last"}
+    end
+    local declaration: any = nil
+    local members: {[string]: any} = {}
+    local edits: {any} = {}
+    local ignored: {[integer]: boolean} = {}
+    local failure: string? = nil
+    local localFunctions: {[string]: any} = {}
+    local promoted: {[string]: any} = {}
+
+    for _, stat in ipairs(stats) do
+        if stat.kind == "localFuncStmt" and not stat.isConst then
+            localFunctions[stat.name.text] = stat
+        end
+    end
+
+    local function edit(offset: integer, length: integer, text: string): nil
+        edits[#edits + 1] = {offset = offset, length = length, newText = text}
+    end
+
+    local function remove(node: any): nil
+        local ts = tokens(node)
+        for _, tok in ipairs(ts) do
+            ignored[tok.offset] = true
+        end
+        local first, last = ts[1], ts[#ts]
+        edit(first.offset, (last.offset + #last.text - first.offset) as integer, "")
+    end
+
+    local function addMember(name: string, stat: any): nil
+        if members[name] then
+            failure = "member is assigned more than once: " .. name
+        end
+        members[name] = stat
+    end
+
+    for _, outer in ipairs(stats) do
+        local stat = outer
+        while stat.kind == "pragmaStmt" do
+            stat = stat.stat
+        end
+        if stat.kind == "moduleStmt" then
+            for _, tok in ipairs(tokens(stat)) do
+                ignored[tok.offset] = true
+            end
+        elseif stat.kind == "localStmt" and #stat.names == 1 and stat.names[1].text == alias then
+            local value = stat.exprs and stat.exprs[1]
+            if declaration
+                or not value
+                or value.kind ~= "tableExpr"
+                or #value.fields ~= 0
+                or stat.types[1]
+                or stat.pattern
+            then
+                return {reason = "module table is not an unannotated empty table"}
+            end
+            declaration = stat
+            remove(stat)
+        elseif stat.kind == "funcStmt" then
+            local ts = tokens(stat.name)
+            if ts[1].text == alias and #ts == 3 and ts[2].text == "." then
+                local reason = signatureFailure(stat, ts[3].text)
+                if reason then
+                    return {reason = reason}
+                end
+                addMember(ts[3].text, stat)
+                local start = tokens(stat)[1]
+                edit(start.offset, 0, "export ")
+            end
+        elseif (stat.kind == "typeAlias" or stat.kind == "recordDecl")
+            and stat.qualifiers
+            and #stat.qualifiers == 1
+            and stat.qualifiers[1].text == alias
+        then
+            addMember(stat.name.text, stat)
+            local start = tokens(stat)[1]
+            if stat.modifier then
+                return {reason = "qualified type has a visibility modifier"}
+            end
+            edit(start.offset, 0, "export ")
+        elseif stat.kind == "assignStmt" and #stat.targets == 1 and #stat.exprs == 1 then
+            local ts = tokens(stat.targets[1])
+            if #ts == 3 and ts[1].text == alias and ts[2].text == "." then
+                if stat.deepConst then
+                    return {reason = "deep const field needs review"}
+                end
+                addMember(ts[3].text, stat)
+                local name = ts[3].text
+                local value = stat.exprs[1]
+                local implementation = localFunctions[name]
+                if implementation and value.kind == "name" and value.token.text == name then
+                    if implementation.name.offset >= ts[1].offset then
+                        return {reason = "function is published before its declaration: " .. name}
+                    end
+                    local reason = signatureFailure(implementation, name)
+                    if reason then
+                        return {reason = reason}
+                    end
+                    promoted[name] = implementation
+                    local start = tokens(implementation)[1]
+                    edit(start.offset, #start.text, "export")
+                    remove(stat)
+                elseif stat.isConst then
+                    edit(tokens(stat)[1].offset, 0, "export ")
+                else
+                    edit(ts[1].offset, 0, "export const ")
+                end
+            end
+        end
+    end
+    if not declaration then
+        return {reason = "module is not a local empty table"}
+    end
+    if not next(members) then
+        return {reason = "no direct members"}
+    end
+    if failure then
+        return {reason = failure}
+    end
+    remove(assignment)
+
+    -- A promoted function keeps its local name and accepts uses after its
+    -- declaration. Competing bindings still need review: exported functions
+    -- become constants, which nested bindings cannot redeclare.
+    walk(parsed.root, function(node: any): nil
+        if node == declaration then
+            return
+        end
+        local names: {any} = {}
+        if node.kind == "localStmt" or node.kind == "forinStmt" or node.kind == "generics" then
+            names = node.names or {}
+        elseif node.kind == "fornumStmt" then
+            if node.var then
+                names = {node.var}
+            end
+        elseif node.kind == "bindingEntry" then
+            names = {node.alias or node.sourceName}
+        elseif node.binding then
+            names = {node.binding}
+        elseif node.kind == "localFuncStmt" or node.kind == "param" then
+            if node.name and promoted[node.name.text] ~= node then
+                names = {node.name}
+            end
+        elseif (node.kind == "typeAlias" or node.kind == "recordDecl") and not node.qualifiers then
+            names = {node.name}
+        end
+        if node.kind == "funcStmt" then
+            local name = node.name
+            if name and name.base and name.base.text ~= alias then
+                names = {name.base}
+            end
+            local ts = tokens(name)
+            if #ts == 3 and ts[1].text == alias and members[ts[3].text] ~= node then
+                failure = "member function is reassigned: " .. ts[3].text
+            end
+            if name and name.method and members.self then
+                failure = "implicit self would collide"
+            end
+        end
+        for _, name in ipairs(names) do
+            if name.text == alias or members[name.text] then
+                failure = "local binding would collide: " .. name.text
+            end
+        end
+        if node.kind == "name"
+            and node.token.text ~= alias
+            and members[node.token.text]
+            and not ignored[node.token.offset]
+        then
+            local implementation = promoted[node.token.text]
+            if not implementation or node.token.offset < implementation.name.offset then
+                failure = "unqualified name would change binding: " .. node.token.text
+            end
+        end
+        if node.kind == "assignStmt" then
+            for _, target in ipairs(node.targets) do
+                local ts = tokens(target)
+                if #ts == 1 and promoted[ts[1].text] then
+                    failure = "published local function is reassigned: " .. ts[1].text
+                end
+                if #ts == 3 and ts[1].text == alias and members[ts[3].text] ~= node then
+                    failure = "member is mutated: " .. ts[3].text
+                end
+            end
+        end
+    end)
+    if failure then
+        return {reason = failure}
+    end
+    local all = parsed.tokens
+    for i, tok in ipairs(all) do
+        local before = all[i - 1]
+        if tok.kind == "name"
+            and tok.text == alias
+            and not ignored[tok.offset]
+            and not (before and before.text == ".")
+        then
+            local dot, member = all[i + 1], all[i + 2]
+            if not dot or dot.text ~= "." or not member or not members[member.text] then
+                return {reason = "module value escapes or has a computed member"}
+            end
+            if promoted[member.text] and tok.offset < tokens(members[member.text])[1].offset then
+                return {reason = "module member is read before its publication: " .. member.text}
+            end
+            -- Trivia between the qualifier and member may carry a comment.
+            if source:sub(tok.offset + #tok.text, member.offset - 1):find("%-%-") then
+                return {reason = "qualified name contains a comment"}
+            end
+            edit(tok.offset, member.offset - tok.offset, "")
+        end
+    end
+    table.sort(edits, function(a: any, b: any): boolean
+        if a.offset == b.offset then
+            return a.length > b.length
+        end
+        return a.offset > b.offset
+    end)
+    local combined: {any} = {}
+    for _, change in ipairs(edits) do
+        local previous = combined[#combined]
+        if previous and previous.offset == change.offset then
+            previous.newText = change.newText .. previous.newText
+            previous.length = math.max(previous.length, change.length)
+        else
+            combined[#combined + 1] = change
+        end
+    end
+    edits = combined
+    local rewritten = source
+    for _, change in ipairs(edits) do
+        rewritten = rewritten:sub(
+            1,
+            change.offset - 1
+        ) .. change.newText .. rewritten:sub(change.offset + change.length)
+    end
+    local after = parser.parse(rewritten)
+    if #after.errors > 0 then
+        return {reason = "result requires syntax review"}
+    end
+
+    return {edits = edits, source = rewritten}
+end

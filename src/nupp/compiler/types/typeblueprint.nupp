@@ -1,5 +1,3 @@
-module nupp.compiler.types.typeblueprint
-
 --[[
 Parent-side validation and interning for worker-produced type blueprints.
 
@@ -7,6 +5,7 @@ This module trusts no worker field, fingerprint or edge. It constructs only stru
 types and packs through the ordinary interned constructors; there is deliberately no
 operation which allocates a nominal declaration.
 ]]
+module nupp.compiler.types.typeblueprint
 
 local T = require("nupp.compiler.types")
 local constrain = require("nupp.compiler.types.constrain")

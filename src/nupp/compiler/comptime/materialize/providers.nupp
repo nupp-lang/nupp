@@ -1,5 +1,3 @@
-module nupp.compiler.comptime.materialize.providers
-
 --[[
 The closed materializer-provider table.
 
@@ -8,6 +6,7 @@ surface: evaluator intrinsics, a versioned finalizer, an expected-type relation,
 payload validator, and an IR lowerer land together here. The small `compiler-test`
 provider exercises the common path before a public provider depends on it.
 ]]
+module nupp.compiler.comptime.materialize.providers
 
 local cst = require("nupp.compiler.syntax.cst")
 local hash = require("nupp.compiler.hash")

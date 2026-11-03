@@ -1,5 +1,3 @@
-module debug.log
-
 --[[
 `debug.log` provides leveled logging with checked format strings. A filtered
 severity call with a literal format in statement position evaluates none of its
@@ -227,6 +225,7 @@ compiler-provided facility. A module that never logs carries nothing.
   reaches a program without being linked into one that never uses it
 :::
 ]]
+module debug.log
 
 local log = {}
 

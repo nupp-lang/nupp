@@ -1,13 +1,11 @@
 @!internal
-
-module nupp.runtime.provider.nativefiles
-
 --[[
 The VM's native filesystem provider for [](io.files): the same contract and
 records as the LuaJIT provider, written over the VM's `nupp.vm.files` primitives
 rather than the native library's C ABI. Whole-file transfers complete before
 they return, so `pendingTransfers` is always zero.
 ]]
+module nupp.runtime.provider.nativefiles
 
 const host = require("nupp.vm.files")
 const paths = require("io.internal.path")

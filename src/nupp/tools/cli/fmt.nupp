@@ -1,5 +1,3 @@
-module nupp.tools.cli.fmt
-
 --[[
 `nupp fmt`: formatting, as a filter or as a question.
 
@@ -12,6 +10,7 @@ status a build can gate on.
 --check asks that same question of whatever it was given, so a build can gate on
 the files a change touched rather than on the whole tree.
 ]]
+module nupp.tools.cli.fmt
 
 local usageError = require("nupp.tools.cli.error").forCommand("fmt")
 local cliModule = require("io.cli")

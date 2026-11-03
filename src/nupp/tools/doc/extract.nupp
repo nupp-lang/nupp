@@ -1,5 +1,3 @@
-module nupp.tools.doc.extract
-
 --[[
 Extracts one file's documented declarations from its CST.
 
@@ -7,6 +5,8 @@ Every question this asks is answered by the parse alone: what a declaration is
 called, what it is spelled like, which `---` run belongs to it. That is why
 documentation never invokes the checker.
 ]]
+module nupp.tools.doc.extract
+
 const {type LexError} = require("nupp.compiler.syntax.lexer")
 
 local cst = require("nupp.compiler.syntax.cst")
@@ -20,14 +20,12 @@ local surfaces = require("nupp.compiler.check.surfaces")
 local trim = stringsMod.trim
 local normalize, join = filesMod.normalize, filesMod.join
 
-local extract = {}
-
 ----------------------------------------------------------------------------
 -- What extraction produces
 ----------------------------------------------------------------------------
 
 --- An argument: its name and type as the source spelled them, and what `@param` said.
-type extract.Param = {
+export type Param = {
     name: string,
     type: string,
     mode: string?,
@@ -35,13 +33,13 @@ type extract.Param = {
 }
 
 --- A result: a type and a description, with no name to hang them on.
-type extract.Result = {
+export type Result = {
     type: string,
     text: string
 }
 
 --- A type parameter, and what `@typearg` said about it.
-type extract.TypeArg = {
+export type TypeArg = {
     name: string,
     text: string
 }
@@ -51,13 +49,13 @@ type extract.TypeArg = {
 --- method apart from a field; a nested type carries its own members recursively,
 --- which is what tells it apart from both. A record, not a `type` alias, because a
 --- nested type's own members recur through this same shape.
-record extract.Member
+export record Member
     name: string
     type: string
     text: string
     path: string
-    params: {extract.Param}
-    returns: {extract.Result}
+    params: {Param}
+    returns: {Result}
     raises: {docblock.Raise}
     lua: boolean?
     isFunction: boolean?
@@ -69,8 +67,9 @@ record extract.Member
     isAlias: boolean?
 
     generics: string?
-    typeargs: {extract.TypeArg}?
+    typeargs: {TypeArg}?
     members: {Member}?
+    supertypes: {string}?
 
     --- The compiler-only value kind, when this member exists only during comptime.
     comptimeKind: string?
@@ -87,7 +86,7 @@ end
 
 --- A documented declaration: what it is called, how it is spelled, and everything its
 --- `---` run said about it.
-type extract.Item = {
+export type Item = {
     name: string,
     kind: string,
     signature: string,
@@ -96,11 +95,12 @@ type extract.Item = {
     path: string,
     module: string?,
     line: integer,
-    members: {extract.Member},
-    params: {extract.Param},
-    returns: {extract.Result},
+    members: {Member},
+    supertypes: {string}?,
+    params: {Param},
+    returns: {Result},
     raises: {docblock.Raise},
-    typeargs: {extract.TypeArg},
+    typeargs: {TypeArg},
     annotations: {string}?,
 
     --- The published binding is explicitly constant, not merely its implementation.
@@ -122,11 +122,11 @@ type extract.Item = {
 }
 
 --- A source file, read as its documented declarations.
-type extract.Module = {
+export type Module = {
     name: string,
     path: string?,
     text: string,
-    items: {extract.Item},
+    items: {Item},
     documentationInternal: boolean?,
     imports: {[string]: string}?,
     moduleLocal: string?,
@@ -160,7 +160,7 @@ type extract.Module = {
 --- carrying `@namespace` is left out entirely under this option: it names modules of
 --- its
 --- own, which an ordinary run documents already.
-type extract.Options = {
+export type Options = {
     includePrivate: boolean?,
 
     --- Declaration names a catalog explicitly publishes despite a leading underscore.
@@ -346,7 +346,7 @@ end
 -- namespace an `@namespace` declaration implies, which has no file behind it, answers
 -- it
 -- too.
-local function internalModuleName(name: string?): boolean
+export function internalModuleName(name: string?): boolean
     return ("." .. tostring(name or "") .. "."):find(".internal.", 1, true) ~= nil
 end
 
@@ -451,6 +451,15 @@ local function genericText(node)
     return node and node.generics and syntax(node.generics) or ""
 end
 
+local function structureSupertypes(stat): {string}?
+    local names: {string} = {}
+    for _, supertype in ipairs(stat.supertypes or {}) do
+        names[#names + 1] = syntax(supertype)
+    end
+
+    return #names > 0 and names or nil
+end
+
 -- A structure's signature is its opening line and nothing below it: the modifiers, the
 -- name, its generic parameters, the contracts written after `is`, and a `where`
 -- refinement. Rendering the whole declaration instead said everything twice, since the
@@ -469,11 +478,8 @@ local function structureHeader(stat): string
     end
     parts[#parts + 1] = stat.declKind or "record"
     parts[#parts + 1] = declaredName(stat) .. genericText(stat)
-    local supertypes: {string} = {}
-    for _, supertype in ipairs(stat.supertypes or {}) do
-        supertypes[#supertypes + 1] = syntax(supertype)
-    end
-    if #supertypes > 0 then
+    local supertypes = structureSupertypes(stat)
+    if supertypes then
         parts[#parts + 1] = "is " .. table.concat(supertypes, ", ")
     end
     if stat.whereClause then
@@ -908,7 +914,7 @@ local function byKindThenName(left, right)
     return left.kind < right.kind
 end
 
-local declarationItem: function(any, string, boolean, boolean, boolean, {[string]: boolean}?, string?): extract.Item?
+local declarationItem: function(any, string, boolean, boolean, boolean, {[string]: boolean}?, string?): Item?
 
 -- What a shape-typed thing holds: an inline shape's own fields, or the fields of the
 -- record a field spelled as a name refers to, when the same file declares one. A field
@@ -1066,7 +1072,7 @@ local function buildMembers(
     includePrivate: boolean,
     fieldTextOverrides: {[string]: string}?,
     receiver: string?
-): {extract.Member}
+): {Member}
     local members = {}
     for _, entry in ipairs(entries or {}) do
         local entryInfo = entryDoc(entry)
@@ -1075,7 +1081,7 @@ local function buildMembers(
             and entryVisible
         then
             local fieldInfo = entryInfo
-            local member = new extract.Member(
+            local member = new Member(
                 name = entry.name.text,
                 type = syntax(entry.type),
                 text = fieldInfo.text ~= "" and fieldInfo.text
@@ -1115,7 +1121,7 @@ local function buildMembers(
             setReceiver(details, entry.body, receiver)
             members[
                 #members + 1
-            ] = new extract.Member(
+            ] = new Member(
                 name = entry.name.text,
                 type = functionSignature(entry, entry.name.text),
                 text = methodInfo.text,
@@ -1135,7 +1141,7 @@ local function buildMembers(
             setReceiver(details, entry.body, receiver)
             members[
                 #members + 1
-            ] = new extract.Member(
+            ] = new Member(
                 name = "constructor",
                 type = functionSignature(entry, "constructor"),
                 text = constructorInfo.text,
@@ -1148,9 +1154,13 @@ local function buildMembers(
             )
         elseif entry.kind == "recordDecl" and entryVisible then
             local nestedPath = basePath .. "." .. entry.name.text
+            local typeargs = {}
+            for _, generic in ipairs(entry.generics and entry.generics.names or {}) do
+                typeargs[#typeargs + 1] = {name = generic.text, text = entryInfo.typeargs[generic.text] or ""}
+            end
             members[
                 #members + 1
-            ] = new extract.Member(
+            ] = new Member(
                 name = entry.name.text,
                 type = entry.declKind or "record",
                 text = entryInfo.text,
@@ -1159,6 +1169,8 @@ local function buildMembers(
                 returns = {},
                 raises = {},
                 isType = true,
+                supertypes = structureSupertypes(entry),
+                typeargs = typeargs,
                 members = buildMembers(
                     entry.entries,
                     nestedPath,
@@ -1175,7 +1187,7 @@ local function buildMembers(
             -- says what the alias is for.
             members[
                 #members + 1
-            ] = new extract.Member(
+            ] = new Member(
                 name = entry.name.text,
                 type = syntax(entry.value),
                 text = entryInfo.text,
@@ -1190,7 +1202,7 @@ local function buildMembers(
         elseif entry.name and entryVisible then
             members[
                 #members + 1
-            ] = new extract.Member(
+            ] = new Member(
                 name = entry.name.text,
                 type = entry.kind,
                 text = entryInfo.text,
@@ -1434,6 +1446,7 @@ declarationItem = function(
         name = name,
         kind = kind,
         signature = signature,
+        supertypes = stat.kind == "recordDecl" and structureSupertypes(stat) or nil,
         aliasSource = stat.kind == "typeAlias" and syntax(stat.value)
         or (stat.kind == "localStmt" or stat.kind == "assignStmt")
         and stat.exprs
@@ -1571,7 +1584,7 @@ local function unreachableOwner(
     return head ~= moduleLocal and head ~= (moduleName:match("([^.]+)$") or moduleName) and not publishedTables[head]
 end
 
-local function memberNamed(item: extract.Item, name: string): extract.Member?
+local function memberNamed(item: Item, name: string): Member?
     for _, member in ipairs(item.members) do
         if member.name == name then
             return member
@@ -1582,20 +1595,20 @@ local function memberNamed(item: extract.Item, name: string): extract.Member?
 end
 
 local function foldMethods(
-    items: {extract.Item},
+    items: {Item},
     declaredTypes: {[string]: boolean},
     hiddenMembers: {[string]: boolean},
     moduleName: string,
     moduleLocal: string?,
     publishedTables: {[string]: boolean}
-): {extract.Item}
-    local types: {[string]: extract.Item} = {}
+): {Item}
+    local types: {[string]: Item} = {}
     for _, item in ipairs(items) do
         if item.kind ~= "function" and item.kind ~= "method" and item.kind ~= "variable" then
             types[item.path] = item
         end
     end
-    local kept: {extract.Item} = {}
+    local kept: {Item} = {}
     for _, item in ipairs(items) do
         local callable = item.kind == "method" or item.kind == "function"
         local ownerPath = callable and item.path:match("^(.*)[.:][^.:]+$") or nil
@@ -1621,7 +1634,7 @@ local function foldMethods(
             else
                 owner.members[
                     #owner.members + 1
-                ] = new extract.Member(
+                ] = new Member(
                     name = name,
                     type = item.signature,
                     text = item.doc.text,
@@ -1646,7 +1659,7 @@ end
 -- Whole modules
 ----------------------------------------------------------------------------
 
-local function moduleName(path: string, root: string, includes: {string}?): string
+export function moduleName(path: string, root: string, includes: {string}?): string
     path, root = normalize(path), normalize(root)
     local relative = path
     if root ~= "." and path:sub(1, #root + 1) == root .. "/" then
@@ -1668,37 +1681,12 @@ local function moduleName(path: string, root: string, includes: {string}?): stri
     return best
 end
 
--- A long comment at the top of a file, or immediately after its `module` declaration,
--- is its module documentation. It belongs to the file rather than to the declaration
--- that follows and survives as markdown untouched. An ordinary `--` header stays a
--- plain implementation note, and an explicit `@module` docblock still wins over both.
+-- A long comment above the module declaration is its documentation. Without a
+-- declared module, read the file header instead. Comments below a module belong
+-- to its contents; an explicit `@module` docblock still overrides the header.
 local function headerDoc(root, tokens)
-    local token = firstToken(root)
     local _, moduleNode = cst.declaredModule(root)
-    if moduleNode then
-        local following = nil
-        local found = false
-        for _, block in ipairs(root.blocks or {}) do
-            for index, stat in ipairs(block.stats or {}) do
-                if stat == moduleNode then
-                    following = block.stats[index + 1]
-                    found = true
-                    break
-                end
-            end
-            if found then
-                break
-            end
-        end
-        if following then
-            token = firstToken(following)
-        elseif found and tokens and #tokens > 0 then
-            -- A module that declares nothing still documents itself. Its header is the
-            -- last trivia in the file rather than the leading trivia of a statement
-            -- below it, so there is nothing under the module line to read it from.
-            token = tokens[#tokens]
-        end
-    end
+    local token = firstToken(moduleNode or root) or (tokens and tokens[#tokens])
     for index = 1, token and token.triviaCount or 0 do
         local text = lexer.triviaText(token, index)
         if lexer.triviaKind(token, index) ~= "comment" then
@@ -1967,13 +1955,8 @@ local function literalBuilderMembers(root: any, item: any, imports: any, include
     return buildMembers(declaration.entries, item.path, includePrivate, docs)
 end
 
-function extract.extract(
-    source: string,
-    path: string?,
-    name: string,
-    opts: extract.Options?
-): extract.Module?, {LexError}, {extract.Module}?
-    opts = opts or {} as extract.Options
+export function extract(source: string, path: string?, name: string, opts: Options?): Module?, {LexError}, {Module}?
+    opts = opts or {} as Options
     local parsed = parser.parse(source, path)
     if #parsed.errors > 0 then
         return nil, parsed.errors
@@ -2221,10 +2204,14 @@ function extract.extract(
             end))
         end
 
-        local function members(values: {extract.Member}): nil
+        local function members(values: {Member}): nil
             for _, value in ipairs(values) do
                 value.path = publicName(value.path)
                 value.type = publicName(value.type)
+                local supertypes = value.supertypes or {}
+                for index, supertype in ipairs(supertypes) do
+                    supertypes[index] = publicName(supertype)
+                end
                 for _, param in ipairs(value.params) do
                     param.type = publicName(param.type)
                 end
@@ -2241,6 +2228,10 @@ function extract.extract(
                 item.path = name .. "." .. item.name
             end
             item.signature = publicName(item.signature)
+            local supertypes = item.supertypes or {}
+            for index, supertype in ipairs(supertypes) do
+                supertypes[index] = publicName(supertype)
+            end
             for _, param in ipairs(item.params) do
                 param.type = publicName(param.type)
             end
@@ -2256,7 +2247,7 @@ function extract.extract(
     local _, moduleNode = cst.declaredModule(parsed.root)
     local namespace = moduleNode and parseDoc(docLines(moduleNode)).tags.namespace
     if type(namespace) == "string" and namespace ~= name then
-        local projection = extract.extract(source, path, namespace, {includePrivate = false})
+        local projection = extract(source, path, namespace, {includePrivate = false})
         if projection then
             projection.documentationInternal = nil
             local localName = projection.moduleLocal
@@ -2268,10 +2259,14 @@ function extract.extract(
                 return text
             end
 
-            local function members(values: {extract.Member}): nil
+            local function members(values: {Member}): nil
                 for _, value in ipairs(values) do
                     value.path = publicName(value.path)
                     value.type = publicName(value.type)
+                    local supertypes = value.supertypes or {}
+                    for index, supertype in ipairs(supertypes) do
+                        supertypes[index] = publicName(supertype)
+                    end
                     for _, param in ipairs(value.params or {}) do
                         param.type = publicName(param.type)
                     end
@@ -2288,6 +2283,10 @@ function extract.extract(
                 end
                 item.path = namespace .. "." .. item.name
                 item.signature = publicName(item.signature)
+                local supertypes = item.supertypes or {}
+                for index, supertype in ipairs(supertypes) do
+                    supertypes[index] = publicName(supertype)
+                end
                 for _, param in ipairs(item.params) do
                     param.type = publicName(param.type)
                 end
@@ -2316,7 +2315,7 @@ end
 --- @param modules every module the run documented, which is what says who is documented
 --- @param name the module whose children are wanted
 --- @return the children, in the order they were given
-function extract.children(modules: {extract.Module}, name: string): {extract.Module}
+export function children(modules: {Module}, name: string): {Module}
     local documented = {}
     for _, module in ipairs(modules) do
         documented[module.name] = true
@@ -2352,27 +2351,22 @@ end
 ---
 --- @param modules the documented modules, which is what says which names are taken
 --- @return the implied namespaces, outermost first
-function extract.namespaces(modules: {extract.Module}): {extract.Module}
+export function namespaces(modules: {Module}): {Module}
     local taken = {}
     for _, module in ipairs(modules) do
         taken[module.name] = true
     end
-    local namespaces = {}
+    local implied = {}
     for _, module in ipairs(modules) do
         local walked = nil
         for segment in module.name:gmatch("[^.]+") do
             walked = walked and walked .. "." .. segment or segment
             if walked ~= module.name and not taken[walked] then
                 taken[walked] = true
-                namespaces[#namespaces + 1] = {name = walked, text = "", items = {}, namespace = true}
+                implied[#implied + 1] = {name = walked, text = "", items = {}, namespace = true}
             end
         end
     end
 
-    return namespaces
+    return implied
 end
-
-extract.internalModuleName = internalModuleName
-extract.moduleName = moduleName
-
-export = extract

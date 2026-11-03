@@ -1,5 +1,3 @@
-module nupp.tools.bytecodelisting
-
 --[[
 The human listing `nupp bc` prints, and where each of its lines came from.
 
@@ -9,8 +7,7 @@ its correspondence written down, and this module is the one place that writes it
 
 `bc` renders to stdout, and asks here for the bytes.
 ]]
-
-local listing = {}
+module nupp.tools.bytecodelisting
 
 --- What a listing line stands for, which is what a client synchronizing a cursor
 --- across the two views has to know.
@@ -18,14 +15,14 @@ local listing = {}
 --- `exact` is an instruction, at the source line it was lowered from. `source`
 --- is the echoed source line itself. `derived` is a line about a span rather
 --- than a point -- a function header.
-type listing.Role = 'exact' | 'source' | 'derived'
+export type Role = 'exact' | 'source' | 'derived'
 
 --- A listing line, and the source line it speaks for. Lines the listing writes
 --- for shape alone -- the blank between functions -- have no entry.
-type listing.Mapping = {
+export type Mapping = {
     generatedLine: integer,
     sourceLine: integer,
-    role: listing.Role
+    role: Role
 }
 
 --- How a rendering is coloured, for a client that has somewhere to put colour.
@@ -41,7 +38,7 @@ type listing.Mapping = {
 --- returns text occupying no more than that: a painted line is shorter than it
 --- looks, so only whatever painted it can cut one without cutting an escape in
 --- half.
-type listing.Palette = {
+export type Palette = {
     source: function(integer, string, integer): string,
     gutter: function(string): string,
     instruction: function(string): string
@@ -49,8 +46,8 @@ type listing.Palette = {
 
 --- What the renderer needs beyond the analysis and the source: `palette` colors
 --- the result for a terminal, and without it nothing is colored.
-type listing.Options = {
-    palette: listing.Palette?,
+export type Options = {
+    palette: Palette?,
     width: integer?
 }
 
@@ -59,7 +56,7 @@ local function asis(text: string): string
 end
 
 -- A source line the listing had to cut ends in `~`.
-listing.TRUNCATED = "~"
+export const TRUNCATED = "~"
 
 local function fit(text: string, column: integer): string
     local measure: any = require("nupp.tools.fmt.displaywidth")
@@ -68,10 +65,10 @@ local function fit(text: string, column: integer): string
         return text
     end
 
-    return measure.clip(text, column - #listing.TRUNCATED) .. listing.TRUNCATED
+    return measure.clip(text, column - #TRUNCATED) .. TRUNCATED
 end
 
-local PLAIN: listing.Palette = {
+local PLAIN: Palette = {
     source = function(_: integer, text: string, column: integer): string
         return fit(text, column)
     end,
@@ -121,7 +118,7 @@ end
 --- @param functions the analysis' functions, outermost first
 --- @return instructions by source line
 --- @raises never
-function listing.group(functions: {any}): {[integer]: {any}}
+export function group(functions: {any}): {[integer]: {any}}
     local byLine: {[integer]: {any}} = {}
     local order = 0
     for _, fn in ipairs(functions) do
@@ -164,16 +161,16 @@ end
 --- @param opts folding, verdict, width and colour settings
 --- @return the listing, and one mapping per line that stands for source
 --- @raises never
-function listing.render(functions: {any}, source: string, opts: listing.Options?): string, {listing.Mapping}
+export function render(functions: {any}, source: string, opts: Options?): string, {Mapping}
     local settings = opts or {}
     local palette = settings.palette or PLAIN
     local sourceLines = split(source)
-    local byLine = listing.group(functions)
+    local byLine = group(functions)
 
     local out: {string} = {}
-    local mappings: {listing.Mapping} = {}
+    local mappings: {Mapping} = {}
 
-    local function write(text: string, from: integer?, role: listing.Role?): nil
+    local function write(text: string, from: integer?, role: Role?): nil
         out[#out + 1] = text
         if from ~= nil and role ~= nil and from >= 1 then
             mappings[#mappings + 1] = {generatedLine = #out, sourceLine = from, role = role}
@@ -290,12 +287,12 @@ end
 --- @param source the `.nupp` source the image was lowered from
 --- @return the listing, and one mapping per line that stands for source
 --- @raises never
-function listing.aligned(functions: {any}, source: string): string, {listing.Mapping}
+export function aligned(functions: {any}, source: string): string, {Mapping}
     local sourceLines = split(source)
-    local byLine = listing.group(functions)
+    local byLine = group(functions)
 
     local out: {string} = {}
-    local mappings: {listing.Mapping} = {}
+    local mappings: {Mapping} = {}
 
     local function write(text: string, from: integer?): nil
         out[#out + 1] = text
@@ -331,5 +328,3 @@ function listing.aligned(functions: {any}, source: string): string, {listing.Map
 
     return table.concat(out, "\n") .. "\n", mappings
 end
-
-export = listing

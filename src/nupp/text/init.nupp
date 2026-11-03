@@ -1,5 +1,3 @@
-module nupp.text
-
 --[[
 `nupp.text` creates mutable FIFO byte buffers through a shared provider contract.
 Append at one end and consume bytes from the other.
@@ -19,21 +17,14 @@ and reads bytes does not notice which it has.
 
 Use [](utf8) to validate text and walk codepoints.
 ]]
-
-local spi = require("nupp.runtime.packages")
+module nupp.text
 
 -- The default provider is loaded by name below, so image builders are told.
 const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.provider.nativebuffer"
 
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
-local contracts = package.nupp
-local provider: contracts.BufferProvider = do
-    const chosen = spi.select(spi.providers<contracts.BufferProvider>("package.nupp.BufferProvider"))
-    if chosen ~= nil then
-        yield chosen
-    end
-    yield _G.require("nupp.runtime.provider.nativebuffer") as contracts.BufferProvider
-end
+local contracts = require("nupp.runtime.contracts")
+local provider: contracts.BufferProvider = require("nupp.runtime.provider.nativebuffer") as contracts.BufferProvider
 
 --- A mutable FIFO byte sequence.
 export type Buffer = SharedBuffer

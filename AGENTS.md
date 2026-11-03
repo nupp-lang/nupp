@@ -189,7 +189,7 @@ reports it is usually already testing somebody else's commit. `git push
   from the paths it touches, and `required-ci` is the single status that
   summarises the run. A path no rule classifies selects every job, which is the
   property that makes the classifier safe to trust: adding a file in a new place
-  cannot quietly lose coverage. `tests/cichangeclassifiertest.lua` and
+  cannot quietly lose coverage. `tests/tools/repository/cichangeclassifiertest.lua` and
   `.github/ci-coverage.json` hold the classifier, the workflow and the test
   groups to one account of what is covered.
 - Push the finished work straight to `main`. Nothing gates it: no pull request,

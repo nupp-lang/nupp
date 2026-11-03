@@ -1,5 +1,3 @@
-module nupp.tools.cli.bc
-
 --[[
 `nupp bc`: the bytecode a file compiles to, beside the source that made it.
 
@@ -11,6 +9,7 @@ than a benchmark does, on any machine, with no warm-up.
 Only the VM-hosted compiler can answer it: the image is what that compiler
 produces, so a LuaJIT-hosted run says so and stops.
 ]]
+module nupp.tools.cli.bc
 
 const terminal2 = require("io.cli")
 

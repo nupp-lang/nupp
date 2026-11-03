@@ -1,5 +1,3 @@
-module nupp.compiler.aot.target
-
 --[[
 What a target can hold, which decides how wide a vector may be.
 
@@ -19,6 +17,7 @@ produce an artifact that only runs there.
 The triples are `nupp.compiler.targetlayout`'s. This does not invent a second
 vocabulary for the same thing.
 ]]
+module nupp.compiler.aot.target
 
 local targetLayout = require("nupp.compiler.targetlayout")
 

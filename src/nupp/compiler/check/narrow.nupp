@@ -1,5 +1,3 @@
-module nupp.compiler.check.narrow
-
 --[[
 What a condition proves, and where it holds.
 
@@ -13,6 +11,7 @@ A reference is narrowable when it has a key: a plain name, or a chain of field
 accesses rooted at one. Anything computed has no key, since the checker cannot
 tell two evaluations of it apart.
 ]]
+module nupp.compiler.check.narrow
 
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
@@ -21,8 +20,6 @@ local mutation = require("nupp.compiler.check.mutation")
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local state = require("nupp.compiler.check.state")
-
-local narrow = {}
 
 --- The byte a path separates its segments with.
 const DOT = 46
@@ -56,7 +53,7 @@ local type Node = cst.Node
 --- What a condition proves, on each side of it. `t` holds where the condition is true
 --- and `f` where it is false, each keyed by the reference it speaks about; `exhausted`
 --- names a subject a comparison chain has now covered completely.
-type narrow.Facts = {
+export type Facts = {
     t: {[string]: Type},
     f: {[string]: Type},
     exhausted: string?
@@ -67,13 +64,13 @@ type narrow.Facts = {
 --- `c.facts` by the ones that branch, join, or invalidate what was proved.
 --- What a
 --- reference, and captured bindings.
-type narrow.Cleared = {
+export type Cleared = {
     whole: {[string]: boolean},
     below: {[string]: boolean},
     entries: {[any]: boolean}
 }
 
-type narrow.Ops = {
+export type Ops = {
     --- A map holding everything two maps held, the second winning a collision.
     mergeFacts: function(a: {[string]: Type}, b: {[string]: Type}): {[string]: Type},
 
@@ -106,10 +103,10 @@ type narrow.Ops = {
     --- Forgets facts an arbitrary call may have invalidated through aliases or
     --- captured variables. Returns what it forgot, so a condition that made the
     --- call can be kept from proving it again.
-    invalidateForCall: function(): narrow.Cleared?,
+    invalidateForCall: function(): Cleared?,
 
     --- The facts of a map minus those a call in the same expression forgot.
-    withoutCleared: function(map: {[string]: Type}, cleared: narrow.Cleared?): {[string]: Type},
+    withoutCleared: function(map: {[string]: Type}, cleared: Cleared?): {[string]: Type},
 
     --- Forgets what was known about a reference that was written, whole or beneath,
     --- and about every copy that spoke for it.
@@ -128,7 +125,7 @@ type narrow.Ops = {
     hideCapturedNarrowing: function(body: Node): function(),
 
     --- What a condition proves, on each side of it.
-    analyzeCond: function(cond: Node): narrow.Facts,
+    analyzeCond: function(cond: Node): Facts,
 
     --- What a discriminant test says about the value the field belongs to.
     discriminantBase: function(refNode: Node, literals: {Type}): (string?, Type?, Type?),
@@ -168,7 +165,7 @@ end
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function narrow.install(c: state.Checker): narrow.Ops
+export function install(c: state.Checker): Ops
     local facts = {}
 
     function facts.mergeFacts(a, b)
@@ -591,7 +588,7 @@ function narrow.install(c: state.Checker): narrow.Ops
     end
 
     function facts.invalidateForCall()
-        local cleared: narrow.Cleared = {whole = {}, below = {}, entries = {}}
+        local cleared: Cleared = {whole = {}, below = {}, entries = {}}
         for key in pairs(c.callMutationRoots or {}) do
             cleared.below[key] = true
             facts.clearWrite(key, true)
@@ -764,7 +761,7 @@ function narrow.install(c: state.Checker): narrow.Ops
     end
 
     --- What testing `cond` proves, on each side of the test.
-    function facts.analyzeCond(cond: Node): narrow.Facts
+    function facts.analyzeCond(cond: Node): Facts
         local none = {t = {}, f = {}}
         local kind = cond.kind
         if kind == "paren" then
@@ -1304,5 +1301,3 @@ function narrow.install(c: state.Checker): narrow.Ops
 
     return facts
 end
-
-export = narrow

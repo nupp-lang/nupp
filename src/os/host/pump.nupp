@@ -1,5 +1,3 @@
-module os.host.pump
-
 --[[
 `os.host.pump` runs one operation at a time for an application that embeds
 the runtime and owns its own loop. Reach for it from the exports such an
@@ -34,10 +32,11 @@ reports `"stopped"`, anything else `"continue"`. A failure is raised from the
 a [cancellation](docs/learn/runtime/concurrency/suspension.md) inside it, so its
 cleanup runs before the application shuts down.
 ]]
+module os.host.pump
 
 local suspension = require("nupp.suspension")
 local suspensionHost = require("nupp.suspension.host")
-local suspensionContract = require("nupp.suspension.spi")
+local suspensionContract = require("nupp.suspension.contracts")
 local cancellation = require("nupp.suspension.cancellation")
 -- A plain thread rather than the VM's owned one: the pump keeps its parked
 -- task in a field across calls, which an affine thread cannot be stored in.

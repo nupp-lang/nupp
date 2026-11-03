@@ -1,5 +1,3 @@
-module nupp.tools.build.cache
-
 --[[
 The build state, on disk.
 
@@ -14,6 +12,7 @@ which is what the canonical encoding here is for: a table's keys are visited in
 sorted order, so two runs that disagree about `pairs` order still agree about
 the digest.
 ]]
+module nupp.tools.build.cache
 
 local hash = require("nupp.compiler.hash")
 local json = require("serde.json")
@@ -21,8 +20,6 @@ local fs = require("nupp.compiler.fs")
 local fingerprint = require("nupp.compiler.project.fingerprint")
 
 local readFile, writeFile = fs.readFile, fs.writeFile
-
-local cache = {}
 
 -- What this codec does with an empty table and with a NaN, said here rather than
 -- inherited. Codec defaults can differ between builds -- a host that compiled one with
@@ -38,7 +35,7 @@ local cache = {}
 --- Every field is optional because the state is read back from a file: this version
 --- writes all of them, and a file that turns out to be missing one is a cache miss
 --- rather than a crash.
-type cache.ModuleRecord = {
+export type ModuleRecord = {
     --- The source identity also determines how strictly it is checked and diagnostic
     --- paths.
     sourcePath: string?,
@@ -129,7 +126,7 @@ type cache.ModuleRecord = {
 --- The providers hand back different things -- a native build has an output and a
 --- binding, a rock has a tree and the search path it adds -- so this is the union of
 --- what any of them says, and `key` is the part they all agree on.
-type cache.DependencyRecord = {
+export type DependencyRecord = {
     key: string?,
 
     --- How this installation is used: host tool, compile surface, or target artifact.
@@ -187,10 +184,10 @@ type cache.DependencyRecord = {
 --- actually read (`incremental.projectDependencies`), which invalidates the readers of
 --- a changed declaration and nobody else, and the whole-project digest became a hash
 --- computed on every command and compared by nothing.
-type cache.State = {
+export type State = {
     version: integer,
-    modules: {[string]: cache.ModuleRecord},
-    dependencies: {[string]: cache.DependencyRecord},
+    modules: {[string]: ModuleRecord},
+    dependencies: {[string]: DependencyRecord},
     generators: {[string]: {
         key: string,
         files: {string},
@@ -258,7 +255,7 @@ type cache.State = {
     aotReplay: any?
 }
 
-local function jsonArray<T>(takes items: {T}): {T} preserves items
+export function jsonArray<T>(takes items: {T}): {T} preserves items
     return json.asarray(items)
 end
 
@@ -270,7 +267,7 @@ end
 --- @param listDeclarations see `declarationFingerprint`
 --- @param readDeclaration see `declarationFingerprint`
 --- @return one digest covering both
-function cache.moduleCompilerFingerprint(
+export function moduleCompilerFingerprint(
     cacheDir: string?,
     contentDigest: (function(string): string)?,
     listDeclarations: (function(string): {string})?,
@@ -288,8 +285,8 @@ end
 -- function. Version 2 is where the cache keys moved off SHA-256.
 local STATE_VERSION: integer = 6
 
-local function emptyState(): cache.State
-    return {version = STATE_VERSION, modules = {}, dependencies = {}, outputs = {}, targets = {}} as cache.State
+export function emptyState(): State
+    return {version = STATE_VERSION, modules = {}, dependencies = {}, outputs = {}, targets = {}} as State
 end
 
 local function denseStrings(value: any): boolean
@@ -348,7 +345,7 @@ end
 --- only knows that its bytes decoded under the right stamp, not that what they
 --- decoded to is a state, and a check handed a wrongly shaped one crashed where a
 --- build started cold.
-local function adoptState(state: any): cache.State
+export function adoptState(state: any): State
     if type(state) ~= "table" or state.version ~= STATE_VERSION then
         return emptyState()
     end
@@ -363,10 +360,10 @@ local function adoptState(state: any): cache.State
         return emptyState()
     end
 
-    return state as cache.State
+    return state as State
 end
 
-local function loadState(path: string): cache.State
+export function loadState(path: string): State
     local text = readFile(path)
     if not text then
         return emptyState()
@@ -379,14 +376,6 @@ local function loadState(path: string): cache.State
     return adoptState(state)
 end
 
-local function saveState(path: string, state: cache.State): boolean?, string?
+export function saveState(path: string, state: State): boolean?, string?
     return writeFile(path, json.encodevalue(state) .. "\n")
 end
-
-cache.jsonArray = jsonArray
-cache.loadState = loadState
-cache.adoptState = adoptState
-cache.saveState = saveState
-cache.emptyState = emptyState
-
-export = cache

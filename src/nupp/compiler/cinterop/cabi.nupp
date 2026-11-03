@@ -1,5 +1,3 @@
-module nupp.compiler.cinterop.cabi
-
 --[[
 Canonical C descriptions for ordinary Nupp structs and C functions.
 
@@ -9,6 +7,7 @@ names. A C function signature is likewise represented once and rendered either
 as its public typed prototype or as the physical LuaJIT declaration whose
 ordinary-struct pointer slots are intentionally erased.
 ]]
+module nupp.compiler.cinterop.cabi
 
 local targetLayout = require("nupp.compiler.targetlayout")
 local reflection = require("nupp.compiler.reflection")

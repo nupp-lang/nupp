@@ -1,5 +1,3 @@
-module nupp.tools.build.package
-
 --[[
 One file that is the whole program.
 
@@ -7,6 +5,8 @@ A binary is a VM program: its entry's image, with the resources it carries,
 appended to the VM runtime as a payload the runtime finds at start by a magic
 trailer rather than by anything the filesystem has to be asked.
 ]]
+module nupp.tools.build.package
+
 const {type ModuleRecord as ModuleRecord2} = require("nupp.tools.build.cache")
 const {type Resource} = require("nupp.tools.build.manifest")
 

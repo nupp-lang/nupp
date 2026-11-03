@@ -43,7 +43,7 @@ heading or a fence:
 - `nupp reference --section` addresses a section by its page anchor, as in
   `docs/learn/language/modules.md#modules`, which is also what a diagnostic's
   `docs` pointer carries. Renaming a heading moves that address.
-- Some pages are compiled. `tests/spipackagetest.lua` builds and runs every
+- Some pages are compiled. `tests/tools/packaging/spipackagetest.lua` builds and runs every
   fence on [spi.md](docs/learn/projects/spi.md) as a project, so the count of
   `nupp` blocks and what each one contains is a test fixture.
 
@@ -540,8 +540,10 @@ local function openSession(id: uint64): affine(Session, closeSession)
 - `@raises <Type> [text]` says what it raises and what brings that about, one
   line per raise; the type is the value `error` is called with, and a name that
   resolves to nothing is `NUPP1010`.
-- Module blurbs, the `--[[ ]]` block at the top of a file, open with what the
+- Module blurbs use a `--[[ ]]` block immediately above the `module` declaration,
+  before any `---` tags attached to that declaration. They open with what the
   module is for, in one sentence, and link the page that owns the concept.
+  A file without a `module` declaration puts its blurb at the top of the file.
 
 ## Mechanics
 

@@ -1,6 +1,4 @@
 @!internal
-module nupp.digest.internal.streaming
-
 --[[
 SHA-256 and HMAC-SHA256 over byte strings, streaming or in one shot.
 
@@ -27,6 +25,7 @@ The module resolves that optional implementation during initialization.
 Public callers use [](binary.digest) or [](binary.mac); these snapshot
 engines are private implementation details of their consuming provider contexts.
 ]]
+module nupp.digest.internal.streaming
 
 local span = require("binary.span")
 local hash = {}

@@ -1,5 +1,3 @@
-module nupp.compiler.check.index
-
 --[[
 Reaching a field.
 
@@ -11,6 +9,7 @@ contract that says indexing means something else entirely.
 The safe forms `a?.b` and `a?.[k]` differ only in what a nil receiver means -- an
 answer of nil rather than a diagnostic -- so they are the same handler.
 ]]
+module nupp.compiler.check.index
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
@@ -33,8 +32,6 @@ local subtract = narrowing.subtract
 
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
-
-local index = {}
 
 ----------------------------------------------------------------------------
 -- Compiler-only namespaces
@@ -87,7 +84,7 @@ end
 ---
 --- @param c the run's state
 --- @return the expression kinds this family answers
-function index.install(c: state.Checker): state.ExprHandlers
+export function install(c: state.Checker): state.ExprHandlers
     local handlers = {}
 
     ---------------------------------------------------------------------
@@ -1379,5 +1376,3 @@ function index.install(c: state.Checker): state.ExprHandlers
 
     return handlers
 end
-
-export = index

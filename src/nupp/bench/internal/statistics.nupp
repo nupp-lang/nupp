@@ -1,5 +1,3 @@
-module nupp.bench.internal.statistics
-
 --[[
 Distribution-free statistics for benchmark records.
 
@@ -18,6 +16,7 @@ Callers pass fork summaries -- one number per process -- not raw samples. Sample
 inside one process share its heap, compiled code and thermal state, so treating
 them as independent draws is the error this module exists to avoid.
 ]]
+module nupp.bench.internal.statistics
 
 local statistics = {}
 

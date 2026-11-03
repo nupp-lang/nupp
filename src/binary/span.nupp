@@ -1,5 +1,3 @@
-module binary.span
-
 --[[
 `binary.span` gives a C array a rooted, one-based, bounds-checked view. A
 shared `Span<T>` reads contiguous elements; a writable span adds exclusive
@@ -177,6 +175,8 @@ projects the physical pointer and count arguments automatically.
 :::
 
 ]]
+module binary.span
+
 local source1 = require("nupp.mem.span")
 local source2 = require("nupp.mem.indexed")
 export type ByteSpan = source1.ByteSpan

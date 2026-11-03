@@ -1,0 +1,139 @@
+local testAssert = require("assert")
+-- Existing LuaJIT FFI code, typed without being rewritten: a literal cdef
+-- block declares to the compiler as well as the runtime, and the constant
+-- type strings that follow are read rather than ignored.
+local parser = require("nupp.compiler.syntax.parser")
+local check = require("helpers.fragment")
+local envMod = require("nupp.compiler.project.env")
+
+local HERE = require("helpers.paths").tests
+local env = envMod.new(HERE .. "/..")
+
+local function diagsOf(src)
+    local result = parser.parse(src, "test.nupp")
+    testAssert.eq(#result.errors, 0, "syntax: " .. (result.errors[1] and result.errors[1].msg or ""))
+    local out = {}
+    for j, d in ipairs(check.check(result, "test.nupp", env)) do
+        out[j] = d.code
+    end
+
+    return table.concat(out, " ")
+end
+
+-- distinct tags per case: declarations are global to the compiler's FFI
+local DECL = [[
+local ffi = require('ffi')
+ffi.cdef[==[
+struct CstA { double x; int n; };
+struct CstB { struct CstA inner; };
+]==]
+]]
+
+local M = {}
+
+function M.aConstantTypeStringIsRead()
+    testAssert.eq(diagsOf(DECL .. "local p = ffi.new('struct CstA')\nlocal v: number = p.x"), "")
+    testAssert.eq(diagsOf(DECL .. "local p = ffi.new('struct CstA')\nlocal s: string = p.x"), "NUPP2001")
+    testAssert.eq(diagsOf(DECL .. "local p = ffi.new('struct CstA')\nlocal v = p.nope"), "NUPP2004")
+end
+
+function M.fieldTypesComeFromTheDeclaration()
+    testAssert.eq(diagsOf(DECL .. "local p = ffi.new('struct CstA')\nlocal n: number = p.n"), "")
+    -- a nested struct keeps its own fields
+    testAssert.eq(diagsOf(DECL .. "local b = ffi.new('struct CstB')\nlocal v: number = b.inner.x"), "")
+    testAssert.eq(diagsOf(DECL .. "local b = ffi.new('struct CstB')\nlocal s: string = b.inner.x"), "NUPP2001")
+end
+
+function M.sizeofAndCastReadStringsToo()
+    testAssert.eq(diagsOf(DECL .. "local n: number = ffi.sizeof('struct CstA')"), "")
+    testAssert.eq(diagsOf(DECL .. "local s: string = ffi.sizeof('struct CstA')"), "NUPP2001")
+    testAssert.eq(
+        diagsOf(DECL .. "local p = ffi.new('struct CstA')\n" .. "local r: voidptr = ffi.cast('void *', p)"),
+        ""
+    )
+end
+
+function M.anUnknownTypeStringIsReported()
+    testAssert.eq(diagsOf(DECL .. "local p = ffi.new('struct CstNoSuch')"), "NUPP2304")
+    testAssert.eq(diagsOf(DECL .. "local p = ffi.new('not a type at all')"), "NUPP2304")
+end
+
+function M.declarationsThatDoNotParseAreReported()
+    testAssert.eq(diagsOf("local ffi = require('ffi')\nffi.cdef[[ this is not C ]]"), "NUPP2303")
+end
+
+function M.aRuntimeTypeStringYieldsCdataNotAny()
+    -- leaving the typed path stays visible: cdata, never a silent any
+    testAssert.eq(diagsOf(DECL .. "local name = 'struct CstA'\n" .. "local p: cdata = ffi.new(name)"), "")
+    testAssert.eq(diagsOf(DECL .. "local name = 'struct CstA'\n" .. "local p: number = ffi.new(name)"), "NUPP2001")
+    -- and a cdata does not silently gain fields
+    testAssert.eq(
+        diagsOf(DECL .. "local name = 'struct CstA'\n" .. "local p = ffi.new(name)\nlocal v = p.x"),
+        "NUPP2004"
+    )
+end
+
+function M.declaredStructsKeepTheirIdentityAcrossMentions()
+    -- two mentions of a tag give the same type, so a value from one flows
+    -- where the other is expected
+    testAssert.eq(
+        diagsOf(
+            DECL .. table.concat(
+                {"local a = ffi.new('struct CstA')", "local function take(v: number): nil end", "take(a.x)",},
+                "\n"
+            )
+        ),
+        ""
+    )
+end
+
+function M.constIsAModifierOnlyWhenATypeFollows()
+    -- `const` is a statement keyword and may also name a type; in type
+    -- position it modifies only when a type comes next
+    testAssert.eq(diagsOf("local type const = number\nlocal a: const = 1"), "")
+    testAssert.eq(diagsOf("local type const = number\nlocal a: const? = nil"), "")
+    testAssert.eq(diagsOf("local type const = number\nlocal a: const | string = 1"), "")
+    -- and the statement keyword is untouched
+    testAssert.eq(diagsOf("const x = 5\nprint(x)"), "")
+    testAssert.eq(diagsOf("local const = 5\nprint(const)"), "")
+end
+
+function M.constIsAPromiseNotToWrite()
+    local P = "local struct P\n    x: float\nend"
+    -- a mutable value satisfies a const one
+    testAssert.eq(diagsOf(P .. "\nlocal p: P = new P()\nlocal r: const P = p"), "")
+    -- the reverse discards the promise
+    testAssert.eq(diagsOf(P .. "\nlocal r: const P = nil as any\nlocal p: P = r"), "NUPP2001")
+    testAssert.eq(diagsOf(P .. "\nlocal p: const P* = nil"), "NUPP2001", "still a non-null pointer")
+    testAssert.eq(diagsOf(P .. "\nlocal p: const P*? = nil"), "")
+end
+
+function M.cFunctionPointersDecodeAsCallbackTypes()
+    local cheaderMod = require("nupp.compiler.cinterop.cheader")
+    cheaderMod.declare(
+        "typedef void (*CbSink)(int code, const char *msg);\n" .. "struct CbHolder { CbSink handler; int n; };"
+    )
+    local t = cheaderMod.typeFromString("struct CbHolder")
+    assert(t and t.byname, "struct decoded")
+    local handler = t.byname.handler
+    assert(handler, "the callback field is present")
+    local rendered = require("nupp.compiler.types").tostring(handler)
+    assert(rendered:find("function", 1, true), "a pointer to a function reads as one: " .. rendered)
+end
+
+function M.fixedWidthClaimsRequireEstablishment()
+    testAssert.eq(diagsOf("local x: number = 5\nlocal small: int32 = x"), "NUPP2011")
+    -- A wider target needs no establishment fact.
+    testAssert.eq(diagsOf("local x: number = 5\nlocal big: number = x"), "")
+end
+
+function M.theCNamespaceIsTypedFromDeclarations()
+    local D = "local ffi = require('ffi')\nffi.cdef[[ int nsA(const char *s); ]]\n"
+    testAssert.eq(diagsOf(D .. "local n: number = ffi.C.nsA('x')"), "")
+    testAssert.eq(diagsOf(D .. "ffi.C.nsA(42)"), "NUPP2006")
+    testAssert.eq(diagsOf(D .. "ffi.C.nsNoSuch()"), "NUPP2004")
+    -- ffi.load holds the same declarations
+    testAssert.eq(diagsOf(D .. "local lib = ffi.load('m')\nlib.nsA(42)"), "NUPP2006")
+end
+
+return M

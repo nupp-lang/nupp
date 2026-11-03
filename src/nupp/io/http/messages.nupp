@@ -4,18 +4,17 @@ module nupp.io.http.messages
 
 const {type Path} = require("io.files")
 const uri = require("io.internal.uri")
-local http = {}
 
 --- A portable byte source for an HTTP upload, with consuming teardown.
-interface http.Reader is own.Closeable
-    read: function(exclusive self: http.Reader, count: integer): (string?, string?)
+export interface Reader is own.Closeable
+    read: function(exclusive self: Reader, count: integer): (string?, string?)
 end
 
 --- Transport capability flags describing observable HTTP guarantees.
 ---
 --- A true flag promises the corresponding behavior; callers must not infer support
 --- from a provider name or the presence of unrelated methods.
-record http.Capabilities
+export record Capabilities
     --- Response bytes become available before the whole response arrives.
     streamingresponse: boolean
 
@@ -33,14 +32,14 @@ record http.Capabilities
 end
 
 --- The protocol version a response arrived over.
-type http.Version = "1.0" | "1.1" | "2"
+export type Version = "1.0" | "1.1" | "2"
 
 --- What a client applies to every request it sends.
 ---
 --- A plain table, like every other option bag in the io facades. Every field is
 --- optional, so `http.newclient()` with nothing is a client with the defaults
 --- below. A request may override the three limits it also names.
-type http.Options = {
+export type Options = {
     --- The `user-agent` header sent with every request.
     useragent: string?,
 
@@ -101,9 +100,9 @@ type http.Options = {
 ---
 --- Built by [](io.http.reader). A redirect that preserves the request body
 --- cannot replay one, so the request fails rather than following that redirect.
-record http.ReaderBody is own.Closeable
+export record ReaderBody is own.Closeable
     --- Where the body's bytes come from.
-    reader: http.Reader
+    reader: Reader
 
     --- How many bytes the reader will produce, when that is known ahead of time.
     --- The native transport fails a request whose reader produces more or fewer.
@@ -121,7 +120,7 @@ end
 ---
 --- Built by [](io.http.file). The path must name a regular file: a device,
 --- FIFO or directory has no length to send, and the native transport refuses it.
-record http.FileBody
+export record FileBody
     --- The file to send, named as anything [](io.files) accepts: text, a
     --- [](io.Path), or an application path.
     path: Path
@@ -133,7 +132,7 @@ end
 --- Everything a typed request body may own: immutable bytes, a reader stream, or a
 --- file path. Convert a Buffer or ByteView with `getstring()` so the request owns an
 --- immutable snapshot rather than borrowing mutable storage.
-type http.RequestBody = string | http.ReaderBody | http.FileBody
+export type RequestBody = string | ReaderBody | FileBody
 
 --- A request, as `http.Client:send` takes it.
 ---
@@ -149,7 +148,7 @@ type http.RequestBody = string | http.ReaderBody | http.FileBody
 ---     body = document
 --- )
 --- ```
-record http.Request is own.Closeable
+export record Request is own.Closeable
     --- Where the request goes.
     url: uri.URI
 
@@ -163,7 +162,7 @@ record http.Request is own.Closeable
     headers: {[string]: string}?
 
     --- What to send as the body, or nothing.
-    body: http.RequestBody?
+    body: RequestBody?
 
     --- How long this request may take end to end, or the client's limit.
     timeoutms: integer?
@@ -178,10 +177,8 @@ record http.Request is own.Closeable
     --- Closes the request and any streaming reader it owns.
     --- @param self this request, spent by the call
     function close(takes self): nil
-        if self.body is http.ReaderBody then
+        if self.body is ReaderBody then
             self.body:close()
         end
     end
 end
-
-export = http

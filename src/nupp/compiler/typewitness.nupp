@@ -3,11 +3,9 @@ module nupp.compiler.typewitness
 local cst = require("nupp.compiler.syntax.cst")
 local types = require("nupp.compiler.types")
 
-local typewitness = {}
-
 -- Only semantic types and declaration nodes determine a witness. In particular,
 -- a source name is never used to recover a child declaration's runtime identity.
-function typewitness.collect(root: any, exports: any?): any
+export function collect(root: any, exports: any?): any
     local values, declarations, blocks, wanted = {}, {}, {}, {}
     local moduleBlocks = {}
     for _, block in ipairs(root.blocks or {}) do
@@ -321,5 +319,3 @@ function typewitness.collect(root: any, exports: any?): any
 
     return {values = values, declarations = wanted, blocks = blocks, ordered = ordered}
 end
-
-export = typewitness

@@ -1,5 +1,3 @@
-module nupp.tools.cli.initcommand
-
 --[[
 `nupp init`: turn a template into a project.
 
@@ -12,6 +10,7 @@ and the reporting -- including saying which post-init steps a remote template
 asked for and did not get, which is a rule worth explaining every time it costs
 somebody something rather than only in the documentation.
 ]]
+module nupp.tools.cli.initcommand
 
 const terminal2 = require("io.cli")
 

@@ -1,5 +1,3 @@
-module nupp.compiler.lints
-
 --[[
 The lint registry.
 
@@ -12,6 +10,7 @@ can apply.
 A lint's level lives here and nowhere else, so changing a default is one edit and
 `nupp lints` cannot drift from what the checker does. See `docs/reference/lints.md`.
 ]]
+module nupp.compiler.lints
 
 local lints = {}
 

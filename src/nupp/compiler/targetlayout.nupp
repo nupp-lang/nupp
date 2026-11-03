@@ -1,5 +1,3 @@
-module nupp.compiler.targetlayout
-
 --[[
 Compiler-owned C layouts for declared build targets.
 
@@ -8,6 +6,7 @@ generated program. This module deliberately does not: it implements the subset o
 layout nupp's reified type vocabulary can express, keyed by an explicit target triple.
 That makes a folded size a property of the build target rather than the compiler host.
 ]]
+module nupp.compiler.targetlayout
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local record targetLayout

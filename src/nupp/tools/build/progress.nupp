@@ -1,5 +1,3 @@
-module nupp.tools.build.progress
-
 --[[
 What a build is doing while it does it, and where its time went afterwards.
 
@@ -25,21 +23,21 @@ terminal, because a build's output has been quiet on success for as long as
 there have been build scripts reading it, and `--quiet` and `NUPP_PROGRESS` are
 there to overrule the guess in either direction.
 ]]
+module nupp.tools.build.progress
+
 const terminal2 = require("io.cli")
 
 const terminal = require("io.cli")
 
-local progress = {}
-
 --- An activity and what it cost. Activities are the timeline's buckets, so these sum
 --- to the whole run.
-type progress.Span = {
+export type Span = {
     name: string,
     durationMs: number
 }
 
 --- A module and the time charged to it, exclusive of its dependencies.
-type progress.ModuleSpan = {
+export type ModuleSpan = {
     module: string,
     durationMs: number
 }
@@ -48,13 +46,13 @@ type progress.ModuleSpan = {
 ---
 --- Beside the timeline rather than in it, because these are counts and the
 --- timeline is milliseconds.
-type progress.AotFacts = {
+export type AotFacts = {
     checkedSources: number,
     loweredPrograms: number
 }
 
 --- How a cold project check or build used workers, when it considered them.
-type progress.ParallelFacts = {
+export type ParallelFacts = {
     --- `parallel`, `serial`, or `serial-fallback`.
     mode: string,
 
@@ -71,7 +69,7 @@ type progress.ParallelFacts = {
     reason: string?
 }
 
-type progress.OptimizerFacts = {
+export type OptimizerFacts = {
     produced: number,
     consumed: number,
     unique: number,
@@ -81,44 +79,44 @@ type progress.OptimizerFacts = {
 }
 
 --- Where a build's time went, for a caller reporting it rather than printing it.
-type progress.Timing = {
+export type Timing = {
     --- Wall-clock milliseconds for the whole run.
     totalMs: number,
 
     compiledModules: number,
     reusedModules: number,
-    optimizerFacts: progress.OptimizerFacts?,
+    optimizerFacts: OptimizerFacts?,
 
     --- Every activity that took measurable time, longest first.
-    phases: {progress.Span},
+    phases: {Span},
 
     --- The costliest modules, longest first, at most `progress.SLOWEST` of them.
-    slowest: {progress.ModuleSpan},
+    slowest: {ModuleSpan},
 
     --- What the ahead-of-time policy did, absent when the build ran none.
-    aot: progress.AotFacts?,
+    aot: AotFacts?,
 
     --- How a cold project check or build used workers, absent for warm runs and
     --- runs over named files.
-    parallel: progress.ParallelFacts?
+    parallel: ParallelFacts?
 }
 
 --- How many modules the summary names. Enough to point at a cause, few enough that the
 --- report stays something a reader takes in at a glance.
-const progress.SLOWEST = 5
+export const SLOWEST = 5
 
 local clock = require("nupp.tools.build.clockhost")
 
 --- Milliseconds on a wall clock. Its zero is the epoch where the platform's clock was
 --- reachable and this process's own start where it was not, so only the difference
 --- between two readings means anything.
-function progress.now(): number
+export function now(): number
     return clock.now()
 end
 
 --- A duration as a reader wants it: milliseconds while a duration is short, and
 --- seconds with one decimal once it is not.
-function progress.duration(milliseconds: number): string
+export function duration(milliseconds: number): string
     if milliseconds < 1000 then
         return string.format("%dms", math.floor(milliseconds + 0.5))
     end
@@ -157,7 +155,7 @@ end
 ---
 --- Every method is safe to call on a reporter that is not showing anything; the timing
 --- still accumulates, which is what `--json` reads back.
-record progress.Reporter
+export record Reporter
     stream: io.File
 
     --- Whether anything at all is written.
@@ -194,10 +192,10 @@ record progress.Reporter
     reused: number
 
     --- What the ahead-of-time policy did, when a build ran one.
-    aotFacts: progress.AotFacts?
+    aotFacts: AotFacts?
 
-    parallelFacts: progress.ParallelFacts?
-    optimizerFacts: progress.OptimizerFacts?
+    parallelFacts: ParallelFacts?
+    optimizerFacts: OptimizerFacts?
 
     --- Which bucket checking is charged to at the moment. Checking is charged
     --- wherever it happens rather than where it was asked for, so a build that
@@ -299,12 +297,12 @@ record progress.Reporter
     end
 
     --- What the ahead-of-time policy did, once it has finished doing it.
-    function aotCounted(self, facts: progress.AotFacts?): nil
+    function aotCounted(self, facts: AotFacts?): nil
         self.aotFacts = facts
     end
 
     --- Records how a cold check or build used or declined workers.
-    function parallelCounted(self, facts: progress.ParallelFacts): nil
+    function parallelCounted(self, facts: ParallelFacts): nil
         self.parallelFacts = facts
     end
 
@@ -318,26 +316,26 @@ record progress.Reporter
     end
 
     --- What the run cost, in the shape `build --json` publishes.
-    function timing(self): progress.Timing
-        local phases: {progress.Span} = {}
+    function timing(self): Timing
+        local phases: {Span} = {}
         for _, name in ipairs(self.order) do
             local milliseconds = self.spans[name] or 0
             if milliseconds >= 1 then
                 phases[#phases + 1] = {name = name, durationMs = milliseconds}
             end
         end
-        table.sort(phases, function(a: progress.Span, b: progress.Span): boolean
+        table.sort(phases, function(a: Span, b: Span): boolean
             return a.durationMs > b.durationMs
         end)
-        local modules: {progress.ModuleSpan} = {}
+        local modules: {ModuleSpan} = {}
         for _, name in ipairs(self.moduleOrder) do
             modules[#modules + 1] = {module = name, durationMs = self.moduleMs[name] or 0}
         end
-        table.sort(modules, function(a: progress.ModuleSpan, b: progress.ModuleSpan): boolean
+        table.sort(modules, function(a: ModuleSpan, b: ModuleSpan): boolean
             return a.durationMs > b.durationMs
         end)
-        local slowest: {progress.ModuleSpan} = {}
-        for index = 1, math.min(progress.SLOWEST, #modules) do
+        local slowest: {ModuleSpan} = {}
+        for index = 1, math.min(SLOWEST, #modules) do
             -- A module measured at well under a millisecond is one the clock could not
             -- see, and listing it as among the slowest says nothing true.
             if modules[index].durationMs >= 1 then
@@ -387,7 +385,7 @@ record progress.Reporter
         self.stream:write(
             (
                 "%s in %s: %s\n"
-            ):format(success(verb .. subject), style.strong(progress.duration(measured.totalMs)), detail(counts))
+            ):format(success(verb .. subject), style.strong(duration(measured.totalMs)), detail(counts))
         )
         -- An activity worth naming is one a reader could act on. Everything under a
         -- fiftieth of the run is noise beside the rest, and a run too short to have
@@ -395,7 +393,7 @@ record progress.Reporter
         local parts: {string} = {}
         for _, span in ipairs(measured.phases) do
             if span.durationMs >= 5 and span.durationMs >= measured.totalMs / 50 then
-                parts[#parts + 1] = span.name .. " " .. progress.duration(span.durationMs)
+                parts[#parts + 1] = span.name .. " " .. duration(span.durationMs)
             end
         end
         if #parts > 0 then
@@ -410,7 +408,7 @@ record progress.Reporter
         self.stream:write(style.faint("  slowest") .. "\n")
         local rows: {{terminal.Cell}} = {}
         for index, span in ipairs(measured.slowest) do
-            rows[index] = {terminal.cell(span.module), terminal.cell(progress.duration(span.durationMs))}
+            rows[index] = {terminal.cell(span.module), terminal.cell(duration(span.durationMs))}
         end
         -- A breakdown under a heading that already named it, so the columns go
         -- unheaded; what is shared is the measuring and the padding.
@@ -432,12 +430,12 @@ end
 --- A reporter writing to `stream`, showing what `mode` asks for: "always", "never", or
 --- "auto" to write only to a terminal. Absent, the mode is `NUPP_PROGRESS`, and absent
 --- that, "auto".
-function progress.new(mode: string?, stream: io.File?): progress.Reporter
+export function new(mode: string?, stream: io.File?): Reporter
     local target = stream or io.stderr
     local showing = resolve(mode, target)
     local started = clock.now()
 
-    return new progress.Reporter(
+    return new Reporter(
         stream = target,
         showing = showing,
         -- Rewriting a line needs the escapes that color needs, so one answer settles
@@ -463,5 +461,3 @@ function progress.new(mode: string?, stream: io.File?): progress.Reporter
         columns = width()
     )
 end
-
-export = progress

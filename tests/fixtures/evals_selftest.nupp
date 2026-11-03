@@ -95,13 +95,23 @@ equal(#summary.failed, 1, "failed task retained")
 
 local suites, rest = tier2.splitPaths({
     "src/nupp/compiler/check.nupp",
-    "tests/checktest.lua",
+    "tests/compiler/check/checktest.lua",
     "docs/reference.md",
     "tests/not-a-suite.txt",
 })
 equal(#suites, 1, "one suite selected")
-equal(suites[1], "tests/checktest.lua", "suite path")
+equal(suites[1], "tests/compiler/check/checktest.lua", "suite path")
 equal(#rest, 3, "non-suites remain at the parent")
+local nested, excluded = tier2.splitPaths({
+    "tests/stdlib/io/streamadapterstest.nupp",
+    "tests/compiler/check/fixtures/sampletest.lua",
+    "tests/tools/fmt/corpus/sampletest.nupp",
+})
+equal(#nested, 1, "nested Nupp suite selected")
+equal(#excluded, 2, "fixture suites excluded")
+local nestedNames = tier2.suiteNames({"tests/compiler/check/checktest.lua", nested[1]})
+equal(nestedNames[1], "checktest", "nested Lua suite name")
+equal(nestedNames[2], "streamadapterstest", "nested Nupp suite name")
 local prompt = tier2.prompt({"checktest", "projecttest"})
 assert2(prompt:find("checktest, projecttest", 1, true), "prompt names all suites")
 assert2(prompt:find("./bin/nupp test checktest", 1, true), "prompt names the first command")

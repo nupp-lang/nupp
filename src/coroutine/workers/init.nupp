@@ -1,5 +1,3 @@
-module coroutine.workers
-
 --[[
 `coroutine.workers` runs functions in isolated Lua states on worker threads.
 A coroutine scope owns submitted work until every child settles.
@@ -34,11 +32,13 @@ and copyable. The checker holds every capture to its declared type; what an
 closure or a cycle found in there is refused at submission, naming where it was.
 
 [](coroutine.Scope.work) starts a worker child and returns a [](coroutine.Task)
-whose result pack is the submitted function's. This module selects the lane
-implementation and holds what generated code reaches; it has no scope of its
-own. `nupp reference --section
-sendable-callables` is the whole rule, and
+whose result pack is the submitted function's. This module retains the
+target-bound lane implementation and holds what generated code reaches; it has
+no scope of its own. `nupp reference --section sendable-callables` is the whole
+rule, and
 [workers.md](docs/learn/runtime/concurrency/workers.md) is the guide.
 ]]
+module coroutine.workers
+
 local source1 = require("nupp.workers")
 export type Submittable = source1.Submittable

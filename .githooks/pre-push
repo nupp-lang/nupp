@@ -55,8 +55,8 @@ for file in $(printf '%s' "$changed" | sort -u); do
     # Corpus inputs are deliberately non-canonical. Their `.expected.nupp`
     # goldens are canonical source and remain part of this check.
     case "$file" in
-        tests/fmtcorpus/*.expected.nupp) ;;
-        tests/fmtcorpus/*.nupp) continue ;;
+        tests/tools/fmt/corpus/*.expected.nupp) ;;
+        tests/tools/fmt/corpus/*.nupp) continue ;;
     esac
     [ -n "$file" ] && [ -f "$file" ] && present="$present $file"
 done

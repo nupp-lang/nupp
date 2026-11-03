@@ -1,19 +1,15 @@
-module nupp.tools.doc.files
-
 --[[
 Paths and the filesystem.
 
 Documentation reads a source tree and writes a site, and both halves want the
 same normalized, forward-slashed paths regardless of platform.
 ]]
+module nupp.tools.doc.files
 
 local fs = require("nupp.compiler.fs")
 
 local files = {}
 
--- `nupp.compiler.fs` carries no annotations, so these arrive untyped. They are
--- re-exported below, and a module boundary is where a type has to be written down, so
--- each one's shape is spelled out here instead.
 local normalize: (
     function(path: string): string
 ), join: (

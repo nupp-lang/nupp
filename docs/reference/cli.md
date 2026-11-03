@@ -1391,7 +1391,7 @@ With `--json` the progress marks go to stderr and one document stays on stdout:
   "tests": [
     {"id": "elseiftest/allowsAnAnnotatedNestedIf",
      "suite": "elseiftest", "name": "allowsAnAnnotatedNestedIf",
-     "file": "tests/elseiftest.lua", "line": 130,
+     "file": "tests/compiler/syntax/elseiftest.lua", "line": 130,
      "status": "passed", "durationMs": 142.4580078125}
   ],
   "metrics": [],

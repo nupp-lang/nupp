@@ -1,5 +1,3 @@
-module nupp.util.internal.store
-
 --[[
 Typed keys and the stores they index.
 
@@ -11,6 +9,7 @@ Names are opaque strings registered once per runtime state. Ids are allocated
 in declaration order and identify a key inside this state only; the name is the
 identity that persists.
 ]]
+module nupp.util.internal.store
 
 local nextId: integer = 1
 local named: {[string]: any} = {}

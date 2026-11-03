@@ -1,5 +1,3 @@
-module nupp.compiler.check.callexpr
-
 --[[
 Applying something to arguments.
 
@@ -12,6 +10,7 @@ says. The FFI intrinsics are next door; everything else is here.
 A method call is the same thing with the receiver threaded in as the first
 argument, which is all `:` means.
 ]]
+module nupp.compiler.check.callexpr
 
 local apiidentity = require("nupp.compiler.apiidentity")
 local LAYOUT_INTRINSICS: {

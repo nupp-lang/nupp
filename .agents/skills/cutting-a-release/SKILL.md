@@ -137,7 +137,7 @@ Then move the branch's pin to it as above. Never tag `main` or change
 |---|---|
 | `tag vX ships nupp Y; bump nupp.tools.version` | The version commit was missed, or the tag was cut at the wrong commit. |
 | `release vX already exists; immutable assets are not replaced` | That tag already published. Use a new number. |
-| A build job fails on a `.nupp` file under `scripts/` | Those sit outside the manifest's include roots. `tests/repositoryscriptstest.lua` covers them; run it before tagging. |
+| A build job fails on a `.nupp` file under `scripts/` | Those sit outside the manifest's include roots. `tests/tools/repository/repositoryscriptstest.lua` covers them; run it before tagging. |
 
 macOS signing is optional and degrades rather than failing when the secrets are
 absent, so it is not a blocker.

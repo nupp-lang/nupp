@@ -4,9 +4,8 @@ module nupp.compiler.aot.reducers
 --- The closed exact and extremum reducer contracts. The older floating order
 --- contracts keep their existing IR identities; these append the input element
 --- so neither lowering nor verification can lose an integer's width.
-local reducers = {}
 
-record reducers.Contract
+export record Contract
     recordName: string
     order: string
     operation: string
@@ -20,11 +19,11 @@ record reducers.Contract
 end
 
 const constructors: {
-    [string]: reducers.Contract
+    [string]: Contract
 } = {
     [
         "simd.reducer.wrappingsum"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "WrappingSum",
         order = "exact",
         operation = "sum",
@@ -35,7 +34,7 @@ const constructors: {
     ),
     [
         "simd.reducer.wrappingproduct"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "WrappingProduct",
         order = "exact",
         operation = "product",
@@ -46,7 +45,7 @@ const constructors: {
     ),
     [
         "simd.reducer.andbits"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "AndBits",
         order = "exact",
         operation = "and",
@@ -57,7 +56,7 @@ const constructors: {
     ),
     [
         "simd.reducer.orbits"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "OrBits",
         order = "exact",
         operation = "or",
@@ -68,7 +67,7 @@ const constructors: {
     ),
     [
         "simd.reducer.xorbits"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "XorBits",
         order = "exact",
         operation = "xor",
@@ -79,7 +78,7 @@ const constructors: {
     ),
     [
         "simd.reducer.any"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "Any",
         order = "exact",
         operation = "any",
@@ -90,7 +89,7 @@ const constructors: {
     ),
     [
         "simd.reducer.all"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "All",
         order = "exact",
         operation = "all",
@@ -101,7 +100,7 @@ const constructors: {
     ),
     [
         "simd.reducer.count"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "Count",
         order = "exact",
         operation = "count",
@@ -112,7 +111,7 @@ const constructors: {
     ),
     [
         "simd.reducer.integermin"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "IntegerMin",
         order = "integer",
         operation = "min",
@@ -123,7 +122,7 @@ const constructors: {
     ),
     [
         "simd.reducer.integermax"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "IntegerMax",
         order = "integer",
         operation = "max",
@@ -134,7 +133,7 @@ const constructors: {
     ),
     [
         "simd.reducer.integerargmin"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "IntegerArgMin",
         order = "integer",
         operation = "argmin",
@@ -145,7 +144,7 @@ const constructors: {
     ),
     [
         "simd.reducer.integerargmax"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "IntegerArgMax",
         order = "integer",
         operation = "argmax",
@@ -156,7 +155,7 @@ const constructors: {
     ),
     [
         "simd.reducer.propagatingmin"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "PropagatingMin",
         order = "propagating",
         operation = "min",
@@ -167,7 +166,7 @@ const constructors: {
     ),
     [
         "simd.reducer.propagatingmax"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "PropagatingMax",
         order = "propagating",
         operation = "max",
@@ -178,7 +177,7 @@ const constructors: {
     ),
     [
         "simd.reducer.propagatingargmin"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "PropagatingArgMin",
         order = "propagating",
         operation = "argmin",
@@ -189,7 +188,7 @@ const constructors: {
     ),
     [
         "simd.reducer.propagatingargmax"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "PropagatingArgMax",
         order = "propagating",
         operation = "argmax",
@@ -200,7 +199,7 @@ const constructors: {
     ),
     [
         "simd.reducer.numbermin"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "NumberMin",
         order = "number",
         operation = "min",
@@ -211,7 +210,7 @@ const constructors: {
     ),
     [
         "simd.reducer.numbermax"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "NumberMax",
         order = "number",
         operation = "max",
@@ -222,7 +221,7 @@ const constructors: {
     ),
     [
         "simd.reducer.numberargmin"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "NumberArgMin",
         order = "number",
         operation = "argmin",
@@ -233,7 +232,7 @@ const constructors: {
     ),
     [
         "simd.reducer.numberargmax"
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = "NumberArgMax",
         order = "number",
         operation = "argmax",
@@ -244,14 +243,14 @@ const constructors: {
     ),
 }
 
-reducers.CONSTRUCTORS = constructors
+export const CONSTRUCTORS = constructors
 
 --- The floating-point contracts by constructor, each with the record it
 --- results. Their binary64 form keeps the older unsuffixed IR identity
 --- (`simd_reducer_ordered_sum`); their binary32 form, chosen by the `float`
 --- array witness, carries the element as the exact contracts do
 --- (`simd_reducer_ordered_sum_f32`).
-const floatingConstructors: {[string]: reducers.Contract} = {}
+const floatingConstructors: {[string]: Contract} = {}
 
 for _, entry in ipairs({
     {"orderedSum", "OrderedSum", "ordered", "sum"},
@@ -267,7 +266,7 @@ for _, entry in ipairs({
 }) do
     floatingConstructors[
         "simd.reducer." .. entry[1]:lower()
-    ] = new reducers.Contract(
+    ] = new Contract(
         recordName = entry[2],
         order = entry[3],
         operation = entry[4],
@@ -278,11 +277,11 @@ for _, entry in ipairs({
     )
 end
 
-reducers.FLOATING = floatingConstructors
+export const FLOATING = floatingConstructors
 
 --- Whether a contract is one of the floating-point ones, whose element is
 --- `f64` unless a `float` witness chose `f32`.
-function reducers.floatingOrder(order: string): boolean
+export function floatingOrder(order: string): boolean
     return order == "ordered"
         or order == "pairwise"
         or order == "algebraic"
@@ -291,15 +290,15 @@ function reducers.floatingOrder(order: string): boolean
         or order == "number"
 end
 
-function reducers.typeName(order: string, operation: string, element: string): string
+export function typeName(order: string, operation: string, element: string): string
     return "simd_reducer_" .. order .. "_" .. operation .. "_" .. element
 end
 
-function reducers.parse(name: string): (string?, string?, string?)
+export function parse(name: string): (string?, string?, string?)
     return name:match("^simd_reducer_(%a+)_(%a+)_(%w+)$")
 end
 
-function reducers.valid(order: string, operation: string, element: string): boolean
+export function valid(order: string, operation: string, element: string): boolean
     local integer = element == "i32" or element == "u32" or element == "i64" or element == "u64"
     if order == "exact" then
         return integer
@@ -324,15 +323,15 @@ function reducers.valid(order: string, operation: string, element: string): bool
         and (operation == "min" or operation == "max" or operation == "argmin" or operation == "argmax")
 end
 
-function reducers.result(operation: string, element: string): string
+export function result(operation: string, element: string): string
     return operation == "count" and "u64" or (operation == "argmin" or operation == "argmax") and "f64" or element
 end
 
 --- Verifies a contract against the exact scoped binding identity.
-function reducers.input(name: string, order: string, operation: string): string?
-    local namedOrder, namedOperation, element = reducers.parse(name)
+export function input(name: string, order: string, operation: string): string?
+    local namedOrder, namedOperation, element = parse(name)
     if element ~= nil then
-        if namedOrder == order and namedOperation == operation and reducers.valid(order, operation, element) then
+        if namedOrder == order and namedOperation == operation and valid(order, operation, element) then
             return element
         end
         return nil
@@ -353,8 +352,6 @@ end
 --- Associative exact operations keep one accumulator per lane. Float extrema
 --- and indexed extrema currently commit in logical order to retain their tie
 --- and NaN rules; they make no reassociation promise.
-function reducers.parallel(order: string): boolean
+export function parallel(order: string): boolean
     return order == "algebraic" or order == "exact"
 end
-
-export = reducers

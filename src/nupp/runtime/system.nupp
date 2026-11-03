@@ -1,22 +1,16 @@
 @!internal
+--[[Retains the current system provider and its executing ABI facts.]]
 module nupp.runtime.system
 
---[[Retains the current system provider and its executing ABI facts.]]
-
-local spi = require("nupp.runtime.packages")
+local contract = require("nupp.runtime.contracts")
 local target = require("nupp.runtime.target")
 local nativeProvider = require("nupp.vm.systembinding")
 
-local contract = package.nupp
 local provider: contract.SystemProvider = do
-    const chosen = spi.select(spi.providers<contract.SystemProvider>("package.nupp.SystemProvider"))
-    if chosen ~= nil then
-        yield chosen
-    end
     if target.host == "native" then
         yield nativeProvider
     end
-    yield _G.require("nupp.runtime.browser.system") as contract.SystemProvider
+    yield _G.require("nupp.runtime.bindings.system") as contract.SystemProvider
 end
 if provider.platform == "" or provider.architecture == "" then
     error("system provider must name its platform and architecture", 2)

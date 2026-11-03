@@ -1,5 +1,3 @@
-module nupp.codec.json.internal.builder
-
 --[[
 The value-stream entry points only the JSON decoder uses.
 
@@ -10,9 +8,9 @@ positions a structural scan retained, and JSON's number grammar mean nothing
 to another format. They lower the same way inside `@aot`, and each works on a
 stream or scratch buffer that `serde.valuebuilder` made.
 ]]
-const valuebuilder = require("serde.valuebuilder")
+module nupp.codec.json.internal.builder
 
-local stream = {}
+const valuebuilder = require("serde.valuebuilder")
 
 --- Starts a bounded stream that materializes only one JSON pull shape.
 ---
@@ -21,7 +19,7 @@ local stream = {}
 --- where `shape` selects them. `arrayShapeMarker` is the private key used by the
 --- JSON provider's [](serde.json.arrayof) shapes.
 --- @raises string outside an AOT-compiled function
-function stream.newPull(
+export function newPull(
     nullValue: any,
     maxDepth: uint32,
     stringCapacity: uint32,
@@ -40,7 +38,7 @@ end
 --- but its distinct intrinsic identity lets AOT erase pull-only dispatch and emit serde
 --- stage two independently.
 --- @raises string outside an AOT-compiled function
-function stream.newSerde(
+export function newSerde(
     nullValue: any,
     maxDepth: uint32,
     stringCapacity: uint32,
@@ -56,7 +54,7 @@ end
 --- Publishes an escaped source slice using backslash positions retained by
 --- the structural scan. Internal to AOT JSON stage two.
 --- @raises string outside an AOT-compiled function
-function stream.stringEscapes(
+export function stringEscapes(
     builder: any,
     borrows source: any,
     start: uint32,
@@ -71,7 +69,7 @@ end
 --- Selects an escaped object key using retained backslash positions. Internal
 --- to AOT JSON stage two.
 --- @raises string outside an AOT-compiled function
-function stream.keyEscapes(
+export function keyEscapes(
     builder: any,
     borrows source: any,
     start: uint32,
@@ -99,7 +97,7 @@ end
 --- @param start the number's zero-based first byte
 --- @param limit the exclusive source byte limit
 --- @return packed success and stopping position
-function stream.numberToken(builder: any, borrows source: any, start: uint32, limit: uint32): uint32
+export function numberToken(builder: any, borrows source: any, start: uint32, limit: uint32): uint32
     local text = source as string
     local at = start as integer
     if limit > #text or limit >= 2147483648 or start >= limit then
@@ -171,14 +169,12 @@ end
 
 --- Reads a retained escape position in source order.
 --- @raises string outside an AOT-compiled function
-function stream.scratchEscapeWord(scratch: any, index: uint32): uint32
+export function scratchEscapeWord(scratch: any, index: uint32): uint32
     error("scratchEscapeWord exists only inside an @aot function", 2)
 end
 
 --- Returns how many escape positions the structural scan retained.
 --- @raises string outside an AOT-compiled function
-function stream.scratchEscapeLength(scratch: any): uint32
+export function scratchEscapeLength(scratch: any): uint32
     error("scratchEscapeLength exists only inside an @aot function", 2)
 end
-
-export = stream

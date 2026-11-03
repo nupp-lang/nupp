@@ -25,12 +25,10 @@ local lexer = require("nupp.compiler.syntax.lexer")
 local T = require("nupp.compiler.types")
 local annotationMod = require("nupp.compiler.annotations")
 
-local lsp = {}
-
 --- Where a documentation pointer is published: a repository path and anchor, such as
 --- `docs/api.md#annotation-aot`, as the route the site gives that page.
 --- `index.md` names the directory holding it. Nil for anything not under `docs/`.
-function lsp.siteUrl(pointer: string): string?
+export function siteUrl(pointer: string): string?
     local path, anchor = pointer:match("^docs/([^#]+)%.md(#?[^#]*)$")
     if not path then
         return nil
@@ -66,6 +64,7 @@ local tokenAt = tree.tokenAt
 local tokenRange = text.tokenRange
 local pathToUri = text.pathToUri
 local QUICKFIX = "quickfix"
+local REWRITE = "refactor.rewrite"
 local SYMBOL_KINDS = symbols.SYMBOL_KINDS
 local documentSymbols = symbols.documentSymbols
 local foldableSpans = symbols.foldableSpans
@@ -103,7 +102,7 @@ end
 -- What a session is
 ----------------------------------------------------------------------------
 
-type lsp.Session = {
+export type Session = {
     dispatch: function(any),
     running: function(): boolean,
 
@@ -118,7 +117,7 @@ type lsp.Session = {
 --- being answered is read by the transport and not by the session. That is what makes
 --- both cancellation and staleness possible at all: the news arrives during the work
 --- rather than after it.
-type lsp.Host = {
+export type Host = {
     --- Reads whatever has arrived without blocking. Called by long work at the points
     --- it can be abandoned or its answer discarded.
     pump: function(): nil,
@@ -151,7 +150,7 @@ local json = wire.json
 --- Creates a language-server session whose outgoing protocol messages are handed to
 --- `emit`. The stdio server and the command-line language operations share this session
 --- so there is only one implementation of semantic behavior.
-function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?): lsp.Session
+export function newSession(rootDir: string?, emit: function(any), host: Host?): Session
     rootDir = rootDir or "."
     -- One session's whole state, so the handlers below reach it through `s` rather than
     -- by being lexically inside this function. `inc` and `folders` are rebound when a
@@ -652,7 +651,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
                 documentHighlightProvider = true,
                 foldingRangeProvider = true,
                 selectionRangeProvider = true,
-                codeActionProvider = {codeActionKinds = wire.array({QUICKFIX}),},
+                codeActionProvider = {codeActionKinds = wire.array({QUICKFIX, REWRITE}),},
                 -- Only for a client that named a command to put on a lens. A lens
                 -- arrives with that command already on it, which is what
                 -- `resolveProvider` being false says: no second round trip.
@@ -896,7 +895,7 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             local label = def.kind == "annotation" and ("@" .. (def.name or tok.text))
                 or (def.name or tok.text) .. (t and (": " .. T.tostring(t)) or "")
             local value = "```nupp\n" .. label .. "\n```\n\n" .. def.doc
-            local url = def.docsPath and lsp.siteUrl(def.docsPath) or nil
+            local url = def.docsPath and siteUrl(def.docsPath) or nil
             if url then
                 value = value .. "\n\n[Reference on nupp.org](" .. url .. ")"
             end
@@ -1528,6 +1527,8 @@ function lsp.newSession(rootDir: string?, emit: function(any), host: lsp.Host?):
             end
         end
 
+        local conversion = require("nupp.tools.moduleexports").plan(doc.text)
+        offer(REWRITE, "Convert module table to direct exports", conversion.edits, nil)
         respond(id, offers)
     end
 
@@ -1955,7 +1956,7 @@ end
 
 --- Blocking input half of the stdio transport. The server starts this as a child so
 --- its own process can poll complete frames while a comptime worker is in flight.
-function lsp.readerMain(): integer
+export function readerMain(): integer
     io.stdout:setvbuf("no")
     while true do
         local contentLength = nil
@@ -2002,7 +2003,7 @@ end
 --- @return 0 when the client shut the session down before it ended, 1 when it
 --- exited without `shutdown`, its input ended without one, or the input could not
 --- be read
-function lsp.run(rootDir: string?): integer
+export function run(rootDir: string?): integer
     io.stdout:setvbuf("no")
 
     local function send(msg)
@@ -2042,7 +2043,7 @@ function lsp.run(rootDir: string?): integer
     -- Why the input cannot go on, once a frame has said something the transport
     -- cannot read past.
     local broken: string? = nil
-    local host: lsp.Host
+    local host: Host
 
     --- Reads from the relay through the cell: waiting, the next bytes or nil at the
     --- end; not waiting, whatever is there, or empty when nothing is. This frame owns
@@ -2102,7 +2103,7 @@ function lsp.run(rootDir: string?): integer
         documentVersion = frames.documentVersion,
     }
 
-    local session = lsp.newSession(rootDir, send, host)
+    local session = newSession(rootDir, send, host)
     -- One exit, so the relay is closed once. Two `close` calls on paths that cannot
     -- both
     -- run is still two discharges of one owner as far as the checker can see, and it is
@@ -2148,5 +2149,3 @@ function lsp.run(rootDir: string?): integer
 
     return session.exitCode()
 end
-
-export = lsp

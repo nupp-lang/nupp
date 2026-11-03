@@ -1,7 +1,5 @@
 @!internal
 
-module nupp.runtime.provider.nativenet
-
 --[[
 The VM's native network provider for [](nupp.io.net): the same receiver-based
 protocol as the LuaJIT provider, written over the VM's `nupp.vm.net`
@@ -13,8 +11,9 @@ snapshot of the readiness generation every native family shares, and a later
 `run(waitMs)` sleeps from it, so a change between the facade's check and its
 sleep still wakes it.
 ]]
+module nupp.runtime.provider.nativenet
 
-local contract = require("io.net.spi")
+local contract = require("io.net.internal.contracts")
 local shared = require("nupp.io.net.types")
 const host = require("nupp.vm.net")
 

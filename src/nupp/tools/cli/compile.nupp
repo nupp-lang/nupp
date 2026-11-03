@@ -1,8 +1,7 @@
-module nupp.tools.cli.compile
-
 --[[
 Parse, check, lower: the sequence `build` and `run` both need.
 ]]
+module nupp.tools.cli.compile
 
 local diagnosticMod = require("nupp.compiler.diagnostics")
 local fs = require("nupp.compiler.fs")

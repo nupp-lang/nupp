@@ -1,5 +1,3 @@
-module nupp.compiler.check.operators
-
 --[[
 Which operators are which, and what they dispatch to.
 
@@ -8,15 +6,15 @@ follow LuaJIT's primitive families rather than the grammar's precedence levels,
 because what matters here is which operands an operator accepts, not how tightly
 it binds.
 ]]
+module nupp.compiler.check.operators
 
 local apiidentity = require("nupp.compiler.apiidentity")
-local operators = {}
 
 --- A set of operator tokens.
 local type Set = {[string]: boolean}
 
 --- FFI operations whose first argument names a type.
-operators.ffiTypeFirst = {
+export const ffiTypeFirst = {
     ["new"] = true,
     ["cast"] = true,
     ["istype"] = true,
@@ -26,7 +24,7 @@ operators.ffiTypeFirst = {
 } as Set
 
 --- Arithmetic, which takes numbers or a metamethod contract.
-operators.arith = {
+export const arith = {
     ["+"] = true,
     ["-"] = true,
     ["*"] = true,
@@ -37,17 +35,17 @@ operators.arith = {
 } as Set
 
 --- Bitwise, which takes integers and gives one back.
-operators.bitops = {["&"] = true, ["|"] = true, ["~"] = true, ["<<"] = true, [">>"] = true, ["~>>"] = true,} as Set
+export const bitops = {["&"] = true, ["|"] = true, ["~"] = true, ["<<"] = true, [">>"] = true, ["~>>"] = true,} as Set
 
 --- Comparison, which gives a boolean whatever it takes.
-operators.compare = {["<"] = true, [">"] = true, ["<="] = true, [">="] = true, ["=="] = true, ["~="] = true,} as Set
+export const compare = {["<"] = true, [">"] = true, ["<="] = true, [">="] = true, ["=="] = true, ["~="] = true,} as Set
 
 --- The short-circuiting pair, whose right side is only reached under what the left side
 --- proved.
-operators.logical = {["and"] = true, ["or"] = true,} as Set
+export const logical = {["and"] = true, ["or"] = true,} as Set
 
 --- The metamethod an operator consults when its operands are not primitive.
-operators.metamethod = {
+export const metamethod = {
     ["+"] = "__add",
     ["-"] = "__sub",
     ["*"] = "__mul",
@@ -58,7 +56,7 @@ operators.metamethod = {
 } as {[string]: string}
 
 --- The metamethods a declaration may contract for.
-operators.contractMetamethod = {
+export const contractMetamethod = {
     __call = true,
     __index = true,
     __newindex = true,
@@ -79,7 +77,7 @@ operators.contractMetamethod = {
 
 --- Every key the Lua dialect gives meaning to in a metatable, so a misspelling in a
 --- literal one is caught rather than silently ignored.
-operators.runtimeMetamethod = {
+export const runtimeMetamethod = {
     __call = true,
     __index = true,
     __newindex = true,
@@ -238,7 +236,7 @@ end
 ---
 --- @param c the run's state
 --- @return the expression kinds this family answers
-function operators.install(c: state.Checker): state.ExprHandlers
+export function install(c: state.Checker): state.ExprHandlers
 
     local function orderingFamily(t)
         if t == T.any then
@@ -466,7 +464,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
         customaryOperator(c, opTok)
         local op = opTok.kind
         local lt, rt
-        if operators.logical[op] then
+        if logical[op] then
             -- the rhs is only evaluated under the lhs outcome: narrow it
             lt = c.infer(lhs)
             local facts = c.analyzeCond(lhs)
@@ -477,13 +475,13 @@ function operators.install(c: state.Checker): state.ExprHandlers
         else
             lt, rt = c.infer(lhs), c.infer(rhs)
         end
-        if (operators.logical[op] or op == "??") and (c.ownershipKind(lt) or c.ownershipKind(rt)) then
+        if (logical[op] or op == "??") and (c.ownershipKind(lt) or c.ownershipKind(rt)) then
             c.diag("NUPP2602", node, "an ownership-bearing value cannot be selected by a logical operator", nil, {
                 help = "move or drop the owner explicitly in each control-flow branch"
             })
         end
-        if operators.arith[op] then
-            local mmName = op ~= "//" and operators.metamethod[op] or nil
+        if arith[op] then
+            local mmName = op ~= "//" and metamethod[op] or nil
             if op == "//" and simdFamily(lt) == "Vector" then
                 -- A vector has no `__idiv` to find: floor division takes the
                 -- operands `/` takes and answers the same vector.
@@ -593,7 +591,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
             node.plainConcat = plain
             return T.string
-        elseif operators.bitops[op] then
+        elseif bitops[op] then
             local leftFamily, rightFamily = simdFamily(lt), simdFamily(rt)
             if leftFamily == "Vector" or leftFamily == "Mask" then
                 if leftFamily == "Vector" and rightFamily == nil then
@@ -644,7 +642,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
             end
 
             return wide or T.integer
-        elseif operators.compare[op] then
+        elseif compare[op] then
             local leftFamily, rightFamily = simdFamily(lt), simdFamily(rt)
             if leftFamily == "Mask" or rightFamily == "Mask" then
                 if (op ~= "==" and op ~= "~=") or leftFamily ~= "Mask" or rightFamily ~= "Mask" then
@@ -713,7 +711,7 @@ function operators.install(c: state.Checker): state.ExprHandlers
                 present = T.never
             end
             return T.union({present, rt})
-        elseif operators.logical[op] then
+        elseif logical[op] then
             -- These operators select an operand value rather than producing a
             -- boolean. The left contributes its falsy possibilities to `and` and
             -- its truthy possibilities to `or`; the right is reachable on the
@@ -766,5 +764,3 @@ function operators.install(c: state.Checker): state.ExprHandlers
 
     return handlers
 end
-
-export = operators

@@ -1,7 +1,4 @@
 @!internal
-
-module nupp.runtime.provider.nativecompression
-
 --[[
 The VM's gzip, zlib, and raw DEFLATE provider for compression API 1: the same
 catalog and records as the LuaJIT provider, written over the VM's
@@ -10,8 +7,9 @@ encoder and decoder owns one native stream handle, and every step reads and
 writes the spans it is given in place. Failed steps carry the stream's error in
 their reason.
 ]]
+module nupp.runtime.provider.nativecompression
 
-const contract = require("binary.compress.spi")
+const contract = require("binary.compress.internal.contracts")
 const host = require("nupp.vm.compression")
 const span = require("nupp.mem.span")
 

@@ -1,5 +1,3 @@
-module nupp.compiler.check.discard
-
 --[[
 Whether a call written as a statement had a reason to be written.
 
@@ -43,15 +41,14 @@ candidate where the walk finds it, which is also where its `@allow` is still
 in scope, and the sweep runs after the fixpoint. See
 [lints.md](docs/reference/lints.md#discarded-result).
 ]]
+module nupp.compiler.check.discard
 
 local T = require("nupp.compiler.types")
 local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 
-local discard = {}
-
 --- Defines the operations the walk uses to judge discarded call results.
-type discard.Ops = {
+export type Ops = {
     --- Registers a call statement to judge at the end of the file.
     statement: function(call: any),
 
@@ -231,7 +228,7 @@ end
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function discard.install(c: state.Checker): discard.Ops
+export function install(c: state.Checker): Ops
     local ops = {}
 
     -- Call statements to judge once effect inference has settled, in source order.
@@ -300,5 +297,3 @@ function discard.install(c: state.Checker): discard.Ops
 
     return ops
 end
-
-export = discard

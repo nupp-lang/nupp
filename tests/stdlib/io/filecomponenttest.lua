@@ -1,0 +1,74 @@
+local test = require("assert")
+local process = require("nupp.compiler.process")
+
+local here = require("helpers.paths").tests
+if not here:match("^/") then
+    local pipe = assert(io.popen("pwd"))
+    here = pipe:read("*l") .. "/" .. here
+    pipe:close()
+end
+local compiler = here .. "/../bin/nupp"
+local M = {}
+
+local function quote(text)
+    return "'" .. text:gsub("'", "'\\''") .. "'"
+end
+
+local function write(path, text)
+    local file = assert(io.open(path, "wb"))
+    file:write(text)
+    file:close()
+end
+
+function M.buildsFilesAndLineReadersInAColdProject()
+    local directory = os.tmpname()
+    if package.config:sub(1, 1) == "\\" then
+        directory = directory:gsub("^/([A-Za-z])/", "%1:/")
+    end
+    os.remove(directory)
+    assert(os.execute("mkdir -p " .. quote(directory .. "/src")) == 0)
+    write(directory .. "/nupp.lua", [[
+return {include = {"src"}, build = {outDir = "build", entries = {"fixture"}}}
+]])
+    write(
+        directory .. "/src/fixture.nupp",
+        [[
+module fixture
+local files = require("io.files")
+export function read(path: string): string
+    local lines = assert(files.lines(path, 1048576))
+    local text = ""
+    while true do
+        local line, reason = lines:read()
+        collectgarbage("collect")
+        if line == nil then
+            assert(reason == nil, reason)
+            break
+        end
+        text = text .. line .. "\n"
+    end
+    return text
+end
+]]
+    )
+    -- A preceding check can warm declarations and hide incorrect ownership
+    -- contracts when the build checks the standard modules it reaches.
+    local status, output = process.capture({compiler, "build"}, {
+        cwd = directory,
+        env = {NUPP_CACHE_DIR = directory .. "/cache"},
+    })
+    write(directory .. "/lines.txt", string.rep("x", 70000) .. "\r\n\nlast")
+    write(
+        directory .. "/read.nupp",
+        [[
+local fixture = require("fixture")
+assert(fixture.read("lines.txt") == string.rep("x", 70000) .. "\n\nlast\n")
+]]
+    )
+    local ran, runOutput = process.capture({compiler, "run", "read.nupp"}, {cwd = directory})
+    os.execute("rm -rf " .. quote(directory))
+    test.eq(status, 0, output)
+    test.eq(ran, 0, runOutput)
+end
+
+return M
