@@ -8,13 +8,11 @@ sources only when the ordinary loader chain has no answer.
 
 local envMod = require("nupp.compiler.project.env")
 
-local runtime = {}
-
 -- Installs project and carried-source loaders. `compile` receives (path, env,
 -- moduleName, source?) and returns generated Lua or nil plus an error. Every
 -- call names the requested module; only carried implementations supply source.
 -- The returned function removes both loaders, even if the program added others.
-function runtime.install(
+export function install(
     env: envMod.Env,
     compile: function(path: string, env: envMod.Env, moduleName: string?, source: string?): (string?, string?),
     loaded: function(name: string, path: string, ok: boolean)?,
@@ -155,5 +153,3 @@ function runtime.install(
         end
     end
 end
-
-export = runtime

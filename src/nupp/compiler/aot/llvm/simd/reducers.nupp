@@ -21,8 +21,6 @@ local species = require("nupp.compiler.aot.llvm.simd.species")
 local states = require("nupp.compiler.aot.llvm.simd.states")
 local statements = require("nupp.compiler.aot.llvm.statements")
 
-local reducers = {}
-
 --- The IR type a contract's contributions are passed as.
 local function inputType(order: string, element: string?): string
     if states.bare(order) or order == "pairwise" or order == "compensated" then
@@ -287,18 +285,16 @@ local function value(ctx: context.Context, node: scalarIR.Expr): (string, string
     return context.value(ctx, ("call %s %s(ptr %s)"):format(ops.result, ops.value, slot.pointer)), tostring(read.type)
 end
 
-reducers.EXPRESSIONS = {
+export const EXPRESSIONS = {
     ["reducer_value"] = value,
 } as {[string]: function(ctx: context.Context, node: scalarIR.Expr): (string, string)}
 
-reducers.STATEMENTS = {
+export const STATEMENTS = {
     ["reducer_add"] = add,
     ["simd_reducer_add"] = vectorAdd,
     ["reducer_region"] = region,
 } as {[string]: function(ctx: context.Context, node: scalarIR.Statement): nil}
 
-reducers.BINDERS = {
+export const BINDERS = {
     ["reducer_init"] = init,
 } as {[string]: function(ctx: context.Context, slot: context.Slot, value: scalarIR.Expr): nil}
-
-export = reducers

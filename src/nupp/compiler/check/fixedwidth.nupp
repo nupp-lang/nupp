@@ -14,8 +14,6 @@ local relations = require("nupp.compiler.types.relations")
 local fixed = require("nupp.compiler.types.fixedwidth")
 local state = require("nupp.compiler.check.state")
 
-local fixedCheck = {}
-
 local isA = relations.isA
 
 local type Ops = {
@@ -44,7 +42,7 @@ local function copyFacts(facts): any
     return out
 end
 
-function fixedCheck.install(c: state.Checker): Ops
+export function install(c: state.Checker): Ops
     local ops = {}
 
     ops.markLiteral = function(node, value)
@@ -303,5 +301,3 @@ function fixedCheck.install(c: state.Checker): Ops
 
     return ops
 end
-
-export = fixedCheck

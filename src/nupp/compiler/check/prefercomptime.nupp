@@ -15,8 +15,6 @@ local cst = require("nupp.compiler.syntax.cst")
 local lints = require("nupp.compiler.lints")
 local state = require("nupp.compiler.check.state")
 
-local prefercomptime = {}
-
 local WORK = {
     call = true,
     forinStmt = true,
@@ -96,7 +94,7 @@ end
 
 --- Reports an ordinary function declaration when explicit comptime evaluation can
 --- replace meaningful runtime work with a materially smaller scalar literal.
-function prefercomptime.check(c: state.Checker, declaration: any, body: any, receiver: boolean): nil
+export function check(c: state.Checker, declaration: any, body: any, receiver: boolean): nil
     local lint = lints.get("prefer-comptime")
     if not lint
         or lints.level(lint, c.lintConfig) == "off"
@@ -123,5 +121,3 @@ function prefercomptime.check(c: state.Checker, declaration: any, body: any, rec
         {help = ("evaluate the body with `comptime do`; it reduces to `%s`"):format(quoted)}
     )
 end
-
-export = prefercomptime

@@ -27,8 +27,6 @@ local checkpoint = require("nupp.compiler.syntax.checkpoint")
 local constspecialize = require("nupp.compiler.lua.constspecialize")
 local indexedViews = require("nupp.compiler.types.indexedviews")
 
-local optimize = {}
-
 local isToken = cst.isToken
 local firstToken = cst.firstToken
 
@@ -38,7 +36,7 @@ local firstToken = cst.firstToken
 
 --- The passes, by stable code: the name a person uses, the lowest `-O` level that runs
 --- the pass, and one line saying what it is for.
-optimize.passes = {
+export const passes = {
     ["OPT-1"] = {name = "presize", level = 1, summary = "size a table built field by field when it is created",},
     [
         "OPT-2"
@@ -3700,14 +3698,14 @@ end
 
 --- What a pass works on: the tree it rewrites in place and the analysis the checker
 --- left beside it.
-type optimize.Checked = {
+export type Checked = {
     @readonly root: cst.Chunk,
     @readonly analysis: any?,
     @readonly compat: string?
 }
 
 --- What the passes were asked for.
-type optimize.Options = {
+export type Options = {
     @readonly level: integer?,
 
     --- The sole source name used for ownership and remark attribution. Parse results
@@ -3727,8 +3725,8 @@ type optimize.Options = {
 --- @return the remarks the passes produced, in source order
 --- @return how many private const bodies OPT-8 emitted for this module, which a
 ---   caller with no module graph of its own has no other way to count
-function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}, integer)
-    opts = opts or {} as optimize.Options
+export function run(result: Checked, opts: Options?): ({any}, integer)
+    opts = opts or {} as Options
     local level = opts.level or 0
     if level > 0 then
         checkpoint.prepare(result as any)
@@ -3741,39 +3739,39 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}
     for key in pairs(factRoot.optimizationDependencies or {}) do
         factRoot.optimizationDependencies[key] = nil
     end
-    if level >= optimize.passes["OPT-1"].level and not disabled["OPT-1"] then
+    if level >= passes["OPT-1"].level and not disabled["OPT-1"] then
         walk(result.root, remarks)
     end
-    if level >= optimize.passes["OPT-2"].level and not disabled["OPT-2"] then
+    if level >= passes["OPT-2"].level and not disabled["OPT-2"] then
         numericIpairsWalk(result, remarks)
     end
-    if level >= optimize.passes["OPT-3"].level and not disabled["OPT-3"] then
+    if level >= passes["OPT-3"].level and not disabled["OPT-3"] then
         constantFoldWalk(result.root)
     end
-    if level >= optimize.passes["OPT-4"].level and not disabled["OPT-4"] then
+    if level >= passes["OPT-4"].level and not disabled["OPT-4"] then
         staticCallableWalk(result.root, remarks)
     end
-    if level >= optimize.passes["OPT-5"].level and not disabled["OPT-5"] and result.compat ~= "lua51" then
+    if level >= passes["OPT-5"].level and not disabled["OPT-5"] and result.compat ~= "lua51" then
         concatBufferWalk(result, remarks)
     end
-    if level >= optimize.passes["OPT-6"].level and not disabled["OPT-6"] then
+    if level >= passes["OPT-6"].level and not disabled["OPT-6"] then
         importedViewHelpers(result, remarks)
         indexedViewReturnTransportWalk(result, remarks)
         local parameterTransports = indexedViewParameterTransportPlan(result, remarks)
         indexedRangeWalk(result, remarks)
         finalizeIndexedViewParameterTransport(parameterTransports, remarks)
     end
-    if level >= optimize.passes["OPT-7"].level and not disabled["OPT-7"] then
+    if level >= passes["OPT-7"].level and not disabled["OPT-7"] then
         local inlined = inlineReturnHelperWalk(result, remarks)
         if inlined and not disabled["OPT-3"] then
             constantFoldWalk(result.root)
         end
     end
     local specializedBodies: integer = 0
-    if level >= optimize.passes["OPT-8"].level and not disabled["OPT-8"] then
+    if level >= passes["OPT-8"].level and not disabled["OPT-8"] then
         specializedBodies = constMonomorphizeWalk(result, remarks, opts.constSelection, opts.filename)
     end
-    if level >= optimize.passes["OPT-3"].level and not disabled["OPT-3"] then
+    if level >= passes["OPT-3"].level and not disabled["OPT-3"] then
         deadScalarLocals(result.root)
     end
     for _, entry in ipairs(remarks) do
@@ -3784,7 +3782,7 @@ function optimize.run(result: optimize.Checked, opts: optimize.Options?): ({any}
 end
 
 --- An allocation left in the tree generation will emit.
-record optimize.AllocationSite
+export record AllocationSite
     --- `table` for a constructor, `closure` for a function value.
     kind: string
 
@@ -3808,8 +3806,8 @@ end
 ---
 --- @param result the checked tree, after the passes have run
 --- @return the sites, in tree order
-function optimize.allocationSites(result: optimize.Checked): {optimize.AllocationSite}
-    local sites: {optimize.AllocationSite} = {}
+export function allocationSites(result: Checked): {AllocationSite}
+    local sites: {AllocationSite} = {}
 
     local function visit(node)
         if not node or isToken(node) then
@@ -3852,11 +3850,7 @@ function optimize.allocationSites(result: optimize.Checked): {optimize.Allocatio
             local token = firstToken(node)
             sites[
                 #sites + 1
-            ] = new optimize.AllocationSite(
-                kind = kind,
-                line = token and token.line or 0,
-                col = token and token.col or 0
-            )
+            ] = new AllocationSite(kind = kind, line = token and token.line or 0, col = token and token.col or 0)
         end
         for _, child in ipairs(node) do
             visit(child)
@@ -3871,7 +3865,7 @@ end
 --- Recomputes compiler runtime effects from the tree that generation will emit.
 --- Constant-folded branches and loops are deliberately skipped, so their providers
 --- disappear along with their code.
-function optimize.liveEffects(result: optimize.Checked): {[string]: boolean}
+export function liveEffects(result: Checked): {[string]: boolean}
     local effects = {}
 
     local function visit(node)
@@ -3924,5 +3918,3 @@ function optimize.liveEffects(result: optimize.Checked): {[string]: boolean}
 
     return effects
 end
-
-export = optimize

@@ -26,8 +26,6 @@ local isA = relations.isA
 local subtract = narrowing.subtract
 local rawType = T.unwrapOwnership
 
-local ffi = {}
-
 -- C declaration parsing is a native-only compiler service. Keep the import
 -- dynamic so an in-memory compiler that disables cinterop never packages it.
 local function cHeader(c: state.Checker): any
@@ -49,7 +47,7 @@ local type Node = cst.Node
 --- takes it: the type an intrinsic has, or nil when the call is not one. It is handed
 --- the names the callee was written with rather than the callee's type, because an
 --- intrinsic is recognized by its spelling and its type argument.
-type ffi.Intrinsic = function(
+export type Intrinsic = function(
     node: Node,
     calleeName: string,
     baseName: string,
@@ -78,7 +76,7 @@ end
 ---
 --- @param c the run's state
 --- @return the intrinsic dispatch the call path asks first
-function ffi.install(c: state.Checker): ffi.Intrinsic
+export function install(c: state.Checker): Intrinsic
 
     --- The type an intrinsic call has, or nil when this call is not one and the
     --- ordinary call path should carry on with it. The call site is described by the
@@ -603,5 +601,3 @@ function ffi.install(c: state.Checker): ffi.Intrinsic
         return nil
     end
 end
-
-export = ffi

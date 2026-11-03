@@ -24,8 +24,6 @@ local predicate = require("nupp.compiler.types.predicate")
 local methodslots = require("nupp.compiler.lua.methodslots")
 local state = require("nupp.compiler.check.state")
 
-local declare = {}
-
 -- Which reifiable primitives C admits as a bitfield base: the integer ones and
 -- `bool`. `number` and `float` lower to `double` and `float`, which have no bitfield
 -- form, and everything else with a layout carries a width of its own.
@@ -302,7 +300,7 @@ end
 --- callee, and say so where the call is made.
 ---
 --- @param c the run's state
-function declare.checkEffectConformance(c: state.Checker): nil
+export function checkEffectConformance(c: state.Checker): nil
     for _, obligation in ipairs(c.conformanceEffects or {}) do
         local owner, name = obligation.owner, obligation.name
         local wants = obligation.want.tag == "intersection" and obligation.want.members or {obligation.want}
@@ -349,7 +347,7 @@ end
 --- @param fix a named fix, and the edits applying it makes
 --- @param insertBefore an edit putting text in front of a token
 --- @param validateAnnotation checks one application against what it names
-function declare.install(
+export function install(
     c: state.Checker,
     reifiableField: function(t: Type, isCdef: boolean?): boolean,
     fix: function(title: string, ...: any): any,
@@ -3031,5 +3029,3 @@ function declare.install(
         end
     end
 end
-
-export = declare

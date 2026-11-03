@@ -24,17 +24,15 @@ local statements = require("nupp.compiler.aot.llvm.statements")
 local verify = require("nupp.compiler.aot.verify")
 local visit = require("nupp.compiler.aot.visit")
 
-local entry = {}
-
 --- Lua 5.1's globals pseudo-index.
 const GLOBALS = -10002
 
 --- The global the registrar keeps the runtime's table in.
-const entry.TABLE = "@ks.rt"
+export const TABLE = "@ks.rt"
 
 --- Declares the module's table global once.
-function entry.declareTable(module: builder.Module): nil
-    builder.once(module, "global " .. entry.TABLE, entry.TABLE .. " = internal global ptr null")
+export function declareTable(module: builder.Module): nil
+    builder.once(module, "global " .. TABLE, TABLE .. " = internal global ptr null")
 end
 
 --- The saturating conversion of a binary64 argument to integer type `to`.
@@ -48,7 +46,7 @@ local function saturate(ctx: context.Context, value: string, to: string): string
 end
 
 --- The span name rooted bytes are read through by a vector load.
-function entry.rootedSpan(uniqueName: string): string
+export function rootedSpan(uniqueName: string): string
     return "ks_bytes_" .. uniqueName
 end
 
@@ -66,7 +64,7 @@ local function root(
     local count = lua.size == "i64" and length or context.value(ctx, ("zext %s %s to i64"):format(lua.size, length))
     -- Under the name a vector load's view is rewritten to, and under the
     -- parameter's own, which the bounds around such a load name.
-    for _, name in ipairs({entry.rootedSpan(uniqueName), param.name}) do
+    for _, name in ipairs({rootedSpan(uniqueName), param.name}) do
         ctx.spans[name] = span
         ctx.counts[name] = count
     end
@@ -188,10 +186,10 @@ end
 
 --- Emits the body of builder entry `program` into `ctx`, whose function is
 --- `i32 (ptr %L)`, and finishes it.
-function entry.body(ctx: context.Context, program: scalarIR.Program): nil
+export function body(ctx: context.Context, program: scalarIR.Program): nil
     local lua = runtime.lua(ctx)
-    entry.declareTable(ctx.module)
-    lua.runtime = context.value(ctx, ("load ptr, ptr %s"):format(entry.TABLE))
+    declareTable(ctx.module)
+    lua.runtime = context.value(ctx, ("load ptr, ptr %s"):format(TABLE))
     local byteRoots: integer = 0
     for _, param in ipairs(program.params) do
         if param.type == "lua_bytes" then
@@ -219,22 +217,22 @@ local function refuse(ctx: context.Context, failed: string, message: string): ni
 end
 
 --- An entry a registrar registers: its Lua name and its function.
-record entry.Registered
+export record Registered
     name: string
     fn: string
 end
 
 --- Defines registrar `name` for `registered` with attribute group `attrs`.
-function entry.registrar(
+export function registrar(
     module: builder.Module,
     name: string,
     attrs: string,
     size: string,
-    registered: {entry.Registered},
+    registered: {Registered},
     program: scalarIR.Program,
     linked: boolean?
 ): nil
-    entry.declareTable(module)
+    declareTable(module)
     local f = builder.func(module, ("define i32 @%s(ptr %%L) %s {"):format(name, attrs))
     local ctx = context.new(module, f, program)
     ctx.lua = new context.Lua(
@@ -333,7 +331,7 @@ function entry.registrar(
         wrong = context.value(ctx, ("or i1 %s, %s"):format(wrong, checks[position]))
     end
     refuse(ctx, wrong, mismatch)
-    builder.emit(f, ("store ptr %s, ptr %s"):format(table, entry.TABLE))
+    builder.emit(f, ("store ptr %s, ptr %s"):format(table, TABLE))
     if linked ~= true then
         runtime.api(ctx, "lua_settop", {state, "i32 -3"})
     end
@@ -350,5 +348,3 @@ function entry.registrar(
     end
     builder.finish(f, "ret i32 1")
 end
-
-export = entry

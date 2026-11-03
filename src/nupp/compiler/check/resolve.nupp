@@ -26,8 +26,6 @@ local lexer = require("nupp.compiler.syntax.lexer")
 local state = require("nupp.compiler.check.state")
 local capabilities = require("nupp.compiler.capabilities")
 
-local resolve = {}
-
 --- The ownership type constructors, by the name each is written with.
 -- The C status constructors. `Success<T, N>` says the call succeeded when it
 -- returned N, `Failure<T, N>` says it succeeded when it returned anything else.
@@ -159,7 +157,7 @@ end
 --- already has the run in hand.
 ---
 --- @param c the run's state
-function resolve.install(c: state.Checker): nil
+export function install(c: state.Checker): nil
     local edits = c.edits
     local fix, insertBefore = edits.fix, edits.insertBefore
     local requiredAs, requireBindsName = edits.requiredAs, edits.requireBindsName
@@ -2329,5 +2327,3 @@ function resolve.install(c: state.Checker): nil
         return t
     end
 end
-
-export = resolve

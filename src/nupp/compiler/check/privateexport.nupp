@@ -19,9 +19,7 @@ See [lints.md](docs/reference/lints.md#private-export-type).
 local T = require("nupp.compiler.types")
 local state = require("nupp.compiler.check.state")
 
-local privateexport = {}
-
-type privateexport.Ops = {
+export type Ops = {
     declared: function(stat: any, t: T.Type, visibility: string),
     exported: function(tok: any, layer: string),
     sweep: function()
@@ -44,7 +42,7 @@ end
 --- Installs the private-export-type judgment on a checking run.
 ---
 --- @param c the run's state
-function privateexport.install(c: state.Checker): privateexport.Ops
+export function install(c: state.Checker): Ops
     local ops = {}
     local localNominals: {[any]: any} = {}
     local publicNominals: {[any]: boolean} = {}
@@ -294,5 +292,3 @@ function privateexport.install(c: state.Checker): privateexport.Ops
 
     return ops
 end
-
-export = privateexport

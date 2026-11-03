@@ -12,15 +12,13 @@ its caller where it is.
 
 local builder = require("nupp.compiler.aot.llvm.builder")
 
-local prelude = {}
-
 --- The attributes every helper carries.
 local function inline(module: builder.Module): string
     return builder.attributes(module, "alwaysinline nounwind")
 end
 
 --- A libm function, declared once.
-function prelude.libm(module: builder.Module, name: string, arity: integer, float: boolean?): string
+export function libm(module: builder.Module, name: string, arity: integer, float: boolean?): string
     local t = float and "float" or "double"
     local params: {string} = {}
     for position = 1, arity do
@@ -32,7 +30,7 @@ function prelude.libm(module: builder.Module, name: string, arity: integer, floa
 end
 
 --- An LLVM intrinsic, declared once.
-function prelude.intrinsic(module: builder.Module, name: string, signature: string): string
+export function intrinsic(module: builder.Module, name: string, signature: string): string
     builder.declare(module, "@" .. name, "declare " .. signature:gsub("@NAME", "@" .. name))
 
     return "@" .. name
@@ -45,7 +43,7 @@ local DEFINITIONS: {[string]: function(module: builder.Module, attrs: string): s
 --- divisor's sign agrees only on the easy cases; it differs on the sign of a
 --- zero result, an infinite divisor and wherever `a / b` rounds.
 DEFINITIONS["nupp.mod"] = function(module: builder.Module, attrs: string): string
-    local floor = prelude.intrinsic(module, "llvm.floor.f64", "double @NAME(double)")
+    local floor = intrinsic(module, "llvm.floor.f64", "double @NAME(double)")
     return table.concat(
         {
             "define internal double @nupp.mod(double %a, double %b) " .. attrs .. " {",
@@ -136,7 +134,7 @@ end
 --- LuaJIT's `lj_carith_powi64`: a negative exponent returns 0 except for a base
 --- of 1 or -1, and `INT64_MAX` for a base of 0.
 DEFINITIONS["nupp.i64.pow"] = function(module: builder.Module, attrs: string): string
-    local unsigned = prelude.use(module, "nupp.u64.pow")
+    local unsigned = use(module, "nupp.u64.pow")
     return table.concat(
         {
             "define internal i64 @nupp.i64.pow(i64 %x, i64 %k) " .. attrs .. " {",
@@ -252,7 +250,7 @@ end
 --- `sin` keeping the authored signed zero, which a library rewrite into a
 --- combined sin/cos may lose.
 DEFINITIONS["nupp.sin"] = function(module: builder.Module, attrs: string): string
-    local sin = prelude.libm(module, "sin", 1)
+    local sin = libm(module, "sin", 1)
     return table.concat(
         {
             "define internal double @nupp.sin(double %v) " .. attrs .. " {",
@@ -325,7 +323,7 @@ DEFINITIONS["nupp.f32.max"] = function(_: builder.Module, attrs: string): string
 end
 
 DEFINITIONS["nupp.f32.fma"] = function(module: builder.Module, attrs: string): string
-    local fma = prelude.intrinsic(module, "llvm.fma.f32", "float @NAME(float, float, float)")
+    local fma = intrinsic(module, "llvm.fma.f32", "float @NAME(float, float, float)")
     return table.concat(
         {
             "define internal float @nupp.f32.fma(float %a, float %b, float %c) \"nupp-fp-contract\" " .. attrs .. " {",
@@ -342,9 +340,9 @@ end
 --- The IR-owned binary32 exp: a clamped degree-12 polynomial in x/128, then
 --- seven squarings, every step the corrected fused multiply-add.
 DEFINITIONS["nupp.f32.exp"] = function(module: builder.Module, attrs: string): string
-    local min = prelude.use(module, "nupp.f32.min")
-    local max = prelude.use(module, "nupp.f32.max")
-    local fma = prelude.use(module, "nupp.f32.fma")
+    local min = use(module, "nupp.f32.min")
+    local max = use(module, "nupp.f32.max")
+    local fma = use(module, "nupp.f32.fma")
     local text = require("nupp.compiler.aot.llvm.text")
 
     local function f(value: number): string
@@ -551,7 +549,7 @@ end
 
 --- The name of `helper`, defining it in `module` on first use.
 --- @raises string when no helper has that name
-function prelude.use(module: builder.Module, helper: string): string
+export function use(module: builder.Module, helper: string): string
     local define = DEFINITIONS[helper]
     if define == nil then
         error("no LLVM prelude helper " .. helper, 0)
@@ -563,5 +561,3 @@ function prelude.use(module: builder.Module, helper: string): string
 
     return "@" .. helper
 end
-
-export = prelude

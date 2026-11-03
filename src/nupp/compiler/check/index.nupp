@@ -35,8 +35,6 @@ local subtract = narrowing.subtract
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
-local index = {}
-
 ----------------------------------------------------------------------------
 -- Compiler-only namespaces
 ----------------------------------------------------------------------------
@@ -88,7 +86,7 @@ end
 ---
 --- @param c the run's state
 --- @return the expression kinds this family answers
-function index.install(c: state.Checker): state.ExprHandlers
+export function install(c: state.Checker): state.ExprHandlers
     local handlers = {}
 
     ---------------------------------------------------------------------
@@ -1381,5 +1379,3 @@ function index.install(c: state.Checker): state.ExprHandlers
 
     return handlers
 end
-
-export = index

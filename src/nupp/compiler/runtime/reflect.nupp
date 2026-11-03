@@ -26,7 +26,6 @@ ordinary writes cannot replace a descriptor field.
 See [reflection.md](docs/learn/language/reflection.md) for what a program does with a descriptor.
 ]]
 
-local reflectruntime = {}
 local extensions = require("nupp.compiler.runtime.extensions")
 local reflectionshape = require("nupp.runtime.reflectionshape")
 
@@ -54,7 +53,7 @@ end
 --- absent stays absent rather than becoming an explicit nil, which is what makes the
 --- result round-trip.
 --- @export
-function reflectruntime.installFieldCodec(namespace: any): nil
+export function installFieldCodec(namespace: any): nil
     local fieldcodec = claim(namespace, "fieldcodec", {})
     fieldcodec.keyed = function(fields: {string}, fingerprint: string, recordType: any): any
         local Codec: any = {}
@@ -95,7 +94,7 @@ end
 
 --- Installs the reflection registry and the descriptor protocol.
 --- @export
-function reflectruntime.install(namespace: any): any
+export function install(namespace: any): any
     require("nupp.compiler.runtime.typewitness").install(namespace)
     local api = claim(namespace, "__reflectionApi", {})
     api.extensionKey = extensions.key
@@ -231,5 +230,3 @@ function reflectruntime.install(namespace: any): any
 
     return api
 end
-
-export = reflectruntime

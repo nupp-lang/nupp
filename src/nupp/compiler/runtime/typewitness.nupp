@@ -2,9 +2,8 @@
 module nupp.compiler.runtime.typewitness
 
 -- Type metadata must work before stores and extension keys have initialized.
-local runtime = {}
 
-function runtime.install(namespace: any): nil
+export function install(namespace: any): nil
     local reflect: any = rawget(namespace, "__reflect")
     if reflect == nil then
         reflect = {}
@@ -88,5 +87,3 @@ function runtime.install(namespace: any): nil
         return typeObject
     end
 end
-
-export = runtime

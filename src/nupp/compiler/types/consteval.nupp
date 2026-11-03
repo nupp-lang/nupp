@@ -6,12 +6,10 @@ local T = require("nupp.compiler.types")
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 
-local consteval = {}
-
 local MAX_EXACT = 9007199254740991
 
-type consteval.Bindings = {[T.ConstVar]: T.ConstTerm}
-type consteval.Lookup = function(name: string): T.ConstTerm?
+export type Bindings = {[T.ConstVar]: T.ConstTerm}
+export type Lookup = function(name: string): T.ConstTerm?
 
 local function integer(text: string): integer?
     -- Separators are source syntax. Lua's numeric parser does not admit them, so
@@ -24,7 +22,7 @@ local function integer(text: string): integer?
     return value as integer
 end
 
-function consteval.fromType(t: T.Type): T.ConstTerm?
+export function fromType(t: T.Type): T.ConstTerm?
     if t.tag == "literal" then
         if t.base == T.string then
             return T.constLiteral("string", t.constant as string)
@@ -40,7 +38,7 @@ function consteval.fromType(t: T.Type): T.ConstTerm?
     return nil
 end
 
-function consteval.singleton(term: T.ConstTerm): T.Type
+export function singleton(term: T.ConstTerm): T.Type
     -- A function term has no literal type to stand for it. Its value is the key of a
     -- declaration rather than a string anyone wrote, and giving it a string literal
     -- type would let it be compared against one. It stays a neutral singleton.
@@ -52,7 +50,7 @@ function consteval.singleton(term: T.ConstTerm): T.Type
     return T.neutral("singleton", nil, nil, nil, nil, nil, nil, nil, term)
 end
 
-function consteval.parse(node: cst.Node?, lookup: consteval.Lookup): T.ConstTerm?, string?
+export function parse(node: cst.Node?, lookup: Lookup): T.ConstTerm?, string?
     if not node then
         return nil, "const expression expected"
     end
@@ -71,9 +69,9 @@ function consteval.parse(node: cst.Node?, lookup: consteval.Lookup): T.ConstTerm
         local found = lookup(node.token.text)
         return found, found and nil or ("%q is not a compile-time-known value"):format(node.token.text)
     elseif node.kind == "paren" then
-        return consteval.parse(node.expr, lookup)
+        return parse(node.expr, lookup)
     elseif node.kind == "unop" and node.op and (node.op.kind == "-" or node.op.kind == "+") then
-        local operand, err = consteval.parse(node.operand, lookup)
+        local operand, err = parse(node.operand, lookup)
         if not operand then
             return nil, err
         end
@@ -95,11 +93,11 @@ function consteval.parse(node: cst.Node?, lookup: consteval.Lookup): T.ConstTerm
         if not allowed[node.op.kind] then
             return nil, ("operator %q is not in the const expression grammar"):format(node.op.kind)
         end
-        local left, leftErr = consteval.parse(node.lhs, lookup)
+        local left, leftErr = parse(node.lhs, lookup)
         if not left then
             return nil, leftErr
         end
-        local right, rightErr = consteval.parse(node.rhs, lookup)
+        local right, rightErr = parse(node.rhs, lookup)
         if not right then
             return nil, rightErr
         end
@@ -116,7 +114,7 @@ local function checkedInteger(value: number): integer?, string?
     return value as integer
 end
 
-function consteval.reduce(term: T.ConstTerm, bindings: consteval.Bindings?): T.ConstTerm, string?
+export function reduce(term: T.ConstTerm, bindings: Bindings?): T.ConstTerm, string?
     if term.tag == "constLiteral" then
         return term
     end
@@ -129,7 +127,7 @@ function consteval.reduce(term: T.ConstTerm, bindings: consteval.Bindings?): T.C
     local operands = {}
     local closed = true
     for j, operand in ipairs(term.operands) do
-        local reduced, err = consteval.reduce(operand, bindings)
+        local reduced, err = reduce(operand, bindings)
         if err then
             return term, err
         end
@@ -188,5 +186,3 @@ function consteval.reduce(term: T.ConstTerm, bindings: consteval.Bindings?): T.C
 
     return value and T.constLiteral("integer", value) or term, err
 end
-
-export = consteval

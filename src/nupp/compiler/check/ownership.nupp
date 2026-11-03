@@ -16,8 +16,6 @@ local relations = require("nupp.compiler.types.relations")
 local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 
-local ownership = {}
-
 local isA = relations.isA
 local rawType = T.unwrapOwnership
 
@@ -31,7 +29,7 @@ local type Type = T.Type
 --- The affine bookkeeping, as the walk and the other passes call it. Half of these are
 --- promoted onto the run as well, because every statement family asks them; the rest
 --- are reached through `c.own` by the families that need provenance or cleanups.
-type ownership.Ops = {
+export type Ops = {
     --- Which ownership qualifier a type carries, if any.
     ownershipKind: function(t: Type?): string?,
 
@@ -137,7 +135,7 @@ type ownership.Ops = {
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function ownership.install(c: state.Checker): ownership.Ops
+export function install(c: state.Checker): Ops
     local own = {}
     local pendingGenericCleanupBounds: {{
         at: any,
@@ -1366,5 +1364,3 @@ function ownership.install(c: state.Checker): ownership.Ops
 
     return own
 end
-
-export = ownership

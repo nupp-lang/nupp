@@ -2,15 +2,13 @@ module nupp.tools.cli.testrunner
 
 --[[Runs the first-party test harness carried by the compiler.]]
 
-local testrunner = {}
-
 -- Worker commands are read by a POSIX shell on every supported test host. The
 -- Windows runner installs Git Bash before it starts a worker.
 local function shellQuote(text: string): string
     return "'" .. text:gsub("'", "'\\''") .. "'"
 end
 
-function testrunner.run(args: any): integer
+export function run(args: any): integer
     local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
     local executable = compilerRoot and compilerRoot .. "/bin/nupp" or tostring(io.cli.args[0] or "nupp")
     local forwarded = {[0] = executable}
@@ -42,5 +40,3 @@ function testrunner.run(args: any): integer
 
     return type(result) == "number" and result or 0
 end
-
-export = testrunner

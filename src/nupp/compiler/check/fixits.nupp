@@ -16,11 +16,9 @@ so it is built once per file and asked, rather than threaded through the walk.
 local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 
-local fixits = {}
-
 --- The edits a file's diagnostics can offer. Built once per file and asked, since
 --- none of it reads the walk's scopes, only the parse and the project index.
-type fixits.Edits = {
+export type Edits = {
     --- A named fix, and the edits applying it makes. Applying one is all-or-nothing.
     fix: function(title: string, ...: any): any,
 
@@ -97,7 +95,7 @@ end
 --- @param result the parse the diagnostics are about
 --- @param env the project environment, when there is one
 --- @return the edits those diagnostics can carry
-function fixits.new(result: state.Parse, env: state.Env?): fixits.Edits
+export function new(result: state.Parse, env: state.Env?): Edits
     local self = {}
 
     function self.fix(title: string, ...): any
@@ -373,7 +371,7 @@ end
 --- @param name what was written
 --- @param candidates the names it might have meant
 --- @return the single nearest candidate, or nil
-function fixits.nearest(name: string, candidates: {string}): string?
+export function nearest(name: string, candidates: {string}): string?
     local limit = #name < 5 and 1 or 2
     local best, distance, tied = nil, nil, false
     for _, candidate in ipairs(candidates) do
@@ -390,5 +388,3 @@ function fixits.nearest(name: string, candidates: {string}): string?
 
     return best
 end
-
-export = fixits

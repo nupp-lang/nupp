@@ -7,8 +7,6 @@ They are kept as readable Lua here and compacted to one physical output line so
 prepending one never moves an application's source positions.
 ]]
 
-local stdlib = {}
-
 local function compact(source: string): string
     return (source:gsub("[\r\n]+%s*", " "):gsub("%s+$", ""))
 end
@@ -60,7 +58,7 @@ local DERIVES = compact([=[
 require("nupp.derive").install(__nupp)
 ]=])
 
-function stdlib.bootstrap(effects: {[string]: any}?, watch: boolean?, installingManaged: boolean?): string
+export function bootstrap(effects: {[string]: any}?, watch: boolean?, installingManaged: boolean?): string
     local out = {watch and HOT_BASE or BASE}
     if not installingManaged then
         out[#out + 1] = 'require("nupp.runtime.managed").install(__nupp,_G);'
@@ -88,5 +86,3 @@ function stdlib.bootstrap(effects: {[string]: any}?, watch: boolean?, installing
 
     return code:sub(-1) == ";" and code or code .. ";"
 end
-
-export = stdlib

@@ -13,19 +13,17 @@ Framing belongs to the worker channel.
 
 local hasBuffer, nativeBuffer = pcall(require, "string.buffer")
 
-local protocol = {}
-
 --- Whether this host can encode a payload at all.
-protocol.available = hasBuffer
+export const available = hasBuffer
 
 --- The longest frame either end accepts.
-protocol.MAX_FRAME = 268435456
+export const MAX_FRAME = 268435456
 
-function protocol.encode(value: any): string
+export function encode(value: any): string
     return nativeBuffer.encode({schema = 1, value = value})
 end
 
-function protocol.decode(text: string): (any?, string?)
+export function decode(text: string): (any?, string?)
     if not hasBuffer then
         return nil, "parallel-check payloads are unavailable on this host"
     end
@@ -36,5 +34,3 @@ function protocol.decode(text: string): (any?, string?)
 
     return envelope.value, nil
 end
-
-export = protocol

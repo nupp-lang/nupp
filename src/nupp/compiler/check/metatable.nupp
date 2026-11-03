@@ -26,8 +26,6 @@ local state = require("nupp.compiler.check.state")
 local isA = relations.isA
 local rawType = T.unwrapOwnership
 
-local metatable = {}
-
 --- A type, as nupp.compiler.types builds them.
 local type Type = T.Type
 
@@ -36,7 +34,7 @@ local type Node = cst.Node
 
 --- What the other passes call into the metatable checks with. Both are also promoted
 --- onto the run, since a metatable is written in more places than one pass reaches.
-type metatable.Ops = {
+export type Ops = {
     --- Checks a metamethod value against the contract its receiver declares.
     checkContract: function(at: any, name: string, valueT: Type, contract: Type, of: Type?),
 
@@ -48,7 +46,7 @@ type metatable.Ops = {
 ---
 --- @param c the run's state
 --- @return the operations the other passes call
-function metatable.install(c: state.Checker): metatable.Ops
+export function install(c: state.Checker): Ops
     local ops = {}
 
     --- The receiver a `metatable<T>` describes, through whatever the annotation wrapped
@@ -283,5 +281,3 @@ function metatable.install(c: state.Checker): metatable.Ops
 
     return ops
 end
-
-export = metatable

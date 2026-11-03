@@ -17,8 +17,6 @@ not here: a unit that needs it is not compiled for Wasm by this backend yet.
 
 local builder = require("nupp.compiler.aot.llvm.builder")
 
-local runtime = {}
-
 local ALLOCATOR = [[
 @nupp.heap.next = internal global i32 0
 @nupp.heap.live = internal global i32 0
@@ -116,8 +114,6 @@ entry:
 ]]
 
 --- Adds the allocator and builtins to `module`, once.
-function runtime.install(module: builder.Module): nil
+export function install(module: builder.Module): nil
     builder.once(module, "wasm runtime", ALLOCATOR)
 end
-
-export = runtime

@@ -73,9 +73,7 @@ local docSyntax = require("nupp.compiler.syntax.docsyntax")
 
 local imports = require("nupp.tools.fmt.imports")
 
-local fmt = {}
-
-fmt.importsKey = imports.key
+export const importsKey = imports.key
 
 local INDENT = "    "
 local WIDTH: integer = 120
@@ -1903,7 +1901,7 @@ end
 --- What the formatter was asked for. The two annotation entries are how a caller lends
 --- the formatter its annotation schemas. The environment supplies module and
 --- type resolution for canonical imports.
-type fmt.Options = {
+export type Options = {
     --- Project resolution for module and type imports.
     @readonly environment: any?,
 
@@ -1920,7 +1918,7 @@ type fmt.Options = {
 
 --- Options resolved once, so a caller formatting many files does that resolution once
 --- rather than per file. `fmt.new` builds one; `:format` runs it over a file.
-record fmt.Formatter
+export record Formatter
     imports: any
     width: integer
     methodParens: boolean?
@@ -1930,8 +1928,8 @@ end
 
 --- Resolves `opts` into a reusable formatter. Unset fields keep the fixed defaults: 120
 --- columns and parenthesized method calls.
-function fmt.new(opts: fmt.Options?): fmt.Formatter
-    return new fmt.Formatter(
+export function new(opts: Options?): Formatter
+    return new Formatter(
         imports = imports.new(opts and opts.environment, opts and opts.bindImports),
         width = (opts and opts.width) or WIDTH,
         methodParens = opts and opts.methodParens,
@@ -1942,7 +1940,7 @@ end
 
 --- Formats a file. Returns the source unchanged, with what stopped it, when the file
 --- does not parse or the result would not be the same program.
-function fmt.Formatter:format(source: string, filename: string?): string, {any}
+function Formatter:format(source: string, filename: string?): string, {any}
     local result = parser.parse(source, filename)
     if #result.errors > 0 then
         return source, result.errors
@@ -1990,8 +1988,6 @@ end
 --- One-shot convenience for a caller that only ever formats a single thing.
 --- Equivalent to `fmt.new(opts):format(source, filename)`; a caller that formats more
 --- than one file with the same options should call `fmt.new` itself and reuse it.
-function fmt.format(source: string, filename: string?, opts: fmt.Options?): string, {any}
-    return fmt.new(opts):format(source, filename)
+export function format(source: string, filename: string?, opts: Options?): string, {any}
+    return new(opts):format(source, filename)
 end
-
-export = fmt

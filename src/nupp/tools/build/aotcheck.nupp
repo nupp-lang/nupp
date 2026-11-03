@@ -35,8 +35,6 @@ local envMod = require("nupp.compiler.project.env")
 local fingerprint = require("nupp.compiler.project.fingerprint")
 local fs = require("nupp.compiler.fs")
 
-local aotcheck = {}
-
 --- That `loadBackend` does not make the AOT backend part of what this
 --- module is defined by, for `nupp.compiler.project.fingerprint`'s module graph.
 ---
@@ -58,12 +56,12 @@ local loadBackend: function(string): any = require
 ---
 --- @param cacheDir where the compiler's module graph is kept between commands
 --- @param digest the build's content digest
-function aotcheck.backendKey(cacheDir: string?, digest: (function(string): string)?): string
+export function backendKey(cacheDir: string?, digest: (function(string): string)?): string
     return fingerprint.subsystemFingerprint({"nupp.compiler.aot.compile"}, cacheDir, digest)
 end
 
 --- The part of a build target this reads.
-type aotcheck.Target = {
+export type Target = {
     --- The target's name, which the help names so a reader knows which build refuses.
     name: string?,
 
@@ -78,7 +76,7 @@ type aotcheck.Target = {
 }
 
 --- Whether a policy lowers `@aot` functions, which is whether a build can refuse one.
-function aotcheck.applies(policy: string?): boolean
+export function applies(policy: string?): boolean
     return policy == "require" or policy == "emit-wasm" or policy == "require-wasm"
 end
 
@@ -91,7 +89,7 @@ end
 --- @param root the project directory
 --- @param include the manifest's include roots
 --- @param outDir where the target builds, relative to `root`
-function aotcheck.projectSource(root: string, include: {string}?, outDir: string, path: string): boolean
+export function projectSource(root: string, include: {string}?, outDir: string, path: string): boolean
     -- Compared as canonical paths: an editor names a file by the spelling its URI
     -- carries, `/tmp` for `/private/tmp` among them, and an include of `.` joins to
     -- a trailing `/.` that no lexical comparison sees through.
@@ -115,7 +113,7 @@ end
 ---
 --- The Wasm policies compile for the browser's Wasm target whatever the host is.
 --- Shared with the build so the two cannot select different tiers.
-function aotcheck.selection(policy: string?, triple: string?, features: any): (string?, any)
+export function selection(policy: string?, triple: string?, features: any): (string?, any)
     if policy == "emit-wasm" or policy == "require-wasm" then
         return "wasm32-unknown-emscripten", features or "scalar"
     end
@@ -159,18 +157,18 @@ end
 ---   this module's own
 --- @raises string when lowering finds its own IR malformed, which is a compiler bug
 ---   a build would raise on as well
-function aotcheck.refusals(
+export function refusals(
     source: string,
     filename: string,
     checked: ParseResult,
-    target: aotcheck.Target,
+    target: Target,
     constPlans: {any}?
 ): {any}
     local policy = target.aot
-    if not aotcheck.applies(policy) or source:find("@aot", 1, true) == nil then
+    if not applies(policy) or source:find("@aot", 1, true) == nil then
         return {}
     end
-    local triple, features = aotcheck.selection(policy, target.aotTarget, target.aotFeatures)
+    local triple, features = selection(policy, target.aotTarget, target.aotFeatures)
     -- A range the manifest cannot select is the manifest's error, reported where it
     -- is loaded; there is no tier to lower for.
     local compile = loadBackend("nupp.compiler.aot.compile")
@@ -230,5 +228,3 @@ function aotcheck.refusals(
 
     return {}
 end
-
-export = aotcheck

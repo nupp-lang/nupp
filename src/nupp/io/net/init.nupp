@@ -60,7 +60,7 @@ local provider: contract.Provider = do
     assert2(target.host == "native", "nupp.io.net: no implementation is available")
     yield _G.require("nupp.runtime.provider.nativenet") as contract.Provider
 end
-local net = {}
+
 const shared = require("nupp.io.net.types")
 local layering = require("nupp.io.net.internal")
 
@@ -69,7 +69,7 @@ local layering = require("nupp.io.net.internal")
 ----------------------------------------------------------------------------
 
 --- How a listener is opened.
-type net.ListenOptions = {
+export type ListenOptions = {
     --- The address to bind, as an IPv4 or IPv6 literal. A name is not resolved
     --- here, because a listener binds an interface rather than reaching a peer.
     ---
@@ -102,7 +102,7 @@ type net.ListenOptions = {
 }
 
 --- How a connection is opened.
-type net.ConnectOptions = {
+export type ConnectOptions = {
     --- The peer to reach, as a name or an address literal. A name is resolved
     --- off this frame. Given with `port`, and not with `path`.
     host: string?,
@@ -130,7 +130,7 @@ type net.ConnectOptions = {
 }
 
 --- How a datagram socket is opened.
-type net.DatagramOptions = {
+export type DatagramOptions = {
     --- The address to bind, as an IPv4 or IPv6 literal.
     host: string,
 
@@ -144,7 +144,7 @@ type net.DatagramOptions = {
 }
 
 --- Where a datagram came from, and where one may be sent.
-type net.Address = shared.Address
+export type Address = shared.Address
 
 --- What a
 ---
@@ -152,12 +152,12 @@ type net.Address = shared.Address
 --- is here is everything a caller cannot get from those bytes -- how many of
 --- them landed, who sent them, and whether the rest is gone.
 --- @export
-record net.Message
+export record Message
     --- How many bytes landed in the storage offered.
     len: integer
 
     --- The peer that sent them.
-    address: net.Address
+    address: Address
 
     --- Whether the datagram was larger than the storage offered, so that what
     --- landed is the beginning of a message rather than a message.
@@ -368,7 +368,7 @@ end
 --- Closing one ends that direction rather than the connection: the writing view
 --- half-closes, and the reading view stops this side reading. Neither is the
 --- cleanup obligation, which stays with the connection.
-record net.DirectionView is io.Reader, io.Writer
+export record DirectionView is io.Reader, io.Writer
     --- Takes both directions as one owned scalar stream.
     function scalar(takes self): affine(io.ScalarStream)
         return scalarAdapters.duplex(self)
@@ -526,7 +526,7 @@ end
 --- The owner of the socket, and the only cleanup obligation: a direction view
 --- borrows this and ends a direction, while `close` here ends the connection.
 --- @export
-record net.Stream is io.Reader, io.Writer
+export record Stream is io.Reader, io.Writer
     --- Takes both directions as one owned scalar stream.
     function scalar(takes self): affine(io.ScalarStream)
         return scalarAdapters.duplex(self)
@@ -572,7 +572,7 @@ record net.Stream is io.Reader, io.Writer
     ---
     --- A Unix socket has a filesystem name and no peer address, and returns nil
     --- rather than something that looks like one.
-    function peeraddress(self): net.Address?
+    function peeraddress(self): Address?
         if self._closed then
             return nil
         end
@@ -582,7 +582,7 @@ record net.Stream is io.Reader, io.Writer
 
     --- Which of this machine's addresses the connection is on, or nil where
     --- there is none.
-    function localaddress(self): net.Address?
+    function localaddress(self): Address?
         if self._closed then
             return nil
         end
@@ -822,7 +822,7 @@ record net.Stream is io.Reader, io.Writer
     --- @param self the connection to view
     --- @return the view, which may not outlive it
     function asreader(borrows self): affine(Reader) borrows (self)
-        return new net.DirectionView(
+        return new DirectionView(
             _provider = self._provider,
             _handle = self._handle,
             _writing = false,
@@ -838,7 +838,7 @@ record net.Stream is io.Reader, io.Writer
     --- @param self the connection to view
     --- @return the view, which may not outlive it
     function aswriter(borrows self): affine(Writer) borrows (self)
-        return new net.DirectionView(
+        return new DirectionView(
             _provider = self._provider,
             _handle = self._handle,
             _writing = true,
@@ -865,7 +865,7 @@ end
 
 --- A listening socket.
 --- @export
-record net.Listener is own.Closeable
+export record Listener is own.Closeable
     @private _provider: contract.Provider
     @private _handle: any
     @private _closed: boolean
@@ -890,7 +890,7 @@ record net.Listener is own.Closeable
     --- @param self this listener
     --- @return the connection, which the caller owns and must close
     --- @return why there is none, when the listener failed
-    function accept(self): (affine(net.Stream)?, io.Error?)
+    function accept(self): (affine(Stream)?, io.Error?)
         if self._closed then
             return nil, io.toError("the listener is closed")
         end
@@ -920,7 +920,7 @@ record net.Listener is own.Closeable
             return nil, io.toError(failure)
         end
 
-        return new net.Stream(
+        return new Stream(
             _provider = self._provider,
             _handle = handle,
             _closed = false,
@@ -946,7 +946,7 @@ end
 --- A message transport rather than a stream one: nothing here buffers arrivals
 --- into a run, because the boundaries between them are the protocol.
 --- @export
-record net.Datagram is own.Closeable
+export record Datagram is own.Closeable
     @private _provider: contract.Provider
     @private _handle: any
     @private _closed: boolean
@@ -977,7 +977,7 @@ record net.Datagram is own.Closeable
     --- @return what the message was, or nil when the socket failed
     --- @return why there is none, when unsuccessful
     --- @raises string when maximum is not a positive integer
-    function receivefrom(self, exclusive destination: Buffer, maximum: integer): (net.Message?, io.Error?)
+    function receivefrom(self, exclusive destination: Buffer, maximum: integer): (Message?, io.Error?)
         if self._closed then
             return nil, io.toError("the datagram socket is closed")
         end
@@ -1037,9 +1037,9 @@ record net.Datagram is own.Closeable
             lease:commit(landed)
         end
 
-        return new net.Message(
+        return new Message(
             len = landed,
-            address = {host = host or "", port = peerPort or 0} as net.Address,
+            address = {host = host or "", port = peerPort or 0} as Address,
             truncated = cut or false
         )
     end
@@ -1054,7 +1054,7 @@ record net.Datagram is own.Closeable
     --- @param bytes what to send
     --- @return whether the platform took it
     --- @return why it did not, when unsuccessful
-    function sendto(self, address: net.Address, bytes: string): (boolean, io.Error?)
+    function sendto(self, address: Address, bytes: string): (boolean, io.Error?)
         if self._closed then
             return false, io.toError("the datagram socket is closed")
         end
@@ -1151,7 +1151,7 @@ end
 --- @return why it could not bind, when unsuccessful
 --- @raises string when the options do not describe a bindable address
 --- @export
-function net.bind(options: net.DatagramOptions): (affine(net.Datagram)?, io.Error?)
+export function bind(options: DatagramOptions): (affine(Datagram)?, io.Error?)
     const chosen = provider
     const bound = checkedPort(options.port, "net.bind port", 2)
     const handle, why = chosen:binddatagram(options.host, bound, options.reuseport or false)
@@ -1159,7 +1159,7 @@ function net.bind(options: net.DatagramOptions): (affine(net.Datagram)?, io.Erro
         return nil, io.toError(why)
     end
 
-    return new net.Datagram(_provider = chosen, _handle = handle, _closed = false)
+    return new Datagram(_provider = chosen, _handle = handle, _closed = false)
 end
 
 --- Opens a listener.
@@ -1168,7 +1168,7 @@ end
 --- @return why it could not bind, when unsuccessful
 --- @raises string when the options do not describe a bindable address
 --- @export
-function net.listen(options: net.ListenOptions): (affine(net.Listener)?, io.Error?)
+export function listen(options: ListenOptions): (affine(Listener)?, io.Error?)
     const chosen = provider
     const backlog = positive(options.backlog or 128, "net.listen backlog", 2)
     if backlog > MAX_BACKLOG then
@@ -1196,7 +1196,7 @@ function net.listen(options: net.ListenOptions): (affine(net.Listener)?, io.Erro
         return nil, io.toError(why)
     end
 
-    return new net.Listener(_provider = chosen, _handle = handle, _closed = false, _highWater = DEFAULT_HIGH_WATER)
+    return new Listener(_provider = chosen, _handle = handle, _closed = false, _highWater = DEFAULT_HIGH_WATER)
 end
 
 --- Opens a connection, resolving the peer's name off this frame.
@@ -1205,7 +1205,7 @@ end
 --- @return why it could not connect, when unsuccessful
 --- @raises string when the options do not describe a reachable peer
 --- @export
-function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, io.Error?)
+export function connect(options: ConnectOptions): (affine(Stream)?, io.Error?)
     const chosen = provider
     const deadline = positive(options.timeoutms or DEFAULT_CONNECT_MS, "net.connect timeoutMs", 2)
     -- Checked here rather than where the stream is built, because that is after
@@ -1272,13 +1272,7 @@ function net.connect(options: net.ConnectOptions): (affine(net.Stream)?, io.Erro
         return nil, io.toError(failure)
     end
 
-    return new net.Stream(
-        _provider = chosen,
-        _handle = handle,
-        _closed = false,
-        _shutdown = false,
-        _highWater = highWater
-    )
+    return new Stream(_provider = chosen, _handle = handle, _closed = false, _shutdown = false, _highWater = highWater)
 end
 
 ----------------------------------------------------------------------------
@@ -1294,7 +1288,7 @@ end
 --- @return its Rust-native stream handle
 --- @raises string when the connection was already closed or transferred
 --- @internal
-local function takeStreamHandle(takes source: net.Stream): any
+local function takeStreamHandle(takes source: Stream): any
     -- The handle leaves with the caller, so the stream's obligation ends here
     -- without its terminal running.
     local stream = @unsafe own.release(source)
@@ -1310,11 +1304,9 @@ layering.takeStreamHandle = takeStreamHandle
 
 --- Advances the selected network reactor.
 --- @raises string when timeoutms is not a non-negative integer
-function net.pump(timeoutms: integer): nil
+export function pump(timeoutms: integer): nil
     if timeoutms < 0 or math.floor(timeoutms) ~= timeoutms then
         error("nupp: net.pump timeoutMs must be a non-negative integer", 2)
     end
     provider:run(timeoutms)
 end
-
-export = net

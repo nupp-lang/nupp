@@ -13,9 +13,7 @@ operation's operands; keeping the two separate lets a rewrite replace operands
 without manufacturing a claim about the enclosing operation.
 ]]
 
-local effects = {}
-
-record effects.Facts
+export record Facts
     observable: boolean
     mayRaise: boolean
     readsNative: boolean
@@ -31,8 +29,8 @@ local function facts(
     writesNative: boolean,
     usesLua: boolean,
     allocatesLua: boolean
-): effects.Facts
-    return new effects.Facts(
+): Facts
+    return new Facts(
         observable = observable,
         mayRaise = mayRaise,
         readsNative = readsNative,
@@ -330,7 +328,7 @@ local CONTROL_OPS: {
 
 --- Classifies an expression opcode. Unknown means compiler bug, never pure.
 --- @raises string when the opcode is not in the closed AOT vocabulary
-function effects.expression(op: string): effects.Facts
+export function expression(op: string): Facts
     if PURE_OPS[op] == true then
         return PURE
     elseif NATIVE_READ_OPS[op] == true then
@@ -350,7 +348,7 @@ end
 
 --- Classifies a statement opcode. Unknown means compiler bug, never pure.
 --- @raises string when the opcode is not in the closed AOT vocabulary
-function effects.statement(op: string): effects.Facts
+export function statement(op: string): Facts
     if STATEMENT_LUA_MUTATE_OPS[op] == true then
         return LUA_MUTATE
     elseif NATIVE_WRITE_OPS[op] == true then
@@ -358,7 +356,7 @@ function effects.statement(op: string): effects.Facts
     elseif CONTROL_OPS[op] == true then
         return CONTROL
     elseif op:match("^simd_") ~= nil then
-        return effects.expression(op)
+        return expression(op)
     end
 
     error("unclassified AOT statement opcode " .. op, 2)
@@ -371,7 +369,7 @@ local function merge(into: {[string]: boolean}, from: {[string]: boolean}): nil
 end
 
 --- The complete expression vocabulary classified above.
-function effects.expressionOpcodes(): {[string]: boolean}
+export function expressionOpcodes(): {[string]: boolean}
     local opcodes: {[string]: boolean} = {}
     merge(opcodes, PURE_OPS)
     merge(opcodes, NATIVE_READ_OPS)
@@ -384,12 +382,12 @@ function effects.expressionOpcodes(): {[string]: boolean}
 end
 
 --- The complete statement vocabulary classified above.
-function effects.statementOpcodes(): {[string]: boolean}
+export function statementOpcodes(): {[string]: boolean}
     local opcodes: {[string]: boolean} = {}
     merge(opcodes, STATEMENT_LUA_MUTATE_OPS)
     merge(opcodes, NATIVE_WRITE_OPS)
     merge(opcodes, CONTROL_OPS)
-    for op in pairs(effects.expressionOpcodes()) do
+    for op in pairs(expressionOpcodes()) do
         if op:match("^simd_") ~= nil then
             opcodes[op] = true
         end
@@ -397,5 +395,3 @@ function effects.statementOpcodes(): {[string]: boolean}
 
     return opcodes
 end
-
-export = effects

@@ -13,8 +13,6 @@ Width is bounded by the processor count rather than by the job count, because
 the constraint is the machine and not the work.
 ]]
 
-local toolruns = {}
-
 local windows = package.config:sub(1, 1) == "\\"
 
 -- Every external toolchain process this build has started, whatever it was
@@ -24,12 +22,12 @@ local windows = package.config:sub(1, 1) == "\\"
 local counted: integer = 0
 
 --- Forgets the count, for a build about to make its own claim about it.
-function toolruns.reset(): nil
+export function reset(): nil
     counted = 0
 end
 
 --- How many external toolchain processes have been started since the reset.
-function toolruns.count(): integer
+export function count(): integer
     return counted
 end
 
@@ -51,7 +49,7 @@ end
 --- waits on.
 ---
 --- Asked for only when there is dirty work, because asking runs a program.
-function toolruns.processors(): integer
+export function processors(): integer
     if processorMemo ~= nil then
         return processorMemo as integer
     end
@@ -78,17 +76,15 @@ end
 ---
 --- `NUPP_AOT_JOBS` overrides it, which is what a machine sharing its processors
 --- with something else wants, and what a measurement of the bound needs.
-function toolruns.width(jobs: integer): integer
+export function width(jobs: integer): integer
     if windows or jobs <= 1 then
         return 1
     end
     local asked = finite(tonumber(os.getenv("NUPP_AOT_JOBS") or ""))
-    local bound = asked ~= nil and math.floor(asked as number) or toolruns.processors()
+    local bound = asked ~= nil and math.floor(asked as number) or processors()
     if bound < 1 then
         bound = 1
     end
 
     return jobs < bound and jobs or bound as integer
 end
-
-export = toolruns

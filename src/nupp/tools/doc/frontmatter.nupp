@@ -13,14 +13,12 @@ nesting, and a parser that accepted it would be a second, worse YAML in a compil
 has no business carrying one.
 ]]
 
-local frontmatter = {}
-
 --- The fields a document opened with, and the body below them.
 ---
 --- A document with no frontmatter block returns an empty table and its whole
 --- text, because such a document still reads correctly and only loses what the
 --- fields would have configured.
-function frontmatter.parse(source: string): {[string]: string}, string
+export function parse(source: string): {[string]: string}, string
     -- A Windows checkout hands markdown over with CRLF endings, and the block is
     -- recognized by exact `---\n` lines, so normalize before looking for either
     -- delimiter rather than losing every field to a stray carriage return.
@@ -52,8 +50,8 @@ function frontmatter.parse(source: string): {[string]: string}, string
 end
 
 --- The body of a document, whatever it opened with.
-function frontmatter.strip(source: string): string
-    local _, body = frontmatter.parse(source)
+export function strip(source: string): string
+    local _, body = parse(source)
 
     return body
 end
@@ -62,7 +60,7 @@ end
 ---
 --- A line holds every list a page needs -- the routes it used to answer at -- so a
 --- list is written the way it is spoken rather than as a block of dashes.
-function frontmatter.list(value: string?): {string}?
+export function list(value: string?): {string}?
     if not value then
         return nil
     end
@@ -76,5 +74,3 @@ function frontmatter.list(value: string?): {string}?
 
     return #items > 0 and items or nil
 end
-
-export = frontmatter

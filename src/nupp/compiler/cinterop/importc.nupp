@@ -19,7 +19,6 @@ macros the header defines itself, of which the numerically evaluable ones are
 emitted. A name declared twice keeps its first meaning.
 ]]
 
-local importc = {}
 local cdecl = require("nupp.compiler.cinterop.cdecl")
 local process = require("nupp.compiler.process")
 local hash = require("nupp.compiler.hash")
@@ -232,7 +231,7 @@ end
 
 --- A statement of a header: its text, the header line it starts on, and whether a
 --- `#pragma pack` was in force while it was written.
-type importc.Statement = {
+export type Statement = {
     text: string,
     line: integer?,
     packed: boolean
@@ -270,8 +269,8 @@ end
 -- took that declaration with it: LuaJIT skips an unknown pragma to the end of its
 -- line, and a statement joined onto one line has nothing after that. The pragma that
 -- matters, `pack`, is tracked instead, so a struct laid out under it can be refused.
-local function statements(text: string, lineMap: {integer}?): {importc.Statement}
-    local out: {importc.Statement} = {}
+local function statements(text: string, lineMap: {integer}?): {Statement}
+    local out: {Statement} = {}
     local buf: {string} = {}
     local depth = 0
     local line: integer = 1
@@ -378,7 +377,7 @@ end
 --
 -- A name repeated by two headers keeps its first spelling; a later identical typedef is
 -- legal C and adds nothing.
-local function collectTypedefs(stmts: {importc.Statement})
+local function collectTypedefs(stmts: {Statement})
     local defs, seen = {}, {}
     for _, statement in ipairs(stmts) do
         local stmt = statement.text
@@ -655,7 +654,7 @@ end
 local EXACT = 2 ^ 53
 
 --- A C constant: an integer of a C integer type, a double or float, or a string.
-type importc.CValue = {
+export type CValue = {
     kind: string,
     value: number?,
     text: string?,
@@ -679,13 +678,13 @@ local TWO_CHAR_OPERATORS: {
 }
 local ONE_CHAR_OPERATORS = "+-*/%&|^~!<>?:()"
 
-type importc.CToken = {
+export type CToken = {
     kind: string,
     text: string
 }
 
-local function cTokens(text: string): ({importc.CToken}?, string?)
-    local tokens: {importc.CToken} = {}
+local function cTokens(text: string): ({CToken}?, string?)
+    local tokens: {CToken} = {}
     local index = 1
     local length = #text
     while index <= length do
@@ -788,7 +787,7 @@ end
 -- The C integer types by rank: int, long, long long. `long` is the ABI's.
 local longBits: integer? = nil
 
-local function integerType(rank: integer, unsigned: boolean): importc.CValue
+local function integerType(rank: integer, unsigned: boolean): CValue
     if not longBits then
         longBits = ((cdecl.sizeof("long") or 8) * 8) as integer
     end
@@ -797,12 +796,12 @@ local function integerType(rank: integer, unsigned: boolean): importc.CValue
     return {kind = "int", bits = bits, unsigned = unsigned, rank = rank}
 end
 
-local function integerValue(value: number, t: importc.CValue): importc.CValue
+local function integerValue(value: number, t: CValue): CValue
     return {kind = "int", value = value, bits = t.bits, unsigned = t.unsigned, rank = t.rank}
 end
 
 -- The C type an integer literal has: the first of its candidate types that holds it.
-local function integerLiteral(text: string): (importc.CValue?, string?)
+local function integerLiteral(text: string): (CValue?, string?)
     local digits, suffix, base = text:match("^0[xX](%x+)([uUlL]*)$")
     base = 16
     if not digits then
@@ -850,7 +849,7 @@ local function integerLiteral(text: string): (importc.CValue?, string?)
     return nil, text .. " has no C integer type"
 end
 
-local function numberLiteral(text: string): (importc.CValue?, string?)
+local function numberLiteral(text: string): (CValue?, string?)
     local integer, why = integerLiteral(text)
     if integer or why then
         return integer, why
@@ -870,7 +869,7 @@ end
 
 -- C's conversion of an integer to an integer type: modulo the width, as every target
 -- Nupp runs on does for a signed destination too.
-local function convertInteger(value: number, t: importc.CValue): (number?, string?)
+local function convertInteger(value: number, t: CValue): (number?, string?)
     local width = 2 ^ (t.bits as integer)
     local converted = value % width
     if not t.unsigned and converted >= width / 2 then
@@ -884,7 +883,7 @@ local function convertInteger(value: number, t: importc.CValue): (number?, strin
 end
 
 -- The type both operands of an arithmetic operator are converted to.
-local function commonType(a: importc.CValue, b: importc.CValue): importc.CValue
+local function commonType(a: CValue, b: CValue): CValue
     if a.unsigned == b.unsigned then
         return (a.rank as integer) >= (b.rank as integer) and a or b
     end
@@ -902,7 +901,7 @@ end
 
 -- A result that has to fit its type. Signed overflow is undefined in C, so it is
 -- refused; an unsigned result wraps.
-local function fitted(value: number, t: importc.CValue): (importc.CValue?, string?)
+local function fitted(value: number, t: CValue): (CValue?, string?)
     if math.abs(value) > EXACT * 2 then
         return nil, "the value is too large to hold exactly"
     end
@@ -937,7 +936,7 @@ local function halves(value: number): (number, number)
     return math.floor(value / WORD) % WORD, value % WORD
 end
 
-local function joined(high: number, low: number, t: importc.CValue): (importc.CValue?, string?)
+local function joined(high: number, low: number, t: CValue): (CValue?, string?)
     high, low = high % WORD, low % WORD
     local value
     if t.bits == 32 then
@@ -956,15 +955,15 @@ end
 -- narrow result of a cast, which promotes back to `int`.
 local INT: integer = 1
 
-local function truth(v: importc.CValue): boolean
+local function truth(v: CValue): boolean
     return (v.value as number) ~= 0
 end
 
-local function boolValue(yes: boolean): importc.CValue
+local function boolValue(yes: boolean): CValue
     return integerValue(yes and 1 or 0, integerType(INT, false))
 end
 
-local function arithmetic(op: string, a: importc.CValue, b: importc.CValue): (importc.CValue?, string?)
+local function arithmetic(op: string, a: CValue, b: CValue): (CValue?, string?)
     if a.kind == "string" or b.kind == "string" then
         return nil, "a string is not an arithmetic operand"
     end
@@ -1071,7 +1070,7 @@ end
 
 -- The type names a constant expression may cast to, by their spelling with single
 -- spaces. A `char` cast is left out: whether plain `char` is signed is the target's.
-local function castType(spelling: string): importc.CValue?
+local function castType(spelling: string): CValue?
     local pointerBits = ((cdecl.sizeof("void *") or 8) * 8) as integer
     local pointerRank = pointerBits == 32 and 1 or (longBits == 64 and 2 or 3)
     local narrow = {
@@ -1127,7 +1126,7 @@ local function castType(spelling: string): importc.CValue?
     return nil
 end
 
-local function cast(t: importc.CValue, v: importc.CValue): (importc.CValue?, string?)
+local function cast(t: CValue, v: CValue): (CValue?, string?)
     if v.kind == "string" then
         return nil, "a string cannot be cast to a number"
     end
@@ -1178,16 +1177,16 @@ local BINARY_PRECEDENCE: {
     ["%"] = 10,
 }
 
-local function evaluateTokens(tokens: {importc.CToken}): (importc.CValue?, string?)
+local function evaluateTokens(tokens: {CToken}): (CValue?, string?)
     local position: integer = 1
 
-    local function peek(): importc.CToken?
+    local function peek(): CToken?
         return tokens[position]
     end
 
     local expression
 
-    local function castAhead(): (importc.CValue?, integer?)
+    local function castAhead(): (CValue?, integer?)
         local words: {string} = {}
         local index: integer = position + 1
         while tokens[index] and tokens[index].kind == "name" do
@@ -1204,12 +1203,12 @@ local function evaluateTokens(tokens: {importc.CToken}): (importc.CValue?, strin
         return nil, nil
     end
 
-    local function unary(): (importc.CValue?, string?)
+    local function unary(): (CValue?, string?)
         local upcoming = peek()
         if not upcoming then
             return nil, "the expression ends early"
         end
-        local token: importc.CToken = upcoming
+        local token: CToken = upcoming
         if token.kind == "op"
             and (token.text == "-" or token.text == "+" or token.text == "~" or token.text == "!")
         then
@@ -1273,7 +1272,7 @@ local function evaluateTokens(tokens: {importc.CToken}): (importc.CValue?, strin
             return integerValue(bytes[1], integerType(INT, false))
         elseif token.kind == "string" then
             local parts: {string} = {}
-            local current: importc.CToken? = token
+            local current: CToken? = token
             while current and current.kind == "string" do
                 local bytes, why = literalBytes(current.text)
                 if not bytes then
@@ -1295,12 +1294,12 @@ local function evaluateTokens(tokens: {importc.CToken}): (importc.CValue?, strin
         return nil, "`" .. token.text .. "` cannot start an expression"
     end
 
-    expression = function(minimum: integer): (importc.CValue?, string?)
+    expression = function(minimum: integer): (CValue?, string?)
         local first, why = unary()
         if not first then
             return nil, why
         end
-        local left: importc.CValue = first
+        local left: CValue = first
         while true do
             local token = peek()
             if not token or token.kind ~= "op" then
@@ -1369,11 +1368,11 @@ end
 -- `#define A 1 + 2` inside `A * 3` is 7 rather than 9. A macro is not expanded inside
 -- its own expansion.
 local function expandMacros(
-    tokens: {importc.CToken},
+    tokens: {CToken},
     values: {[string]: string},
     active: {[string]: boolean}
-): ({importc.CToken}?, string?)
-    local out: {importc.CToken} = {}
+): ({CToken}?, string?)
+    local out: {CToken} = {}
     for _, token in ipairs(tokens) do
         local body = token.kind == "name" and not active[token.text] and values[token.text] or nil
         if body then
@@ -1578,7 +1577,7 @@ end
 --- What an import was asked for: the compiler that preprocesses the header, the flags
 --- it needs to find what the header includes, and the library the generated
 --- declarations load from.
-type importc.Options = {
+export type Options = {
     @readonly cc: string?,
     @readonly cppflags: {string}?,
     @readonly lib: string?,
@@ -1603,7 +1602,7 @@ type importc.Options = {
     @readonly bridgeInclude: string?
 }
 
-type importc.Disposition = {
+export type Disposition = {
     name: string?,
     kind: string,
     reason: string?,
@@ -1614,16 +1613,16 @@ type importc.Disposition = {
     line: integer?
 }
 
-type importc.Details = {
+export type Details = {
     direct: integer,
     bridged: integer,
     skipped: integer,
-    dispositions: {importc.Disposition},
+    dispositions: {Disposition},
     bridgeSource: string?
 }
 
 -- Main entry: returns the .nupp module text and a list of warnings.
-function importc.import(headerPath: string, opts: importc.Options): string?, {string}, importc.Details?
+export function import(headerPath: string, opts: Options): string?, {string}, Details?
     local warnings = {}
     local raw = readFile(headerPath)
     if not raw then
@@ -1694,8 +1693,8 @@ function importc.import(headerPath: string, opts: importc.Options): string?, {st
     -- A statement carrying an attribute that would change it unseen is not offered to
     -- LuaJIT at all: LuaJIT would take it, without the attribute.
     local units: {string} = {}
-    local unitStatements: {importc.Statement} = {}
-    local refusedStatements: {importc.Statement} = {}
+    local unitStatements: {Statement} = {}
+    local refusedStatements: {Statement} = {}
     for _, statement in ipairs(targetStatements) do
         if statement.text:find(REFUSED_MARKER, 1, true) then
             refusedStatements[#refusedStatements + 1] = statement
@@ -2148,5 +2147,3 @@ function importc.import(headerPath: string, opts: importc.Options): string?, {st
 
     return table.concat(out, "\n"), warnings, details
 end
-
-export = importc

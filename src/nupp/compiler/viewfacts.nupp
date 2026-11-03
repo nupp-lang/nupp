@@ -5,7 +5,7 @@ module nupp.compiler.viewfacts
 local cst = require("nupp.compiler.syntax.cst")
 local T = require("nupp.compiler.types")
 local indexed = require("nupp.compiler.types.indexedviews")
-local viewfacts = {}
+
 local MAX_NODES = 256
 local KINDS = {
     funcbody = true,
@@ -96,7 +96,7 @@ local PRIMITIVES = {
     string = true
 }
 
-function viewfacts.infer(body: any): any
+export function infer(body: any): any
     if not body or not body.body or body.generics or body.varargParam or body.aotRequired then
         return {reason = "body-shape"}
     end
@@ -433,7 +433,7 @@ local function validArtifact(artifact)
     return true
 end
 
-function viewfacts.instantiate(
+export function instantiate(
     artifact: any,
     args: {any},
     name: string,
@@ -582,5 +582,3 @@ function viewfacts.instantiate(
         importedViewBody = true
     }
 end
-
-export = viewfacts

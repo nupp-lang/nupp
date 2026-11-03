@@ -3,10 +3,10 @@ module nupp.compiler.scalarintrinsics
 -- Canonical identities for the released fixed-width scalar surface. Recognition is
 -- definition-guided by the checker; this module owns names and exact integer folding
 -- so later native and vector backends consume the same vocabulary.
-local scalar = {}
+
 local bit = require("nupp.compiler.bitops")
 
-type scalar.Folded = number | boolean
+export type Folded = number | boolean
 
 local PATHS = {}
 for _, family in ipairs({"i32", "u32"}) do
@@ -75,7 +75,7 @@ for path, identity in pairs(PATHS) do
     LOWERCASE_PATHS[path:lower()] = identity
 end
 
-function scalar.forPath(path: string): string?
+export function forPath(path: string): string?
     return PATHS[path] or LOWERCASE_PATHS[path]
 end
 
@@ -94,7 +94,7 @@ end
 --- Exact constant result for an integer intrinsic, or nil when this consumer does not
 --- implement that identity. Binary32 stays an ordinary call until the folder has its
 --- own holder-independent bit implementation.
-function scalar.fold(identity: string, args: {number}): scalar.Folded?
+export function fold(identity: string, args: {number}): Folded?
     local family, operation = identity:match("^(i32)%.(.+)$")
     if not family then
         family, operation = identity:match("^(u32)%.(.+)$")
@@ -189,5 +189,3 @@ function scalar.fold(identity: string, args: {number}): scalar.Folded?
 
     return nil
 end
-
-export = scalar

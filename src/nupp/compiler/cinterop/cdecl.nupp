@@ -21,13 +21,11 @@ local bit = require("bit") as {
     band: function(...: number): integer
 }
 
-local cdecl = {}
-
 --- A member of a struct. An unnamed one is counted on its struct rather than
 --- modelled, so a member that is here has a name.
-interface cdecl.Member
+export interface Member
     name: string
-    type: cdecl.CType?
+    type: CType?
 
     --- Its byte offset, as this ABI lays the struct out. A bitfield's is the offset of
     --- the storage unit that holds it.
@@ -42,9 +40,9 @@ end
 
 --- A parameter of a function. C lets a declaration leave a parameter unnamed, and a
 --- header commonly does.
-interface cdecl.Param
+export interface Param
     name: string?
-    type: cdecl.CType?
+    type: CType?
 end
 
 --- A C type as LuaJIT's own ctype registry describes it, decoded far enough to be read
@@ -54,7 +52,7 @@ end
 --- A struct stays a reference, by `id` and `name`, rather than carrying its members.
 --- That is what lets a recursive or mutually-referential header terminate: the members
 --- live in the declaration `structById` returns.
-interface cdecl.CType
+export interface CType
     --- "void", "boolean", "integer", "float", "pointer", "struct", "union", "enum",
     --- "array", "vector", "complex", "function", or "unknown" for what this model does
     --- not spell. A vector or complex type is its own kind rather than an array,
@@ -76,10 +74,10 @@ interface cdecl.CType
     const: boolean?
 
     --- What a pointer points at.
-    to: cdecl.CType?
+    to: CType?
 
     --- What an array holds, and how many bytes of them it has room for.
-    of: cdecl.CType?
+    of: CType?
 
     bytes: integer?
 
@@ -93,19 +91,19 @@ interface cdecl.CType
     align: integer?
 
     --- A function's parameters, its result, and whether it takes more.
-    params: {cdecl.Param}?
+    params: {Param}?
 
-    returns: cdecl.CType?
+    returns: CType?
     vararg: boolean?
 end
 
 --- A function declaration: one LuaJIT parsed under a name. A function reached as a
 --- pointee is a `cdecl.CType` instead, since that one need not be named.
-interface cdecl.Function
+export interface Function
     kind: string
     name: string
-    params: {cdecl.Param}
-    returns: cdecl.CType?
+    params: {Param}
+    returns: CType?
     vararg: boolean?
 
     --- Which of the declarations given one at a time introduced it.
@@ -113,7 +111,7 @@ interface cdecl.Function
 end
 
 --- A struct declaration, members and all.
-interface cdecl.Struct
+export interface Struct
     kind: string
     id: integer
     name: string
@@ -124,7 +122,7 @@ interface cdecl.Struct
     --- Its alignment in bytes.
     align: integer?
 
-    fields: {cdecl.Member}
+    fields: {Member}
 
     --- Members `fields` leaves out because they have no name of their own: an
     --- anonymous struct or union whose members promote into this one, and an unnamed
@@ -142,7 +140,7 @@ interface cdecl.Struct
 end
 
 --- An enumerator, in the order the header declared it.
-interface cdecl.Enumerator
+export interface Enumerator
     name: string
     value: number
 end
@@ -150,38 +148,38 @@ end
 --- An enum declaration. It carries its constants whether or not it is named, since
 --- `typedef enum { ... } Mode;` names the type and nothing else and the members are the
 --- point of declaring it.
-interface cdecl.Enum
+export interface Enum
     kind: string
     id: integer
     name: string?
     bits: integer
-    values: {cdecl.Enumerator}
+    values: {Enumerator}
     unit: integer?
 end
 
 --- A declaration LuaJIT would not parse, and why.
-interface cdecl.Rejected
+export interface Rejected
     text: string
     reason: string
     unit: integer?
 end
 
 --- A struct layout as LuaJIT computes it for a body of C member declarations.
-interface cdecl.Layout
+export interface Layout
     size: integer?
     align: integer?
-    fields: {cdecl.Member}
+    fields: {Member}
 end
 
 --- What a
-interface cdecl.Inspection
-    structs: {cdecl.Struct}
-    functions: {cdecl.Function}
-    enums: {cdecl.Enum}
+export interface Inspection
+    structs: {Struct}
+    functions: {Function}
+    enums: {Enum}
 
     --- Empty unless the declarations were given one at a time, which is the form that
     --- takes what parses and reports the rest.
-    rejected: {cdecl.Rejected}
+    rejected: {Rejected}
 
     --- How many declarations were offered.
     declared: integer
@@ -501,7 +499,7 @@ local function targetUnits(text)
     return {text}, false
 end
 
-function cdecl.inspect(text: string | {string}, prelude: (string | {string})?): cdecl.Inspection?, string?
+export function inspect(text: string | {string}, prelude: (string | {string})?): Inspection?, string?
     local declarations = preludeList(prelude)
     local units, perUnit = targetUnits(text)
     local key = table.concat(declarations, "\n") .. "\0" .. table.concat(units, "\n")
@@ -646,7 +644,7 @@ end
 --- source. The cost is that a block spelling the name of an already-declared function
 --- it does not itself declare claims that one too; the alternative is losing
 --- declarations the program plainly makes.
-function cdecl.declare(text: string): boolean, string?, {[string]: boolean}?
+export function declare(text: string): boolean, string?, {[string]: boolean}?
     local before = {}
     for id in ctypes() do
         before[id] = true
@@ -669,7 +667,7 @@ function cdecl.declare(text: string): boolean, string?, {[string]: boolean}?
     return true, nil, names
 end
 
-function cdecl.typeFromString(spec: string): cdecl.CType?, string?
+export function typeFromString(spec: string): CType?, string?
     local ok, ct = pcall(ffi.typeof, spec)
     if not ok then
         return nil, tostring(ct)
@@ -684,13 +682,13 @@ end
 
 -- A layout is asked of the same member list more than once when a header is imported
 -- again, and each question would otherwise add an anonymous ctype to the registry.
-local layoutCache: {[string]: cdecl.Layout} = {}
+local layoutCache: {[string]: Layout} = {}
 
 --- How LuaJIT lays out an anonymous `kind` ("struct" or "union") holding `body`, a
 --- sequence of C member declarations. This is the other half of a layout check: a
 --- consumer that renders a declaration in its own words asks how those words lay out,
 --- and compares the answer with the declaration's own.
-function cdecl.layout(kind: string, body: string): cdecl.Layout?, string?
+export function layout(kind: string, body: string): Layout?, string?
     local key = kind .. "\0" .. body
     local hit = layoutCache[key]
     if hit then
@@ -712,7 +710,7 @@ function cdecl.layout(kind: string, body: string): cdecl.Layout?, string?
 end
 
 --- The size in bytes of a C type named by a type string, as this ABI has it.
-function cdecl.sizeof(spec: string): integer?
+export function sizeof(spec: string): integer?
     local ok, size = pcall(ffi.sizeof, spec)
     if ok and type(size) == "number" then
         return size
@@ -723,11 +721,11 @@ end
 
 --- `value` rounded to the nearest single-precision float, which is what C gives a
 --- `float` constant.
-function cdecl.float32(value: number): number
+export function float32(value: number): number
     return tonumber(ffi.new("float", value)) as number
 end
 
-function cdecl.structById(id: integer?): cdecl.Struct?
+export function structById(id: integer?): Struct?
     local rid, entry = resolve(id)
     if not entry or kindOf(entry.info) ~= CT_STRUCT then
         return nil
@@ -741,7 +739,7 @@ end
 --- The walk reads the global registry because that is where the parsed signature
 --- and its ABI live. `only` is what decides membership, and it comes from the
 --- program rather than from the process.
-function cdecl.declaredFunctions(only: {[string]: boolean}?): {[string]: cdecl.Function}
+export function declaredFunctions(only: {[string]: boolean}?): {[string]: Function}
     local out = {}
     for _, entry in ctypes() do
         if entry.name and kindOf(entry.info) == CT_FUNC and (only == nil or only[entry.name]) then
@@ -754,7 +752,7 @@ end
 
 -- Sizes and alignments in the neutral model belong to this ABI.
 local abiCache
-function cdecl.abiTag(): string
+export function abiTag(): string
     if not abiCache then
         local parts = {jit.arch, jit.os}
         for _, param in ipairs({"32bit", "64bit", "le", "be", "fpu", "softfp", "hardfp", "eabi", "win"}) do
@@ -767,5 +765,3 @@ function cdecl.abiTag(): string
 
     return abiCache
 end
-
-export = cdecl

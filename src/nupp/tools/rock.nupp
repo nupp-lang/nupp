@@ -17,7 +17,6 @@ local diagnostics = require("nupp.compiler.diagnostics")
 local join, normalize, dirname, basename = fs.join, fs.normalize, fs.dirname, fs.basename
 local readFile, writeFile = fs.readFile, fs.writeFile
 
-local rock = {}
 local windows = package.config:sub(1, 1) == "\\"
 
 local function commandPath(path)
@@ -29,7 +28,7 @@ local function commandPath(path)
     return (path:gsub("/", "\\"))
 end
 
-type rock.Metadata = {
+export type Metadata = {
     name: string,
     version: string,
     rockspec: string
@@ -71,7 +70,7 @@ local function rootRockspec(root, asked): string?, string?
     return found[1]
 end
 
-local function metadata(root, asked): rock.Metadata?, string?
+local function metadata(root, asked): Metadata?, string?
     local rockspec, err = rootRockspec(root, asked)
     if not rockspec then
         return nil, err
@@ -147,7 +146,7 @@ local function packedPath(output)
 end
 
 --- Builds and validates the project, then asks LuaRocks for an installable rock.
-function rock.pack(root: string?, asked: string?): string?, string?
+export function pack(root: string?, asked: string?): string?, string?
     root = normalize(root or ".")
     local meta, err = metadata(root, asked)
     if not meta then
@@ -196,13 +195,13 @@ local function removeTree(path)
 end
 
 --- Packs, installs, and checks the library from a fresh consumer project.
-function rock.test(root: string?, asked: string?): string?, string?
+export function test(root: string?, asked: string?): string?, string?
     root = normalize(root or ".")
     local meta, err = metadata(root, asked)
     if not meta then
         return nil, err
     end
-    local packed, packErr = rock.pack(root, asked)
+    local packed, packErr = pack(root, asked)
     if not packed then
         return nil, packErr
     end
@@ -276,5 +275,3 @@ function rock.test(root: string?, asked: string?): string?, string?
 
     return packed
 end
-
-export = rock

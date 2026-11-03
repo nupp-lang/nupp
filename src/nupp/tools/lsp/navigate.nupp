@@ -34,11 +34,9 @@ local membersOf = complete.membersOf
 
 local json = wire.json
 
-local navigate = {}
-
 --- What navigation reads of a session: the documents it holds open, the lex it keeps
 --- per file, and the query graph every closed file comes from.
-type navigate.Session = {
+export type Session = {
     documents: {[string]: any},
 
     --- The last lex of each file, so a question needing only tokens does not reparse.
@@ -49,7 +47,7 @@ type navigate.Session = {
 
 --- What installing navigation gives the session back. The handlers reach these through
 --- the session they were installed on, so the whole set is named here.
-type navigate.Api = {
+export type Api = {
     --- The tokens of a file, lexed once per text.
     fileTokens: function(filename: string, source: string): {lexer.Token},
 
@@ -108,7 +106,7 @@ type navigate.Api = {
 --- Installs the navigation questions on a session.
 ---
 --- @param s the session's state
-function navigate.install(s: navigate.Session): navigate.Api
+export function install(s: Session): Api
 
     local function fileTokens(filename, source)
         local entry = s.lexed[filename]
@@ -542,5 +540,3 @@ function navigate.install(s: navigate.Session): navigate.Api
         resolveReceiver = resolveReceiver,
     }
 end
-
-export = navigate

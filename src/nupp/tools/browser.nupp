@@ -197,10 +197,6 @@ function Session:request(requestText: string): string
     error("unknown browser compiler request kind " .. tostring(request.kind), 2)
 end
 
-local Browser = {}
-
-function Browser.new(settings: any?): any
+export function new(settings: any?): any
     return setmetatable({environments = {}, lastResults = {}, lastProfile = "", settings = settings or {},}, Session)
 end
-
-export = Browser

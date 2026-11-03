@@ -5,9 +5,8 @@ module nupp.compiler.aot.wasmbridge
 local scalar = require("nupp.compiler.aot.scalar")
 local target = require("nupp.compiler.aot.target")
 local json = require("nupp.runtime.provider.lunajson")
-local bridge = {}
 
-function bridge.validate(programs: {scalar.Program}): string?
+export function validate(programs: {scalar.Program}): string?
     for _, program in ipairs(programs) do
         @allow("exhaustiveness")
         if program.entryMode ~= "kernel" then
@@ -20,7 +19,7 @@ function bridge.validate(programs: {scalar.Program}): string?
     return nil
 end
 
-function bridge.metadata(programs: {scalar.Program}, tier: string): any
+export function metadata(programs: {scalar.Program}, tier: string): any
     local entries = json.asarray({})
     for index, program in ipairs(programs) do
         local params = json.asarray({})
@@ -62,7 +61,7 @@ end
 
 --- One unit is named as a string; several, one per tier, as a list the host
 --- takes the first loaded of.
-function bridge.binding(program: scalar.Program, units: {string}): string
+export function binding(program: scalar.Program, units: {string}): string
     local quoted: {string} = {}
     for _, unit in ipairs(units) do
         quoted[#quoted + 1] = string.format("%q", unit)
@@ -103,5 +102,3 @@ function bridge.binding(program: scalar.Program, units: {string}): string
             ", "
         ) .. "}, independentCounts = " .. tostring(scalar.independentCounts(program)) .. "})"
 end
-
-export = bridge

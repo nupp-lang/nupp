@@ -14,8 +14,6 @@ module is the one place that writes it.
 ask for the same bytes, so both ask here.
 ]]
 
-local listing = {}
-
 --- What a listing line stands for, which is what a client synchronizing a cursor
 --- across the two views has to know.
 ---
@@ -23,14 +21,14 @@ local listing = {}
 --- is the echoed source line itself. `derived` is a line about a span rather
 --- than a point -- a function header. `synthetic` is the compiler's own, which
 --- the preamble summary is the only instance of.
-type listing.Role = 'exact' | 'source' | 'derived' | 'synthetic'
+export type Role = 'exact' | 'source' | 'derived' | 'synthetic'
 
 --- A listing line, and the source line it speaks for. Lines the listing writes
 --- for shape alone -- the blank between functions -- have no entry.
-type listing.Mapping = {
+export type Mapping = {
     generatedLine: integer,
     sourceLine: integer,
-    role: listing.Role
+    role: Role
 }
 
 --- How a rendering is coloured, for a client that has somewhere to put colour.
@@ -46,7 +44,7 @@ type listing.Mapping = {
 --- returns text occupying no more than that: a painted line is shorter than it
 --- looks, so only whatever painted it can cut one without cutting an escape in
 --- half.
-type listing.Palette = {
+export type Palette = {
     source: function(integer, string, integer): string,
     gutter: function(string): string,
     instruction: function(string): string,
@@ -61,18 +59,18 @@ type listing.Palette = {
 --- nothing is folded, which is what `--prologue` asks for. `check` adds the
 --- trace verdict against the instructions carrying one. `palette` colours the
 --- result for a terminal; without it nothing is coloured.
-type listing.Options = {
+export type Options = {
     check: boolean?,
     boundaryFunction: any?,
     boundaryPc: integer?,
-    palette: listing.Palette?,
+    palette: Palette?,
     width: integer?
 }
 
 --- The instrumentation literal a compile is asked to plant so that a listing can
 --- tell generated preamble from authored code. Nothing but a listing asks for it,
 --- and a build never carries it.
-listing.BOUNDARY = "__nupp_bc_preamble_boundary_v1__"
+export const BOUNDARY = "__nupp_bc_preamble_boundary_v1__"
 
 local function asis(text: string): string
     return text
@@ -81,7 +79,7 @@ end
 -- LuaJIT marks a hint it had to cut with a trailing `~`, so a listing that has
 -- to cut a source line marks it the same way rather than introducing a second
 -- spelling of the same fact.
-listing.TRUNCATED = "~"
+export const TRUNCATED = "~"
 
 local function fit(text: string, column: integer): string
     local measure: any = require("nupp.tools.fmt.displaywidth")
@@ -90,10 +88,10 @@ local function fit(text: string, column: integer): string
         return text
     end
 
-    return measure.clip(text, column - #listing.TRUNCATED) .. listing.TRUNCATED
+    return measure.clip(text, column - #TRUNCATED) .. TRUNCATED
 end
 
-local PLAIN: listing.Palette = {
+local PLAIN: Palette = {
     source = function(_: integer, text: string, column: integer): string
         return fit(text, column)
     end,
@@ -114,10 +112,10 @@ local PLAIN: listing.Palette = {
 --- @param functions the analysis' functions
 --- @return the function holding the marker and the marker's pc, or nothing
 --- @raises never
-function listing.boundary(functions: {any}): (any?, integer?)
+export function boundary(functions: {any}): (any?, integer?)
     for _, fn in ipairs(functions) do
         for _, ins in ipairs(fn.instructions) do
-            if ins.text:find(listing.BOUNDARY, 1, true) then
+            if ins.text:find(BOUNDARY, 1, true) then
                 return fn, ins.pc
             end
         end
@@ -176,7 +174,7 @@ end
 --- @param boundaryPc the marker's pc, if any
 --- @return instructions by source line, the preamble's, and how many functions it built
 --- @raises never
-function listing.group(
+export function group(
     functions: {any},
     boundaryFunction: any?,
     boundaryPc: integer?
@@ -280,16 +278,16 @@ end
 --- @param opts folding, verdict, width and colour settings
 --- @return the listing, and one mapping per line that stands for source
 --- @raises never
-function listing.render(functions: {any}, source: string, opts: listing.Options?): string, {listing.Mapping}
+export function render(functions: {any}, source: string, opts: Options?): string, {Mapping}
     local settings = opts or {}
     local palette = settings.palette or PLAIN
     local sourceLines = split(source)
-    local byLine, preamble, built = listing.group(functions, settings.boundaryFunction, settings.boundaryPc)
+    local byLine, preamble, built = group(functions, settings.boundaryFunction, settings.boundaryPc)
 
     local out: {string} = {}
-    local mappings: {listing.Mapping} = {}
+    local mappings: {Mapping} = {}
 
-    local function write(text: string, from: integer?, role: listing.Role?): nil
+    local function write(text: string, from: integer?, role: Role?): nil
         out[#out + 1] = text
         if from ~= nil and role ~= nil and from >= 1 then
             mappings[#mappings + 1] = {generatedLine = #out, sourceLine = from, role = role}
@@ -442,15 +440,15 @@ end
 --- @param opts folding and verdict settings
 --- @return the listing, and one mapping per line that stands for source
 --- @raises never
-function listing.aligned(functions: {any}, source: string, opts: listing.Options?): string, {listing.Mapping}
+export function aligned(functions: {any}, source: string, opts: Options?): string, {Mapping}
     local settings = opts or {}
     local sourceLines = split(source)
-    local byLine, preamble = listing.group(functions, settings.boundaryFunction, settings.boundaryPc)
+    local byLine, preamble = group(functions, settings.boundaryFunction, settings.boundaryPc)
 
     local out: {string} = {}
-    local mappings: {listing.Mapping} = {}
+    local mappings: {Mapping} = {}
 
-    local function write(text: string, from: integer?, role: listing.Role?): nil
+    local function write(text: string, from: integer?, role: Role?): nil
         out[#out + 1] = text
         if from ~= nil and role ~= nil and from >= 1 then
             mappings[#mappings + 1] = {generatedLine = #out, sourceLine = from, role = role}
@@ -509,5 +507,3 @@ function listing.aligned(functions: {any}, source: string, opts: listing.Options
 
     return table.concat(out, "\n") .. "\n", mappings
 end
-
-export = listing

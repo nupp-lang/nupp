@@ -17,10 +17,8 @@ A cycle resolves to nil for the re-entrant edge, which is how a `require` cycle
 between modules terminates.
 ]]
 
-local query = {}
-
 --- A query a computation depended on, recorded while it ran.
-type query.Dep = {
+export type Dep = {
     --- The query's name.
     name: string,
 
@@ -29,13 +27,13 @@ type query.Dep = {
 }
 
 --- A value set from outside, with the revision at which it last changed.
-type query.Input = {
+export type Input = {
     value: any,
     changedAt: integer
 }
 
 --- What a derived query left behind.
-type query.Memo = {
+export type Memo = {
     --- What it computed.
     value: any,
 
@@ -47,17 +45,17 @@ type query.Memo = {
     verifiedAt: integer,
 
     --- Everything it read while computing, in order.
-    deps: {query.Dep}
+    deps: {Dep}
 }
 
 --- A running computation, collecting what it reads.
-type query.Frame = {deps: {query.Dep}}
+export type Frame = {deps: {Dep}}
 
 --- How to compute one query.
 ---
 --- `q` is the query object, passed so a definition can read other queries; it is
 --- untyped here because Q is declared below in terms of this.
-type query.Def = {
+export type Def = {
     --- Computes the value for a key.
     fn: function(q: any, key: any): any,
 
@@ -67,22 +65,22 @@ type query.Def = {
 }
 
 --- A query database: definitions, inputs, and everything memoized so far.
-record query.Q
+export record Q
     --- Bumped by every input change; the clock everything else is stamped against.
     revision: integer
 
     --- Values set from outside, by query name and key.
-    inputs: {[string]: {[any]: query.Input}}
+    inputs: {[string]: {[any]: Input}}
 
     --- How to compute each derived query.
-    defs: {[string]: query.Def}
+    defs: {[string]: Def}
 
     --- What each derived query last produced, by name and key.
-    memo: {[string]: {[any]: query.Memo}}
+    memo: {[string]: {[any]: Memo}}
 
     --- Computations currently running, innermost last. Reading a query records it as a
     --- dependency of the frame on top.
-    stack: {query.Frame}
+    stack: {Frame}
 
     --- Guards against a query re-entering itself, by query name and exact key.
     active: {[string]: {[any]: boolean}}
@@ -98,8 +96,8 @@ record query.Q
 end
 
 --- A new, empty query database.
-function query.new(): query.Q
-    return new query.Q(
+export function new(): Q
+    return new Q(
         revision = 1,
         inputs = {},
         defs = {},
@@ -117,12 +115,12 @@ end
 --- @param name what to call it
 --- @param fn computes the value for a key
 --- @param eq decides "did the value really change", for the early cutoff
-function query.Q:define(name: string, fn: function(q: any, key: any): any, eq: (function(a: any, b: any): boolean)?)
+function Q:define(name: string, fn: function(q: any, key: any): any, eq: (function(a: any, b: any): boolean)?)
     self.defs[name] = {fn = fn, eq = eq}
 end
 
 --- Sets an input, which bumps the revision and so invalidates whatever depended on it.
-function query.Q:setInput(name: string, key: any, value: any)
+function Q:setInput(name: string, key: any, value: any)
     self.revision = self.revision + 1
     local byName = self.inputs[name] or {}
     self.inputs[name] = byName
@@ -130,7 +128,7 @@ function query.Q:setInput(name: string, key: any, value: any)
 end
 
 --- Removes an overlay, so a derived definition (a disk read, say) takes over again.
-function query.Q:clearInput(name: string, key: any)
+function Q:clearInput(name: string, key: any)
     self.revision = self.revision + 1
     local byName = self.inputs[name]
     if byName then
@@ -145,10 +143,10 @@ end
 
 --- The revision at which a dependency last changed. Defined after Q:get, which it
 --- calls; declared here, which Q:get needs.
-local depChangedAt: function(self: query.Q, name: string, key: any): integer
+local depChangedAt: function(self: Q, name: string, key: any): integer
 
 --- Records that the running computation read `name`/`key`.
-local function record(self: query.Q, name: string, key: any)
+local function record(self: Q, name: string, key: any)
     local top = self.stack[#self.stack]
     if top then
         top.deps[#top.deps + 1] = {name = name, key = key}
@@ -166,7 +164,7 @@ end
 --- @param key what to compute it for
 --- @raises any whatever the definition raised, rethrown with its own message, since a
 ---     query that could not be computed has no value to hand back
-function query.Q:get(name: string, key: any): any
+function Q:get(name: string, key: any): any
     local byInput = self.inputs[name]
     local inp = byInput and byInput[key]
     if inp then
@@ -265,7 +263,7 @@ end
 
 --- Brings a dependency up to date, then reports when it last changed, so a stale answer
 --- never passes for a fresh one.
-depChangedAt = function(self: query.Q, name: string, key: any): integer
+depChangedAt = function(self: Q, name: string, key: any): integer
     local byName = self.inputs[name]
     local inp = byName and byName[key]
     if inp then
@@ -277,5 +275,3 @@ depChangedAt = function(self: query.Q, name: string, key: any): integer
 
     return entry and entry.changedAt or self.revision
 end
-
-export = query

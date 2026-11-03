@@ -20,14 +20,12 @@ local builder = require("nupp.compiler.aot.llvm.builder")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local types = require("nupp.compiler.aot.llvm.types")
 
-local bridge = {}
-
 --- The narrow storage a scalar slot holds, by source type.
 const NARROW: {[string]: string} = {uint8 = "i8", int8 = "i8", uint16 = "i16", int16 = "i16"}
 
 --- Defines `nupp_bridge_<index>` calling `kernel`, the physical symbol of
 --- `program`'s entry in this module, with attribute group `attrs`.
-function bridge.define(
+export function define(
     module: builder.Module,
     program: scalarIR.Program,
     index: integer,
@@ -119,5 +117,3 @@ function bridge.define(
     end
     builder.finish(f, "ret void")
 end
-
-export = bridge

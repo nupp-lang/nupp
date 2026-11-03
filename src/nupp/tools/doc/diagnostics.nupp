@@ -27,11 +27,9 @@ local explainMod = require("nupp.tools.explain")
 local htmlMod = require("nupp.tools.doc.html")
 local lintsMod = require("nupp.compiler.lints")
 
-local diagnostics = {}
-
 --- The generated page: the route it is written to, its title, its markdown, and the
 --- handwritten file whose prose opens it.
-type diagnostics.Page = {
+export type Page = {
     markdown: string,
     path: string,
     redirects: {string}?,
@@ -44,7 +42,7 @@ type diagnostics.Page = {
 --- it opens with. `source` is the repository path, which the site uses to resolve links
 --- written against it; `prose` is that file already read, because this module assembles
 --- markdown rather than reading files.
-type diagnostics.Settings = {
+export type Settings = {
     path: string?,
     prose: string?,
     redirects: {string}?,
@@ -54,7 +52,7 @@ type diagnostics.Settings = {
 
 --- The repository paths the site has a page for, which is what says whether a
 --- reference a code carries can be linked or only named.
-type diagnostics.Published = {[string]: boolean}
+export type Published = {[string]: boolean}
 
 -- The heading slug the renderer gives `#### NUPP2107`, which is what an in-page
 -- link to that code has to spell.
@@ -70,7 +68,7 @@ local function section(
     code: string,
     entry: explainMod.Entry,
     listed: {[string]: boolean},
-    published: diagnostics.Published
+    published: Published
 ): {string}
     local out = {"#### " .. code, "", entry.summary .. ".", ""}
     if entry.wrong then
@@ -141,7 +139,7 @@ local function section(
 end
 
 --- Every documented code as one page, or nil when the manifest asked for no index.
-function diagnostics.page(settings: diagnostics.Settings?, published: diagnostics.Published?): diagnostics.Page?
+export function page(settings: Settings?, published: Published?): Page?
     if not settings then
         return nil
     end
@@ -208,5 +206,3 @@ function diagnostics.page(settings: diagnostics.Settings?, published: diagnostic
         symbols = nil
     }
 end
-
-export = diagnostics

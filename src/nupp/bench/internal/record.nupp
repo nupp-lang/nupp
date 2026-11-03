@@ -11,7 +11,6 @@ an idempotent normalizer. The runner retains wire records and crosses this bound
 once at each public library call. User payloads are never recursively traversed.
 ]]
 
-local recordio = {}
 local names: {
     {string}
 } = {
@@ -131,16 +130,14 @@ local function document(value: any, reading: boolean): any
     return result
 end
 
-function recordio.read(value: any): any
+export function read(value: any): any
     return document(value, true)
 end
 
-function recordio.write(value: any): any
+export function write(value: any): any
     return document(value, false)
 end
 
-function recordio.writemeasurement(value: any): any
+export function writemeasurement(value: any): any
     return measurement(value, false)
 end
-
-export = recordio

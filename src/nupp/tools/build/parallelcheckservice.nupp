@@ -19,8 +19,6 @@ local workerchannel = require("nupp.compiler.workerchannel")
 local normalize, join = fs.normalize, fs.join
 local readFile = fs.readFile
 
-local service = {}
-
 -- Workers never run under an ahead-of-time policy, so lowering refuses nothing.
 local function noRefusals(_: string, _: string, _: any): ({any}, boolean)
     return {}, false
@@ -354,7 +352,7 @@ local function injectedCrash(request: any): boolean
     return failure == "crash" or failure == "crash-once" and request.initializer == 1
 end
 
-function service.main(): integer
+export function main(): integer
     local failure = os.getenv("NUPP_TEST_PARALLEL_CHECK_FAILURE")
     note(os.getenv("NUPP_TEST_PARALLEL_CHECK_PID_FILE"))
     if failure == "exit" then
@@ -400,5 +398,3 @@ function service.main(): integer
 
     return 0
 end
-
-export = service

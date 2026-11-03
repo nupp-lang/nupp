@@ -20,8 +20,6 @@ buffer owns its Lua pieces; `free` clears the retained contents, and subsequent
 operations follow the buffer's ordinary reset semantics.
 ]]
 
-const buffer = {}
-
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 
 local record Buffer
@@ -238,7 +236,7 @@ end
 --- @param size ignored, or the options table when it is the only argument
 --- @param options ignored
 --- @return the new buffer
-function buffer.new(size: (integer | table)?, options: table?): SharedBuffer
+export function new(size: (integer | table)?, options: table?): SharedBuffer
     const state = new Buffer(pieces = {}, count = 0, head = 1, firstByte = 1, bytes = 0)
     if proxyPrototype ~= nil then
         const proxy = proxyFactory(proxyPrototype) as userdata
@@ -248,5 +246,3 @@ function buffer.new(size: (integer | table)?, options: table?): SharedBuffer
 
     return state as any
 end
-
-export = buffer

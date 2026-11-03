@@ -20,8 +20,6 @@ local lints = require("nupp.compiler.lints")
 local state = require("nupp.compiler.check.state")
 local T = require("nupp.compiler.types")
 
-local pragma = {}
-
 --- A node of the tree being checked.
 local type Node = cst.Node
 
@@ -29,7 +27,7 @@ local type Node = cst.Node
 ---
 --- @param c the run's state
 --- @return the statement kinds this family answers
-function pragma.install(c: state.Checker): state.StatHandlers
+export function install(c: state.Checker): state.StatHandlers
     local marks = c.marks
     local defineAnnotation = marks.defineAnnotation
     local validateAnnotation = marks.validateAnnotation
@@ -597,5 +595,3 @@ function pragma.install(c: state.Checker): state.StatHandlers
 
     return handlers
 end
-
-export = pragma

@@ -26,7 +26,6 @@ local builtinExtensions = require("nupp.compiler.builtinextensions")
 local storeMod = require("nupp.compiler.project.store")
 local T = require("nupp.compiler.types")
 
-local incremental = {}
 local hostServices = require("nupp.compiler.hostservices")
 
 ----------------------------------------------------------------------------
@@ -35,7 +34,7 @@ local hostServices = require("nupp.compiler.hostservices")
 
 --- An exported declaration, as a project header records it. Headers are compared field
 --- by field to decide whether a reparse changed anything a dependent could see.
-type incremental.Decl = {
+export type Decl = {
     name: string,
     kind: string,
     statKind: string,
@@ -50,7 +49,7 @@ type incremental.Decl = {
 }
 
 --- What a
-type incremental.Header = {
+export type Header = {
     path: string,
     moduleName: string?,
     declaredModuleName: string?,
@@ -60,7 +59,7 @@ type incremental.Header = {
     --- interface: changing it changes what the module exports.
     moduleLocal: string?,
 
-    declarations: {incremental.Decl},
+    declarations: {Decl},
     dependencies: {string}
 }
 
@@ -68,7 +67,7 @@ type incremental.Header = {
 ---
 --- `syntax` marks a parse that failed, `missing` a file that was not there; in both
 --- cases there is nothing to say about the module's type.
-type incremental.CheckResult = {
+export type CheckResult = {
     --- Everything to report for this file, parse errors included.
     diags: {any},
 
@@ -91,7 +90,7 @@ type incremental.CheckResult = {
 }
 
 --- The compiler's query graph, with the editor and build entry points that read it.
-record incremental.Inc
+export record Inc
     --- Module resolution, project layout, bundled declarations.
     env: any
 
@@ -121,10 +120,10 @@ record incremental.Inc
     diskChanged: function(path: string, changeType: integer)
 
     --- Parse and check diagnostics for a file, plus the parse itself.
-    checkFile: function(path: string): incremental.CheckResult
+    checkFile: function(path: string): CheckResult
 
     --- Checks a module whose dependencies the caller has already made ready.
-    checkReadyFile: function(path: string): incremental.CheckResult
+    checkReadyFile: function(path: string): CheckResult
 
     --- The overlay-aware project declaration and module index.
     projectIndex: function(): any
@@ -139,7 +138,7 @@ record incremental.Inc
     externalFile: function(path: string): string?
 
     --- The exported declaration header for a file.
-    projectHeader: function(path: string): incremental.Header?
+    projectHeader: function(path: string): Header?
 
     --- Where a module name resolves to, or nil when nothing provides it.
     modulePath: function(name: string): string?
@@ -199,7 +198,7 @@ end
 --- one's `checked`. That nesting is the whole point -- an observer that wants a
 --- module's own cost rather than its closure's reads it off the pairs -- and a memo hit
 --- announces nothing, because nothing was checked.
-type incremental.Observer = {
+export type Observer = {
     checking: function(path: string): nil,
     checked: function(path: string): nil
 }
@@ -211,7 +210,7 @@ type incremental.Observer = {
 ---     plain table because the default this applies -- `opts or {}` -- is an empty
 ---     literal, and the checker widens one of those to `table` whatever it is being
 ---     assigned to.
-function incremental.new(rootDir: string, opts: table?): incremental.Inc
+export function new(rootDir: string, opts: table?): Inc
     opts = opts or {}
     opts.compilerServices = opts.compilerServices or hostServices
     local env = envMod.new(rootDir, opts)
@@ -344,7 +343,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return left.reason == right.reason and left.replacement == right.replacement
     end
 
-    local function sameHeader(a: incremental.Header?, b: incremental.Header?): boolean
+    local function sameHeader(a: Header?, b: Header?): boolean
         if not a or not b then
             return false
         end
@@ -665,7 +664,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return plan, (q.stats.materializeDerives or 0) == executions
     end
 
-    local checkModule = function(self: any, path: any): incremental.CheckResult
+    local checkModule = function(self: any, path: any): CheckResult
         checkpoint()
         local result = self:get("parse", path)
         if not result then
@@ -826,9 +825,9 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- out of a check -- a missing file, a syntax error, the ordinary end -- is
     -- bracketed by one pair, and a run with no observer defines exactly what it always
     -- did.
-    local observer = opts.observe as incremental.Observer?
+    local observer = opts.observe as Observer?
     if observer then
-        q:define("checkModule", function(self: any, path: any): incremental.CheckResult
+        q:define("checkModule", function(self: any, path: any): CheckResult
             observer.checking(path)
             local result = checkModule(self, path)
             observer.checked(path)
@@ -1223,7 +1222,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- the module as `unknown`. Asked for its interface first, the re-entrant edge
     -- finds the interface query itself active instead, which memoizes nothing, and
     -- the outer query records the finished answer.
-    local function checkEntered(path: string): incremental.CheckResult
+    local function checkEntered(path: string): CheckResult
         local name = checkedModuleName(path)
         if name ~= nil and modulePath(q, name as string) == path then
             q:get("moduleInterface", name as string)
@@ -1233,7 +1232,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     end
 
     -- Full result for a file: parse + check diagnostics, parse result.
-    local function apiCheckFile(path: string): incremental.CheckResult
+    local function apiCheckFile(path: string): CheckResult
         -- A walk abandoned partway, by a cancelled request, would leave modules marked
         -- as walked that were never checked; the next one starts over.
         local walked, problem = pcall(checkFromTheBottom, path)
@@ -1249,7 +1248,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
     -- the file's own cycle, so there is no deep graph to walk from the bottom, and
     -- walking it would read the headers of modules this session imported rather than
     -- checked, and past `DEEP_GRAPH` check their sources again.
-    local function apiCheckReadyFile(path: string): incremental.CheckResult
+    local function apiCheckReadyFile(path: string): CheckResult
         return checkEntered(path)
     end
 
@@ -1273,7 +1272,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         return q:get("externalFile", path)
     end
 
-    local function apiProjectHeader(path: string): incremental.Header?
+    local function apiProjectHeader(path: string): Header?
         return q:get("projectHeader", path)
     end
 
@@ -1510,7 +1509,7 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         }
     end
 
-    return new incremental.Inc(
+    return new Inc(
         env = env,
         q = q,
         headerStore = headerStore,
@@ -1540,5 +1539,3 @@ function incremental.new(rootDir: string, opts: table?): incremental.Inc
         deriveStats = apiDeriveStats
     )
 end
-
-export = incremental

@@ -17,8 +17,6 @@ local native = require("nupp.compiler.native")
 
 local join = fs.join
 
-local manifest = {}
-
 --[[
 The manifest's shape, as the checks below hold it to.
 
@@ -34,7 +32,7 @@ reads, so a consumer that asks for one gets an answer rather than `any`.
 ---
 --- Everything is optional because a target inherits the `build` table's keys and
 --- overrides the ones it names, so the merged result is what has to be complete.
-type manifest.Target = {
+export type Target = {
     --- "modules", "bundle", "binary", "component" or "docs"; absent means "modules".
     kind: string?,
 
@@ -80,7 +78,7 @@ type manifest.Target = {
     --- Dotted module functions published by a component target.
     exports: {string}?,
     sources: {string}?,
-    resources: {string | manifest.Resource}?,
+    resources: {string | Resource}?,
     dependencies: {string}?,
     compileDependencies: {string}?,
 
@@ -103,7 +101,7 @@ type manifest.Target = {
 
 --- A resource copied to an explicit target-relative path. The string shorthand keeps
 --- deriving its destination from the source path.
-type manifest.Resource = {
+export type Resource = {
     source: string,
     output: string
 }
@@ -113,7 +111,7 @@ type manifest.Resource = {
 --- Only `kind` and `dependencies` are common to all of them: what a C build takes and
 --- what a rock takes have nothing else in common, and each provider in
 --- `nupp.tools.build.deps` reads its own.
-type manifest.Dependency = {
+export type Dependency = {
     --- "c", "cargo", "luarocks" or "types".
     kind: string?,
 
@@ -123,15 +121,15 @@ type manifest.Dependency = {
 }
 
 --- The build section: either one target inline, or several by name.
-type manifest.Build = {
+export type Build = {
     outDir: string?,
-    targets: {[string]: manifest.Target}?,
+    targets: {[string]: Target}?,
     default: string?,
     [string]: any
 }
 
 --- The command `nupp test` runs, and what it runs with.
-type manifest.Test = {
+export type Test = {
     --- A replacement test command. Omit it to use Nupp's bundled runner.
     argv: {string}?,
 
@@ -143,7 +141,7 @@ type manifest.Test = {
 }
 
 --- Which target rebuilds the compiler, and where its stage zero comes from.
-type manifest.SelfHost = {
+export type SelfHost = {
     target: string?,
 
     --- A separately composed target used only to compose the stage-zero bundle.
@@ -165,7 +163,7 @@ type manifest.SelfHost = {
 
 --- A named `tasks` entry: a command the project runs by hand often enough to want a
 --- name for, and optionally a target to build before it.
-type manifest.Task = {
+export type Task = {
     description: string?,
     argv: {string}?,
     build: string?,
@@ -176,7 +174,7 @@ type manifest.Task = {
 }
 
 --- An explicit use of a generator capability exported by a host dependency.
-type manifest.Generator = {
+export type Generator = {
     description: string?,
     using: string,
     inputs: {string}?,
@@ -189,17 +187,17 @@ type manifest.Generator = {
 --- The underscored keys are not written by hand: `nupp.tools.build.project` folds
 --- the options a command was given into the config before it is hashed, so changing one
 --- invalidates the artifacts built under the old value.
-type manifest.Config = {
+export type Config = {
     include: {string}?,
     compat: string?,
     fmt: {methodParens: boolean?}?,
     lints: {[string]: string}?,
-    dependencies: {[string]: manifest.Dependency}?,
-    generators: {[string]: manifest.Generator}?,
-    build: manifest.Build?,
-    test: manifest.Test?,
-    tasks: {[string]: manifest.Task}?,
-    selfHost: manifest.SelfHost?,
+    dependencies: {[string]: Dependency}?,
+    generators: {[string]: Generator}?,
+    build: Build?,
+    test: Test?,
+    tasks: {[string]: Task}?,
+    selfHost: SelfHost?,
     [string]: any
 }
 
@@ -207,13 +205,13 @@ type manifest.Config = {
 --- target.
 --- @param config The validated project manifest.
 --- @return The effective test action.
-function manifest.testConfig(config: manifest.Config): manifest.Test
-    return config.test or ({} as manifest.Test)
+export function testConfig(config: Config): Test
+    return config.test or ({} as Test)
 end
 
 --- Returns the configured test command, or the private invocation of the bundled
 --- runner. It remains a fresh process without becoming another public command.
-function manifest.testArgv(test: manifest.Test): {string}
+export function testArgv(test: Test): {string}
     return test.argv or {"nupp", "test", "--internal-runner"}
 end
 
@@ -1109,7 +1107,7 @@ local function validateEnv(env: any, label: string): (boolean?, string?)
     return true
 end
 
-local function validateManifest(config: manifest.Config): boolean?, string?
+local function validateManifest(config: Config): boolean?, string?
     local _, compatError = require("nupp.compiler.compat").resolve(config.compat)
     if compatError then
         return nil, compatError
@@ -1356,7 +1354,7 @@ local function validateManifest(config: manifest.Config): boolean?, string?
             return true
         end
         visiting[name] = true
-        for _, child in ipairs((dependencies[name] as manifest.Dependency).dependencies or {}) do
+        for _, child in ipairs((dependencies[name] as Dependency).dependencies or {}) do
             local ok, cycleErr = visit(child)
             if not ok then
                 return nil, cycleErr
@@ -1398,11 +1396,11 @@ local function validateManifest(config: manifest.Config): boolean?, string?
         if not dependencyName or not providerName then
             return nil, label .. ".using must be dependency/provider"
         end
-        local dependency = dependencies[dependencyName] as manifest.Dependency?
+        local dependency = dependencies[dependencyName] as Dependency?
         if type(dependency) ~= "table" then
             return nil, label .. ".using references unknown dependency " .. dependencyName
         end
-        if (dependency as manifest.Dependency).kind ~= "luarocks" then
+        if (dependency as Dependency).kind ~= "luarocks" then
             return nil, label .. ".using requires a luarocks dependency"
         end
         if generator.description ~= nil then
@@ -1617,7 +1615,7 @@ end
 --- @param root the project directory, "." by default
 --- @return the manifest, or nil when it could not be read or does not check out
 --- @return why, ready to print
-function manifest.load(root: string?): manifest.Config?, string?
+export function load(root: string?): Config?, string?
     root = root or "."
     local path = join(root, "nupp.lua")
     local chunk, loadErr = loadfile(path)
@@ -1638,5 +1636,3 @@ function manifest.load(root: string?): manifest.Config?, string?
 
     return config
 end
-
-export = manifest

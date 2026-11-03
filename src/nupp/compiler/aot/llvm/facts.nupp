@@ -28,12 +28,10 @@ wrong in a way a differential would catch:
   inline it, rather than a bare declaration.
 ]]
 
-local facts = {}
-
-const facts.FAMILIES = {"alias", "access", "effects", "bounds", "relations", "extents"}
+export const FAMILIES = {"alias", "access", "effects", "bounds", "relations", "extents"}
 
 --- The set of families stated.
-record facts.Facts
+export record Facts
     alias: boolean
     access: boolean
     effects: boolean
@@ -42,29 +40,22 @@ record facts.Facts
     extents: boolean
 end
 
-function facts.all(): facts.Facts
-    return new facts.Facts(alias = true, access = true, effects = true, bounds = true, relations = true, extents = true)
+export function all(): Facts
+    return new Facts(alias = true, access = true, effects = true, bounds = true, relations = true, extents = true)
 end
 
-function facts.none(): facts.Facts
-    return new facts.Facts(
-        alias = false,
-        access = false,
-        effects = false,
-        bounds = false,
-        relations = false,
-        extents = false
-    )
+export function none(): Facts
+    return new Facts(alias = false, access = false, effects = false, bounds = false, relations = false, extents = false)
 end
 
 --- `all`, `none`, or a comma-separated list of families, or nil and why not.
-function facts.parse(text: string): (facts.Facts?, string?)
+export function parse(text: string): (Facts?, string?)
     if text == "" or text == "all" then
-        return facts.all(), nil
+        return all(), nil
     elseif text == "none" then
-        return facts.none(), nil
+        return none(), nil
     end
-    local selected = facts.none()
+    local selected = none()
     for name in text:gmatch("[^,%s]+") do
         if name == "alias" then
             selected.alias = true
@@ -79,10 +70,7 @@ function facts.parse(text: string): (facts.Facts?, string?)
         elseif name == "extents" then
             selected.extents = true
         else
-            return nil, "unknown AOT fact family " .. name .. "; the families are " .. table.concat(
-                facts.FAMILIES,
-                ", "
-            )
+            return nil, "unknown AOT fact family " .. name .. "; the families are " .. table.concat(FAMILIES, ", ")
         end
     end
 
@@ -90,15 +78,13 @@ function facts.parse(text: string): (facts.Facts?, string?)
 end
 
 --- The selection as stable text, for a cache key.
-function facts.key(selected: facts.Facts): string
+export function key(selected: Facts): string
     local names: {string} = {}
-    for _, name in ipairs(facts.FAMILIES) do
+    for _, name in ipairs(FAMILIES) do
         if (selected as any)[name] == true then
             names[#names + 1] = name
         end
     end
 
-    return #names == #facts.FAMILIES and "all" or #names == 0 and "none" or table.concat(names, ",")
+    return #names == #FAMILIES and "all" or #names == 0 and "none" or table.concat(names, ",")
 end
-
-export = facts

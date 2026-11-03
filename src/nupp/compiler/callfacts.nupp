@@ -3,7 +3,7 @@ module nupp.compiler.callfacts
 -- Bounded facts over resolved bindings and sealed indexed views. A summary describes
 -- ordinary checked behavior; it never adds an obligation to a public signature.
 local cst = require("nupp.compiler.syntax.cst")
-local callfacts = {}
+
 local NESTED = {
     localFuncStmt = true,
     funcStmt = true,
@@ -634,7 +634,7 @@ local function markUnstable(root)
 end
 
 -- A cached parse may be checked again after an imported fact changes.
-function callfacts.reset(root: any): nil
+export function reset(root: any): nil
     local function visit(node)
         if not node then
             return
@@ -658,7 +658,7 @@ function callfacts.reset(root: any): nil
     visit(root)
 end
 
-function callfacts.run(root: any, functions: {any}, definitions: {[any]: any}): nil
+export function run(root: any, functions: {any}, definitions: {[any]: any}): nil
     local changed = writes(root)
     markUnstable(root)
     -- No recursive hypothesis is seeded. Unsupported recursion remains unknown.
@@ -677,5 +677,3 @@ function callfacts.run(root: any, functions: {any}, definitions: {[any]: any}): 
         walkBody(block, {}, definitions, changed, true)
     end
 end
-
-export = callfacts

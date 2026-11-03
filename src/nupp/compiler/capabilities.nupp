@@ -2,7 +2,9 @@ module nupp.compiler.capabilities
 
 -- Source representations and calling conventions are fixed by the compiler: every
 -- artifact runs on LuaJIT, so each capability is native unless a caller narrows it.
-local capabilities = {}
+
+-- The exported require function validates a capability; it never loads code.
+const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 
 local CONTRACTS: {[string]: {
     effect: string?,
@@ -18,7 +20,7 @@ local CONTRACTS: {[string]: {
 }
 
 --- Resolves compiler-owned capabilities without loading or selecting providers.
-function capabilities.resolve(): any
+export function resolve(): any
     local resolved = {byName = {}}
     for name, contract in pairs(CONTRACTS) do
         resolved.byName[name] = {kind = "native", name = name, effect = contract.effect}
@@ -28,7 +30,7 @@ function capabilities.resolve(): any
 end
 
 --- Looks up one compiler-owned capability, rejecting invented names.
-function capabilities.get(resolved: any, name: string): any
+export function get(resolved: any, name: string): any
     local capability = resolved and resolved.byName and resolved.byName[name] or nil
     assert(CONTRACTS[name] ~= nil and capability ~= nil, "unknown language capability " .. name)
 
@@ -39,7 +41,7 @@ end
 local function resolution(checker: any): any
     local resolved = checker.opts._capabilityResolution
     if resolved == nil then
-        resolved = capabilities.resolve()
+        resolved = resolve()
         checker.opts._capabilityResolution = resolved
     end
 
@@ -50,17 +52,17 @@ end
 ---
 --- For a caller deciding what to do next rather than only what to say. `require`
 --- answers the same question by reporting it.
-function capabilities.available(checker: any, name: string): boolean
-    return capabilities.get(resolution(checker), name).kind ~= "missing"
+export function available(checker: any, name: string): boolean
+    return get(resolution(checker), name).kind ~= "missing"
 end
 
 --- Reports a missing capability at the source construct that requires it.
-function capabilities.require(checker: any, name: string, at: any): boolean
+export function require(checker: any, name: string, at: any): boolean
     if checker.opts.compat == "lua51" and not checker.declarationFile and (checker.comptimeDepth or 0) == 0 then
         checker.diag("NUPP3014", at, ('compat = "lua51" does not include the `%s` representation'):format(name))
         return false
     end
-    local capability = capabilities.get(resolution(checker), name)
+    local capability = get(resolution(checker), name)
     if capability.kind ~= "missing" then
         return true
     end
@@ -69,5 +71,3 @@ function capabilities.require(checker: any, name: string, at: any): boolean
 
     return false
 end
-
-export = capabilities

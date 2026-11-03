@@ -4887,6 +4887,16 @@ end
 
 -- A misspelled literal metamethod has one checker-provided spelling repair,
 -- which reaches the client as a quick fix and leaves the rewritten file clean.
+function M.codeActionConvertsAPlainModuleTable()
+    local source = "module sample\nlocal api = {}\nfunction api.answer(): integer return 42 end\nexport = api\n"
+    local actions = codeActionSession(scratchRoot(), "sample.nupp", source, {line = 0, character = 0})
+    local action = actionNamed(actions, "Convert module table to direct exports")
+    assert(action and action.kind == "refactor.rewrite")
+    local rewritten = applied(source, action, fileUri(scratchRoot() .. "/sample.nupp"))
+    assertContains(rewritten, "export function answer", "direct declaration")
+    assert(not rewritten:find("export =", 1, true))
+end
+
 function M.codeActionCorrectsAMetamethodTypo()
     local projectDir = tempProject()
     local source = table.concat(
@@ -5103,7 +5113,7 @@ function M.codeActionCapabilityIsAdvertised()
     for _, kind in ipairs(provider.codeActionKinds) do
         kinds[kind] = true
     end
-    assert(kinds.quickfix and not kinds["refactor.rewrite"], "only the remaining quick-fix kind is named")
+    assert(kinds.quickfix and kinds["refactor.rewrite"], "quick fixes and module refactoring are named")
 end
 
 -- Compiled artifacts ----------------------------------------------------------

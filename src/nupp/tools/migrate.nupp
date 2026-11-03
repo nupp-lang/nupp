@@ -7,19 +7,17 @@ local parser = require("nupp.compiler.syntax.parser")
 local annotated = require("nupp.compiler.annotatedlua")
 local cst = require("nupp.compiler.syntax.cst")
 
-local migrate = {}
-
-record migrate.Edit
+export record Edit
     offset: integer
     length: integer
     newText: string
 end
 
-record migrate.Plan
+export record Plan
     source: string
     destination: string
     text: string
-    edits: {migrate.Edit}
+    edits: {Edit}
     warnings: {annotated.Warning}
     dialect: string
 end
@@ -28,8 +26,8 @@ local function typeText(node: cst.Node): string
     return (cst.textOf(node):gsub("^%s+", ""):gsub("%s+$", ""))
 end
 
-local function addEdit(edits: {migrate.Edit}, offset: integer, text: string)
-    edits[#edits + 1] = new migrate.Edit(offset = offset, length = 0, newText = text)
+local function addEdit(edits: {Edit}, offset: integer, text: string)
+    edits[#edits + 1] = new Edit(offset = offset, length = 0, newText = text)
 end
 
 local function bodyClose(body: cst.Funcbody)
@@ -42,7 +40,7 @@ local function bodyClose(body: cst.Funcbody)
     return nil
 end
 
-local function collectBody(body: cst.Funcbody, edits: {migrate.Edit})
+local function collectBody(body: cst.Funcbody, edits: {Edit})
     for _, writtenParam in ipairs(body.params or {}) do
         local param = writtenParam as cst.Param
         if param.type and param.type.foreignAnnotation then
@@ -70,7 +68,7 @@ local function collectBody(body: cst.Funcbody, edits: {migrate.Edit})
     end
 end
 
-local function collectNode(node: any, edits: {migrate.Edit})
+local function collectNode(node: any, edits: {Edit})
     if type(node) ~= "table" or cst.isToken(node) then
         return
     end
@@ -96,7 +94,7 @@ local function collectNode(node: any, edits: {migrate.Edit})
     end
 end
 
-local function collectSemantic(node: any, edits: {migrate.Edit})
+local function collectSemantic(node: any, edits: {Edit})
     if type(node) ~= "table" or cst.isToken(node) then
         return
     end
@@ -112,7 +110,7 @@ local function collectSemantic(node: any, edits: {migrate.Edit})
     end
 end
 
-local function apply(source: string, edits: {migrate.Edit}): string
+local function apply(source: string, edits: {Edit}): string
     table.sort(edits, function(a, b)
         if a.offset == b.offset then
             if a.length ~= b.length then
@@ -132,7 +130,7 @@ end
 
 -- Migration uses checked module and declaration identities. A same-named method
 -- on an unrelated value is never evidence that it belongs to serialization.
-local function serdePlan(source: string, path: string): (migrate.Plan?, string?, any)
+local function serdePlan(source: string, path: string): (Plan?, string?, any)
     local parsed = parser.parse(source, path)
     if #parsed.errors > 0 then
         return nil, parsed.errors[1].msg, parsed.errors[1]
@@ -140,7 +138,7 @@ local function serdePlan(source: string, path: string): (migrate.Plan?, string?,
     local env = require("nupp.compiler.project.env").new(".", {cache = false})
     require("nupp.compiler.check").check(parsed, path, env as {[string]: any}, {legacySerializationMigration = true})
     local lexer = require("nupp.compiler.syntax.lexer")
-    local edits: {migrate.Edit} = {}
+    local edits: {Edit} = {}
     local problem: any = nil
     local used: {[string]: boolean} = {}
     for _, token in ipairs(parsed.tokens) do
@@ -180,11 +178,7 @@ local function serdePlan(source: string, path: string): (migrate.Plan?, string?,
         if first and last then
             edits[
                 #edits + 1
-            ] = new migrate.Edit(
-                offset = first.offset,
-                length = last.offset + #last.text - first.offset,
-                newText = text
-            )
+            ] = new Edit(offset = first.offset, length = last.offset + #last.text - first.offset, newText = text)
         end
     end
 
@@ -199,7 +193,7 @@ local function serdePlan(source: string, path: string): (migrate.Plan?, string?,
         local last = annotation.close or annotation.name
         edits[
             #edits + 1
-        ] = new migrate.Edit(
+        ] = new Edit(
             offset = first.offset,
             length = math.floor(last.offset + #last.text - first.offset),
             newText = replacement
@@ -608,7 +602,7 @@ local function serdePlan(source: string, path: string): (migrate.Plan?, string?,
         finish = edit.offset + edit.length
     end
 
-    return new migrate.Plan(
+    return new Plan(
         source = path,
         destination = path,
         text = apply(source, edits),
@@ -625,7 +619,7 @@ end
 --- @return why there is none, as a line
 --- @return the same reason as a diagnostic, with its code and, for a parse error,
 ---   its position
-function migrate.plan(source: string, path: string, dialect: string?): (migrate.Plan?, string?, any)
+export function plan(source: string, path: string, dialect: string?): (Plan?, string?, any)
     if path:match("%.nupp$") then
         if dialect ~= nil and dialect ~= "auto" and dialect ~= "serde" then
             local message = "a Nupp source migration requires the serde dialect"
@@ -647,7 +641,7 @@ function migrate.plan(source: string, path: string, dialect: string?): (migrate.
         return nil, parsed.errors[1].msg, parsed.errors[1]
     end
     local warnings = annotated.decorate(parsed, path, dialect)
-    local edits: {migrate.Edit} = {}
+    local edits: {Edit} = {}
     local declarations = {}
     local first = parsed.root.blocks and parsed.root.blocks[1]
     for _, stat in ipairs(first and first.stats or {}) do
@@ -663,7 +657,7 @@ function migrate.plan(source: string, path: string, dialect: string?): (migrate.
     collectSemantic(parsed.root, edits)
     local destination = path:gsub("%.lua$", ".nupp")
 
-    return new migrate.Plan(
+    return new Plan(
         source = path,
         destination = destination,
         text = apply(source, edits),
@@ -672,5 +666,3 @@ function migrate.plan(source: string, path: string, dialect: string?): (migrate.
         dialect = dialect
     ), nil
 end
-
-export = migrate

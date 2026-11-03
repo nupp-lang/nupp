@@ -15,8 +15,6 @@ Recognition is by the prelude definition, never by spelling. A local named
 and does not belong to this table.
 ]]
 
-local surface = {}
-
 -- Positive rather than negative: extending lua.d.nupp never widens the
 -- portable surface until the new identity is accounted for here.
 local COMMON_ROOTS: {
@@ -213,7 +211,7 @@ LUA51_MEMBERS.debug.getfenv = true
 LUA51_MEMBERS.debug.setfenv = true
 
 --- Returns the exact bundled Lua-prelude root a token resolves to.
-function surface.resolvedRoot(checker: any, token: any): string?
+export function resolvedRoot(checker: any, token: any): string?
     if not token or not checker.env or not checker.env.globals then
         return nil
     end
@@ -227,7 +225,7 @@ function surface.resolvedRoot(checker: any, token: any): string?
 end
 
 --- Preserve prelude provenance through transparent casts and global-table reads.
-function surface.identity(node: any): string?
+export function identity(node: any): string?
     if not node then
         return nil
     end
@@ -235,10 +233,10 @@ function surface.identity(node: any): string?
         return node.runtimeSurfaceRoot
     end
     if node.kind == "castExpr" or node.kind == "paren" then
-        return surface.identity(node.expr)
+        return identity(node.expr)
     end
     if node.kind == "dotIndex" or node.kind == "bracketIndex" then
-        local root = surface.identity(node.obj)
+        local root = identity(node.obj)
         local key = node.expr
         local member = node.kind == "dotIndex" and node.name and node.name.text
             or key and key.kind == "string" and require("nupp.compiler.syntax.lexer").stringValue(key.token.text)
@@ -247,12 +245,12 @@ function surface.identity(node: any): string?
         end
     end
     if node.kind == "call" then
-        local root = surface.identity(node.obj)
+        local root = identity(node.obj)
         if root == "getfenv" then
             return "_G"
         end
         local args = node.args and node.args.exprs
-        if root == "rawget" and args and surface.identity(args[1]) == "_G" then
+        if root == "rawget" and args and identity(args[1]) == "_G" then
             local key = args[2]
             return key and key.kind == "string" and require("nupp.compiler.syntax.lexer").stringValue(key.token.text)
                 or nil
@@ -266,15 +264,15 @@ end
 --- `compat = "lua51"` it is followed through casts, parentheses and global-table
 --- reads, so a member outside that profile is found however it was reached;
 --- otherwise only a root the checker recorded counts.
-function surface.tracked(checker: any, node: any): string?
+export function tracked(checker: any, node: any): string?
     if checker.opts.compat == "lua51" then
-        return surface.identity(node)
+        return identity(node)
     end
     return node and node.runtimeSurfaceRoot
 end
 
 --- Reports a source read of a runtime-specific prelude identity.
-function surface.requireIdentity(checker: any, root: string?, member: string?, at: any)
+export function requireIdentity(checker: any, root: string?, member: string?, at: any): nil
     if checker.opts.compat == "lua51"
         and root
         and not checker.declarationFile
@@ -308,12 +306,12 @@ function surface.requireIdentity(checker: any, root: string?, member: string?, a
 end
 
 --- Reports an exact prelude token, before any local alias carries its root.
-function surface.requireRoot(checker: any, token: any, member: string?, at: any?)
-    surface.requireIdentity(checker, surface.resolvedRoot(checker, token), member, at or token)
+export function requireRoot(checker: any, token: any, member: string?, at: any?): nil
+    requireIdentity(checker, resolvedRoot(checker, token), member, at or token)
 end
 
 --- Reports a resolved require of a runtime-specific VM module.
-function surface.requireModule(checker: any, name: string, at: any)
+export function requireModule(checker: any, name: string, at: any): nil
     if checker.opts.compat == "lua51"
         and not checker.declarationFile
         and (checker.comptimeDepth or 0) == 0
@@ -325,5 +323,3 @@ function surface.requireModule(checker: any, name: string, at: any)
         return
     end
 end
-
-export = surface

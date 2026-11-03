@@ -24,20 +24,18 @@ See `docs/reference/diagnostics.md` for the shape of what is being rendered, and
 
 const terminal = require("io.cli")
 
-local diagnostics = {}
-
 local REPORTED = {note = "note", warning = "warning"}
 
 --- Whether a diagnostic stops a build. A note and a warning are reported and stepped
 --- over; everything else is an error, including a diagnostic with no severity, since
 --- everything that predates severities was one.
-function diagnostics.isFatal(e: {@readonly severity: string?}): boolean
+export function isFatal(e: {@readonly severity: string?}): boolean
     return REPORTED[e.severity] == nil
 end
 
 --- The severity a diagnostic is reported under: its own when it is one of the two
 --- that are stepped over, and `error` for everything else, by the same rule.
-function diagnostics.severityOf(e: {@readonly severity: string?}): string
+export function severityOf(e: {@readonly severity: string?}): string
     return REPORTED[e.severity] or "error"
 end
 
@@ -91,7 +89,7 @@ local function writeSourceMark(out, style, paint, source, diagnostic)
 end
 
 --- Writes diagnostics and returns whether an error was present.
-function diagnostics.report(values: {any}): boolean
+export function report(values: {any}): boolean
     if #values == 0 then
         return false
     end
@@ -160,5 +158,3 @@ function diagnostics.report(values: {any}): boolean
 
     return failed
 end
-
-export = diagnostics

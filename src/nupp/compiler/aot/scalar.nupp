@@ -24,19 +24,17 @@ for a width explicitly and the answer changes accordingly.
 `Program.simdWidth` and `Program.vectorCeiling` before emission.
 ]]
 
-local scalarIR = {}
-
 --- What this vocabulary is on.
 ---
 --- Carried in the IR and checked when it is read back, so an IR written by an
 --- older compiler is refused rather than half-understood.
-const scalarIR.VERSION = 45
+export const VERSION = 45
 
 --- The calling convention selected for a complete AOT entry.
 ---
 --- A kernel has no VM authority. A Lua builder is entered as a Lua C function
 --- and may use only the construction operations represented below.
-type scalarIR.EntryMode = 'kernel' | 'lua-builder'
+export type EntryMode = 'kernel' | 'lua-builder'
 
 --- What the arithmetic in an admitted body means.
 ---
@@ -44,7 +42,7 @@ type scalarIR.EntryMode = 'kernel' | 'lua-builder'
 --- agree about every field of a program and disagree about whether an operator
 --- contracts, and an artifact built under a contract must not be reused under
 --- another. Bumped when the meaning changes, never when the spelling does.
-const scalarIR.NUMERIC_CONTRACT = 4
+export const NUMERIC_CONTRACT = 4
 
 --- The symbol one `@aot` function exports.
 ---
@@ -70,28 +68,28 @@ local function identifierTail(name: string): string
     return snake .. "__" .. table.concat(encoded)
 end
 
-function scalarIR.privateSymbol(name: string): string
+export function privateSymbol(name: string): string
     return "ks_" .. identifierTail(name)
 end
 
 --- The prefix every emitted symbol of one source file carries once it is
 --- linked: the file's digest, so two modules' entries share one C namespace.
-function scalarIR.symbolPrefix(filename: string): string
+export function symbolPrefix(filename: string): string
     return "ks_" .. require("nupp.compiler.hash").digest(filename):sub(1, 16) .. "_"
 end
 
 --- An entry's symbol as the module declaring it links it: `privateSymbol`
 --- under that module's prefix, which is how another module's native call
 --- names it.
-function scalarIR.qualifiedPrivateSymbol(filename: string, name: string): string
-    return scalarIR.symbolPrefix(filename) .. scalarIR.privateSymbol(name):sub(4)
+export function qualifiedPrivateSymbol(filename: string, name: string): string
+    return symbolPrefix(filename) .. privateSymbol(name):sub(4)
 end
 
 --- `name` under `prefix`, spelled so it is a valid symbol: the unique name of
 --- one local, which is not its source name because two source scopes may use
 --- one name and generated code has no scope to tell them apart, and the names
 --- a binding derives from a program's symbol.
-function scalarIR.identifier(prefix: string, name: string): string
+export function identifier(prefix: string, name: string): string
     return prefix .. "_" .. name:gsub("[^%w_]", "_")
 end
 
@@ -100,7 +98,7 @@ end
 ----------------------------------------------------------------------------
 
 --- Where an operation came from, for a diagnostic that has to name it.
-record scalarIR.Source
+export record Source
     line: integer
     column: integer
 end
@@ -111,56 +109,56 @@ end
 --- refinements a value has to have been established in, not spellings it may
 --- claim. `bool` is what a comparison produces, and `multi` is a call with more
 --- than one result, which only a multiple binding may consume.
-type scalarIR.Type = 'f64' | 'f32' | 'i32' | 'u32' | 'i64' | 'u64' | 'bool' | 'multi' | string
+export type Type = 'f64' | 'f32' | 'i32' | 'u32' | 'i64' | 'u64' | 'bool' | 'multi' | string
 
 ----------------------------------------------------------------------------
 -- Constants
 ----------------------------------------------------------------------------
 
 --- A finite decimal literal, always binary64.
-record scalarIR.Constant
+export record Constant
     op: 'constant'
 
     --- Kept as written, so the code generator reproduces the literal rather
     --- than a reformatting of it.
     value: string
 
-    type: scalarIR.Type
-    source: scalarIR.Source?
+    type: Type
+    source: Source?
 end
 
 --- An exact integer literal, for a position that needs one.
-record scalarIR.IntConstant
+export record IntConstant
     op: 'constant_i32'
     value: string
-    type: scalarIR.Type
-    source: scalarIR.Source?
+    type: Type
+    source: Source?
 end
 
 --- An exact integer literal wider than the lane transform's 32-bit constants.
 --- Introduced by partial evaluation only when binary64 represented the source
 --- integer exactly, so the decimal spelling reaches LLVM IR without a second
 --- round.
-record scalarIR.Int64Constant
+export record Int64Constant
     op: 'constant_i64'
     value: string
     type: 'i64' | 'u64'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- `true` or `false`.
-record scalarIR.Bool
+export record Bool
     op: 'bool'
     value: boolean
-    type: scalarIR.Type
-    source: scalarIR.Source?
+    type: Type
+    source: Source?
 end
 
 --- Lua nil, used as a primitive result or construction value.
-record scalarIR.LuaNil
+export record LuaNil
     op: 'lua_nil'
     type: 'lua_nil'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Bytes an admitted body reads that are known when it is compiled.
@@ -170,7 +168,7 @@ end
 --- packed string is indexed as one rather than read back out of a rooted Lua
 --- string the backend knows nothing about -- which is the difference between a
 --- load it can align and fold and a `memcpy` from a pointer it cannot.
-record scalarIR.ConstantBytes
+export record ConstantBytes
     --- The name the emitted array takes, which a read looks the bytes up by
     --- exactly as it does a rooted argument's. That is why nothing between
     --- here and the read had to learn about this.
@@ -184,81 +182,81 @@ end
 ----------------------------------------------------------------------------
 
 --- A source string literal copied into ordinary Lua-owned storage.
-record scalarIR.LuaString
+export record LuaString
     op: 'lua_string'
     value: string
     type: 'lua_string'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Compares a rooted string with literal bytes without allocating a case value.
-record scalarIR.LuaStringMatch
+export record LuaStringMatch
     op: 'lua_string_match'
-    bytes: scalarIR.Expr
+    bytes: Expr
     value: string
     type: 'bool'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Concatenates two ordinary Lua strings through the VM construction entry.
-record scalarIR.LuaConcat
+export record LuaConcat
     op: 'lua_concat'
-    left: scalarIR.Expr
-    right: scalarIR.Expr
+    left: Expr
+    right: Expr
     type: 'lua_string'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Copies a Lua-style inclusive substring into ordinary Lua-owned storage.
-record scalarIR.LuaSubstring
+export record LuaSubstring
     op: 'lua_substring'
-    bytes: scalarIR.Expr
-    first: scalarIR.Expr
-    last: scalarIR.Expr?
+    bytes: Expr
+    first: Expr
+    last: Expr?
     type: 'lua_string'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Reads a Lua-style one-based byte from rooted string storage.
-record scalarIR.LuaStringByte
+export record LuaStringByte
     op: 'lua_string_byte_lua'
-    bytes: scalarIR.Expr
-    index: scalarIR.Expr
+    bytes: Expr
+    index: Expr
     type: 'f64'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Reads a numeric entry from a fresh, rooted Lua table.
-record scalarIR.LuaTableGet
+export record LuaTableGet
     op: 'lua_table_get_index'
-    table: scalarIR.Expr
-    key: scalarIR.Expr
+    table: Expr
+    key: Expr
     type: 'f64'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Starts a Lua-owned byte accumulator for an ordinary local string.
-record scalarIR.LuaStringBuffer
+export record LuaStringBuffer
     op: 'lua_string_buffer'
-    initial: scalarIR.Expr
+    initial: Expr
     type: 'lua_string_buffer'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Publishes a Lua-owned byte accumulator as a string.
-record scalarIR.LuaStringBufferFinish
+export record LuaStringBufferFinish
     op: 'lua_string_buffer_finish'
-    buffer: scalarIR.Expr
+    buffer: Expr
     type: 'lua_string'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- An authored field of a fresh table literal.
-record scalarIR.LuaField
-    key: scalarIR.Expr
-    value: scalarIR.Expr
+export record LuaField
+    key: Expr
+    value: Expr
     indexed: boolean
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- A fresh, unpublished Lua table rooted on the native entry's Lua stack.
@@ -266,32 +264,32 @@ end
 --- This is an effectful expression and is consequently admitted only as the
 --- value of a `let`. The verifier rejects it anywhere a code generator could
 --- evaluate it twice or move it across another allocation.
-record scalarIR.LuaNewTable
+export record LuaNewTable
     op: 'lua_new_table'
-    arrayCapacity: scalarIR.Expr
-    hashCapacity: scalarIR.Expr
-    fields: {scalarIR.LuaField}?
+    arrayCapacity: Expr
+    hashCapacity: Expr
+    fields: {LuaField}?
     type: 'lua_table'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Starts a bounded, stack-rooted stream of ordinary Lua values.
 ---
 --- The handle is native construction state, not a Lua value. It may be used
 --- only by the value-stream statements below and finished exactly once.
-record scalarIR.LuaBuilder
+export record LuaBuilder
     op: 'lua_builder'
     mode: 'eager' | 'pull' | 'serde'
-    nullValue: scalarIR.Expr
-    maxDepth: scalarIR.Expr?
-    stringCapacity: scalarIR.Expr?
-    arrayMarker: scalarIR.Expr?
-    objectMarker: scalarIR.Expr?
-    selectionShape: scalarIR.Expr?
-    arrayShapeMarker: scalarIR.Expr?
-    serdeMarkers: scalarIR.Expr?
+    nullValue: Expr
+    maxDepth: Expr?
+    stringCapacity: Expr?
+    arrayMarker: Expr?
+    objectMarker: Expr?
+    selectionShape: Expr?
+    arrayShapeMarker: Expr?
+    serdeMarkers: Expr?
     type: 'lua_builder'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- A bounded, stack-rooted native uint32 work buffer.
@@ -299,9 +297,9 @@ end
 --- The handle is local construction state. Its storage is Lua-owned userdata,
 --- so a builder entry may use it across allocations without exposing a raw
 --- pointer to Nupp source.
-record scalarIR.LuaScratchU32
+export record LuaScratchU32
     op: 'lua_scratch_u32'
-    capacity: scalarIR.Expr
+    capacity: Expr
 
     --- The word count, where the buffer is fixed: every word readable and
     --- writable from the moment it exists, so its bound is this number rather
@@ -321,14 +319,14 @@ record scalarIR.LuaScratchU32
     fixed: integer?
 
     type: 'lua_scratch_u32'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Reads a word from a local native scratch buffer.
-record scalarIR.LuaScratchU32Get
+export record LuaScratchU32Get
     op: 'lua_scratch_u32_get' | 'lua_scratch_u32_escape_get'
-    scratch: scalarIR.Expr
-    index: scalarIR.Expr
+    scratch: Expr
+    index: Expr
 
     --- A zero-based local authorized by a dominating comparison against this
     --- scratch's tracked initialized length. When present, emission reads the
@@ -342,20 +340,20 @@ record scalarIR.LuaScratchU32Get
     fixedBound: integer?
 
     type: 'u32'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Reads the initialized length of a local word scratch.
-record scalarIR.LuaScratchU32Length
+export record LuaScratchU32Length
     op: 'lua_scratch_u32_length' | 'lua_scratch_u32_escape_length'
-    scratch: scalarIR.Expr
+    scratch: Expr
     type: 'u32'
-    source: scalarIR.Source?
+    source: Source?
 end
 
-record scalarIR.LuaScratchU8
+export record LuaScratchU8
     op: 'lua_scratch_u8'
-    capacity: scalarIR.Expr
+    capacity: Expr
 
     --- The byte count, where the buffer is fixed: every byte readable and
     --- writable from the moment it exists, so its bound is this number rather
@@ -371,49 +369,49 @@ record scalarIR.LuaScratchU8
     fixed: integer?
 
     type: 'lua_scratch_u8'
-    source: scalarIR.Source?
+    source: Source?
 end
 
-record scalarIR.LuaScratchU8Get
+export record LuaScratchU8Get
     op: 'lua_scratch_u8_get'
-    scratch: scalarIR.Expr
-    index: scalarIR.Expr
+    scratch: Expr
+    index: Expr
 
     --- The fixed buffer's byte count, carried to the access so the emitted
     --- comparison names a constant.
     fixedBound: integer?
 
     type: 'u32'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Reads rooted Lua string storage without creating a substring.
-record scalarIR.LuaBytes
+export record LuaBytes
     op: 'lua_string_byte' | 'lua_string_byte_at' | 'lua_string_u32' | 'lua_string_length'
-    bytes: scalarIR.Expr
-    index: scalarIR.Expr?
+    bytes: Expr
+    index: Expr?
     cursor: string?
     cursorUniqueName: string?
     type: 'u32'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Publishes the single completed value produced by a stream builder.
-record scalarIR.LuaBuilderFinish
+export record LuaBuilderFinish
     op: 'lua_builder_finish'
-    builder: scalarIR.Expr
+    builder: Expr
     mode: 'eager' | 'pull' | 'serde'
     type: 'lua_value'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Inspects the current container of a direct value stream.
-record scalarIR.LuaBuilderQuery
+export record LuaBuilderQuery
     op: 'lua_builder_depth' | 'lua_builder_kind' | 'lua_builder_count' | 'lua_builder_state'
-    builder: scalarIR.Expr
+    builder: Expr
     mode: 'eager' | 'pull' | 'serde'
     type: 'u32'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Validates, converts, and publishes a complete JSON number token.
@@ -421,15 +419,15 @@ end
 --- The low 31 bits are the byte position at which parsing stopped. Bit 31 is set
 --- on success and clear on a grammar error, so source can preserve its normal
 --- error-position contract without splitting the fused native operation.
-record scalarIR.LuaBuilderNumberToken
+export record LuaBuilderNumberToken
     op: 'lua_builder_number_token'
-    builder: scalarIR.Expr
+    builder: Expr
     mode: 'eager' | 'pull' | 'serde'
-    sourceBytes: scalarIR.Expr
-    start: scalarIR.Expr
-    limit: scalarIR.Expr
+    sourceBytes: Expr
+    start: Expr
+    limit: Expr
     type: 'u32'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 ----------------------------------------------------------------------------
@@ -440,7 +438,7 @@ end
 ---
 --- Three operations rather than one because they are emitted differently and
 --- because only a local may be assigned to.
-record scalarIR.Name
+export record Name
     op: 'local' | 'uniform' | 'helper_param'
     name: string
 
@@ -452,16 +450,16 @@ record scalarIR.Name
     mutable: boolean?
     lengthOf: string?
     builderMode: ('eager' | 'pull' | 'serde')?
-    type: scalarIR.Type
-    source: scalarIR.Source?
+    type: Type
+    source: Source?
 end
 
 --- The checked count of a span parameter.
-record scalarIR.SpanCount
+export record SpanCount
     op: 'span_count'
     span: string
     type: 'f64'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- The one-based index of the top-level map iteration.
@@ -469,30 +467,30 @@ end
 --- CPU emission runs its physical loop zero-based and GPU emission receives a
 --- zero-based dispatch position. Keeping the authored value explicit in IR is
 --- what makes both backends add one at the same semantic boundary.
-record scalarIR.LoopIndex
+export record LoopIndex
     op: 'loop_index'
     type: 'f64'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- The zero-based workgroup and local-lane coordinates of a phased GPU entry.
-record scalarIR.WorkgroupIndex
+export record WorkgroupIndex
     op: 'workgroup_index' | 'local_index'
     type: 'u32'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- A value read from statically sized workgroup scratch.
-record scalarIR.SharedLoad
+export record SharedLoad
     op: 'shared_load'
     shared: string
-    index: scalarIR.Expr
-    type: scalarIR.Type
-    source: scalarIR.Source?
+    index: Expr
+    type: Type
+    source: Source?
 end
 
 --- An element of a span holding scalars.
-record scalarIR.Load
+export record Load
     op: 'load'
     span: string
 
@@ -515,13 +513,13 @@ record scalarIR.Load
     --- as the room.
     cursorOffset: integer?
 
-    type: scalarIR.Type
+    type: Type
     sourceType: string?
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- A pointer to an element of a span holding reified structs.
-record scalarIR.ElementRef
+export record ElementRef
     op: 'element_ref'
     span: string
     index: string
@@ -535,19 +533,19 @@ record scalarIR.ElementRef
     --- was declared exclusive.
     mutable: boolean
 
-    type: scalarIR.Type
-    source: scalarIR.Source?
+    type: Type
+    source: Source?
 end
 
 --- A field of a struct element.
-record scalarIR.FieldLoad
+export record FieldLoad
     op: 'field_load'
-    object: scalarIR.Expr
+    object: Expr
     layout: string
     field: string
-    type: scalarIR.Type
+    type: Type
     sourceType: string?
-    source: scalarIR.Source?
+    source: Source?
 end
 
 ----------------------------------------------------------------------------
@@ -559,7 +557,7 @@ end
 --- Not contracted and not reassociated: `a * b + c` is two roundings unless the
 --- source asked for one, because an AOT function's answer should be a property
 --- of what was written rather than of the target that compiled it.
-type scalarIR.BinaryOp = 'add'
+export type BinaryOp = 'add'
     | 'sub'
     | 'mul'
     | 'div'
@@ -580,31 +578,31 @@ type scalarIR.BinaryOp = 'add'
     | 'rshift'
     | 'arshift'
 
-record scalarIR.Binary
-    op: scalarIR.BinaryOp
-    left: scalarIR.Expr
-    right: scalarIR.Expr
-    type: scalarIR.Type
-    source: scalarIR.Source?
+export record Binary
+    op: BinaryOp
+    left: Expr
+    right: Expr
+    type: Type
+    source: Source?
 end
 
 --- Negation, logical negation, and bitwise complement.
-type scalarIR.UnaryOp = 'neg' | 'not' | 'bnot'
+export type UnaryOp = 'neg' | 'not' | 'bnot'
 
-record scalarIR.Unary
-    op: scalarIR.UnaryOp
-    value: scalarIR.Expr
-    type: scalarIR.Type
-    source: scalarIR.Source?
+export record Unary
+    op: UnaryOp
+    value: Expr
+    type: Type
+    source: Source?
 end
 
 --- An operation from the closed math set.
-record scalarIR.Math
+export record Math
     op: 'math'
     intrinsic: string
-    args: {scalarIR.Expr}
-    type: scalarIR.Type
-    source: scalarIR.Source?
+    args: {Expr}
+    type: Type
+    source: Source?
 end
 
 --- An explicitly binary32 or wrapping fixed-width integer operation.
@@ -614,7 +612,7 @@ end
 --- is at least twice 24 plus 2. That is what lets these lower directly rather
 --- than being a relaxation. `f32_min`, `f32_max` and `f32_fma` are not covered by
 --- that argument and carry a correction instead.
-type scalarIR.FixedOp = 'f32_add'
+export type FixedOp = 'f32_add'
     | 'f32_sub'
     | 'f32_mul'
     | 'f32_div'
@@ -662,16 +660,16 @@ type scalarIR.FixedOp = 'f32_add'
     | 'u64_rotl'
     | 'u64_rotr'
 
-record scalarIR.Fixed
-    op: scalarIR.FixedOp
-    left: scalarIR.Expr
-    right: scalarIR.Expr
-    type: scalarIR.Type
-    source: scalarIR.Source?
+export record Fixed
+    op: FixedOp
+    left: Expr
+    right: Expr
+    type: Type
+    source: Source?
 end
 
 --- Fixed-width operations that take one operand.
-type scalarIR.FixedUnaryOp = 'f32_sqrt'
+export type FixedUnaryOp = 'f32_sqrt'
     | 'f32_exp'
     | 'u32_not'
     | 'u32_popcount'
@@ -684,29 +682,29 @@ type scalarIR.FixedUnaryOp = 'f32_sqrt'
     | 'u64_clz'
     | 'u64_prefix_xor'
 
-record scalarIR.FixedUnary
-    op: scalarIR.FixedUnaryOp
-    value: scalarIR.Expr
-    type: scalarIR.Type
-    source: scalarIR.Source?
+export record FixedUnary
+    op: FixedUnaryOp
+    value: Expr
+    type: Type
+    source: Source?
 end
 
 --- `min`, `max` and `fma`, through the helper that repairs their NaN behaviour.
-type scalarIR.CorrectedOp = 'f32_min' | 'f32_max' | 'f32_fma'
+export type CorrectedOp = 'f32_min' | 'f32_max' | 'f32_fma'
 
-record scalarIR.Corrected
-    op: scalarIR.CorrectedOp
+export record Corrected
+    op: CorrectedOp
 
     --- Present for the two-operand forms.
-    left: scalarIR.Expr?
+    left: Expr?
 
-    right: scalarIR.Expr?
+    right: Expr?
 
     --- Present for the three-operand form.
-    args: {scalarIR.Expr}?
+    args: {Expr}?
 
-    type: scalarIR.Type
-    source: scalarIR.Source?
+    type: Type
+    source: Source?
 end
 
 ----------------------------------------------------------------------------
@@ -724,7 +722,7 @@ end
 --- into an integer field or span element does instead, LuaJIT's FFI rule:
 --- truncate toward zero through `int64`, then keep the low bits. The two differ
 --- on every fraction, so they are two operations rather than one read two ways.
-type scalarIR.ConvertOp = 'narrow_f64_f32'
+export type ConvertOp = 'narrow_f64_f32'
     | 'widen_f32_f64'
     | 'int_to_f64'
     | 'numeric_cast'
@@ -736,51 +734,51 @@ type scalarIR.ConvertOp = 'narrow_f64_f32'
     | 'bf16_to_f32'
     | 'f32_to_bf16'
 
-record scalarIR.Convert
-    op: scalarIR.ConvertOp
-    value: scalarIR.Expr
-    type: scalarIR.Type
-    source: scalarIR.Source?
+export record Convert
+    op: ConvertOp
+    value: Expr
+    type: Type
+    source: Source?
 end
 
 --- A call to a visible pure helper.
 --- A native-only aggregate built from one value per field, in layout order.
 --- A value, as the vectors it holds are: there is no store into it, and a
 --- change is a new aggregate.
-record scalarIR.AggregateNew
+export record AggregateNew
     op: 'aggregate_new'
     layout: string
-    values: {scalarIR.Expr}
-    type: scalarIR.Type
-    source: scalarIR.Source?
+    values: {Expr}
+    type: Type
+    source: Source?
 end
 
 --- One field of a native-only aggregate value.
-record scalarIR.AggregateField
+export record AggregateField
     op: 'aggregate_field'
-    object: scalarIR.Expr
+    object: Expr
     layout: string
     field: string
-    type: scalarIR.Type
-    source: scalarIR.Source?
+    type: Type
+    source: Source?
 end
 
-record scalarIR.HelperCall
+export record HelperCall
     op: 'helper_call'
     helper: string
     uniqueName: string
-    args: {scalarIR.Expr}
+    args: {Expr}
 
     --- One entry per result. More than one makes the call's own type `multi`.
-    resultTypes: {scalarIR.Type}?
+    resultTypes: {Type}?
 
-    type: scalarIR.Type
-    source: scalarIR.Source?
+    type: Type
+    source: Source?
 end
 
 --- A source-visible SIMD operation. Its abstract vector and mask types are
 --- specialized to the selected artifact tier only when code is generated.
-record scalarIR.Simd
+export record Simd
     op: 'simd_species'
         | 'simd_lanes_generic'
         | 'simd_splat'
@@ -812,7 +810,7 @@ record scalarIR.Simd
         | 'simd_field_store'
         | 'simd_call'
         | 'simd_math'
-    args: {scalarIR.Expr}
+    args: {Expr}
     span: string?
     intrinsic: string?
 
@@ -821,7 +819,7 @@ record scalarIR.Simd
     --- same parameter, because it is what the bounds proof is stated against;
     --- this carries the `uniqueName` the code generator writes, which a copy of the
     --- parameter would not share.
-    rooted: scalarIR.Name?
+    rooted: Name?
 
     --- On `simd_field_load` and `simd_field_store`, the reified layout of the
     --- span's element and the field each lane reaches within it.
@@ -844,12 +842,12 @@ record scalarIR.Simd
     --- load of the whole run in its own right.
     part: integer?
 
-    type: scalarIR.Type
-    source: scalarIR.Source?
+    type: Type
+    source: Source?
 end
 
 --- Creates a closed reducer before its authored SIMD region.
-record scalarIR.ReducerInit
+export record ReducerInit
     op: 'reducer_init'
     order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated' | 'exact' | 'integer' | 'propagating' | 'number'
     operation: 'sum'
@@ -865,20 +863,20 @@ record scalarIR.ReducerInit
         | 'max'
         | 'argmin'
         | 'argmax'
-    initial: scalarIR.Expr
-    type: scalarIR.Type
-    source: scalarIR.Source?
+    initial: Expr
+    type: Type
+    source: Source?
 end
 
 --- Contributes exactly once for one logical outer iteration.
 ---
 --- It is expression-shaped only so a source method call can travel through the
 --- ordinary call-statement lowering. Its `lua_effect` result is never read.
-record scalarIR.ReducerAdd
+export record ReducerAdd
     op: 'reducer_add'
-    reducer: scalarIR.Expr
-    value: scalarIR.Expr
-    right: scalarIR.Expr?
+    reducer: Expr
+    value: Expr
+    right: Expr?
     order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated' | 'exact' | 'integer' | 'propagating' | 'number'
     operation: 'sum'
         | 'product'
@@ -894,19 +892,19 @@ record scalarIR.ReducerAdd
         | 'argmin'
         | 'argmax'
     type: 'lua_effect'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- A masked vector contribution to a reducer, inside a `reducer_region`.
 ---
 --- Active lanes contribute in ascending lane order; inactive lanes contribute
 --- nothing. A reducer takes at most one contribution per region iteration.
-record scalarIR.VectorReducerAdd
+export record VectorReducerAdd
     op: 'simd_reducer_add'
-    reducer: scalarIR.Expr
-    value: scalarIR.Expr
-    mask: scalarIR.Expr
-    right: scalarIR.Expr?
+    reducer: Expr
+    value: Expr
+    mask: Expr
+    right: Expr?
     order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated' | 'exact' | 'integer' | 'propagating' | 'number'
     operation: 'sum'
         | 'product'
@@ -923,11 +921,11 @@ record scalarIR.VectorReducerAdd
         | 'argmax'
     element: string?
     type: 'lua_effect'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- A reducer a `reducer_region` accumulates.
-record scalarIR.ReducerRegionAccumulator
+export record ReducerRegionAccumulator
     name: string
     uniqueName: string
     order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated' | 'exact' | 'integer' | 'propagating' | 'number'
@@ -947,7 +945,7 @@ record scalarIR.ReducerRegionAccumulator
     element: string?
 
     --- The vector type of every contribution the region makes to it.
-    vectorType: scalarIR.Type
+    vectorType: Type
 end
 
 --- The scope of a reducer's vector contributions.
@@ -956,17 +954,17 @@ end
 --- it into the scalar state once the region ends; every other order folds
 --- each contribution lane by lane where it is made. Either way the scalar
 --- state is current when the region ends.
-record scalarIR.ReducerRegion
+export record ReducerRegion
     op: 'reducer_region'
-    body: {scalarIR.Statement}
-    reducers: {scalarIR.ReducerRegionAccumulator}
-    source: scalarIR.Source?
+    body: {Statement}
+    reducers: {ReducerRegionAccumulator}
+    source: Source?
 end
 
 --- Consumes the scalar result after the reducer's SIMD region.
-record scalarIR.ReducerValue
+export record ReducerValue
     op: 'reducer_value'
-    reducer: scalarIR.Expr
+    reducer: Expr
     order: 'ordered' | 'pairwise' | 'algebraic' | 'compensated' | 'exact' | 'integer' | 'propagating' | 'number'
     operation: 'sum'
         | 'product'
@@ -981,8 +979,8 @@ record scalarIR.ReducerValue
         | 'max'
         | 'argmin'
         | 'argmax'
-    type: scalarIR.Type
-    source: scalarIR.Source?
+    type: Type
+    source: Source?
 end
 
 ----------------------------------------------------------------------------
@@ -990,56 +988,56 @@ end
 ----------------------------------------------------------------------------
 
 --- Every scalar expression.
-type scalarIR.Expr = scalarIR.Constant
-    | scalarIR.IntConstant
-    | scalarIR.Int64Constant
-    | scalarIR.Bool
-    | scalarIR.LuaNil
-    | scalarIR.LuaString
-    | scalarIR.LuaStringMatch
-    | scalarIR.LuaConcat
-    | scalarIR.LuaSubstring
-    | scalarIR.LuaStringByte
-    | scalarIR.LuaTableGet
-    | scalarIR.LuaStringBuffer
-    | scalarIR.LuaStringBufferFinish
-    | scalarIR.LuaNewTable
-    | scalarIR.LuaBuilder
-    | scalarIR.LuaScratchU32
-    | scalarIR.LuaScratchU32Get
-    | scalarIR.LuaScratchU32Length
-    | scalarIR.LuaScratchU8
-    | scalarIR.LuaScratchU8Get
-    | scalarIR.LuaBytes
-    | scalarIR.LuaBuilderFinish
-    | scalarIR.LuaBuilderQuery
-    | scalarIR.LuaBuilderNumberToken
-    | scalarIR.LuaBuild
-    | scalarIR.LuaScratchU32Set
-    | scalarIR.LuaScratchU8Set
-    | scalarIR.Name
-    | scalarIR.SpanCount
-    | scalarIR.LoopIndex
-    | scalarIR.WorkgroupIndex
-    | scalarIR.SharedLoad
-    | scalarIR.Load
-    | scalarIR.ElementRef
-    | scalarIR.FieldLoad
-    | scalarIR.AggregateNew
-    | scalarIR.AggregateField
-    | scalarIR.Binary
-    | scalarIR.Unary
-    | scalarIR.Math
-    | scalarIR.Fixed
-    | scalarIR.FixedUnary
-    | scalarIR.Corrected
-    | scalarIR.Convert
-    | scalarIR.HelperCall
-    | scalarIR.Simd
-    | scalarIR.ReducerInit
-    | scalarIR.ReducerAdd
-    | scalarIR.VectorReducerAdd
-    | scalarIR.ReducerValue
+export type Expr = Constant
+    | IntConstant
+    | Int64Constant
+    | Bool
+    | LuaNil
+    | LuaString
+    | LuaStringMatch
+    | LuaConcat
+    | LuaSubstring
+    | LuaStringByte
+    | LuaTableGet
+    | LuaStringBuffer
+    | LuaStringBufferFinish
+    | LuaNewTable
+    | LuaBuilder
+    | LuaScratchU32
+    | LuaScratchU32Get
+    | LuaScratchU32Length
+    | LuaScratchU8
+    | LuaScratchU8Get
+    | LuaBytes
+    | LuaBuilderFinish
+    | LuaBuilderQuery
+    | LuaBuilderNumberToken
+    | LuaBuild
+    | LuaScratchU32Set
+    | LuaScratchU8Set
+    | Name
+    | SpanCount
+    | LoopIndex
+    | WorkgroupIndex
+    | SharedLoad
+    | Load
+    | ElementRef
+    | FieldLoad
+    | AggregateNew
+    | AggregateField
+    | Binary
+    | Unary
+    | Math
+    | Fixed
+    | FixedUnary
+    | Corrected
+    | Convert
+    | HelperCall
+    | Simd
+    | ReducerInit
+    | ReducerAdd
+    | VectorReducerAdd
+    | ReducerValue
 
 ----------------------------------------------------------------------------
 -- Assignments
@@ -1047,30 +1045,30 @@ type scalarIR.Expr = scalarIR.Constant
 
 --- Where a
 --- element reached through a span.
-record scalarIR.Target
+export record Target
     kind: 'local' | 'field'
     name: string?
     uniqueName: string?
-    object: scalarIR.Expr?
+    object: Expr?
     layout: string?
     field: string?
-    type: scalarIR.Type?
+    type: Type?
     sourceType: string?
 end
 
 --- A target and the value going into it.
-record scalarIR.Assignment
-    target: scalarIR.Target
-    value: scalarIR.Expr
+export record Assignment
+    target: Target
+    value: Expr
 end
 
 --- Declaring a local.
-record scalarIR.Let
+export record Let
     op: 'let'
     name: string
     uniqueName: string
-    value: scalarIR.Expr
-    type: scalarIR.Type
+    value: Expr
+    type: Type
 
     --- Whether an `assign` anywhere after this declaration targets the name.
     --- Absent, the binding is a value: nothing in the body changes it, so a
@@ -1081,7 +1079,7 @@ record scalarIR.Let
     --- the verifier refuses an `assign` to a name whose `let` does not say so.
     assigned: boolean?
 
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- A local a loop carries from one iteration into the next: bound before
@@ -1089,21 +1087,21 @@ end
 --- iteration is whatever the previous one left. The loop names these once so
 --- that no reader has to scan the body to learn which facts its entry
 --- retires; a name not listed here is the same on every iteration.
-record scalarIR.Carried
+export record Carried
     name: string
     uniqueName: string
-    type: scalarIR.Type
+    type: Type
 end
 
 --- A name the body introduced, as the environment records it.
 ---
 --- Not an expression: reading one produces a `local`, and this is what that
 --- `local` was resolved against.
-record scalarIR.Binding
+export record Binding
     kind: 'local'
     name: string
     uniqueName: string
-    type: scalarIR.Type
+    type: Type
 
     --- Whether what it was bound to may be written through, which is how a
     --- name bound to `getMut(i)` stays writable at its uses.
@@ -1116,26 +1114,26 @@ record scalarIR.Binding
     lengthOf: string?
     builderMode: ('eager' | 'pull' | 'serde')?
 
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- One binding per result of a call that returns several.
-record scalarIR.MultiLet
+export record MultiLet
     op: 'multi_let'
-    call: scalarIR.HelperCall
-    bindings: {scalarIR.Binding}
-    source: scalarIR.Source?
+    call: HelperCall
+    bindings: {Binding}
+    source: Source?
 end
 
 --- Simultaneous assignment: every value computed before any is stored.
-record scalarIR.Assign
+export record Assign
     op: 'assign'
-    values: {scalarIR.Assignment}
-    source: scalarIR.Source?
+    values: {Assignment}
+    source: Source?
 end
 
 --- Storing through a span that holds scalars.
-record scalarIR.Store
+export record Store
     op: 'store'
     span: string
     index: string
@@ -1143,8 +1141,8 @@ record scalarIR.Store
     cursor: string?
     cursorUniqueName: string?
     cursorOffset: integer?
-    value: scalarIR.Expr
-    source: scalarIR.Source?
+    value: Expr
+    source: Source?
 end
 
 --- A raw-equivalent write into a fresh unpublished Lua table.
@@ -1152,20 +1150,20 @@ end
 --- The target remains a rooted logical handle. The code generator maps it to a
 --- Lua stack slot and uses the public raw-set API, which performs the VM
 --- barrier without invoking a metatable.
-record scalarIR.LuaSet
+export record LuaSet
     op: 'lua_set_index' | 'lua_set_key'
-    table: scalarIR.Expr
-    key: scalarIR.Expr
-    value: scalarIR.Expr
-    source: scalarIR.Source?
+    table: Expr
+    key: Expr
+    value: Expr
+    source: Source?
 end
 
 --- Appends a string expression to a Lua-owned byte accumulator.
-record scalarIR.LuaStringBufferAppend
+export record LuaStringBufferAppend
     op: 'lua_string_buffer_append'
-    buffer: scalarIR.Expr
-    value: scalarIR.Expr
-    source: scalarIR.Source?
+    buffer: Expr
+    value: Expr
+    source: Source?
 end
 
 --- A direct construction event applied to a bounded value stream.
@@ -1174,7 +1172,7 @@ end
 --- number-slice events. `value` belongs to boolean/number events. `capacity`
 --- belongs to container openings. Keeping one record makes the legal shapes
 --- explicit in the verifier while avoiding an open-ended call opcode.
-record scalarIR.LuaBuild
+export record LuaBuild
     op: 'lua_builder_open_array'
         | 'lua_builder_open_object'
         | 'lua_builder_key'
@@ -1191,50 +1189,50 @@ record scalarIR.LuaBuild
         | 'lua_builder_string_scratch'
         | 'lua_builder_key_escapes'
         | 'lua_builder_string_escapes'
-    builder: scalarIR.Expr
+    builder: Expr
     mode: 'eager' | 'pull' | 'serde'
-    sourceBytes: scalarIR.Expr?
-    start: scalarIR.Expr?
-    length: scalarIR.Expr?
-    escaped: scalarIR.Expr?
-    value: scalarIR.Expr?
-    negative: scalarIR.Expr?
-    exponent: scalarIR.Expr?
-    exact: scalarIR.Expr?
-    capacity: scalarIR.Expr?
-    scratch: scalarIR.Expr?
-    escapeScratch: scalarIR.Expr?
-    escapeIndex: scalarIR.Expr?
-    escapeCount: scalarIR.Expr?
+    sourceBytes: Expr?
+    start: Expr?
+    length: Expr?
+    escaped: Expr?
+    value: Expr?
+    negative: Expr?
+    exponent: Expr?
+    exact: Expr?
+    capacity: Expr?
+    scratch: Expr?
+    escapeScratch: Expr?
+    escapeIndex: Expr?
+    escapeCount: Expr?
     type: 'lua_effect'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Writes a word in a local native scratch buffer.
-record scalarIR.LuaScratchU32Set
+export record LuaScratchU32Set
     op: 'lua_scratch_u32_set'
-    scratch: scalarIR.Expr
-    index: scalarIR.Expr
+    scratch: Expr
+    index: Expr
 
     --- The fixed buffer's word count. See the read above.
     fixedBound: integer?
 
-    value: scalarIR.Expr
+    value: Expr
     type: 'lua_effect'
-    source: scalarIR.Source?
+    source: Source?
 end
 
-record scalarIR.LuaScratchU8Set
+export record LuaScratchU8Set
     op: 'lua_scratch_u8_set' | 'lua_scratch_u8_set4' | 'lua_scratch_u8_reset'
-    scratch: scalarIR.Expr
-    index: scalarIR.Expr?
+    scratch: Expr
+    index: Expr?
 
     --- The fixed buffer's byte count. See the read above.
     fixedBound: integer?
 
-    value: scalarIR.Expr?
+    value: Expr?
     type: 'lua_effect'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 ----------------------------------------------------------------------------
@@ -1252,83 +1250,83 @@ end
 --- also covers derived offsets strictly below N vectors. Every vector bound
 --- implies at least N elements, so `span[cursor + k]` is proven under either
 --- kind of room once the room reaches k, which `simdbounds.elements` counts.
-type scalarIR.CursorBounds = {[string]: {[string]: string}}
+export type CursorBounds = {[string]: {[string]: string}}
 
 --- The room a one-element bound records.
-const scalarIR.ONE_ELEMENT = "1"
+export const ONE_ELEMENT = "1"
 
 --- How a cursor's room below one span's count carries to another's: from
 --- the guard-proved `factor * #from <= #to + offset`, a cursor `r` elements
 --- below `#from` is `factor * r - offset` elements below `#to`, because it
 --- is no less than zero. A plain `#from <= #to` is the transfer with factor
 --- one and offset zero.
-record scalarIR.RoomTransfer
+export record RoomTransfer
     factor: integer
     offset: integer
 end
 
 --- Every proved transfer, by the span a cursor is bounded against and then
 --- by the span the bound carries to.
-type scalarIR.RoomTransfers = {[string]: {[string]: {scalarIR.RoomTransfer}}}
+export type RoomTransfers = {[string]: {[string]: {RoomTransfer}}}
 
 --- An arm of a conditional.
-record scalarIR.Clause
-    condition: scalarIR.Expr
-    body: {scalarIR.Statement}
-    cursorBounds: scalarIR.CursorBounds?
-    source: scalarIR.Source?
+export record Clause
+    condition: Expr
+    body: {Statement}
+    cursorBounds: CursorBounds?
+    source: Source?
 end
 
-record scalarIR.If
+export record If
     op: 'if'
-    clauses: {scalarIR.Clause}
-    elseBody: {scalarIR.Statement}?
-    source: scalarIR.Source?
+    clauses: {Clause}
+    elseBody: {Statement}?
+    source: Source?
 end
 
-record scalarIR.While
+export record While
     op: 'while'
 
     --- Statements evaluated immediately before each condition, in the
     --- enclosing loop-control scope (and the repeat body's local scope).
-    conditionBody: {scalarIR.Statement}?
+    conditionBody: {Statement}?
 
-    condition: scalarIR.Expr
-    body: {scalarIR.Statement}
+    condition: Expr
+    body: {Statement}
 
     --- The outer locals the body assigns; see `scalarIR.Carried`. The verifier
     --- holds it to exactly that set, so it is trusted rather than recomputed.
-    carried: {scalarIR.Carried}
+    carried: {Carried}
 
-    cursorBounds: scalarIR.CursorBounds?
-    source: scalarIR.Source?
+    cursorBounds: CursorBounds?
+    source: Source?
 end
 
 --- A post-tested loop. The condition is the source `until` condition, so the
 --- body repeats while it is false.
-record scalarIR.Repeat
+export record Repeat
     op: 'repeat'
 
     --- Statements evaluated immediately before each condition, in the
     --- enclosing loop-control scope (and the repeat body's local scope).
-    conditionBody: {scalarIR.Statement}?
+    conditionBody: {Statement}?
 
-    condition: scalarIR.Expr
-    body: {scalarIR.Statement}
-    carried: {scalarIR.Carried}
-    source: scalarIR.Source?
+    condition: Expr
+    body: {Statement}
+    carried: {Carried}
+    source: Source?
 end
 
-record scalarIR.Fornum
+export record Fornum
     op: 'fornum'
-    binding: scalarIR.Binding
-    from: scalarIR.Expr
-    to: scalarIR.Expr
-    body: {scalarIR.Statement}
+    binding: Binding
+    from: Expr
+    to: Expr
+    body: {Statement}
 
     --- Accumulators and cursors the body advances. The induction variable is
     --- not among them: it is the loop's own, bound afresh each iteration.
-    carried: {scalarIR.Carried}
+    carried: {Carried}
 
     --- The span whose count is this loop's inclusive upper bound. Present only
     --- when `from` is a constant integer of at least one and `to` is that
@@ -1336,52 +1334,52 @@ record scalarIR.Fornum
     --- induction variable are in bounds.
     boundSpan: string?
 
-    source: scalarIR.Source?
+    source: Source?
 end
 
-record scalarIR.Block
+export record Block
     op: 'block'
-    body: {scalarIR.Statement}
-    source: scalarIR.Source?
+    body: {Statement}
+    source: Source?
 end
 
 --- Leaving the enclosing loop, or the current iteration of it.
 ---
 --- Two records rather than one with two tags, because a tag that could be either
 --- narrows to neither.
-record scalarIR.Break
+export record Break
     op: 'break'
-    source: scalarIR.Source?
+    source: Source?
 end
 
-record scalarIR.Continue
+export record Continue
     op: 'continue'
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Returning from a general block kernel.
-record scalarIR.Return
+export record Return
     op: 'return'
-    values: {scalarIR.Expr}
-    source: scalarIR.Source?
+    values: {Expr}
+    source: Source?
 end
 
 --- A structurally disjoint write to workgroup scratch. Admission requires
 --- `index` to be the stage's exact `local_index` expression.
-record scalarIR.SharedStore
+export record SharedStore
     op: 'shared_store'
     shared: string
-    index: scalarIR.Expr
-    value: scalarIR.Expr
-    source: scalarIR.Source?
+    index: Expr
+    value: Expr
+    source: Source?
 end
 
 --- A stage in a workgroup controller. Each backend completes the body for
 --- every local lane before any lane enters the following statement.
-record scalarIR.Phase
+export record Phase
     op: 'phase'
-    body: {scalarIR.Statement}
-    source: scalarIR.Source?
+    body: {Statement}
+    source: Source?
 end
 
 --- Every scalar statement.
@@ -1389,63 +1387,63 @@ end
 --- `Simd` is here because some SIMD operations write rather than produce:
 --- `simd_store` carries `lua_effect` and stands where a statement stands.
 --- Admitting it makes that sayable rather than merely emitted.
-type scalarIR.Statement = scalarIR.Simd
-    | scalarIR.ReducerAdd
-    | scalarIR.VectorReducerAdd
-    | scalarIR.ReducerRegion
-    | scalarIR.Let
-    | scalarIR.MultiLet
-    | scalarIR.Assign
-    | scalarIR.Store
-    | scalarIR.LuaSet
-    | scalarIR.LuaStringBufferAppend
-    | scalarIR.LuaBuild
-    | scalarIR.LuaScratchU32Set
-    | scalarIR.LuaScratchU8Set
-    | scalarIR.SharedStore
-    | scalarIR.Phase
-    | scalarIR.If
-    | scalarIR.While
-    | scalarIR.Repeat
-    | scalarIR.Fornum
-    | scalarIR.Block
-    | scalarIR.Break
-    | scalarIR.Continue
-    | scalarIR.Return
+export type Statement = Simd
+    | ReducerAdd
+    | VectorReducerAdd
+    | ReducerRegion
+    | Let
+    | MultiLet
+    | Assign
+    | Store
+    | LuaSet
+    | LuaStringBufferAppend
+    | LuaBuild
+    | LuaScratchU32Set
+    | LuaScratchU8Set
+    | SharedStore
+    | Phase
+    | If
+    | While
+    | Repeat
+    | Fornum
+    | Block
+    | Break
+    | Continue
+    | Return
 
 ----------------------------------------------------------------------------
 -- Layouts and parameters
 ----------------------------------------------------------------------------
 
 --- A stored field of a reified struct.
-record scalarIR.Field
+export record Field
     name: string
-    type: scalarIR.Type
+    type: Type
 
     --- The physical source storage. It differs from `type` for narrow integer
     --- fields, whose loads establish i32/u32 values and whose stores narrow.
     sourceType: string?
 
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- A reified struct a span holds elements of.
 ---
 --- The `uniqueName` is carried rather than derived, so the generated binding and the
 --- generated code cannot disagree about what to call it.
-record scalarIR.Layout
+export record Layout
     name: string
     uniqueName: string
-    fields: {scalarIR.Field}
+    fields: {Field}
 
     --- The same fields by name, filled in when the layout is verified so a
     --- later lookup is one index rather than a scan.
-    fieldTypes: {[string]: scalarIR.Type}?
+    fieldTypes: {[string]: Type}?
 
     --- The physical storage spellings by field name.
     fieldSourceTypes: {[string]: string}?
 
-    source: scalarIR.Source?
+    source: Source?
 
     --- A native-only aggregate rather than storage: its fields are vectors,
     --- masks, scalars or other such aggregates, typed as the values they are,
@@ -1461,7 +1459,7 @@ end
 ---
 --- `zero` is the origin every literal is measured from, `uniform` names an
 --- integer parameter, and `count` names a span whose length the term is.
-record scalarIR.Term
+export record Term
     kind: 'zero' | 'uniform' | 'count'
 
     --- The parameter or span named, absent for `zero`.
@@ -1479,11 +1477,11 @@ end
 --- wrapper checks exactly this list and nothing else about bounds, which is what
 --- makes a guard stronger than the loop needs stay stronger: the relation the
 --- source wrote is the relation the caller is held to.
-record scalarIR.Relation
-    left: scalarIR.Term
-    right: scalarIR.Term
+export record Relation
+    left: Term
+    right: Term
     offset: integer
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- A range the source guarded, proved in bounds before lowering.
@@ -1492,7 +1490,7 @@ end
 --- sound because the guard was checked and not merely written. The check itself
 --- moves to the generated wrapper, where it runs once per call rather than once
 --- per element.
-record scalarIR.RangeGuard
+export record RangeGuard
     first: string
     last: string
 
@@ -1500,11 +1498,11 @@ record scalarIR.RangeGuard
     --- against.
     count: string
 
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- The source view and checked field represented by a private column parameter.
-record scalarIR.SoaColumn
+export record SoaColumn
     --- Authored parameter and type, shared by every column of this view.
     view: string
 
@@ -1519,10 +1517,10 @@ end
 --- `type` is the physical storage the code generator and the foreign
 --- declaration use; `sourceType` preserves the authored type in the checked
 --- wrapper.
-record scalarIR.Param
+export record Param
     kind: 'write_span' | 'read_span' | 'uniform' | 'scalar'
     name: string
-    type: scalarIR.Type
+    type: Type
     sourceType: string?
 
     --- The checked span module whose ownership contract admitted this parameter.
@@ -1531,7 +1529,7 @@ record scalarIR.Param
     spanModule: string?
 
     --- A scalar column expanded from an authored SoA row-view parameter.
-    soa: scalarIR.SoaColumn?
+    soa: SoaColumn?
 
     --- Uniforms use their parameter's unique name; Lua-builder scalars use
     --- their positive VM stack index.
@@ -1551,11 +1549,11 @@ record scalarIR.Param
     --- through this span does not have to parse the written type again.
     element: any?
 
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- A span's borrow, restated as something the backend can name.
-record scalarIR.Region
+export record Region
     id: string
     param: string
     access: 'read' | 'readwrite'
@@ -1564,7 +1562,7 @@ record scalarIR.Region
     --- can be checked rather than assumed.
     proof: string
 
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- What ownership settled about one pair of regions.
@@ -1573,7 +1571,7 @@ end
 --- This is where that becomes a fact the optimizer is allowed to use, and the
 --- verifier requires the matrix to be complete rather than partial: a pair with
 --- no fact would be a pair whose `noalias` nobody justified.
-record scalarIR.AliasFact
+export record AliasFact
     relation: 'disjoint' | 'may_alias'
     left: string
     right: string
@@ -1581,23 +1579,23 @@ record scalarIR.AliasFact
 end
 
 --- A length agreement the source proved between two spans.
-record scalarIR.Guard
+export record Guard
     op: 'equal_count'
     left: string
     right: string
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- A visible pure helper the body may call.
-record scalarIR.Helper
+export record Helper
     name: string
     uniqueName: string
-    params: {scalarIR.Name}
+    params: {Name}
 
     --- One expression per result. A helper is a return list and nothing else,
     --- which is what makes inlining it sound. Empty for a
     --- native call, which has no body here to inline.
-    values: {scalarIR.Expr}
+    values: {Expr}
 
     --- Whether this names another compiled entry rather than a body to inline.
     --- The call becomes an ordinary native call to that entry's own symbol, so
@@ -1608,15 +1606,15 @@ record scalarIR.Helper
     --- that module's qualification, so this unit's must not be applied to it.
     qualified: boolean?
 
-    resultTypes: {scalarIR.Type}
+    resultTypes: {Type}
 
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- The single loop an admitted body is.
 ---
 --- `first` is `1` for a whole span and the name of a proved bound otherwise.
-record scalarIR.Loop
+export record Loop
     index: string
     first: integer | string
     last: string
@@ -1624,29 +1622,29 @@ record scalarIR.Loop
     --- The span whose length bounds the loop, which is the primary output.
     count: string
 
-    statements: {scalarIR.Statement}
-    source: scalarIR.Source?
+    statements: {Statement}
+    source: Source?
 end
 
 --- A statically allocated workgroup scratch array.
-record scalarIR.Shared
+export record Shared
     name: string
-    element: scalarIR.Type
+    element: Type
     count: integer
-    initial: scalarIR.Expr
-    source: scalarIR.Source?
+    initial: Expr
+    source: Source?
 end
 
 --- A uniformly structured workgroup controller. Its statements include
 --- `phase` nodes; loops and branches around them are uniform by verification.
-record scalarIR.Workgroup
-    prelude: {scalarIR.Statement}
-    groups: scalarIR.Expr
+export record Workgroup
+    prelude: {Statement}
+    groups: Expr
     dispatchSpan: string
     size: integer
-    shared: {scalarIR.Shared}
-    statements: {scalarIR.Statement}
-    source: scalarIR.Source?
+    shared: {Shared}
+    statements: {Statement}
+    source: Source?
 end
 
 ----------------------------------------------------------------------------
@@ -1658,7 +1656,7 @@ end
 --- Everything downstream -- the generated code, the generated wrapper, the
 --- verifier -- is written from this and only this, so none of them can disagree
 --- about what the function is.
-record scalarIR.Program
+export record Program
     --- Target runtime semantics for numeric-for entry. Absent generic IR uses
     --- binary64 progression without LuaJIT dual-number normalization.
     numericForRuntime: string?
@@ -1675,7 +1673,7 @@ record scalarIR.Program
 
     --- The private ABI. Omitted IR from version 5 and earlier is refused by the
     --- version check rather than being guessed here.
-    entryMode: scalarIR.EntryMode
+    entryMode: EntryMode
 
     --- The execution family selected by the source annotation. CPU is the
     --- established native path; GPU programs are consumed by a shader emitter.
@@ -1702,36 +1700,36 @@ record scalarIR.Program
     --- The exported registrar which returns the Lua C closure.
     registrar: string?
 
-    params: {scalarIR.Param}
-    layouts: {scalarIR.Layout}?
-    regions: {scalarIR.Region}
-    aliasFacts: {scalarIR.AliasFact}
+    params: {Param}
+    layouts: {Layout}?
+    regions: {Region}
+    aliasFacts: {AliasFact}
 
     --- The facts the source guards stated, normalized, in a canonical order.
     ---
     --- The wrapper's contract. `guards` and `rangeGuard` below are claims proved
     --- from these, so a claim that does not follow from this list fails
     --- verification rather than reaching a backend.
-    relations: {scalarIR.Relation}?
+    relations: {Relation}?
 
-    guards: {scalarIR.Guard}
-    helpers: {scalarIR.Helper}?
+    guards: {Guard}
+    helpers: {Helper}?
 
     --- Compile-time byte tables the body reads, in the order they were reached.
-    constants: {scalarIR.ConstantBytes}?
+    constants: {ConstantBytes}?
 
     --- The original map-shaped form, or a general structured scalar body.
     --- Exactly one is present. Keeping the map form preserves its established
     --- private ABI while block kernels grow independently.
-    loop: scalarIR.Loop?
+    loop: Loop?
 
-    workgroup: scalarIR.Workgroup?
+    workgroup: Workgroup?
 
-    body: {scalarIR.Statement}?
+    body: {Statement}?
 
     --- Top-level scalar results. Empty is the existing `nil` ABI; several use
     --- one compiler-owned native result aggregate at the private boundary.
-    resultTypes: {scalarIR.Type}?
+    resultTypes: {Type}?
 
     resultSourceTypes: {string}?
 
@@ -1755,7 +1753,7 @@ record scalarIR.Program
     --- spans the whole species however wide that species is.
     vectorCeiling: integer?
 
-    rangeGuard: scalarIR.RangeGuard?
+    rangeGuard: RangeGuard?
 
     --- Whether the source asked for fused multiply-add. Part of what the
     --- function returns rather than only how fast it gets there, which is why
@@ -1766,7 +1764,7 @@ record scalarIR.Program
     --- native implementation rather than the IR-owned operation sequence.
     fpTranscendentals: boolean?
 
-    source: scalarIR.Source?
+    source: Source?
 end
 
 --- Whether two column parameters originate in the same authored row view.
@@ -1777,14 +1775,14 @@ end
 --- element, laid out by the target layout model with an alignment of its own,
 --- which is what the compiled object then reports beside the field's offset
 --- and size.
-function scalarIR.storedVectorField(field: scalarIR.Field): boolean
+export function storedVectorField(field: Field): boolean
     return tostring(field.type):match("^simd_vector_") ~= nil
 end
 
 --- Whether a layout holds a stored vector field.
-function scalarIR.holdsStoredVector(layout: scalarIR.Layout): boolean
+export function holdsStoredVector(layout: Layout): boolean
     for _, field in ipairs(layout.fields) do
-        if scalarIR.storedVectorField(field) then
+        if storedVectorField(field) then
             return true
         end
     end
@@ -1792,18 +1790,18 @@ function scalarIR.holdsStoredVector(layout: scalarIR.Layout): boolean
     return false
 end
 
-function scalarIR.nativeOnlyType(typeName: scalarIR.Type?): boolean
+export function nativeOnlyType(typeName: Type?): boolean
     local name = tostring(typeName)
 
     return name:match("^simd_vector_") ~= nil or name:match("^simd_mask_") ~= nil or name:match("^aggregate:") ~= nil
 end
 
 --- The layout an `aggregate:<name>` type names, or nil for any other type.
-function scalarIR.aggregateLayout(typeName: scalarIR.Type?): string?
+export function aggregateLayout(typeName: Type?): string?
     return tostring(typeName):match("^aggregate:(.+)$")
 end
 
-function scalarIR.sameSoaView(left: scalarIR.Param?, right: scalarIR.Param?): boolean
+export function sameSoaView(left: Param?, right: Param?): boolean
     return left ~= nil
         and right ~= nil
         and left.soa ~= nil
@@ -1857,7 +1855,7 @@ end
 
 --- The integer a literal node denotes, when it denotes one exactly within
 --- binary64's contiguous integers; nil for any other node.
-function scalarIR.exactInteger(node: scalarIR.Expr): number?
+export function exactInteger(node: Expr): number?
     if node.op ~= "constant" and node.op ~= "constant_i32" and node.op ~= "constant_i64" then
         return nil
     end
@@ -1865,7 +1863,7 @@ function scalarIR.exactInteger(node: scalarIR.Expr): number?
 end
 
 --- Whether `param` is a span the entry receives as a pointer and a count.
-function scalarIR.isSpan(param: scalarIR.Param): boolean
+export function isSpan(param: Param): boolean
     return param.kind == "write_span" or param.kind == "read_span"
 end
 
@@ -1874,18 +1872,16 @@ end
 --- A block kernel always does. A map kernel may share its primary count only
 --- when guards relate every other span to it; cursor-only spans retain their
 --- independent counts so the generated body can check them.
-function scalarIR.independentCounts(program: scalarIR.Program): boolean
+export function independentCounts(program: Program): boolean
     if program.body ~= nil or program.workgroup ~= nil then
         return true
     end
     local spans = 0
     for _, param in ipairs(program.params) do
-        if scalarIR.isSpan(param) then
+        if isSpan(param) then
             spans = spans + 1
         end
     end
 
     return #program.guards < spans - 1
 end
-
-export = scalarIR

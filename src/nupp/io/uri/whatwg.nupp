@@ -26,8 +26,6 @@ implements, so that the two agree byte for byte.
 
 local contracts = require("io.spi")
 
-local whatwg = {}
-
 const DEFAULT_PORTS: {[string]: integer} = {http = 80, https = 443, ws = 80, wss = 443, ftp = 21,}
 
 const HEX = "0123456789ABCDEF"
@@ -641,7 +639,7 @@ end
 --- provider refuses it.
 --- @param text the input
 --- @return the reason, or nil when the text may be parsed
-function whatwg.refusal(text: string): string?
+export function refusal(text: string): string?
     if text:find("\0", 1, true) ~= nil then
         return "URI contains a NUL byte"
     end
@@ -660,8 +658,8 @@ end
 ---     than refused, for text a host URL parser reads afterwards
 --- @return the URL's components, or nil when the text is not a URL
 --- @return the reason, when it is not
-function whatwg.parse(text: string, base: contracts.UriParts?, trustHosts: boolean?): (contracts.UriParts?, string?)
-    local refused = whatwg.refusal(text)
+export function parse(text: string, base: contracts.UriParts?, trustHosts: boolean?): (contracts.UriParts?, string?)
+    local refused = refusal(text)
     if refused ~= nil then
         return nil, refused
     end
@@ -1061,5 +1059,3 @@ function whatwg.parse(text: string, base: contracts.UriParts?, trustHosts: boole
 
     return serialize(url), nil
 end
-
-export = whatwg

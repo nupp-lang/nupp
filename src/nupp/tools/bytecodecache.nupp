@@ -29,8 +29,6 @@ traceback out of a cached module reads exactly as one out of the source does --
 which is the point, since this is the compiler developers run.
 ]]
 
-local bytecodecache = {}
-
 -- Both halves of the format, kept together because they are one agreement. The
 -- version leads so that a reader of a later one stops at the first line.
 local FORMAT = "nupp-bytecode 3"
@@ -190,7 +188,7 @@ end
 ---
 --- Exported because the layout is otherwise this module's business, and a test
 --- that wants to damage a cache has to be able to find one.
-function bytecodecache.indexPath(root: string): string
+export function indexPath(root: string): string
     return root .. "/.bytecode/" .. vmDirectory() .. "/" .. INDEX
 end
 
@@ -199,7 +197,7 @@ end
 --- Separate from installing it so that the question "what would this cache
 --- answer" can be asked of a tree that is not the one this compiler is running
 --- out of, which is the only way to test it.
-function bytecodecache.searcher(root: string): any
+export function searcher(root: string): any
     local found = readIndex(root)
     if found == nil then
         return nil
@@ -248,12 +246,12 @@ end
 --- After `package.preload`, so nothing that was carried in is shadowed, and
 --- before the file searcher, so a hit is answered without a parse. Called once,
 --- from the entry point, before it requires anything else.
-function bytecodecache.install()
+export function install(): nil
     local root = outputRoot()
     if root == nil then
         return
     end
-    local search = bytecodecache.searcher(root)
+    local search = searcher(root)
     if search == nil then
         return
     end
@@ -267,7 +265,7 @@ end
 --- and the entry named by that digest is already there. A module that would not
 --- load is skipped rather than reported -- the build has already written it, and
 --- whatever is wrong with it is not this cache's to say.
-function bytecodecache.refresh(outDir: string, modules: {[string]: any}): nil
+export function refresh(outDir: string, modules: {[string]: any}): nil
     local fs = require("nupp.compiler.fs")
     local hash = require("nupp.compiler.hash")
     -- Absolute, because the loader has only its own path to compare against and
@@ -350,5 +348,3 @@ function bytecodecache.refresh(outDir: string, modules: {[string]: any}): nil
         end
     end
 end
-
-export = bytecodecache

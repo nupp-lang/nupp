@@ -20,8 +20,7 @@ struct types are owned by their declarations; providers implement their storage
 without introducing competing nominal types.
 ]]
 
-local provider = {}
-provider.referencevalued = true
+export const referencevalued = true
 
 local function wrapInteger(value: number, bits: integer, signed: boolean): number
     local modulus = 2 ^ bits
@@ -109,7 +108,7 @@ local function stored(field: any, value: any): any
     return normalize and normalize(value) or value
 end
 
-function provider.scalar(kind: string): any
+export function scalar(kind: string): any
     local fixed: any = {}
     function fixed:new(): any
         return kind == "boolean" and false or 0
@@ -133,7 +132,7 @@ function provider.scalar(kind: string): any
     return fixed
 end
 
-function provider.define(layout: any, methods: table): any
+export function define(layout: any, methods: table): any
     local byName = {}
     for _, field in ipairs(layout.fields) do
         byName[field.name] = field
@@ -210,7 +209,7 @@ function provider.define(layout: any, methods: table): any
     return fixed
 end
 
-function provider.array(element: any, count: integer): any
+export function array(element: any, count: integer): any
     local identity = {}
     local values = {
         __index = function(self, index)
@@ -255,5 +254,3 @@ function provider.array(element: any, count: integer): any
 
     return fixed
 end
-
-export = provider

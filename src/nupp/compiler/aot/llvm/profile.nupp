@@ -9,9 +9,7 @@ public target owns that translation, so code generation, cache keys and linking
 all read the same answer and nothing rewrites a triple string on its own.
 ]]
 
-local profile = {}
-
-record profile.Profile
+export record Profile
     --- The public Nupp target.
     public: string
 
@@ -44,10 +42,10 @@ record profile.Profile
     linkedRuntime: string?
 end
 
-local PROFILES: {[string]: profile.Profile} = {
+local PROFILES: {[string]: Profile} = {
     [
         "aarch64-apple-darwin"
-    ] = new profile.Profile(
+    ] = new Profile(
         public = "aarch64-apple-darwin",
         llvmTriple = "arm64-apple-macosx11.0.0",
         cpu = "apple-m1",
@@ -60,7 +58,7 @@ local PROFILES: {[string]: profile.Profile} = {
     ),
     [
         "x86_64-apple-darwin"
-    ] = new profile.Profile(
+    ] = new Profile(
         public = "x86_64-apple-darwin",
         llvmTriple = "x86_64-apple-macosx10.14.0",
         cpu = "x86-64",
@@ -73,7 +71,7 @@ local PROFILES: {[string]: profile.Profile} = {
     ),
     [
         "x86_64-unknown-linux-gnu"
-    ] = new profile.Profile(
+    ] = new Profile(
         public = "x86_64-unknown-linux-gnu",
         llvmTriple = "x86_64-unknown-linux-gnu",
         cpu = "x86-64",
@@ -85,7 +83,7 @@ local PROFILES: {[string]: profile.Profile} = {
     ),
     [
         "aarch64-unknown-linux-gnu"
-    ] = new profile.Profile(
+    ] = new Profile(
         public = "aarch64-unknown-linux-gnu",
         llvmTriple = "aarch64-unknown-linux-gnu",
         cpu = "generic",
@@ -95,7 +93,7 @@ local PROFILES: {[string]: profile.Profile} = {
         machine = "aarch64linux",
         sizeType = "i64"
     ),
-    ["i686-unknown-linux-gnu"] = new profile.Profile(
+    ["i686-unknown-linux-gnu"] = new Profile(
         public = "i686-unknown-linux-gnu",
         llvmTriple = "i686-unknown-linux-gnu",
         cpu = "pentium4",
@@ -109,7 +107,7 @@ local PROFILES: {[string]: profile.Profile} = {
         sizeType = "i32",
         linkedRuntime = "/aot/llvm/lua/runtime-i686.ll"
     ),
-    ["wasm32-unknown-emscripten"] = new profile.Profile(
+    ["wasm32-unknown-emscripten"] = new Profile(
         public = "wasm32-unknown-emscripten",
         -- An independent module: nothing Emscripten's name promised is used,
         -- and the module imports nothing.
@@ -121,7 +119,7 @@ local PROFILES: {[string]: profile.Profile} = {
         machine = "wasm32",
         sizeType = "i32"
     ),
-    ["x86_64-pc-windows-msvc"] = new profile.Profile(
+    ["x86_64-pc-windows-msvc"] = new Profile(
         public = "x86_64-pc-windows-msvc",
         llvmTriple = "x86_64-w64-windows-gnu",
         cpu = "x86-64",
@@ -154,7 +152,7 @@ const TIER_FEATURES: {
 }
 
 --- The profile of a public target, or nil and why there is none.
-function profile.of(public: string): (profile.Profile?, string?)
+export function of(public: string): (Profile?, string?)
     local found = PROFILES[public]
     if found == nil then
         return nil, "the LLVM backend has no profile for " .. public
@@ -164,7 +162,7 @@ function profile.of(public: string): (profile.Profile?, string?)
 end
 
 --- The features a function of `tier` is compiled with.
-function profile.features(selected: profile.Profile, tier: string): string
+export function features(selected: Profile, tier: string): string
     local parts: {string} = {}
     if selected.baseFeatures ~= "" then
         parts[#parts + 1] = selected.baseFeatures
@@ -178,8 +176,8 @@ function profile.features(selected: profile.Profile, tier: string): string
 end
 
 --- The codegen options for a tier's module.
-function profile.options(selected: profile.Profile, tier: string): {[string]: string}
-    return {triple = selected.llvmTriple, cpu = selected.cpu, features = profile.features(selected, tier), opt = "3"}
+export function options(selected: Profile, tier: string): {[string]: string}
+    return {triple = selected.llvmTriple, cpu = selected.cpu, features = features(selected, tier), opt = "3"}
 end
 
 --- lld's arguments linking `objects` into the shared library `output`.
@@ -191,8 +189,8 @@ end
 --- of a Mach-O library writes object paths without. ld64 records each object's
 --- absolute path there, which made two checkouts of one project build two
 --- different libraries.
-function profile.sharedLink(
-    selected: profile.Profile,
+export function sharedLink(
+    selected: Profile,
     output: string,
     objects: {string},
     soname: string,
@@ -255,5 +253,3 @@ function profile.sharedLink(
 
     return argv
 end
-
-export = profile

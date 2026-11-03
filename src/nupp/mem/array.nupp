@@ -23,11 +23,10 @@ every index is checked against the count the view carries. For explicitly
 owned malloc-backed storage, see [](nupp.mem.heap).
 ]]
 const {type Span, type Writable, type ByteSpan} = require("binary.span")
-local array = {}
 
 -- Element witnesses name a representation without loading its allocator.
 -- Species queries remain ordinary values even on hosts without native storage.
-record array.Scalar<T>
+export record Scalar<T>
     @private _elementType: T?
     @private @readonly physical: string
 end
@@ -38,59 +37,59 @@ end
 --- witness's own argument: a span element is one of the places a narrow
 --- width is meaningful, and the compiler this library is first built with
 --- knows no other.
-local function narrow<T>(kind: string, _shape: Span<T>): array.Scalar<T>
-    return new array.Scalar(_elementType = nil as T, physical = kind)
+local function narrow<T>(kind: string, _shape: Span<T>): Scalar<T>
+    return new Scalar(_elementType = nil as T, physical = kind)
 end
 
-const array.uint8 = narrow("uint8", (nil as any) as Span<uint8>)
-const array.int8 = narrow("int8", (nil as any) as Span<int8>)
-const array.uint16 = narrow("uint16", (nil as any) as Span<uint16>)
-const array.int16 = narrow("int16", (nil as any) as Span<int16>)
-const array.uint32 = new array.Scalar(_elementType = nil as uint32, physical = "uint32")
-const array.int32 = new array.Scalar(_elementType = nil as int32, physical = "int32")
-const array.uint64 = new array.Scalar(_elementType = nil as uint64, physical = "uint64")
-const array.int64 = new array.Scalar(_elementType = nil as int64, physical = "int64")
-const array.float = new array.Scalar(_elementType = nil as float, physical = "float")
-const array.number = new array.Scalar(_elementType = nil as number, physical = "number")
+export const uint8 = narrow("uint8", (nil as any) as Span<uint8>)
+export const int8 = narrow("int8", (nil as any) as Span<int8>)
+export const uint16 = narrow("uint16", (nil as any) as Span<uint16>)
+export const int16 = narrow("int16", (nil as any) as Span<int16>)
+export const uint32 = new Scalar(_elementType = nil as uint32, physical = "uint32")
+export const int32 = new Scalar(_elementType = nil as int32, physical = "int32")
+export const uint64 = new Scalar(_elementType = nil as uint64, physical = "uint64")
+export const int64 = new Scalar(_elementType = nil as int64, physical = "int64")
+export const float = new Scalar(_elementType = nil as float, physical = "float")
+export const number = new Scalar(_elementType = nil as number, physical = "number")
 
-record array.Array<T>
+export record Array<T>
     @private @readonly pointer: T[?]
     @readonly count: integer
     read: function(borrows self: Array<T>): Span<T> borrows (self)
     write: function(exclusive self: Array<T>): Writable<T> borrows (self)
 end
 
-function array.Array.read<T>(borrows self: array.Array<T>): Span<T> borrows (self)
+function Array.read<T>(borrows self: Array<T>): Span<T> borrows (self)
     return require("binary.span").fromcarray(self.pointer, self.count)
 end
 
-function array.Array.write<T>(exclusive self: array.Array<T>): Writable<T> borrows (self)
+function Array.write<T>(exclusive self: Array<T>): Writable<T> borrows (self)
     return require("binary.span").writecarray(self.pointer, self.count)
 end
 
 --- Allocates zeroed storage with the struct witness's physical layout.
 --- @raises string when count is not a nonnegative integer or exceeds the
 ---     target's storage limit
-function array.newarray<T>(takes witness: T, count: integer): array.Array<T>
+export function newarray<T>(takes witness: T, count: integer): Array<T>
     local storage = require("nupp.runtime.storage")
     local raw = @unsafe own.release(witness)
     local element = storage.descriptor(raw)
-    return new array.Array(pointer = storage.allocateArray(element, count) as T[?], count = count) as array.Array<T>
+    return new Array(pointer = storage.allocateArray(element, count) as T[?], count = count) as Array<T>
 end
 
 --- Allocates zeroed storage for the selected scalar element type.
 --- @raises string when count is not a nonnegative integer or exceeds the
 ---     target's storage limit
-function array.scalar<T>(borrows witness: array.Scalar<T>, count: integer): array.Array<T>
+export function scalar<T>(borrows witness: Scalar<T>, count: integer): Array<T>
     local storage = require("nupp.runtime.storage")
-    return new array.Array(
+    return new Array(
         pointer = storage.allocateArray(storage.scalar(witness.physical), count) as T[?],
         count = count
-    ) as array.Array<T>
+    ) as Array<T>
 end
 
 --- Owned bytes, with the same checked view vocabulary as scalar arrays.
-record array.Bytes
+export record Bytes
     @private @readonly pointer: uint8[?]
     @readonly count: integer
 
@@ -105,11 +104,9 @@ end
 
 --- Allocates zeroed bytes without treating the storage-only uint8 as a value type.
 --- @raises string when count is not a nonnegative integer
-function array.bytes(count: integer): array.Bytes
+export function bytes(count: integer): Bytes
     if count < 0 or count ~= math.floor(count) then
         error("nupp: byte array count must be a non-negative integer", 2)
     end
-    return new array.Bytes(pointer = require("nupp.runtime.storage").allocateBytes(count), count = count)
+    return new Bytes(pointer = require("nupp.runtime.storage").allocateBytes(count), count = count)
 end
-
-export = array

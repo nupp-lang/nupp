@@ -6,13 +6,11 @@ const {type Path} = require("io.files.internal.path")
 const {type Buffer, type Error} = require("nupp.io")
 const {type ByteView} = require("nupp.io")
 
-local process = {}
+export type StreamMode = "pipe" | "inherit" | "null"
 
-type process.StreamMode = "pipe" | "inherit" | "null"
+export type ErrorMode = Error.Mode
 
-type process.ErrorMode = Error.Mode
-
-type process.Options = {
+export type Options = {
     --- The program in `args[1]`, then its arguments. A program with no separator in
     --- it is resolved through `PATH` by the platform, not by this module.
     args: {string},
@@ -29,20 +27,20 @@ type process.Options = {
     clearenv: boolean?,
 
     --- Where the child's standard input comes from, `"pipe"` by default.
-    stdin: process.StreamMode?,
+    stdin: StreamMode?,
 
     --- Where the child's standard output goes, `"pipe"` by default.
-    stdout: process.StreamMode?,
+    stdout: StreamMode?,
 
     --- Where the child's standard error goes, `"pipe"` by default.
-    stderr: process.ErrorMode?,
+    stderr: ErrorMode?,
 
     --- Kill the child after this many milliseconds. The clock starts when it is
     --- created, not when it is first waited on.
     timeoutms: integer?
 }
 
-type process.CommunicateOptions = {
+export type CommunicateOptions = {
     --- Complete standard input.
     ---
     --- Omitted input sends EOF immediately.
@@ -54,7 +52,7 @@ type process.CommunicateOptions = {
     maxoutputbytes: integer?
 }
 
-interface process.Exit
+export interface Exit
     --- The platform status code. A Unix signal is reported as 128 plus its number.
     --- Zero indicates success only when neither `killed` nor `timedout` is set.
     exitcode: integer
@@ -67,9 +65,9 @@ interface process.Exit
 
 end
 
-record process.Result
+export record Result
     --- How the child ended.
-    exit: process.Exit
+    exit: Exit
 
     --- Captured standard output.
     output: string
@@ -83,7 +81,7 @@ record process.Result
     end
 end
 
-record process.Interest
+export record Interest
     --- The child, when its termination is one of the things being waited for, and nil
     --- when this wait would not be advanced by it.
     child: any?
@@ -94,5 +92,3 @@ record process.Interest
     --- Stream handles this wait wants to put bytes into.
     write: {any}
 end
-
-export = process

@@ -19,8 +19,6 @@ local relations = require("nupp.compiler.types.relations")
 local state = require("nupp.compiler.check.state")
 local annotationMod = require("nupp.compiler.annotations")
 
-local annotate = {}
-
 local isA = relations.isA
 
 --- A type, as nupp.compiler.types builds them.
@@ -28,7 +26,7 @@ local type Type = T.Type
 
 --- What the walk asks about an annotation. The pragma statement reaches all three, and
 --- a declaration reaches `validateAnnotation` for whatever is attached to it.
-type annotate.Ops = {
+export type Ops = {
     --- The text a string literal holds, quotes removed, or nil for anything else. A
     --- member's value is a compile-time constant, so this is how one is read.
     stringValue: function(expr: any): string?,
@@ -48,7 +46,7 @@ type annotate.Ops = {
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function annotate.install(c: state.Checker): annotate.Ops
+export function install(c: state.Checker): Ops
     local ops = {}
 
     function ops.annotationType(expr: any): cst.Tname?
@@ -583,5 +581,3 @@ function annotate.install(c: state.Checker): annotate.Ops
 
     return ops
 end
-
-export = annotate

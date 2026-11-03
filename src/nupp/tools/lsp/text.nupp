@@ -13,25 +13,23 @@ what changed needs the smallest run of lines that differ.
 -- command line can convert positions and URIs without paying for the compiler.
 const {type Token} = require("nupp.compiler.syntax.lexer")
 
-local text = {}
-
 --- A position as the protocol counts it: zero-based lines, and a character
 --- offset in UTF-16 code units rather than the bytes the lexer works in.
-type text.Position = {
+export type Position = {
     line: integer,
     character: integer
 }
 
 --- A half-open span between two protocol positions. The end key is quoted
 --- because the protocol named it after a Lua keyword.
-type text.Range = {
-    start: text.Position,
-    ["end"]: text.Position
+export type Range = {
+    start: Position,
+    ["end"]: Position
 }
 
 --- A run of lines replaced wholesale, where `from`..`to` is a half-open span
 --- of the original's 1-based line numbers and `lines` is what takes its place.
-type text.Hunk = {
+export type Hunk = {
     from: integer,
     to: integer,
     lines: {string}
@@ -46,7 +44,7 @@ type text.Hunk = {
 --- path carries a leading slash in the URI that is not part of the path.
 --- Anything that is not a `file:` URI is returned percent-decoded, as the name a
 --- client gave a buffer with no file behind it.
-function text.uriToPath(uri: string): string
+export function uriToPath(uri: string): string
     local rest = uri:match("^[Ff][Ii][Ll][Ee]:(.*)$")
     local path = rest or uri
     if rest then
@@ -74,7 +72,7 @@ end
 --- relative root still names files by one. It is written with no authority,
 --- `file:src/main.nupp`, which `uriToPath` reads back unchanged: behind `//` its
 --- first segment would read as a host.
-function text.pathToUri(path: string): string
+export function pathToUri(path: string): string
     if path:match("^[A-Za-z]:[/\\]") or path:match("^\\\\") then
         path = path:gsub("\\", "/")
     end
@@ -92,7 +90,7 @@ function text.pathToUri(path: string): string
     return (absolute and not host and "file://" or "file:") .. prefix .. encoded
 end
 
-function text.readFile(path: string): string?
+export function readFile(path: string): string?
     local f = io.open(path, "rb")
     if not f then
         return nil
@@ -104,7 +102,7 @@ function text.readFile(path: string): string?
 end
 
 -- LSP positions count UTF-16 code units; lexer offsets count UTF-8 bytes.
-function text.utf8Char(source: string, offset: number): integer, integer
+export function utf8Char(source: string, offset: number): integer, integer
     local first = source:byte(offset)
     if not first or first < 0x80 then
         return 1, 1
@@ -123,7 +121,7 @@ local cachedStarts: {integer} = {}
 
 local function startsOf(source: string): {integer}
     if source ~= cachedSource then
-        cachedSource, cachedStarts = source, text.lineStarts(source)
+        cachedSource, cachedStarts = source, lineStarts(source)
     end
 
     return cachedStarts
@@ -144,25 +142,25 @@ local function lineOf(starts: {integer}, offset: number): integer, integer
     return low - 1, starts[low]
 end
 
-function text.positionAtOffset(source: string, offset: number): text.Position
+export function positionAtOffset(source: string, offset: number): Position
     local line, pos = lineOf(startsOf(source), offset)
     local character: integer = 0
     while pos < offset and pos <= #source do
-        local bytes, units = text.utf8Char(source, pos)
+        local bytes, units = utf8Char(source, pos)
         character, pos = character + units, pos + bytes
     end
 
     return {line = line, character = character}
 end
 
-function text.offsetAtPosition(source: string, target: text.Position): integer?
+export function offsetAtPosition(source: string, target: Position): integer?
     local pos = startsOf(source)[target.line + 1]
     if not pos then
         return nil
     end
     local character: integer = 0
     while pos <= #source and source:byte(pos) ~= 10 and source:byte(pos) ~= 13 and character < target.character do
-        local bytes, units = text.utf8Char(source, pos)
+        local bytes, units = utf8Char(source, pos)
         character, pos = character + units, pos + bytes
     end
 
@@ -170,12 +168,12 @@ function text.offsetAtPosition(source: string, target: text.Position): integer?
 end
 
 --- The protocol range covering bytes `from` up to `to` of `source`.
-function text.spanRange(source: string, from: number, to: number): text.Range
-    return {start = text.positionAtOffset(source, from), ["end"] = text.positionAtOffset(source, to)}
+export function spanRange(source: string, from: number, to: number): Range
+    return {start = positionAtOffset(source, from), ["end"] = positionAtOffset(source, to)}
 end
 
-function text.tokenRange(source: string, tok: Token): text.Range
-    return text.spanRange(source, tok.offset, tok.offset + #tok.text)
+export function tokenRange(source: string, tok: Token): Range
+    return spanRange(source, tok.offset, tok.offset + #tok.text)
 end
 
 --- The lines of `text`, each keeping its own line break, so concatenating them
@@ -183,9 +181,9 @@ end
 ---
 --- A break is `\n`, `\r\n`, or a lone `\r`: the three the protocol names, and so
 --- the three an editor splits a line at.
-function text.splitLines(source: string): {string}
+export function splitLines(source: string): {string}
     local lines = {}
-    local starts = text.lineStarts(source)
+    local starts = lineStarts(source)
     for index = 1, #starts - 1 do
         lines[#lines + 1] = source:sub(starts[index], starts[index + 1] - 1)
     end
@@ -199,7 +197,7 @@ end
 --- The byte offset each line of `text` starts at, plus one past the end, so a
 --- run of lines converts to a span without counting anything twice. Lines end
 --- where `splitLines` ends them.
-function text.lineStarts(source: string): {integer}
+export function lineStarts(source: string): {integer}
     local starts: {integer} = {1}
     local pos: integer = 1
     while pos <= #source do
@@ -225,7 +223,7 @@ local RESYNC: integer = 64
 
 --- The runs of lines turning `before` into `after`, as {from, to, lines} where
 --- `from`..`to` is a half-open span of `before`'s line numbers.
-function text.lineHunks(before: {string}, after: {string}): {text.Hunk}
+export function lineHunks(before: {string}, after: {string}): {Hunk}
     local hunks = {}
     local i: integer, j: integer = 1, 1
     while i <= #before or j <= #after do
@@ -261,5 +259,3 @@ function text.lineHunks(before: {string}, after: {string}): {text.Hunk}
 
     return hunks
 end
-
-export = text

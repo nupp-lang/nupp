@@ -15,19 +15,17 @@ local span = require("binary.span")
 local spanImplementation = require("nupp.mem.span")
 local utf8 = require("utf8")
 
-local values = {}
-
 --- The largest string value, which travels inside the request's text envelope.
-values.MAX_STRING_BYTES = 64 * 1024
+export const MAX_STRING_BYTES = 64 * 1024
 
 --- The largest byte value a request may carry to the host.
-values.MAX_OUTBOUND_BYTES = 64 * 1024 * 1024
+export const MAX_OUTBOUND_BYTES = 64 * 1024 * 1024
 
 --- The largest byte value a host may answer with.
-values.MAX_INBOUND_BYTES = 8 * 1024 * 1024
+export const MAX_INBOUND_BYTES = 8 * 1024 * 1024
 
 --- The largest byte value that crosses in one piece; larger ones are chunked.
-values.CHUNK_BYTES = 1024 * 1024
+export const CHUNK_BYTES = 1024 * 1024
 
 local sharedRef: any = rawget(spanImplementation as any, "__sharedRef")
 local foreignByteSpan: any = rawget(spanImplementation as any, "__foreignByteSpan")
@@ -57,7 +55,7 @@ end
 ---
 --- Returns `"nil"`, `"boolean"`, `"number"` or `"string"` with the value
 --- itself, or `"bytes"` with the rooted pointer and its length.
-function values.classify(kind: string, position: integer, value: any): (string, any, integer?)
+export function classify(kind: string, position: integer, value: any): (string, any, integer?)
     local kindOf = type(value)
     if kindOf == "nil" then
         return "nil", nil, nil
@@ -69,7 +67,7 @@ function values.classify(kind: string, position: integer, value: any): (string, 
         end
         return "number", value, nil
     elseif kindOf == "string" then
-        if #value > values.MAX_STRING_BYTES then
+        if #value > MAX_STRING_BYTES then
             refuse(kind, position, "is a string longer than 64 KiB; send it as bytes")
         end
         if not utf8.isvalid(value) then
@@ -82,7 +80,7 @@ function values.classify(kind: string, position: integer, value: any): (string, 
             if not isByteType(pointer) then
                 refuse(kind, position, "is a span of non-byte elements")
             end
-            if count > values.MAX_OUTBOUND_BYTES then
+            if count > MAX_OUTBOUND_BYTES then
                 refuse(kind, position, "is a byte span larger than 64 MiB")
             end
             return "bytes", pointer, count
@@ -96,8 +94,6 @@ end
 --- Wraps bytes the provider owns as a byte span the caller receives.
 ---
 --- `anchor` keeps the storage alive for as long as the span is.
-function values.byteSpan(anchor: any, pointer: any, count: integer): any
+export function byteSpan(anchor: any, pointer: any, count: integer): any
     return foreignByteSpan(anchor, pointer, 0, count)
 end
-
-export = values

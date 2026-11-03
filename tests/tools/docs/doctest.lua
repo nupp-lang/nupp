@@ -6374,7 +6374,7 @@ local VERSION_SOURCES = {
     ] = {"src/nupp/tools/build/aot.nupp", "document = sortedJson%({%s*schemaVersion = (%d+),%s*component"},
     ["Link kit"] = {"src/nupp/tools/build/aotllvm.nupp", "manifest%.schemaVersion ~= (%d+)"},
     ["Documentation model"] = {"src/nupp/tools/doc/init.nupp", "schemaVersion = (%d+), modules = model"},
-    ["Coverage report"] = {"src/nupp/tools/coverage.nupp", "coverage%.SCHEMA_VERSION = (%d+)"},
+    ["Coverage report"] = {"src/nupp/tools/coverage.nupp", "export const SCHEMA_VERSION = (%d+)"},
     ["Test report"] = {"src/nupp/tools/cli/test.nupp", "schemaVersion = {%s*type = \"integer\",%s*enum = {(%d+)}"},
     ["Bench record"] = {"src/debug/bench.nupp", "bench%.schema = (%d+)"},
     ["Optimizer remarks"] = {"src/nupp/tools/cli/compile.nupp", "local document = {%s*schema = (%d+),"},

@@ -47,6 +47,7 @@ local rules = {
     -- The tools are built with the compiler, ship in its binary and are verified by
     -- its suite and its fixpoint, so they select what compiler source does.
     {"^src/nupp/tools/", {"compiler"}},
+    {"^scripts/module%-exports%.lua$", {"compiler"}},
     {"^src/nupp/compiler/", {"compiler"}},
     {"^src/simd%.nupp$", {"library", "aot", "browser", "simd"}},
     {"^src/simd/", {"library", "aot", "browser", "simd"}},

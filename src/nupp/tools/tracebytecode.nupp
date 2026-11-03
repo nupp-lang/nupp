@@ -13,9 +13,7 @@ different root trace cannot compile.
 local trace = require("debug.profile.trace")
 local hash = require("nupp.compiler.hash")
 
-local bytecode = {}
-
-type bytecode.Analysis = {
+export type Analysis = {
     profile: trace.Profile,
     reasonCatalog: {
         id: string,
@@ -360,7 +358,7 @@ local function collect(util: any, bc: any, fn: any, depth: integer, into: {any},
     end
 end
 
-function bytecode.analyze(chunk: function(): any): bytecode.Analysis
+export function analyze(chunk: function(): any): Analysis
     local util = require("jit.util")
     local bc = require("jit.bc")
     local functions: {any} = {}
@@ -391,5 +389,3 @@ function bytecode.analyze(chunk: function(): any): bytecode.Analysis
         risks = risks,
     }
 end
-
-export = bytecode

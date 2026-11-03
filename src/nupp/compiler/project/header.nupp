@@ -21,10 +21,8 @@ local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local parser = require("nupp.compiler.syntax.parser")
 
-local header = {}
-
 --- An exported declaration, as a file's header records it.
-type header.Declaration = {
+export type Declaration = {
     name: string,
     kind: string,
     statKind: string,
@@ -45,7 +43,7 @@ type header.Declaration = {
 }
 
 --- What a
-type header.Header = {
+export type Header = {
     path: string,
     moduleName: string?,
     declaredModuleName: string?,
@@ -55,7 +53,7 @@ type header.Header = {
     --- The local the file returns, which qualified declarations attach to.
     moduleLocal: string?,
 
-    declarations: {header.Declaration},
+    declarations: {Declaration},
     dependencies: {string}
 }
 
@@ -182,8 +180,8 @@ end
 --- A file that did not parse still has a header, holding no declarations. It is a file
 --- of the project either way, and saying so is what keeps a syntax error from also
 --- reading as a module that vanished.
-function header.of(path: string, moduleName: string?, parsed: parser.ParseResult?): header.Header
-    local produced: header.Header = {path = path, moduleName = moduleName, declarations = {}, dependencies = {}}
+export function of(path: string, moduleName: string?, parsed: parser.ParseResult?): Header
+    local produced: Header = {path = path, moduleName = moduleName, declarations = {}, dependencies = {}}
     if not parsed or #parsed.errors > 0 then
         return produced
     end
@@ -281,5 +279,3 @@ function header.of(path: string, moduleName: string?, parsed: parser.ParseResult
 
     return produced
 end
-
-export = header

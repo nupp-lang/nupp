@@ -13,13 +13,9 @@ native code, never could.
 
 local native = require("nupp.runtime.native")
 
-local aotruntime = {}
-
 --- The runtime's table address, as pointer-width native-endian bytes.
 --- @export
 --- @raises string when the provider was built without the runtime
-function aotruntime.table(): string
+export function table(): string
     return native.aotRuntime()
 end
-
-export = aotruntime

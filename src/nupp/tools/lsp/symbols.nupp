@@ -12,21 +12,19 @@ local wire = require("nupp.tools.lsp.wire")
 local tree = require("nupp.tools.lsp.tree")
 local text = require("nupp.tools.lsp.text")
 
-local symbols = {}
-
 --- An entry of the outline, as the protocol shapes it: what it is called, which
 --- SymbolKind paints it, the span it covers and the span selecting it names, and the
 --- members it holds.
-interface symbols.Symbol
+export interface Symbol
     name: string
     kind: integer
     range: text.Range
     selectionRange: text.Range
-    children: {symbols.Symbol}
+    children: {Symbol}
 end
 
 -- LSP SymbolKind, by the names this compiler uses for the same things.
-symbols.SYMBOL_KINDS = {
+export const SYMBOL_KINDS = {
     record = 5,
     class = 5,
     struct = 23,
@@ -56,7 +54,7 @@ local function declarationChildren(stat, source)
             #children + 1
         ] = {
             name = nameTok.text,
-            kind = symbols.SYMBOL_KINDS[kind] or symbols.SYMBOL_KINDS.field,
+            kind = SYMBOL_KINDS[kind] or SYMBOL_KINDS.field,
             range = text.spanRange(source, from, to as integer),
             selectionRange = text.tokenRange(source, nameTok),
             children = wire.array({}),
@@ -100,7 +98,7 @@ local function declarationChildren(stat, source)
                     #children + 1
                 ] = {
                     name = item.name .. " (generated" .. (item.static and ", static" or "") .. ")",
-                    kind = symbols.SYMBOL_KINDS[definition.kind] or symbols.SYMBOL_KINDS.method,
+                    kind = SYMBOL_KINDS[definition.kind] or SYMBOL_KINDS.method,
                     range = text.tokenRange(source, origin),
                     selectionRange = text.tokenRange(source, origin),
                     children = wire.array({}),
@@ -115,7 +113,7 @@ end
 --- The declarations a file makes, as a nested outline. A qualified name is written as
 --- its path: `record m.Point` is a declaration called `m.Point`, because that is the
 --- name a reader searches for.
-function symbols.documentSymbols(result: tree.Parse, source: string): {symbols.Symbol}
+export function documentSymbols(result: tree.Parse, source: string): {Symbol}
     local found = wire.array({})
 
     local function emit(stat, nameTok, kind, path)
@@ -131,7 +129,7 @@ function symbols.documentSymbols(result: tree.Parse, source: string): {symbols.S
             #found + 1
         ] = {
             name = path or nameTok.text,
-            kind = symbols.SYMBOL_KINDS[kind] or symbols.SYMBOL_KINDS.variable,
+            kind = SYMBOL_KINDS[kind] or SYMBOL_KINDS.variable,
             range = text.spanRange(source, from, to as integer),
             selectionRange = text.tokenRange(source, nameTok),
             children = declarationChildren(stat, source),
@@ -185,7 +183,7 @@ end
 --- table. The construct rather than the block inside it, so a fold starts at the line
 --- that says what is being folded, since a body alone would collapse to a header the
 --- editor never showed as foldable.
-function symbols.foldableSpans(result: tree.Parse): {{integer}}
+export function foldableSpans(result: tree.Parse): {{integer}}
     local spans = {}
     tree.walkNodes(result.root, function(node)
         if node.kind == "block" or node.kind == "chunk" then
@@ -199,5 +197,3 @@ function symbols.foldableSpans(result: tree.Parse): {{integer}}
 
     return spans
 end
-
-export = symbols

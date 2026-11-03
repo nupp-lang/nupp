@@ -16,8 +16,6 @@ and the blueprint decoder has a node, and neither wants the other's.
 local T = require("nupp.compiler.types")
 local predicate = require("nupp.compiler.types.predicate")
 
-local constrain = {}
-
 local MAX_EXACT_INTEGER = 9007199254740991
 
 --- The value domain each base admits, so a bound outside it is refused where it is
@@ -32,7 +30,7 @@ local RANGE_DOMAIN: {
 --- Whether `base` can carry a range or a length constraint, and why not when it
 --- cannot. A constrained alias of an admissible base is admissible: narrowing one
 --- intersects rather than replaces.
-function constrain.admits(base: T.Type, lengthwise: boolean): boolean, string?
+export function admits(base: T.Type, lengthwise: boolean): boolean, string?
     local underlying = T.unconstrained(base)
     if lengthwise then
         if underlying ~= T.string then
@@ -59,8 +57,8 @@ end
 --- @param high the highest admitted value or length
 --- @param lengthwise whether the bounds describe byte length rather than value
 --- @return the constrained type, or nil and the reason it was refused
-function constrain.build(base: T.Type, low: number, high: number, lengthwise: boolean): T.Type?, string?
-    local admissible, why = constrain.admits(base, lengthwise)
+export function build(base: T.Type, low: number, high: number, lengthwise: boolean): T.Type?, string?
+    local admissible, why = admits(base, lengthwise)
     if not admissible then
         return nil, why
     end
@@ -100,5 +98,3 @@ function constrain.build(base: T.Type, low: number, high: number, lengthwise: bo
 
     return T.constrained(underlying, normalized, predicate.key(normalized))
 end
-
-export = constrain

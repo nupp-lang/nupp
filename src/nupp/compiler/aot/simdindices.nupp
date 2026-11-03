@@ -2,7 +2,6 @@ module nupp.compiler.aot.simdindices
 
 local scalarIR = require("nupp.compiler.aot.scalar")
 local shapes = require("nupp.compiler.aot.simdshape")
-local indices = {}
 
 local function indexElement(element: string?): boolean
     return element == "i32" or element == "u32" or element == "i64" or element == "u64"
@@ -64,7 +63,7 @@ local function exactIndex(value: scalarIR.Expr): number?
 end
 
 --- Checks the integer element and logical shape, without selecting a tier.
-function indices.matches(indexType: string, speciesType: string): boolean
+export function matches(indexType: string, speciesType: string): boolean
     local element, shape = indexType:match("^simd_vector_([iu]%d+)_(.+)$")
     local targetElement, targetShape = speciesType:match("^simd_species_([fiu]%d+)_(.+)$")
     if element == nil or targetElement == nil or shape ~= targetShape then
@@ -81,7 +80,7 @@ end
 --- Preferred species use the maximum supported logical count, so the proof
 --- is valid independently of tier selection. Refuse values beyond the exact
 --- binary64 range rather than approximate a 64-bit proof.
-function indices.unique(value: scalarIR.Expr): boolean
+export function unique(value: scalarIR.Expr): boolean
     if value.op ~= "simd_iota" then
         return false
     end
@@ -111,5 +110,3 @@ function indices.unique(value: scalarIR.Expr): boolean
         and last >= low
         and last <= high
 end
-
-export = indices

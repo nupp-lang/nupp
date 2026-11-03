@@ -27,9 +27,7 @@ local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 local targetLayout = require("nupp.compiler.targetlayout")
 
-local nativeonly = {}
-
-type nativeonly.Ops = {
+export type Ops = {
     mark: function(stat: any, body: any),
     alias: function(target: any, source: any, export: any),
     resolve: function(node: any): any,
@@ -60,13 +58,13 @@ end
 
 --- Whether a value of type `t` exists only in native code: a vector, a mask,
 --- or a struct holding one.
-function nativeonly.carriesNativeOnly(t: any?): boolean
+export function carriesNativeOnly(t: any?): boolean
     return vectorOrMask(t)
 end
 
 --- Whether `t` is a vector with a storage layout: `Fixed<N>` of a storage
 --- element, whose lanes occupy the same bytes on every tier.
-function nativeonly.storageVector(t: any?): boolean
+export function storageVector(t: any?): boolean
     local element = targetLayout.storageVector(t)
 
     return element ~= nil
@@ -76,12 +74,12 @@ end
 --- aggregate: a mask, a vector of a tier-dependent species, or another such
 --- struct. A `Fixed<N>` vector field has a storage layout, so the struct
 --- holding it stays a storage struct a span or array may hold.
-function nativeonly.fieldMakesNativeOnly(t: any?): boolean
-    return vectorOrMask(t) and not nativeonly.storageVector(t)
+export function fieldMakesNativeOnly(t: any?): boolean
+    return vectorOrMask(t) and not storageVector(t)
 end
 
 --- Whether a checked function signature takes or returns a vector or a mask.
-function nativeonly.signatureIsNativeOnly(signature: any?): boolean
+export function signatureIsNativeOnly(signature: any?): boolean
     if signature == nil or signature.tag ~= "func" then
         return false
     end
@@ -102,7 +100,7 @@ end
 --- Installs the native-only judgment on a checking run.
 ---
 --- @param c the run's state
-function nativeonly.install(c: state.Checker): nativeonly.Ops
+export function install(c: state.Checker): Ops
     local ops = {}
 
     --- Whether the target being checked compiles `@aot` functions, which is
@@ -172,7 +170,7 @@ function nativeonly.install(c: state.Checker): nativeonly.Ops
             return
         end
         def.aotOrigin = {filename = def.filename, name = def.name}
-        if nativeonly.signatureIsNativeOnly(body.signatureType) then
+        if signatureIsNativeOnly(body.signatureType) then
             def.aotNativeOnly = true
             body.aotNativeOnly = true
         end
@@ -274,5 +272,3 @@ function nativeonly.install(c: state.Checker): nativeonly.Ops
 
     return ops
 end
-
-export = nativeonly

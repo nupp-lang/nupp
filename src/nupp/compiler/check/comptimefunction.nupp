@@ -15,8 +15,6 @@ local apiidentity = require("nupp.compiler.apiidentity")
 local T = require("nupp.compiler.types")
 local state = require("nupp.compiler.check.state")
 
-local comptimeFunction = {}
-
 --- Checks a declaration around the ordinary function-statement handler.
 ---
 --- @param c the run's state
@@ -184,7 +182,7 @@ local function check(c: state.Checker, helper: any, checkOrdinary: function(any)
     c.moduleExports.comptimeFunctions[markedName.text] = sealedProgram
 end
 
-function comptimeFunction.checkLocal(
+export function checkLocal(
     c: state.Checker,
     helper: cst.LocalFuncStmt,
     checkOrdinary: function(cst.LocalFuncStmt): nil
@@ -192,12 +190,6 @@ function comptimeFunction.checkLocal(
     check(c, helper, checkOrdinary as any)
 end
 
-function comptimeFunction.checkQualified(
-    c: state.Checker,
-    helper: cst.FuncStmt,
-    checkOrdinary: function(cst.FuncStmt): nil
-): nil
+export function checkQualified(c: state.Checker, helper: cst.FuncStmt, checkOrdinary: function(cst.FuncStmt): nil): nil
     check(c, helper, checkOrdinary as any)
 end
-
-export = comptimeFunction

@@ -21,8 +21,6 @@ local indexedViews = require("nupp.compiler.types.indexedviews")
 local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 
-local calls = {}
-
 local isA = relations.isA
 local rawType = T.unwrapOwnership
 
@@ -464,7 +462,7 @@ end
 --- What applying something to arguments is asked. All four are promoted onto the run as
 --- well, since an operator, an index and a call each reach a different one of them, and
 --- none of those passes is lexically inside this one.
-type calls.Ops = {
+export type Ops = {
     --- The contract a receiver declares under a metamethod name, or nil.
     metamethodOf: function(t: Type?, name: string): Type?,
 
@@ -483,7 +481,7 @@ type calls.Ops = {
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function calls.install(c: state.Checker): calls.Ops
+export function install(c: state.Checker): Ops
     local ops = {}
 
     ---------------------------------------------------------------------
@@ -3594,5 +3592,3 @@ function calls.install(c: state.Checker): calls.Ops
 
     return ops
 end
-
-export = calls

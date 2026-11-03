@@ -3,9 +3,8 @@ module nupp.runtime.browser.response
 
 local effects = require("nupp.runtime.browser.effects")
 local suspension = require("nupp.suspension")
-local response = {}
 
-function response.await(kind: string, payload: any, discard: (function(any): nil)?): any
+export function await(kind: string, payload: any, discard: (function(any): nil)?): any
     local answer = suspension.suspend("browser " .. kind, function(resume: function(any): nil): function()
         return effects.request(kind, payload, resume, discard)
     end)
@@ -21,5 +20,3 @@ function response.await(kind: string, payload: any, discard: (function(any): nil
 
     return answer.value
 end
-
-export = response

@@ -19,8 +19,6 @@ local scalarIR = require("nupp.compiler.aot.scalar")
 local species = require("nupp.compiler.aot.llvm.simd.species")
 local vectors = require("nupp.compiler.aot.llvm.simd.vectors")
 
-local rearrange = {}
-
 --- @raises string always
 --- A `shufflevector` of `first` (and `second`, lanes N.. of the pair)
 --- picking `picks`, zero-based.
@@ -419,12 +417,10 @@ local function expand(ctx: context.Context, node: scalarIR.Expr): (string, strin
     return out, typeName
 end
 
-rearrange.EXPRESSIONS = {
+export const EXPRESSIONS = {
     ["simd_extract"] = extract,
     ["simd_insert"] = insert,
     ["simd_permute"] = permute,
     ["simd_compress"] = compress,
     ["simd_expand"] = expand,
 } as {[string]: function(ctx: context.Context, node: scalarIR.Expr): (string, string)}
-
-export = rearrange

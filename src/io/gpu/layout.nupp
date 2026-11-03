@@ -23,8 +23,6 @@ its stride structure proves that writes use distinct element offsets. A false
 injectivity result can also mean the bounded stride proof was inconclusive.
 ]]
 
-local layout = {}
-
 local function copied(values: {integer}): {integer}
     local out: {integer} = {}
     for index, value in ipairs(values) do
@@ -34,7 +32,7 @@ local function copied(values: {integer}): {integer}
     return out
 end
 
-record layout.Layout
+export record Layout
     @private @readonly _offset: integer
     @private _shape: {integer}
     @private _strides: {integer}
@@ -84,14 +82,14 @@ local facts = require("nupp.gpu.layoutfacts").layoutFacts
 --- Checks a shape and its strides, with the element offset of the first
 --- element, 0 unless given.
 --- @raises string when the shape, strides or offset do not fit uint32
-function layout.new(shape: {integer}, strides: {integer}, offset: integer?): layout.Layout
+export function new(shape: {integer}, strides: {integer}, offset: integer?): Layout
     offset = offset ?? 0
     if type(offset) ~= "number" or offset % 1 ~= 0 or offset < 0 or offset > 4294967295 then
         error("nupp: GPU tensor layout offset exceeds uint32", 2)
     end
     local count, extent, dense, injective = facts(shape, strides, 2)
 
-    return new layout.Layout(
+    return new Layout(
         _offset = offset,
         _shape = copied(shape),
         _strides = copied(strides),
@@ -102,7 +100,7 @@ function layout.new(shape: {integer}, strides: {integer}, offset: integer?): lay
     )
 end
 
-function layout.subview(borrows value: layout.Layout, origin: {integer}, shape: {integer}): layout.Layout
+export function subview(borrows value: Layout, origin: {integer}, shape: {integer}): Layout
     if #origin ~= #value._shape or #shape ~= #value._shape then
         error("nupp: GPU tensor subview rank does not match", 2)
     end
@@ -121,10 +119,10 @@ function layout.subview(borrows value: layout.Layout, origin: {integer}, shape: 
         offset = offset + first * value._strides[index]
     end
 
-    return layout.new(shape, value._strides, offset)
+    return new(shape, value._strides, offset)
 end
 
-function layout.transpose(borrows value: layout.Layout, order: {integer}): layout.Layout
+export function transpose(borrows value: Layout, order: {integer}): Layout
     if #order ~= #value._shape then
         error("nupp: GPU tensor transpose rank does not match", 2)
     end
@@ -140,10 +138,10 @@ function layout.transpose(borrows value: layout.Layout, order: {integer}): layou
         strides[index] = value._strides[axis]
     end
 
-    return layout.new(shape, strides, value._offset)
+    return new(shape, strides, value._offset)
 end
 
-function layout.broadcast(borrows value: layout.Layout, shape: {integer}): layout.Layout
+export function broadcast(borrows value: Layout, shape: {integer}): Layout
     if #shape < #value._shape or #shape > 4 then
         error("nupp: GPU tensor broadcast rank must contain the source rank", 2)
     end
@@ -160,7 +158,7 @@ function layout.broadcast(borrows value: layout.Layout, shape: {integer}): layou
             strides[index] = source == 1 and dimension > 1 and 0 or value._strides[index - shift]
         end
     end
-    local result = layout.new(shape, strides, value._offset)
+    local result = new(shape, strides, value._offset)
     if result._extent > value._extent then
         error("nupp: GPU tensor broadcast exceeds its source", 2)
     end
@@ -168,12 +166,7 @@ function layout.broadcast(borrows value: layout.Layout, shape: {integer}): layou
     return result
 end
 
-function layout.asstrided(
-    borrows value: layout.Layout,
-    shape: {integer},
-    strides: {integer},
-    relativeoffset: integer
-): layout.Layout
+export function asstrided(borrows value: Layout, shape: {integer}, strides: {integer}, relativeoffset: integer): Layout
     if type(relativeoffset) ~= "number"
         or relativeoffset % 1 ~= 0
         or relativeoffset < 0
@@ -181,12 +174,10 @@ function layout.asstrided(
     then
         error("nupp: GPU strided layout offset exceeds uint32", 2)
     end
-    local result = layout.new(shape, strides, value._offset + relativeoffset)
+    local result = new(shape, strides, value._offset + relativeoffset)
     if result._extent > value._extent or relativeoffset > value._extent - result._extent then
         error("nupp: GPU strided layout exceeds its source", 2)
     end
 
     return result
 end
-
-export = layout

@@ -14,44 +14,42 @@ local expressions = require("nupp.compiler.aot.llvm.expressions")
 local prelude = require("nupp.compiler.aot.llvm.prelude")
 local species = require("nupp.compiler.aot.llvm.simd.species")
 
-local lanes = {}
-
 --- The canonical quiet NaN of each float element, as LLVM spells it.
-const lanes.NAN = "0x7FF8000000000000"
+export const NAN = "0x7FF8000000000000"
 
 --- The species an IR type names.
 --- @raises string when it names none
-function lanes.of(ctx: context.Context, typeName: string): species.Species
+export function of(ctx: context.Context, typeName: string): species.Species
     return species.require(context.width(ctx), typeName)
 end
 
 --- The LLVM intrinsic suffix of a vector of `count` lanes of `scalar`:
 --- `v4f32`, `v16i8`, `v8i1`.
-function lanes.suffix(count: integer, scalar: string): string
+export function suffix(count: integer, scalar: string): string
     local short = scalar == "double" and "f64" or scalar == "float" and "f32" or scalar
 
     return "v" .. tostring(count) .. short
 end
 
 --- The integer type of a float element's bits (`i32` for `float`).
-function lanes.bitsType(found: species.Species): string
+export function bitsType(found: species.Species): string
     return "i" .. tostring(found.bits)
 end
 
 --- `<N x T> splat (T value)`.
-function lanes.splatConstant(vector: string, scalar: string, value: string): string
+export function splatConstant(vector: string, scalar: string, value: string): string
     return vector .. " splat (" .. scalar .. " " .. value .. ")"
 end
 
 --- `splat (T value)`, a constant vector operand whose type is written
 --- beside it.
-function lanes.splatOf(scalar: string, value: string): string
+export function splatOf(scalar: string, value: string): string
     return "splat (" .. scalar .. " " .. value .. ")"
 end
 
 --- The constant vector `<0, 1, ..., N-1>` of element type `scalar`, as a
 --- typed operand.
-function lanes.indices(count: integer, scalar: string): string
+export function indices(count: integer, scalar: string): string
     local parts: {string} = {}
     local float = scalar == "float" or scalar == "double"
     for index = 0, count - 1 do
@@ -62,7 +60,7 @@ function lanes.indices(count: integer, scalar: string): string
 end
 
 --- A vector of `count` lanes all `value`, built from a runtime scalar.
-function lanes.splat(ctx: context.Context, count: integer, scalar: string, value: string): string
+export function splat(ctx: context.Context, count: integer, scalar: string, value: string): string
     local vector = "<" .. tostring(count) .. " x " .. scalar .. ">"
     local one = context.value(ctx, ("insertelement %s poison, %s %s, i64 0"):format(vector, scalar, value))
 
@@ -74,7 +72,7 @@ end
 
 --- A scalar of IR type `valueType` as a lane of `found`: floats converted
 --- to the element, integers to the carrier and then truncated to the lane.
-function lanes.toLane(ctx: context.Context, found: species.Species, value: string, valueType: string): string
+export function toLane(ctx: context.Context, found: species.Species, value: string, valueType: string): string
     if found.float then
         return expressions.convert(ctx, value, valueType, found.element)
     end
@@ -88,7 +86,7 @@ function lanes.toLane(ctx: context.Context, found: species.Species, value: strin
 end
 
 --- A lane value leaving the vector, as the IR scalar it is carried as.
-function lanes.fromLane(ctx: context.Context, found: species.Species, value: string): (string, string)
+export function fromLane(ctx: context.Context, found: species.Species, value: string): (string, string)
     local carrier = species.laneType(found)
     if not found.float and found.bits < 32 then
         local extend = found.signed and "sext" or "zext"
@@ -99,12 +97,12 @@ function lanes.fromLane(ctx: context.Context, found: species.Species, value: str
 end
 
 --- Lane `index` (zero-based) of `vector`.
-function lanes.extract(ctx: context.Context, found: species.Species, vector: string, index: integer | string): string
+export function extract(ctx: context.Context, found: species.Species, vector: string, index: integer | string): string
     return context.value(ctx, ("extractelement %s %s, i32 %s"):format(found.vector, vector, tostring(index)))
 end
 
 --- `vector` with lane `index` replaced by `value`.
-function lanes.insert(
+export function insert(
     ctx: context.Context,
     found: species.Species,
     vector: string,
@@ -120,7 +118,7 @@ end
 --- The types a lane-wise operation works in: the value type `t` (a
 --- scalar or a vector), its comparison result, the integer of its bits, and
 --- the intrinsic suffix (`f32`, `v4f32`).
-record lanes.Shape
+export record Shape
     t: string
     i1: string
     ints: string
@@ -134,35 +132,35 @@ record lanes.Shape
 end
 
 --- The shape of a whole vector of `found`.
-function lanes.vectorShape(found: species.Species): lanes.Shape
+export function vectorShape(found: species.Species): Shape
     local count = tostring(found.lanes)
 
-    return new lanes.Shape(
+    return new Shape(
         t = found.vector,
         i1 = found.mask,
-        ints = "<" .. count .. " x " .. lanes.bitsType(found) .. ">",
-        suffix = lanes.suffix(found.lanes, found.scalar),
+        ints = "<" .. count .. " x " .. bitsType(found) .. ">",
+        suffix = suffix(found.lanes, found.scalar),
         scalar = found.scalar,
-        bits = lanes.bitsType(found)
+        bits = bitsType(found)
     )
 end
 
 --- The shape of a lane of `found`.
-function lanes.scalarShape(found: species.Species): lanes.Shape
+export function scalarShape(found: species.Species): Shape
     local short = found.scalar == "double" and "f64" or found.scalar == "float" and "f32" or found.scalar
 
-    return new lanes.Shape(
+    return new Shape(
         t = found.scalar,
         i1 = "i1",
-        ints = lanes.bitsType(found),
+        ints = bitsType(found),
         suffix = short,
         scalar = found.scalar,
-        bits = lanes.bitsType(found)
+        bits = bitsType(found)
     )
 end
 
 --- A constant of the shape: a splat for a vector, the value for a scalar.
-function lanes.constant(shape: lanes.Shape, scalar: string, value: string): string
+export function constant(shape: Shape, scalar: string, value: string): string
     if shape.t:sub(1, 1) == "<" then
         return "splat (" .. scalar .. " " .. value .. ")"
     end
@@ -174,23 +172,23 @@ end
 --- returns the canonical NaN (`propagating`) or the other operand (`number`,
 --- the canonical NaN only when both are), -0 is less than +0, and otherwise the
 --- plain comparison.
-function lanes.floatExtreme(
+export function floatExtreme(
     ctx: context.Context,
-    shape: lanes.Shape,
+    shape: Shape,
     left: string,
     right: string,
     minimum: boolean,
     propagating: boolean
 ): string
     local t, i1 = shape.t, shape.i1
-    local nan = lanes.constant(shape, shape.scalar, lanes.NAN)
+    local nan = constant(shape, shape.scalar, NAN)
 
     local unordered = context.value(ctx, ("fcmp uno %s %s, %s"):format(t, left, right))
     local equal = context.value(ctx, ("fcmp oeq %s %s, %s"):format(t, left, right))
     local leftBits = context.value(ctx, ("bitcast %s %s to %s"):format(t, left, shape.ints))
     local negative = context.value(
         ctx,
-        ("icmp slt %s %s, %s"):format(shape.ints, leftBits, lanes.constant(shape, shape.bits, "0"))
+        ("icmp slt %s %s, %s"):format(shape.ints, leftBits, constant(shape, shape.bits, "0"))
     )
     -- Equal operands differ only when they are zeros of opposite sign.
     local tie = minimum and context.value(ctx, ("select %s %s, %s %s, %s %s"):format(i1, negative, t, left, t, right))
@@ -211,9 +209,9 @@ function lanes.floatExtreme(
 end
 
 --- An integer extreme of `shape` by signedness.
-function lanes.integerExtreme(
+export function integerExtreme(
     ctx: context.Context,
-    shape: lanes.Shape,
+    shape: Shape,
     left: string,
     right: string,
     minimum: boolean,
@@ -225,5 +223,3 @@ function lanes.integerExtreme(
 
     return context.value(ctx, ("call %s %s(%s %s, %s %s)"):format(t, callee, t, left, t, right))
 end
-
-export = lanes

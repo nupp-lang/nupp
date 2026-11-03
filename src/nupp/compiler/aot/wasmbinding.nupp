@@ -5,8 +5,6 @@ module nupp.compiler.aot.wasmbinding
 local binding = require("nupp.compiler.aot.binding")
 local scalarIR = require("nupp.compiler.aot.scalar")
 
-local wasmbinding = {}
-
 local function sourceType(param: scalarIR.Param): string
     return param.sourceType
         or (
@@ -47,7 +45,7 @@ end
 --- Replaces a source declaration with a call into its independent Wasm
 --- module. `units` holds each tier's unit, widest first; the host runs the
 --- first it loaded.
-function wasmbinding.replacement(program: scalarIR.Program, units: {string}): string
+export function replacement(program: scalarIR.Program, units: {string}): string
     local prefix = "__nuppWasm_" .. program.symbol
     local lines = binding.numericForGuard(program)
     local ffi = binding.ffiLocal(program)
@@ -155,14 +153,12 @@ function wasmbinding.replacement(program: scalarIR.Program, units: {string}): st
 end
 
 --- Replaces a const declaration with checked wrappers for each emitted Wasm body.
-function wasmbinding.familyReplacement(family: any, units: {string}): string
+export function familyReplacement(family: any, units: {string}): string
     local lines: {string} = {}
     for _, program in ipairs(family.programs) do
-        lines[#lines + 1] = wasmbinding.replacement(program, units)
+        lines[#lines + 1] = replacement(program, units)
     end
     lines[#lines + 1] = binding.familyDispatch(family)
 
     return table.concat(lines, "\n\n")
 end
-
-export = wasmbinding

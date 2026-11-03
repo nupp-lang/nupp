@@ -40,10 +40,8 @@ the three places a function body is checked.
 
 local state = require("nupp.compiler.check.state")
 
-local loopclosure = {}
-
 --- Defines the operations the walk uses to judge functions written in loops.
-type loopclosure.Ops = {
+export type Ops = {
     --- Opens a loop for the duration of its body.
     push: function(body: any),
 
@@ -94,7 +92,7 @@ end
 ---
 --- @param c the run's state
 --- @return the operations the walk calls
-function loopclosure.install(c: state.Checker): loopclosure.Ops
+export function install(c: state.Checker): Ops
     local ops = {}
 
     -- The loops open in the current function, innermost last. Each carries the scope
@@ -230,5 +228,3 @@ function loopclosure.install(c: state.Checker): loopclosure.Ops
 
     return ops
 end
-
-export = loopclosure

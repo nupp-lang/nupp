@@ -19,12 +19,10 @@ local prelude = require("nupp.compiler.aot.llvm.prelude")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local species = require("nupp.compiler.aot.llvm.simd.species")
 
-local vectors = {}
-
 --- @raises string always
 --- A compile-time integer operand (a lane number, a count, a part).
 --- @raises string when the operand is not a constant
-function vectors.constantInteger(node: scalarIR.Expr): integer
+export function constantInteger(node: scalarIR.Expr): integer
     if node.op ~= "constant" and node.op ~= "constant_i32" then
         error("SIMD operand is not a constant", 0)
     end
@@ -34,7 +32,7 @@ end
 
 --- A scalar operand as a vector of `found`: a vector operand is itself, a
 --- scalar one is splatted.
-function vectors.vectorOperand(ctx: context.Context, found: species.Species, node: scalarIR.Expr): string
+export function vectorOperand(ctx: context.Context, found: species.Species, node: scalarIR.Expr): string
     local value, t = expressions.value(ctx, node)
     if context.species(ctx, t) ~= nil then
         return value
@@ -306,8 +304,8 @@ local function binary(ctx: context.Context, node: scalarIR.Expr): (string, strin
     local typeName = tostring(simd.type)
     local found = lanes.of(ctx, typeName)
     local intrinsic = tostring(simd.intrinsic)
-    local a = vectors.vectorOperand(ctx, found, simd.args[1])
-    local b = vectors.vectorOperand(ctx, found, simd.args[2])
+    local a = vectorOperand(ctx, found, simd.args[1])
+    local b = vectorOperand(ctx, found, simd.args[2])
     local isMask = found.family == "mask"
     if isMask then
         local instruction = INTEGER_BINARY[intrinsic]
@@ -336,7 +334,7 @@ local function binary(ctx: context.Context, node: scalarIR.Expr): (string, strin
         return lanes.integerExtreme(ctx, lanes.vectorShape(found), a, b, minimum, found.signed), typeName
     end
     if intrinsic == "fma" then
-        local c = vectors.vectorOperand(ctx, found, simd.args[3])
+        local c = vectorOperand(ctx, found, simd.args[3])
         return fusedMultiplyAdd(ctx, found, a, b, c), typeName
     end
     if intrinsic == "mod" or intrinsic == "floor_div" then
@@ -410,8 +408,8 @@ local function compare(ctx: context.Context, node: scalarIR.Expr): (string, stri
     local typeName = tostring(simd.type)
     local intrinsic = tostring(simd.intrinsic)
     local left = context.species(ctx, tostring(simd.args[1].type)) as species.Species
-    local a = vectors.vectorOperand(ctx, left, simd.args[1])
-    local b = vectors.vectorOperand(ctx, left, simd.args[2])
+    local a = vectorOperand(ctx, left, simd.args[1])
+    local b = vectorOperand(ctx, left, simd.args[2])
     if left.family == "mask" then
         return context.value(
             ctx,
@@ -461,8 +459,8 @@ local function selectLanes(ctx: context.Context, node: scalarIR.Expr): (string, 
     local typeName = tostring(simd.type)
     local found = lanes.of(ctx, typeName)
     local carried = carriedMask(ctx, simd.args[1], found)
-    local yes = vectors.vectorOperand(ctx, found, simd.args[2])
-    local no = vectors.vectorOperand(ctx, found, simd.args[3])
+    local yes = vectorOperand(ctx, found, simd.args[2])
+    local no = vectorOperand(ctx, found, simd.args[3])
     if carried ~= nil then
         -- The carried register is already every lane's bits: select with it
         -- directly, as and/and-not/or, rather than narrow it to `<N x i1>`
@@ -498,7 +496,7 @@ end
 --- wide from its compares, each pinned so it is not folded back to i1, the
 --- logic is the registers' own `and`/`or`/`xor`. Nil where this is not that
 --- tier, slot, or kind of expression.
-function vectors.wideMask(ctx: context.Context, node: scalarIR.Expr, slot: context.Slot): string?
+export function wideMask(ctx: context.Context, node: scalarIR.Expr, slot: context.Slot): string?
     if not bitSelects(ctx) or not slot.carried then
         return nil
     end
@@ -534,7 +532,7 @@ function vectors.wideMask(ctx: context.Context, node: scalarIR.Expr, slot: conte
                 ("%s %s %s, %s"):format(INTEGER_BINARY[tostring(inner.intrinsic)] as string, wide, a, b)
             )
         end
-        local narrow = vectors.vectorOperand(ctx, mask, value)
+        local narrow = vectorOperand(ctx, mask, value)
 
         return context.opaque(ctx, context.value(ctx, ("sext %s %s to %s"):format(mask.mask, narrow, wide)), wide)
     end
@@ -740,7 +738,7 @@ local function lanesOf(ctx: context.Context, node: scalarIR.Expr): (string, stri
 end
 
 --- The lowerings this module provides, by operation.
-vectors.EXPRESSIONS = {
+export const EXPRESSIONS = {
     ["simd_species"] = speciesValue,
     ["simd_lanes_generic"] = lanesOf,
     ["simd_splat"] = splat,
@@ -757,5 +755,3 @@ vectors.EXPRESSIONS = {
     ["simd_call"] = call,
     ["simd_math"] = mathLanes,
 } as {[string]: function(ctx: context.Context, node: scalarIR.Expr): (string, string)}
-
-export = vectors

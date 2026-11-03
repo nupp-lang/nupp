@@ -13,7 +13,6 @@ local packaging = require("nupp.tools.build.package")
 local platform = require("nupp.tools.build.platform")
 local stubs = require("nupp.tools.build.stubs")
 
-local release = {}
 local json = require("serde.json")
 
 local HOST_FEATURES: {
@@ -190,7 +189,7 @@ local function verifyRecord(value: any, root: string): boolean?, string?
     return true
 end
 
-function release.record(
+export function record(
     selectedPlatform: string,
     catalogRelease: string,
     artifactPath: string,
@@ -231,7 +230,7 @@ end
 
 --- A catalog record for the link kit archive at `archivePath`, fetched from
 --- `url` by a nupp that links a standalone program for `selectedPlatform`.
-function release.kitRecord(
+export function kitRecord(
     selectedPlatform: string,
     catalogRelease: string,
     archivePath: string,
@@ -296,7 +295,7 @@ end
 
 --- The catalog a release's nupp is built with: its link kits, which are built
 --- before it, and no stubs, which are built beside it.
-function release.kitCatalog(
+export function kitCatalog(
     catalogRelease: string,
     recordPaths: {string},
     artifactRoot: string,
@@ -334,7 +333,7 @@ function release.kitCatalog(
     })
 end
 
-function release.catalog(
+export function catalog(
     catalogRelease: string,
     recordPaths: {string},
     artifactRoot: string,
@@ -401,7 +400,7 @@ function release.catalog(
     })
 end
 
-function release.stampPayload(
+export function stampPayload(
     stubPath: string,
     payloadPath: string,
     selectedPlatform: string,
@@ -429,5 +428,3 @@ function release.stampPayload(
 
     return true
 end
-
-export = release

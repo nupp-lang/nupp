@@ -34,8 +34,6 @@ an ordinary Lua string.
 
 local valuebuilder = require("serde.valuebuilder")
 
-local digest = {}
-
 -- Short names for the fixed-width intrinsics. `@aot` admits these by the
 -- identity the checker gives the member rather than by the path the source
 -- wrote, and both routes inline a helper whose body is one return, so wrapping
@@ -359,11 +357,9 @@ end
 --- @return the digest, as sixty-four lowercase hexadecimal digits
 --- @raises string when the input is too long to address as a single buffer
 --- @export
-function digest.sha256(value: string): string
+export function sha256(value: string): string
     if #value > 0x7FFFFFFF then
         error("nupp: SHA-256 input is too long", 2)
     end
     return digestHex(value, NEVER_NULL) as string
 end
-
-export = digest

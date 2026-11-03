@@ -20,12 +20,10 @@ local generics = require("nupp.compiler.types.generics")
 local reflection = require("nupp.compiler.reflection")
 local T = require("nupp.compiler.types")
 
-local interfaceimage = {}
-
-interfaceimage.SCHEMA = 5
+export const SCHEMA = 5
 
 --- What `interfaceimage.encode` is told about the run it encodes for.
-type interfaceimage.EncodeOptions = {
+export type EncodeOptions = {
     --- Where every type an earlier image carried lives, by arena and node. A type
     --- found here is referenced rather than described again.
     origins: {[any]: any}?,
@@ -40,7 +38,7 @@ type interfaceimage.EncodeOptions = {
 }
 
 --- What `interfaceimage.decode` loads into.
-type interfaceimage.DecodeOptions = {
+export type DecodeOptions = {
     --- Nominals by declaration key: the reader's project index, and every
     --- declaration earlier images allocated.
     nominals: {[string]: any}?,
@@ -215,7 +213,7 @@ local function encodeBounds(parameters: any, bounds: any, intern: function(any):
 end
 
 --- Encodes a set of completed module semantics as a shared type arena.
-function interfaceimage.encode(semantics: {[string]: any}, options: interfaceimage.EncodeOptions?): (any?, string?)
+export function encode(semantics: {[string]: any}, options: EncodeOptions?): (any?, string?)
     local origins = options and options.origins or nil
     local arenas = options and options.arenas or nil
     local roots: {any} = {}
@@ -655,7 +653,7 @@ function interfaceimage.encode(semantics: {[string]: any}, options: interfaceima
     end
     local name = arenaName()
     local image = {
-        schema = interfaceimage.SCHEMA,
+        schema = SCHEMA,
         fingerprint = name,
         descriptor = {root = rootIndex, types = nodes},
         modules = entries,
@@ -682,9 +680,9 @@ end
 ---
 --- `image.fingerprint` names the arena; it says nothing about the contents. The
 --- transport that delivered the image vouches for its bytes.
-function interfaceimage.decode(image: any, options: interfaceimage.DecodeOptions?): (any?, string?)
+export function decode(image: any, options: DecodeOptions?): (any?, string?)
     if type(image) ~= "table"
-        or image.schema ~= interfaceimage.SCHEMA
+        or image.schema ~= SCHEMA
         or type(image.descriptor) ~= "table"
         or type(image.descriptor.types) ~= "table"
         or type(image.modules) ~= "table"
@@ -1395,5 +1393,3 @@ function interfaceimage.decode(image: any, options: interfaceimage.DecodeOptions
 
     return semantics, nil
 end
-
-export = interfaceimage

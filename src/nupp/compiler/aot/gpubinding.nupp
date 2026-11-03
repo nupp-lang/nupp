@@ -11,8 +11,6 @@ exist only in the generated implementation.
 local gpuartifact = require("nupp.compiler.aot.gpuartifact")
 local scalarIR = require("nupp.compiler.aot.scalar")
 
-local gpubinding = {}
-
 const SOURCE_TYPE: {
     [string]: string
 } = {f64 = "number", f32 = "float", i32 = "int32", u32 = "uint32", bool = "boolean",}
@@ -97,7 +95,7 @@ local function freshName(reserved: {[string]: boolean}, preferred: string): stri
 end
 
 --- Replaces an authored `@aot(target = "gpu")` declaration.
-function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact.Artifact, browser: boolean?): string
+export function replacement(program: scalarIR.Program, artifact: gpuartifact.Artifact, browser: boolean?): string
     local reserved: {[string]: boolean} = {[program.name] = true, self = true,}
     local names: {[string]: string} = {}
     for _, param in ipairs(program.params) do
@@ -356,5 +354,3 @@ function gpubinding.replacement(program: scalarIR.Program, artifact: gpuartifact
 
     return table.concat(lines, "\n")
 end
-
-export = gpubinding

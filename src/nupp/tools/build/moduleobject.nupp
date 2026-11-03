@@ -7,8 +7,6 @@ module nupp.tools.build.moduleobject
 local cst = require("nupp.compiler.syntax.cst")
 local receiverIntrinsics = require("nupp.compiler.check.receiverintrinsics")
 
-local moduleobject = {}
-
 local function dottedPath(node): {string}?
     local parts = {}
     local current = node
@@ -76,7 +74,7 @@ end
 --- The object for a parsed module. `index.declaredModules` names the modules a
 --- qualified reference can reach; `index.supportedModules` marks the ones this
 --- target cannot load, which are never dependencies.
-function moduleobject.emit(path: string, parsed: any, header: any, index: any): any
+export function emit(path: string, parsed: any, header: any, index: any): any
     local supported = index.supportedModules
     local dependencySet: {[string]: boolean} = {}
     for _, name in ipairs(header.dependencies or {}) do
@@ -141,7 +139,7 @@ end
 --- `dependencies[i]` and `dependents[i]` list component indexes, sorted. The walk is
 --- iterative: a require chain is as deep as a project makes it, and a recursive walk
 --- overflows the Lua stack at about a thousand modules.
-function moduleobject.link(objects: {any}): any
+export function link(objects: {any}): any
     local byName: {[string]: any} = {}
     local paths: {string} = {}
     for _, object in ipairs(objects) do
@@ -253,5 +251,3 @@ function moduleobject.link(objects: {any}): any
 
     return {components = components, dependencies = dependencies, dependents = dependents,}
 end
-
-export = moduleobject

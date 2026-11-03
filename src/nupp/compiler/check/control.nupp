@@ -25,8 +25,6 @@ local rawType = T.unwrapOwnership
 local memberSet = narrowing.memberSet
 local subtract = narrowing.subtract
 
-local control = {}
-
 local LITERAL_KINDS: {
     [string]: boolean
 } = {string = true, number = true, nilExpr = true, trueExpr = true, falseExpr = true,}
@@ -119,7 +117,7 @@ end
 ---
 --- @param c the run's state
 --- @return the statement kinds this family answers
-function control.install(c: state.Checker): state.StatHandlers
+export function install(c: state.Checker): state.StatHandlers
     -- A type constructor cannot in general prove the exact bound of the handle it
     -- builds. The closed evaluator validates the generated type against the declared
     -- bound at the type-function call boundary, so a broad `type` result is sound here.
@@ -2219,5 +2217,3 @@ function control.install(c: state.Checker): state.StatHandlers
 
     return handlers
 end
-
-export = control

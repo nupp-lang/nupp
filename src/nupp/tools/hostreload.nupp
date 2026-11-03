@@ -19,18 +19,16 @@ backs, and [hot-reload.md](docs/learn/projects/hot-reload.md) for what a commit
 preserves.
 ]]
 
-local hostreload = {}
-
 --- What a
 ---
 --- `prepared` is only `prepare`'s: a complete patch is staged and nothing in the
 --- running process has changed yet. `committed` is only `apply`'s and `poll`'s.
-type hostreload.Verdict = 'no-change' | 'prepared' | 'committed' | 'rejected' | 'restart-required'
+export type Verdict = 'no-change' | 'prepared' | 'committed' | 'rejected' | 'restart-required'
 
 --- An open host session: the entry's value, and the three things a host does with
 --- it. They are plain fields rather than methods because the caller is C, which
 --- reaches a function through the table and calls it with what it has.
-type hostreload.Session = {
+export type Session = {
     --- Whatever the entry module's chunk answered, for a caller already in Lua.
     entry: any,
 
@@ -40,11 +38,11 @@ type hostreload.Session = {
 
     --- Checks what changed and stages a patch. Nothing that is running changes
     --- here, so a host may do this away from its safe point.
-    prepare: function(): (hostreload.Verdict, integer, string?),
+    prepare: function(): (Verdict, integer, string?),
 
     --- Publishes what `prepare` staged. This is the commit boundary, and the only
     --- call in a session that changes a live implementation.
-    apply: function(): (hostreload.Verdict, integer, string?),
+    apply: function(): (Verdict, integer, string?),
 
     --- `prepare` and `apply` at a point, for a host with nothing to gain by
     --- separating them.
@@ -53,7 +51,7 @@ type hostreload.Session = {
     --- them across the C boundary, where a returned table is another rooted
     --- value to take apart and release. The message is already formatted: a
     --- host has no way to render the compiler's own diagnostic records.
-    poll: function(): (hostreload.Verdict, integer, string?),
+    poll: function(): (Verdict, integer, string?),
 
     --- Retires the loader and the compiler session. `ok` says whether the program
     --- ran to a good end, the way `run` reports it after the entry's chunk returns.
@@ -87,9 +85,9 @@ end
 -- The session speaks one word for two different facts: `prepared` means a patch is
 -- staged when `prepare` says it and means one was published when `apply` or `poll`
 -- does. What a host is told has to tell them apart.
-local function verdictOf(result: any, staging: boolean): hostreload.Verdict, integer, string?
+local function verdictOf(result: any, staging: boolean): Verdict, integer, string?
     local kind = tostring(result.kind)
-    local verdict: hostreload.Verdict = "no-change"
+    local verdict: Verdict = "no-change"
     if kind == "prepared" then
         verdict = staging and "prepared" or "committed"
     elseif kind == "diagnostics" then
@@ -104,16 +102,16 @@ end
 --- The three host-facing steps over one watching driver, whatever produced it.
 local function steps(
     driver: any
-): (function(): (hostreload.Verdict, integer, string?), function(): (hostreload.Verdict, integer, string?), function(): (hostreload.Verdict, integer, string?))
-    local function prepare(): hostreload.Verdict, integer, string?
+): (function(): (Verdict, integer, string?), function(): (Verdict, integer, string?), function(): (Verdict, integer, string?))
+    local function prepare(): Verdict, integer, string?
         return verdictOf(driver.prepare(), true)
     end
 
-    local function apply(): hostreload.Verdict, integer, string?
+    local function apply(): Verdict, integer, string?
         return verdictOf(driver.apply(), false)
     end
 
-    local function poll(): hostreload.Verdict, integer, string?
+    local function poll(): Verdict, integer, string?
         local verdict, generation, message = prepare()
         if verdict == "prepared" then
             return apply()
@@ -146,7 +144,7 @@ end
 --- @param entry the entry `.nupp` module, absolute or relative to `root`
 --- @param root the project directory; the process's own when absent
 --- @return the open session, or nil and why it could not be opened
-function hostreload.open(entry: string, root: string?): (hostreload.Session?, string?)
+export function open(entry: string, root: string?): (Session?, string?)
     if active then
         return nil, "a hot reload session is already open in this process"
     end
@@ -278,7 +276,7 @@ end
 ---
 --- @param root the project directory the component was built from
 --- @return the open session, or nil and why it could not be opened
-function hostreload.attach(root: string?): (hostreload.Session?, string?)
+export function attach(root: string?): (Session?, string?)
     if active then
         return nil, "a hot reload session is already open in this process"
     end
@@ -358,5 +356,3 @@ function hostreload.attach(root: string?): (hostreload.Session?, string?)
 
     return {entry = nil, member = loadedMember, prepare = prepare, apply = apply, poll = poll, close = close}, nil
 end
-
-export = hostreload

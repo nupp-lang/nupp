@@ -12,9 +12,7 @@ function-type qualifier and no second effect inference here.
 local cst = require("nupp.compiler.syntax.cst")
 local state = require("nupp.compiler.check.state")
 
-local effectregions = {}
-
-type effectregions.Ops = {
+export type Ops = {
     @readonly region: function(any),
     @readonly free: function(any, string, any): boolean,
     @readonly sweep: function(any)
@@ -33,7 +31,7 @@ local PURE_BUILTINS = {
     next = true,
 }
 
-function effectregions.install(c: state.Checker): effectregions.Ops
+export function install(c: state.Checker): Ops
     local ops = {}
     local regions: {any} = {}
 
@@ -338,7 +336,5 @@ function effectregions.install(c: state.Checker): effectregions.Ops
         end
     end
 
-    return ops as effectregions.Ops
+    return ops as Ops
 end
-
-export = effectregions

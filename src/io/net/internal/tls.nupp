@@ -31,14 +31,14 @@ local provider: contract.TlsProvider = do
     assert2(target.host == "native", "io.net: no implementation is available")
     yield _G.require("nupp.runtime.provider.nativetls") as contract.TlsProvider
 end
-local tls = {}
+
 const shared = require("io.net.internal.tlstypes")
 
 --- How a client session is opened.
-type tls.TlsClientOptions = shared.ClientOptions
+export type TlsClientOptions = shared.ClientOptions
 
 --- How a server session is opened.
-type tls.TlsServerOptions = shared.ServerOptions
+export type TlsServerOptions = shared.ServerOptions
 
 --- The smallest set of operations a platform has to answer for this module.
 
@@ -122,7 +122,7 @@ end
 --- Owns the connection it encrypts over. Closing the session sends
 --- `close_notify`, drains it, and closes the socket.
 --- @export
-record tls.TlsSession is io.Reader, io.Writer
+export record TlsSession is io.Reader, io.Writer
     --- Takes both directions as one owned scalar stream.
     function scalar(takes self): affine(io.ScalarStream)
         return scalarAdapters.duplex(self)
@@ -526,9 +526,9 @@ end
 --- @return why it could not be made, when unsuccessful
 --- @raises string when verification is asked for without a name to verify against
 --- @export
-function tls.tlsclient(takes stream: net.Stream, options: tls.TlsClientOptions?): (affine(tls.TlsSession)?, io.Error?)
+export function tlsclient(takes stream: net.Stream, options: TlsClientOptions?): (affine(TlsSession)?, io.Error?)
     const chosen = provider
-    const given: tls.TlsClientOptions = options or {}
+    const given: TlsClientOptions = options or {}
     const verify = given.verify ~= false
     if verify and (given.hostname == nil or given.hostname == "") then
         error("nupp: io.net.tlsclient needs a hostname to verify the peer against", 2)
@@ -548,7 +548,7 @@ function tls.tlsclient(takes stream: net.Stream, options: tls.TlsClientOptions?)
         return nil, io.toError(why)
     end
 
-    return new tls.TlsSession(_provider = chosen, _session = session, _closed = false, _ready = false, _ended = false)
+    return new TlsSession(_provider = chosen, _session = session, _closed = false, _ready = false, _ended = false)
 end
 
 --- Encrypts a connection as the server.
@@ -557,7 +557,7 @@ end
 --- @return the session, which the caller owns and must close
 --- @return why it could not be made, when unsuccessful
 --- @export
-function tls.tlsserver(takes stream: net.Stream, options: tls.TlsServerOptions): (affine(tls.TlsSession)?, io.Error?)
+export function tlsserver(takes stream: net.Stream, options: TlsServerOptions): (affine(TlsSession)?, io.Error?)
     const chosen = provider
     const protocols = packProtocols(options.protocols, 2)
     const session, why = chosen:wrap(
@@ -574,7 +574,5 @@ function tls.tlsserver(takes stream: net.Stream, options: tls.TlsServerOptions):
         return nil, io.toError(why)
     end
 
-    return new tls.TlsSession(_provider = chosen, _session = session, _closed = false, _ready = false, _ended = false)
+    return new TlsSession(_provider = chosen, _session = session, _closed = false, _ready = false, _ended = false)
 end
-
-export = tls

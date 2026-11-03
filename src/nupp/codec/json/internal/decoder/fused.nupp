@@ -67,8 +67,6 @@ local array = require("nupp.mem.array")
 local simd = require("simd")
 local {type Buffer} = require("nupp.text")
 
-local fused = {}
-
 --- A sixteen-entry nibble table, as the vector `swizzle` looks up in.
 ---
 --- A table is a vector whose first sixteen lanes carry the entries: a
@@ -779,7 +777,7 @@ local function decodeFused<const Variant: integer>(
 end
 
 --- The pull entry `nupp.codec.json.internal.decode` exports.
-function fused.decodePull(
+export function decodePull(
     source: string,
     nullValue: unknown,
     arrayMarker: unknown?,
@@ -794,7 +792,7 @@ end
 --- The serde entry `nupp.codec.json.internal.decoder.serde` exports. The schema
 --- argument carries compiled field targets; the native builder consumes those directly
 --- instead of resolving scalar shapes through Lua.
-function fused.decodeSerde(
+export function decodeSerde(
     borrows source: string | Buffer,
     nullValue: unknown,
     arrayMarker: unknown?,
@@ -807,7 +805,7 @@ function fused.decodeSerde(
 end
 
 --- The eager entry `nupp.codec.json.internal.decoder.eager` exports.
-function fused.decodeEager(
+export function decodeEager(
     source: string,
     nullValue: unknown,
     arrayMarker: unknown?,
@@ -818,5 +816,3 @@ function fused.decodeEager(
 ): (unknown, uint32, uint32)
     return decodeFused(source, 2, nullValue, arrayMarker, objectMarker, shape, arrayShapeMarker, serdeMarkers)
 end
-
-export = fused

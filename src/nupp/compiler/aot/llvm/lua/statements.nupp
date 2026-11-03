@@ -18,8 +18,6 @@ local runtime = require("nupp.compiler.aot.llvm.lua.runtime")
 local scalarIR = require("nupp.compiler.aot.scalar")
 local values = require("nupp.compiler.aot.llvm.lua.values")
 
-local luaStatements = {}
-
 --- The largest fixed word scratch kept on the machine stack.
 const STACK_SCRATCH_WORDS = 1024
 
@@ -471,7 +469,7 @@ local function returnStatement(ctx: context.Context, node: scalarIR.Statement): 
 end
 
 --- The statements a builder entry lowers first, by operation.
-luaStatements.STATEMENTS = {
+export const STATEMENTS = {
     let = letStatement,
     assign = assignStatement,
     ["return"] = returnStatement,
@@ -499,5 +497,3 @@ luaStatements.STATEMENTS = {
     lua_builder_key_escapes = streamEvent,
     lua_builder_string_escapes = streamEvent,
 } as {[string]: function(ctx: context.Context, node: scalarIR.Statement): boolean}
-
-export = luaStatements

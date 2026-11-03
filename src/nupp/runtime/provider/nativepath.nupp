@@ -29,7 +29,6 @@ int32_t nuppNativeFilesCanonicalize(
     struct NuppNativeFilesystemSlice, uint64_t *);
 ]]
 
-local provider = {}
 local ffi = native.ffi
 local C = native.C
 const FILESYSTEM_FEATURE = 64
@@ -56,20 +55,18 @@ local function answered(status: integer, output: any): (string?, string?)
     return native.bytes(output[0]), nil
 end
 
-function provider.sep(): string
+export function sep(): string
     return package.config:sub(1, 1)
 end
 
-function provider.cwd(): (string?, string?)
+export function cwd(): (string?, string?)
     local output = ffi.new("uint64_t[1]")
 
     return answered(C.nuppNativeFilesCurrentDirectory(output), output)
 end
 
-function provider.canonicalize(path: string): (string?, string?)
+export function canonicalize(path: string): (string?, string?)
     local output = ffi.new("uint64_t[1]")
 
     return answered(C.nuppNativeFilesCanonicalize(slice(path), output), output)
 end
-
-export = provider
