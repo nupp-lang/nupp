@@ -2740,7 +2740,7 @@ local function fieldContract(receiver: any, node: any, write: boolean, signature
     local described = physical.describe(receiver.context, storage)
     need(#described.ownership == 0, "qualified field requires a lifetime permission proof")
     local expected = write and storage or fixed.loaded(storage)
-    need(node.resolvedType == expected, "checked field result type differs")
+    need(node.resolvedType == expected, "checked field result type differs: " .. name)
     local layout, why = targetLayout.of(owner, receiver.context.target)
     need(layout, why or "pointee has no target layout")
     local member = nil
