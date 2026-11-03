@@ -79,6 +79,7 @@ local CASES: {[string]: {
     recordsAffine = {fixture = "catalog-records-affine", version = 8},
     recordsAffineErrors = {fixture = "catalog-records-affine-errors", version = 8},
     recordsaffineraise = {fixture = "catalog-records-affine-raise", version = 8},
+    recordsdynamic = {fixture = "catalog-records-dynamic", version = 8},
     tablesSort = {fixture = "catalog-tables-sort", version = 8},
     stringsGsubFunction = {fixture = "catalog-strings-gsubfn", version = 8},
     stringsQuoted = {fixture = "catalog-strings-quoted", version = 8},

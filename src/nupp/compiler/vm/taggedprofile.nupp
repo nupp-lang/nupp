@@ -1562,7 +1562,14 @@ function tagged.forVersion(version: integer): any
             -- record's name (`R.f`), which holds the table of its methods.
             local tag = typeKind(node.obj.inferredType)
             local plain = slot == nil
-                and (tag == "table" or tag == "map" or tag == "array" or tag == "shape" or tag == "typeobject")
+                and (
+                    tag == "table"
+                    or tag == "map"
+                    or tag == "array"
+                    or tag == "shape"
+                    or tag == "typeobject"
+                    or tag == "any"
+                )
                 and node.name ~= nil
             if slot == nil and not plain then
                 return tagged.constant(ctx, node, expected)
@@ -1582,7 +1589,14 @@ function tagged.forVersion(version: integer): any
                 local tag = typeKind(node.obj.inferredType)
                 -- `R.f = ...` writes the table a record's name holds.
                 local plain = slot == nil
-                    and (tag == "table" or tag == "map" or tag == "array" or tag == "shape" or tag == "typeobject")
+                    and (
+                        tag == "table"
+                        or tag == "map"
+                        or tag == "array"
+                        or tag == "shape"
+                        or tag == "typeobject"
+                        or tag == "any"
+                    )
                     and node.name ~= nil
                 need(slot ~= nil or plain, "only record and table field assignment is admitted")
                 local object = ctx.expression(node.obj, "tagged")
@@ -1793,6 +1807,21 @@ function tagged.forVersion(version: integer): any
             local held = ctx.hold(ctx.emit(stat, "NewTable", {}, "tagged"))
             local indexKey = ctx.emit(stat, "K", {pool(ctx, "str", "__index")}, "tagged")
             ctx.emit(stat, "SetIdx", {ctx.readHeld(held), indexKey, ctx.readHeld(held)}, nil)
+            -- Its field names, each to its slot, under a key no field name
+            -- can be: a read or write of an instance by name, where no type
+            -- gave the slot, finds the field there.
+            local order = stat.resolvedType and stat.resolvedType.fieldOrder or {}
+            if #order > 0 then
+                local fields = ctx.hold(ctx.emit(stat, "NewTable", {}, "tagged"))
+                for slot, field in ipairs(order) do
+                    local name = ctx.emit(stat, "K", {pool(ctx, "str", field)}, "tagged")
+                    local at = ctx.emit(stat, "K", {pool(ctx, "int64", tostring(slot))}, "tagged")
+                    ctx.emit(stat, "SetIdx", {ctx.readHeld(fields), name, at}, nil)
+                end
+                local fieldsKey = ctx.emit(stat, "K", {pool(ctx, "str", "\0fields")}, "tagged")
+                ctx.emit(stat, "SetIdx", {ctx.readHeld(held), fieldsKey, ctx.readHeld(fields)}, nil)
+                ctx.release(fields)
+            end
             for _, entry in ipairs(stat.entries or {}) do
                 -- A constructor is stored under a key no field name can be;
                 -- each body of an overloaded method under its own member.

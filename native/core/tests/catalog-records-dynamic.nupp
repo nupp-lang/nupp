@@ -1,0 +1,25 @@
+module nupp.core.catalogrecordsdynamic
+
+-- A record read and written by field name through `any` reaches the same
+-- fields its typed accesses do, and a plain table's fields stay its own.
+local record Point
+    x: integer
+    y: integer = 2
+
+    constructor(self, x: integer)
+        self.x = x
+    end
+
+    function sum(self): integer
+        return self.x + self.y
+    end
+end
+
+local p = new Point(5)
+local loose: any = p
+local score = loose.x * 100 + loose.y
+loose.y = 9
+score = score + p.y * 10000 + p:sum()
+local plain: any = {x = 3}
+score = score + plain.x * 1000000
+export = score
