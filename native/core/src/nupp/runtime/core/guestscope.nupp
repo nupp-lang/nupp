@@ -76,6 +76,8 @@ export struct Services
     -- An object a library call holds while it allocates another, which
     -- nothing else roots yet (`hold`).
     scratch: uint64
+    -- The metamethod names as strings, by META_ id, each made once.
+    metanames: uint64
     -- 1 while coroutine.close unwinds a suspended thread: its error lands at
     -- every frame that owns affine values, and no protected call takes it.
     closing: uint64
@@ -171,6 +173,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("loaded"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replays"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("scratch"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("metanames"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("closing"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replay"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replaycursor"), 0ULL)
@@ -179,7 +182,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("replaykey"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replayvalue"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("libraryanswer"), 0ULL)
-        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 5ULL)
+        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 6ULL)
         -- Collect-at-every-allocation: a whole cycle at every safepoint.
         h.stress = stress ~= 0ULL
         native.store64(services, native.fieldOffset<Services>("heap"), native.address(h))
@@ -359,7 +362,7 @@ export const META_FIELDS: uint64 = 18ULL
 
 -- The interned name of a metatable field: "__index", "__newindex" or
 -- "__metatable".
-export function metaKey(ctx: voidptr, which: uint64): uint64
+local function makeMetaKey(ctx: voidptr, which: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = native.pointer(guestHeap(ctx)) as heap.Heap*
@@ -414,6 +417,32 @@ export function metaKey(ctx: voidptr, which: uint64): uint64
         local s = strings.finish(h, builder)
         tables.drain(h)
         return values.TAG_OBJ | s
+    end
+end
+
+-- Metamethod name `which` as a string: made the first time, then kept in
+-- the Services' rooted `metanames` table. Storing it allocates no object,
+-- so nothing collects it between its making and its keeping.
+export function metaKey(ctx: voidptr, which: uint64): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local names = native.load64(services, native.fieldOffset<Services>("metanames"))
+        if names == 0ULL then
+            names = values.TAG_OBJ | newTable(ctx)
+            native.store64(services, native.fieldOffset<Services>("metanames"), names)
+        end
+        local key = values.TAG_INTEGER | which
+        local known = tables.get(names & values.PAYLOAD, key)
+        if known ~= values.NIL then
+            return known
+        end
+        local made = makeMetaKey(ctx, which)
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        if tables.set(h, names & values.PAYLOAD, key, made) == tables.NO_MEMORY then
+            error("not enough memory")
+        end
+
+        return made
     end
 end
 
