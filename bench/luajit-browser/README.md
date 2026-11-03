@@ -6,7 +6,7 @@ measurements; they are not measurements of later lowerer cleanup.
 
 The compatibility implementation is in `nupp.compiler.compat`. Its stock-5.1
 execution oracle is `scripts/lua51-compat-corpus.sh`; its checker/cache tests are
-`tests/lua51compattest.lua`. `scripts/prelude-image luajit` builds the browser
+`tests/integration/compat/lua51compattest.lua`. `scripts/prelude-image luajit` builds the browser
 compiler image.
 
 ## Reproduce request measurements
@@ -127,7 +127,7 @@ cp -R "$guest/." build/browser-guest/
 ./bin/nupp build --target bootstrapCompiler
 ./scripts/prelude-image luajit
 luajit_dir=$(./scripts/toolchain luajit)
-"$luajit_dir/bin/luajit" tests/luajit-browser/prepare-compiler.lua \
+"$luajit_dir/bin/luajit" tests/integration/browser/luajit/prepare-compiler.lua \
   build/browser-luajit/nupp-compiler.lua build/browser-guest
 ```
 
@@ -184,7 +184,7 @@ Lua-C-API builders use guest-native i386/musl shared libraries under `aot = "req
 native assets before launching either the application or a worker lane. This uses
 the existing LuaJIT C API and FFI bindings and does not emulate the Lua API in JavaScript.
 
-`tests/luajit-browser/prepare-packaged.mjs` builds the fixtures from normal targets.
+`tests/integration/browser/luajit/prepare-packaged.mjs` builds the fixtures from normal targets.
 `editors/playground/test/browser-matrix.mjs` exercises the source guest, compiler
 oracle, examples, recovery, memory exhaustion and packages in Chromium, Firefox
 and WebKit. Unsupported WebGPU is recorded explicitly; Chromium must execute it.

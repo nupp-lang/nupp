@@ -12,7 +12,7 @@
 -- in event bytes cover what that enumeration did not think of.
 --
 -- `--time` adds a timing run over the indexer and the reference.
-local math = arg[1] == "--time" and _G.math or assert(loadfile("../../tests/simd/corpusmath.lua"))()
+local math = arg[1] == "--time" and _G.math or assert(loadfile("../../tests/integration/simd/corpusmath.lua"))()
 local ffi = require("ffi")
 local span = require("binary.span")
 local indexer = require("simd_json.indexer")
@@ -33,7 +33,7 @@ local function indexed(source, capacity)
     return positions, tonumber(status), tonumber(position)
 end
 
-local proveNative = assert(loadfile("../../tests/simd/nativeproof.lua"))()
+local proveNative = assert(loadfile("../../tests/integration/simd/nativeproof.lua"))()
 proveNative("simd_json.indexer", function()
     local input = '{"proof":[1,true,"\\u1234"],"unicode":"é"}'
     local actual, status, position = indexed(input, #input)

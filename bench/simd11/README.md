@@ -116,13 +116,13 @@ and logs remain preserved; the accepted report retains this source revision.
 
 | Requirement | Permanent evidence |
 | --- | --- |
-| Primitive types, species, tails, masks and input classes | [Shared corpus inventory](../../tests/simd/coverage.md) |
-| Exact and algebraic reducer contracts | [Reducer corpus](../../tests/simd/reducers.lua), [numerical rules](../../docs/learn/performance/ahead-of-time/numeric-semantics.md) |
-| Actual native and Wasm entry execution | [Shared runners and retained proof](../../tests/simd/README.md) |
-| Authored vector operations execute in native and Wasm builds | [Shared runners](../../tests/simd/README.md) and their executed-entry checks |
+| Primitive types, species, tails, masks and input classes | [Shared corpus inventory](../../tests/integration/simd/coverage.md) |
+| Exact and algebraic reducer contracts | [Reducer corpus](../../tests/integration/simd/reducers.lua), [numerical rules](../../docs/learn/performance/ahead-of-time/numeric-semantics.md) |
+| Actual native and Wasm entry execution | [Shared runners and retained proof](../../tests/integration/simd/README.md) |
+| Authored vector operations execute in native and Wasm builds | [Shared runners](../../tests/integration/simd/README.md) and their executed-entry checks |
 | Clang/GCC, operating systems and exact feature tiers | [CI matrix](../../.github/workflows/simd-conformance.yml), [platform inventory](../../.github/simd-platforms.json) |
-| Malformed regions, reducers, masks, vectors and lane indices | [Verifier fixtures](../../tests/aotverifytest.lua) |
-| Ordered, pairwise, algebraic and FMA assembly contracts | [AOT CLI checks](../../tests/aotclitest.lua) |
+| Malformed regions, reducers, masks, vectors and lane indices | [Verifier fixtures](../../tests/compiler/aot/aotverifytest.lua) |
+| Ordered, pairwise, algebraic and FMA assembly contracts | [AOT CLI checks](../../tests/compiler/aot/aotclitest.lua) |
 | Native arithmetic versus a separate optimized no-vector control | Preparation checks and saved assembly in [the measurement harness](measure.py) |
 | Complete-function duration comparisons | [The measurement harness](measure.py) and the separately identified comparisons above |
 
@@ -131,7 +131,7 @@ compiler, tier, assertion count and completed native calls. A compile-only resul
 does not count as executing a tier. Unavailable hardware remains missing
 acceptance evidence even when all executable rows pass; modeled layouts outside
 the provisioned runtime matrix are listed in
-[runtime boundaries](../../tests/simd/runtime-boundaries.json).
+[runtime boundaries](../../tests/integration/simd/runtime-boundaries.json).
 
 ## Against hand-written NEON
 

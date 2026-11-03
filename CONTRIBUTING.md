@@ -280,7 +280,7 @@ What a change selects is decided by `.github/scripts/classify-changes.lua` from
 the paths it touches. It is deliberately conservative: a path no rule
 classifies selects every job, and so does any change to `nupp.lua`,
 `scripts/`, `.github/`, `Cargo.lock` or the Rust toolchain file.
-`tests/cichangeclassifiertest.lua` asserts what representative files select, and
+`tests/tools/repository/cichangeclassifiertest.lua` asserts what representative files select, and
 `.github/ci-coverage.json` records what each job and step covers -- the two are
 held to the workflow itself on every run, before anything is provisioned.
 

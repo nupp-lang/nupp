@@ -2,7 +2,7 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-corpus="$root/tests/lua51-compat"
+corpus="$root/tests/integration/compat/lua51"
 
 (cd "$corpus" && "$root/bin/nupp" build --compat lua51 >/dev/null)
 

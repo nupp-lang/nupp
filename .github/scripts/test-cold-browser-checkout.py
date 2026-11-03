@@ -141,8 +141,8 @@ def main(argv=None):
         run("playground", ["node", "editors/playground/build.mjs"])
         env["NUPP_PLAYGROUND_ALREADY_BUILT"] = "1"
         run("pages", ["node", "scripts/build-pages.mjs"])
-        for project, target in (("tests/luajit-browser/aot-project", "app"),
-                                ("tests/wasm-aot/platform-project", "luajit")):
+        for project, target in (("tests/integration/browser/luajit/aot-project", "app"),
+                                ("tests/integration/browser/wasm-aot/platform-project", "luajit")):
             name = Path(project).name
             run(name, ["./scripts/browser-app", project, target, "build/cold-" + name])
         run("fixpoint", ["./bin/nupp", "fixpoint"])

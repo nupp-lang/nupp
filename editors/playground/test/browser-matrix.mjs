@@ -9,7 +9,7 @@ const tests = ['smoke.html', 'compiler.html', 'application.html', 'recovery.html
 const record = () => writeFileSync(output, JSON.stringify({ok:results.length === selected.length * tests.length && results.every(x => x.ok && !x.errors.length), scope:'Desktop browser engine conformance; not physical mobile-device acceptance', results}, null, 2)+'\n');
 // Request interception breaks blob workers in Playwright WebKit. A real HTTP
 // endpoint also exercises fetch and CORS instead of replacing the browser's response.
-const fixture = readFileSync(new URL('../../../tests/wasm-aot/browser/http-response.json',import.meta.url));
+const fixture = readFileSync(new URL('../../../tests/integration/browser/wasm-aot/browser/http-response.json',import.meta.url));
 const server = createServer((request, response) => {
   response.setHeader('Access-Control-Allow-Origin', '*');
   response.setHeader('Content-Type', 'application/json');

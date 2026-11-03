@@ -18,7 +18,7 @@ page written for browsing.
 Nothing here is prose about generated data. The lints come from
 `nupp.compiler.lints` and the diagnostic codes from `nupp.tools.explain`, so
 a lint added without a line here still appears. Every `example` is compiled by
-`tests/referencetest.lua`, and every code cited is required to resolve, so a
+`tests/tools/docs/referencetest.lua`, and every code cited is required to resolve, so a
 construct cannot quietly stop working the way this says it does.
 ]]
 

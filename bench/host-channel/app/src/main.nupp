@@ -1,6 +1,6 @@
 --[[
 Runs one host channel program in the real browser guest: a contract scenario
-from `tests/hostchannel/scenarios.lua` or a workload from `bench.lua`, chosen by
+from `tests/stdlib/os/host/fixtures/scenarios.lua` or a workload from `bench.lua`, chosen by
 the global the page's initialization chunk sets. Both are plain Lua carried as
 text and loaded at run time; requiring what they use here is what bundles it.
 ]]

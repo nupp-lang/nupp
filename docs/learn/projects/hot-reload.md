@@ -246,7 +246,7 @@ the next stage. Rejection leaves cells, their aliases, and the published hot
 generation unchanged.
 
 The guarantees on this page are indexed to executable compiler-session, runtime,
-and standalone-command cases in `tests/hotreloadguaranteetest.lua`. The
+and standalone-command cases in `tests/integration/reload/hotreloadguaranteetest.lua`. The
 standalone cases edit a required module, a header, and a temporary native
 library inside `nupp run --watch` processes.
 

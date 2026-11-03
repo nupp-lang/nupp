@@ -68,14 +68,19 @@ to the test command. The consequences:
 
 The bundled runner is what `nupp test` uses when the manifest does not select
 another harness; the compiler's own suite uses the same implementation. It
-loads every `tests/*test.lua` and compiles every `tests/*test.nupp`, and both
-kinds return a table of test functions. `nupp test --schema` describes its JSON
-report.
+discovers `*test.lua` and `*test.nupp` recursively under `tests/`. Lua suites
+load directly and Nupp suites compile first; both return a table of test
+functions. `nupp test --schema` describes its JSON report.
 
 ```bash
 nupp test              # everything
 nupp test checktest    # one suite
 ```
+
+Suite names are unique file stems, regardless of directory. Put test inputs in
+`fixtures/`, `corpus/`, `sessions/`, or `data/`, and shared utilities in `helpers/`;
+these directories are excluded from discovery, as are `build/`, `node_modules/`,
+`.git/`, and `.rocks/`. A duplicate suite name is an error.
 
 It puts the build output directory and `tests` on `package.path` first, which
 is how a suite reaches both. While it runs it prints `.` for a pass, `S` for a
@@ -302,7 +307,7 @@ suite.
 
 ### Suites in Nupp
 
-A suite named `tests/*test.nupp` is a suite like any other. The runner compiles
+A `*test.nupp` file under `tests/` is a suite like any other. The runner compiles
 it when it loads it and keeps the project's runtime loader installed while its
 cases run, so it can require project modules the same way the code under test
 does:
@@ -310,7 +315,7 @@ does:
 ```nupp:fragment:playground
 module tests.arithmetictest
 
-local fixture = tests.nuppfixture
+local fixture = tests.tools.test.fixtures.nuppfixture
 local test = assert
 
 export function addsNumbers(): nil
@@ -327,8 +332,9 @@ file's exports are typed. See
 [file-types.md](../language/file-types.md#unknown-variables-and-untyped-exports)
 for what a `.nupp` file is held to, and
 [modules.md](../language/modules.md) for what `export` publishes. The
-compiler's own suite carries `tests/nupptest.nupp`, `tests/ioscalarstest.nupp`,
-and `tests/processcompat_test.nupp`, which is what keeps discovery,
+compiler's own suite carries `tests/tools/test/nuppsuitetest.nupp`,
+`tests/stdlib/io/streamadapterstest.nupp`, and
+`tests/stdlib/io/process/processcompat_test.nupp`, which keep discovery,
 compilation, and runtime loading of Nupp suites covered by the ordinary run.
 
 ## Parallel runs

@@ -26,7 +26,7 @@ task and its grader.
 
 One task is one diagnostic code. The program that reports it comes from the
 compiler's own catalogue — the same `wrong` example `nupp explain` prints and
-`tests/explaintest.lua` compiles and asserts really does report the code it is
+`tests/tools/docs/explaintest.lua` compiles and asserts really does report the code it is
 filed under. The task bank is therefore data the compiler already maintains
 for other reasons, not fixtures this directory has to keep true.
 

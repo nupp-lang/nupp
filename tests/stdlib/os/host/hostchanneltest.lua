@@ -1,0 +1,310 @@
+-- The `os.host` channel's contract.
+--
+-- The browser half runs end to end under Node: `hostchannel/browser.test.mjs`
+-- answers frames with the real page dispatcher while `hostchannel/guest.lua`
+-- runs the application the way the guest bridge does, with this process's
+-- compiled runtime on its path.
+
+local check = require("assert")
+
+local M = {}
+
+local HERE = require("helpers.paths").absoluteTests
+local ROOT = HERE .. "/.."
+
+local function shellQuote(text)
+    return "'" .. text:gsub("'", "'\\''") .. "'"
+end
+
+local function capture(command)
+    local pipe = assert(io.popen(command .. " 2>&1"))
+    local output = pipe:read("*a")
+    local closed, _, status = pipe:close()
+    return output, closed == true or status == 0
+end
+
+local function requireNode()
+    local version = capture("node --version")
+    if not version:match("^v%d+") then
+        check.suite.skip("node is not installed")
+    end
+end
+
+local function luajit()
+    local found = capture("command -v luajit"):match("([^\n]+)%s*$")
+    check(found ~= nil and found ~= "", "no luajit on PATH for the guest")
+    return found
+end
+
+-- The stream scenario's events are Nupp; the emulated guest loads them compiled.
+local function compiledEvents()
+    local directory = os.tmpname()
+    os.remove(directory)
+    assert(os.execute("mkdir -p " .. shellQuote(directory)) == 0)
+    local output, ok = capture(
+        shellQuote(
+            ROOT .. "/bin/nupp"
+        ) .. " lsp artifact --kind lua " .. shellQuote(HERE .. "/stdlib/os/host/fixtures/component/src/hostevents.nupp")
+    )
+    check(ok, "the stream scenario's events did not compile:\n" .. output)
+    local file = assert(io.open(directory .. "/hostevents.lua", "wb"))
+    file:write(output)
+    file:close()
+
+    return directory
+end
+
+local function passesNodeSuite(label, file)
+    requireNode()
+    local events = compiledEvents()
+    local environment = table.concat(
+        {
+            "NUPP_ROOT=" .. shellQuote(ROOT),
+            "NUPP_LUAJIT=" .. shellQuote(luajit()),
+            "LUA_PATH=" .. shellQuote(events .. "/?.lua;" .. package.path),
+            "LUA_CPATH=" .. shellQuote(package.cpath),
+        },
+        " "
+    )
+    local output, exited = capture(
+        environment .. " node --test --test-reporter=tap " .. shellQuote(HERE .. "/" .. file)
+    )
+    local passed = tonumber(output:match("\n# pass (%d+)"))
+    local failed = tonumber(output:match("\n# fail (%d+)"))
+    check(passed ~= nil and failed ~= nil, "node printed no test summary:\n" .. output)
+    check.eq(failed, 0, label .. " failed:\n" .. output)
+    check(passed > 0, label .. " ran no test")
+    check(exited, "node exited unsuccessfully:\n" .. output)
+end
+
+function M.theBrowserChannelKeepsItsContract()
+    passesNodeSuite("the browser host channel's contract", "stdlib/os/host/fixtures/browser.test.mjs")
+end
+
+----------------------------------------------------------------------------
+-- The embedding half
+----------------------------------------------------------------------------
+
+-- The SDK features the hosted runtime needs: time for scope deadlines, and
+-- nothing else the scenarios reach.
+local SDK_FEATURES = "lpeg"
+
+local function run(command)
+    local pipe = assert(io.popen(command .. " 2>&1; printf '\n__status__:%s' $?"))
+    local output = pipe:read("*a")
+    pipe:close()
+    local status = tonumber(output:match("__status__:(%d+)%s*$"))
+
+    return status, output:gsub("\n__status__:%d+%s*$", "")
+end
+
+local function copy(from, to)
+    local source = assert(io.open(from, "rb"))
+    local bytes = source:read("*a")
+    source:close()
+    local target = assert(io.open(to, "wb"))
+    target:write(bytes)
+    target:close()
+end
+
+local native
+
+-- Builds the SDK, the contract component and the driver once per run.
+local function nativeDriver()
+    if native then
+        return native
+    end
+    if jit.os == "Windows" then
+        check.suite.skip("the contract driver uses POSIX clocks")
+    end
+    local status, output = run(("cd %s && ./scripts/toolchain host-library %s"):format(shellQuote(ROOT), SDK_FEATURES))
+    if status ~= 0 then
+        check.suite.skip("the Rust embedding SDK could not be built: " .. output)
+    end
+    local library = assert(output:match("([^\r\n]+)%s*$"), "toolchain named no SDK")
+    local directory = os.tmpname()
+    os.remove(directory)
+    local project = directory .. "/component"
+    assert(os.execute(("mkdir -p %s"):format(shellQuote(project .. "/src"))) == 0)
+    copy(HERE .. "/stdlib/os/host/fixtures/component/nupp.lua", project .. "/nupp.lua")
+    copy(HERE .. "/stdlib/os/host/fixtures/component/src/contract.nupp", project .. "/src/contract.nupp")
+    copy(HERE .. "/stdlib/os/host/fixtures/component/src/hostevents.nupp", project .. "/src/hostevents.nupp")
+    status, output = run(("cd %s && %s build"):format(shellQuote(project), shellQuote(ROOT .. "/bin/nupp")))
+    check.eq(status, 0, "the contract component did not build:\n" .. output)
+    local link = assert(io.open(library .. "/link.json", "rb"))
+    local manifest = require("testjson").decode(link:read("*a"))
+    link:close()
+    local flags = {}
+    for _, flag in ipairs(manifest.staticLinkFlags or {}) do
+        flags[#flags + 1] = shellQuote(flag)
+    end
+    local executable = directory .. "/driver"
+    status, output = run(
+        (
+            "%s -std=c11 -D_POSIX_C_SOURCE=200809L -I%s %s %s %s -lm -o %s"
+        ):format(
+            shellQuote(os.getenv("NUPP_CC") or "cc"),
+            shellQuote(library),
+            shellQuote(HERE .. "/stdlib/os/host/fixtures/driver.c"),
+            shellQuote(library .. "/libnupp.a"),
+            table.concat(flags, " "),
+            shellQuote(executable)
+        )
+    )
+    check.eq(status, 0, "the contract driver did not compile:\n" .. output)
+    native = {executable = executable, component = project .. "/build/component.nuppc"}
+
+    return native
+end
+
+-- Runs one scenario in the embedded runtime; answers its decoded outcome, the
+-- driver's own report and everything it printed.
+local function embedded(name, direct)
+    local driver = nativeDriver()
+    local status, output = run(
+        (
+            "%s %s %s %s%s"
+        ):format(
+            shellQuote(driver.executable),
+            shellQuote(driver.component),
+            shellQuote(HERE .. "/stdlib/os/host/fixtures/scenarios.lua"),
+            shellQuote(name),
+            direct and " direct" or ""
+        )
+    )
+    check.eq(status, 0, name .. " did not run:\n" .. output)
+    local line = assert(output:match("(%b{})%s*\ncancels="), name .. " printed no outcome:\n" .. output)
+    local outcome = require("testjson").decode(line)
+    check(outcome.ok, name .. " failed:\n" .. tostring(outcome.error) .. "\n" .. output)
+    local cancels, live = output:match("cancels=(%d+) live=(%d+)")
+
+    return outcome.value, {cancels = tonumber(cancels), live = tonumber(live)}, output
+end
+
+function M.embeddedRequestsKeepEveryPosition()
+    local value = embedded("arity")
+    check.eq(value.echoed.n, 5)
+    check.eq(value.echoed.a, 1)
+    check.eq(value.echoed.b, nil)
+    check.eq(value.echoed.c, "two")
+    check.eq(value.echoed.d, true)
+    check.eq(value.echoed.e, nil)
+    check.eq(value.none, 0)
+    check.eq(value.onlyNil, 1)
+    check.eq(value.interior.n, 3)
+    check.eq(value.interior.b, 2)
+end
+
+function M.embeddedRequestsRefuseWhatCannotCross()
+    local value = embedded("refusals")
+    check(value.nan:find("argument 1 is not a finite number", 1, true), value.nan)
+    check(value.infinity:find("argument 2 is not a finite number", 1, true), value.infinity)
+    check(value.text:find("argument 1 is a string that is not UTF-8", 1, true), value.text)
+    check(value.long:find("argument 1 is a string longer than 64 KiB", 1, true), value.long)
+    check(value.table:find("argument 1 is a table, which cannot cross", 1, true), value.table)
+    check(value.handler:find("argument 1 is a function, which cannot cross", 1, true), value.handler)
+    check(value.reserved:find("reserved for the runtime", 1, true), value.reserved)
+    check(value.kind:find("must be dot-separated names", 1, true), value.kind)
+    check(value.unknown:find("no host answers test.nobody", 1, true), value.unknown)
+    check(value.failed:find("host test.fail failed: failed because why", 1, true), value.failed)
+end
+
+function M.embeddedBytesCrossBothWays()
+    local value = embedded("bytes")
+    for _, name in ipairs({"small", "large", "three", "made", "empty"}) do
+        check.eq(value[name], true, name)
+    end
+end
+
+function M.anEmbedderAnswersLaterFromItsLoop()
+    local value = embedded("slowCallBesideADeadline")
+    check.eq(value.slow, 4096)
+    check(value.firedAfter >= 50 and value.firedAfter < 400, "the deadline fired after " .. value.firedAfter)
+end
+
+function M.embeddedLateReleasesWhatItOpened()
+    local value, host = embedded("lateReleases")
+    check(value.cancelled:find("deadline", 1, true), value.cancelled)
+    check.eq(value.live, 0)
+    check.eq(host.live, 0)
+    check(host.cancels >= 1, "the host heard no cancellation")
+end
+
+function M.embeddedLateReleasesAnAnswerItsCallerNeverTook()
+    local value, host = embedded("answeredThenCancelled")
+    check.eq(value.live, 0)
+    check.eq(host.live, 0)
+end
+
+function M.embeddedLateCannotWait()
+    local value, host, output = embedded("lateCannotWait")
+    check.eq(value.echoed, "still answering")
+    check.eq(value.live, 1)
+    check(output:find("late handler failed: .*cannot suspend"), output)
+    check.eq(host.live, 1)
+end
+
+function M.embeddedManyCallsAllAnswer()
+    check.eq(embedded("manySmallCalls").correct, 600)
+end
+
+function M.embeddedPostsReachTheirHandlers()
+    check.eq(embedded("posts").notes, "1:100,2:100,3:100,4:100,5:100,6:100,7:100,8:100,9:100,10:100")
+end
+
+function M.embeddedStreamsRouteAndSend()
+    local value = embedded("streams")
+    check.eq(value.moves, "3,30 4,40 5,50")
+    check.eq(value.keys, "b-")
+    check.eq(value.order, "b- 3,30 4,40 5,50")
+    check.eq(value.dropped, 2)
+    -- A native send reaches its handler at once, so no policy ever applies.
+    check.eq(value.outbound, "packet:3 packet:4 log:one log:two log:three block:x block:y block:z")
+end
+
+function M.anEmbeddedObserverFailureCostsOnlyItsMessage()
+    local value, _, output = embedded("streamObserverFails")
+    check.eq(value.order, "a+ b- 1,10 2,20 3,30 4,40 5,50")
+    check(output:find("host test.move: delivery failed: .*observer refused 3"), output)
+end
+
+function M.anUnansweredCallWithoutAHandlerIsRefused()
+    local value, host = embedded("unansweredWithoutAHandler", true)
+    check(value.problem:find("was not answered during the call", 1, true), value.problem)
+    check.eq(value.echoed, "answered at once")
+    check.eq(host.cancels, 1)
+end
+
+function M.anEmbedderAnswerIsCheckedBeforeItIsKept()
+    local _, _, output = embedded("posts")
+    check(
+        output:find("unknown=1 handle=1 nan=1 text=1 reserved=1 malformed=1", 1, true),
+        "nupp_host_answer and nupp_host_register accepted what they refuse:\n" .. output
+    )
+end
+
+-- `nupp run` has no embedding application, so nothing answers and a request is
+-- refused by name rather than left waiting.
+function M.aProgramRunOnItsOwnHasNoHost()
+    local directory = os.tmpname()
+    os.remove(directory)
+    assert(os.execute("mkdir -p " .. shellQuote(directory)) == 0)
+    local file = assert(io.open(directory .. "/main.nupp", "wb"))
+    file:write(
+        [[
+local host = os.host
+print("attached", host.attached())
+local ok, problem = pcall(host.call, "app.anything", 1)
+print("refused", not ok, problem)
+]]
+    )
+    file:close()
+    local status, output = run(
+        ("cd %s && %s run main.nupp"):format(shellQuote(directory), shellQuote(ROOT .. "/bin/nupp"))
+    )
+    check.eq(status, 0, output)
+    check(output:find("attached\tfalse", 1, true), output)
+    check(output:find("no host answers app.anything; no embedding application is attached", 1, true), output)
+end
+
+return M

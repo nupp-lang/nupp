@@ -20,7 +20,7 @@ templates/** text eol=lf
 
 # The formatter corpus is bytes under test: a case exists to prove what the
 # formatter does with the line endings it was given, so nothing normalizes them.
-tests/fmtcorpus/** -text
+tests/tools/fmt/corpus/** -text
 
 # Sourced and run by Git Bash on Windows. A checkout that translates line
 # endings leaves every value in a sourced file with a trailing carriage return:

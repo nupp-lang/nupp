@@ -2,14 +2,14 @@
 -- compiled benchmark decoder, including every byte offset across vector tails.
 local module = "nupp.codec.json.internal.decoder.fusedbench"
 local fused = require(module)
-local proveNative = assert(loadfile("../../tests/simd/nativeproof.lua"))()
+local proveNative = assert(loadfile("../../tests/integration/simd/nativeproof.lua"))()
 proveNative(module, function()
     local value, status = fused.decodeEager('["native proof",123]', nil, {}, {})
     assert(status == 0 and value[1] == "native proof" and value[2] == 123, "native proof decode failed")
 end)
 package.loaded["nupp.codec.json.internal.decoder.fused"] = fused
 package.loaded["nupp.codec.json.aot"] = nil
-local suite = dofile("../../tests/jsonfuseddifferentialtest.lua")
+local suite = dofile("../../tests/stdlib/serde/json/jsonfuseddifferentialtest.lua")
 local names = {}
 for name in pairs(suite) do
     names[#names + 1] = name

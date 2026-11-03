@@ -29,9 +29,9 @@ local fingerprint = {}
 --- The content digest to use for cache keys, native where the host has one.
 ---
 --- Byte for byte the answer `nupp.compiler.hash.digest` gives --
---- `tests/projecttest.lua` holds the two implementations to that -- and about two
---- thousand times faster, because the portable one emulates XXH64's 64-bit
---- arithmetic over `uint32` halves and this one does not have to. A build puts
+--- `tests/compiler/project/projecttest.lua` holds the two implementations to that --
+--- and about two thousand times faster, because the portable one emulates XXH64's
+--- 64-bit arithmetic over `uint32` halves and this one does not have to. A build puts
 --- every source, every compiler file and every memoized value through it, so the
 --- difference is seconds a command rather than a micro-optimization.
 ---

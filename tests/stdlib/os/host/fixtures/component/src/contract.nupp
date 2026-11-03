@@ -1,0 +1,57 @@
+module contract
+
+--[[
+Runs one of the host channel's contract scenarios under `os.host.pump`, for
+the embedding application in `tests/stdlib/os/host/fixtures/driver.c` to drive.
+
+The scenarios are the plain Lua the browser half runs too, loaded at run time;
+requiring what they use here is what puts it in the component.
+]]
+
+local pump = os.host.pump
+local json = require("serde.json")
+local _host = os.host
+local _span = require("binary.span")
+local _tasks = require("coroutine")
+local _time = require("coroutine")
+local _events = require("events")
+local _hostevents = require("hostevents")
+local _clock = os.monotonic
+
+local scenarios: any = nil
+local session = pump.newpump()
+local outcome: any = nil
+
+--- Loads the scenarios from `path`.
+export function load(path: string): nil
+    scenarios = (rawget(_G, "dofile") as any)(path)
+end
+
+local function attempt(name: string): any
+    local ok, value = pcall(scenarios[name])
+    return ok and {ok = true, value = value} or {ok = false, error = tostring(value)}
+end
+
+--- Starts scenario `name`, answering whether it finished or parked.
+export function start(name: string): string
+    outcome = nil
+    return session:start(function(): boolean?
+        outcome = attempt(name)
+        return true
+    end)
+end
+
+--- Runs scenario `name` with no suspension handler installed, as a plain call.
+export function direct(name: string): string
+    return json.encodevalue(attempt(name))
+end
+
+--- Polls the runtime once on the parked scenario's behalf.
+export function poll(): string
+    return session:poll()
+end
+
+--- The finished scenario's outcome, as JSON.
+export function result(): string
+    return json.encodevalue(outcome)
+end

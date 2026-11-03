@@ -6,9 +6,10 @@
 -- the cost of running too much is runner minutes while the cost of running too
 -- little is a defect reaching `main` with a green tick beside it.
 --
--- Plain Lua 5.1 with no dependencies, because this runs in the cheap gate before
--- any toolchain is provisioned, and because `tests/cichangeclassifiertest.lua`
--- has to be able to require it and assert on representative files.
+-- Plain Lua 5.1 with no dependencies, because this runs in the cheap gate before any
+-- toolchain is provisioned, and because
+-- `tests/tools/repository/cichangeclassifiertest.lua` has to be able to require it and
+-- assert on representative files.
 
 local classifier = {}
 
@@ -126,21 +127,18 @@ local rules = {
     {"^bench/", {"measurement"}},
     {"^evals/", {"evals"}},
 
-    {"^tests/benchrunnertest%.lua$", {"tests", "measurement"}},
-    {"^tests/jsonfuseddifferentialtest%.lua$", {"tests", "aot", "simd"}},
+    {"^tests/tools/bench/benchrunnertest%.lua$", {"tests", "measurement"}},
+    {"^tests/stdlib/serde/json/jsonfuseddifferentialtest%.lua$", {"tests", "aot", "simd"}},
     -- The fixtures below are run by nothing but the Wasm job, so classifying
     -- them as ordinary tests means a change to one is never compiled: one
     -- fixture's queue kept calling a `nupp.text` constructor that had been
     -- renamed, and stayed broken until an unrelated change to `scripts/`
     -- selected every job.
-    {"^tests/browser%-templates/", {"tests", "browser"}},
-    {"^tests/lua51%-compat/", {"tests", "compiler"}},
+    {"^tests/integration/browser/", {"tests", "browser"}},
+    {"^tests/integration/compat/lua51/", {"tests", "compiler"}},
     {"^scripts/lua51%-compat%-corpus%.sh$", {"tests", "compiler"}},
-    {"^tests/simd/", {"tests", "aot", "browser", "simd"}},
-    {"^tests/simd[^/]*%.lua$", {"tests", "aot", "simd"}},
-    {"^tests/wasm%-aot/", {"tests", "browser"}},
-    {"^tests/luajit%-browser/", {"tests", "browser"}},
-    {"^tests/acceptance/", {"tests"}},
+    {"^tests/integration/simd/", {"tests", "aot", "browser", "simd"}},
+    {"^tests/integration/acceptance/", {"tests"}},
     {"^tests/", {"tests"}},
 
     -- Everything below decides how the whole tree is built, tested or released,
@@ -157,8 +155,9 @@ local rules = {
 }
 
 -- Every job `required-ci` can wait on. Adding one here without adding it to the
--- workflow, or the other way round, is what `tests/cichangeclassifiertest.lua`
--- and `.github/ci-coverage.json` exist to catch.
+-- workflow, or the other way round, is what
+-- `tests/tools/repository/cichangeclassifiertest.lua` and `.github/ci-coverage.json`
+-- exist to catch.
 classifier.jobs = {
     "docs-site",
     "fast-checks",

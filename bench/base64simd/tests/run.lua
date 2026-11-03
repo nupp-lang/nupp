@@ -12,12 +12,12 @@
 -- random strings up to a few kilobytes.
 --
 -- `--time` adds a timing run over the encoder and the reference.
-local math = arg[1] == "--time" and _G.math or assert(loadfile("../../tests/simd/corpusmath.lua"))()
+local math = arg[1] == "--time" and _G.math or assert(loadfile("../../tests/integration/simd/corpusmath.lua"))()
 local simd = require("base64simd")
 local reference = require("base64reference")
 local shipped = require("binary")
 
-local proveNative = assert(loadfile("../../tests/simd/nativeproof.lua"))()
+local proveNative = assert(loadfile("../../tests/integration/simd/nativeproof.lua"))()
 proveNative("base64simd", function()
     local source = ("native proof"):rep(16)
     local got = simd.encode(source)

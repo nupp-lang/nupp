@@ -1,0 +1,114 @@
+local packs = require("nupp.compiler.compilerpacks")
+local layouts = require("nupp.compiler.targetlayout")
+local hash = require("nupp.compiler.hash")
+local json = require("testjson")
+
+local M = {}
+
+local function write(path, text)
+    local directory = path:match("^(.*)/[^/]+$")
+    if directory then
+        os.execute("mkdir -p '" .. directory .. "'")
+    end
+    local file = assert(io.open(path, "wb"))
+    file:write(text)
+    file:close()
+end
+
+local function tool(path, bytes)
+    write(path, bytes)
+    return {path = path:match("([^/]+)$"), sha256 = hash.sha256(bytes), size = #bytes}
+end
+
+function M.resolvesAndAuthenticatesTargetIndexedTools()
+    local host = assert(layouts.hostKey())
+    local root = os.tmpname()
+    os.remove(root)
+    local directory = root .. "/" .. host .. "/" .. host
+    os.execute("mkdir -p '" .. directory .. "'")
+    local cc = tool(directory .. "/cc", "synthetic compiler")
+    local ar = tool(directory .. "/ar", "synthetic archiver")
+    write(
+        directory .. "/pack.json",
+        json.encode({
+            schemaVersion = 1,
+            host = host,
+            target = host,
+            version = "synthetic-1",
+            cc = cc,
+            ar = ar,
+            compileFlags = {"--sysroot={pack}/sysroot"},
+            linkFlags = {"-L{pack}/lib"},
+        })
+    )
+    local getenv = os.getenv
+    os.getenv = function(name)
+        if name == "NUPP_COMPILER_PACK_DIR" then
+            return root
+        end
+        return getenv(name)
+    end
+    local ok, pack, err = pcall(packs.resolve, host)
+    os.getenv = getenv
+    assert(ok, pack)
+    assert(pack, err)
+    assert(pack.cc == directory .. "/cc")
+    assert(pack.ar == directory .. "/ar")
+    assert(pack.compileFlags[1] == "--sysroot=" .. directory .. "/sysroot")
+    assert(pack.linkFlags[1] == "-L" .. directory .. "/lib")
+
+    write(directory .. "/cc", ("x"):rep(#"synthetic compiler"))
+    os.getenv = function(name)
+        if name == "NUPP_COMPILER_PACK_DIR" then
+            return root
+        end
+        return getenv(name)
+    end
+    ok, pack, err = pcall(packs.resolve, host)
+    os.getenv = getenv
+    assert(ok, pack)
+    assert(pack == nil and err:find("SHA%-256"), err)
+    os.execute("rm -rf '" .. root .. "'")
+end
+
+function M.findsPackBesideThePhysicalReleaseBinary()
+    local host = assert(layouts.hostKey())
+    local root = os.tmpname()
+    os.remove(root)
+    local directory = root .. "/lib/nupp/compiler-packs/" .. host .. "/" .. host
+    os.execute("mkdir -p '" .. directory .. "'")
+    local cc = tool(directory .. "/cc", "release compiler")
+    local ar = tool(directory .. "/ar", "release archiver")
+    write(
+        directory .. "/pack.json",
+        json.encode({
+            schemaVersion = 1,
+            host = host,
+            target = host,
+            version = "release-1",
+            cc = cc,
+            ar = ar,
+        })
+    )
+    local getenv = os.getenv
+    local oldExecutable = rawget(_G, "__NUPP_EXECUTABLE")
+    local oldArg = arg[0]
+    os.getenv = function(name)
+        if name == "NUPP_COMPILER_PACK_DIR" then
+            return nil
+        end
+        return getenv(name)
+    end
+    rawset(_G, "__NUPP_EXECUTABLE", root .. "/nupp")
+    arg[0] = root .. "/not-the-host/nupp"
+    local ok, pack, err = pcall(packs.resolve, host)
+    rawset(_G, "__NUPP_EXECUTABLE", oldExecutable)
+    arg[0] = oldArg
+    os.getenv = getenv
+    assert(ok, pack)
+    assert(pack, err)
+    assert(pack.cc == directory .. "/cc")
+    os.execute("rm -rf '" .. root .. "'")
+end
+
+return M

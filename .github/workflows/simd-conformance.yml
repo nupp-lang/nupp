@@ -112,7 +112,7 @@ jobs:
           NUPP_SIMD_ALGORITHMS: ${{ matrix.shard.algorithms }}
           NUPP_SIMD_TIERS: ${{ matrix.target.tier }}
           NUPP_SIMD_TYPES: ${{ matrix.shard.types }}
-        run: tests/simd/run-matrix.sh
+        run: tests/integration/simd/run-matrix.sh
 
       # Keep the source, executable identities and actual execution proof. Object
       # files and rebuildable compiler caches add volume without new evidence.
@@ -221,7 +221,7 @@ jobs:
           NUPP_BROWSER_GUEST_DIR: ${{ github.workspace }}/build/simd-browser-guest
           NUPP_SIMD_TYPES: ${{ matrix.shard.element }}
           NUPP_SIMD_LANES: ${{ matrix.shard.lanes }}
-        run: tests/simd/run-wasm.sh
+        run: tests/integration/simd/run-wasm.sh
       - name: Retain both execution routes
         if: always()
         uses: actions/upload-artifact@v4
@@ -286,7 +286,7 @@ jobs:
       - name: Execute the independent-kernel algorithm differentials
         env:
           NUPP_BROWSER_GUEST_DIR: ${{ github.workspace }}/build/simd-browser-guest
-        run: tests/simd/run-wasm-algorithms.sh
+        run: tests/integration/simd/run-wasm-algorithms.sh
       - name: Retain algorithm execution and failure evidence
         if: always()
         uses: actions/upload-artifact@v4
@@ -317,7 +317,7 @@ jobs:
           pattern: simd-wasm-shard-*-${{ github.sha }}
           path: build/simd-wasm-shards
       - name: Verify every type and legal width executed on both routes
-        run: node tests/simd/aggregate-wasm.mjs build/simd-wasm-shards .github/simd-wasm-shards.json "${{ github.sha }}"
+        run: node tests/integration/simd/aggregate-wasm.mjs build/simd-wasm-shards .github/simd-wasm-shards.json "${{ github.sha }}"
       - uses: actions/upload-artifact@v4
         if: always()
         with:

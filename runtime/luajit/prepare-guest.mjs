@@ -16,7 +16,7 @@ export async function prepareGuest(repo, supplied) {
   const manifest = JSON.parse(readFileSync(manifestFile,'utf8'));
   if (manifest.buildKey !== input.buildKey) throw new Error('Snapshot cache belongs to another guest');
   if (manifest.snapshots?.runner && manifest.snapshots?.compiler) return destination;
-  for (const name of ['snapshot.html','snapshot.mjs']) copyFileSync(path.join(repo,'tests/luajit-browser',name),path.join(destination,name));
+  for (const name of ['snapshot.html','snapshot.mjs']) copyFileSync(path.join(repo,'tests/integration/browser/luajit',name),path.join(destination,name));
   const server = createServer(async (request,response) => {
     try {
       const url = new URL(request.url,'http://localhost');

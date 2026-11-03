@@ -14,10 +14,10 @@ on:
       - 'src/math/internal/random.nupp'
       - 'src/package/nupp/init.nupp'
       - 'src/nupp/runtime/browser/**'
-      - 'tests/hostchannel/**'
+      - 'tests/stdlib/os/host/fixtures/**'
       - 'bench/host-channel/**'
       - 'editors/playground/test/browser-matrix.mjs'
-      - 'tests/luajit-browser/**'
+      - 'tests/integration/browser/luajit/**'
       - 'bench/luajit-browser/*.mjs'
       - 'scripts/browser-*.py'
       - 'scripts/browser-*.mjs'
@@ -85,9 +85,9 @@ jobs:
           npx --prefix editors/playground playwright install --with-deps firefox webkit
       - name: Test transport boundaries
         run: |
-          node --test tests/luajit-browser/transport.test.mjs tests/luajit-browser/native.test.mjs tests/luajit-browser/package-assets.test.mjs
-          python3 tests/luajit-browser/toolchain_test.py
-          python3 tests/luajit-browser/cold_checkout_test.py
+          node --test tests/integration/browser/luajit/transport.test.mjs tests/integration/browser/luajit/native.test.mjs tests/integration/browser/luajit/package-assets.test.mjs
+          python3 tests/integration/browser/luajit/toolchain_test.py
+          python3 tests/integration/browser/luajit/cold_checkout_test.py
       - name: Install the guest build tools
         run: sudo apt-get update && sudo apt-get install -y gcc-multilib g++-multilib flex bison libelf-dev libssl-dev
       # LLVM is restored from its own cache below and never saved in this one.
@@ -131,9 +131,9 @@ jobs:
           grouped ./bin/nupp build --target bootstrapCompiler
           grouped ./scripts/prelude-image
           grouped ./bin/nupp build --target browserLuaJITApplicationRuntime --host browser
-          grouped node tests/luajit-browser/prepare-application.mjs build/browser-guest
+          grouped node tests/integration/browser/luajit/prepare-application.mjs build/browser-guest
           luajit_dir=$(./scripts/toolchain luajit)
-          grouped "$luajit_dir/bin/luajit" tests/luajit-browser/prepare-compiler.lua build/browser-luajit/nupp-compiler.lua build/browser-guest
+          grouped "$luajit_dir/bin/luajit" tests/integration/browser/luajit/prepare-compiler.lua build/browser-luajit/nupp-compiler.lua build/browser-guest
       - name: Exercise LuaJIT in Chromium without cross-origin isolation
         timeout-minutes: 15
         env:
@@ -143,7 +143,7 @@ jobs:
         run: |
           set -m
           grouped() { "$@" & job=$!; status=0; wait "$job" || status=$?; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -KILL -"$job" 2>/dev/null || break; sleep 0.2; done; return "$status"; }
-          cp tests/luajit-browser/features.lua tests/luajit-browser/smoke.* tests/luajit-browser/snapshot.* tests/luajit-browser/compiler.html tests/luajit-browser/compiler.mjs tests/luajit-browser/recovery.html tests/luajit-browser/recovery.mjs tests/luajit-browser/lifecycle.* build/browser-guest/
+          cp tests/integration/browser/luajit/features.lua tests/integration/browser/luajit/smoke.* tests/integration/browser/luajit/snapshot.* tests/integration/browser/luajit/compiler.html tests/integration/browser/luajit/compiler.mjs tests/integration/browser/luajit/recovery.html tests/integration/browser/luajit/recovery.mjs tests/integration/browser/luajit/lifecycle.* build/browser-guest/
           node bench/luajit-browser/serve.mjs build/browser-guest 8113 &
           server=$!
           trap 'kill -KILL -"$server" 2>/dev/null || true' EXIT
@@ -151,7 +151,7 @@ jobs:
           grouped node scripts/browser-snapshot.mjs build/browser-guest http://127.0.0.1:8113/
           grouped node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/smoke.html build/browser-guest/snapshot-conformance.json
           grouped node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/compiler.html build/browser-guest/compiler-conformance.json
-          grouped node tests/luajit-browser/prepare-recovery.mjs build/browser-guest
+          grouped node tests/integration/browser/luajit/prepare-recovery.mjs build/browser-guest
           grouped node bench/luajit-browser/run-browser.mjs http://127.0.0.1:8113/recovery.html build/browser-guest/recovery-conformance.json
       # The host channel's contract against the real bridge, and through the
       # packaged entry with handlers on the page and in the Worker. The local
@@ -180,9 +180,9 @@ jobs:
           set -m
           grouped() { "$@" & job=$!; status=0; wait "$job" || status=$?; for _ in 1 2 3 4 5 6 7 8 9 10; do kill -KILL -"$job" 2>/dev/null || break; sleep 0.2; done; return "$status"; }
           consumer="$RUNNER_TEMP/luajit-runtime-consumer"
-          grouped node tests/luajit-browser/prepare-archive.mjs release/nupp-luajit-browser-runtime.tar.gz "$consumer" build/browser-guest
-          grouped node tests/luajit-browser/prepare-recovery.mjs "$consumer/site"
-          grouped node tests/luajit-browser/prepare-packaged.mjs "$consumer/site" "$consumer/guest"
+          grouped node tests/integration/browser/luajit/prepare-archive.mjs release/nupp-luajit-browser-runtime.tar.gz "$consumer" build/browser-guest
+          grouped node tests/integration/browser/luajit/prepare-recovery.mjs "$consumer/site"
+          grouped node tests/integration/browser/luajit/prepare-packaged.mjs "$consumer/site" "$consumer/guest"
           node bench/luajit-browser/serve.mjs "$consumer/site" 8113 &
           server=$!
           trap 'kill -KILL -"$server" 2>/dev/null || true' EXIT

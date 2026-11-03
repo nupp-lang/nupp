@@ -1,5 +1,5 @@
 #!/bin/sh
-# Emits LLVM IR, WGSL, SPIR-V and verified IR for every @aot kernel under bench/ and tests/wasm-aot
+# Emits LLVM IR, WGSL, SPIR-V and verified IR for every @aot kernel under bench/ and tests/integration/browser/wasm-aot
 # into one directory, so two compilers can be compared byte for byte.
 #
 #   scripts/aot-emit-corpus OUTDIR [NUPP]
@@ -30,7 +30,7 @@ emit() {
     rm -f "$out/$name.$tag.err"
 }
 
-grep -rl '@aot' bench tests/wasm-aot --include='*.nupp' | sort | while read -r file; do
+grep -rl '@aot' bench tests/integration/browser/wasm-aot --include='*.nupp' | sort | while read -r file; do
     dir=$(dirname "$file")
     while [ "$dir" != "." ] && [ ! -f "$dir/nupp.lua" ]; do
         dir=$(dirname "$dir")

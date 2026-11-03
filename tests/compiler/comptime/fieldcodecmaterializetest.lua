@@ -1,0 +1,315 @@
+local testAssert = require("assert")
+-- Semantic type reflection and the keyed field-codec materialization provider.
+local parser = require("nupp.compiler.syntax.parser")
+local gen = require("nupp.compiler.lua.gen")
+local check = require("helpers.fragment")
+local envMod = require("nupp.compiler.project.env")
+
+local HERE = require("helpers.paths").tests
+local env = envMod.new(HERE .. "/..")
+
+local function compile(source, opts)
+    local parsed = parser.parse(source, "fieldcodec_materialize_test.nupp")
+    testAssert.eq(#parsed.errors, 0, "syntax errors")
+    local diagnostics = check.check(parsed, "fieldcodec_materialize_test.nupp", env, opts)
+    local code, generated = gen.generate(parsed, "fieldcodec_materialize_test")
+    for _, diagnostic in ipairs(generated) do
+        diagnostics[#diagnostics + 1] = diagnostic
+    end
+
+    return code, diagnostics
+end
+
+-- A refused block has no value to type, so a fixture returning it would also be
+-- told its module's value needs an annotation. That follows from the refusal and
+-- is not what these cases are about, so they check without the floor.
+local function errorsOf(source)
+    local _, diagnostics = compile(source, {strict = false})
+    local codes = {}
+    for _, diagnostic in ipairs(diagnostics) do
+        if diagnostic.severity ~= "warning" and diagnostic.severity ~= "note" then
+            codes[#codes + 1] = diagnostic.code
+        end
+    end
+
+    return codes
+end
+
+local function run(source)
+    local code, diagnostics = compile(source)
+    for _, diagnostic in ipairs(diagnostics) do
+        if diagnostic.severity ~= "warning" and diagnostic.severity ~= "note" then
+            error(("unexpected %s: %s\n---\n%s"):format(diagnostic.code, diagnostic.msg, code), 2)
+        end
+    end
+    local chunk, why = loadstring(code, "@fieldcodec_materialize_test")
+    assert(chunk, why and (why .. "\n---\n" .. code))
+
+    return chunk(), code
+end
+
+local M = {}
+
+function M.materializesAKeyedRecordCodecFromReflection()
+    local result, code = run(
+        [[
+local record Position
+    x: number
+    y: number
+end
+
+const PositionCodec: types.reflect.FieldCodec<Position> = comptime do
+    return types.reflect.fieldcodec(types.reflect(Position))
+end
+
+local encoded = PositionCodec:encode(new Position(x = 10, y = 20))
+local decoded, problem = PositionCodec:decode(encoded)
+local invalid, invalidProblem = PositionCodec:decode(42 as any)
+return {
+    x = encoded["x"] as number,
+    y = encoded["y"] as number,
+    fingerprint = PositionCodec.fingerprint,
+    decodedX = decoded and decoded.x,
+    decodeProblem = problem,
+    decodeType = decoded and getmetatable(decoded) == Position,
+    invalid = invalid,
+    invalidProblem = invalidProblem,
+}
+]]
+    )
+    testAssert.eq(result.x, 10, "x field")
+    testAssert.eq(result.y, 20, "y field")
+    testAssert.eq(result.fingerprint, "t:x,y", "compatibility fingerprint")
+    testAssert.eq(result.decodedX, 10, "decoded field")
+    testAssert.eq(result.decodeProblem, nil, "decoded keyed table")
+    testAssert.eq(result.decodeType, true, "decoded nominal identity")
+    testAssert.eq(result.invalid, nil, "non-table decode result")
+    testAssert.eq(result.invalidProblem, "$: expected keyed table", "non-table decode problem")
+    assert(code:find("nupp.fieldcodec.keyed", 1, true), code)
+    -- The comptime reflection is folded away entirely: the program carries the codec
+    -- the materializer built and none of the machinery that described the type. What
+    -- says so is the reflection namespace, which a program installs only when a record
+    -- of its own is reflected on at run time.
+    testAssert.eq(code:find("__reflect", 1, true), nil, "reflection erased")
+end
+
+function M.passesReflectionThroughATypedComptimeHelper()
+    local src = [[
+local record Point
+    x: number
+    y: number
+end
+@comptime local function keyed(info: types.reflect.Info): types.reflect.FieldCodecBlueprint
+    return types.reflect.fieldcodec(info)
+end
+const Codec: types.reflect.FieldCodec<Point> = comptime do
+    return keyed(types.reflect(Point))
+end
+local encoded = Codec:encode(new Point(x = 3, y = 4))
+return {x = encoded.x as number, y = encoded.y as number}
+]]
+    local encoded = run(src)
+    testAssert.eq(encoded.x, 3, "the reflected helper selects x")
+    testAssert.eq(encoded.y, 4, "the reflected helper selects y")
+end
+
+function M.namesTheWholePublicReflectionGraphUnderNuppReflect()
+    local src = [[
+@annotation(targets = {"field"})
+local record wire
+    name: string?
+end
+local record User
+    @wire(name = "user_id")
+    id: integer
+end
+@comptime local function argumentName(value: const types.reflect.AnnotationArgument): string
+    return value.name
+end
+@comptime local function annotationName(value: const types.reflect.Annotation): string
+    return value.name .. ":" .. argumentName(value.arguments[1])
+end
+@comptime local function entryName(value: const types.reflect.Entry): string
+    return value.name as string
+end
+@comptime local function nodeName(value: const types.reflect.Node): string
+    return entryName((value.fields as const{types.reflect.Entry})[1])
+end
+@comptime local function fieldName(value: const types.reflect.Field): string
+    return value.name .. ":" .. annotationName(value.annotations[1])
+end
+@comptime local function summarize(value: types.reflect.Info): string
+    return nodeName(value.types[value.root]) .. ":" .. fieldName(value.fields[1])
+end
+return comptime do return summarize(types.reflect(User)) end
+]]
+    testAssert.eq(run(src), "id:id:wire:name", "reflection graph types share one namespace")
+end
+
+function M.removesTheOldAmbientAndFieldcodecNames()
+    local ambient = errorsOf(
+        [[
+@comptime local function old(info: TypeInfo): string return info.name end
+return "unused"
+]]
+    )
+    testAssert.eq(ambient[1], "NUPP2101", "TypeInfo is no longer ambient")
+
+    local fieldcodec = errorsOf(
+        [[
+local record User id: integer end
+const Codec: nupp.fieldcodec.KeyedCodec<User> = comptime do
+    return nupp.fieldcodec.compile(types.reflect(User))
+end
+return Codec
+]]
+    )
+    testAssert.eq(fieldcodec[1], "NUPP2101", "nupp.fieldcodec is no longer public")
+end
+
+function M.inspectsTheImmutableReflectionSchemaInUserComptimeCode()
+    local src = [[
+local record Pair
+    left: string
+    right: integer
+end
+@comptime local function summarize(info: types.reflect.Info): string
+    local names = {}
+    for index, field in ipairs(info.fields) do
+        names[index] = field.name .. ":" .. field.kind
+    end
+    assert(type(info) == "table")
+    assert(info.types == info.types)
+    assert(nil ~= info.types)
+    return info.schema .. ":" .. info.types[info.root].kind
+        .. ":" .. #info.fields .. ":" .. table.concat(names, ",")
+end
+return comptime do return summarize(types.reflect(Pair)) end
+]]
+    testAssert.eq(
+        run(src),
+        "6:record:2:left:string,right:integer",
+        "user comptime code reads the versioned descriptor graph"
+    )
+end
+
+function M.exposesCheckedTypedAnnotationsToComptimeReflection()
+    local src = [[
+@annotation(targets = {"record", "field"})
+local record wire
+    name: string?
+    omitIfNil: boolean?
+end
+
+@wire(name = "users")
+local record User
+    @wire(name = "user_id")
+    id: integer
+    @wire(omitIfNil = true)
+    nickname: string?
+end
+
+@comptime local function summarize(info: types.reflect.Info): string
+    local recordName = info.annotations[1].arguments[1].value
+    local idName = info.fields[1].annotations[1].arguments[1].value
+    local omitted = info.fields[2].annotations[1].arguments[1].value
+    return recordName .. ":" .. idName .. ":" .. tostring(omitted)
+end
+
+return comptime do return summarize(types.reflect(User)) end
+]]
+    testAssert.eq(run(src), "users:user_id:true", "typed annotation values cross the worker as immutable semantic data")
+end
+
+function M.exposesAnnotationTypeReferencesAsDescriptorEdges()
+    local src = [[
+@annotation(targets = {"field"})
+local record jsonWith
+    @ref
+    codec: any
+end
+
+local record StringCodec
+end
+
+local record User
+    @jsonWith(codec = StringCodec)
+    name: string
+end
+
+return comptime do
+    local info = types.reflect(User)
+    local edge = info.fields[1].annotations[1].arguments[1].type as integer
+    return info.types[edge].name
+end
+]]
+    testAssert.eq(
+        run(src),
+        "StringCodec",
+        "annotation type references use the reflection graph instead of source names"
+    )
+end
+
+function M.rejectsMutationOfReflectionViews()
+    local codes = errorsOf(
+        [[
+local record Pair
+    left: string
+end
+return comptime do
+    local info = types.reflect(Pair)
+    info.name = "Changed"
+    return info.name
+end
+]]
+    )
+    testAssert.eq(codes[1], "NUPP2411", "reflection views reject mutation")
+end
+
+function M.rejectsAReflectedTypeAndRuntimeTargetMismatch()
+    local codes = errorsOf(
+        [[
+local record Position x: number end
+local record Velocity x: number end
+const Bad: types.reflect.FieldCodec<Velocity> = comptime do
+    return types.reflect.fieldcodec(types.reflect(Position))
+end
+]]
+    )
+    testAssert.eq(codes[1], "NUPP2415", "nominal mismatch")
+end
+
+function M.rejectsDistinctQualifiedRecordsWithTheSameLocalShape()
+    local codes = errorsOf(
+        [[
+local left = {}
+record left.Item value: string end
+local right = {}
+record right.Item value: string end
+const Bad: types.reflect.FieldCodec<right.Item> = comptime do
+    return types.reflect.fieldcodec(types.reflect(left.Item))
+end
+return Bad
+]]
+    )
+    testAssert.eq(codes[1], "NUPP2415", "qualified nominal mismatch")
+end
+
+function M.requiresATypePositionForReflection()
+    local codes = errorsOf(
+        [[
+local value = 1
+const Bad: types.reflect.FieldCodec<any> = comptime do
+    return types.reflect.fieldcodec(types.reflect(value))
+end
+]]
+    )
+    testAssert.eq(codes[1], "NUPP2418", "runtime value reflection")
+end
+
+function M.excludesTheCodecHelperFromUnrelatedPrograms()
+    local code = compile("return 42")
+    testAssert.eq(code:find("nupp.compiler.runtime.reflect", 1, true), nil, "unused helper")
+end
+
+return M

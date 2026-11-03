@@ -1,0 +1,2658 @@
+local testAssert = require("assert")
+local assertions = require("helpers.assertions")
+-- Record and struct members, and multi-value return expansion.
+local parser = require("nupp.compiler.syntax.parser")
+local check = require("helpers.fragment")
+local gen = require("nupp.compiler.lua.gen")
+local envMod = require("nupp.compiler.project.env")
+
+local HERE = require("helpers.paths").tests
+local env = envMod.new(HERE .. "/..")
+
+local function diagsOf(src, filename)
+    filename = filename or "test.nupp"
+    local result = parser.parse(src, filename)
+    testAssert.eq(#result.errors, 0, "syntax errors: " .. (result.errors[1] and result.errors[1].msg or ""))
+    local out = {}
+    for j, d in ipairs(check.check(result, filename, env)) do
+        out[j] = d.code .. ":" .. d.line
+    end
+
+    return table.concat(out, " ")
+end
+
+local assertClean = assertions.check(diagsOf, function(src)
+    return "expected clean:\n" .. src
+end)
+
+local function generate(src)
+    local result = parser.parse(src, "test.nupp")
+    testAssert.eq(#result.errors, 0, "syntax errors")
+    local diags = check.check(result, "test.nupp", env)
+    testAssert.eq(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
+    local code, genDiags = gen.generate(result, "test")
+    testAssert.eq(#genDiags, 0, "gen diagnostics")
+
+    return code
+end
+
+local function run(src)
+    local result = parser.parse(src, "test.nupp")
+    testAssert.eq(#result.errors, 0, "syntax errors")
+    local diags = check.check(result, "test.nupp", env)
+    testAssert.eq(#diags, 0, "check: " .. (diags[1] and diags[1].msg or ""))
+    local code, genDiags = gen.generate(result, "test")
+    testAssert.eq(#genDiags, 0, "gen diagnostics")
+    local chunk, err = loadstring(code, "@methodtest")
+    if not chunk then
+        error("generated code does not load: " .. tostring(err) .. "\n" .. code, 2)
+    end
+
+    return chunk()
+end
+
+local TASK = table.concat(
+    {
+        "local record Task",
+        "    title: string",
+        "end",
+        "function Task:describe(): string",
+        "    return self.title",
+        "end",
+    },
+    "\n"
+)
+
+local M = {}
+
+function M.colonCallsRequireAMethodBearingReceiver()
+    testAssert.eq(
+        diagsOf(table.concat({"local value: integer = 1", "local text: string = value:upper()", "return text",}, "\n")),
+        "NUPP2004:2"
+    )
+end
+
+function M.recordMethodsTypeAtCallSites()
+    assertClean(TASK .. "\nlocal t: Task = new Task(title = 'test')\nlocal s: string = t:describe()")
+    testAssert.eq(
+        diagsOf(TASK .. "\nlocal t: Task = new Task(title = 'test')\nlocal n: number = t:describe()"),
+        "NUPP2001:8"
+    )
+    testAssert.eq(diagsOf(TASK .. "\nlocal t: Task = new Task(title = 'test')\nt:describe(1)"), "NUPP2007:8")
+    testAssert.eq(diagsOf(TASK .. "\nlocal t: Task = new Task(title = 'test')\nt:nosuch()"), "NUPP2004:8")
+end
+
+function M.selfIsBoundInsideMethods()
+    assertClean(TASK)
+    -- self carries the record's fields
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {"local record R", "    n: number", "end", "function R:bad(): number", "    return self.nope", "end",},
+                "\n"
+            )
+        ),
+        "NUPP2004:5"
+    )
+end
+
+function M.explicitSelfKeepsTheReceiverType()
+    -- The leading `self` spelling is the method receiver, not an untyped
+    -- ordinary parameter. In particular, member lookup must still see R.
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local record R",
+                    "    n: number",
+                    "",
+                    "    function bad(self): number",
+                    "        return self.nope",
+                    "    end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2004:5"
+    )
+end
+
+function M.inlineFunctionsNeedSelfToBeMethods()
+    local declaration = table.concat(
+        {
+            "local interface Greeter",
+            "    name: string",
+            "",
+            "    function greet(): string",
+            "        return 'hello, ' .. self.name",
+            "    end",
+            "end",
+        },
+        "\n"
+    )
+    testAssert.eq(diagsOf(declaration, "test.nupp"), "NUPP2105:5")
+
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local record Numbers",
+                    "    function answer(): integer",
+                    "        return 42",
+                    "    end",
+                    "end",
+                    "return Numbers.answer()",
+                },
+                "\n"
+            )
+        ),
+        42
+    )
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local record Numbers",
+                    "    function answer(): integer return 42 end",
+                    "end",
+                    "local numbers = new Numbers()",
+                    "numbers:answer()",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2004:5"
+    )
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {"local record Numbers", "    function answer(): integer return 42 end", "end", "Numbers:answer()",},
+                "\n"
+            )
+        ),
+        "NUPP2004:4"
+    )
+
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local interface Greeter",
+                    "    function greet(name: string): string",
+                    "        return 'hello, ' .. name",
+                    "    end",
+                    "end",
+                    "return Greeter.greet('Ada')",
+                },
+                "\n"
+            )
+        ),
+        "hello, Ada"
+    )
+end
+
+function M.dottedMembersTakeNoReceiver()
+    assertClean(
+        table.concat(
+            {
+                "local record R",
+                "    n: number",
+                "end",
+                "function R.make(v: number): R",
+                "    return {n = v} as R",
+                "end",
+                "local r: R = R.make(1)",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.recordMethodsRunAtRuntime()
+    testAssert.eq(
+        run(TASK .. table.concat({"", "local t = new Task(title = 'ok')", "return t:describe()",}, "\n")),
+        "ok"
+    )
+end
+
+function M.structMethodsDispatchThroughMetatype()
+    local src = table.concat(
+        {
+            "local struct Vec2",
+            "    x: float",
+            "    y: float",
+            "end",
+            "function Vec2:len(): number",
+            "    return (self.x * self.x + self.y * self.y) ^ 0.5",
+            "end",
+            "local v = new Vec2(3, 4)",
+            "return v:len()",
+        },
+        "\n"
+    )
+    assertClean(src)
+    testAssert.eq(run(src), 5)
+    -- the constructor still works after metatype
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local struct P",
+                    "    n: float",
+                    "end",
+                    "function P:twice(): number",
+                    "    return self.n * 2",
+                    "end",
+                    "local p = new P(21)",
+                    "return p:twice()",
+                },
+                "\n"
+            )
+        ),
+        42
+    )
+end
+
+function M.multiValueReturnsExpandAcrossTargets()
+    local two = table.concat({"local function two(): number, string", "    return 1, 'two'", "end",}, "\n")
+    assertClean(two .. "\nlocal a, b = two()\nlocal n: number = a\nlocal s: string = b")
+    testAssert.eq(diagsOf(two .. "\nlocal a, b = two()\nlocal bad: number = b"), "NUPP2001:5")
+    -- only the trailing expression expands
+    assertClean(two .. "\nlocal x, y, z = 0, two()\nlocal n: number = y")
+    testAssert.eq(diagsOf(two .. "\nlocal x, y, z = 0, two()\nlocal bad: number = z"), "NUPP2001:5")
+end
+
+-- Only a call expands. Inferring anything else may still have left a call's
+-- results behind — a function expression whose body calls something does — and
+-- taking those for the expression's own type gave a function the type of
+-- whatever it last called.
+function M.onlyACallExpandsAcrossTargets()
+    local two = table.concat({"local function two(): number, string", "    return 1, 'two'", "end",}, "\n")
+    -- the value is the function, not what its body returns
+    assertClean(
+        two .. "\n" .. table.concat(
+            {"local f: function(): (number, string) = two", "local a, b = f()", "local n: number = a",},
+            "\n"
+        )
+    )
+    -- a function expression assigned to a declared field, whose body both
+    -- recurses and returns a multi-value call
+    assertClean(
+        table.concat(
+            {
+                "local m = {}",
+                "record m.Box",
+                "    one: function(n: string?): string?",
+                "    two: function(n: string?): (string?, any)",
+                "end",
+                "local b = new m.Box(one = function(n) return n end, two = function(n) return n, nil end)",
+                "b.one = function(n)",
+                "    if n == 'x' then return b.one(n) end",
+                "    return b.two(n)",
+                "end",
+                "b.two = function(n)",
+                "    return n, nil",
+                "end",
+                "return m",
+            },
+            "\n"
+        )
+    )
+end
+
+-- `new` is the construction, for both kinds of declaration. It lowers to the
+-- stamp and the ctype call themselves, so what it costs at run time is nothing.
+function M.newConstructsRecordsAndStructs()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local record Account",
+                    "    name: string",
+                    "    balance: number",
+                    "    function deposit(self, credit: number)",
+                    "        self.balance = self.balance + credit",
+                    "    end",
+                    "end",
+                    "local struct V2",
+                    "    x: float",
+                    "    y: float",
+                    "end",
+                    "local a = new Account(name = 'Hina', balance = 500)",
+                    "local named = new V2(3.0, 4.0)",
+                    "local positional = new V2(1.0, 2.0)",
+                    "a:deposit(20)",
+                    "return a.balance + named.x + named.y + positional.x + positional.y",
+                },
+                "\n"
+            )
+        ),
+        530
+    )
+end
+
+-- The keyword is contextual: `new` is a name everywhere a name can stand, and
+-- only a name following it on the same line makes it a construction.
+function M.newStaysAnOrdinaryNameElsewhere()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local record R",
+                    "    n: integer",
+                    "end",
+                    "local function id(x: any): any return x end",
+                    "local new = id",
+                    "local held = new",
+                    "id(R)",
+                    "local built = new R(n = 5)",
+                    "return built.n + (held == id and 1 or 0)",
+                },
+                "\n"
+            )
+        ),
+        6
+    )
+end
+
+-- What `new` names is a type, so an operand that is not one is answered as a
+-- type rather than through whatever value stands under the name. An interface
+-- binds no value at all, so going through the value would say `any`.
+function M.newRefusesWhatCannotBeConstructed()
+    testAssert.eq(
+        diagsOf(table.concat({"local interface I", "    n: integer", "end", "local iface = new I()",}, "\n")),
+        "NUPP2206:4"
+    )
+    testAssert.eq(diagsOf("local prim = new string()"), "NUPP2206:1")
+    -- a closed set of literals is a union, and a value of it is one of the
+    -- literals, written directly
+    testAssert.eq(
+        diagsOf(table.concat({"local type Color = 'red' | 'blue'", "local c = new Color()",}, "\n")),
+        "NUPP2206:2"
+    )
+end
+
+-- A refinement is what `is` compiles to. The values here were never built by
+-- this program, which is the case a stamped metatable cannot answer: a table
+-- off a decoder, or anything an untyped library handed back.
+function M.whereRefinementsDecideIsAtRuntime()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local interface Shape",
+                    "   kind: string",
+                    "end",
+                    "local interface Circle is Shape",
+                    "   kind: string",
+                    "   radius: number",
+                    "   satisfies |self| -> self.kind == 'circle'",
+                    "end",
+                    "local interface Square is Shape",
+                    "   kind: string",
+                    "   side: number",
+                    "   satisfies |self| -> self.kind == 'square'",
+                    "end",
+                    "local function area(s: Shape): number",
+                    "   if s is Circle then return 3 * s.radius * s.radius end",
+                    "   if s is Square then return s.side * s.side end",
+                    "   return 0",
+                    "end",
+                    "local decoded: Shape = {kind = 'circle', radius = 2} as Shape",
+                    "local other: Shape = {kind = 'square', side = 3} as Shape",
+                    "return area(decoded) + area(other)",
+                },
+                "\n"
+            )
+        ),
+        21
+    )
+end
+
+-- An interface has no runtime table to stamp, so `is` on one was NUPP3001 and
+-- could not be compiled at all. A refinement is the answer it can give.
+function M.whereRefinementsGiveAnInterfaceARuntimeIdentity()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local interface Tagged",
+                    "   tag: string",
+                    "   satisfies |self| -> type(self.tag) == 'string'",
+                    "end",
+                    "local function describe(v: any): string",
+                    "   if v is Tagged then return 'tagged ' .. v.tag end",
+                    "   return 'untagged'",
+                    "end",
+                    "return describe({tag = 'x'}) .. '/' .. describe(42)",
+                },
+                "\n"
+            )
+        ),
+        "tagged x/untagged"
+    )
+end
+
+-- A refinement may read the subject more than once, so a subject that is not a
+-- name is evaluated once and handed to the test.
+function M.aComputedSubjectIsEvaluatedOnce()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local interface Tagged",
+                    "   tag: string",
+                    "   satisfies |self| -> self.tag == 'x'",
+                    "end",
+                    "local calls = 0",
+                    "local function make(): any",
+                    "   calls = calls + 1",
+                    "   return {tag = 'x'}",
+                    "end",
+                    "local hit = make() is Tagged",
+                    "return (hit and 10 or 0) + calls",
+                },
+                "\n"
+            )
+        ),
+        11
+    )
+end
+
+-- What the subject is handed to is declared once for the module rather than built
+-- where it is used. LuaJIT does not record `FNEW`: a loop containing one aborts
+-- recording and is blacklisted, so a loop testing a computed subject would never
+-- compile. Nothing else notices -- the answers are the same either way -- so the
+-- generated text is what this has to read.
+function M.aComputedSubjectDoesNotBuildAFunctionWhereItIsUsed()
+    local code = generate(
+        table.concat(
+            {
+                "local interface Tagged",
+                "   tag: string",
+                "   satisfies |self| -> self.tag == 'x'",
+                "end",
+                "local items: {any} = {}",
+                "local total = 0",
+                "for i = 1, #items do",
+                "   if items[i] is Tagged then",
+                "      total = total + 1",
+                "   end",
+                "end",
+                "return total",
+            },
+            "\n"
+        )
+    )
+    local loop = assert(code:match("for i = 1(.-)\nreturn total"), "generated loop")
+    assert(not loop:find("function", 1, true), "the test is built where it is used:\n" .. loop)
+    assert(loop:find("__nuppIs1(", 1, true), "the loop calls the declared test:\n" .. loop)
+    assert(
+        code:find("local __nuppIs1 = function(", 1, true),
+        "the test is declared once for the module:\n" .. code:sub(1, 200)
+    )
+end
+
+-- Two types whose tests render the same share one declaration, and `is` under `or`
+-- keeps the subject on the right of it, where it is reached only if the left side
+-- was false. Hoisting the subject to a statement would have lost that.
+function M.refinementTestsAreSharedAndKeepShortCircuiting()
+    local code = generate(
+        table.concat(
+            {
+                "local interface A",
+                "   tag: string",
+                "   satisfies |self| -> self.tag == 'x'",
+                "end",
+                "local interface B",
+                "   tag: string",
+                "   satisfies |self| -> self.tag == 'x'",
+                "end",
+                "local items: {any} = {}",
+                "local always = false",
+                "local hit = items[1] is A or items[2] is B",
+                "local guarded = always or items[3] is A",
+                "return hit and guarded",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(
+        select(2, code:gsub("local __nuppIs%d+ = function%(", "")),
+        1,
+        "one declaration for two identical tests"
+    )
+    assert(code:find("always or __nuppIs1(", 1, true), "`or` still decides whether the subject is reached:\n" .. code)
+end
+
+-- Reaching through a field has to guard the step before it, because the test
+-- runs against values that are not of the type yet. `?.` is the runtime's own
+-- answer to that, and it reads each step once where a written-out guard read it
+-- twice.
+function M.aRefinementReachesThroughFieldsSafely()
+    local decl = table.concat(
+        {
+            "local record Inner",
+            "   c: string",
+            "end",
+            "local record Mid",
+            "   b: Inner",
+            "end",
+            "local interface Deep",
+            "   a: Mid",
+            "   satisfies |self| -> self.a.b.c == 'x'",
+            "end",
+        },
+        "\n"
+    )
+    -- present, absent halfway, and not a table at all
+    testAssert.eq(
+        run(
+            decl .. table.concat(
+                {
+                    "",
+                    "local full: any = {a = {b = {c = 'x'}}}",
+                    "local partial: any = {a = {}}",
+                    "local n: any = 42",
+                    "return (full is Deep and 1 or 0) + (partial is Deep and 10 or 0)",
+                    "   + (n is Deep and 100 or 0)",
+                },
+                "\n"
+            )
+        ),
+        1
+    )
+end
+
+-- A record is nominal, and an instance is a value that came from the
+-- declaration — not only one the declaration stamped itself. A constructor that
+-- links back rather than stamping directly, which is how tecs builds its event
+-- instances, produces instances too, and `is` has to say so.
+function M.instancesAreRecognisedThroughTheirPrototype()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local interface Event",
+                    "   eventId: integer",
+                    "   init: function(instance: self, ...: any)",
+                    "end",
+                    "local record OnSpawn is Event",
+                    "   eventId: integer",
+                    "   entity: integer",
+                    "   metamethod __call: function(self, entity: integer): self",
+                    "end",
+                    "OnSpawn.init = function(instance: OnSpawn, entity: integer)",
+                    "   instance.entity = entity",
+                    "end",
+                    "local function newEvent<E is Event>(event: Type<E>): nil",
+                    "   local instanceMt = {__index = event}",
+                    "   setmetatable(event, {__call = function(_self: E, ...: any): E",
+                    "      local instance = setmetatable({eventId = 7}, instanceMt) as E",
+                    "      event.init(instance, ...)",
+                    "      return instance",
+                    "   end})",
+                    "end",
+                    "newEvent(OnSpawn)",
+                    "local linked = OnSpawn(42)",
+                    "local stamped = new OnSpawn(eventId = 1, entity = 2)",
+                    "local foreign: any = {eventId = 1, entity = 2}",
+                    -- linked and stamped are both instances; a lookalike and the
+                    -- declaration's own table are not
+                    "return (linked is OnSpawn and 1 or 0) + (stamped is OnSpawn and 2 or 0)",
+                    "   + (foreign is OnSpawn and 100 or 0)",
+                    "   + ((OnSpawn as any) is OnSpawn and 100 or 0)",
+                },
+                "\n"
+            )
+        ),
+        3
+    )
+end
+
+-- `is` against an interface has no runtime test to run unless the interface
+-- says what one is. When the subject's own type already declares the interface,
+-- there is nothing to run: the declaration answered it.
+function M.aProvenInterfaceNeedsNoTest()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local interface Shape",
+                    "   kind: string",
+                    "end",
+                    "local record Circle is Shape",
+                    "   kind: string",
+                    "   radius: number",
+                    "end",
+                    "local c = new Circle(kind = 'c', radius = 1)",
+                    "local maybe: Circle? = c",
+                    "local absent: Circle? = nil",
+                    "return (c is Shape and 1 or 0) + (maybe is Shape and 2 or 0)",
+                    "   + (absent is Shape and 100 or 0)",
+                },
+                "\n"
+            )
+        ),
+        3
+    )
+end
+
+-- An interface whose fields carry literal types has already said what its test
+-- is: the field admits that value and nothing else. Reading it off is what lets
+-- a tagged interface answer `is` for a value this program did not build, with
+-- nothing written.
+function M.aTaggedInterfaceDerivesItsOwnTest()
+    local decl = table.concat(
+        {
+            "local interface Circle",
+            "   kind: 'circle'",
+            "   radius: number",
+            "end",
+            "local interface Square",
+            "   kind: 'square'",
+            "   side: number",
+            "end",
+        },
+        "\n"
+    )
+    testAssert.eq(
+        run(
+            decl .. table.concat(
+                {
+                    "",
+                    -- values nothing here built
+                    "local c: any = {kind = 'circle', radius = 2}",
+                    "local s: any = {kind = 'square', side = 3}",
+                    "local neither: any = {kind = 'triangle'}",
+                    "return (c is Circle and 1 or 0) + (s is Square and 2 or 0)",
+                    "   + (c is Square and 100 or 0) + (neither is Circle and 100 or 0)",
+                    "   + ((42 as any) is Circle and 100 or 0)",
+                },
+                "\n"
+            )
+        ),
+        3
+    )
+    -- an explicit block still wins over the tags
+    testAssert.eq(
+        run(
+            decl .. table.concat(
+                {
+                    "",
+                    "local interface Odd",
+                    "   kind: 'odd'",
+                    "   satisfies |self| -> self.kind == 'even'",
+                    "end",
+                    "local v: any = {kind = 'odd'}",
+                    "local w: any = {kind = 'even'}",
+                    "return (v is Odd and 1 or 0) + (w is Odd and 2 or 0)",
+                },
+                "\n"
+            )
+        ),
+        2
+    )
+end
+
+-- An interface may implement what it declares. The body is emitted once and
+-- referenced by each declaration that takes it, so an implementor inherits the
+-- behaviour rather than a copy of it, resolved where it is written rather than
+-- looked up at run time.
+function M.interfacesCarryDefaultBodies()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local interface Greeter",
+                    "   name: string",
+                    "   function greet(self): string",
+                    "      return 'hello, ' .. self.name",
+                    "   end",
+                    "end",
+                    "local record Person is Greeter",
+                    "   name: string",
+                    "end",
+                    "local p = new Person(name = 'Ada')",
+                    "return p:greet()",
+                },
+                "\n"
+            )
+        ),
+        "hello, Ada"
+    )
+    -- a struct takes it through the metatype's index table
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local interface Sized",
+                    "   w: float",
+                    "   h: float",
+                    "   function area(self): number",
+                    "      return self.w * self.h",
+                    "   end",
+                    "end",
+                    "local struct Box is Sized",
+                    "   w: float",
+                    "   h: float",
+                    "end",
+                    "return (new Box(3, 4)):area()",
+                },
+                "\n"
+            )
+        ),
+        12
+    )
+    -- and a chain of interfaces passes it along
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local interface Base",
+                    "   n: integer",
+                    "   function twice(self): number",
+                    "      return self.n * 2",
+                    "   end",
+                    "end",
+                    "local interface Mid is Base",
+                    "   n: integer",
+                    "end",
+                    "local record Leaf is Mid",
+                    "   n: integer",
+                    "end",
+                    "return (new Leaf(n = 21)):twice()",
+                },
+                "\n"
+            )
+        ),
+        42
+    )
+end
+
+-- An override is optional when replacing an interface method, and invalid when
+-- no declared interface supplies the matching slot.
+function M.overridingADefaultIsOptional()
+    local iface = table.concat(
+        {
+            "local interface Greeter",
+            "   name: string",
+            "   function greet(self): string",
+            "      return 'hi'",
+            "   end",
+            "end",
+        },
+        "\n"
+    )
+    -- A method can replace the default without an annotation.
+    testAssert.eq(
+        run(
+            iface .. table.concat(
+                {
+                    "",
+                    "local record Silent is Greeter",
+                    "   name: string",
+                    "   function greet(self): string",
+                    "      return '...'",
+                    "   end",
+                    "end",
+                    "return (new Silent(name = 'x')):greet()",
+                },
+                "\n"
+            )
+        ),
+        "..."
+    )
+    -- saying it is fine, and the override runs
+    testAssert.eq(
+        run(
+            iface .. table.concat(
+                {
+                    "",
+                    "local record Loud is Greeter",
+                    "   name: string",
+                    "   @override",
+                    "   function greet(self): string",
+                    "      return 'LOUD'",
+                    "   end",
+                    "end",
+                    "return (new Loud(name = 'x')):greet()",
+                },
+                "\n"
+            )
+        ),
+        "LOUD"
+    )
+    -- and claiming to override nothing is refused too
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local record Bogus",
+                    "   n: integer",
+                    "   @override",
+                    "   function nope(self): integer",
+                    "      return 1",
+                    "   end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2118:4"
+    )
+end
+
+-- `is I` is trusted for the members a record leaves to run-time installation, and
+-- for nothing it writes itself: a member the record declares has to fit what the
+-- contract says it is, or I's callers read one thing and the instance holds another.
+function M.aDeclaredMemberMustFitTheClaimedContract()
+    local iface = table.concat(
+        {"local interface Named", "   name: string", "   describe: function(self): string", "end",},
+        "\n"
+    )
+    -- a missing member is the documented trust
+    assertClean(
+        iface .. table.concat({"", "local record Later is Named", "   n: integer", "end", "return Later",}, "\n")
+    )
+    -- a field of the wrong type is not
+    testAssert.eq(
+        diagsOf(
+            iface .. table.concat(
+                {"", "local record Bad is Named", "   name: integer", "   describe: function(self): string", "end",},
+                "\n"
+            )
+        ),
+        "NUPP2118:6"
+    )
+    -- nor a method with the wrong result, nor a field standing where a method is
+    testAssert.eq(
+        diagsOf(
+            iface .. table.concat(
+                {
+                    "",
+                    "local record Worse is Named",
+                    "   name: string",
+                    "   function describe(self): integer",
+                    "      return 1",
+                    "   end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2118:7"
+    )
+    testAssert.eq(
+        diagsOf(
+            iface .. table.concat(
+                {"", "local record Data is Named", "   name: string", "   describe: integer", "end",},
+                "\n"
+            )
+        ),
+        "NUPP2118:7"
+    )
+    -- a method may narrow its result, as any implementation may
+    assertClean(
+        iface .. table.concat(
+            {
+                "",
+                "local record Fine is Named",
+                "   name: string",
+                "   function describe(self): 'fine'",
+                "      return 'fine'",
+                "   end",
+                "end",
+                "return Fine",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.subtypeMethodOverridesAreOptionalAndCompatible()
+    local parent = table.concat(
+        {"local interface Parent", "   convert: function(self, value: string): string", "end",},
+        "\n"
+    )
+    assertClean(
+        parent .. table.concat(
+            {
+                "",
+                "local interface Child is Parent",
+                "   function convert(self, value: string): string",
+                "      return value",
+                "   end",
+                "end",
+            },
+            "\n"
+        )
+    )
+    assertClean(
+        parent .. table.concat(
+            {
+                "",
+                "local interface Child is Parent",
+                "   @override",
+                "   function convert(self, value: string): 'child'",
+                "      return 'child'",
+                "   end",
+                "end",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(
+        diagsOf(
+            parent .. table.concat(
+                {
+                    "",
+                    "local interface Child is Parent",
+                    "   @override",
+                    "   function convert(self, value: integer): string",
+                    "      return tostring(value)",
+                    "   end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2118:6"
+    )
+end
+
+-- An affine contract's terminal consumes its receiver. Implementing it with a
+-- borrowing receiver would run as the terminal without taking anything.
+function M.aTerminalTakesItsReceiverTheWayTheContractSays()
+    local iface = table.concat(
+        {
+            "local interface Closer is own.Affine<self.close>",
+            "   close: @nosuspend function(takes self: Closer): nil",
+            "end",
+        },
+        "\n"
+    )
+    testAssert.eq(
+        diagsOf(
+            iface .. table.concat(
+                {
+                    "",
+                    "local record Borrowing is Closer",
+                    "   open: boolean",
+                    "   function close(self): nil",
+                    "      self.open = false",
+                    "   end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2615:4 NUPP2118:6"
+    )
+    assertClean(
+        iface .. table.concat(
+            {
+                "",
+                "local record Taking is Closer",
+                "   open: boolean",
+                "   function close(takes self): nil",
+                "      local state = @unsafe own.release(self)",
+                "      state.open = false",
+                "   end",
+                "end",
+                "return Taking",
+            },
+            "\n"
+        )
+    )
+end
+
+-- A generic contract is compared as instantiated: the member's type is fully known
+-- once the argument is written after `is`.
+function M.aGenericContractIsCheckedAsInstantiated()
+    local iface = table.concat({"local interface Sink<T>", "   push: function(self, v: T): nil", "end",}, "\n")
+    testAssert.eq(
+        diagsOf(
+            iface .. table.concat(
+                {
+                    "",
+                    "local record StrSink is Sink<integer>",
+                    "   function push(self, v: string): nil",
+                    "      print(v)",
+                    "   end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2118:5"
+    )
+    assertClean(
+        iface .. table.concat(
+            {
+                "",
+                "local record IntSink is Sink<integer>",
+                "   function push(self, v: integer): nil",
+                "      print(v)",
+                "   end",
+                "end",
+                "return IntSink",
+            },
+            "\n"
+        )
+    )
+end
+
+-- A capability the record withholds is withheld: `@readonly` beside `is I` keeps the
+-- field read-only whatever I grants, and the disagreement is reported rather than
+-- I's write entry grafted over the record's own.
+function M.aReadonlyFieldStaysReadonlyUnderAWritableContract()
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local interface Mut",
+                    "   value: string",
+                    "end",
+                    "local record Cell is Mut",
+                    "   @readonly value: string",
+                    "end",
+                    "local c = new Cell(value = 'a')",
+                    "c.value = 'b'",
+                    "return c",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2118:5 NUPP2009:8"
+    )
+    -- the other way round, a record may grant more than the contract asks
+    assertClean(
+        table.concat(
+            {
+                "local interface RO",
+                "   @readonly value: string | integer",
+                "end",
+                "local record Wide is RO",
+                "   value: string | integer",
+                "end",
+                "local w = new Wide(value = 's')",
+                "w.value = 1",
+                "return w",
+            },
+            "\n"
+        )
+    )
+end
+
+-- A stored field of a default's name would shadow the default on every instance,
+-- whatever its type. Replacing a default is written as a method.
+function M.aFieldCannotStandWhereADefaultIs()
+    local iface = table.concat(
+        {
+            "local interface Greeter",
+            "   name: string",
+            "   function greet(self): string",
+            "      return 'hello, ' .. self.name",
+            "   end",
+            "end",
+        },
+        "\n"
+    )
+    testAssert.eq(
+        diagsOf(
+            iface .. table.concat(
+                {"", "local record Person is Greeter", "   name: string", "   greet: string", "end",},
+                "\n"
+            )
+        ),
+        "NUPP2118:9"
+    )
+    testAssert.eq(
+        diagsOf(
+            iface .. table.concat(
+                {"", "local record Callable is Greeter", "   name: string", "   greet: function(self): string", "end",},
+                "\n"
+            )
+        ),
+        "NUPP2118:9"
+    )
+end
+
+-- A struct's layout is closed, so a member no struct field could hold cannot be
+-- installed later either; the claim is refused where a record's would be trusted.
+function M.aStructCannotClaimAFieldItCannotHold()
+    local iface = table.concat({"local interface HasName", "   name: string", "end",}, "\n")
+    testAssert.eq(
+        diagsOf(iface .. table.concat({"", "local struct S is HasName", "   x: int32", "end",}, "\n")),
+        "NUPP2118:4"
+    )
+    assertClean(iface .. table.concat({"", "local record R is HasName", "   x: integer", "end", "return R",}, "\n"))
+end
+
+-- Two interfaces providing the same name are two implementations and no reason
+-- to prefer either, so the declaration has to say which behaviour it means.
+function M.aDefaultInheritedTwiceMustBeChosen()
+    local ifaces = table.concat(
+        {
+            "local interface A",
+            "   function tag(self): string",
+            "      return 'a'",
+            "   end",
+            "end",
+            "local interface B",
+            "   function tag(self): string",
+            "      return 'b'",
+            "   end",
+            "end",
+        },
+        "\n"
+    )
+    testAssert.eq(
+        diagsOf(ifaces .. table.concat({"", "local record Bad is A, B", "   n: integer", "end",}, "\n")),
+        "NUPP2118:11"
+    )
+    -- writing it settles the question
+    testAssert.eq(
+        run(
+            ifaces .. table.concat(
+                {
+                    "",
+                    "local record Good is A, B",
+                    "   n: integer",
+                    "   @override",
+                    "   function tag(self): string",
+                    "      return 'mine'",
+                    "   end",
+                    "end",
+                    "return (new Good(n = 1)):tag()",
+                },
+                "\n"
+            )
+        ),
+        "mine"
+    )
+end
+
+-- A constructor is the whole reason `new` is worth having over a literal: a
+-- literal may leave a declared field out, and a constructor may not.
+function M.constructorsRunAndFillEveryField()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local record Account",
+                    "    name: string",
+                    "    balance: number",
+                    "    constructor(self, name: string, opening: number)",
+                    "        self.name = name",
+                    "        self.balance = opening",
+                    "    end",
+                    "    function deposit(self, credit: number)",
+                    "        self.balance = self.balance + credit",
+                    "    end",
+                    "end",
+                    "local a = new Account('Hina', 500)",
+                    "a:deposit(20)",
+                    "return a.balance",
+                },
+                "\n"
+            )
+        ),
+        520
+    )
+    -- the instance is a real one: `is` still answers through the metatable
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local record R",
+                    "    n: integer",
+                    "    constructor(self, v: integer)",
+                    "        self.n = v",
+                    "    end",
+                    "end",
+                    "local r = new R(7)",
+                    "return (r is R) and r.n or 0",
+                },
+                "\n"
+            )
+        ),
+        7
+    )
+end
+
+-- A constructor is a function of the instance, so it takes either spelling a
+-- function takes anywhere else. Both reach the same generated body.
+function M.constructorsTakeEitherFunctionSpelling()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local record Diagonal",
+                    "    x: integer",
+                    "    y: integer",
+                    "    constructor |self, at: integer| -> do",
+                    "        self.x = at",
+                    "        self.y = at",
+                    "    end",
+                    "end",
+                    "local d = new Diagonal(4)",
+                    "return d.x + d.y",
+                },
+                "\n"
+            )
+        ),
+        8
+    )
+    -- several parameters, and a body that is more than assignments
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local record Signed",
+                    "    x: integer",
+                    "    constructor |self, at: integer, flip: boolean| -> do",
+                    "        self.x = flip ? at : -at",
+                    "    end",
+                    "end",
+                    "return (new Signed(5, false)).x",
+                },
+                "\n"
+            )
+        ),
+        -5
+    )
+    -- the receiver is named in this spelling too
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local record R",
+                    "    n: integer",
+                    "    constructor |at: integer| -> do",
+                    "        self.n = at",
+                    "    end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2208:3"
+    )
+    -- and the expression form has nowhere to put its expression: what a
+    -- constructor hands back is settled before the body runs
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {"local record R", "    n: integer", "    constructor |self, at: integer| -> at", "end",},
+                "\n"
+            )
+        ),
+        "NUPP2208:3"
+    )
+end
+
+function M.constructorsRefuseWhatTheyCannotGuarantee()
+    -- a field that cannot hold nil has to be filled
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local record A",
+                    "    name: string",
+                    "    balance: number",
+                    "    constructor(self, n: string)",
+                    "        self.name = n",
+                    "    end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2208:4"
+    )
+    -- an optional one need not be
+    assertClean(
+        table.concat(
+            {
+                "local record B",
+                "    name: string",
+                "    note: string?",
+                "    constructor(self, n: string)",
+                "        self.name = n",
+                "    end",
+                "end",
+            },
+            "\n"
+        )
+    )
+    -- a field taken from an interface is as much part of the value as one
+    -- declared here, so leaving it out is the same nil
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local interface Named",
+                    "   name: string",
+                    "end",
+                    "local record Person is Named",
+                    "   constructor(self)",
+                    "   end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2208:5"
+    )
+    assertClean(
+        table.concat(
+            {
+                "local interface Named",
+                "   name: string",
+                "end",
+                "local record Person is Named",
+                "   constructor(self, n: string)",
+                "      self.name = n",
+                "   end",
+                "end",
+            },
+            "\n"
+        )
+    )
+    -- an interface builds nothing
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local interface I",
+                    "    n: integer",
+                    "    constructor(self, v: integer)",
+                    "        self.n = v",
+                    "    end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2208:3"
+    )
+    -- distinct constructor parameter packs form an overload set
+    assertClean(
+        table.concat(
+            {
+                "local record T",
+                "    n: integer",
+                "    constructor(self, v: integer)",
+                "        self.n = v",
+                "    end",
+                "    constructor(self, v: string)",
+                "        self.n = #v",
+                "    end",
+                "end",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.overloadedConstructorsSelectDistinctBodies()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local record Value",
+                    "    text: string",
+                    "    constructor(self, value: integer)",
+                    "        self.text = tostring(value)",
+                    "    end",
+                    "    constructor(self, value: string)",
+                    "        self.text = value",
+                    "    end",
+                    "end",
+                    "local numberValue = new Value(42)",
+                    "local stringValue = new Value('ready')",
+                    "return numberValue.text .. ':' .. stringValue.text",
+                },
+                "\n"
+            )
+        ),
+        "42:ready"
+    )
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local record Duplicate",
+                    "    value: integer",
+                    "    constructor(self, value: integer)",
+                    "        self.value = value",
+                    "    end",
+                    "    constructor(self, other: integer)",
+                    "        self.value = other",
+                    "    end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2208:6"
+    )
+end
+
+-- The converting arm stores a value it cast to T itself: `any` is not a T, since
+-- the binder stands for one fixed type the body does not know, so the cast has to
+-- name the binder rather than escape to `any`.
+function M.genericConstructorsRemainOverloadedAfterInstantiation()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local record Box<T>",
+                    "    value: T",
+                    "    constructor(self, kind: 'value', value: T)",
+                    "        self.value = value",
+                    "    end",
+                    "    constructor(self, kind: 'converted', value: T, convert: boolean)",
+                    "        self.value = (convert and tostring(value) or value) as T",
+                    "    end",
+                    "end",
+                    "local text = new Box('value', 'ready')",
+                    "local number = new Box('converted', 42, true)",
+                    "local textValue: string = text.value",
+                    "local numberValue: integer = number.value",
+                    "return text.value .. ':' .. number.value",
+                },
+                "\n"
+            )
+        ),
+        "ready:42"
+    )
+end
+
+function M.constructorResultsMayIntroduceAnAffinePolicy()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local closed = 0",
+                    "local record File",
+                    "    path: string",
+                    "    constructor(self, path: string): affine(File, File.destroy)",
+                    "        self.path = path",
+                    "    end",
+                    "    function read(self): string",
+                    "        return self.path",
+                    "    end",
+                    "    function destroy(takes self): nil",
+                    "        closed += 1",
+                    "    end",
+                    "end",
+                    "do",
+                    "    local file = new File('notes.txt')",
+                    "    assert(file:read() == 'notes.txt')",
+                    "end",
+                    "return closed",
+                },
+                "\n"
+            )
+        ),
+        1
+    )
+end
+
+function M.constructorOverloadsSelectTheirResultPolicy()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local closed = 0",
+                    "local record File",
+                    "    label: string",
+                    "    constructor(self, kind: 'managed'): affine(File, File.destroy)",
+                    "        self.label = kind",
+                    "    end",
+                    "    constructor(self, kind: 'plain'): File",
+                    "        self.label = kind",
+                    "    end",
+                    "    function destroy(takes self): nil",
+                    "        closed += 1",
+                    "    end",
+                    "end",
+                    "do local managed = new File('managed') end",
+                    "do local plain = new File('plain') end",
+                    "return closed",
+                },
+                "\n"
+            )
+        ),
+        1
+    )
+end
+
+function M.genericConstructorResultsUseTheInferredInstance()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local closed = 0",
+                    "local record Box<T>",
+                    "    value: T",
+                    "    constructor(self, value: T): affine(Box, Box.destroy)",
+                    "        self.value = value",
+                    "    end",
+                    "    function destroy(takes self): nil closed += 1 end",
+                    "end",
+                    "do",
+                    "    local box = new Box('ready')",
+                    "    local text: string = box.value",
+                    "end",
+                    "return closed",
+                },
+                "\n"
+            )
+        ),
+        1
+    )
+end
+
+function M.constructorResultsKeepTheConstructedRepresentation()
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {"local record Other end", "local record File", "    constructor(self): Other end", "end",},
+                "\n"
+            )
+        ),
+        "NUPP2208:3"
+    )
+    testAssert.eq(
+        diagsOf(table.concat({"local record File", "    constructor(self): File, string end", "end",}, "\n")),
+        "NUPP2208:2"
+    )
+end
+
+function M.inlineCleanupIdentitiesFollowTheRecordsTypeScope()
+    assertClean(
+        table.concat(
+            {
+                "local record File",
+                "    function destroy(takes self): nil end",
+                "end",
+                "local type OwnedFile = affine(File, File.destroy)",
+                "local function open(): OwnedFile return new File() end",
+                "do local file = open() end",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "do",
+                    "    local record Hidden",
+                    "        function destroy(takes self): nil end",
+                    "    end",
+                    "end",
+                    "local record Visible end",
+                    "local type Invalid = affine(Visible, Hidden.destroy)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2131:7"
+    )
+end
+
+-- Declaring a constructor closes the literal form. Leaving it open beside one
+-- would let every invariant the constructor establishes be walked around.
+function M.aConstructorClosesTheLiteralForm()
+    local decl = table.concat(
+        {
+            "local record A",
+            "    n: integer",
+            "    constructor(self, v: integer)",
+            "        self.n = v",
+            "    end",
+            "end",
+        },
+        "\n"
+    )
+    testAssert.eq(diagsOf(decl .. "\nlocal a = new A {n = 1}"), "NUPP2208:7")
+    assertClean(decl .. "\nlocal a = new A(1)")
+    -- `constructor` is contextual: a field may still be called one
+    assertClean(
+        table.concat({"local record C", "    constructor: string", "end", "local c = new C(constructor = 'x')",}, "\n")
+    )
+end
+
+function M.fieldDefaultsSeedDirectConstructionAndConstructors()
+    local result = run(
+        table.concat(
+            {
+                "local record Flags",
+                "    active: boolean = false",
+                "    retries: integer = 3",
+                "end",
+                "local flags = new Flags(retries = 9)",
+                "local record Settings",
+                "    port: integer = 8080",
+                "    tags: {string} = {}",
+                "    constructor(self, offset: integer)",
+                "        self.port = self.port + offset",
+                "    end",
+                "end",
+                "local left = new Settings(1)",
+                "local right = new Settings(2)",
+                "left.tags[1] = 'changed'",
+                "return {flags.active, flags.retries, left.port, right.port, #right.tags, left.tags ~= right.tags}",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(result[1], false)
+    testAssert.eq(result[2], 9)
+    testAssert.eq(result[3], 8081)
+    testAssert.eq(result[4], 8082)
+    testAssert.eq(result[5], 0)
+    testAssert.eq(result[6], true)
+end
+
+function M.fieldDefaultsMustBeClosedAndFitTheirFields()
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local seed = 3",
+                    "local record Bad",
+                    "    dynamic: integer = seed",
+                    "    wrong: integer = 'three'",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2202:3 NUPP2202:4"
+    )
+    testAssert.eq(diagsOf(table.concat({"local interface Bad", "    value: integer = 1", "end",}, "\n")), "NUPP2202:2")
+end
+
+-- A metamethod declaration is a contract, and a metatable literal is where the
+-- value fulfilling it is written. Until it is checked there the contract is
+-- rendered and never read.
+function M.aContractIsHeldToTheValueThatFulfilsIt()
+    local i64 = table.concat(
+        {
+            "local record I64",
+            "   v: integer",
+            "   metamethod __add: function(self: I64, other: I64): I64",
+            "end",
+            "local x = new I64(v = 1)",
+        },
+        "\n"
+    )
+    testAssert.eq(diagsOf(i64 .. "\nsetmetatable(x, {__add = 'not a function'})"), "NUPP2123:6")
+    assertClean(
+        i64 .. table.concat(
+            {
+                "",
+                "setmetatable(x, {__add = function(a: I64, b: I64): I64",
+                "   return new I64(v = a.v + b.v)",
+                "end})",
+            },
+            "\n"
+        )
+    )
+end
+
+-- Where a declaration contracts for nothing, LuaJIT still says what it will do
+-- with the key it reads.
+function M.aKeyWithNoContractIsHeldToWhatLuaJITDoesWithIt()
+    local r = "local record R end\nlocal r = new R()\n"
+    testAssert.eq(diagsOf(r .. "setmetatable(r, {__mode = 42})"), "NUPP2123:3")
+    testAssert.eq(diagsOf(r .. "setmetatable(r, {__gc = 'soon'})"), "NUPP2123:3")
+    testAssert.eq(diagsOf(r .. "setmetatable(r, {__index = 42})"), "NUPP2123:3")
+    assertClean(r .. "setmetatable(r, {__index = r, __mode = 'k'})")
+    -- and an unknown key is still a broken contract rather than a field
+    testAssert.eq(diagsOf(r .. "setmetatable(r, {__tostirng = tostring})"), "NUPP2118:3")
+end
+
+-- The declaration's name holds its runtime table, and `new` builds instances of
+-- it. They are different values and now different types, which is what stops
+-- either standing where the other is wanted.
+function M.aRecordsTableIsNotAnInstanceOfIt()
+    local foo = "local record Foo\n   v: integer\nend\n"
+    assertClean(
+        foo .. table.concat(
+            {"local witness: Type<Foo> = Foo", "local instance: Foo = new Foo(v = 1)", "return {witness, instance}",},
+            "\n"
+        )
+    )
+    -- the table is not an instance
+    testAssert.eq(diagsOf(foo .. "local wrong: Foo = Foo\nreturn wrong"), "NUPP2001:4")
+    -- and neither a type witness nor an instance is a metatable value
+    testAssert.eq(diagsOf(foo .. "local wrong: metatable<Foo> = Foo\nreturn wrong"), "NUPP2001:4")
+    testAssert.eq(
+        diagsOf(
+            foo .. table.concat(
+                {"local instance = new Foo(v = 1)", "local wrong: metatable<Foo> = instance", "return wrong",},
+                "\n"
+            )
+        ),
+        "NUPP2001:5"
+    )
+    -- construction, methods and nested reads still go through the table
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local record Outer",
+                    "   record Inner",
+                    "      n: integer",
+                    "   end",
+                    "end",
+                    "local made = new Outer.Inner(n = 4)",
+                    "return made.n",
+                },
+                "\n"
+            )
+        ),
+        4
+    )
+end
+
+-- Now that the table and an instance are different types, `is` between them is
+-- settled without running: a declaration's own table is not one of the values it
+-- stamps, and the test would spend a metatable lookup to say so.
+function M.aTableIsNotAnInstanceAndIsSaysSoWithoutAsking()
+    local foo = table.concat({"local record Foo", "   v: integer", "end", "local instance = new Foo(v = 1)",}, "\n")
+    testAssert.eq(
+        run(foo .. table.concat({"", "return (instance is Foo and 1 or 0) + (Foo is Foo and 100 or 0)",}, "\n")),
+        1
+    )
+    local code = generate(foo .. "\nlocal answer = Foo is Foo\nreturn answer")
+    assert(code:find("( false )", 1, true), "the refuted test is not emitted: " .. code)
+end
+
+-- A metamethod written on an instance puts a function where the operator never
+-- looks. The declaration's table is the metatable, so that is where it belongs.
+function M.aMetamethodOnAnInstanceIsRefused()
+    local i64 = table.concat(
+        {"local record I64", "   v: integer", "   metamethod __tostring: function(self): string", "end",},
+        "\n"
+    )
+    testAssert.eq(
+        diagsOf(i64 .. table.concat({"", "local x = new I64(v = 1)", "x.__tostring = tostring",}, "\n")),
+        "NUPP2004:6"
+    )
+    -- and on the table it is the installation
+    assertClean(
+        i64 .. table.concat(
+            {"", "I64.__tostring = function(self: I64): string", "   return tostring(self.v)", "end",},
+            "\n"
+        )
+    )
+end
+
+-- A record's runtime table is the metatable its instances carry, so it is a
+-- `metatable<R>` and the oldest way to write a class in Lua checks. Reaching a
+-- member through the wrapper reaches the record's.
+function M.aRecordsTableHasItsOwnTypeWitness()
+    local foo = table.concat(
+        {
+            "local record Foo",
+            "   v: integer",
+            "   function double(self): integer",
+            "      return self.v * 2",
+            "   end",
+            "end",
+        },
+        "\n"
+    )
+    assertClean(foo .. table.concat({"", "local witness: Type<Foo> = Foo", "return witness",}, "\n"))
+    -- and the members are reached through the witness
+    assertClean(
+        foo .. table.concat(
+            {
+                "",
+                "local witness: Type<Foo> = Foo",
+                "local f: function(self: Foo): integer = witness.double",
+                "return f",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(
+        diagsOf(foo .. table.concat({"", "local witness: Type<Foo> = Foo", "local missing = witness.nosuch",}, "\n")),
+        "NUPP2004:8"
+    )
+    testAssert.eq(diagsOf(foo .. "\nlocal raw: table = {}\nsetmetatable(raw, Foo)"), "NUPP2006:8")
+end
+
+-- A record's runtime table is the metatable its instances carry, so writing a
+-- declared metamethod on it is how a contract is fulfilled. It used to be
+-- refused as a missing field, with the same message a typo got.
+function M.aContractIsInstalledOnTheRecordsOwnTable()
+    local i64 = table.concat(
+        {"local record I64", "   v: integer", "   metamethod __tostring: function(self): string", "end",},
+        "\n"
+    )
+    testAssert.eq(
+        run(
+            i64 .. table.concat(
+                {
+                    "",
+                    "I64.__tostring = function(self: I64): string",
+                    "   return 'I64(' .. tostring(self.v) .. ')'",
+                    "end",
+                    "return tostring(new I64(v = 7))",
+                },
+                "\n"
+            )
+        ),
+        "I64(7)"
+    )
+    -- the value is held to the contract it fulfils
+    testAssert.eq(diagsOf(i64 .. "\nI64.__tostring = 42"), "NUPP2123:5")
+    -- and a misspelled one is still absent, now with the spelling to reach for
+    testAssert.eq(diagsOf(i64 .. "\nI64.__totring = tostring"), "NUPP2004:5")
+end
+
+-- A generic record's contract is installed on the one table every instance
+-- shares. Its `self` used to be the unapplied declaration, which nothing can be
+-- written as, and a generic literal's inferred `preserves value` was compared
+-- against a contract that never spelled one, so no literal fulfilled it.
+function M.aGenericRecordsContractIsInstalledByALiteral()
+    local function box(contract)
+        return table.concat(
+            {"local record Box<T>", "   default: T", "   metamethod __call: " .. contract, "end", ""},
+            "\n"
+        )
+    end
+
+    local identity = table.concat(
+        {
+            "Box.__call = function<T>(self: Box<T>, value: T): T",
+            "   return value",
+            "end",
+            "local box = new Box(default = 1)",
+            "local made: integer = box(2)",
+            "return made",
+        },
+        "\n"
+    )
+    testAssert.eq(run(box("function(self, value: T): T") .. identity), 2)
+    testAssert.eq(run(box("function(self: Box<T>, value: T): T") .. identity), 2)
+    -- the contract is the literal's slot, so an unannotated one takes its types
+    testAssert.eq(
+        run(
+            box(
+                "function(self, value: T): T"
+            ) .. table.concat(
+                {
+                    "Box.__call = function(self, value)",
+                    "   return self.default",
+                    "end",
+                    "local box = new Box(default = 1)",
+                    "local made: integer = box(2)",
+                    "return made",
+                },
+                "\n"
+            )
+        ),
+        1
+    )
+    -- and it still holds for every instance, not only the ones the literal names
+    testAssert.eq(
+        diagsOf(
+            box(
+                "function(self, value: T): T"
+            ) .. table.concat(
+                {"Box.__call = function<T>(self: Box<T>, value: T): string", "   return 'x'", "end",},
+                "\n"
+            )
+        ),
+        "NUPP2123:5"
+    )
+end
+
+-- `function R.__add(...)` installs a contract exactly as `R.__add = function` does,
+-- so the two spellings answer to one check. The declaration form used to be
+-- stored as an ordinary static member and compared against nothing.
+function M.aDeclaredMetamethodIsHeldToItsContract()
+    local box = table.concat(
+        {"local record Box<T>", "   default: T", "   metamethod __call: function(self, value: T): T", "end", ""},
+        "\n"
+    )
+    testAssert.eq(
+        run(
+            box .. table.concat(
+                {
+                    "function Box.__call<T>(self: Box<T>, value: T): T",
+                    "   return value",
+                    "end",
+                    "local box = new Box(default = 1)",
+                    "local made: integer = box(2)",
+                    "return made",
+                },
+                "\n"
+            )
+        ),
+        2
+    )
+    testAssert.eq(
+        diagsOf(box .. "function Box.__call<T>(self: Box<T>, value: T): string\n   return 'x'\nend"),
+        "NUPP2123:5"
+    )
+    local v = table.concat(
+        {
+            "local record V",
+            "   x: number",
+            "   metamethod __add: function(self, other: V): V",
+            "   metamethod __len: function(self): integer",
+            "end",
+            "",
+        },
+        "\n"
+    )
+    assertClean(
+        v .. table.concat(
+            {
+                "function V.__add(a: V, b: V): V",
+                "   return new V(x = a.x + b.x)",
+                "end",
+                "function V:__len(): integer",
+                "   return 1",
+                "end",
+            },
+            "\n"
+        )
+    )
+    testAssert.eq(diagsOf(v .. "function V:__len(): string\n   return 'x'\nend"), "NUPP2123:6")
+    testAssert.eq(diagsOf(v .. "function V.__add(a: V, b: integer): V\n   return a\nend"), "NUPP2123:6")
+end
+
+-- A generic record's own parameters are in scope inside its body only, so a method
+-- defined after it binds them itself. The refusal names the spelling that does.
+function M.anOuterMethodIsToldToBindTheRecordsParameters()
+    local box = table.concat({"local record Box<T>", "   default: T", "end", ""}, "\n")
+    local src = box .. "function Box:get(value: T): T\n   return value\nend\nreturn Box"
+    local result = parser.parse(src, "test.nupp")
+    local diags = check.check(result, "test.nupp", env)
+    testAssert.eq(#diags, 2, "both mentions of T are unknown")
+    for _, d in ipairs(diags) do
+        testAssert.eq(d.code, "NUPP2101")
+        assert(d.help and d.help:find("function Box.get<T>(self: Box<T>, ...)", 1, true), tostring(d.help))
+    end
+    -- the spelling it names, which is a method once the body declares the member
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local record Box<T>",
+                    "   default: T",
+                    "   get: function(self, value: T): T",
+                    "end",
+                    "function Box.get<T>(self: Box<T>, value: T): T",
+                    "   return value",
+                    "end",
+                    "local box = new Box(default = 1)",
+                    "local got: integer = box:get(2)",
+                    "return got",
+                },
+                "\n"
+            )
+        ),
+        2
+    )
+    -- a static one binds them on the function
+    local static = box .. "function Box.make(value: T): T\n   return value\nend\nreturn Box"
+    local made = check.check(parser.parse(static, "test.nupp"), "test.nupp", env)
+    assert(made[1] and made[1].help:find("function Box.make<T>(...)", 1, true), tostring(made[1] and made[1].help))
+end
+
+-- `function Box:m()` on a generic record receives one of Box's values, which is the
+-- declaration applied to its own binders. It used to receive the bare declaration,
+-- which no instance is, so the method could never be called.
+function M.anOuterMethodOnAGenericRecordReceivesAnInstance()
+    testAssert.eq(
+        run(
+            table.concat(
+                {
+                    "local record Box<T>",
+                    "   default: T",
+                    "end",
+                    "function Box:describe(): string",
+                    "   return 'box of ' .. tostring(self.default)",
+                    "end",
+                    "local box = new Box(default = 1)",
+                    "return box:describe()",
+                },
+                "\n"
+            )
+        ),
+        "box of 1"
+    )
+end
+
+-- A `metatable<T>` annotation says whose metatable it is as readily as a
+-- parameter does, so the literal under one is held to the same rules wherever
+-- it is written.
+function M.anAnnotatedMetatableIsHeldToTheSameRules()
+    local i64 = table.concat(
+        {"local record I64", "   v: integer", "   metamethod __tostring: function(self): string", "end",},
+        "\n"
+    )
+    testAssert.eq(diagsOf(i64 .. "\nlocal mt: metatable<I64> = {__tostring = 42}" .. "\nreturn mt"), "NUPP2123:5")
+    testAssert.eq(
+        diagsOf(i64 .. table.concat({"", "local mt: metatable<I64> = {}", "mt = {__tostirng = tostring}",}, "\n")),
+        "NUPP2118:6"
+    )
+    assertClean(
+        i64 .. table.concat(
+            {
+                "",
+                "local mt: metatable<I64> = {__tostring = function(self: I64): string",
+                "   return tostring(self.v)",
+                "end}",
+                "return mt",
+            },
+            "\n"
+        )
+    )
+end
+
+-- An `__index` table is what instances read their members through, so a member
+-- written into one has to be what the declaration said it is. A name the
+-- declaration does not have is an ordinary helper, and one it has that the table
+-- leaves out may still be assigned afterwards.
+function M.anIndexTableIsHeldToTheMembersItStandsIn()
+    local counter = table.concat(
+        {
+            "local record Counter",
+            "   value: integer",
+            "   label: function(self: Counter): string",
+            "end",
+            "local c = new Counter(value = 1, label = tostring)",
+        },
+        "\n"
+    )
+    testAssert.eq(
+        diagsOf(
+            counter .. table.concat(
+                {"", "setmetatable(c, {__index = {label = function(self: Counter): integer", "   return 1", "end}})",},
+                "\n"
+            )
+        ),
+        "NUPP2123:6"
+    )
+    assertClean(
+        counter .. table.concat(
+            {
+                "",
+                "setmetatable(c, {__index = {helper = 42,",
+                "   label = function(self: Counter): string",
+                "      return 'c'",
+                "   end}})",
+            },
+            "\n"
+        )
+    )
+end
+
+-- A member declared with a receiver is called with one; a plain callable field is
+-- called without. Conformance therefore drops the receiver only from a method,
+-- and refuses to pair a method with a plain field, whose first parameter would
+-- otherwise receive the table.
+function M.aPlainCallableFieldDoesNotSatisfyAMethodMember()
+    local impl = table.concat(
+        {
+            "local record Impl",
+            "   greet: function(n: integer): string",
+            "end",
+            "local impl = new Impl(greet = function(n: integer): string return tostring(n + 1) end)",
+        },
+        "\n"
+    )
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local interface Greeter",
+                    "   greet: function(self, n: integer): string",
+                    "end",
+                    impl,
+                    "local g: Greeter = impl",
+                    "return g:greet(5)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2001:8"
+    )
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local interface Greeter",
+                    "   @readonly greet: function(self, n: integer): string",
+                    "end",
+                    impl,
+                    "local g: Greeter = impl",
+                    "return g:greet(5)",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2001:8"
+    )
+    -- plain against plain compares every parameter, the first included
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local interface Greeter",
+                    "   @readonly greet: function(n: string): string",
+                    "end",
+                    impl,
+                    "local g: Greeter = impl",
+                    "return g",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2001:8"
+    )
+    assertClean(
+        table.concat(
+            {
+                "local interface Greeter",
+                "   @readonly greet: function(n: integer): string",
+                "end",
+                impl,
+                "local g: Greeter = impl",
+                "return g.greet(5)",
+            },
+            "\n"
+        )
+    )
+    -- a method against a method still ignores each declaration's receiver
+    assertClean(
+        table.concat(
+            {
+                "local interface Greeter",
+                "   greet: function(self, n: integer): string",
+                "end",
+                "local record Named",
+                "   name: string",
+                "   function greet(self, n: integer): string",
+                "      return self.name .. tostring(n)",
+                "   end",
+                "end",
+                "local g: Greeter = new Named(name = 'x')",
+                "return g:greet(5)",
+            },
+            "\n"
+        )
+    )
+end
+
+-- Nothing here can see what a function returns, so a computed metatable stays
+-- gradual, which is what the documentation has always promised.
+function M.aComputedMetatableStaysGradual()
+    assertClean(
+        table.concat(
+            {
+                "local record R",
+                "   metamethod __tostring: function(self): string",
+                "end",
+                "local r = new R()",
+                "local function build(): table",
+                "   return {__tostring = 42}",
+                "end",
+                "setmetatable(r, build())",
+            },
+            "\n"
+        )
+    )
+end
+
+-- A registrar takes its receiver through a bound, so the contract it has to
+-- fulfil is the bound's. Checking it there is what lets the registrar's own body
+-- be wrong rather than only its call sites.
+function M.aBoundedReceiverCarriesItsContractIntoTheRegistrar()
+    local event = table.concat(
+        {
+            "local interface Event",
+            "   eventId: integer",
+            "   metamethod __call: function(self, ...: any): self",
+            "end",
+            "local record OnSpawn is Event",
+            "   eventId: integer",
+            "end",
+        },
+        "\n"
+    )
+    testAssert.eq(
+        diagsOf(
+            event .. table.concat(
+                {
+                    "",
+                    "local function newEvent<E is Event>(event: Type<E>): nil",
+                    "   setmetatable(event, {__call = 'not callable'})",
+                    "end",
+                    "return newEvent",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2123:9"
+    )
+    assertClean(
+        event .. table.concat(
+            {
+                "",
+                "local function newEvent<E is Event>(event: Type<E>): nil",
+                "   local instanceMt = {__index = event}",
+                "   setmetatable(event, {__call = function(_self: E, ...: any): E",
+                "      return setmetatable({eventId = 7}, instanceMt) as E",
+                "   end})",
+                "end",
+                "return newEvent",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.multiValueReturnsInAssignments()
+    local two = table.concat(
+        {
+            "local function two(): number, string",
+            "    return 1, 'two'",
+            "end",
+            "local a: number = 0",
+            "local b: string = ''",
+        },
+        "\n"
+    )
+    assertClean(two .. "\na, b = two()")
+    testAssert.eq(diagsOf(two .. "\nb, a = two()"), "NUPP2001:6 NUPP2001:6")
+end
+
+-- A method's own type parameters are not free when `self` is rebound to the
+-- receiver. Substituting a map that mentions only `self` replaced each with `any`,
+-- so a generic method stopped inferring and its result fit wherever it was put --
+-- silently, because `any` fits everything.
+function M.aGenericMethodStillInfers()
+    local mistyped = table.concat(
+        {
+            "local record Box",
+            "   function idOf<C>(self, value: C): C",
+            "      return value",
+            "   end",
+            "end",
+            "local box = new Box()",
+            "local wrong: string = box:idOf(42)",
+            "return wrong",
+        },
+        "\n"
+    ) .. "\n"
+    testAssert.eq(diagsOf(mistyped), "NUPP2001:7", "a generic method stopped inferring")
+    assertClean(
+        table.concat(
+            {
+                "local record Box",
+                "   function idOf<C>(self, value: C): C",
+                "      return value",
+                "   end",
+                "end",
+                "local box = new Box()",
+                "local kept: integer = box:idOf(42)",
+                "return kept",
+            },
+            "\n"
+        ) .. "\n"
+    )
+end
+
+function M.aMethodIsNotAPositionalField()
+    -- A method declared on a record does not take a construction position: one
+    -- value past the declared fields is one too many, not a value for the method.
+    local result = parser.parse(
+        table.concat(
+            {
+                "local record Pt",
+                "    x: integer",
+                "    y: integer",
+                "end",
+                "function Pt:sum(): integer",
+                "    return self.x + self.y",
+                "end",
+                "local p = new Pt(1, 2, 3)",
+                "return p",
+            },
+            "\n"
+        ),
+        "test.nupp"
+    )
+    testAssert.eq(#result.errors, 0, "syntax errors")
+    local found = nil
+    for _, d in ipairs(check.check(result, "test.nupp", env)) do
+        if d.code == "NUPP2202" then
+            found = d
+        end
+    end
+    assert(found, "expected NUPP2202")
+    testAssert.eq(found.msg, "too many values (record Pt has 2 fields)", "message")
+end
+
+function M.aConstructorMustFillARecordTypedField()
+    -- A field whose type is another declaration is as much a slot as an integer
+    -- one; only a nested declaration, which sits beside the fields, is skipped.
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local record Vec",
+                    "    x: integer",
+                    "end",
+                    "local record Body",
+                    "    position: Vec",
+                    "    mass: integer",
+                    "    constructor(self, mass: integer)",
+                    "        self.mass = mass",
+                    "    end",
+                    "end",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2208:7"
+    )
+    assertClean(
+        table.concat(
+            {
+                "local record Body",
+                "    record Vec",
+                "        x: integer",
+                "    end",
+                "    mass: integer",
+                "    constructor(self, mass: integer)",
+                "        self.mass = mass",
+                "    end",
+                "end",
+            },
+            "\n"
+        )
+    )
+end
+
+function M.constructorsInitializeFieldsOnEveryReturningPath()
+    local function source(body)
+        return "local record R\n    x: integer\n    constructor(self, flag: boolean)\n" .. body .. "\n    end\nend"
+    end
+
+    for _, body in ipairs({
+        "if flag then self.x = 1 end",
+        "if flag then return end; self.x = 1",
+        "if flag then self.x = 1; return end",
+        "while flag do self.x = 1 end",
+        "for i = 1, (flag and 0 or 2) do self.x = i end",
+        "repeat if flag then break end; self.x = 1 until true",
+        "repeat if flag then continue end; self.x = 1 until true",
+        "local function later() self.x = 1 end",
+        "local self: any = {}; self.x = 1",
+        "self = {} as any; self.x = 1",
+        "goto done; self.x = 1; ::done::",
+        "if flag then return end; while true do end",
+    }) do
+        testAssert.eq(diagsOf(source(body)), "NUPP2208:3", body)
+    end
+    for _, body in ipairs({
+        "if flag then self.x = 1 else self.x = 2 end",
+        "if flag then self.x = 1; return end; self.x = 2",
+        "if flag then error('stop') end; self.x = 1",
+        "if flag then error('stop') else self.x = 1 end",
+        "repeat self.x = 1 until flag",
+        "repeat self.x = 1; if flag then break end until flag",
+        "while true do self.x = 1; break end",
+        "while true do end",
+        "error('stop')",
+        "do self.x = 1 end",
+        "goto fill; ::fill:: self.x = 1",
+        "if flag then self.x = 1 elseif not flag then self.x = 2 else error('stop') end",
+    }) do
+        assertClean(source(body))
+    end
+end
+
+function M.constructorDefaultsAndOptionalFieldsNeedNoFlowAssignment()
+    assertClean(
+        [[
+local record R
+    x: integer = 1
+    y: string?
+    constructor(self, flag: boolean)
+        if flag then return end
+    end
+end
+]]
+    )
+end
+
+function M.earlyConstructorReturnsProduceTheInitializedInstance()
+    testAssert.eq(
+        run(
+            [[
+local record R
+    x: integer
+    constructor(self, early: boolean)
+        self.x = 1
+        if early then return end
+        self.x = 2
+        return self
+    end
+end
+return (new R(true)).x + (new R(false)).x
+]]
+        ),
+        3
+    )
+    testAssert.eq(
+        run(
+            [[
+local record R
+    x: integer = 3
+    constructor(self)
+        local self: any = {}
+        return
+    end
+end
+return (new R()).x
+]]
+        ),
+        3
+    )
+end
+
+function M.earlyConstructorReturnsRunTheirCleanups()
+    testAssert.eq(
+        run(
+            [[
+local closed = 0
+local record Guard
+    constructor(self): affine(Guard, Guard.destroy) end
+    function destroy(takes self): nil
+        closed = closed + 1
+    end
+end
+local record R
+    x: integer
+    constructor(self, early: boolean): R
+        do local guard = new Guard() ;
+            self.x = 1
+            if early then return end
+        end
+    end
+end
+local r = new R(true)
+return r.x + closed
+]]
+        ),
+        2
+    )
+end
+
+-- A member declared as a field and defined by a later statement is one member, not
+-- two: the statement fills the slot the declaration described. Replacing the entry
+-- unchecked left the declaration saying one thing and every call site held to the
+-- other, which is a declaration that cannot be read.
+function M.aDefinitionIsHeldToWhatTheDeclarationSaidTheMemberIs()
+    testAssert.eq(
+        diagsOf(
+            [[
+local record R
+    step: function(self, at: integer): integer
+end
+function R:step(at: string): string
+    return at
+end
+return R
+]]
+        ),
+        "NUPP2118:4"
+    )
+    testAssert.eq(
+        diagsOf(
+            [[
+local record R
+    make: function(at: integer): integer
+end
+function R.make(at: string): string
+    return at
+end
+return R
+]]
+        ),
+        "NUPP2118:4"
+    )
+end
+
+-- Counted rather than compared where the two reach a type through binders that stand
+-- for the same thing without being the same binder. How many values cross the
+-- boundary is still the declaration's to state.
+function M.aDefinitionMayNotAskForMoreThanTheDeclarationPasses()
+    testAssert.eq(
+        diagsOf(
+            [[
+local record Ledger
+    entry: string
+end
+local record R
+    post: function(to: Ledger): Ledger
+end
+function R.post(to: Ledger, also: Ledger): Ledger
+    return also
+end
+return R
+]]
+        ),
+        "NUPP2118:7"
+    )
+    testAssert.eq(
+        diagsOf(
+            [[
+local record R
+    read: function(): (integer, string)
+end
+function R.read(): integer
+    return 1
+end
+return R
+]]
+        ),
+        "NUPP2118:4"
+    )
+end
+
+-- What the definition adds beyond the declaration is the definition being precise:
+-- a parameter that admits nil no caller has to pass, a result beyond the ones the
+-- declaration promised, and the ownership a terminal settles.
+function M.aDefinitionMaySayMoreThanItsDeclarationDid()
+    assertClean(
+        [[
+local record R
+    parse: function(text: string): integer
+    close: function(takes self: R): nil
+end
+function R.parse(text: string, base: integer?): (integer, string)
+    return 1, text
+end
+function R:close(): nil
+end
+return R
+]]
+    )
+end
+
+-- A field declared `self` is the declaration standing for the value being built, so
+-- construction holds what fills it to that and not to the binder `self` is before it
+-- is bound -- which fits everything and so checked nothing.
+function M.selfTypedFieldsAreCheckedWhereTheValueIsBuilt()
+    testAssert.eq(
+        diagsOf([[
+local record Plain
+    a: integer
+    c: self
+end
+local p = new Plain(a = 1, c = 3)
+return p
+]]),
+        "NUPP2202:5"
+    )
+    testAssert.eq(
+        diagsOf(
+            [[
+local record Callback<T>
+    a: T
+    c: function(self): nil
+end
+local made = new Callback(a = 1, c = function(other: integer): nil end)
+return made
+]]
+        ),
+        "NUPP2202:5"
+    )
+end
+
+-- And carries the construction's type arguments into it, so a generic declaration's
+-- own instantiation is what a `self` field of one accepts.
+function M.selfTypedFieldsTakeTheirOwnInstantiation()
+    assertClean(
+        [[
+local record Node<T>
+    value: T
+    next: self?
+end
+local tail = new Node(value = 2)
+local head: Node<integer> = new Node(value = 1, next = tail)
+return head
+]]
+    )
+end
+
+function M.constructorsCannotReturnAnotherValue()
+    testAssert.eq(diagsOf([[
+local record R
+    constructor(self)
+        return 1
+    end
+end
+]]), "NUPP2208:3")
+end
+
+return M

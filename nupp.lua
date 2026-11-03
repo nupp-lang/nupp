@@ -78,9 +78,9 @@ end
 -- them means staging beside the build rather than under the modules, and a
 -- resource landing there is dropped from a bundle as unreachable.
 --
--- `tests/templatetest.lua` holds this list to the directory, so a template file
--- added without a line here fails the suite rather than going quietly missing
--- from every released binary.
+-- `tests/integration/templates/templatetest.lua` holds this list to the directory, so a
+-- template file added without a line here fails the suite rather than going quietly
+-- missing from every released binary.
 local TEMPLATE_FILES = {
     "app/.gitignore",
     "app/README.md",
@@ -539,7 +539,7 @@ for _, relative in ipairs(TEMPLATE_FILES) do
 end
 
 return {
-    include = {"src", "tests/runner", "evals/lib"},
+    include = {"src", "tests/tools/test/runner", "evals/lib"},
 
     -- What `nupp doc` renders with. Both are installed into `.rocks`, a tree
     -- this checkout owns, so two checkouts can want different versions without
@@ -614,7 +614,7 @@ return {
                 -- static entry graph can enumerate what a selected run will need.
                 -- Carry the source set the suites test; coverage then instruments the
                 -- same modules an ordinary runner can load dynamically.
-                sources = {"tests/runner/main.nupp", "tests/runner/job.nupp", "src/**.nupp"},
+                sources = {"tests/tools/test/runner/main.nupp", "tests/tools/test/runner/job.nupp", "src/**.nupp"},
 
                 nativeFeatures = {workers = true, lpeg = true},
                 resources = RESOURCES,

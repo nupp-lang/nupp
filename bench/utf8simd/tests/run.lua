@@ -10,12 +10,12 @@
 -- end of a vector followed by ASCII, every tail length after the last whole
 -- vector, and every kind of malformed byte at every position of a string
 -- long enough to reach every one of those paths.
-local math = assert(loadfile("../../tests/simd/corpusmath.lua"))()
+local math = assert(loadfile("../../tests/integration/simd/corpusmath.lua"))()
 local simd = require("utf8simd")
 local reference = require("utf8reference")
 local shipped = require("utf8")
 
-local proveNative = assert(loadfile("../../tests/simd/nativeproof.lua"))()
+local proveNative = assert(loadfile("../../tests/integration/simd/nativeproof.lua"))()
 proveNative("utf8simd", function()
     local input = ("ASCII with \195\169 and \230\151\165"):rep(8)
     assert(simd.validPrefix(input) == reference.validPrefix(input))

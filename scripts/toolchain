@@ -1675,7 +1675,8 @@ build_kit() {
     features=${1:-}
     build_host stub "$features"
     host_out=$HOST_OUT
-    digest=$(printf 'kit-3|%s' "$(basename "$host_out")" | sha256_stdin | cut -c1-16)
+    # Public feature sets can share a Rust host but advertise different kit metadata.
+    digest=$(printf 'kit-4|%s|%s' "$(basename "$host_out")" "$features" | sha256_stdin | cut -c1-16)
     out="$PREFIX/kits/$digest"
     KIT_OUT=$out
     take_lock "kit-$digest" "$out/.complete" || return 0

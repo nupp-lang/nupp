@@ -1,0 +1,363 @@
+-- Every Nupp example the documentation shows, checked as the program it claims to be.
+--
+-- A reader copies an example before reading the prose around it, so an example that
+-- does not check is a bug a reader finds first. Two kinds of page carry them: the
+-- pages under `docs/`, and the docblocks of the modules themselves, which
+-- `nupp doc` renders into the API pages. Each fenced `nupp` block in either is parsed
+-- and checked the way a file of its own would be.
+--
+-- Not every block is a program. One that shows a step of a sequence, a declaration
+-- lifted out of its module, or syntax in isolation says so on its fence with
+-- `:fragment`, and is skipped. One that shows what the checker refuses says so with
+-- `:refused`, and is held to that: it has to report an error, or it has stopped
+-- demonstrating what the prose around it says it does.
+--
+-- An `@aot` example claims more than that it checks: that the function compiles
+-- ahead of time. So it is lowered as well, the way `nupp check` lowers for a target
+-- that compiles `@aot` code, and what lowering refuses is an error like any other.
+--
+-- ```nupp:fragment
+-- ```nupp:refused
+local parser = require("nupp.compiler.syntax.parser")
+local check = require("nupp.compiler.check")
+local envMod = require("nupp.compiler.project.env")
+local fs = require("nupp.compiler.fs")
+local syntax = require("nupp.compiler.syntax.docsyntax")
+local lexer = require("nupp.compiler.syntax.lexer")
+
+local HERE = require("helpers.paths").absoluteTests
+local ROOT = HERE:match("^(.*)/[^/]+$")
+
+local M = {}
+
+-- An example is a fragment of a program in one respect: it binds what it is about and
+-- stops, so the two lints that ask a file to be a whole program are off, as they are
+-- for the suite's own fixtures.
+local LINTS = {["unused-binding"] = "off", ["discarded-result"] = "off"}
+
+local function listed(command)
+    local pipe = assert(io.popen("cd '" .. ROOT .. "' && " .. command))
+    local paths = {}
+    for path in pipe:lines() do
+        paths[#paths + 1] = path
+    end
+    pipe:close()
+    table.sort(paths)
+
+    return paths
+end
+
+-- The fenced `nupp` blocks among `lines`, each with the line its fence opened on and
+-- the options written after the language. A closing fence is at least as long as the
+-- opening one, the rule a page showing a fence inside a fence relies on.
+local function fencedBlocks(lines, language)
+    language = language or "nupp"
+    local blocks, open = {}, nil
+    for number, line in ipairs(lines) do
+        if open then
+            local _, marker, rest
+            if line then
+                _, marker, rest = syntax.fence:match(line)
+            end
+            if line == false or syntax.closes(open.fence, marker, rest) then
+                if open.selected then
+                    open.text = table.concat(open.body, "\n") .. "\n"
+                    blocks[#blocks + 1] = open
+                end
+                open = nil
+            else
+                open.body[#open.body + 1] = line
+            end
+        elseif line then
+            -- Any fence is tracked, so a page showing a `nupp` fence inside a markdown
+            -- one does not have the inner one read as an example of its own.
+            local _, fence, info = syntax.fence:match(line)
+            if fence then
+                local options = info:match("^%s*" .. language .. "(.*)$")
+                local selected = options ~= nil and (options == "" or options:match("^[%s:%[]") ~= nil)
+                open = {fence = fence, options = options or "", line = number, body = {}, selected = selected}
+            end
+        end
+    end
+
+    return blocks
+end
+
+local function fileLines(text)
+    local lines = {}
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+        lines[#lines + 1] = line
+    end
+
+    return lines
+end
+
+-- A source file's comment text, line for line: a `---` or `--` line without its
+-- marker, a `--[[ ]]` body as written, and `false` for a line of code, which ends any
+-- fence a docblock left open.
+local function commentLines(text)
+    -- `closer` is the `]]`, `]=]` and so on the open block comment ends at, so a header
+    -- opened with `--[==[` may show a `[[...]]` string inside it.
+    local lines, closer = {}, nil
+    for line in (text .. "\n"):gmatch("([^\n]*)\n") do
+        if closer then
+            local at = line:find(closer, 1, true)
+            if at then
+                lines[#lines + 1] = line:sub(1, at - 1)
+                closer = nil
+            else
+                lines[#lines + 1] = line
+            end
+        else
+            local level, opened = line:match("^%s*%-%-%[(=*)%[(.*)$")
+            if opened then
+                local close = "]" .. level .. "]"
+                if opened:find(close, 1, true) then
+                    lines[#lines + 1] = false
+                else
+                    closer = close
+                    lines[#lines + 1] = opened
+                end
+            else
+                local comment = line:match("^%s*%-%-%-? ?(.*)$")
+                if comment ~= nil then
+                    lines[#lines + 1] = comment
+                else
+                    lines[#lines + 1] = false
+                end
+            end
+        end
+    end
+
+    return lines
+end
+
+-- What a block is checked as. A caption naming a file keeps that file's extension, so
+-- a `.nupp` view is checked as Nupp and a `.d.nupp` as a declaration; anything
+-- else is a strict file of its own, outside every source root.
+local function exampleName(where, block)
+    local caption = block.options:match("%[([^%]]+)%]")
+    local file = caption and caption:match("^([%w%._/%-]+%.nupp)")
+    local stem = ("/nupp-examples/" .. where):gsub("[^%w/%-_]", "_")
+    if file then
+        return stem .. "_" .. block.line .. "/" .. file:gsub("^.*/", "")
+    end
+
+    return stem .. "_" .. block.line .. ".nupp"
+end
+
+local function marked(block, marker)
+    return block.options:find(":" .. marker, 1, true) ~= nil
+end
+
+-- The target an `@aot` example is lowered for, pinned to aarch64 so a feature tier
+-- has the same lanes on every machine that runs the suite.
+local AOT_TARGET = {name = "examples", aot = "require", aotTarget = "aarch64-apple-darwin"}
+
+local function errorsOf(env, name, text)
+    local result = parser.parse(text, name)
+    local diagnostics = #result.errors > 0 and result.errors or check.check(result, name, env, {lints = LINTS})
+    local errors = {}
+    for _, diagnostic in ipairs(diagnostics) do
+        if (diagnostic.severity or "error") == "error" then
+            errors[#errors + 1] = diagnostic
+        end
+    end
+    if #errors == 0 and #result.errors == 0 and text:find("@aot", 1, true) then
+        errors = require("nupp.tools.build.aotcheck").refusals(text, name, result, AOT_TARGET)
+    end
+
+    return errors
+end
+
+-- Checks every block and returns one line per example that is wrong.
+local function examine(env, where, blocks, problems, counts)
+    for _, block in ipairs(blocks) do
+        local tokens = lexer.lex(block.text)
+        for index, token in ipairs(tokens) do
+            if token.text == "require" then
+                local argument = tokens[index + 1]
+                if argument and argument.text == "(" then
+                    argument = tokens[index + 2]
+                end
+                local name = argument and argument.kind == "string" and argument.text:match("^[\"']([%w_.]+)[\"']$")
+                local builtin = name and (env.bundled[name] or not name:find(".", 1, true) and env.globals[name])
+                if builtin and not env.bundledInternal(name) then
+                    problems[
+                        #problems + 1
+                    ] = (
+                        "%s:%d: use builtin %s directly instead of require"
+                    ):format(where, block.line + token.line, name)
+                end
+            end
+        end
+        if not marked(block, "fragment") then
+            counts.checked = counts.checked + 1
+            local errors = errorsOf(env, exampleName(where, block), block.text)
+            if marked(block, "refused") then
+                if #errors == 0 then
+                    problems[#problems + 1] = ("%s:%d is marked :refused and checks clean"):format(where, block.line)
+                end
+            elseif #errors > 0 then
+                local first = errors[1]
+                problems[
+                    #problems + 1
+                ] = (
+                    "%s:%d: %s %s"
+                ):format(where, block.line + (first.line or 0), first.code or "?", tostring(first.msg):gsub("\n.*", ""))
+            end
+        end
+    end
+end
+
+local ENV = nil
+
+local function environment()
+    ENV = ENV or envMod.new(ROOT)
+    return ENV
+end
+
+function M.everyGuideExampleChecks()
+    local problems, counts = {}, {checked = 0}
+    for _, path in ipairs(listed("find docs -name '*.md'")) do
+        examine(
+            environment(),
+            path,
+            fencedBlocks(fileLines(assert(fs.readFile(ROOT .. "/" .. path)))),
+            problems,
+            counts
+        )
+    end
+    assert(counts.checked > 200, "the guides were reached: " .. counts.checked)
+    assert(
+        #problems == 0,
+        #problems
+        .. " guide examples do not check; fix them, or mark a block "
+        .. ":fragment or :refused on its fence:\n  "
+        .. table.concat(
+            problems,
+            "\n  "
+        )
+    )
+end
+
+function M.tourExamplesCheckWithTheirEarlierDeclarations()
+    local path = "docs/getting-started/tour.md"
+    local blocks = fencedBlocks(fileLines(assert(fs.readFile(ROOT .. "/" .. path))))
+    local pieces = {}
+    for _, block in ipairs(blocks) do
+        assert(not marked(block, "refused"), "the tour is a sequence of working examples")
+        pieces[#pieces + 1] = block.text
+    end
+    local errors = errorsOf(environment(), "/nupp-examples/tour.nupp", table.concat(pieces, "\n"))
+    local messages = {}
+    for _, diagnostic in ipairs(errors) do
+        messages[#messages + 1] = diagnostic.code .. ": " .. diagnostic.msg
+    end
+    assert(#errors == 0, table.concat(messages, "\n"))
+end
+
+-- Generated Lua is documentation too. Parse it without running examples that may
+-- open files, start processes, or wait for a network peer.
+function M.everyLuaExampleParses()
+    local problems, checked = {}, 0
+    for _, path in ipairs(listed("find docs src -type f \\( -name '*.md' -o -name '*.nupp' \\)")) do
+        local text = assert(fs.readFile(ROOT .. "/" .. path))
+        local lines = path:match("%.nupp$") and commentLines(text) or fileLines(text)
+        for _, block in ipairs(fencedBlocks(lines, "lua")) do
+            if not marked(block, "fragment") then
+                checked = checked + 1
+                local chunk, problem = loadstring(block.text, "@" .. path .. ":" .. block.line)
+                if marked(block, "refused") then
+                    if chunk then
+                        problems[#problems + 1] = path .. ":" .. block.line .. " is marked :refused and parses clean"
+                    end
+                elseif not chunk then
+                    problems[#problems + 1] = problem
+                end
+            end
+        end
+    end
+    assert(checked > 50, "the Lua examples were reached: " .. checked)
+    assert(#problems == 0, "Lua examples do not parse:\n  " .. table.concat(problems, "\n  "))
+end
+
+function M.fenceMarkersMustMatchAndCanUseTildes()
+    local blocks = fencedBlocks(fileLines("~~~nupp\nlocal x = 1\n```\n~~~~\n```lua\nreturn 2\n```\n"))
+    assert(#blocks == 1 and blocks[1].text == "local x = 1\n```\n", "a different marker does not close the fence")
+    local lua = fencedBlocks(fileLines("~~~lua\nreturn 2\n~~~~\n"), "lua")
+    assert(#lua == 1 and assert(loadstring(lua[1].text))() == 2, "tilde Lua examples are reached")
+end
+
+function M.everyModuleDocblockExampleChecks()
+    local problems, counts = {}, {checked = 0}
+    for _, path in ipairs(listed("find src -name '*.nupp'")) do
+        examine(
+            environment(),
+            path,
+            fencedBlocks(commentLines(assert(fs.readFile(ROOT .. "/" .. path)))),
+            problems,
+            counts
+        )
+    end
+    assert(counts.checked > 100, "the module docblocks were reached: " .. counts.checked)
+    assert(
+        #problems == 0,
+        #problems
+        .. " docblock examples do not check; fix them, or mark a block "
+        .. ":fragment or :refused on its fence:\n  "
+        .. table.concat(
+            problems,
+            "\n  "
+        )
+    )
+end
+
+-- These self-contained examples use only memory. Running the actual docblock
+-- catches forwarding shims whose declarations check but whose values are missing.
+function M.pureFacadeExamplesRunTheirAssertions()
+    local gen = require("nupp.compiler.lua.gen")
+    for _, path in ipairs({
+        "src/binary/span.nupp",
+        "src/types/reflect.nupp",
+        "src/own/init.nupp",
+        "src/serde/json/init.nupp",
+        "src/nupp/text/init.nupp",
+        "src/nupp/mem/init.nupp",
+        "src/nupp/mem/array.nupp",
+        "src/nupp/mem/arena.nupp",
+        "src/nupp/mem/heap.nupp",
+        "src/nupp/mem/soa.nupp"
+    }) do
+        local blocks = fencedBlocks(commentLines(assert(fs.readFile(ROOT .. "/" .. path))))
+        local block = assert(blocks[1], path .. " has an opening example")
+        assert(not marked(block, "fragment") and not marked(block, "refused"), path .. " claims a complete example")
+        local name = exampleName(path, block)
+        local errors = errorsOf(environment(), name, block.text)
+        assert(#errors == 0, path .. " checks before execution")
+        local parsed = parser.parse(block.text, name)
+        -- Checking attaches the type and ownership facts used by lowering.
+        check.check(parsed, name, environment(), {lints = LINTS})
+        local code, diagnostics = gen.generate(parsed, name)
+        assert(#diagnostics == 0, path .. " lowers before execution")
+        local chunk = assert(loadstring(code, "@" .. path .. ":" .. block.line))
+        local ok, problem = pcall(chunk)
+        assert(ok, path .. ":" .. block.line .. ": " .. tostring(problem))
+    end
+end
+
+-- The markers are read off the fence the way the documentation renderer reads its
+-- own options, so a marked block still renders as the Nupp it is.
+function M.aMarkedFenceStillRendersAsNupp()
+    local blocks = fencedBlocks(
+        fileLines("```nupp:fragment\nlocal x = 1\n```\n```nupp [a.nupp]:refused\nreturn 1\n```\n")
+    )
+    assert(#blocks == 2 and marked(blocks[1], "fragment") and marked(blocks[2], "refused"), "both markers are read")
+    local html = require("nupp.tools.doc.html")
+    local rendered = html.markdownHtml and html.markdownHtml("```nupp:fragment\nlocal x = 1\n```\n") or nil
+    if rendered then
+        assert(not rendered:find(":fragment", 1, true), "the marker is not shown: " .. rendered)
+    end
+end
+
+return M

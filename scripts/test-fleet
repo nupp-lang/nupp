@@ -18,7 +18,7 @@ import uuid
 
 
 ROOT = Path(__file__).resolve().parents[1]
-DEFAULT_PLAN = ROOT / "tests/fleet/plan.json"
+DEFAULT_PLAN = ROOT / "tests/integration/fleet/plan.json"
 DEFAULT_CONFIG = ROOT / ".nupp/fleet.json"
 DEFAULT_STATE = ROOT / ".nupp/fleet"
 IDENTIFIER = frozenset("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789._-")
@@ -423,7 +423,7 @@ def worker(request_path, cache_path):
     workspace = ROOT
     if request.get("source", {}).get("treeOid") != git(workspace, "rev-parse", "HEAD^{tree}").strip():
         raise RuntimeError("worker checkout does not match the requested source tree")
-    plan = load_plan(workspace / "tests/fleet/plan.json")
+    plan = load_plan(workspace / "tests/integration/fleet/plan.json")
     if request.get("planSha256") != plan["sha256"]:
         raise RuntimeError("worker plan does not match the coordinator")
     job_id = checked_identifier(request.get("jobId"), "job id")
@@ -509,7 +509,7 @@ def _obligations(report_paths):
     prefix = subprocess.check_output(["./scripts/toolchain", "luajit"], cwd=ROOT, text=True).strip()
     lua = str(Path(prefix) / "bin/luajit")
     complete = subprocess.run(
-        [lua, "./tests/simd/obligations.lua", "--gate=equivalence", "--json", *map(str, report_paths)],
+        [lua, "./tests/integration/simd/obligations.lua", "--gate=equivalence", "--json", *map(str, report_paths)],
         cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True,
     )
     try:

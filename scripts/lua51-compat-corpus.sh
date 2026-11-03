@@ -2,7 +2,7 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-corpus="$root/tests/lua51-compat"
+corpus="$root/tests/integration/compat/lua51"
 runtime=${1:-lua5.1}
 command -v "$runtime" >/dev/null 2>&1 || {
     echo "compatibility corpus: required stock Lua 5.1 interpreter is missing: $runtime" >&2

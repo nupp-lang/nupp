@@ -43,7 +43,7 @@ heading or a fence:
 - `nupp reference --section` addresses a section by its page anchor, as in
   `docs/learn/language/modules.md#modules`, which is also what a diagnostic's
   `docs` pointer carries. Renaming a heading moves that address.
-- Some pages are compiled. `tests/spipackagetest.lua` builds and runs every
+- Some pages are compiled. `tests/tools/packaging/spipackagetest.lua` builds and runs every
   fence on [spi.md](docs/learn/projects/spi.md) as a project, so the count of
   `nupp` blocks and what each one contains is a test fixture.
 

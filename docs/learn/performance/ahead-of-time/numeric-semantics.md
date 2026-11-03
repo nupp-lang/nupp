@@ -280,7 +280,7 @@ lane does, sign- or zero-extended to its 32-bit carrier.
 
 ## Verification
 
-The reducer corpus in `tests/simd/reducers.lua` runs through the same native and
+The reducer corpus in `tests/integration/simd/reducers.lua` runs through the same native and
 Wasm harness as the explicit primitive corpus. Ordered and compensated folds
 match ordinary Nupp, including signed zero. Pairwise folds also match an
 independent level-by-level adjacent-pair tree, including unpaired leaves. The
@@ -351,7 +351,7 @@ The unoptimized oracle is not a speed baseline. Compare complete optimized funct
 when measuring performance, not the forced-scalar conformance route.
 
 The exact reducer contracts are also executed at the one other tier that can
-run them. `tests/wasm-aot/simd-project` reduces the same corpus at Wasm
+run them. `tests/integration/browser/wasm-aot/simd-project` reduces the same corpus at Wasm
 `simd128` against the same Lua reducers, so bit identity for an ordered chain or
 a logical-index tree is a claim about the contract rather than about NEON.
 

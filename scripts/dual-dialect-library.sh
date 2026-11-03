@@ -2,7 +2,7 @@
 set -eu
 
 root=$(CDPATH= cd -- "$(dirname "$0")/.." && pwd)
-fixture="$root/tests/dual-dialect-library"
+fixture="$root/tests/integration/compat/dual-dialect"
 portable_runtime=${1:-lua}
 native_runtime=${NUPP_LUAJIT:-"$($root/scripts/toolchain luajit)/bin/luajit"}
 

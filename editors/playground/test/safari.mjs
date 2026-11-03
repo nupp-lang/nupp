@@ -80,7 +80,7 @@ async function check(name, action) {
     metadata.ok = false; record(); throw error;
   }
 }
-const fixture = readFileSync(new URL('../../../tests/wasm-aot/browser/http-response.json', import.meta.url));
+const fixture = readFileSync(new URL('../../../tests/integration/browser/wasm-aot/browser/http-response.json', import.meta.url));
 const server = createServer((request, response) => {
   response.setHeader('Access-Control-Allow-Origin', '*');
   response.setHeader('Content-Type', 'application/json');
