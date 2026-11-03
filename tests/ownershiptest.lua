@@ -8909,4 +8909,59 @@ local function close(takes value: Resource): nil own.attemptall(value, take, las
     )
 end
 
+function M.consumingScalarAdaptersKeepTheirBuffersAlive()
+    for _, expression in ipairs({"buffer:writer():scalar()",}) do
+        local target = expression:find("writer", 1, true) and "ScalarWriter" or "ScalarReader"
+        local source = "local function escape(): affine(io."
+            .. target
+            .. ")\n"
+            .. "    local buffer = io.newbuffer()\n"
+            .. "    return "
+            .. expression
+            .. "\nend"
+        testAssert.eq(codes(source), "NUPP2608", expression)
+    end
+end
+
+function M.scalarReadersCanOwnIndependentBufferSnapshots()
+    assertClean(
+        [[
+local function snapshot(): affine(io.ScalarReader)
+    local buffer = io.newbuffer()
+    return buffer:reader():scalar()
+end
+]]
+    )
+end
+
+function M.consumingFunctionsKeepForeignLoansInOwnedResults()
+    testAssert.eq(
+        codes(
+            [[
+local function wrap(takes writer: io.Writer): affine(io.ScalarWriter)
+    return writer:scalar()
+end
+local function escape(): affine(io.ScalarWriter)
+    local buffer = io.newbuffer()
+    local writer = buffer:writer()
+    return wrap(writer)
+end
+]]
+        ),
+        "NUPP2608"
+    )
+end
+
+function M.consumingScalarWritersKeepExclusiveBufferLoans()
+    local got = codes(
+        [[
+local buffer = io.newbuffer()
+local scalar = buffer:writer():scalar()
+local overlapping = buffer:writer()
+scalar:writeuint8(1)
+]]
+    )
+    assert(got:find("NUPP2607", 1, true), got)
+end
+
 return M
