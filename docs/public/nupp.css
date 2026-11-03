@@ -35,7 +35,7 @@
   /* The sidebar and header use a teal-black panel; active and soft panel
    * states use a different near-black. */
   --nuppdoc-dark-background: #161412;
-  --nuppdoc-dark-api-heading-background: color-mix(in srgb, var(--nuppdoc-dark-background) 85%, var(--nupp-woodblock-ember));
+  --nuppdoc-dark-api-heading-background: #1f1b17;
   --nuppdoc-dark-background-alt: #1b2626;
   --nuppdoc-dark-border: color-mix(in srgb, #50676c 65%, black);
   --nuppdoc-dark-code-background: #1a1d1d;
