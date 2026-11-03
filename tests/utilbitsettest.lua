@@ -393,19 +393,19 @@ end
 function M.numericValidationKeepsIntegralFloatsAndIgnoresInvalidReads()
     local set = bitset.Bitset.__nuppCtor1(8)
     set:set(31.0)
-    set:setRange(64.0, 65.0)
+    set:setrange(64.0, 65.0)
     check(set:get(31.0))
-    check.eq(set:wordAt(2.0), 3)
+    check.eq(set:wordat(2.0), 3)
     set:clear(31.0)
     check.eq(set:get(31), false)
     local nan = 0.0 / 0.0
     for _, invalid in ipairs({nan, 1.5, math.huge}) do
         check.eq(set:get(invalid), false)
         set:clear(invalid)
-        check.eq(set:wordAt(invalid), 0)
-        check.eq(set:nextSetBit(invalid), -1)
+        check.eq(set:wordat(invalid), 0)
+        check.eq(set:nextsetbit(invalid), -1)
     end
-    check.eq(set:nextSetBit(64.0), 64)
+    check.eq(set:nextsetbit(64.0), 64)
     check.eq(set:count(), 2)
 end
 
