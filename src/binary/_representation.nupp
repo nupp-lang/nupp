@@ -1,9 +1,9 @@
-module nupp.mem.representation
+@!internal
 
 local spi = require("nupp.runtime.packages")
 local contracts = require("nupp.spi")
 
-export const storage: contracts.CstorageProvider? = do
+local storage: contracts.CstorageProvider? = do
     const chosen = spi.select(spi.providers<contracts.CstorageProvider>("nupp.spi.CstorageProvider"))
     if chosen ~= nil then
         yield chosen
@@ -14,4 +14,6 @@ if storage ~= nil then
     assert(storage.representation == "native", "nupp.runtime.storage: target requires native pointer storage")
 end
 local tableStructs: contracts.StructvalueProvider = require("nupp.runtime.provider.tablestruct")
-export const structs: contracts.StructvalueProvider = storage and storage.structs or tableStructs
+local structs: contracts.StructvalueProvider = storage and storage.structs or tableStructs
+
+return {storage = storage, structs = structs}

@@ -677,7 +677,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
             vm = true
         },
         {
-            module = "nupp.mem.representation",
+            module = "binary._representation",
             interface = "nupp.spi.CstorageProvider",
             native = "nupp.runtime.provider.nativestorage",
             -- No other storage ships: a LuaJIT VM takes native storage on either host.
@@ -1013,7 +1013,7 @@ local SELECTING_FACADES = {
     {"nupp.io.uri.provider", "io.spi.UriProvider"},
     {"binary.mac", "binary.mac.spi.Provider"},
     {"nupp.runtime.entropy", "nupp.spi.EntropyProvider"},
-    {"nupp.mem.representation", "nupp.spi.CstorageProvider"},
+    {"binary._representation", "nupp.spi.CstorageProvider"},
     {"nupp.runtime.timeprovider", "nupp.spi.ClockProvider"},
     {"nupp.runtime.uuidprovider", "nupp.spi.UuidProvider"},
     {"nupp.runtime.workersprovider", "nupp.workers.spi.Provider"},

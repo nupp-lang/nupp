@@ -7,7 +7,7 @@ local function runtime(storage)
     return fixtures.instance(
         {
             ['nupp.runtime.packages'] = true,
-            ['nupp.mem.representation'] = true,
+            ['binary._representation'] = true,
             ['nupp.runtime.storage'] = true,
             ['nupp.runtime.structvalue'] = true,
         },
@@ -39,7 +39,7 @@ end
 
 function M.incompatibleStorageIsRejectedBeforeUse()
     local load = runtime({representation = 'linear32'})
-    local ok, problem = pcall(load, 'nupp.mem.representation')
+    local ok, problem = pcall(load, 'binary._representation')
     assert(not ok and tostring(problem):find('target requires native pointer storage', 1, true))
 end
 

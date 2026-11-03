@@ -742,6 +742,7 @@ end
 function M.shippedImplementationModulesAreNotApplicationImports()
     withProject({["src/app.nupp"] = "module app\n"}, function(dir)
         for _, name in ipairs({
+            "binary._representation",
             "nupp.compiler.syntax.lexer",
             "nupp.runtime.browser.effects",
             "nupp.codec.json.provider",

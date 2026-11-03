@@ -1829,7 +1829,7 @@ end
 -- under nupp.compiler.decls, where the internal root hid them. They sit beside their
 -- modules now, inside the namespace a reader browses, so each has to say so itself.
 function M.hostBoundariesDeclareThemselvesInternal()
-    local boundaries = {"src/nupp/workers/native.d.nupp",}
+    local boundaries = {"src/nupp/workers/native.d.nupp", "src/binary/_representation.nupp",}
     for _, relative in ipairs(boundaries) do
         local source = readFile(HERE .. "/../" .. relative)
         assert(source, "no boundary at " .. relative)
