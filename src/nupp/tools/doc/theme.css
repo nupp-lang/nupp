@@ -1841,6 +1841,30 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
         overflow: visible
     }
 
+    .nuppdoc-sidebar,
+    .nuppdoc-sidebar ul ul {
+        font-size: 1rem
+    }
+
+    .nuppdoc-sidebar li>a,
+    .nuppdoc-sidebar summary {
+        display: flex;
+        align-items: center;
+        min-height: 44px
+    }
+
+    .nuppdoc-sidebar summary {
+        padding-right: 2rem
+    }
+
+    .nuppdoc-sidebar :is(.nuppdoc-sidebar-section, .nuppdoc-module-branch)>details>summary>a {
+        display: flex;
+        align-items: center;
+        flex: 1;
+        min-height: 44px;
+        padding: 0
+    }
+
     .is-mobile-nav-open .nuppdoc-sidebar {
         transform: translateX(0)
     }
