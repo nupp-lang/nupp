@@ -338,10 +338,17 @@ local source = require("package.internal.contract")
 export type Resource = package.Resource
 export type Message = source.Message
 ]],
-        ["src/contracts.nupp"] = [[
+        [
+            "src/contracts.nupp"
+        ] = [[
 module contracts
 interface package.Resource
     close: function(self): nil
+    interface Status
+        interface Detail
+            code: integer
+        end
+    end
 end
 ]],
         [
@@ -376,9 +383,56 @@ end
     end
     assert(items["package.Resource"].kind == "interface")
     assert(items["package.Resource"].members[1].name == "close")
+    local status = items["package.Resource"].members[2]
+    assert(status.path == "package.Resource.Status", status.path)
+    local detail = status.members[1]
+    assert(detail.path == "package.Resource.Status.Detail", detail.path)
+    assert(detail.members[1].path == "package.Resource.Status.Detail.code", detail.members[1].path)
     assert(items["package.Resource"].doc.text == "The public resource.")
     assert(items["package.Message"].kind == "interface" and items["package.Message"].members[1].name == "text")
     os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.moduleGroupsAndMemberSummariesKeepDistinctAnchors()
+    local module = assert(
+        doc.extract([[module types
+export record Node
+    members: {string}
+end
+]], "src/types.nupp", "types")
+    )
+    local rendered = require("nupp.tools.doc.html").markdownHtml(doc.markdown({module}), {}, 0)
+    local seen = {}
+    for id in rendered:gmatch(' id="([^"]+)"') do
+        assert(not seen[id], "duplicate anchor " .. id)
+        seen[id] = true
+    end
+    assert(seen.types and seen["types-group"] and seen["types.Node.members"])
+    assert(seen["types.Node.members-overview"])
+end
+
+function M.builtinNestedMembersUsePublicPaths()
+    local standard = assert(require("nupp.tools.doc.stdlib").page({path = "api"}))
+    local checked = 0
+
+    local function members(item)
+        for _, member in ipairs(item.members or {}) do
+            local expected = item.path .. "." .. member.name
+            assert(member.path == expected, member.path .. " should be " .. expected)
+            checked = checked + 1
+            members(member)
+        end
+    end
+
+    for _, library in ipairs(standard.modules) do
+        for _, item in ipairs(library.items) do
+            members(item)
+        end
+    end
+    for _, item in ipairs(standard.typeItems) do
+        members(item)
+    end
+    assert(checked > 100, "the builtin member inventory was not checked")
 end
 
 function M.builtinContractsCompleteSourceSelfAliasesOnlyOnce()
@@ -912,6 +966,23 @@ function M.documentsNestedTypesAsTheirOwnSubHeadingWithMembers()
         markdown:find('<a id="config.Config.Settings.enabled"></a>', 1, true),
         "nested type's own field anchor missing"
     )
+    local rendered = require("nupp.tools.doc.html").markdownHtml(markdown)
+    for _, name in ipairs({"enabled", "apply"}) do
+        local path = "config.Config.Settings." .. name
+        assert(markdown:find("::: api-item " .. path .. "\n", 1, true), "member section missing")
+        assert(
+            rendered:find('<section class="nuppdoc-api-item" id="' .. path .. '"><h5>', 1, true),
+            "member must use the shared section renderer and retain its heading level"
+        )
+        local _, anchors = rendered:gsub('id="' .. path:gsub("%.", "%%.") .. '"', "")
+        assert(anchors == 1, "member anchor must occur exactly once")
+        assert(rendered:find('href="#' .. path .. '"', 1, true), "member link missing")
+    end
+    assert(
+        not markdown:find("::: api-item config.Config.Settings\n", 1, true),
+        "nested type should retain its ordinary heading"
+    )
+    assert(rendered:find('id="config.Config.Settings.apply.arguments"', 1, true), "method argument scope missing")
 end
 
 local ANNOTATED_DECLARATIONS = table.concat(
@@ -4474,6 +4545,37 @@ end
 
 -- The id is Nupp's slug rather than the renderer's, and each heading keeps the
 -- anchor the stylesheet draws.
+function M.outlinesFollowExplicitHeadingAnchors()
+    local html = require("nupp.tools.doc.html")
+    local source = [[<a id="old-name"></a>
+<a id="stable-name"></a>
+
+## New name
+
+## New name
+
+<a id="unrelated"></a>
+Body text ends the pending anchor.
+
+## Plain
+
+```nupp
+-- ## Not a heading
+```
+
+## Last
+]]
+    local outline = html.markdownOutline(source)
+    local rendered = html.markdownHtml(source, {}, 0)
+    local expected = {"stable-name", "new-name", "plain", "last"}
+    assert(#outline == #expected)
+    for index, id in ipairs(expected) do
+        assert(outline[index].path == id, outline[index].path)
+        assert(rendered:find('id="' .. id .. '"', 1, true), rendered)
+    end
+    assert(rendered:find('id="old-name"', 1, true), "historical anchors stay available")
+end
+
 function M.headingsKeepTheirAnchors()
     local html = require("nupp.tools.doc.html")
     local out = html.markdownHtml("# One `two`\n\nbody", {})
@@ -4929,7 +5031,7 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
     assert(dofile:find('>Returns<a', 1, true), dofile)
     assert(dofile:find("the file to run", 1, true) and dofile:find("whatever the chunk returns", 1, true), dofile)
     assert(page:find('id="dofile-function-lua"', 1, true), "the previous heading anchor was lost")
-    assert(page:find('href="#dofile-function-lua"', 1, true), "the outline or search anchor was lost")
+    assert(page:find('href="#dofile"', 1, true), "the outline must use the explicit public anchor")
     assert(page:find('id="g-variable"', 1, true), "the _G heading anchor was lost")
     assert(page:find('id="version-variable"', 1, true), "the _VERSION heading anchor was lost")
     local ipairs = assert(page:match('<section class="nuppdoc%-api%-item" id="ipairs">(.-)</section>'))
@@ -5295,6 +5397,9 @@ end
         assert(text:find('<a id="' .. name .. '"></a>', 1, true), "missing global declaration on " .. name)
         local _, anchors = text:gsub('<a id="' .. name .. '"></a>', '')
         assert(anchors == 1, "global and module headings duplicate their anchor")
+        local rendered = readFile(dir .. "/site/modules/" .. name .. "/index.html")
+        local _, renderedAnchors = rendered:gsub('id="' .. name .. '"', '')
+        assert(renderedAnchors == 1, "rendered global and module anchors collide")
         assert(text:find("function", 1, true), "global signature missing from " .. name)
     end
     local ffi = readFile(dir .. "/site/modules/ffi/index.html")

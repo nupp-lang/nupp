@@ -21,7 +21,7 @@ client:close()
 ```
 
 Calls suspend through
-[`coroutine.suspension`](docs/learn/runtime/concurrency/suspension.md): a CLI blocks
+[`coroutine.suspend`](docs/learn/runtime/concurrency/suspension.md): a CLI blocks
 on the provider's condvar, while a scheduler or frame host only drives the
 nonblocking source.
 

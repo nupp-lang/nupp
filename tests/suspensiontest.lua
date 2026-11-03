@@ -5,8 +5,8 @@ local testAssert = require("assert")
 -- The ready path is what the baselines said to protect, so it is what most of this
 -- checks: a subscription that completes during the call must not build a park, must not
 -- consult a handler, and must answer straight through.
-local suspension = require("coroutine.suspension")
-local suspensionHost = require("coroutine.suspension.host")
+local suspension = require("coroutine.sus")
+local suspensionHost = require("coroutine.sus.host")
 
 -- The lexical owner scope, written out here because the tests are Lua.
 local function handled(handler, body, ...)
@@ -23,7 +23,7 @@ end
 local M = {}
 
 function M.answersASynchronousSubscriptionDirectly()
-    local answer = suspension.suspend("test", function(resume)
+    local answer = coroutine.suspend("test", function(resume)
         resume(42)
         return nil
     end)
@@ -33,7 +33,7 @@ end
 function M.aSynchronousSubscriptionNeedsNoCancellation()
     -- Nothing is left to cancel, so requiring a closure for it would be requiring an
     -- allocation for the case that never waits.
-    local answer = suspension.suspend("test", function(resume)
+    local answer = coroutine.suspend("test", function(resume)
         resume("done")
         return nil
     end)
@@ -48,7 +48,7 @@ function M.doesNotConsultAHandlerWhenTheSubscriptionIsReady()
         end,
     }
     local answer = handled(handler, function()
-        return suspension.suspend("test", function(resume)
+        return coroutine.suspend("test", function(resume)
             resume(1)
             return nil
         end)
@@ -68,7 +68,7 @@ function M.parksThroughAnInstalledHandler()
         end,
     }
     local answer = handled(handler, function()
-        return suspension.suspend("waiting", function(resume)
+        return coroutine.suspend("waiting", function(resume)
             deferred = function()
                 resume("from the library")
             end
@@ -92,7 +92,7 @@ function M.blocksThroughASourceWhenNoHandlerIsInstalled()
 
         return 0
     end)
-    local answer = suspension.suspend("waiting", function(resume)
+    local answer = coroutine.suspend("waiting", function(resume)
         pending = resume
         return function()
         end
@@ -117,7 +117,7 @@ function M.keepsPollingWhileSourcesAnswerZero()
 
         return 0
     end)
-    local answer = suspension.suspend("waiting", function(resume)
+    local answer = coroutine.suspend("waiting", function(resume)
         pending = resume
         return function()
         end
@@ -155,7 +155,7 @@ function M.blockingDriverWaitsOnTheSourceUsedByThePark()
             return 1
         end
     )
-    local answer = suspension.suspend("waiting", function(resume, context)
+    local answer = coroutine.suspend("waiting", function(resume, context)
         pending = resume
         context:uses(preferred)
         return function()
@@ -191,7 +191,7 @@ end
 
 function M.contextSourcesSupportSeparatePollAndWaitOperations()
     local pending, waited = nil, false
-    local answer = suspension.suspend("owned source", function(resume, context)
+    local answer = coroutine.suspend("owned source", function(resume, context)
         pending = resume
         context:source(
             "owned",
@@ -217,7 +217,7 @@ end
 
 function M.requiresACancellationForARealPark()
     -- A park nobody can abandon is a park a handler cannot give up on.
-    local ok, err = pcall(suspension.suspend, "waiting", function()
+    local ok, err = pcall(coroutine.suspend, "waiting", function()
         return nil
     end)
     testAssert.eq(ok, false, "an uncancellable park is refused")
@@ -234,7 +234,7 @@ function M.refusesToParkWhereTheHandlerForbidsIt()
         end,
     }
     local ok, err = pcall(handled, handler, function()
-        return suspension.suspend("waiting", function()
+        return coroutine.suspend("waiting", function()
             return function()
                 cancelled = true
             end
@@ -272,7 +272,7 @@ function M.givesTheSubscriptionTheContextBeforeItSubscribes()
         end
     }
     handled(handler, function()
-        return suspension.suspend("waiting", function(resume, context)
+        return coroutine.suspend("waiting", function(resume, context)
             sawContext = context ~= nil and context.source ~= nil
             resume(1)
             return nil
@@ -295,7 +295,7 @@ function M.keepsEveryResultOfAHandledBody()
 end
 
 function M.refusesASecondResume()
-    local ok, err = pcall(suspension.suspend, "test", function(resume)
+    local ok, err = pcall(coroutine.suspend, "test", function(resume)
         resume(1)
         resume(2)
         return nil
@@ -310,7 +310,7 @@ function M.reportsAHandlerThatReturnsWithoutResuming()
         end,
     }
     local ok, err = pcall(handled, handler, function()
-        return suspension.suspend("waiting", function()
+        return coroutine.suspend("waiting", function()
             return function()
             end
         end)
@@ -367,7 +367,7 @@ function M.nestsHandlers()
     }
 
     local function wait()
-        return suspension.suspend("waiting", function(resume)
+        return coroutine.suspend("waiting", function(resume)
             pending = resume
             return function()
             end
@@ -421,7 +421,7 @@ function M.ordersSourcesByPriority()
 
         return 0
     end)
-    suspension.suspend("waiting", function(resume)
+    coroutine.suspend("waiting", function(resume)
         pending = resume
         return function()
         end
@@ -538,7 +538,7 @@ function M.reportsAWaitNothingCanComplete()
     -- With no pump registered and no synchronous resumption, nothing in this process
     -- can complete the wait. A quiet *pass* is not the same thing and must not stop the
     -- loop: a source answering zero means "not ready yet".
-    local ok, err = pcall(suspension.suspend, "waiting", function()
+    local ok, err = pcall(coroutine.suspend, "waiting", function()
         return function()
         end
     end)
@@ -565,7 +565,7 @@ end
 function M.reportsAWaitNothingCanCompleteEvenAfterATimerHasRun()
     require("coroutine").sleep(1)
 
-    local ok, err = pcall(suspension.suspend, "waiting", function()
+    local ok, err = pcall(coroutine.suspend, "waiting", function()
         return function()
         end
     end)
@@ -582,7 +582,7 @@ end
 -- was dropped shows as a wrong answer rather than a hang.
 function M.aContextSourceTakesAnActivityPredicate()
     local asked, polls = 0, 0
-    local ok, err = pcall(suspension.suspend, "waiting on an idle pump", function(resume, context)
+    local ok, err = pcall(coroutine.suspend, "waiting on an idle pump", function(resume, context)
         context:source(
             "idle",
             1,
@@ -746,7 +746,7 @@ function M.releasingUnwindsAGenuinelyParkedCoroutine()
     -- Created through the inheriting form, so the extent installed above is the one
     -- that accepts its park.
     parked = suspension.create(function()
-        local ok, err = pcall(suspension.suspend, "waiting", function()
+        local ok, err = pcall(coroutine.suspend, "waiting", function()
             return function()
                 unsubscribed = true
             end
@@ -784,7 +784,7 @@ function M.aNestedExtentDoesNotCancelTheEnclosingOnesParks()
     }
     local outer = suspensionHost.install(handler)
     parked = suspension.create(function()
-        pcall(suspension.suspend, "outer wait", function()
+        pcall(coroutine.suspend, "outer wait", function()
             return function()
                 cancels = cancels + 1
             end
@@ -806,7 +806,7 @@ function M.aFinishedParkIsNotCancelledLater()
         end,
     }
     local installation = suspensionHost.install(handler)
-    pcall(suspension.suspend, "waiting", function(resume)
+    pcall(coroutine.suspend, "waiting", function(resume)
         resume(1)
         return function()
             cancels = cancels + 1
@@ -831,7 +831,7 @@ function M.releaseRefusesToSucceedWithAParkStillUnfinished()
     }
     local installation = suspensionHost.install(handler)
     local parked = suspension.create(function()
-        pcall(suspension.suspend, "stuck", function()
+        pcall(coroutine.suspend, "stuck", function()
             return function()
             end
         end)
@@ -857,13 +857,13 @@ function M.releaseAttemptsEveryCleanupBeforeReporting()
         end,
     }
     local installation = suspensionHost.install(handler)
-    pcall(suspension.suspend, "first", function()
+    pcall(coroutine.suspend, "first", function()
         return function()
             cancelled = cancelled + 1
             error("cancel blew up", 0)
         end
     end)
-    pcall(suspension.suspend, "second", function()
+    pcall(coroutine.suspend, "second", function()
         return function()
             cancelled = cancelled + 1
         end
@@ -885,7 +885,7 @@ function M.aFailingParkStillUnsubscribes()
         end,
     }
     local installation = suspensionHost.install(handler)
-    local ok = pcall(suspension.suspend, "waiting", function()
+    local ok = pcall(coroutine.suspend, "waiting", function()
         return function()
             unsubscribed = true
         end
@@ -899,7 +899,7 @@ function M.aSubscriptionThatRaisesReleasesItsPumps()
     -- A subscription may register a pump and then fail. Leaving it registered would
     -- have the blocking handler polling for a wait nobody is doing.
     local polls = 0
-    local ok = pcall(suspension.suspend, "waiting", function(_resume, context)
+    local ok = pcall(coroutine.suspend, "waiting", function(_resume, context)
         context:source("leaky", 1, function()
             polls = polls + 1
             return 0
@@ -936,7 +936,7 @@ function M.aFailedReleaseCanBeRetriedAndCancelsOnlyOnce()
     local installation = suspensionHost.install(handler)
     local firstRelease, secondRelease
     parked = suspension.create(function()
-        pcall(suspension.suspend, "retryable", function()
+        pcall(coroutine.suspend, "retryable", function()
             return function()
                 cancels = cancels + 1
             end
@@ -1002,7 +1002,7 @@ function M.inactiveAssociatedSourceFallsBackAndCanBecomeActive()
             return 0
         end
     )
-    local ok, answer = pcall(suspension.suspend, "source becoming active", function(resume, context)
+    local ok, answer = pcall(coroutine.suspend, "source becoming active", function(resume, context)
         pending = resume
         context:uses(preferred)
         return function()

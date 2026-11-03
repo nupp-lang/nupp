@@ -7,8 +7,8 @@ local testAssert = require("assert")
 -- concurrency is the point, an upper bound loose enough that only serialization
 -- could break it.
 local time = require("coroutine")
-local suspension = require("coroutine.suspension")
-local suspensionHost = require("coroutine.suspension.host")
+local suspension = require("coroutine.sus")
+local suspensionHost = require("coroutine.sus.host")
 require("nupp.runtime.standardcoroutine")
 local tasks = require("coroutine")
 local native = require("nupp.compiler.native")

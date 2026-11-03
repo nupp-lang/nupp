@@ -65,7 +65,8 @@
         --nuppdoc-border: var(--nuppdoc-dark-border);
         --nuppdoc-code-background: var(--nuppdoc-dark-code-background);
         --nuppdoc-text: var(--nuppdoc-dark-text);
-        --nuppdoc-text-muted: var(--nuppdoc-dark-muted)
+        --nuppdoc-text-muted: var(--nuppdoc-dark-muted);
+        --nuppdoc-api-border-strength: 24%
     }
 }
 
@@ -97,7 +98,8 @@
     --nuppdoc-border: var(--nuppdoc-dark-border);
     --nuppdoc-code-background: var(--nuppdoc-dark-code-background);
     --nuppdoc-text: var(--nuppdoc-dark-text);
-    --nuppdoc-text-muted: var(--nuppdoc-dark-muted)
+    --nuppdoc-text-muted: var(--nuppdoc-dark-muted);
+    --nuppdoc-api-border-strength: 24%
 }
 
 :root[data-theme="dark"] {
@@ -126,7 +128,8 @@
     --nuppdoc-border: var(--nuppdoc-light-border);
     --nuppdoc-code-background: var(--nuppdoc-light-code-background);
     --nuppdoc-text: var(--nuppdoc-light-text);
-    --nuppdoc-text-muted: var(--nuppdoc-light-muted)
+    --nuppdoc-text-muted: var(--nuppdoc-light-muted);
+    --nuppdoc-api-border-strength: 30%
 }
 
 :root[data-theme="light"] {
@@ -1981,12 +1984,13 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 }
 
 /* Group API entries with surfaces derived from the current theme. */
+.nuppdoc-api-item .nuppdoc-api-item,
 .nuppdoc-api-group:has(> :is(#functions, #values, #annotations)) > .nuppdoc-api-item,
 .nuppdoc-content > #functions ~ .nuppdoc-api-item:not(#globals ~ .nuppdoc-api-item):not(#types ~ .nuppdoc-api-item):not(#annotations ~ .nuppdoc-api-item),
 .nuppdoc-content > #globals ~ .nuppdoc-api-item:not(#types ~ .nuppdoc-api-item):not(#annotations ~ .nuppdoc-api-item),
 .nuppdoc-content > #annotations ~ .nuppdoc-api-item {
     --api-section-background: color-mix(in srgb, var(--nuppdoc-background) 97%, var(--nuppdoc-text));
-    --api-section-border: color-mix(in srgb, var(--api-section-background) 70%, black);
+    --api-section-border: color-mix(in srgb, var(--api-section-background), var(--nuppdoc-text) var(--nuppdoc-api-border-strength, 30%));
     margin: 1.35rem 0;
     padding: 0 1rem .7rem;
     border: 1px solid var(--api-section-border);
@@ -1994,6 +1998,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     overflow: clip;
     background: var(--api-section-background);
 }
+.nuppdoc-api-item .nuppdoc-api-item > :is(h2, h3, h4, h5, h6):first-child,
 .nuppdoc-api-group:has(> :is(#functions, #values, #annotations)) > .nuppdoc-api-item > h3,
 .nuppdoc-content > #functions ~ .nuppdoc-api-item:not(#globals ~ .nuppdoc-api-item):not(#types ~ .nuppdoc-api-item):not(#annotations ~ .nuppdoc-api-item) > h3,
 .nuppdoc-content > #globals ~ .nuppdoc-api-item:not(#types ~ .nuppdoc-api-item):not(#annotations ~ .nuppdoc-api-item) > h3,
@@ -2011,6 +2016,13 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-overview p { margin: 0 0 .25rem; break-after: avoid; }
 .nuppdoc-overview ul { margin: 0 0 .85rem; padding: 0; list-style: none; }
 .nuppdoc-overview li { break-inside: avoid; }
+/* Long qualified names stop at their column edge; short labels keep their color. */
+.nuppdoc-overview li:not(:has(.nuppdoc-overview-badge)) {
+    overflow: hidden;
+    white-space: nowrap;
+    -webkit-mask-image: linear-gradient(to right, #000 calc(100% - .8rem), transparent);
+    mask-image: linear-gradient(to right, #000 calc(100% - .8rem), transparent);
+}
 .nuppdoc-overview a { text-decoration: none; }
 .nuppdoc-overview a:hover { text-decoration: underline; }
 .nuppdoc-overview-badge { margin-left: .25rem; padding: .12rem .3rem; cursor: help; }

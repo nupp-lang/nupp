@@ -154,7 +154,7 @@ requires every real park to provide cancellation, so abandoning a handled extent
 wakes suspended stacks far enough to run deterministic cleanup.
 
 This is not invisible interception of arbitrary blocking calls. Libraries opt in
-through `coroutine.suspension`, while the host owns scheduling policy through a
+through `coroutine.suspend`, while the host owns scheduling policy through a
 [suspension handler](../learn/runtime/concurrency/suspension.md#hosts-supply-scheduling-policy).
 See [suspension](../learn/runtime/concurrency/suspension.md) for the model from an application
 call down to the subscription contract.

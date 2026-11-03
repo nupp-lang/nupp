@@ -8,7 +8,7 @@ local io = require("io")
 local privateIo = require("nupp.io")
 local scalarAdapters = require("nupp.io.internal.scalars")
 local span = require("binary.span")
-local suspension = require("coroutine.suspension")
+local suspension = require("nupp.suspension")
 local memory = require("nupp.runtime.browser.memory") as any
 
 local files = {}

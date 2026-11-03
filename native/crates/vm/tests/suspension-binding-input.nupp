@@ -1,7 +1,7 @@
 module nupp.tests.vmsuspensionbinding
 
-local suspension = require("coroutine.suspension")
-local host = require("coroutine.suspension.host")
+local suspension = require("coroutine.sus")
+local host = require("coroutine.sus.host")
 local probe = {}
 
 function probe.run(): integer
@@ -45,7 +45,7 @@ function probe.run(): integer
                 end
             )
         );
-        answer = suspension.suspend("canonical-waiting", function(
+        answer = coroutine.suspend("canonical-waiting", function(
             resume: function(integer): nil,
             _: suspension.Context
         ): function(): nil

@@ -46,7 +46,7 @@ assert(total == 500500)
 
 ## Growing task families
 
-[](coroutine.suspension)'s combinators own a family that is complete when the call is
+[](coroutine)'s combinators own a family that is complete when the call is
 written: `all` cannot be handed a fourth body once it is running. `create` makes
 a coroutine that inherits a handler and says nothing about its result, failure,
 or lifetime. A server, a loading pipeline, or a scene needs somewhere to put

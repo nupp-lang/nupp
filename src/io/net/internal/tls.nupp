@@ -17,7 +17,7 @@ const {type Buffer} = require("nupp.io")
 
 local net = require("nupp.io.net")
 local takeStreamHandle: function(takes source: net.Stream): any = require("nupp.io.net.internal").takeStreamHandle
-local suspension = require("coroutine.suspension")
+local suspension = require("nupp.suspension")
 local span = require("binary.span")
 local physical = require("nupp.runtime.storage")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any

@@ -295,6 +295,13 @@ local function only(items: {extractMod.Item}, wanted: function(extractMod.Item):
     return kept
 end
 
+local function relocateMembers(value: any): nil
+    for _, member in ipairs(value.members or {}) do
+        member.path = value.path .. "." .. member.name
+        relocateMembers(member)
+    end
+end
+
 -- A global's anchor is the name a program writes. `print` is not a member of the file
 -- that declares it, and a link that said so would be naming an implementation detail a
 -- reader has no other reason to learn. The types the prelude declares are named the
@@ -302,9 +309,7 @@ end
 local function anchorByName(items: {extractMod.Item})
     for _, item in ipairs(items) do
         item.path = item.name
-        for _, member in ipairs(item.members) do
-            member.path = item.path .. "." .. member.name
-        end
+        relocateMembers(item)
     end
 end
 
@@ -546,9 +551,7 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
             navigation.libraries[#navigation.libraries + 1] = libraryEntry(library)
         end
         item.path = name .. "." .. item.name
-        for _, member in ipairs(item.members or {}) do
-            member.path = item.path .. "." .. member.name
-        end
+        relocateMembers(item)
         library.items[#library.items + 1] = item
     end
     for _, item in ipairs(globals) do

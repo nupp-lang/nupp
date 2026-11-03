@@ -19,8 +19,12 @@ end
 local positions = soa.alloc(ffi.typeof<Position>(), 128)
 local rows = positions:write()
 for index = 1, #rows do
+    rows[index] = new Position(0, 1)
+end
+for index = 1, #rows do
     rows[index].x += rows[index].velocity
 end
+assert(rows[1].x == 1)
 ```
 
 ## Containers select the layout
@@ -61,7 +65,8 @@ assert(layout.fields[2].name == "history")
 `soa.alloc` returns an [affine
 owner](../ownership/borrowing.md#declaring-affine-types) of one aligned
 native slab, and its lexical scope closes the allocation. `read()` borrows a
-shared row view; `write()` borrows an exclusive affine one.
+shared row view; `write()` borrows an exclusive affine one. Allocation does
+not zero the bytes, so initialize every field before reading it.
 
 ### Row access
 

@@ -10,10 +10,10 @@ process, and whoever installed a handler decides what runs meanwhile -- an
 event loop, a poll, the next frame.
 
 ```nupp:fragment
-local suspension = coroutine.suspension
+local suspension = coroutine.sus
 
 local function readLine(reader: Reader): string
-    return suspension.suspend("example.readLine", function(
+    return coroutine.suspend("example.readLine", function(
         resume: function(string),
         context: suspension.Context
     ): function()
@@ -34,7 +34,7 @@ would be permitted here at all, and `create` makes a coroutine that inherits the
 handler.
 
 Installing a handler, and driving the parks it accepts, is the other side of
-this: [](coroutine.suspension.host). A library needs none of it.
+this: [](coroutine.sus.host). A library needs none of it.
 
 This is the layer underneath. Somewhere to put children discovered over time,
 with one answer for failure and cancellation, is [](coroutine); real
@@ -42,7 +42,7 @@ parallelism is [](coroutine.workers). Come here directly to make a library waita
 or to write a combinator neither of those has.
 
 An arbitrary blocking Lua or C call still blocks the thread. A library opts in
-by parking through this module; nothing intercepts calls that do not.
+by calling [](coroutine.suspend); nothing intercepts calls that do not.
 
 See [suspension.md](docs/learn/runtime/concurrency/suspension.md).
 ]]
@@ -84,7 +84,7 @@ suspension.canSuspend = provider.cansuspend
 
 --- Creates a coroutine that inherits the handler installed where it was created.
 ---
---- Also available on [](coroutine.suspension.host) for schedulers.
+--- Also available on [](coroutine.sus.host) for schedulers.
 suspension.create = provider.create
 
 export = suspension

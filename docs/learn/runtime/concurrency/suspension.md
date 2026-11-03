@@ -17,7 +17,7 @@ child:close()
 
 ::: note Only suspension-aware calls can park
 An arbitrary blocking function or C call still blocks the operating-system
-thread. A library opts into suspension through `coroutine.suspension`; the runtime
+thread. A library opts into suspension through `coroutine.suspend`; the runtime
 does not intercept other calls.
 :::
 
@@ -58,7 +58,7 @@ local function printCompilerVersion(): nil
 end
 
 local function application(): nil
-    local installation = coroutine.suspension.host.install(frame.handler)
+    local installation = coroutine.sus.host.install(frame.handler)
     printCompilerVersion()
 end
 
@@ -71,8 +71,8 @@ scope. Most application code only consumes a handler this way. Framework authors
 and scheduler integrations implement one, as [Writing a frame
 handler](#writing-a-frame-handler) shows.
 
-Installing is `coroutine.suspension.host`, and parking is
-`coroutine.suspension`. The two jobs belong to different people: a library makes
+Installing is `coroutine.sus.host`, and parking is
+`coroutine.suspend`. The two jobs belong to different people: a library makes
 itself waitable and never installs a handler, while a host decides what runs
 meanwhile and never subscribes to a readiness source. Keeping them apart means
 neither reads past the other's operations to find its own.
@@ -219,14 +219,14 @@ practice:
 
 ```nupp:fragment
 local frame = require("scheduler")
-local suspension = coroutine.suspension
+local suspension = coroutine.sus
 
 local function childWork(): nil
     assert(suspension.handled())
 end
 
 local function application(): nil
-    local installation = coroutine.suspension.host.install(frame.handler)
+    local installation = coroutine.sus.host.install(frame.handler)
     local task = suspension.create(childWork)
     local ok, problem = coroutine.resume(task)
     if not ok then
@@ -264,14 +264,14 @@ through, and nothing that starts one.
 
 ## Libraries register readiness
 
-A suspension-aware library calls `suspension.suspend` with a subscription. This
+A suspension-aware library calls `coroutine.suspend` with a subscription. This
 example completes after its readiness source has been polled twice:
 
 ```nupp
-local suspension = coroutine.suspension
+local suspension = coroutine.sus
 
 local function after(polls: integer, value: string): string
-    return suspension.suspend("counter", function(resume: function(string), context: suspension.Context): function()
+    return coroutine.suspend("counter", function(resume: function(string), context: suspension.Context): function()
         local left = polls
         context:source("counter", 10, function(): integer
             left = left - 1
@@ -311,8 +311,8 @@ This scheduler keeps a queue of runnable coroutines. Its event loop calls `tick`
 once per frame to poll readiness sources and resume the tasks they woke.
 
 ```nupp [scheduler.nupp]
-local suspension = coroutine.suspension
-local host = coroutine.suspension.host
+local suspension = coroutine.sus
+local host = coroutine.sus.host
 
 local runnable: {thread} = {}
 
@@ -418,7 +418,7 @@ them, and `goto` may reach a label outside:
 local frame = require("scheduler")
 
 local function choose(): integer
-    local installation = coroutine.suspension.host.install(frame.handler)
+    local installation = coroutine.sus.host.install(frame.handler)
     return 1
 end
 

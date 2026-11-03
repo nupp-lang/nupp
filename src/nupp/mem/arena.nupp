@@ -1,13 +1,8 @@
 module nupp.mem.arena
 
 --[[
-A paged allocator of struct rows whose pages never move.
-
-Rows are handed out in order from fixed-size pages of one struct type. A page
-is allocated once and stays where it is, so a row reference is good for as
-long as the arena is; growth adds a page beside the others rather than moving
-anything. A reset rewinds to the first row of the first page and keeps every
-page, which is what makes the next epoch allocation-free.
+Struct arenas allocate zero-filled rows from pages that never move.
+Released rows become reusable after an explicit reset.
 
 ```nupp
 local arena = nupp.mem.arena
@@ -18,11 +13,17 @@ local struct Impact
 end
 
 local impacts = arena.newarena(Impact, 256)
-local impact = impacts:acquire() -- zero-filled
+local impact = impacts:acquire()
 impact.x = 1.5
 impacts:release(impact)
-impacts:reset() -- rewinds; the page stays
+impacts:reset()
 ```
+
+Rows are handed out in order from fixed-size pages of one struct type. A page
+is allocated once and stays where it is, so row addresses stay fixed while the
+arena retains their pages; growth adds a page beside the others rather than
+moving anything. A reset rewinds to the first row of the first page and keeps every
+page, which is what makes the next epoch allocation-free.
 
 Every acquired row reads as zero, whether it is fresh or one a reset made
 available again. A release ends that row's lease and nothing more: the cursor

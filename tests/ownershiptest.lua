@@ -1251,7 +1251,7 @@ function M.coroutineChildrenCannotCaptureAParentBorrow()
             table.concat(
                 {
                     RESOURCE,
-                    "local suspension = require(\"coroutine.suspension\")",
+                    "local suspension = require(\"coroutine.sus\")",
                     "local value = resource_new()",
                     "do",
                     "   local view = borrow(value)",
@@ -4243,9 +4243,9 @@ function M.aHandledSuspensionThroughAHelperIsAllowed()
         RESOURCE .. table.concat(
             {
                 "",
-                'local suspension = require("coroutine.suspension")',
+                'local suspension = require("coroutine.sus")',
                 "local function pause()",
-                "   suspension.suspend('test', function(resume: function(any), _: any): (function()?)",
+                "   coroutine.suspend('test', function(resume: function(any), _: any): (function()?)",
                 "      resume(true)",
                 "      return nil",
                 "   end)",

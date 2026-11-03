@@ -25,8 +25,8 @@ const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 local binary = require("binary")
 local browserEffects = require("nupp.runtime.browser.effects")
 local codec = require("nupp.runtime.browser.workercodec")
-local suspension = require("coroutine.suspension")
-local cancellation = require("coroutine.suspension.cancellation")
+local suspension = require("nupp.suspension")
+local cancellation = require("coroutine.sus.cancellation")
 local workers = {}
 
 local contracts = require("coroutine.workers.spi")

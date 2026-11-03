@@ -1,10 +1,10 @@
-module coroutine.suspension.spi
+module coroutine.sus.spi
 
 --[[
-`coroutine.suspension.spi` defines the scheduler integration contracts.
+`coroutine.sus.spi` defines the scheduler integration contracts.
 
 ```nupp
-local contract = coroutine.suspension.spi
+local contract = coroutine.sus.spi
 local type Provider = contract.Provider
 ```
 
@@ -30,7 +30,7 @@ context into a new coroutine.
 Sources report readiness in `order`, lowest first. Context.uses identifies
 sources needed by a wait. Whether a park is permitted here is `cansuspend`,
 which returns for the handler in force. Cancellation values must come from
-[](coroutine.suspension.cancellation), which preserves recognition by tasks and
+[](coroutine.sus.cancellation), which preserves recognition by tasks and
 worker providers. State belongs to one Lua state; registrations and handlers are
 not copied into worker lanes.
 ]]

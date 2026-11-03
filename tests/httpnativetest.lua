@@ -3,8 +3,8 @@
 -- provider's byte paths.
 local test = require("assert")
 local native = require("nupp.compiler.native")
-local suspension = require("coroutine.suspension")
-local suspensionHost = require("coroutine.suspension.host")
+local suspension = require("coroutine.sus")
+local suspensionHost = require("coroutine.sus.host")
 local tasks = require("coroutine")
 
 local M = {}

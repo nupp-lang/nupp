@@ -30,7 +30,7 @@ const {type Reader as Reader2} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
 const {type Writer as Writer2} = require("nupp.io")
 
-local suspension = require("coroutine.suspension")
+local suspension = require("nupp.suspension")
 local physical = require("nupp.runtime.storage")
 local span = require("binary.span")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any

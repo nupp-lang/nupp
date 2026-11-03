@@ -80,6 +80,10 @@ end
 function M.retiredNamespacesAreNotBundled()
     local env = strictEnv()
     for _, name in ipairs({
+        "coroutine.suspension",
+        "coroutine.suspension.host",
+        "coroutine.suspension.spi",
+        "coroutine.suspension.cancellation",
         "io.uri",
         "io.uri.spi",
         "io.path",
@@ -122,17 +126,17 @@ function M.compilerCarriesEveryFeatureRuntimeSource()
 end
 
 function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
-    local env = envMod.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
+    local env = envMod.new("/private/tmp/nupp-bundled-layout-consumer", {config = {include = {"src"}}, cache = false})
     local sources = {
         ["package.nupp"] = "/package/nupp/init.nupp",
         ["binary"] = "/binary/init.nupp",
         ["binary.span"] = "/binary/span.nupp",
         ["nupp.runtime.entropy"] = "/nupp/runtime/entropy.nupp",
         ["nupp.runtime.standardtable"] = "/nupp/runtime/standardtable.nupp",
-        ["coroutine.suspension"] = "/coroutine/suspension/init.nupp",
-        ["coroutine.suspension.cancellation"] = "/coroutine/suspension/cancellation.nupp",
-        ["coroutine.suspension.host"] = "/coroutine/suspension/host.nupp",
-        ["coroutine.suspension.spi"] = "/coroutine/suspension/spi.nupp",
+        ["coroutine.sus"] = "/coroutine/sus/init.nupp",
+        ["coroutine.sus.cancellation"] = "/coroutine/sus/cancellation.nupp",
+        ["coroutine.sus.host"] = "/coroutine/sus/host.nupp",
+        ["coroutine.sus.spi"] = "/coroutine/sus/spi.nupp",
         ["coroutine.workers"] = "/coroutine/workers/init.nupp",
         ["coroutine.workers.spi"] = "/coroutine/workers/spi.nupp",
         ["io.files"] = "/io/files/init.nupp",
@@ -150,7 +154,7 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         local loaded = env.loadBundledModule(name)
         assert(loaded and loaded.exports, name .. " has checked carried exports")
     end
-    local host = env.loadBundledModule("coroutine.suspension.host")
+    local host = env.loadBundledModule("coroutine.sus.host")
     local privateHost = env.loadBundledModule("nupp.suspension.host")
     local install = host.exports.values.install
     testAssert.eq(install.tag, "func", "install retains its checked signature")
@@ -160,12 +164,43 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         privateHost.exports.types.Handler,
         "the facade preserves nominal identity"
     )
-    local suspension = env.loadBundledModule("coroutine.suspension")
+    local suspension = env.loadBundledModule("coroutine.sus")
     testAssert.eq(suspension.exports.values.handled.rets[1].tag, "boolean")
+    testAssert.eq(suspension.exports.values.suspend, nil, "the wait lives on coroutine")
+    local coroutineModule = env.loadBundledModule("nupp.runtime.standardcoroutine")
+    testAssert.eq(coroutineModule.exports.values.suspend.tag, "func")
+end
+
+function M.directSuspendKeepsItsGenericTypeOutsideTheCheckout()
+    local env = envMod.new("/private/tmp/nupp-coroutine-sus-consumer", {config = {include = {"src"}}, cache = false})
+    local source = [[
+local function wait(): string
+    return coroutine.suspend("ready", function(resume: function(string), context: coroutine.sus.Context): function()?
+        resume("ready")
+        return nil
+    end)
+end
+local co = coroutine
+local function viaAlias(): integer
+    return co.suspend("ready", function(resume: function(integer)): function()?
+        resume(42)
+        return nil
+    end)
+end
+return wait(), viaAlias()
+]]
+    local parsed = parser.parse(source, "suspend-consumer.nupp")
+    testAssert.eq(#parsed.errors, 0)
+    for _, diag in ipairs(check.check(parsed, "suspend-consumer.nupp", env) or {}) do
+        testAssert.ne(diag.severity, "error", diag.msg)
+    end
+    local text, number = program.run(parsed, "suspend-consumer")
+    testAssert.eq(text, "ready")
+    testAssert.eq(number, 42)
 end
 
 function M.finalNamespaceHomesKeepCheckedTypesOutsideTheCheckout()
-    local env = envMod.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
+    local env = envMod.new("/private/tmp/nupp-bundled-layout-consumer", {config = {include = {"src"}}, cache = false})
     local source = [[
 local binary = require("binary")
 local client: io.net.TlsClientOptions = {hostname = "example.com"}

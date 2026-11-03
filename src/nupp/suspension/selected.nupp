@@ -5,7 +5,7 @@ module nupp.suspension.selected
 --[[
 The chosen suspension implementation, selected once.
 
-[](coroutine.suspension) and [](coroutine.suspension.host) are two views of one
+[](coroutine.sus) and [](coroutine.sus.host) are two views of one
 implementation, and selecting it belongs in neither of them: a library requiring
 the one must not drag the other in behind it, and the host view has to answer
 for the provider a library is already parking through.

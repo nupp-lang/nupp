@@ -6,8 +6,8 @@ local testAssert = require("assert")
 -- the draining and the deadlines -- the policy above the Rust-backed provider -- so
 -- the test supplies the platform and the module supplies the behaviour.
 local processTypes = require("io.internal.process.types")
-local suspension = require("coroutine.suspension")
-local suspensionHost = require("coroutine.suspension.host")
+local suspension = require("coroutine.sus")
+local suspensionHost = require("coroutine.sus.host")
 
 local function spawnOn(provider, options)
     local instance = require("providerstate").load("process", provider)

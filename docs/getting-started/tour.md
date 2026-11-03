@@ -339,7 +339,7 @@ so other work can run. A ready operation does neither.
 
 Whether a function may suspend is an inferred effect. Use `@nosuspend do` where
 control must not park; the compiler follows calls to the possible suspension and
-reports the path. Libraries subscribe through `coroutine.suspension`,
+reports the path. Libraries subscribe through `coroutine.suspend`,
 [suspension
 handlers](../learn/runtime/concurrency/suspension.md#hosts-supply-scheduling-policy)
 own scheduling policy, and `coroutine.gather` and `coroutine.race` compose

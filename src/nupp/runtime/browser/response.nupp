@@ -2,7 +2,7 @@
 module nupp.runtime.browser.response
 
 local effects = require("nupp.runtime.browser.effects")
-local suspension = require("coroutine.suspension")
+local suspension = require("nupp.suspension")
 local response = {}
 
 function response.await(kind: string, payload: any, discard: (function(any): nil)?): any

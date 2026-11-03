@@ -12,8 +12,8 @@ local testAssert = require("assert")
 require("nupp.runtime.standardcoroutine")
 local tasks = require("coroutine")
 local time = require("coroutine")
-local suspension = require("coroutine.suspension")
-local suspensionHost = require("coroutine.suspension.host")
+local suspension = require("coroutine.sus")
+local suspensionHost = require("coroutine.sus.host")
 
 local M = {}
 
@@ -790,7 +790,7 @@ local function gate()
     return {
         -- Waits `ticks` passes of the pump, then answers `value`.
         wait = function(ticks, value)
-            return suspension.suspend("gate-wait", function(resume)
+            return coroutine.suspend("gate-wait", function(resume)
                 local entry = {resume = resume, left = ticks, value = value}
                 pending[#pending + 1] = entry
                 return function()
@@ -1101,7 +1101,7 @@ function M.nestedFamilyCallsPreserveAnOuterBarrier()
                     tasks.gather({
                         function()
                             saw = suspension.cansuspend()
-                            return suspension.suspend("barred branch", function()
+                            return coroutine.suspend("barred branch", function()
                                 return function()
                                     cancelled = true
                                 end
@@ -1204,7 +1204,7 @@ function M.aSettleThatRaisesGivesBackTheFrame()
     local before = suspension.handled()
     local scope = tasks.scope()
     scope:spawn(function()
-        suspension.suspend("never answered", function()
+        coroutine.suspend("never answered", function()
             return function()
             end
         end)

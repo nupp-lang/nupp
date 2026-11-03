@@ -9,8 +9,8 @@ local savedThread: any = nil
 function main.checkpointStart(): number
     savedThread = @unsafe own.release(
         coroutine.create(function(): number
-            local suspension = require("coroutine.suspension")
-            local host = require("coroutine.suspension.host")
+            local suspension = require("coroutine.sus")
+            local host = require("coroutine.sus.host")
             local time = require("coroutine")
             local clock = require("nupp.vm.clock")
             local handler = new host.Handler(

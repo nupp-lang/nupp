@@ -2612,10 +2612,10 @@ propagates through resolved calls and across modules, separately from parameter
 and result types. `@nosuspend` refuses that fact rather than consuming it, and
 the Suspension regions section covers it.
 
-A local `installation = coroutine.suspension.host.install(handler)` installs a
+A local `installation = coroutine.sus.host.install(handler)` installs a
 host's scheduling policy until the installation leaves scope, per coroutine
 rather than per process. `handler` is an ordinary value satisfying
-`coroutine.suspension.host.Handler`. Where none is installed a wait drives the
+`coroutine.sus.host.Handler`. Where none is installed a wait drives the
 registered readiness sources on the current thread, which is what a
 command-line program wants. In a browser application only the root coroutine
 can wait on the page; anywhere else a wait with no handler raises "cannot

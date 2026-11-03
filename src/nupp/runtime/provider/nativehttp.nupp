@@ -12,7 +12,7 @@ bodies, transport and connection policy, and observable protocol versions; its
 
 Clients, responses, and body readers implement the shared contracts in
 [](io.http.spi). Pending transfers participate in
-[](coroutine.suspension), and source registrations are retained while a client has
+[](coroutine.sus), and source registrations are retained while a client has
 work. Closing resources releases transfers and source registrations; request
 bodies remain borrowed for the send operation and response bodies retain their
 transport resources until released.
@@ -22,7 +22,7 @@ support must be packaged for the target. Resource methods call the retained
 transport directly and do not revisit the service registry.
 ]]
 
-local suspension = require("coroutine.suspension")
+local suspension = require("nupp.suspension")
 local tasks = require("coroutine")
 local io = require("io")
 local privateIo = require("nupp.io")
@@ -1017,7 +1017,7 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
         maxBytes = given.maxbytes ~= nil and whole(given.maxbytes, "maxbytes", 0) or self._options.maxBytes,
         insecure = insecure,
     }
-    if not suspension.cansuspend() then
+    if not suspension.canSuspend() then
         error("nupp: HTTP request cannot suspend here", 2)
     end
     local transfer, reason

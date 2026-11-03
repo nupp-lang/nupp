@@ -602,8 +602,8 @@ end
             "src/main.nupp"
         ] = [[
 const jobs = require("jobs")
-const suspension = require("coroutine.suspension")
-const suspensionHost = require("coroutine.suspension.host")
+const suspension = require("coroutine.sus")
+const suspensionHost = require("coroutine.sus.host")
 const tasks = require("coroutine")
 
 local runnable: {thread} = {}

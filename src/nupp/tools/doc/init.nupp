@@ -506,6 +506,13 @@ local function loadModules(root, config, settings, requested)
         return out
     end
 
+    local function relocateMembers(value: any): nil
+        for _, member in ipairs(value.members or {}) do
+            member.path = value.path .. "." .. member.name
+            relocateMembers(member)
+        end
+    end
+
     -- Keep the visibility decision shared with namespace projection below. Only a
     -- real public alias supplies a display name for an implementation declaration.
     -- Which modules the site will not show. Asked twice: once to decide whether a
@@ -1058,9 +1065,7 @@ local function loadModules(root, config, settings, requested)
                 local copied = copy(candidate)
                 copied.module = nil
                 copied.path = name .. "." .. candidate.name
-                for _, member in ipairs(copied.members or {}) do
-                    member.path = copied.path .. "." .. member.name
-                end
+                relocateMembers(copied)
                 alias.items[#alias.items + 1] = copied
             end
         end
@@ -1143,9 +1148,7 @@ local function loadModules(root, config, settings, requested)
                 end
             elseif target and target ~= module then
                 item.path = (item.module as string) .. "." .. item.name
-                for _, member in ipairs(item.members) do
-                    member.path = item.path .. "." .. member.name
-                end
+                relocateMembers(item)
                 publishQualified(target, item)
             else
                 kept[#kept + 1] = item
@@ -1764,7 +1767,13 @@ local function renderSite(root, outDir, modules, title, settings, standardLibrar
                             #entries + 1
                         ] = new pageMod.Entry(path = item.path, name = item.name, items = memberOutline(item.members))
                     end
-                    items[#items + 1] = new pageMod.Entry(path = group.path, name = group.title, items = entries)
+                    items[
+                        #items + 1
+                    ] = new pageMod.Entry(
+                        path = group.path == module.name and group.path .. "-group" or group.path,
+                        name = group.title,
+                        items = entries
+                    )
                 end
             end
             local links = symbolLinks(linkIndex, module, relativePrefix(file))

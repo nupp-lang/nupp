@@ -31,8 +31,8 @@ function M.anOrdinaryScopeInstallsAndRestores()
     local before, inside, after = run(
         table.concat(
             {
-                'local s = require("coroutine.suspension")',
-                'local host = require("coroutine.suspension.host")',
+                'local s = require("coroutine.sus")',
+                'local host = require("coroutine.sus.host")',
                 HANDLER,
                 "local before = s.handled()",
                 "local inside = false",
@@ -48,7 +48,7 @@ function M.anOrdinaryScopeInstallsAndRestores()
 end
 
 function M.ordinaryCallChecksTheHandler()
-    local diagnostics = diagnose('do local installation = require("coroutine.suspension.host").install(42) ;\nend')
+    local diagnostics = diagnose('do local installation = require("coroutine.sus.host").install(42) ;\nend')
     local found = false
     for _, diagnostic in ipairs(diagnostics) do
         if diagnostic.code == "NUPP2006" and diagnostic.msg:find("Handler", 1, true) then
@@ -66,7 +66,7 @@ function M.returnDischargesInstallation()
                 "local h = {park = function() end, canpark = function() return true end,",
                 "    shutdown = function() released = released + 1 end}",
                 "local function run(): (integer, number)",
-                '    do local installation = require("coroutine.suspension.host").install(h) ;',
+                '    do local installation = require("coroutine.sus.host").install(h) ;',
                 "        return 1, released",
                 "    end",
                 "end",
@@ -87,7 +87,7 @@ function M.gotoOutDischargesInstallation()
                 "local h = {park = function() end, canpark = function() return true end,",
                 "    shutdown = function() released = released + 1 end}",
                 "local answer = 0",
-                'do local installation = require("coroutine.suspension.host").install(h) ;',
+                'do local installation = require("coroutine.sus.host").install(h) ;',
                 "    answer = 1",
                 "    goto done",
                 "end",
@@ -109,7 +109,7 @@ function M.breakDischargesInstallation()
                 "local h = {park = function() end, canpark = function() return true end,",
                 "    shutdown = function() released = released + 1 end}",
                 "while true do",
-                '    do local installation = require("coroutine.suspension.host").install(h) ;',
+                '    do local installation = require("coroutine.sus.host").install(h) ;',
                 "        break",
                 "    end",
                 "end",
@@ -129,7 +129,7 @@ function M.errorDischargesInstallation()
                 "local h = {park = function() end, canpark = function() return true end,",
                 "    shutdown = function() released = released + 1 end}",
                 "local function run(): nil",
-                '    do local installation = require("coroutine.suspension.host").install(h) ;',
+                '    do local installation = require("coroutine.sus.host").install(h) ;',
                 '        error("stop")',
                 "    end",
                 "end",
@@ -144,7 +144,7 @@ end
 
 function M.installationCarriesTheSuspensionRuntimeEffect()
     local diagnostics, result = diagnose(
-        HANDLER .. 'do local installation = require("coroutine.suspension.host").install(h) ;\nend'
+        HANDLER .. 'do local installation = require("coroutine.sus.host").install(h) ;\nend'
     )
     assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
     assert(result.effects["runtime.suspension"], "the installation lost its runtime effect")
@@ -154,8 +154,8 @@ function M.nestedInstallationsRestoreTheOuterHandler()
     local outer, inner, restored, cleared = run(
         table.concat(
             {
-                'local s = require("coroutine.suspension")',
-                'local host = require("coroutine.suspension.host")',
+                'local s = require("coroutine.sus")',
+                'local host = require("coroutine.sus.host")',
                 HANDLER,
                 "local outer: boolean?, inner: boolean?, restored: boolean?",
                 "do local first = host.install(h) ;",
