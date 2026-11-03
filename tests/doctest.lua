@@ -5864,7 +5864,12 @@ function M.ioPublicPageKeepsStorageAndScalarContracts()
         "reservewrite",
         "readinto",
         "readuint32",
-        "newswriter",
+        "Reader.scalar",
+        "Writer.scalar",
+        "Buffer.reader",
+        "Buffer.writer",
+        "ByteView.reader",
+        "ScalarStream",
         "Reader.lines"
     }) do
         assert(text:find(public, 1, true), "I/O documentation lost " .. public)
@@ -5872,6 +5877,10 @@ function M.ioPublicPageKeepsStorageAndScalarContracts()
     for _, hidden in ipairs({
         "_pending",
         "_ownsBuffer",
+        "newsreader",
+        "newswriter",
+        "Buffer.newreader",
+        "Buffer.newwriter",
         "# `nupp.io.internal",
         "bytes.Reader",
         "scalars.ScalarReader"
