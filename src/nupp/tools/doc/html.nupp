@@ -531,7 +531,13 @@ local function lunamarkParser(): any
                     if index ~= count then
                         return "<code>" .. value .. "</code>"
                     end
-                    local source = value:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&quot;", '"'):gsub("&amp;", "&")
+                    -- Decode the writer's escapes once before highlighting. Ampersands
+                    -- go last so an original literal entity is not decoded twice.
+                    local source = value:gsub("&lt;", "<")
+                        :gsub("&gt;", ">")
+                        :gsub("&quot;", '"')
+                        :gsub("&#39;", "'")
+                        :gsub("&amp;", "&")
 
                     return "<code>" .. highlightMod.nuppSource(source, definitionLinks) .. "</code>"
                 end)

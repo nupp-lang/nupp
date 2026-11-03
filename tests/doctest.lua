@@ -751,6 +751,25 @@ export function identity(value: string): string return value end
     assert(markdown:find("`string`\n:   The value again.", 1, true), markdown)
 end
 
+function M.rendersQuotedTypesWithoutDoubleEscaping()
+    local module = assert(
+        doc.extract(
+            [[
+export function choose(option: 'collect' | 'rock & roll'): 'collect' end
+]],
+            "src/example.nupp",
+            "example"
+        )
+    )
+    local rendered = {}
+    require("nupp.tools.doc.api").renderHtmlItem(rendered, module.items[1])
+    local html = assert(table.concat(rendered):match('<dl class="nuppdoc%-api%-details">(.-)</dl>'))
+    assert(html:find("&#39;collect&#39;", 1, true), html)
+    assert(html:find("&#39;rock &amp; roll&#39;", 1, true), html)
+    assert(not html:find("&amp;#39;", 1, true), html)
+    assert(not html:find("&amp;amp;", 1, true), html)
+end
+
 function M.documentsReceiversAndOmitsNilOnlyReturns()
     local module = assert(
         doc.extract(
