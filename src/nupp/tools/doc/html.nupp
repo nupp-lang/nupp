@@ -531,10 +531,18 @@ local function headingSlugs(text, headingScope: string?)
         if hashes then
             local name, badge, lua = headingBadge(heading)
             local base = headingId(heading)
-            if namedAnchor and headingScope then
+            local target = namedAnchor or base
+            if namedAnchor
+                and headingScope
+                and (namedAnchor == headingScope or namedAnchor:sub(1, #headingScope + 1) == headingScope .. ".")
+            then
+                -- Generated members already carry the declaration's full path.
                 activeScope = namedAnchor
+            elseif activeScope then
+                target = activeScope .. "." .. target
             end
-            local id = uniqueHeading(namedAnchor or (activeScope and activeScope .. "." .. base or base), used)
+            local id = uniqueHeading(target, used)
+            local explicit = namedAnchor
             if namedAnchor and anchorAt then
                 -- The heading already owns this exact anchor. Keeping the empty
                 -- anchor before it would give the document two identical IDs.
@@ -543,7 +551,9 @@ local function headingSlugs(text, headingScope: string?)
             namedAnchor, anchorAt = nil, nil
             -- The label is read aloud by a screen reader following the anchor, so it is
             -- the heading as it reads rather than as it was written.
-            slugs[#slugs + 1] = {id = id, base = base, text = name:gsub("[`*_]", ""), badge = badge, lua = lua}
+            slugs[
+                #slugs + 1
+            ] = {id = id, base = base, anchor = explicit, text = name:gsub("[`*_]", ""), badge = badge, lua = lua}
             out[#out + 1] = badge and hashes .. " " .. name or line
         else
             out[#out + 1] = line
@@ -712,6 +722,9 @@ markdownHtml = function(text: string?, links: Links?, headingShift: integer?, he
         local targets: {[string]: string} = {}
         for _, slug in ipairs(slugs) do
             targets[slug.base] = targets[slug.base] or slug.id
+            if slug.anchor then
+                targets[slug.anchor] = targets[slug.anchor] or slug.id
+            end
         end
         out = out:gsub('href="#([^"]+)"', function(target: string): string
             local scoped = targets[target]
