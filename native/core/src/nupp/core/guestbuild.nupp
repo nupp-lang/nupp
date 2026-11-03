@@ -103,6 +103,7 @@ local CASES: {[string]: {
     libraryspread = {fixture = "catalog-library-spread", version = 8},
     tableslibrarymeta = {fixture = "catalog-tables-library-meta", version = 8},
     tableslibrarycalls = {fixture = "catalog-tables-library-calls", version = 8},
+    tablesmetaarity = {fixture = "catalog-tables-meta-arity", version = 8},
     moduleslazy = {
         fixture = "catalog-modules-main",
         version = 8,
