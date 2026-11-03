@@ -1603,11 +1603,14 @@ export function LibCall(
         -- overwrote the frame's.
         if replay == 2ULL then
             guestscope.replaykeep(ctx, a, b, c, d)
+            guestscope.replaysave(ctx, guestlib.stepstate(ctx, libraryId, a))
+            guestlib.copystate(ctx, libraryId, a, guestscope.replaysaved(ctx))
         elseif replay == 1ULL then
             a = guestscope.replayarg(ctx, 0ULL)
             b = guestscope.replayarg(ctx, 1ULL)
             c = guestscope.replayarg(ctx, 2ULL)
             d = guestscope.replayarg(ctx, 3ULL)
+            guestlib.copystate(ctx, libraryId, guestscope.replaysaved(ctx), a)
         end
         local result = guestlib.call(ctx, libraryId, native.word(count), a, b, c, d)
         local kind: uint64 = 0ULL

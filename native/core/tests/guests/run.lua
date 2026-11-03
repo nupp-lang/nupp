@@ -126,7 +126,7 @@ local CASES = {
     {"outputwrite", 0x7FFF000000000001},
     {"libraryspread", 0x7FFF000000000C8D},
     {"tableslibrarymeta", 0x7FFF000000000007},
-    {"tableslibrarycalls", 0x7FFF0000000001FF},
+    {"tableslibrarycalls", 0x7FFF0000000003FF},
     {"moduleslazy", 0x7FFF000000000520},
     {"modulesnamed", 0x7FFF0000000004D8},
     {"modulespattern", 0x7FFF0000000000E6},
@@ -159,6 +159,10 @@ local STRESS = {
     threadscalls = true,
     threadsclose = true,
     tableslibrarycalls = true,
+    tablesSort = true,
+    stringsLibrary = true,
+    stringsGsubFunction = true,
+    libraryspread = true,
     threadsiterate = true
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the

@@ -73,6 +73,9 @@ export struct Services
     -- The library calls waiting on a metamethod (`replaybegin`): a table
     -- of their entries, once one has waited.
     replays: uint64
+    -- An object a library call holds while it allocates another, which
+    -- nothing else roots yet (`hold`).
+    scratch: uint64
     -- 1 while coroutine.close unwinds a suspended thread: its error lands at
     -- every frame that owns affine values, and no protected call takes it.
     closing: uint64
@@ -167,6 +170,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("main"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("loaded"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replays"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("scratch"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("closing"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replay"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replaycursor"), 0ULL)
@@ -175,7 +179,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("replaykey"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replayvalue"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("libraryanswer"), 0ULL)
-        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 4ULL)
+        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 5ULL)
         -- Collect-at-every-allocation: a whole cycle at every safepoint.
         h.stress = stress ~= 0ULL
         native.store64(services, native.fieldOffset<Services>("heap"), native.address(h))
@@ -564,12 +568,13 @@ end
 -- of the metamethod waited on (nil while none is), the thread whose call it
 -- is (false for the main one), the kind of access waiting, and the call's
 -- four arguments, which the metamethod's staging overwrites in its frame.
-const ENTRY_WORDS: uint64 = 8ULL
+const ENTRY_WORDS: uint64 = 9ULL
 const ENTRY_LOG: uint64 = 1ULL
 const ENTRY_CHILD: uint64 = 2ULL
 const ENTRY_THREAD: uint64 = 3ULL
 const ENTRY_KIND: uint64 = 4ULL
 const ENTRY_ARGS: uint64 = 5ULL
+const ENTRY_STATE: uint64 = 9ULL
 export const ACCESS_GET: uint64 = 1ULL
 export const ACCESS_SET: uint64 = 2ULL
 export const ACCESS_LENGTH: uint64 = 3ULL
@@ -663,6 +668,16 @@ local function prune(ctx: voidptr, stack: uint64, frame: uint64): nil
     truncate(ctx, stack, depth + 1ULL)
 end
 
+-- Roots `value`, a fresh object a library call holds while it allocates
+-- another, until the next hold or `release`.
+export function hold(ctx: voidptr, value: uint64): nil
+    native.store64(native.loadPointer(ctx, context.SERVICE_SCOPE), native.fieldOffset<Services>("scratch"), value)
+end
+
+export function release(ctx: voidptr): nil
+    native.store64(native.loadPointer(ctx, context.SERVICE_SCOPE), native.fieldOffset<Services>("scratch"), 0ULL)
+end
+
 -- Whether `value` is a table with a metatable.
 export function metatabled(value: uint64): boolean
     local t = tableOf(value)
@@ -727,6 +742,7 @@ export function replaybegin(ctx: voidptr, frame: voidptr, answer: uint64, hasmet
         setkey(ctx, stack, keyof(depth, ENTRY_LOG), values.TRUE)
         setkey(ctx, stack, keyof(depth, ENTRY_THREAD), threadvalue(ctx))
         setkey(ctx, stack, keyof(depth, ENTRY_KIND), values.TAG_INTEGER)
+        setkey(ctx, stack, keyof(depth, ENTRY_STATE), values.TRUE)
         setkey(ctx, stack, values.TAG_INTEGER, values.TAG_INTEGER | depth)
         local log = newTable(ctx)
         setkey(ctx, stack, keyof(depth, ENTRY_LOG), values.TAG_OBJ | log)
@@ -766,6 +782,19 @@ export function replayend(ctx: voidptr): uint64
 
         return kind
     end
+end
+
+-- The state a library call's step started from (guestlib.stepstate), kept
+-- in its entry, and read back for a rerun.
+export function replaysave(ctx: voidptr, saved: uint64): nil
+    local stack = native.load64(scopeof(ctx), native.fieldOffset<Services>("replays")) & values.PAYLOAD
+    setkey(ctx, stack, keyof(countof(stack), ENTRY_STATE), saved)
+end
+
+export function replaysaved(ctx: voidptr): uint64
+    local stack = native.load64(scopeof(ctx), native.fieldOffset<Services>("replays")) & values.PAYLOAD
+
+    return tables.get(stack, keyof(countof(stack), ENTRY_STATE))
 end
 
 -- Argument `index` (0 to 3) of the library call running in replay.

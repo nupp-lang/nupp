@@ -735,6 +735,7 @@ export function replays(id: uint64): boolean
         or id == TABLE_MOVE_PACK
         or id == TABLE_SORT
         or id == SORT_BEGIN
+        or id == SORT_STEP
 end
 
 -- Whether a table library call `id` with arguments a and b reaches a table
@@ -742,6 +743,11 @@ end
 export function reachesmeta(id: uint64, a: uint64, b: uint64): boolean
     if guestscope.metatabled(a) then
         return true
+    end
+    -- A comparator's step reaches the list its state holds.
+    local state = guestscope.tableof(a)
+    if id == SORT_STEP and state ~= 0ULL then
+        return guestscope.metatabled(tables.get(state, values.TAG_INTEGER | 1ULL))
     end
     local pack = guestscope.tableof(b)
     if id == TABLE_MOVE_PACK and pack ~= 0ULL then
@@ -1325,7 +1331,9 @@ local function bytes(ctx: voidptr, value: uint64, a: uint64, b: uint64, all: boo
     @unsafe do
         local pack: uint64 = 0ULL
         if all then
+            -- Held while the strings it is given are made.
             pack = guestscope.newTable(ctx)
+            guestscope.hold(ctx, values.TAG_OBJ | pack)
         end
         local h = guestHeap(ctx)
         local s = stringArgument(ctx, value, 1ULL)
@@ -1506,7 +1514,9 @@ local function search(
     @unsafe do
         local pack: uint64 = 0ULL
         if all then
+            -- Held while the strings it is given are made.
             pack = guestscope.newTable(ctx)
+            guestscope.hold(ctx, values.TAG_OBJ | pack)
         end
         local h = guestHeap(ctx)
         local s = stringArgument(ctx, value, 1ULL)
@@ -1708,7 +1718,9 @@ local function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64, 
     @unsafe do
         local pack: uint64 = 0ULL
         if all then
+            -- Held while the strings it is given are made.
             pack = guestscope.newTable(ctx)
+            guestscope.hold(ctx, values.TAG_OBJ | pack)
         end
         local h = guestHeap(ctx)
         local s = stringArgument(ctx, value, 1ULL)
@@ -1907,7 +1919,9 @@ local function tableUnpack(ctx: voidptr, list: uint64, a: uint64, b: uint64, all
     @unsafe do
         local pack: uint64 = 0ULL
         if all then
+            -- Held while the strings it is given are made.
             pack = guestscope.newTable(ctx)
+            guestscope.hold(ctx, values.TAG_OBJ | pack)
         end
         local h = guestHeap(ctx)
         local t = tableArgument(ctx, list, 1ULL)
@@ -2026,13 +2040,48 @@ local function sortRuns(h: heap.Heap*, st: uint64): boolean
     return true
 end
 
+-- A comparator's step runs in replay as the other table library calls do,
+-- but it changes the sort's state as it goes: the state as the step found
+-- it is kept before its first run and put back before each rerun. The
+-- handler roots the empty copy `stepstate` makes in the call's entry before
+-- `copystate` fills it, since filling it can collect. The merge buffer needs
+-- no copy, since a step writes every slot of it the step reads.
+export function stepstate(ctx: voidptr, id: uint64, value: uint64): uint64
+    if id ~= SORT_STEP or guestscope.tableof(value) == 0ULL then
+        return values.NIL
+    end
+
+    return values.TAG_OBJ | guestscope.newTable(ctx)
+end
+
+-- Copies the sort state fields of `from` into `to`, for a step of call `id`.
+export function copystate(ctx: voidptr, id: uint64, from: uint64, to: uint64): nil
+    local source = guestscope.tableof(from)
+    local target = guestscope.tableof(to)
+    if id ~= SORT_STEP or source == 0ULL or target == 0ULL then
+        return
+    end
+    @unsafe do
+        local h = guestHeap(ctx)
+        local key: int64 = SORT_LIST
+        while key <= SORT_PENDING do
+            storeAt(h, target, key, loadAt(source, key))
+            key = key + 1
+        end
+        tables.drain(h)
+    end
+end
+
 -- table.sort's state for list t and comparator `less` (nil for `<`), at the
 -- first merge. A bottom-up merge sort: stable, and O(n log n) comparisons.
 local function sortBegin(ctx: voidptr, list: uint64, less: uint64): uint64
     @unsafe do
         local t = tableArgument(ctx, list, 1ULL)
         local state = guestscope.newTable(ctx)
+        -- The state is held while the buffer is made, which can collect.
+        guestscope.hold(ctx, values.TAG_OBJ | state)
         local buffer = guestscope.newTable(ctx)
+        guestscope.release(ctx)
         local h = guestHeap(ctx)
         storeAt(h, state, SORT_LIST, list)
         storeAt(h, state, SORT_LESS, less)
@@ -2187,6 +2236,8 @@ local function gsubBegin(ctx: voidptr, value: uint64, pv: uint64, fn: uint64, ma
         local p = stringArgument(ctx, pv, 2ULL)
         local limit = integerArgument(ctx, maxValue, native.index(strings.length(s)) + 1, 4ULL)
         local state = guestscope.newTable(ctx)
+        -- The state is held while the pieces table is made.
+        guestscope.hold(ctx, values.TAG_OBJ | state)
         local pieces = guestscope.newTable(ctx)
         local h = guestHeap(ctx)
         storeAt(h, state, GSUB_SUBJECT, value)
@@ -2279,6 +2330,8 @@ local function gsubStep(ctx: voidptr, value: uint64): uint64
                     -- The captures, or the whole match without any, as the
                     -- pack the function is called with.
                     local pack = guestscope.newTable(ctx)
+                    -- Held while its captures are made.
+                    guestscope.hold(ctx, values.TAG_OBJ | pack)
                     local level = patterns.level(ms)
                     if level == 0ULL then
                         packPut(
@@ -2331,7 +2384,9 @@ local function gsubFinish(ctx: voidptr, value: uint64, all: boolean): uint64
     @unsafe do
         local pack: uint64 = 0ULL
         if all then
+            -- Held while the strings it is given are made.
             pack = guestscope.newTable(ctx)
+            guestscope.hold(ctx, values.TAG_OBJ | pack)
         end
         local h = guestHeap(ctx)
         local st = value & values.PAYLOAD
@@ -2422,6 +2477,8 @@ local function packCopy(ctx: voidptr, packValue: uint64, named: boolean): uint64
         local pack = packValue & values.PAYLOAD
         local n = ints.bitsOf(tables.get(pack, values.TAG_INTEGER))
         local t = guestscope.newTable(ctx)
+        -- Held while its key strings are made.
+        guestscope.hold(ctx, values.TAG_OBJ | t)
         local i: uint64 = 1ULL
         while i <= n do
             if tables.set(

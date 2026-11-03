@@ -129,4 +129,16 @@ local answer = yields()
 if string.find(answer, "^vv ") ~= nil and string.find(answer, "attempt to yield across a C%-call boundary") ~= nil then
     score = score + 256
 end
+-- A comparator's sort over the proxy reads and writes it through the same
+-- metamethods.
+rawset(store, 1, "c")
+rawset(store, 2, "a")
+rawset(store, 3, "d")
+rawset(store, 4, "b")
+table.sort(proxy, function(x: string, y: string): boolean
+    return x > y
+end)
+if table.concat(store, ",") == "d,c,b,a" then
+    score = score + 512
+end
 export = score
