@@ -1,6 +1,7 @@
 module nupp.compiler.vm.coregraphcontracts
 
 local program = require("nupp.compiler.vm.programgraph")
+local graph = require("nupp.compiler.vm.graph")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local semantic = require("nupp.compiler.vm.coregraphverify")
 local cst = require("nupp.compiler.syntax.cst")
@@ -306,7 +307,7 @@ function contracts.normalize(compiled: any, version: integer?): any
                 type(binding) == "table"
                 and type(binding.definition) == "table"
                 and target ~= nil
-                and binding.definition.requiredModule == target.name,
+                and graph.coreModule(binding.definition.requiredModule) == target.name,
                 "checked import target or source identity differs"
             )
         end
@@ -333,7 +334,7 @@ function contracts.normalize(compiled: any, version: integer?): any
             and requireSite.node.runtimeLoader == "require"
             and p.requireByNode[requireSite.node] == requireSite
             and imported.target == first.chunk
-            and binding.definition.requiredModule == first.name,
+            and graph.coreModule(binding.definition.requiredModule) == first.name,
             "checked import target or source identity differs"
         )
         requiresites = {requireSite}

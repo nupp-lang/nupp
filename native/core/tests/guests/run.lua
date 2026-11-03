@@ -139,6 +139,8 @@ local CASES = {
     {"libraryvalues", 0x7FFF00000000003F},
     {"libraryproviders", 0x7FFF000000000003},
     {"textbuffer", 0x7FFF0000000007FF},
+    {"stringbuffer", 0x7FFF000000000003},
+    {"textfacade", 0x7FFF000000000003},
     {"modulesqualified", 0x7FFF0000000000E6},
     {"callsoverflow", 0x7FFF000000000003}
 }
@@ -173,7 +175,9 @@ local STRESS = {
     libraryspread = true,
     threadsiterate = true,
     threadsmeta = true,
-    textbuffer = true
+    textbuffer = true,
+    stringbuffer = true,
+    textfacade = true
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
@@ -253,6 +257,8 @@ local NUMERIC = {
     libraryvalues = "catalog-library-values",
     libraryproviders = "catalog-library-providers",
     textbuffer = "catalog-text-buffer",
+    stringbuffer = "catalog-string-buffer",
+    textfacade = "catalog-text-facade",
     modulesqualified = "catalog-modules-qualified",
     callsoverflow = "catalog-calls-overflow"
 }
@@ -479,7 +485,9 @@ local function stage()
             "catalog-modules-dynamic",
             "catalog-library-values",
             "catalog-library-providers",
-            "catalog-text-buffer"
+            "catalog-text-buffer",
+            "catalog-string-buffer",
+            "catalog-text-facade"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",

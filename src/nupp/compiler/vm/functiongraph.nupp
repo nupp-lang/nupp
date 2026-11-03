@@ -39,6 +39,9 @@ function frontend.compile(fn: any, options: any, profile: any): any
     -- behind a profile's back.
     local handles = {}
     local inlining, loops = {}, {}
+    -- The `do` expressions being lowered, innermost last: where a `yield`
+    -- in one jumps with its value.
+    local yields: {any} = {}
     -- Only an explicit profile opts into cleanup and failure control. Legacy
     -- profiles keep their existing graph operations and refusal boundaries.
     local cleanupEnabled = profile.cleanupPlan ~= nil
@@ -224,6 +227,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
     local jump: function(any, any): nil
     local currentEdge: function(any): any
     local expression: function(any, string?): integer?
+    local statements: function(any): nil
     local unwind: function(integer, any, string, any?): nil
     local registerCleanup: function(any, any, any, integer): nil
 
@@ -347,6 +351,20 @@ function frontend.compile(fn: any, options: any, profile: any): any
             complete(node.elseCase)
             resume(done)
             ctx.release(handle)
+            context()
+
+            return done.result
+        elseif node.kind == "doExpr" and node.body then
+            -- `do ... yield v ... end`: its statements run, and the `yield`
+            -- that runs gives the value.
+            need(not cleanupEnabled, "a do expression in a function owning values is not yet supported")
+            local resultKind = expected or profile.kind(node.inferredType)
+            local done = branch(resultKind)
+            yields[#yields + 1] = {done = done, kind = resultKind}
+            statements(node.body.stats)
+            yields[#yields] = nil
+            need(block == nil, "a do expression ends without a yield")
+            resume(done)
             context()
 
             return done.result
@@ -1008,8 +1026,6 @@ function frontend.compile(fn: any, options: any, profile: any): any
         return profile.declaration(ctx, call, target)
     end
 
-    local statements: function(any): nil
-
     local function inline(call: any, target: any, returns: boolean): nil
         need(not cleanupEnabled, "cleanup profiles require ordinary calls, not body inlining")
         context()
@@ -1552,6 +1568,15 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 end
                 loops[#loops] = nil
                 resume(exit)
+            elseif stat.kind == "yieldStmt" and #yields > 0 then
+                local target = yields[#yields]
+                local value = expression(need(stat.value, "a do expression's yield needs a value"), target.kind)
+                if block then
+                    local edge = currentEdge(target.done)
+                    table.insert(edge.args, 1, need(value, "a yield loses its value"))
+                    block.term = {kind = "jump", edges = {edge}, pos = position(stat)}
+                    block = nil
+                end
             elseif stat.kind == "breakStmt" or stat.kind == "continueStmt" then
                 local loop = need(loops[#loops], "loop transfer outside a checked loop")
                 if cleanupEnabled then
@@ -1590,7 +1615,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 else
                     invoke("exportStatement", stat, nil)
                 end
-            elseif stat.kind == "recordDecl" and profile.recordValue then
+            elseif stat.kind == "recordDecl" and stat.declKind ~= "interface" and profile.recordValue then
                 -- A record's name can hold a table of its methods.
                 invoke("erasedStatement", stat, nil)
                 local key = stat.name and stat.name.definition

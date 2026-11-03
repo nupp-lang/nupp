@@ -1826,6 +1826,15 @@ function graph.mayTakeLibraryValue(root: any): boolean
     return found
 end
 
+-- The image module the core answers a host module's `require` with: the
+-- portable FIFO buffer for `string.buffer`, until the heap's byte objects
+-- carry one. Any other name is its own.
+local coreModules: {[string]: string} = {["string.buffer"] = "nupp.runtime.provider.tablebuffer"}
+
+function graph.coreModule(name: string): string
+    return coreModules[name] or name
+end
+
 -- A `require` whose module the checker could not name: of a computed name,
 -- or of any name through `_G`. The core looks it up among the image's.
 function graph.dynamicRequire(call: any): boolean

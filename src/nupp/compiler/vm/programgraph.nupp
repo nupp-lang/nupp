@@ -399,7 +399,10 @@ function program.describe(modules: {any}, entryModule: string): any
     for _, b in ipairs(p.bindings) do
         local required = b.definition.requiredModule
         if required then
-            local target = need(moduleNames[required], "required checked module is missing: " .. required)
+            local target = need(
+                moduleNames[graph.coreModule(required)],
+                "required checked module is missing: " .. required
+            )
             p.imports[#p.imports + 1] = {binding = b.id, target = target.chunk}
         end
     end
@@ -691,12 +694,13 @@ function program.describe(modules: {any}, entryModule: string): any
             p.dynamicRequires = true
         end
         if loader then
-            local target = node.requiredModule and moduleNames[node.requiredModule]
+            local name = node.requiredModule and graph.coreModule(node.requiredModule)
+            local target = name and moduleNames[name]
             local item = {
                 id = #p.requires,
                 owner = owner.id,
                 node = node,
-                module = node.requiredModule,
+                module = name,
                 typeOnly = node.typeOnlyRequire == true,
                 target = target and target.chunk or nil
             }
@@ -928,7 +932,7 @@ function program.verify(p: any): boolean
             )
             need(
                 p.requireByNode[node] == item
-                and item.module == node.requiredModule
+                and item.module == (node.requiredModule and graph.coreModule(node.requiredModule))
                 and item.typeOnly == (node.typeOnlyRequire == true),
                 "require callsite metadata mismatch"
             )
@@ -1053,7 +1057,7 @@ function program.verify(p: any): boolean
         local b = need(p.bindings[imported.binding + 1], "invalid import binding")
         local target = need(p.owners[imported.target + 1], "invalid import initializer")
         need(
-            target.kind == "module" and b.definition.requiredModule == target.scope.name,
+            target.kind == "module" and graph.coreModule(b.definition.requiredModule) == target.scope.name,
             "checked import target mismatch"
         )
     end

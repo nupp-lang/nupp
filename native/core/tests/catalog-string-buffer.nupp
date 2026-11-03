@@ -1,0 +1,14 @@
+module nupp.core.catalogstringbuffer
+
+const buffer = require("string.buffer")
+
+local b = buffer.new()
+b:put("a", 1):put("b")
+local score = 0
+if b:tostring() == "a1b" then
+    score = score + 1
+end
+if b:get(2) == "a1" and #b == 1 then
+    score = score + 2
+end
+export = score

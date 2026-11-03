@@ -116,6 +116,22 @@ local CASES: {[string]: {
     modulesqualified = {fixture = "catalog-modules-qualified", version = 8, modules = {"catalog-atlas-geometry"},},
     libraryvalues = {fixture = "catalog-library-values", version = 8},
     libraryproviders = {fixture = "catalog-library-providers", version = 8, modules = {"src/nupp/runtime/packages"},},
+    textfacade = {
+        fixture = "catalog-text-facade",
+        version = 8,
+        modules = {
+            "src/nupp/text/init",
+            "src/package/nupp/init",
+            "src/nupp/runtime/packages",
+            "src/nupp/runtime/provider/nativebuffer",
+            "src/nupp/runtime/provider/tablebuffer"
+        },
+    },
+    stringbuffer = {
+        fixture = "catalog-string-buffer",
+        version = 8,
+        modules = {"src/nupp/runtime/provider/tablebuffer"},
+    },
     textbuffer = {fixture = "catalog-text-buffer", version = 8, modules = {"src/nupp/runtime/provider/tablebuffer"},},
     modulesdynamic = {fixture = "catalog-modules-dynamic", version = 8, modules = {"catalog-modules-geometry"},},
     modulescycle = {

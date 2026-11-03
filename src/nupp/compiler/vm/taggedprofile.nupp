@@ -341,6 +341,15 @@ local function typeKind(t: any): string
     return t and t.tag or "missing"
 end
 
+-- Whether a value of type `t` is an interface's: a table its fields are
+-- read from by name.
+local function interfaceType(t: any): boolean
+    while t and (t.tag == "literal" or t.tag == "const") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    return t ~= nil and t.tag == "nominal" and t.declKind == "interface"
+end
+
 local function numberType(t: any): boolean
     local kind = typeKind(t)
     return kind == "number" or kind == "float64"
@@ -1097,6 +1106,10 @@ function tagged.erasedPattern(ctx: any, stat: any): nil
 end
 
 function tagged.erasedStatement(ctx: any, stat: any): nil
+    -- An interface declares a type only, and has no value.
+    if stat.kind == "recordDecl" and stat.declKind == "interface" then
+        return
+    end
     if stat.kind == "recordDecl" then
         -- A record of fields declares a type only; its values are built where
         -- they are constructed. Methods in its body are stored on the table its
@@ -1695,6 +1708,7 @@ function tagged.forVersion(version: integer): any
                     or tag == "shape"
                     or tag == "typeobject"
                     or tag == "any"
+                    or interfaceType(node.obj.inferredType)
                 )
                 and node.name ~= nil
             if slot == nil and not plain then
@@ -1722,6 +1736,7 @@ function tagged.forVersion(version: integer): any
                         or tag == "shape"
                         or tag == "typeobject"
                         or tag == "any"
+                        or interfaceType(node.obj.inferredType)
                     )
                     and node.name ~= nil
                 need(slot ~= nil or plain, "only record and table field assignment is admitted")
