@@ -156,7 +156,10 @@ end
     assert(overview:find('title="Record">R</abbr>', 1, true), overview)
     assert(overview:find('title="Type alias">T</abbr>', 1, true), overview)
     assert(not markdown:find("| Name | Kind | Description |", 1, true), "member overview still uses a table")
-    local rendered = require("nupp.tools.doc.html").markdownHtml(overview)
+    assert(markdown:find(overview .. "\n\n---\n", 1, true), "member overview needs a separator")
+    local rendered = require("nupp.tools.doc.html").markdownHtml(markdown)
+    local _, separators = rendered:gsub("<hr%s*/?>", "")
+    assert(separators == 2, "root and nested type overviews each need one separator")
     assert(
         rendered:find('class="nuppdoc-overview nuppdoc-overview-2"', 1, true),
         "nine members must use the shared two-column layout"

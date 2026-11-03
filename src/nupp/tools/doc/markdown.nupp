@@ -211,6 +211,7 @@ local function markdownMemberSummary(out, members, heading, title, path)
         overview[#overview + 1] = {title = group.title, entries = entries}
     end
     out[#out + 1] = markdown.overview(overview, heading, title or "Members")
+    out[#out + 1] = "---\n"
 end
 
 -- Every member of a declaration, in the order it was written, each under a sub-heading
