@@ -209,6 +209,10 @@
   border-top: 1px solid var(--nuppdoc-border);
 }
 
+.nuppdoc-home-content hr {
+  mask-image: linear-gradient(to right, transparent, black 25%, black 75%, transparent);
+}
+
 .nuppdoc-home-hero + h2 {
   /* The playground toolbar sits 2rem above its editor. Include that offset
    * so the heading keeps a visible 1rem gap instead of touching the toolbar. */
@@ -363,6 +367,10 @@
   margin-top: 2.5rem;
   padding-top: 2.5rem;
   border-top: 2px solid var(--nuppdoc-border);
+}
+
+.nuppdoc-home-content .nuppdoc-columns {
+  border-image: linear-gradient(to right, transparent, var(--nuppdoc-border) 25%, var(--nuppdoc-border) 75%, transparent) 1;
 }
 
 .nuppdoc-column {
