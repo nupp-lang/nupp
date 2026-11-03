@@ -1713,6 +1713,15 @@ end
 local coreLibrary: {[string]: boolean} = {
     ["math.floor"] = true,
     ["math.f32.narrow"] = true,
+    ["storagecalls.allocate"] = true,
+    ["storagecalls.allocbytes"] = true,
+    ["storagecalls.view"] = true,
+    ["storagecalls.copy"] = true,
+    ["storagecalls.fill"] = true,
+    ["storagecalls.text"] = true,
+    ["storagecalls.fromstring"] = true,
+    ["storagecalls.elements"] = true,
+    ["storagecalls.elementkind"] = true,
     ["math.u32.wrap"] = true,
     ["math.i32.wrap"] = true,
     assert = true,
@@ -1863,6 +1872,15 @@ function graph.mayTakeLibraryValue(root: any): boolean
     return found
 end
 
+-- The declaration modules whose functions the core implements as library
+-- calls: a call of one is that call, and requiring the module loads
+-- nothing.
+local corecallmodules: {[string]: string} = {["nupp.runtime.storagecalls"] = "storagecalls"}
+
+function graph.corecallmodule(name: string?): boolean
+    return name ~= nil and corecallmodules[name] ~= nil
+end
+
 -- The image module the core answers a host module's `require` with: the
 -- portable FIFO buffer for `string.buffer`, until the heap's byte objects
 -- carry one, and the portable BitOp library for `bit`. Any other name is
@@ -1944,6 +1962,19 @@ function graph.coreLibraryCall(call: any): string?
     then
         -- A library's nested table: `math.f32.narrow`.
         name = call.obj.obj.obj.token.text .. "." .. call.obj.obj.name.text .. "." .. call.obj.name.text
+    elseif call
+        and call.kind == "call"
+        and call.obj
+        and call.obj.kind == "dotIndex"
+        and call.obj.name
+        and call.obj.obj
+        and call.obj.obj.kind == "name"
+        and call.obj.obj.token
+        and call.obj.obj.token.definition
+        and corecallmodules[call.obj.obj.token.definition.requiredModule or ""] ~= nil
+    then
+        -- A core call module's function: `calls.allocbytes(n)`.
+        name = tostring(corecallmodules[call.obj.obj.token.definition.requiredModule]) .. "." .. call.obj.name.text
     elseif call and call.kind == "call" and call.obj and call.obj.namespacePath == "math.random" then
         -- `math.random` is also a standard module path, which the checker
         -- resolves as one: its root is then not the prelude's name.

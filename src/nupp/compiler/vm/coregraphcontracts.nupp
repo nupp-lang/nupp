@@ -276,7 +276,8 @@ function contracts.normalize(compiled: any, version: integer?): any
         local loading = {}
         for _, site in ipairs(p.requires) do
             if not (
-                type(site) == "table" and site.typeOnly and type(site.node) == "table" and site.node.typeOnlyRequire
+                type(site) == "table"
+                and (site.typeOnly and type(site.node) == "table" and site.node.typeOnlyRequire or site.corecalls)
             ) then
                 loading[#loading + 1] = site
             end

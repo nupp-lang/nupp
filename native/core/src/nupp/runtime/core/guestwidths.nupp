@@ -9,6 +9,7 @@ const context = require("nupp.runtime.core.context")
 const ints = require("nupp.runtime.core.coreintegers")
 const guestscope = require("nupp.runtime.core.guestscope")
 const guestlib = require("nupp.runtime.core.guestlib")
+const corestorage = require("nupp.runtime.core.corestorage")
 const texts = require("nupp.runtime.core.guesttexts")
 
 -- math.f32.narrow(x): x rounded to the nearest binary32 value.
@@ -18,55 +19,10 @@ export const LIB_NARROW: uint64 = 91ULL
 export const LIB_U32WRAP: uint64 = 92ULL
 export const LIB_I32WRAP: uint64 = 93ULL
 
--- A binary64's bits rounded to the nearest binary32 value, ties to even,
--- as binary64 bits: past binary32's range is infinity, below its least
--- subnormal zero, and infinities and NaN are as they are.
-local function narrow(bits: uint64): uint64
-    local sign = bits & 0x8000000000000000ULL
-    local magnitude = bits & 0x7fffffffffffffffULL
-    local exponent = magnitude >> 52ULL
-    if exponent == 0x7ffULL then
-        return bits
-    end
-    -- Normal in binary32 (biased exponents 897 to 1150): 29 bits dropped.
-    if exponent >= 897ULL then
-        local kept = magnitude >> 29ULL
-        local lower = magnitude & 0x1fffffffULL
-        if lower > 0x10000000ULL or lower == 0x10000000ULL and kept & 1ULL == 1ULL then
-            kept = kept + 1ULL
-        end
-        local rounded = kept << 29ULL
-        if rounded >> 52ULL > 1150ULL then
-            return sign | 0x7ff0000000000000ULL
-        end
-        return sign | rounded
-    end
-    -- Subnormal in binary32: the significand counted in units of 2^-149.
-    local significand = magnitude & 0x000fffffffffffffULL
-    if exponent ~= 0ULL then
-        significand = significand | 0x0010000000000000ULL
-    end
-    local shift = 926ULL - exponent
-    if exponent == 0ULL or shift > 54ULL then
-        return sign
-    end
-    local units = significand >> shift
-    local lower = significand & ((1ULL << shift) - 1ULL)
-    local half = 1ULL << (shift - 1ULL)
-    if lower > half or lower == half and units & 1ULL == 1ULL then
-        units = units + 1ULL
-    end
-    if units == 0ULL then
-        return sign
-    end
-
-    return sign | native.bits(native.fromBits(ints.toFloatBits(units)) * native.fromBits(0x36a0000000000000ULL))
-end
-
 -- The call `id` makes of `a`.
 export function call(ctx: voidptr, id: uint64, a: uint64): uint64
     if id == LIB_NARROW then
-        return guestlib.floatValue(narrow(guestlib.floatOf(guestlib.numberArgument(ctx, a, 1ULL))))
+        return guestlib.floatValue(corestorage.narrow(guestlib.floatOf(guestlib.numberArgument(ctx, a, 1ULL))))
     end
     if a == values.NIL then
         texts.argumentError(ctx, 1ULL, texts.TEXT_NUMBER, 0ULL, a)

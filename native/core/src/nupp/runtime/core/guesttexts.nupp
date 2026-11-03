@@ -119,6 +119,8 @@ export const TEXT_LENGTH_INTEGER: uint64 = 105ULL
 export const TEXT_YIELD_ACROSS: uint64 = 106ULL
 export const NAME_REQUIRE: uint64 = 107ULL
 export const TEXT_ASSERTION: uint64 = 108ULL
+export const TEXT_NUMBER_EXPECTED: uint64 = 109ULL
+export const TEXT_STORAGE: uint64 = 110ULL
 
 export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
     if id == TEXT_BAD then
@@ -517,6 +519,13 @@ export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64
     elseif id == NAME_REQUIRE then
         -- "require"
         return strings.appendWord(h, b, 0x65726975716572ULL, 7ULL)
+    elseif id == TEXT_STORAGE then
+        -- "storage"
+        return strings.appendWord(h, b, 0x656761726f7473ULL, 7ULL)
+    elseif id == TEXT_NUMBER_EXPECTED then
+        -- "number expected"
+        return strings.appendWord(h, b, 0x65207265626d756eULL, 8ULL)
+            | strings.appendWord(h, b, 0x64657463657078ULL, 7ULL)
     elseif id == TEXT_ASSERTION then
         -- "assertion failed!"
         return strings.appendWord(h, b, 0x6f69747265737361ULL, 8ULL)

@@ -1,0 +1,39 @@
+@!internal
+
+--- The native core's storage operations. A call of one is the core's own
+--- library call, and requiring this module loads nothing: it exists only on
+--- the core, for the storage provider written over it.
+local record storagecalls
+    --- New zeroed storage of `count` elements of `kind`: 1 through 10 are
+    --- uint8, int8, uint16, int16, uint32, int32, uint64, int64, float32 and
+    --- float64.
+    allocate: function(kind: integer, count: integer): any
+
+    --- New zeroed storage of `count` bytes.
+    allocbytes: function(count: integer): uint8[?]
+
+    --- A view of `storage`'s bytes from byte `offset`, as `count` elements
+    --- of `kind` (as many as fit when omitted), keeping the storage alive.
+    view: function(storage: any, kind: integer, offset: integer, count: integer?): any
+
+    --- Copies `count` bytes of `source`, storage or a string, into `target`.
+    copy: function(target: any, source: any, count: integer): nil
+
+    --- Sets `count` bytes of `target` to `byte`.
+    fill: function(target: any, count: integer, byte: integer): nil
+
+    --- The first `count` bytes of `storage` as a string.
+    text: function(storage: any, count: integer): string
+
+    --- New byte storage holding a copy of `s`.
+    fromstring: function(s: string): uint8[?]
+
+    --- How many elements `storage` holds.
+    elements: function(storage: any): integer
+
+    --- The kind of `storage`'s elements.
+    elementkind: function(storage: any): integer
+end
+
+local calls: storagecalls
+return calls

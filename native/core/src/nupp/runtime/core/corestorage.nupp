@@ -1,0 +1,345 @@
+module nupp.runtime.core.corestorage
+
+-- Typed storage on the guest heap: a KIND_BYTES object holding `count`
+-- elements of one scalar kind, zero-based, in word backing outside the
+-- collected heap. The header's aux is the element kind, auxPtr the bytes
+-- and auxLen the element count. It holds no references, so the collector
+-- traces nothing in it, and `coretables.drain` gives its backing back.
+--
+-- A view of storage is a KIND_SLICE with the same header fields, its
+-- auxPtr into the storage it views, and that storage in its first body word,
+-- which the collector traces: a view keeps its storage alive. Elements read
+-- and write the same through either.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const backing = require("nupp.runtime.vm.backing")
+const values = require("nupp.runtime.vm.values")
+const ints = require("nupp.runtime.core.coreintegers")
+
+-- The element kinds.
+export const UINT8: uint64 = 1ULL
+export const INT8: uint64 = 2ULL
+export const UINT16: uint64 = 3ULL
+export const INT16: uint64 = 4ULL
+export const UINT32: uint64 = 5ULL
+export const INT32: uint64 = 6ULL
+export const UINT64: uint64 = 7ULL
+export const INT64: uint64 = 8ULL
+export const FLOAT32: uint64 = 9ULL
+export const FLOAT64: uint64 = 10ULL
+
+-- An element's bytes, or 0 for no kind.
+export function elementwidth(kind: uint64): uint64
+    if kind == UINT8 or kind == INT8 then
+        return 1ULL
+    elseif kind == UINT16 or kind == INT16 then
+        return 2ULL
+    elseif kind == UINT32 or kind == INT32 or kind == FLOAT32 then
+        return 4ULL
+    elseif kind == UINT64 or kind == INT64 or kind == FLOAT64 then
+        return 8ULL
+    end
+
+    return 0ULL
+end
+
+-- Whether `value` is storage or a view of it.
+export function isstorage(value: uint64): boolean
+    if value & values.TAG_MASK ~= values.TAG_OBJ or value & values.PAYLOAD == 0ULL then
+        return false
+    end
+    @unsafe do
+        local o = native.pointer(value & values.PAYLOAD) as heap.Header*
+        return o.kind as uint64 == heap.KIND_BYTES or o.kind as uint64 == heap.KIND_SLICE
+    end
+end
+
+-- A view of `source`'s bytes from byte `offset`, as `n` elements of `kind`;
+-- 0 when there is no room. The caller keeps `source` reachable, and checks
+-- that the view lies inside it.
+export function newview(h: heap.Heap*, source: uint64, kind: uint64, offset: uint64, n: uint64): uint64
+    @unsafe do
+        local from = native.pointer(source) as heap.Header*
+        local owner = source
+        if from.kind as uint64 == heap.KIND_SLICE then
+            owner = native.load64(native.pointer(source + heap.HEADER_BYTES), 0) & values.PAYLOAD
+        end
+        local at = from.auxPtr + offset
+        local o = collector.allocate(h, heap.KIND_SLICE, native.sizeOf<heap.SliceBody>())
+        local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
+        native.store64(body, 0, values.TAG_OBJ | owner)
+        native.store64(body, 8, 0ULL)
+        native.store32(o as voidptr, native.fieldOffset<heap.Header>("aux"), native.index(kind))
+        o.auxPtr = at
+        o.auxLen = n
+        collector.initialized(h, o)
+
+        return native.address(o as voidptr)
+    end
+end
+
+-- Copies `n` bytes from `source` to `target`, which may overlap.
+export function copybytes(target: uint64, source: uint64, n: uint64): nil
+    @unsafe do
+        local to = native.pointer(target)
+        local from = native.pointer(source)
+        if target <= source then
+            local i: uint64 = 0ULL
+            while i < n do
+                native.store8(to, native.index(i), native.word(native.load8(from, native.index(i))))
+                i = i + 1ULL
+            end
+        else
+            local i = n
+            while i > 0ULL do
+                i = i - 1ULL
+                native.store8(to, native.index(i), native.word(native.load8(from, native.index(i))))
+            end
+        end
+    end
+end
+
+-- Sets `n` bytes at `target` to `byte`.
+export function fillbytes(target: uint64, n: uint64, byte: uint64): nil
+    @unsafe do
+        local to = native.pointer(target)
+        local i: uint64 = 0ULL
+        while i < n do
+            native.store8(to, native.index(i), byte & 0xffULL)
+            i = i + 1ULL
+        end
+    end
+end
+
+export function elementkind(object: uint64): uint64
+    @unsafe do
+        return native.word(native.load32(native.pointer(object), native.fieldOffset<heap.Header>("aux")))
+    end
+end
+
+export function elementcount(object: uint64): uint64
+    @unsafe do
+        return (native.pointer(object) as heap.Header*).auxLen
+    end
+end
+
+export function storagebase(object: uint64): uint64
+    @unsafe do
+        return (native.pointer(object) as heap.Header*).auxPtr
+    end
+end
+
+-- The bytes `object`'s elements span.
+export function bytelength(object: uint64): uint64
+    return elementcount(object) * elementwidth(elementkind(object))
+end
+
+-- New zeroed storage of `n` elements of `kind`; 0 when its bytes cannot
+-- be had.
+export function newstorage(h: heap.Heap*, kind: uint64, n: uint64): uint64
+    local bytes = elementwidth(kind)
+    if bytes == 0ULL or n > 0x0000ffffffffffffULL // bytes then
+        return 0ULL
+    end
+    local words = (n * bytes + 7ULL) // 8ULL
+    local data: uint64 = 0ULL
+    if words > 0ULL then
+        data = backing.wordBackingTake(h, words)
+        if data == 0ULL then
+            return 0ULL
+        end
+        @unsafe do
+            local i: uint64 = 0ULL
+            while i < words do
+                native.store64(native.pointer(data), native.index(i * 8ULL), 0ULL)
+                i = i + 1ULL
+            end
+        end
+    end
+    @unsafe do
+        local o = collector.allocate(h, heap.KIND_BYTES, 0ULL)
+        native.store32(o as voidptr, native.fieldOffset<heap.Header>("aux"), native.index(kind))
+        o.auxPtr = data
+        o.auxLen = n
+        collector.initialized(h, o)
+
+        return native.address(o as voidptr)
+    end
+end
+
+-- Gives a retired storage object's bytes back; a view has none of its own.
+export function releasestorage(o: heap.Header*): nil
+    if o.auxPtr ~= 0ULL then
+        backing.wordBackingRelease(o.auxPtr)
+        o.auxPtr = 0ULL
+    end
+end
+
+-- A binary64's bits rounded to the nearest binary32 value, ties to even,
+-- as binary64 bits: past binary32's range is infinity, below its least
+-- subnormal zero, and infinities and NaN are as they are.
+export function narrow(bits: uint64): uint64
+    local sign = bits & 0x8000000000000000ULL
+    local magnitude = bits & 0x7fffffffffffffffULL
+    local exponent = magnitude >> 52ULL
+    if exponent == 0x7ffULL then
+        return bits
+    end
+    -- Normal in binary32 (biased exponents 897 to 1150): 29 bits dropped.
+    if exponent >= 897ULL then
+        local kept = magnitude >> 29ULL
+        local lower = magnitude & 0x1fffffffULL
+        if lower > 0x10000000ULL or lower == 0x10000000ULL and kept & 1ULL == 1ULL then
+            kept = kept + 1ULL
+        end
+        local rounded = kept << 29ULL
+        if rounded >> 52ULL > 1150ULL then
+            return sign | 0x7ff0000000000000ULL
+        end
+        return sign | rounded
+    end
+    -- Subnormal in binary32: the significand counted in units of 2^-149.
+    local significand = magnitude & 0x000fffffffffffffULL
+    if exponent ~= 0ULL then
+        significand = significand | 0x0010000000000000ULL
+    end
+    local shift = 926ULL - exponent
+    if exponent == 0ULL or shift > 54ULL then
+        return sign
+    end
+    local units = significand >> shift
+    local lower = significand & ((1ULL << shift) - 1ULL)
+    local half = 1ULL << (shift - 1ULL)
+    if lower > half or lower == half and units & 1ULL == 1ULL then
+        units = units + 1ULL
+    end
+    if units == 0ULL then
+        return sign
+    end
+
+    return sign | native.bits(native.fromBits(ints.toFloatBits(units)) * native.fromBits(0x36a0000000000000ULL))
+end
+
+-- A binary32's bits as the binary64 bits of the same value.
+local function widen(bits: uint64): uint64
+    local sign = (bits & 0x80000000ULL) << 32ULL
+    local exponent = (bits >> 23ULL) & 0xffULL
+    local fraction = bits & 0x7fffffULL
+    if exponent == 0xffULL then
+        return sign | 0x7ff0000000000000ULL | (fraction << 29ULL)
+    end
+    if exponent == 0ULL then
+        if fraction == 0ULL then
+            return sign
+        end
+        -- Subnormal: fraction * 2^-149, exact in binary64.
+        return sign | native.bits(native.fromBits(ints.toFloatBits(fraction)) * native.fromBits(0x36a0000000000000ULL))
+    end
+
+    return sign | ((exponent + 896ULL) << 52ULL) | (fraction << 29ULL)
+end
+
+-- A binary64's bits, already a binary32 value (`narrow`'s), as binary32
+-- bits.
+local function shorten(bits: uint64): uint64
+    local sign = (bits >> 32ULL) & 0x80000000ULL
+    local exponent = (bits >> 52ULL) & 0x7ffULL
+    local fraction = bits & 0x000fffffffffffffULL
+    if exponent == 0x7ffULL then
+        if fraction ~= 0ULL then
+            return sign | 0x7fc00000ULL
+        end
+        return sign | 0x7f800000ULL
+    end
+    if exponent >= 897ULL then
+        return sign | ((exponent - 896ULL) << 23ULL) | (fraction >> 29ULL)
+    end
+    if exponent == 0ULL then
+        return sign
+    end
+    -- Subnormal in binary32: the value in units of 2^-149.
+    local significand = fraction | 0x0010000000000000ULL
+    local shift = 926ULL - exponent
+    if shift > 63ULL then
+        return sign
+    end
+
+    return sign | (significand >> shift)
+end
+
+-- The element at `index` as a value, an integer that does not fit inline
+-- made on `h`. Answers values.TRUE when the index is outside the storage.
+export function readelement(h: heap.Heap*, object: uint64, index: uint64): uint64
+    @unsafe do
+        local o = native.pointer(object) as heap.Header*
+        if index >= o.auxLen then
+            return values.TRUE
+        end
+        local kind = o.aux as uint64
+        local at = native.pointer(o.auxPtr)
+        local offset = native.index(index * elementwidth(kind))
+        if kind == UINT8 then
+            return values.TAG_INTEGER | native.word(native.load8(at, offset))
+        elseif kind == INT8 then
+            local b = native.word(native.load8(at, offset))
+            if b >= 0x80ULL then
+                b = b | 0xffffffffffffff00ULL
+            end
+            return ints.make(h, b)
+        elseif kind == UINT16 or kind == INT16 then
+            local b = native.word(native.load8(at, offset)) | (native.word(native.load8(at, offset + 1)) << 8ULL)
+            if kind == INT16 and b >= 0x8000ULL then
+                b = b | 0xffffffffffff0000ULL
+            end
+            return ints.make(h, b)
+        elseif kind == UINT32 or kind == INT32 or kind == FLOAT32 then
+            local b: uint64 = 0ULL
+            local i: int64 = 3
+            while i >= 0 do
+                b = (b << 8ULL) | native.word(native.load8(at, offset + i))
+                i = i - 1
+            end
+            if kind == FLOAT32 then
+                return widen(b)
+            end
+            if kind == INT32 and b >= 0x80000000ULL then
+                b = b | 0xffffffff00000000ULL
+            end
+            return ints.make(h, b)
+        end
+        local b = native.load64(at, offset)
+        if kind == FLOAT64 then
+            return b
+        end
+
+        return ints.make(h, b)
+    end
+end
+
+-- Stores `bits` (an integer's two's complement, or a float's binary64 bits
+-- for the float kinds) as the element at `index`. Answers 1 when the index
+-- is outside the storage.
+export function writeelement(object: uint64, index: uint64, bits: uint64): uint64
+    @unsafe do
+        local o = native.pointer(object) as heap.Header*
+        if index >= o.auxLen then
+            return 1ULL
+        end
+        local kind = o.aux as uint64
+        local size = elementwidth(kind)
+        local at = native.pointer(o.auxPtr)
+        local offset = native.index(index * size)
+        local word = bits
+        if kind == FLOAT32 then
+            word = shorten(narrow(bits))
+        end
+        local i: uint64 = 0ULL
+        while i < size do
+            native.store8(at, offset + native.index(i), (word >> (i * 8ULL)) & 0xffULL)
+            i = i + 1ULL
+        end
+
+        return 0ULL
+    end
+end

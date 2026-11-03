@@ -19,6 +19,7 @@ const threads = require("nupp.runtime.core.threads")
 const guestio = require("nupp.runtime.core.guestio")
 const basics = require("nupp.runtime.core.guestbasics")
 const widths = require("nupp.runtime.core.guestwidths")
+const corestorage = require("nupp.runtime.core.corestorage")
 const modules = require("nupp.runtime.core.modules")
 const texts = require("nupp.runtime.core.guesttexts")
 
@@ -467,6 +468,21 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     local result = arithmetic(ADD, left, right)
     if result == values.NIL then
         result = wideResult(ctx, ADD, left, right)
+    end
+    -- Storage plus a count of elements is a view from there on.
+    if result == values.TRUE and corestorage.isstorage(left) then
+        local view = basics.storageoffset(ctx, left, right)
+        if view == values.TRUE then
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return native.fail()
+        end
+        slots.writeValue(frame, regs, dst, view)
+        local after = ops.branch(ctx, frame, pc, 0)
+        if after == 0ULL then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
     -- Arithmetic on a non-number calls a table operand's metamethod, or is a
     -- guest error, as Lua raises one.
@@ -1227,6 +1243,21 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         return native.fail()
     end
     local header = tableHeader(slots.readValue(frame, regs, object))
+    if header == 0ULL and corestorage.isstorage(slots.readValue(frame, regs, object)) then
+        -- Storage's element at a zero-based index.
+        local element = basics.storageget(ctx, slots.readValue(frame, regs, object), slots.readValue(frame, regs, key))
+        if element == values.TRUE then
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return native.fail()
+        end
+        slots.writeValue(frame, regs, dst, element)
+        local after = ops.branch(ctx, frame, pc, 0)
+        if after == 0ULL then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
+    end
     if header == 0ULL then
         guestscope.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
@@ -1281,6 +1312,23 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         return native.fail()
     end
     local header = tableHeader(slots.readValue(frame, regs, object))
+    if header == 0ULL and corestorage.isstorage(slots.readValue(frame, regs, object)) then
+        if basics.storageset(
+            ctx,
+            slots.readValue(frame, regs, object),
+            slots.readValue(frame, regs, key),
+            slots.readValue(frame, regs, src)
+        ) ~= 0ULL then
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return native.fail()
+        end
+        local after = ops.branch(ctx, frame, pc, 0)
+        if after == 0ULL then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
+    end
     if header == 0ULL then
         guestscope.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
@@ -1661,6 +1709,12 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, guestio.write(ctx, a))
     elseif libraryId >= widths.LIB_NARROW and libraryId <= widths.LIB_I32WRAP then
         slots.writeValue(frame, regs, dst, widths.call(ctx, libraryId, a))
+    elseif libraryId == basics.LIB_ALLOCBYTES then
+        slots.writeValue(frame, regs, dst, basics.allocate(ctx, values.TAG_INTEGER | corestorage.UINT8, a))
+    elseif libraryId == basics.LIB_ALLOCATE then
+        slots.writeValue(frame, regs, dst, basics.allocate(ctx, a, b))
+    elseif libraryId >= basics.LIB_VIEW and libraryId <= basics.LIB_ELEMENTKIND then
+        slots.writeValue(frame, regs, dst, basics.storagecall(ctx, libraryId, native.word(count), a, b, c, d))
     elseif libraryId == basics.LIB_NEXT or libraryId == basics.LIB_NEXT_ALL then
         guestscope.nameLibrary(ctx, texts.NAME_NEXT)
         local after = values.NIL

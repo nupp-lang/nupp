@@ -420,7 +420,7 @@ function program.describe(modules: {any}, entryModule: string): any
 
     for _, b in ipairs(p.bindings) do
         local required = b.definition.requiredModule
-        if required then
+        if required and not graph.corecallmodule(required) then
             local target = need(
                 moduleNames[graph.coremodule(required)],
                 "required checked module is missing: " .. required
@@ -745,6 +745,8 @@ function program.describe(modules: {any}, entryModule: string): any
                 typeOnly = node.typeOnlyRequire == true,
                 target = target and target.chunk or nil
             }
+            -- A core call module loads nothing; its binding is nil.
+            item.corecalls = graph.corecallmodule(node.requiredModule) or nil
             p.requires[#p.requires + 1], p.requireByNode[node] = item, item
         end
         local intrinsic = node.kind == "call" and node.ownershipIntrinsic
