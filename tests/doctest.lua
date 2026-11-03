@@ -3104,6 +3104,9 @@ function M.markdownLinksNestedModulesAndReferences()
                 "[](engine.Engine).",
                 "]]",
                 "",
+                "--- Starts the engine.",
+                "function start(): nil end",
+                "",
                 "--- A running engine.",
                 "record Engine",
                 "   running: boolean",
@@ -3119,6 +3122,10 @@ function M.markdownLinksNestedModulesAndReferences()
     -- one document holds every module, so every reference in it resolves
     assert(api:find('<a id="engine"></a>', 1, true), api)
     assert(api:find("**Submodules**", 1, true), api)
+    assert(
+        assert(api:find("**Functions**", 1, true)) < assert(api:find("**Submodules**", 1, true)),
+        "functions must precede submodules in the module overview"
+    )
     assert(api:find("[`audio`](#engine.audio)", 1, true), api)
     assert(api:find("[`engine.audio`](#engine.audio), and a run holds one", 1, true), api)
     assert(api:find("[`engine.Engine`](#engine.Engine)", 1, true), api)
@@ -4824,6 +4831,10 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
         assert(page.markdown:find("\n## " .. section .. "\n", 1, true), "no section for " .. section)
     end
     assert(page.markdown:find("**Modules**", 1, true), "no modules overview")
+    assert(
+        assert(page.markdown:find("**Functions**", 1, true)) < assert(page.markdown:find("**Modules**", 1, true)),
+        "functions must precede modules in the main API overview"
+    )
     -- Library declarations live on their module page; this page retains index links.
     assert(page.markdown:find("[`string`](../modules/string/index.html)", 1, true))
     assert(not page.markdown:find("### `string.format`", 1, true), "library documentation duplicated in its index")

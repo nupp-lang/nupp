@@ -306,9 +306,13 @@ function markdown.overview(groups: {{
     title: string,
     entries: {string}
 }}): string
+    local ordered = {}
+    for _, group in ipairs(groups) do
+        table.insert(ordered, group.title == "Functions" and 1 or #ordered + 1, group)
+    end
     local out = {"## Overview", "", "::: api-overview"}
     local count = 0
-    for _, group in ipairs(groups) do
+    for _, group in ipairs(ordered) do
         if #group.entries > 0 then
             out[#out + 1] = "**" .. group.title .. "**"
             out[#out + 1] = ""
