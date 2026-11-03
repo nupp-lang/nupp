@@ -318,7 +318,7 @@ local function runtimeLinkFixture(path, checked)
 end
 
 function M.recursivelyStagedRuntimeSourcesRemainCompilerOwned()
-    local context = runtimeLinkFixture("build/cache/runtime-source/assert/init.nupp", false)
+    local context = runtimeLinkFixture("build/cache/runtime-source/assert.nupp", false)
     modules.linkPackagedRuntime("assert", context)
     testAssert.eq(context.packaged.assert, true, "recursively carried source belongs to the compiler")
     testAssert.eq(context.linked.assert, true)
@@ -326,7 +326,7 @@ function M.recursivelyStagedRuntimeSourcesRemainCompilerOwned()
 end
 
 function M.lateRuntimeLinkingUpdatesAnExistingRecord()
-    local context = runtimeLinkFixture("build/cache/runtime-source/assert/init.nupp", true)
+    local context = runtimeLinkFixture("build/cache/runtime-source/assert.nupp", true)
     modules.linkPackagedRuntime("assert", context)
     testAssert.deepeq(context.records.assert, {
         interfaceHash = "checked",
@@ -336,7 +336,7 @@ function M.lateRuntimeLinkingUpdatesAnExistingRecord()
 end
 
 function M.authoredSourcesAreNotClaimedAsCompilerRuntime()
-    for _, path in ipairs({"src/assert.nupp", "build/cache/runtime-source-other/assert/init.nupp"}) do
+    for _, path in ipairs({"src/assert.nupp", "build/cache/runtime-source-other/assert.nupp"}) do
         local context = runtimeLinkFixture(path, false)
         context.stage = function()
             error("an authored source must not be staged")

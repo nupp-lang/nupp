@@ -169,7 +169,7 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         ["io.http.spi"] = "/io/http/spi.nupp",
         ["io.net"] = "/io/net/init.nupp",
         ["io.net.spi"] = "/io/net/spi.nupp",
-        ["io.cli"] = "/io/cli/init.nupp",
+        ["io.cli"] = "/io/cli.nupp",
         ["io.net.internal.tls"] = "/io/net/internal/tls.nupp",
         ["nupp.runtime.standardcoroutine"] = "/nupp/runtime/standardcoroutine.nupp",
     }

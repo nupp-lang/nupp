@@ -243,7 +243,7 @@ local callable = {eq = equal, ne = notEqual, deepeq = deepEqual, matches = match
 callable.suite = suite
 export = setmetatable(callable, {__call = original})
 ]]
-    local module, errors = doc.extract(source, "src/assert/init.nupp", "assert")
+    local module, errors = doc.extract(source, "src/assert.nupp", "assert")
     assert(module, errors and errors[1] and errors[1].msg)
     assert(#module.items == 17, "a callable module lost helpers or exposed private declarations")
     local expected = {
@@ -2140,7 +2140,7 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
     for _, name in ipairs({
         "nupp/runtime/standardio.nupp",
         "nupp/runtime/standardos.nupp",
-        "io/cli/init.nupp",
+        "io/cli.nupp",
         "nupp/cli/internal/terminal.nupp",
         "nupp/cli/internal/table.nupp",
     }) do
@@ -4856,7 +4856,7 @@ end
 
 function M.exportedTablesUseCanonicalPublicNamesInEveryOutput()
     local examples = {
-        {path = "src/io/cli/init.nupp", name = "io.cli", member = "application", hidden = "cliModule."},
+        {path = "src/io/cli.nupp", name = "io.cli", member = "application", hidden = "cliModule."},
         {
             path = "src/debug/bench.nupp",
             name = "debug.bench",
@@ -5128,7 +5128,7 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
     ) .. "\n"
     local dir = tempProject({
         ["src/math.nupp"] = linkedSource,
-        ["src/own/init.nupp"] = "--[[\nOwnership contracts.\n]]\n",
+        ["src/own.nupp"] = "--[[\nOwnership contracts.\n]]\n",
         [
             "src/nupp/compiler/prelude.d.nupp"
         ] = table.concat(
@@ -5345,8 +5345,8 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
             "style"
         }),
         ["src/io/example.nupp"] = library("io.example", {"join"}),
-        ["src/assert/init.nupp"] = library("assert", {"equal"}),
-        ["src/io/cli/init.nupp"] = library("io.cli", {"parse"}),
+        ["src/assert.nupp"] = library("assert", {"equal"}),
+        ["src/io/cli.nupp"] = library("io.cli", {"parse"}),
         ["src/warn.nupp"] = library("warn", {"emit"}),
         ["src/types/init.nupp"] = library("types", {"newStore"}),
         ["src/example/tools/widget.nupp"] = library("example.tools.widget", {"work"}),
@@ -5460,7 +5460,7 @@ export const ready = true
 export const ready = true
 ]=],
         [
-            "src/assert/init.nupp"
+            "src/assert.nupp"
         ] = [=[module assert
 --[[Checks program results.]]
 local assert = {}
@@ -5469,7 +5469,7 @@ function assert.equal(): nil end
 return assert
 ]=],
         [
-            "src/io/cli/init.nupp"
+            "src/io/cli.nupp"
         ] = [=[module io.cli
 --[[Parses command arguments.]]
 local cli = {}

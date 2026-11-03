@@ -1343,7 +1343,7 @@ end
 -- src/, and one module it imports was not carried, so loading it failed, every export
 -- was dropped, and `@derive(cli.Arguments)` named no provider (ER-010).
 function M.theCliHeaderExampleChecksOutsideTheRepository()
-    local header = assert(io.open(HERE .. "/../src/io/cli/init.nupp", "rb")):read("*a")
+    local header = assert(io.open(HERE .. "/../src/io/cli.nupp", "rb")):read("*a")
     local example = assert(header:match("```nupp\n(.-)```"), "the module header carries an example")
     assert(example:find("@derive(cli.arguments)", 1, true), "the example derives through its direct CLI alias")
     local dir = os.tmpname()

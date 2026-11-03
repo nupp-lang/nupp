@@ -80,16 +80,11 @@ function M.utilityRootsRetainTheirExistingLibrarySurfaces()
 end
 
 function M.finalApiRootsPreserveTheirExistingCorrectnessObligations()
-    for _, path in ipairs({
-        "src/assert/init.nupp",
-        "src/io/cli/init.nupp",
-        "src/types/init.nupp",
-        "src/own/init.nupp"
-    }) do
+    for _, path in ipairs({"src/assert.nupp", "src/io/cli.nupp", "src/types/init.nupp", "src/own.nupp"}) do
         local selection = classifier().classify({path})
         test(selection.surfaces.library, path .. " is a library")
         test(not selection.surfaces.unclassified, path .. " has an explicit classification")
-        if path:match("^src/types/") or path:match("^src/own/") then
+        if path:match("^src/types/") or path == "src/own.nupp" then
             test(selection.surfaces.compiler, path .. " retains its declaration coverage")
             test(selection.jobs.fixpoint, path .. " requires a compiler fixpoint")
         end

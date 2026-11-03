@@ -320,7 +320,7 @@ function M.pureFacadeExamplesRunTheirAssertions()
     for _, path in ipairs({
         "src/binary/span.nupp",
         "src/types/reflect.nupp",
-        "src/own/init.nupp",
+        "src/own.nupp",
         "src/serde/json/init.nupp",
         "src/nupp/text/init.nupp",
         "src/nupp/mem/init.nupp",
