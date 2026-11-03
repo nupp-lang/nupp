@@ -43,23 +43,6 @@ record own.AliasError
     message: string
 end
 
---- A runtime-sized heterogeneous owner group.
----
---- `managedgroup` adopts independently managed cells and closes every remaining
---- resource in reverse adoption order. It is ordinary library code over aliases;
---- the compiler does not give the group special ownership privileges.
-interface own.ManagedGroup is own.Closeable
-    --- Cells publish no pending data of their own. Their payloads decide what close
-    --- publishes.
-    flush: function(exclusive self: own.ManagedGroup): nil
-
-    --- Moves a managed cell into the group and returns its checked non-owning alias.
-    adopt: function<T>(exclusive self: own.ManagedGroup, takes cell: managed(T)): alias(T)
-
-    --- Removes an adopted alias and restores its exact original owner.
-    remove: function<T>(exclusive self: own.ManagedGroup, handle: alias(T)): T
-end
-
 --- The unique owner of an independently allocated managed cell.
 --- @internal
 record own.Managed<T>
@@ -555,17 +538,14 @@ local types: {
     reflect: types.reflect
 }
 
---- Checked ownership operations and managed resource groups.
+--- Checked ownership operations and managed cells.
 --- @namespace own
 local own: {
     --- Moves an exact affine obligation into an independently allocated cell.
     manage: function<T>(takes owner: T): managed(T),
 
     --- Recovers an erased alias from an untyped boundary after checking its brand.
-    recoveralias: function(value: any): ((alias(unknown), nil) | (nil, own.AliasError)),
-
-    --- Creates a runtime-sized group of independently managed resources.
-    managedgroup: function(): own.ManagedGroup
+    recoveralias: function(value: any): ((alias(unknown), nil) | (nil, own.AliasError))
 }
 
 ----------------------------------------------------------------------------

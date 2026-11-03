@@ -1590,9 +1590,8 @@ failure with the rest suppressed. A local name shadows a helper.
 managed cell. The unique `managed(T)` value owns the cell; copyable `alias(T)`
 values provide checked callback borrows, exclusive callback borrows, one-time
 ownership recovery, and closure. Closed and taken cells remain tombstones, so
-an old alias can never select a later resource. `own.ManagedGroup` implements
-runtime-sized heterogeneous custody as ordinary library code over aliases.
-`nupp.mem.heap.Array<T>` remains the typed homogeneous owning container.
+an old alias can never select a later resource.
+`nupp.mem.heap.Array<T>` is the typed homogeneous owning container.
 
 See [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete contract
 reference, and [affine-types.md](docs/learn/runtime/ownership/affine-types.md) for the

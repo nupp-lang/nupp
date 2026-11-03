@@ -592,11 +592,6 @@ checks its erased representation and exact cleanup policy. Failures return
 
 Transfer-only owners, external loans, pins, and unmatched foreign retentions
 cannot be managed because a cell could not discharge them independently.
-`own.ManagedGroup` supplies runtime-sized heterogeneous cleanup by storing
-aliases and closing them in reverse adoption order; `own.managedgroup()` creates
-one. It contains one audited
-release where static custody becomes the group's runtime invariant; the
-compiler has no special case for the group.
 
 ### Managed cells across a reload
 

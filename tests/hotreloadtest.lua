@@ -237,7 +237,6 @@ function M.managedCellsKeepPolicyAndUseThePatchedCleanupSlot()
     local function source(multiplier)
         return table.concat(
             {
-                "local managedGroup = own.managedgroup",
                 "local cleaned: integer = 0",
                 "local record Item value: integer end",
                 "local function closeItem(takes item: Item): nil",
@@ -246,10 +245,8 @@ function M.managedCellsKeepPolicyAndUseThePatchedCleanupSlot()
                 "local function openItem(): affine(Item, closeItem)",
                 "   return new Item(value = 3)",
                 "end",
-                "local function make(): (own.ManagedGroup, alias(unknown))",
-                "   local group = managedGroup()",
-                "   local handle = group:adopt(own.manage(openItem()))",
-                "   return group, handle as alias(unknown)",
+                "local function make(): managed(affine(Item, closeItem))",
+                "   return own.manage(openItem())",
                 "end",
                 "local function count(): integer return cleaned end",
                 "return {make = make, count = count}",
@@ -259,12 +256,12 @@ function M.managedCellsKeepPolicyAndUseThePatchedCleanupSlot()
     end
 
     local api = initial(source(1), "dynamic-policy")
-    local group = api.make()
+    local cell = api.make()
     local patch = generate(source(2), "patch", "dynamic-policy")
     local prepared, reason = hot.stage(patch, hot.generation())
     assert(prepared, reason)
     testAssert.eq(hot.commit(prepared), 2, "dynamic policy patch committed")
-    group:close()
+    cell:close()
     testAssert.eq(api.count(), 6, "live cell resolves cleanup through the patched slot")
 end
 
@@ -272,7 +269,6 @@ function M.liveDynamicPoliciesRejectAnIncompatiblePatchTransactionally()
     local function source(openName)
         return table.concat(
             {
-                "local managedGroup = own.managedgroup",
                 "local M = {}",
                 "local cleaned: integer = 0",
                 "local record Item value: integer end",
@@ -280,10 +276,8 @@ function M.liveDynamicPoliciesRejectAnIncompatiblePatchTransactionally()
                 "local function closeB(takes item: Item): nil cleaned = cleaned + item.value * 10 end",
                 "function M.openA(): affine(Item, closeA) return new Item(value = 2) end",
                 "function M.openB(): affine(Item, closeB) return new Item(value = 2) end",
-                "function M.make(): own.ManagedGroup",
-                "   local group = managedGroup()",
-                "   group:adopt(own.manage(M." .. openName .. "()))",
-                "   return group",
+                "function M.make(): managed(unknown)",
+                "   return own.manage(M." .. openName .. "()) as managed(unknown)",
                 "end",
                 "function M.count(): integer return cleaned end",
                 "return M",
@@ -293,13 +287,13 @@ function M.liveDynamicPoliciesRejectAnIncompatiblePatchTransactionally()
     end
 
     local api = initial(source("openA"), "dynamic-transition")
-    local group = api.make()
+    local cell = api.make()
     local patch = generate(source("openB"), "patch", "dynamic-transition")
     local prepared, reason = hot.stage(patch, hot.generation())
     testAssert.eq(prepared, nil, "a live policy blocks incompatible replacement")
     assert(reason and reason:find("live managed-cell policy changed", 1, true), tostring(reason))
     testAssert.eq(hot.generation(), 1, "rejected policy transition leaves the generation unchanged")
-    group:close()
+    cell:close()
     testAssert.eq(api.count(), 2, "rejection neither migrates nor cleans the cell")
 end
 

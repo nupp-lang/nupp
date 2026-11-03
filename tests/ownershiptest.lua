@@ -1407,30 +1407,6 @@ function M.aDiscardedOwnershipIntrinsicEmitsLoadableLua()
     assert(chunk, tostring(loadErr) .. "\n" .. code)
 end
 
-function M.managedGroupsUseOrdinaryLibraryCalls()
-    local source = table.concat(
-        {
-            RESOURCE,
-            "do",
-            "   local group = own.managedgroup()",
-            "   local handle = group:adopt(own.manage(resource_new()))",
-            "   local value = handle:with(function(borrows item) return item.value end)",
-            "   print(value)",
-            "end",
-        },
-        "\n"
-    )
-    local result, diags = checked(source)
-    testAssert.eq(#diags, 0, diags[1] and diags[1].msg or "check")
-    local code, genDiags = gen.generate(result, "ownership-test")
-    testAssert.eq(#genDiags, 0)
-    assert(
-        code:find("__nupp%.__manage%(") and code:find(":%s*adopt%s*%("),
-        "managed custody must lower through ordinary manage and adopt calls:\n" .. code
-    )
-    assert(not code:find("__nuppAdopt"), "ManagedGroup must not receive a compiler-injected witness:\n" .. code)
-end
-
 function M.manageRejectsTransferOnlyOwners()
     testAssert.eq(
         codes(
@@ -1446,23 +1422,6 @@ function M.manageRejectsTransferOnlyOwners()
             )
         ),
         "NUPP2612"
-    )
-end
-
-function M.managedGroupsCanTransferARegistrationBackOutExactlyOnce()
-    assertClean(
-        table.concat(
-            {
-                RESOURCE,
-                "do",
-                "   local group = own.managedgroup()",
-                "   local handle = group:adopt(own.manage(resource_new()))",
-                "   local returned = group:remove(handle)",
-                "   own.drop(returned)",
-                "end",
-            },
-            "\n"
-        )
     )
 end
 

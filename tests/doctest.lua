@@ -2076,12 +2076,6 @@ local function assertDocumentedSurface(relativePath, moduleName, expected, recor
     assert(next(expected) == nil, moduleName .. " is missing part of its public API")
 end
 
-function M.standardManagedGroupApiHasCompleteDocumentation()
-    local source = readFile(HERE .. "/../src/nupp/compiler/decls/prelude.d.nupp")
-    assert(source:find("interface own.ManagedGroup", 1, true), "the root ownership surface lost ManagedGroup")
-    assert(source:find("managedgroup: function", 1, true), "the root ownership surface lost its ManagedGroup factory")
-end
-
 function M.documentsACdefOnlyWhereItReachesAReader()
     local plumbing = table.concat(
         {
