@@ -215,8 +215,8 @@ evaluated, which is the cost of a name chosen at run time.
 
 ## Cost
 
-The installer lands only in modules that reach `debug.log`, like every other
-compiler-provided facility. A module that never logs carries nothing.
+Logging is initialized at startup to provide the global `warn` function. A
+module that uses the severity calls also binds its own logging view.
 
 ::: seealso
 - [diagnostics.md](docs/reference/diagnostics.md#diagnostic-index) for the
@@ -292,15 +292,17 @@ end
 local NAMES = {"error", "warn", "info", "debug",}
 local INDEX = {off = 0, error = 1, warn = 2, info = 3, debug = 4,}
 
-local ffi = require("ffi")
-pcall(ffi.cdef, "typedef int64_t nupp_time_t; nupp_time_t time(nupp_time_t *t);")
+local hasFfi, ffi = pcall(require, "ffi")
+if hasFfi then
+    pcall(ffi.cdef, "typedef int64_t nupp_time_t; nupp_time_t time(nupp_time_t *t);")
+end
 
 -- `os.time` is NYI in LuaJIT and stitches the trace it stands on, so the second
 -- is read through the FFI. The drift check is what keeps a resolved-but-wrong-
 -- width `time` from answering nonsense: some Windows CRTs inline it to `_time64`
 -- or give it a 32-bit `time_t`, and neither fails to resolve.
 local clock: any = os.time
-do
+if hasFfi then
     local resolved, fn = pcall(function(): any
         return ffi.C.time
     end)
@@ -753,5 +755,39 @@ end
 function log.levelname(severity: log.Severity): log.Level
     return (NAMES[severity] or "off") as log.Level
 end
+
+local output = log.formodule("warn")
+local enabled = true
+
+local function argument(value: any, index: integer): string
+    if type(value) == "string" then
+        return value
+    elseif type(value) == "number" then
+        return tostring(value)
+    end
+    error(("bad argument #%d to 'warn' (string expected, got %s)"):format(index, type(value)), 3)
+end
+
+--- Joins messages and emits a warning, or applies a single control string.
+local function warning(message: string, ...: string): nil
+    local parts = {argument(message, 1)}
+    for index = 1, select("#", ...) do
+        parts[index + 1] = argument(select(index, ...), index + 1)
+    end
+    if #parts == 1 and parts[1]:sub(1, 1) == "@" then
+        if parts[1] == "@on" then
+            enabled = true
+        elseif parts[1] == "@off" then
+            enabled = false
+        end
+        return
+    end
+    if enabled then
+        output.emit(2, 0, table.concat(parts))
+    end
+end
+
+rawset(_G, "warn", warning)
+rawset(log, "__nuppwarn", warning)
 
 export = log

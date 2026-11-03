@@ -417,7 +417,7 @@ local function run(options: any): integer
             return false
         end
         for _, name in ipairs(gen.runtimeModules(code)) do
-            if name == "nupp.runtime.managed" then
+            if name == "nupp.runtime.managed" or name == "debug.log" or name:match("^nupp%.compiler%.runtime%.") then
                 runtimeNames[name] = true
             end
         end

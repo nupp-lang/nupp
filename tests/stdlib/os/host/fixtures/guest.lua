@@ -176,6 +176,9 @@ _G.__nuppBrowser = {
 -- The compiler fixes a target's host when it builds the runtime, and the tests'
 -- runtime is a native build; a browser build would carry this.
 package.loaded["nupp.runtime.target"] = {dialect = "luajit", host = "browser"}
+package.loaded["nupp.runtime.bindings.suspension"] = require("nupp.runtime.browser.suspension")
+package.loaded["nupp.runtime.bindings.clock"] = {provider = require("nupp.runtime.browser.time")}
+package.loaded["nupp.runtime.bindings.host"] = require("nupp.runtime.browser.host")
 local _os = require("nupp.runtime.standardos").value
 
 local scenarios = dofile(scenarioFile)

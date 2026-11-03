@@ -541,7 +541,8 @@ end
 
 function M.theLoggingViewLandsOnlyInModulesThatLog()
     local without = compile("local m = {}\nreturn m", "amb")
-    testAssert.eq(without:find("log", 1, true), nil, "a module that never logs requires no logging module")
+    assert(without:find('require("debug.log")', 1, true), "startup initializes the warning function")
+    assert(not without:find('.formodule(', 1, true), "a module that never logs needs no logging view")
 
     local with = compile("debug.log.warn('m')", "amb")
     assert(with:find('require("debug.log")', 1, true) ~= nil, "and a module that logs requires it once")

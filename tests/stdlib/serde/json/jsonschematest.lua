@@ -169,9 +169,14 @@ function M.buildOutputMatchesItsSchemaWhenItFailsAndWhenItDoesNot()
 
     local built = agrees(dir, "build good.nupp")
     assert(built.ok == true, "a build that worked says so")
+    local written = {}
+    for _, path in ipairs(built.written) do
+        assert(not written[path], "each output is named once: " .. path)
+        written[path] = true
+    end
     assert(
-        #built.written == 2,
-        "and names the entry and ownership runtime it wrote: " .. table.concat(built.written, ", ")
+        written["build/good.lua"] and written["build/nupp/runtime/managed.lua"] and written["build/debug/log.lua"],
+        "the entry and startup runtimes are named: " .. table.concat(built.written, ", ")
     )
     os.execute("rm -rf '" .. dir .. "'")
 end

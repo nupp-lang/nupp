@@ -10138,6 +10138,9 @@ export function generate(
     if not installingManaged then
         pluck.needRuntimeEffect("runtime.managed")
     end
+    if not installingManaged and (result.declaredModuleName or result.moduleName) ~= "debug.log" then
+        pluck.needRuntimeEffect("runtime.warn")
+    end
     local runtimeEffects = emittedFeatureEffects
     local canSuspend = native.expand(runtimeEffects)["runtime.suspension"] == true
     local useYieldableCleanupCalls = false

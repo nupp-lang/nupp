@@ -187,6 +187,7 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.bitops"
     ] = {name = "bitops", runtimeModule = "nupp.runtime.bitops", portableRuntime = true, requires = {}},
     ["runtime.managed"] = {name = "managed", runtimeModule = "nupp.runtime.managed", portableRuntime = true},
+    ["runtime.warn"] = {name = "warn", runtimeModule = "debug.log", portableRuntime = true},
     [
         "runtime.io_internal_ownedreader"
     ] = {

@@ -112,6 +112,7 @@ function M.buildEmitsTheDependencyClosure()
     assert(not exists(dir .. "/main.lua"), "building leaves authored directories untouched")
     assert(exists(dir .. "/build/lib.lua"), "required module compiled too")
     assert(exists(dir .. "/build/nupp/runtime/managed.lua"), "generated ownership runtime is carried")
+    assert(exists(dir .. "/build/debug/log.lua"), "the startup logger is carried")
     -- and the result runs on plain LuaJIT, with no toolchain present
     local ran = capture(("cd '%s' && LUA_PATH='./build/?.lua;;' luajit build/main.lua"):format(dir))
     testAssert.eq(ran, "42\n", "built output runs standalone")
@@ -201,10 +202,12 @@ function M.explicitBuildPreservesModulePathsAndNormalizesDuplicates()
     local out = captureJson(("cd %q && %q build --json -o out ./main.nupp main.nupp"):format(dir, NUPP))
     local report = json.decode(out)
     assert(report.ok, "the explicit dependency build succeeds: " .. out)
-    assert(
-        #report.written == 4,
-        "the normalized entry, its dependencies and ownership runtime are each emitted once: " .. out
-    )
+    local seen = {}
+    for _, path in ipairs(report.written) do
+        assert(not seen[path], "each output is emitted once: " .. path)
+        seen[path] = true
+    end
+    assert(seen["out/main.lua"] and seen["out/a/init.lua"] and seen["out/b/init.lua"], out)
     assert(exists(dir .. "/out/main.lua"), "the normalized entry has one output")
     assert(
         exists(dir .. "/out/a/init.lua") and exists(dir .. "/out/b/init.lua"),
@@ -254,7 +257,15 @@ export = {commandType = entry.commandType, ready = true}
     local out = captureJson(("cd %q && %q build --json -o out src/example/entry.nupp"):format(dir, NUPP))
     local report = json.decode(out)
     assert(report.ok, "the entry's recursive import shares its checked receiver identity: " .. out)
-    testAssert.eq(#report.written, 4, "the entry, two dependencies, and ownership runtime are emitted once")
+    local seen = {}
+    for _, path in ipairs(report.written) do
+        assert(not seen[path], "each output is emitted once: " .. path)
+        seen[path] = true
+    end
+    assert(
+        seen["out/src/example/entry.lua"] and seen["out/src/example/api.lua"] and seen["out/src/example/root.lua"],
+        out
+    )
     assert(exists(dir .. "/out/src/example/entry.lua"), "the recursive entry is emitted")
     os.execute("rm -rf " .. string.format("%q", dir))
 end

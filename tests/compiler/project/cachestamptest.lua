@@ -71,6 +71,23 @@ local function fixtureStamp(dir, cacheDir)
     return narrow, whole
 end
 
+function M.generatedStartupGuardDoesNotWidenSubsystemImports()
+    local guard = 'local __nupp=_G.nupp or {}; if not package.loaded["debug.log"] then require("debug.log") end;'
+    local dir = tempProject({
+        ["nupp/compiler/project/fingerprint.lua"] = compiledFingerprintSource(),
+        ["nupp/compiler/entry.lua"] = guard .. ' return "entry"',
+        ["debug/log.lua"] = 'return "first"',
+    })
+    local before = fixtureStamp(dir)
+    editFixture(dir, "debug/log.lua", 'return "second"')
+    assert(fixtureStamp(dir) == before, "the startup service widened the compiler subsystem")
+    editFixture(dir, "nupp/compiler/entry.lua", guard .. ' return require("debug.log")')
+    local explicit = fixtureStamp(dir)
+    editFixture(dir, "debug/log.lua", 'return "third"')
+    assert(fixtureStamp(dir) ~= explicit, "an explicit logger import was omitted")
+    assert(require("io.files").remove(dir, true))
+end
+
 function M.keptGraphsFollowPublicRootDependenciesWithoutReadingOtherOutputs()
     local dir = tempProject({
         ["nupp/compiler/project/fingerprint.lua"] = compiledFingerprintSource(),
@@ -375,7 +392,7 @@ function M.aMalformedModuleGraphIsRecomputed()
     local dir = tempProject({["nupp/compiler/project/fingerprint.lua"] = cacheCode})
     local cacheDir = dir .. "/cache"
     local isolated = dofile(dir .. "/nupp/compiler/project/fingerprint.lua")
-    local stamp = "modules/3\0" .. isolated.graphFingerprint()
+    local stamp = "modules/4\0" .. isolated.graphFingerprint()
     local store = require("nupp.compiler.project.store")
     local damaged = store.openValue(cacheDir .. "/modulegraph.buf", stamp)
     damaged.set({files = {}})

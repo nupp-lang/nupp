@@ -251,7 +251,7 @@ type fingerprint.ModuleGraph = {
 }
 
 --- Bumped when an entry stops decoding into what the reader expects.
-local GRAPH_STAMP = "modules/3"
+local GRAPH_STAMP = "modules/4"
 
 local graphMemo: fingerprint.ModuleGraph? = nil
 
@@ -390,6 +390,17 @@ end
 --- are removed before this graph reads the compiled Lua.
 local function requiredBy(text: string, path: string): {string}, boolean, {string}
     local lexer = require("nupp.compiler.syntax.lexer")
+    -- This generated startup guard initializes a service; it is not an import
+    -- from the compiler subsystem being fingerprinted. Authored imports remain.
+    local guard = 'if not package.loaded["debug.log"] then require("debug.log") end;'
+    local prelude = text:find("local __nupp=_G.nupp or ", 1, true)
+    if prelude then
+        local start = text:find(guard, prelude, true)
+        local newline = text:find("\n", 1, true)
+        if start and (not newline or start < newline) then
+            text = text:sub(1, start - 1) .. text:sub(start + #guard)
+        end
+    end
     local tokens = lexer.lex(text, path)
     local names: {string} = {}
     local declared: {string} = {}

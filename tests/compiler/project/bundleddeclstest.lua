@@ -278,7 +278,7 @@ function M.providerContractImportErasesWithoutLoadingAnImplementation()
         [[
 module nupp.test.providercontract
 local {type ClockProvider} = require("nupp.runtime.contracts")
-return function(clock: ClockProvider): number return clock.now() end
+export function now(clock: ClockProvider): number return clock.now() end
 ]],
         "provider-contract-import.nupp"
     )

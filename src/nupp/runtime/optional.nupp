@@ -1,6 +1,9 @@
 @!internal
 module nupp.runtime.optional
 
+-- The binding modules name every target passed here for dependency tracking.
+const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
+
 export function load(name: string): any
     if package.loaded[name] ~= nil or package.preload[name] ~= nil then
         return require(name)

@@ -1942,7 +1942,7 @@ local options: Process.Options = {args = {"true"}, stderr = mode}
 local communication: Process.CommunicateOptions = {maxoutputbytes = 10}
 local stream: Process.StreamMode = "pipe"
 local function child(value: io.Process, result: Process.Result, exit: Process.Exit, provider: Process.Provider): nil
-    print(value.pid, result.output, exit.exitcode, provider.priority)
+    print(value.pid, result.output, exit.exitcode, provider.poll)
 end
 local function streams(borrows input: Process.Reader, borrows output: Process.Writer, interest: Process.Interest): nil
     print(input:isended(), output:isreleased(), #interest.read)

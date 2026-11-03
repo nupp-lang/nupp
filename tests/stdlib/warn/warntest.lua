@@ -4,18 +4,12 @@ local M = {}
 
 local function fixture()
     local calls = {}
-    local load = providerstate.instance({warn = true}, {
-        ["debug.log"] = {
-            formodule = function(name)
-                test.eq(name, "warn")
-                return {
-                    emit = function(level, line, message)
-                        calls[#calls + 1] = {level, line, message}
-                    end
-                }
-            end
-        },
-    })
+    local load = providerstate.instance({warn = true, ["debug.log"] = true})
+    local log = load("debug.log")
+    log.setsink(function(level, module, line, message)
+        test.eq(module, "warn")
+        calls[#calls + 1] = {level, line, message}
+    end)
 
     return load("warn"), calls
 end
@@ -93,7 +87,8 @@ function M.checkedGlobalAndRequireShareOneFunction()
     test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local code, generated = gen.generate(parsed, "warning-identity.nupp")
     test.eq(#generated, 0)
-    assert(code:find('require("warn")', 1, true), "the builtin resolves the public warning module")
+    assert(not code:find('require("warn")', 1, true), "the global should not require a module at its use")
+    assert(code:find('require("debug.log")', 1, true), "startup initializes the warning function")
     test.eq(assert(loadstring(code))(), true)
 
     local shadowed = parser.parse(
