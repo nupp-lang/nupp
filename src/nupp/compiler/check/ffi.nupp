@@ -118,7 +118,7 @@ export function install(c: state.Checker): Intrinsic
             for _, e in ipairs(args) do
                 c.infer(e)
             end
-            if not capabilities.require(c, "cinterop", node) then
+            if not capabilities.demand(c, "cinterop", node) then
                 return T.any
             end
             local spec = nil
@@ -170,7 +170,7 @@ export function install(c: state.Checker): Intrinsic
         -- ffi.new<T>() and friends: the return type follows the type argument rather
         -- than collapsing to any.
         if typeArg then
-            if not capabilities.require(c, "cinterop", node) then
+            if not capabilities.demand(c, "cinterop", node) then
                 for _, e in ipairs(argExprs) do
                     c.infer(e)
                 end
@@ -265,7 +265,7 @@ export function install(c: state.Checker): Intrinsic
 
         -- carray(Struct, n) allocates a contiguous array of n of them
         if calleeName == "carray" then
-            capabilities.require(c, "cstorage", node)
+            capabilities.demand(c, "cstorage", node)
             local args = argExprs
             local elemT = args[1] and c.infer(args[1]) or nil
             if elemT and elemT.tag == "typeobject" then
@@ -314,7 +314,7 @@ export function install(c: state.Checker): Intrinsic
             -- field order and types. Everything numeric is this platform's and is asked
             -- of the FFI at run time.
         elseif calleeName == "layoutof" then
-            capabilities.require(c, "structvalue", node)
+            capabilities.demand(c, "structvalue", node)
             local args = argExprs
             local subject = args[1] and c.infer(args[1]) or nil
             if subject and subject.tag == "typeobject" then
@@ -421,7 +421,7 @@ export function install(c: state.Checker): Intrinsic
             -- generated file to keep in step and the sizes are the ones this platform
             -- actually uses.
         elseif calleeName == "cheader" then
-            if not capabilities.require(c, "cinterop", node) then
+            if not capabilities.demand(c, "cinterop", node) then
                 return T.any
             end
             local args = argExprs

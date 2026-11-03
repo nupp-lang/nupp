@@ -23,7 +23,7 @@ same cancellation identity within a state. [](nupp.suspension) resolves this
 implementation at require-time; scheduling operations retain it directly.
 ]]
 
-local contract = require("nupp.suspension.spi")
+local contract = require("nupp.suspension.contracts")
 local suspension = {}
 
 --- How many times a release drives the readiness pumps waiting for an abandoned park to

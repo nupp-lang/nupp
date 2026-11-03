@@ -92,7 +92,7 @@ export type Facts = {
 --- token, what kind of thing it is and its type, and the facts the checker learns
 --- about the declaration as it goes. Open rather than a record, because the project
 --- index and the prelude make these too, as ordinary tables.
-type state.Definition = {
+export type Definition = {
     filename: string?,
     token: lexer.Token?,
     name: string?,
@@ -151,7 +151,7 @@ type state.Definition = {
 --- names the original as `ownershipOrigin`, so ownership is recorded in one place.
 --- Every field but the type is optional, because a project global and a hoisted
 --- module alias carry only that.
-record state.Binding
+export record Binding
     --- The type the name currently holds.
     t: Type
 
@@ -174,7 +174,7 @@ record state.Binding
 
     --- The declaration this binding answers to, for the editor and the unused-binding
     --- sweep.
-    definition: state.Definition?
+    definition: Definition?
 
     --- Which ownership qualifier the bound type carries: "affine", "borrowed" or
     --- "pinned".
@@ -184,7 +184,7 @@ record state.Binding
     moved: boolean?
 
     --- The binding a narrowed copy records ownership on.
-    ownershipOrigin: state.Binding?
+    ownershipOrigin: Binding?
 
     --- Set on a narrowing shadow that took its declaration's place in the
     --- declaration's own scope, so the scope's exit releases the declaration's
@@ -311,7 +311,7 @@ end
 
 --- A watch on name resolution while a region is checked: whether anything resolved
 --- a binding declared outside it, and which, keyed by declaration.
-record state.CaptureWatch
+export record CaptureWatch
     --- The scope depth the region begins at; a binding from a shallower scope is
     --- reached from outside.
     depth: integer
@@ -321,16 +321,16 @@ record state.CaptureWatch
     floor: integer?
 
     captured: boolean
-    entries: {[any]: state.Binding}?
+    entries: {[any]: Binding}?
 end
 
 --- One lexical scope: the names, types and narrowings it introduces, and the owners it
 --- discharges when it closes.
-record state.Scope
-    vars: {[string]: state.Binding}
+export record Scope
+    vars: {[string]: Binding}
     types: {[string]: Type}
     packTypes: {[string]: T.Pack}
-    typeDefs: {[string]: state.Definition}
+    typeDefs: {[string]: Definition}
 
     --- Aliases hoisted to the top of the block and not yet resolved.
     pending: {[string]: any}
@@ -338,7 +338,7 @@ record state.Scope
     --- Owners this scope discharges when it closes, in the order they were bound.
     automaticOwners: {any}
 
-    parent: state.Scope?
+    parent: Scope?
     depth: integer
 
     --- The node whose extent an editor completes names from this scope over.
@@ -421,9 +421,9 @@ export record Checker
     -- Where the walk currently is. All of this changes as it runs.
 
     --- The innermost scope, and the file's outermost one.
-    scope: state.Scope
+    scope: Scope
 
-    rootScope: state.Scope
+    rootScope: Scope
 
     --- Return-type annotations of the enclosing functions, or false for one that was
     --- not annotated and is therefore not checked.
@@ -521,7 +521,7 @@ export record Checker
     closureCaptureStack: {any}
 
     --- Whether an analyzed cleanup body has reached out of its own scope.
-    captureWatches: {state.CaptureWatch}
+    captureWatches: {CaptureWatch}
 
     --- Whether a function that raises on purpose said so. See
     --- nupp.compiler.check.undocumentedraise.
@@ -626,7 +626,7 @@ export record Checker
     suppressed: function(code: string): boolean
 
     --- The scope entry a name resolves to, narrowing included, or nil.
-    lookupEntry: function(name: string): state.Binding?
+    lookupEntry: function(name: string): Binding?
 
     --- The type a name resolves to, or nil.
     lookupType: function(name: string): (Type?, any?)
@@ -634,7 +634,7 @@ export record Checker
     lookupPack: function(name: string): (T.Pack?, any)
 
     --- Records what a token means, for the editor and for go-to-definition.
-    markToken: function(tok: lexer.Token?, def: state.Definition?, t: Type?, kind: string?)
+    markToken: function(tok: lexer.Token?, def: Definition?, t: Type?, kind: string?)
 
     --- Records a compiler-recognized runtime requirement for this source file.
     recordEffect: function(effect: string)
@@ -758,7 +758,7 @@ export record Checker
         tok: lexer.Token?,
         kind: string?,
         constant: boolean?
-    ): state.Binding
+    ): Binding
 
     --- Checks a block, and a function body.
     checkBlock: function(block: Node?, scopeManaged: boolean?)
@@ -910,11 +910,11 @@ export record Checker
     visibilityOf: function(stat: any): string
 
     --- Records where a name was declared, for the editor.
-    definition: function(tok: lexer.Token?, kind: string?): state.Definition?
+    definition: function(tok: lexer.Token?, kind: string?): Definition?
 
     --- Records a compiler-generated member with its own semantic identity while
     --- retaining a written token as its navigation origin.
-    generatedDefinition: function(tok: lexer.Token?, name: string, kind: string, identity: string): state.Definition?
+    generatedDefinition: function(tok: lexer.Token?, name: string, kind: string, identity: string): Definition?
 
     --- Resolves an alias hoisted to the top of its block, the first time anything names
     --- it.

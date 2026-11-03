@@ -1709,7 +1709,7 @@ export function install(c: state.Checker): nil
         elseif kind == "tconst" then
             return T.constOf(c.resolveType(node.inner))
         elseif kind == "tcarray" then
-            capabilities.require(c, "cstorage", node)
+            capabilities.demand(c, "cstorage", node)
             local elem = c.resolveType(node.element)
             local countNode = node.count
             if not countNode then
@@ -1748,7 +1748,7 @@ export function install(c: state.Checker): nil
         elseif kind == "topt" then
             return T.optional(c.resolveType(node.inner))
         elseif kind == "tptr" then
-            capabilities.require(c, "cstorage", node)
+            capabilities.demand(c, "cstorage", node)
             return T.ptr(c.resolveType(node.inner))
         elseif kind == "tunion" then
             local members = {}

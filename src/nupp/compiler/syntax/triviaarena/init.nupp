@@ -40,7 +40,7 @@ end
 --- compiler's process takes that compiler's arena.
 ---
 --- @param provider the arena to use when nothing is selected yet
-function triviaarena.installDefault(provider: Provider): nil
+export function installDefault(provider: Provider): nil
     if selected == nil then
         selected = provider
     end

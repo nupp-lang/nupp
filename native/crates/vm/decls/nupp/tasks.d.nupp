@@ -1,4 +1,4 @@
-const {type Task as CanonicalTask, type Status} = require("nupp.workers.spi")
+const {type Task as CanonicalTask, type Status} = require("nupp.workers.contracts")
 
 local record Cancellation
     operation: string

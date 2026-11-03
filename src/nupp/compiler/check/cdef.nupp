@@ -121,7 +121,7 @@ export function install(
     end
 
     handlers.cdefStruct = function(stat: cst.CdefStruct)
-        capabilities.require(c, "cinterop", stat)
+        capabilities.demand(c, "cinterop", stat)
         local structName = stat.name
         if not structName then
             return
@@ -210,7 +210,7 @@ export function install(
     end
 
     handlers.cdefFunc = function(stat: cst.CdefFunc)
-        capabilities.require(c, "cinterop", stat)
+        capabilities.demand(c, "cinterop", stat)
         c.raises.checkParams(stat, stat.params or {})
         local params: {Type} = {}
         local paramModes = {}

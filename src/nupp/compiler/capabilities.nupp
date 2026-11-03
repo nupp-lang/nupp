@@ -3,9 +3,6 @@ module nupp.compiler.capabilities
 -- Source representations and calling conventions are fixed by the compiler: every
 -- artifact runs on the VM, so each capability is native unless a caller narrows it.
 
--- The exported require function validates a capability; it never loads code.
-const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
-
 local CONTRACTS: {[string]: {
     effect: string?,
     compiler: boolean?
@@ -50,14 +47,14 @@ end
 
 --- Whether a target has one compiler-owned capability, without reporting.
 ---
---- For a caller deciding what to do next rather than only what to say. `require`
+--- For a caller deciding what to do next rather than only what to say. `demand`
 --- answers the same question by reporting it.
 export function available(checker: any, name: string): boolean
     return get(resolution(checker), name).kind ~= "missing"
 end
 
 --- Reports a missing capability at the source construct that requires it.
-export function require(checker: any, name: string, at: any): boolean
+export function demand(checker: any, name: string, at: any): boolean
     local capability = get(resolution(checker), name)
     if capability.kind ~= "missing" then
         return true

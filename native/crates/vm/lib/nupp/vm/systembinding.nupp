@@ -1,7 +1,7 @@
 @!internal
 module nupp.vm.systembinding
 
-const {type SystemProvider as Provider} = require("package.nupp")
+const {type SystemProvider as Provider} = require("nupp.runtime.contracts")
 local binding: any = package.loaded["nupp.runtime.provider.nativesystem"]
 assert(type(binding) == "table", "the frozen VM nativesystem provider is unavailable")
 

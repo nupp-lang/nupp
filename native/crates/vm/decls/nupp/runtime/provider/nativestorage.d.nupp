@@ -1,2 +1,2 @@
-local {type CstorageProvider} = require("package.nupp")
+local {type CstorageProvider} = require("nupp.runtime.contracts")
 return CstorageProvider

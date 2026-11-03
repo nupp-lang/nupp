@@ -2681,7 +2681,7 @@ function checkMod.check(
             stat.visibility = "local"
         end
         if stat.kind == "recordDecl" and stat.declKind == "struct" then
-            require("nupp.compiler.capabilities").require(c, "structvalue", stat)
+            require("nupp.compiler.capabilities").demand(c, "structvalue", stat)
         end
         c.checkTypedecl(stat)
     end

@@ -287,7 +287,7 @@ end
 --- header starts it. Headers are anchored and tried at line starts only, since an
 --- unanchored number pattern also matches inside the number it begins with.
 --- Exposed for the test, since the shapes are the platforms' and not this module's.
-function runner.splitRss(errorOutput: string, wrapper: any): (string, integer?)
+export function splitRss(errorOutput: string, wrapper: any): (string, integer?)
     local at: integer? = nil
     local lineStart: integer = 1
     while lineStart <= #errorOutput do
@@ -366,7 +366,7 @@ local function nuppRun(
     local erroroutput = result.erroroutput
     local maxRss: integer? = nil
     if wrapper ~= nil then
-        erroroutput, maxRss = runner.splitRss(erroroutput, wrapper)
+        erroroutput, maxRss = splitRss(erroroutput, wrapper)
     end
     if erroroutput ~= "" then
         io.stderr:write(erroroutput)

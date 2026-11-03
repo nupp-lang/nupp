@@ -362,7 +362,7 @@ export function install(c: state.Checker): state.ExprHandlers
             end
             c.numericOperand(t, node, op)
             if t.tag == "int64" or t.tag == "uint64" then
-                capabilities.require(c, "int64", opTok)
+                capabilities.demand(c, "int64", opTok)
                 node.wideArithmetic = true
                 return t
             end
@@ -382,7 +382,7 @@ export function install(c: state.Checker): state.ExprHandlers
                 return t
             end
             local wide = t.tag == "int64" or t.tag == "uint64"
-            capabilities.require(c, wide and "int64" or "bitops", opTok)
+            capabilities.demand(c, wide and "int64" or "bitops", opTok)
             if wide then
                 node.wideArithmetic = true
             end
@@ -553,7 +553,7 @@ export function install(c: state.Checker): state.ExprHandlers
             local rightInteger = integral(rt) or rt.tag == "uint64"
             if leftInteger and rightInteger then
                 local result = (lt.tag == "uint64" or rt.tag == "uint64") and T.uint64 or T.integer
-                capabilities.require(c, "int64", opTok)
+                capabilities.demand(c, "int64", opTok)
                 node.wideArithmetic = true
                 return result
             end
@@ -617,7 +617,7 @@ export function install(c: state.Checker): state.ExprHandlers
                 or rt.tag == "int64" and rt
                 or rt.tag == "uint64" and rt
                 or nil
-            capabilities.require(c, wide and "int64" or "bitops", opTok)
+            capabilities.demand(c, wide and "int64" or "bitops", opTok)
             if wide then
                 node.wideArithmetic = true
             end
@@ -672,7 +672,7 @@ export function install(c: state.Checker): state.ExprHandlers
                 return c.applyContract(mm, {lt, rt}, {lhs, rhs}, node, mmName)
             end
             if lt.tag == "int64" or lt.tag == "uint64" or rt.tag == "int64" or rt.tag == "uint64" then
-                capabilities.require(c, "int64", opTok)
+                capabilities.demand(c, "int64", opTok)
             end
             if op ~= "==" and op ~= "~=" then
                 local mmName = (op == "<" or op == ">") and "__lt" or "__le"
