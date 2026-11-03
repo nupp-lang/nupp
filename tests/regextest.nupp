@@ -10,7 +10,7 @@ local function compiled(pattern: string, options: regex.Options?): regex.Regex
     local expression, problem = regex.compile(pattern, options)
     if expression == nil then
         if problem == "regular expressions need the VM runtime" then
-            test.notExecuted(problem)
+            test.suite.notexecuted(problem)
         end
         error(("%s did not compile: %s"):format(pattern, tostring(problem)), 2)
     end
