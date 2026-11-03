@@ -1,0 +1,11 @@
+module nupp.core.catalogmodulespong
+
+-- The other side of the cycle.
+const ping = require("nupp.core.catalogmodulesping")
+
+export function pong(n: integer): integer
+    if n <= 0 then
+        return 0
+    end
+    return 10 + ping.ping(n - 1)
+end

@@ -312,7 +312,13 @@ local function derive(g: any, catalog: any): any
                             target = module.chunk
                         end
                     end
-                    need(target ~= nil and target < g.programOwner, "forward or cyclic require is unsupported")
+                    -- Modules load lazily from v8, so a module may require
+                    -- any other, its partner in a cycle included.
+                    need(
+                        target ~= nil
+                        and (target < g.programOwner or catalog.schema.version >= 8 and target ~= g.programOwner),
+                        "forward or cyclic require is unsupported"
+                    )
                     emit({"Require", physical(dst), target}, position)
                     yield nil
                 end

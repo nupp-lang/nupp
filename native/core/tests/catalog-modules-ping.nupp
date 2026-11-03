@@ -1,0 +1,12 @@
+module nupp.core.catalogmodulesping
+
+-- One side of a benign cycle: it requires its partner, which requires it
+-- back, and each reaches the other's exports only when called.
+const pong = require("nupp.core.catalogmodulespong")
+
+export function ping(n: integer): integer
+    if n <= 0 then
+        return 0
+    end
+    return 1 + pong.pong(n - 1)
+end

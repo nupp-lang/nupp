@@ -109,6 +109,11 @@ local CASES: {[string]: {
     modulesnamed = {fixture = "catalog-modules-named", version = 8, modules = {"catalog-modules-geometry"}},
     modulespattern = {fixture = "catalog-modules-pattern", version = 8, modules = {"catalog-modules-geometry"}},
     modulesrecords = {fixture = "catalog-modules-records", version = 8, modules = {"catalog-modules-boxes"}},
+    modulescycle = {
+        fixture = "catalog-modules-cycle",
+        version = 8,
+        modules = {"catalog-modules-ping", "catalog-modules-pong"},
+    },
     callsoverflow = {fixture = "catalog-calls-overflow", version = 8}
 }
 

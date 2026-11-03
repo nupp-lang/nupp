@@ -366,10 +366,23 @@ function verify.resultKind(g: any, signature: any, output: any): string
                             target = module.chunk
                         end
                     end
-                    need(target ~= nil and target < g.programOwner, "forward or cyclic require is unsupported")
+                    need(
+                        target ~= nil
+                        and (target < g.programOwner or output.schema.version >= 8 and target ~= g.programOwner),
+                        "forward or cyclic require is unsupported"
+                    )
                     local owner = need(output.catalog[target + 1], "required module owner is missing")
-                    local result = need(output.signatures[owner.signature + 1], "required module signature is missing")
-                    assign(dst, result.result)
+                    if owner.signature == nil and dynamic then
+                        -- A module not verified yet, a partner in a cycle:
+                        -- its value is whatever it answers.
+                        assign(dst, "value")
+                    else
+                        local result = need(
+                            output.signatures[owner.signature + 1],
+                            "required module signature is missing"
+                        )
+                        assign(dst, result.result)
+                    end
                     yield nil
                 end
                 case "Add", "Sub", "Mul", "Mod", "Lt", "Le", "Eq", "Move" -> do
@@ -624,7 +637,10 @@ function verify.catalog(p: any): any
     need(count > 0 and dense(p.graphs, 256) == count, "complete semantic graph table required")
     local moduleCount = dense(p.modules, 256)
     need(moduleCount > 0 and moduleCount <= count, "complete semantic module table required")
-    need(p.schema.version < 5 or moduleCount == 1 or p.schema.version >= 8, "loop profile requires one scalar initializer")
+    need(
+        p.schema.version < 5 or moduleCount == 1 or p.schema.version >= 8,
+        "loop profile requires one scalar initializer"
+    )
     dense(p.signatures, 256)
     dense(p.contracts, 1048576)
     local modulesByOwner, moduleNames = {}, {}
@@ -726,7 +742,10 @@ function verify.catalog(p: any): any
                             target = candidate.chunk
                         end
                     end
-                    need(target ~= nil and target < owner.id, "forward or cyclic require is unsupported")
+                    need(
+                        target ~= nil and (target < owner.id or p.schema.version >= 8 and target ~= owner.id),
+                        "forward or cyclic require is unsupported"
+                    )
                 end
                 need(
                     #block.args[at] == #operation.args or operation.variadic and #block.args[at] > #operation.args,
