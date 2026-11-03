@@ -83,7 +83,7 @@ end
 function M.checkedGlobalAndRequireShareOneFunction()
     local parser = require("nupp.compiler.syntax.parser")
     local checker = require("fragment")
-    local gen = require("nupp.compiler.lua.gen")
+    local program = require("program")
     local root = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]")) .. "/.."
     local env = require("nupp.compiler.project.env").new(root)
     local source = 'local direct = warn\nlocal imported = require("warn")\nreturn direct == imported'
@@ -91,19 +91,15 @@ function M.checkedGlobalAndRequireShareOneFunction()
     test.eq(#parsed.errors, 0)
     local diagnostics = checker.check(parsed, "warning-identity.nupp", env)
     test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
-    local code, generated = gen.generate(parsed, "warning-identity.nupp")
-    test.eq(#generated, 0)
-    assert(code:find('require("warn")', 1, true), "the builtin resolves the public warning module")
-    test.eq(assert(loadstring(code))(), true)
+    -- The builtin resolves the public warning module: the same function.
+    test.eq(program.run(parsed, "warning-identity"), true)
 
     local shadowed = parser.parse(
         'local warn = function(message: string): string return message end\nreturn warn("local")',
         "warning-shadow.nupp"
     )
     test.eq(#checker.check(shadowed, "warning-shadow.nupp", env), 0)
-    local ordinary = gen.generate(shadowed, "warning-shadow.nupp")
-    test.eq(ordinary:find('require("warn")', 1, true), nil)
-    test.eq(assert(loadstring(ordinary))(), "local")
+    test.eq(program.run(shadowed, "warning-shadow"), "local")
 end
 
 return M
