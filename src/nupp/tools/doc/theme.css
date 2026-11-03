@@ -548,24 +548,24 @@ input {
     margin-bottom: 0
 }
 
-.nuppdoc-api-details {
+.nuppdoc-api-item dl {
     margin: .75rem 0 1.5rem 1rem
 }
 
-.nuppdoc-api-details dt {
+.nuppdoc-api-item dl dt {
     margin-top: 1rem;
     overflow-wrap: anywhere
 }
 
-.nuppdoc-api-details dd {
+.nuppdoc-api-item dl dd {
     margin: .25rem 0 0 1rem
 }
 
-.nuppdoc-api-details dd p:first-child {
+.nuppdoc-api-item dl dd p:first-child {
     margin-top: 0
 }
 
-.nuppdoc-api-details dd p:last-child {
+.nuppdoc-api-item dl dd p:last-child {
     margin-bottom: 0
 }
 

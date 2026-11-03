@@ -463,13 +463,17 @@ local function headingSlugs(text, headingScope: string?)
     local slugs, out = {}, {}
     local used: {[string]: boolean} = {}
     local namedAnchor, anchorAt = nil, nil
+    local activeScope = headingScope
     for line in (text .. "\n"):gmatch("(.-)\n") do
         local hashes, heading = line:match("^(#+)%s+(.+)$")
         if hashes then
             local name, badge, lua = headingBadge(heading)
             local base = headingId(heading)
-            local id = uniqueHeading(headingScope and headingScope .. "." .. base or base, used)
-            if namedAnchor == base and anchorAt then
+            if namedAnchor then
+                activeScope = namedAnchor
+            end
+            local id = uniqueHeading(namedAnchor or (activeScope and activeScope .. "." .. base or base), used)
+            if namedAnchor and anchorAt then
                 -- The heading already owns this exact anchor. Keeping the empty
                 -- anchor before it would give the document two identical IDs.
                 out[anchorAt] = ""
@@ -497,6 +501,8 @@ end
 -- per doc comment. The heading state it reads is reset by every call into markdownHtml,
 -- which is the only caller.
 local parse, headings, headingIndex, headingShiftBy = nil, {}, 0, 1
+local definitionLinks: Links? = nil
+local apiDefinitions = false
 
 -- Lunamark 0.6 asks for the `lua-utf8` rock in two places. Nupp supplies the
 -- two operations for the duration of parser construction instead of carrying a
@@ -513,6 +519,31 @@ end
 local function lunamarkParser(): any
     local lunamark: any = require("lunamark")
     local writer = lunamark.writer.html.new()
+    local definitionList = writer.definitionlist
+    writer.definitionlist = function(items, tight)
+        if apiDefinitions then
+            for _, item in ipairs(items) do
+                local term = lunamark.util.rope_to_string(item.term)
+                local _, count = term:gsub("<code>.-</code>", "")
+                local index = 0
+                item.term = term:gsub("<code>(.-)</code>", function(value)
+                    index = index + 1
+                    if index ~= count then
+                        return "<code>" .. value .. "</code>"
+                    end
+                    local source = value:gsub("&lt;", "<"):gsub("&gt;", ">"):gsub("&quot;", '"'):gsub("&amp;", "&")
+
+                    return "<code>" .. highlightMod.nuppSource(source, definitionLinks) .. "</code>"
+                end)
+            end
+        end
+        local result = definitionList(items, tight)
+        if apiDefinitions then
+            result[1] = '<dl class="nuppdoc-api-details">'
+        end
+
+        return result
+    end
     writer.header = function(content, level)
         headingIndex = headingIndex + 1
         local heading = headings[headingIndex]
@@ -543,6 +574,7 @@ local function lunamarkParser(): any
         fenced_code_blocks = true,
         header_attributes = true,
         pipe_tables = true,
+        definition_lists = true,
     })
 end
 
@@ -603,6 +635,7 @@ markdownHtml = function(text: string?, links: Links?, headingShift: integer?, he
     local slugs, withoutBadges = headingSlugs(prepared, headingScope)
     headings, headingIndex, prepared = slugs, 0, withoutBadges
     headingShiftBy = headingShift == nil and 1 or headingShift
+    definitionLinks, apiDefinitions = links, headingScope ~= nil
     -- Annotated because the parser is reached through an untyped rock: without this the
     -- rendered document arrives as `any` and the replacement pass below narrows it to
     -- whatever `gsub` handed back second.

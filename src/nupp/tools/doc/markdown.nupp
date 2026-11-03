@@ -65,6 +65,18 @@ local function heading(level)
     return ("#"):rep(math.min(level, 6))
 end
 
+local function codeSpan(value: string): string
+    local delimiter = "`"
+    while value:find(delimiter, 1, true) do
+        delimiter = delimiter .. "`"
+    end
+    if value:sub(1, 1) == "`" or value:sub(-1) == "`" then
+        value = " " .. value .. " "
+    end
+
+    return delimiter .. value .. delimiter
+end
+
 -- What a declaration was annotated with, on its own line under the heading.
 local function markdownAnnotations(out, annotations)
     if not annotations or #annotations == 0 then
@@ -72,10 +84,20 @@ local function markdownAnnotations(out, annotations)
     end
     local marks = {}
     for index, annotation in ipairs(annotations) do
-        marks[index] = "`" .. markdownEscape(annotation) .. "`"
+        marks[index] = codeSpan(annotation)
     end
     out[#out + 1] = table.concat(marks, " ")
     out[#out + 1] = ""
+end
+
+local function definition(out, term, description)
+    out[#out + 1] = term
+    local text = prose(description):gsub("\r\n?", "\n")
+    local first = true
+    for line in (text .. "\n"):gmatch("(.-)\n") do
+        out[#out + 1] = (first and ":   " or "    ") .. line
+        first = false
+    end
 end
 
 local function markdownArguments(out, params, heading)
@@ -84,17 +106,9 @@ local function markdownArguments(out, params, heading)
     end
     out[#out + 1] = heading .. " Arguments"
     out[#out + 1] = ""
-    out[#out + 1] = "| Name | Type | Description |"
-    out[#out + 1] = "| --- | --- | --- |"
     for _, param in ipairs(params) do
-        -- `takes` and `borrows` decide whether the caller still owns the value
-        -- afterwards, which no other column says.
         local spelled = (param.mode and (param.mode .. " ") or "") .. param.name
-        out[
-            #out + 1
-        ] = "| `" .. markdownEscape(
-            spelled
-        ) .. "` | `" .. markdownEscape(param.type) .. "` | " .. cell(param.text) .. " |"
+        definition(out, codeSpan(spelled) .. " - " .. codeSpan(param.type), param.text)
     end
     out[#out + 1] = ""
 end
@@ -105,10 +119,8 @@ local function markdownReturns(out, returns, heading)
     end
     out[#out + 1] = heading .. " Returns"
     out[#out + 1] = ""
-    out[#out + 1] = "| Type | Description |"
-    out[#out + 1] = "| --- | --- |"
     for _, value in ipairs(returns) do
-        out[#out + 1] = "| `" .. markdownEscape(value.type) .. "` | " .. cell(value.text) .. " |"
+        definition(out, codeSpan(value.type), value.text)
     end
     out[#out + 1] = ""
 end
@@ -130,6 +142,12 @@ local function markdownRaises(out, raises, heading)
     out[#out + 1] = ""
 end
 
+local function overloadAnchor(path, seen)
+    local count = (seen[path] or 0) + 1
+    seen[path] = count
+    return count == 1 and path or path .. "-overload-" .. tostring(count)
+end
+
 -- The members of a declaration as one table above the sections documenting them. The
 -- signature fence elides the entries, so this is where a reader sees what the type
 -- holds without scrolling the whole of it, and the name links to the rest.
@@ -141,14 +159,14 @@ local function markdownMemberSummary(out, members, heading, title)
     out[#out + 1] = ""
     out[#out + 1] = "| Name | Kind | Description |"
     out[#out + 1] = "| --- | --- | --- |"
+    local seen = {}
     for _, member in ipairs(members) do
+        local path = overloadAnchor(member.path, seen)
         out[
             #out + 1
         ] = "| [`" .. markdownEscape(
             member.name
-        ) .. "`](#" .. member.path .. ") | " .. memberKind(
-            member
-        ) .. " | " .. markdownCell(summaryText(member.text)) .. " |"
+        ) .. "`](#" .. path .. ") | " .. memberKind(member) .. " | " .. markdownCell(summaryText(member.text)) .. " |"
     end
     out[#out + 1] = ""
 end
@@ -159,8 +177,10 @@ end
 -- a flattened table.
 local function renderMarkdownMembers(out, members, level)
     local hName, hSub = heading(level), heading(level + 1)
+    local seen = {}
     for _, member in ipairs(members or {}) do
-        out[#out + 1] = '<a id="' .. member.path .. '"></a>'
+        local path = overloadAnchor(member.path, seen)
+        out[#out + 1] = '<a id="' .. path .. '"></a>'
         out[
             #out + 1
         ] = hName .. " `" .. member.name .. "` _" .. memberKind(member) .. "_" .. (member.lua and " _Lua_" or "")
@@ -188,11 +208,11 @@ local function renderMarkdownMembers(out, members, level)
     end
 end
 
-local function renderMarkdownItem(out, item, level, bodyOnly)
+local function renderMarkdownItem(out, item, level, bodyOnly, path)
     level = level or 3
     local h, hSub = heading(level), heading(level + 1)
     if not bodyOnly then
-        out[#out + 1] = '<a id="' .. item.path .. '"></a>'
+        out[#out + 1] = '<a id="' .. (path or item.path) .. '"></a>'
         out[#out + 1] = h .. " `" .. item.name .. "` _" .. displayKind(item) .. "_" .. (item.lua and " _Lua_" or "")
         out[#out + 1] = ""
     end
@@ -237,10 +257,11 @@ end
 --- @param items the declarations to render, in the order they should be read
 --- @param level the heading depth of an item's name, 3 by default
 --- @return the markdown, or the empty string when there is nothing to render
-function markdown.items(items: {Item}, level: integer?): string
+function markdown.items(items: {Item}, level: integer?, seen: {[string]: integer}?): string
     local out = {}
+    local seen = seen or {}
     for _, item in ipairs(items) do
-        renderMarkdownItem(out, item, level or 3)
+        renderMarkdownItem(out, item, level or 3, false, overloadAnchor(item.path, seen))
     end
 
     return table.concat(out, "\n")
@@ -275,6 +296,7 @@ function markdown.render(modules: {Module}, title: string?, all: {Module}?, over
         out[#out + 1] = "# " .. title;
         out[#out + 1] = ""
     end
+    local seen = {}
     for moduleIndex, module in ipairs(modules) do
         local rootDeclaration = false
         for _, item in ipairs(module.items) do
@@ -326,7 +348,7 @@ function markdown.render(modules: {Module}, title: string?, all: {Module}?, over
                 out[#out + 1] = "## " .. group.title
                 out[#out + 1] = ""
                 for _, item in ipairs(group.items) do
-                    renderMarkdownItem(out, item)
+                    renderMarkdownItem(out, item, nil, false, overloadAnchor(item.path, seen))
                 end
             end
         end

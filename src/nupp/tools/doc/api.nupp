@@ -9,7 +9,6 @@ const {type Links} = require("nupp.tools.doc.urls")
 
 local stringsMod = require("nupp.tools.doc.strings")
 local htmlMod = require("nupp.tools.doc.html")
-local highlightMod = require("nupp.tools.doc.highlight")
 local extractMod = require("nupp.tools.doc.extract")
 local urlsMod = require("nupp.tools.doc.urls")
 
@@ -18,7 +17,6 @@ local summaryText = stringsMod.summaryText
 local markdownHtml, tableHtml = htmlMod.markdownHtml, htmlMod.tableHtml
 local inlineHtml = htmlMod.inlineHtml
 local kindBadge = htmlMod.kindBadge
-local highlightNupp = highlightMod.nuppSource
 local childModules = extractMod.children
 local moduleFile = urlsMod.moduleFile
 
@@ -30,32 +28,6 @@ type api.ItemGroup = {
     kinds: boolean,
     items: {extractMod.Item}
 }
-
--- What a declaration was annotated with, rendered beside its name.
-local function annotationBadges(annotations)
-    if not annotations or #annotations == 0 then
-        return ""
-    end
-    local marks = {}
-    for _, annotation in ipairs(annotations) do
-        marks[#marks + 1] = '<span class="nuppdoc-annotation">' .. htmlEscape(annotation) .. "</span>"
-    end
-
-    return '<div class="nuppdoc-annotations">' .. table.concat(marks) .. "</div>"
-end
-
--- `takes` and `borrows` say whether the caller still owns the value afterwards.
-local function spelledParam(param)
-    return (param.mode and (param.mode .. " ") or "") .. param.name
-end
-
--- HTML stops at `<h6>`; a type nested deeply enough to reach it renders its own
--- sections
--- at the same depth as its members rather than past the edge. Nesting past that point
--- still reads, because each nested type is its own `<div>`.
-local function htag(level)
-    return "h" .. math.min(level, 6)
-end
 
 -- Construction is what `new` does, and a `constructor` declaration documents inside the
 -- record it belongs to. A module-level function that hands back an instance is a
@@ -117,17 +89,16 @@ local function displaySignature(item: extractMod.Item): string
         local signature = item.signature
         local typed = signature:match("^local%s+[%w_%.]+:%s*(.*)$") or signature:match("^const%s+[%w_%.]+:%s*(.*)$")
         if typed then
-            return omitNilResult(item.path .. ": " .. typed, item.returns)
+            return omitNilResult(typed, item.returns)
         end
-        local prefix, suffix = signature:match("^(.-)local%s+function%s+[%w_%.:]+(.*)$")
-        if not prefix then
-            prefix, suffix = signature:match("^(.-)const%s+function%s+[%w_%.:]+(.*)$")
-        end
+        signature = signature:gsub("%f[%a]local%s+function%s+", "function ", 1)
+        signature = signature:gsub("%f[%a]const%s+function%s+", "function ", 1)
+        local prefix, suffix = signature:match("^(.-function)%s+[%w_%.:]+(.*)$")
         if prefix then
-            return omitNilResult(prefix .. "function " .. item.path .. suffix, item.returns)
+            return omitNilResult(prefix .. suffix, item.returns)
         end
-        if item.path ~= item.name and signature:sub(1, #item.name + 1) == item.name .. "(" then
-            return omitNilResult(item.path .. signature:sub(#item.name + 1), item.returns)
+        if signature:sub(1, #item.name + 1) == item.name .. "(" then
+            return omitNilResult("function" .. signature:sub(#item.name + 1), item.returns)
         end
         return omitNilResult(signature, item.returns)
     end
@@ -256,83 +227,6 @@ local function moduleSummary(module: extractMod.Module): string
     return table.concat(out)
 end
 
-local function inlineNupp(source, links)
-    return "<code>" .. highlightNupp(source, links) .. "</code>"
-end
-
-local function argumentsHtml(params, heading, links)
-    if #params == 0 then
-        return ""
-    end
-    local out = {"<" .. heading .. ">Arguments</" .. heading .. '><dl class="nuppdoc-api-details">'}
-    for _, param in ipairs(params) do
-        out[
-            #out + 1
-        ] = "<dt><code>" .. htmlEscape(
-            spelledParam(param)
-        ) .. "</code>: " .. inlineNupp(param.type, links) .. "</dt><dd>" .. markdownHtml(param.text, links) .. "</dd>"
-    end
-    out[#out + 1] = "</dl>"
-
-    return table.concat(out)
-end
-
-local function returnsHtml(returns, heading, links)
-    if not hasReturns(returns) then
-        return ""
-    end
-    local out = {"<" .. heading .. ">Returns</" .. heading .. '><dl class="nuppdoc-api-details">'}
-    for _, value in ipairs(returns) do
-        out[
-            #out + 1
-        ] = "<dt>" .. inlineNupp(value.type, links) .. "</dt><dd>" .. markdownHtml(value.text, links) .. "</dd>"
-    end
-    out[#out + 1] = "</dl>"
-
-    return table.concat(out)
-end
-
--- A raise names the type `error` is called with and says what brings it about, so it
--- tabulates the way a result does. The type goes through the same highlighter a
--- signature does, which is what makes the declaration it names a link from here.
-local function raisesHtml(raises, heading, links)
-    if #raises == 0 then
-        return ""
-    end
-    local rows = {}
-    for _, raise in ipairs(raises) do
-        rows[#rows + 1] = {inlineNupp(raise.type, links), markdownHtml(raise.text, links)}
-    end
-
-    return "<" .. heading .. ">Raises</" .. heading .. ">" .. tableHtml({"Type", "Condition"}, rows)
-end
-
--- One member's heading: the anchor the members table links to, and the `#` beside it
--- that hands that anchor back. `badge` is what the member is, which the page used to
--- say with a group heading above a run of members of the same kind.
-local function memberHeading(
-    name: string,
-    path: string,
-    tag: string,
-    extra: string?,
-    badge: string,
-    lua: boolean?
-): string
-    return '<div class="nuppdoc-api-member' .. (
-        extra or ""
-    ) .. '" id="' .. htmlEscape(
-        path
-    ) .. '"><' .. tag .. '><code>' .. htmlEscape(
-        name
-    ) .. "</code>" .. kindBadge(
-        badge
-    ) .. (
-        lua and kindBadge("Lua") or ""
-    ) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
-        path
-    ) .. '" aria-label="Link to ' .. htmlEscape(name) .. '">#</a></' .. tag .. ">"
-end
-
 -- How a member reads as source. An alias names a type rather than holding a value, so
 -- it is spelled the way it was declared instead of as `name: type`, which would say it
 -- is a field whose values are types.
@@ -341,124 +235,36 @@ local function memberSpelling(member: extractMod.Member): string
         return "type " .. member.name .. (member.generics or "") .. " = " .. member.type
     end
 
+    if member.isFunction and member.name ~= "constructor" then
+        local signature = member.type:gsub("^(.-function)%s+[%w_%.:]+", "%1", 1)
+        return omitNilResult(signature, member.returns)
+    end
+
     return member.name .. ": " .. (member.isFunction and omitNilResult(member.type, member.returns) or member.type)
 end
 
-local function memberCode(source: string, links: Links?): string
-    return '<div class="nuppdoc-code-block" data-lang="nupp"><pre>' .. '<code class="language-nupp">' .. highlightNupp(
-        source,
-        links
-    ) .. "</code></pre></div>"
-end
-
--- Overloads share a semantic member path. The first keeps that canonical anchor;
--- later signatures also get stable anchors without hiding any of their contracts.
-local function overloadAnchor(path: string, seen: {[string]: integer}): string
-    local count = (seen[path] or 0) + 1
-    seen[path] = count
-
-    return count == 1 and path or path .. "-overload-" .. tostring(count)
-end
-
--- The members of a declaration as one table above the sections documenting them, the
--- same relationship the module contents table has to the declarations under it. The
--- signature block elides the entries, so this is where a reader sees what the type
--- holds without scrolling the whole of it, and the name is the link to the rest.
-local function memberSummary(members: {extractMod.Member}?, links: Links?, title: string?): string
-    if not members or #members == 0 then
-        return ""
-    end
-    local rows, anchors = {}, {}
-    for _, member in ipairs(members) do
-        local path = overloadAnchor(member.path, anchors)
-        rows[
-            #rows + 1
-        ] = {
-            '<a href="#' .. htmlEscape(path) .. '"><code>' .. htmlEscape(member.name) .. "</code></a>",
-            kindBadge(memberKind(member)),
-            inlineHtml(summaryText(member.text))
-        }
-    end
-
-    return '<div class="nuppdoc-api-members"><h4>' .. (
-        title or "Members"
-    ) .. '</h4>' .. tableHtml({"Name", "Kind", "Description"}, rows) .. "</div>"
-end
-
--- Every member of a declaration, in the order it was written, each under a heading of
--- its own carrying the badge that says what it is. A nested type recurses one level
--- deeper, so a type nested arbitrarily deep still gets a real heading and its own
--- `<div>` instead of losing its members to a flattened table.
-local function renderHtmlMembers(out: {string}, members: {extractMod.Member}?, links: Links?, level: integer): nil
-    local hName, hSub = htag(level), htag(level + 1)
-    local anchors = {}
-    for _, member in ipairs(members or {}) do
-        local path = overloadAnchor(member.path, anchors)
-        out[
-            #out + 1
-        ] = memberHeading(
-            member.name,
-            path,
-            hName,
-            member.isType and " nuppdoc-api-nested-type" or nil,
-            memberKind(member),
-            member.lua
-        )
-        -- A nested type's badge already spells its declaration, and what it holds is
-        -- its own members below; only a field or a method has a type to show here.
-        if not member.isType then
-            out[#out + 1] = memberCode(memberSpelling(member), links)
-        end
-        out[#out + 1] = annotationBadges(member.annotations)
-        out[#out + 1] = markdownHtml(member.text, links, nil, path)
-        out[#out + 1] = argumentsHtml(member.params, hSub, links)
-        out[#out + 1] = returnsHtml(member.returns, hSub, links)
-        out[#out + 1] = raisesHtml(member.raises, hSub, links)
-        if member.isType then
-            out[#out + 1] = memberSummary(member.members, links)
-            renderHtmlMembers(out, member.members, links, level + 1)
-        end
-        out[#out + 1] = "</div>"
-    end
-end
-
+-- API details share the Markdown emitted for llms.txt. The surrounding section is a
+-- site layout hook; all declaration content comes from the same Markdown renderer.
 local function renderHtmlItem(out: {string}, item: extractMod.Item, links: Links?, anchors: {[string]: integer}?): nil
-    local kind = displayKind(item)
-    local path = overloadAnchor(item.path, anchors or {})
-    out[
-        #out + 1
-    ] = '<section class="nuppdoc-api-item" id="' .. htmlEscape(
-        path
-    ) .. '"><h3><code>' .. htmlEscape(
-        item.name
-    ) .. "</code>" .. kindBadge(
-        kind
-    ) .. (
-        item.lua and kindBadge("Lua") or ""
-    ) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
-        path
-    ) .. '" aria-label="Link to ' .. htmlEscape(item.name) .. '">#</a></h3>'
-    out[#out + 1] = memberCode(displaySignature(item), links)
-    if item.kind == "function" and item.readOnly then
-        out[
-            #out + 1
-        ] = '<div class="nuppdoc-annotations"><span class="nuppdoc-annotation">Read-only binding</span></div>'
-    end
-    out[#out + 1] = annotationBadges(item.annotations)
-    out[#out + 1] = markdownHtml(item.doc.text, links, nil, path)
-    if #item.typeargs > 0 then
-        local rows = {}
-        for _, typearg in ipairs(item.typeargs) do
-            rows[#rows + 1] = {"<code>" .. htmlEscape(typearg.name) .. "</code>", markdownHtml(typearg.text, links)}
+    local markdownMod = require("nupp.tools.doc.markdown")
+    local source = markdownMod.items({item}, 3, anchors)
+    local path = source:match('^<a id="([^"]+)"></a>') or item.path
+    local body = markdownHtml(source, links, 0, path)
+    body = body:gsub('^<h3 id="[^"]+">', "<h3>", 1)
+    body = body:gsub(
+        "<p><strong>Read%-only binding%.</strong></p>",
+        '<div class="nuppdoc-annotations"><span class="nuppdoc-annotation">Read-only binding</span></div>'
+    )
+    body = body:gsub("<p>(.-)</p>", function(content: string): string
+        local remaining = content:gsub("<code>@.-</code>", ""):gsub("%s+", "")
+        if remaining ~= "" or not content:find("<code>@", 1, true) then
+            return "<p>" .. content .. "</p>"
         end
-        out[#out + 1] = "<h4>Type parameters</h4>" .. tableHtml({"Name", "Description"}, rows)
-    end
-    out[#out + 1] = argumentsHtml(item.params, "h4", links)
-    out[#out + 1] = returnsHtml(item.returns, "h4", links)
-    out[#out + 1] = raisesHtml(item.raises, "h4", links)
-    out[#out + 1] = memberSummary(item.members, links, item.kind == "annotation" and "Values" or nil)
-    renderHtmlMembers(out, item.members, links, 4)
-    out[#out + 1] = "</section>"
+        local badges = content:gsub("<code>(@.-)</code>", '<span class="nuppdoc-annotation">%1</span>')
+
+        return '<div class="nuppdoc-annotations">' .. badges .. "</div>"
+    end)
+    out[#out + 1] = '<section class="nuppdoc-api-item" id="' .. htmlEscape(path) .. '">' .. body .. "</section>"
 end
 
 api.moduleSummary = moduleSummary
