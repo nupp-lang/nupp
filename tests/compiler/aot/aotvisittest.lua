@@ -109,16 +109,16 @@ local function sourceDeclarations()
         end
         if node.kind == "recordDecl" then
             local record = {fields = {}}
-            records[node[4].text] = record
+            records[node.name.text] = record
             for _, child in ipairs(node) do
                 if not cst.isToken(child) and child.kind == "fieldDecl" then
                     record.fields[
                         #record.fields + 1
-                    ] = {name = child[1].text, type = cst.textOf(child[3]):gsub("%s+", "")}
+                    ] = {name = child.name.text, type = cst.textOf(child.type):gsub("%s+", "")}
                 end
             end
         elseif node.kind == "typeAlias" then
-            aliases[node[4].text] = cst.textOf(node[6]):gsub("%s+", "")
+            aliases[node.name.text] = cst.textOf(node.value):gsub("%s+", "")
         end
         for _, child in ipairs(node) do
             walk(child)
@@ -132,7 +132,7 @@ end
 
 local function namesIn(text)
     local names = {}
-    for name in text:gmatch("scalarIR%.([%w_]+)") do
+    for name in text:gmatch("([%w_]+)") do
         names[name] = true
     end
 
@@ -168,7 +168,7 @@ function M.mapperAndEffectVocabulariesMatchTheScalarDeclarations()
         local record = assert(records[name], name)
         for _, field in ipairs(record.fields) do
             if field.name == "op" then
-                local alias = field.type:match("^scalarIR%.([%w_]+)$")
+                local alias = field.type:match("^([%w_]+)$")
                 return literals(alias and aliases[alias] or field.type)
             end
         end
@@ -208,13 +208,13 @@ function M.mapperAndEffectVocabulariesMatchTheScalarDeclarations()
         -- Lists get two elements so a mapper that visits only the first is
         -- caught, not just one that skips the list entirely.
         makeValue = function(typeText, path)
-            if typeText:find("scalarIR.Expr", 1, true) then
+            if typeText:find("%f[%w_]Expr%f[^%w_]") then
                 if typeText:sub(1, 1) == "{" then
                     return {sentinel(path .. "[1]"), sentinel(path .. "[2]")}
                 end
                 return sentinel(path)
             end
-            local referred = typeText:match("scalarIR%.([%w_]+)")
+            local referred = typeText:match("([A-Z][%w_]*)")
             if referred and expressionRecords[referred] then
                 if typeText:sub(1, 1) == "{" then
                     return {sentinel(path .. "[1]"), sentinel(path .. "[2]")}
@@ -226,7 +226,7 @@ function M.mapperAndEffectVocabulariesMatchTheScalarDeclarations()
                 end
                 return makeRecord(referred, nil, path)
             end
-            -- A named scalarIR type the resolver cannot place would silently
+            -- A named scalar type the resolver cannot place would silently
             -- under-cover the audit; refuse it instead of defaulting. Source and
             -- guarded recursion are known Expr-free, and a named alias must not
             -- hide expressions behind its name.

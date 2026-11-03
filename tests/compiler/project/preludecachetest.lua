@@ -80,6 +80,7 @@ function M.aCachedPreludeAnswersLikeAFreshlyCheckedOne()
     local fresh = envMod.new(dir, {cache = false})
 
     test.eq(cached.preludeRuntime, fresh.preludeRuntime, "the generated prelude runtime is the same source")
+    test.eq(fresh.preludeRuntime, "", "the empty prelude implementation adds no runtime bootstrap")
     test.eq(names(cached.globals), names(fresh.globals), "the same globals")
     test.eq(names(cached.globalTypes), names(fresh.globalTypes), "the same global types")
     test.eq(names(cached.globalTypeDefs), names(fresh.globalTypeDefs), "the same declaration sites")
