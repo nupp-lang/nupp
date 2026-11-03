@@ -20,7 +20,10 @@
     --nuppdoc-dark-muted: #a8a8a3;
     --nuppdoc-light-api-heading-background: color-mix(in srgb, var(--nuppdoc-light-background) 91%, var(--nuppdoc-light-text));
     --nuppdoc-dark-api-heading-background: color-mix(in srgb, var(--nuppdoc-dark-background) 91%, var(--nuppdoc-dark-text));
+    --nuppdoc-light-api-border: var(--nuppdoc-light-api-heading-background);
+    --nuppdoc-dark-api-border: var(--nuppdoc-dark-api-heading-background);
     --nuppdoc-api-heading-background: var(--nuppdoc-light-api-heading-background);
+    --nuppdoc-api-border: var(--nuppdoc-light-api-border);
     --nuppdoc-accent: var(--nuppdoc-light-accent);
     --nuppdoc-accent-hover: var(--nuppdoc-light-accent-hover);
     --nuppdoc-accent-soft: var(--nuppdoc-light-accent-soft);
@@ -69,7 +72,8 @@
         --nuppdoc-code-background: var(--nuppdoc-dark-code-background);
         --nuppdoc-text: var(--nuppdoc-dark-text);
         --nuppdoc-text-muted: var(--nuppdoc-dark-muted);
-        --nuppdoc-api-heading-background: var(--nuppdoc-dark-api-heading-background)
+        --nuppdoc-api-heading-background: var(--nuppdoc-dark-api-heading-background);
+        --nuppdoc-api-border: var(--nuppdoc-dark-api-border)
     }
 }
 
@@ -102,7 +106,8 @@
     --nuppdoc-code-background: var(--nuppdoc-dark-code-background);
     --nuppdoc-text: var(--nuppdoc-dark-text);
     --nuppdoc-text-muted: var(--nuppdoc-dark-muted);
-    --nuppdoc-api-heading-background: var(--nuppdoc-dark-api-heading-background)
+    --nuppdoc-api-heading-background: var(--nuppdoc-dark-api-heading-background);
+    --nuppdoc-api-border: var(--nuppdoc-dark-api-border)
 }
 
 :root[data-theme="dark"] {
@@ -132,7 +137,8 @@
     --nuppdoc-code-background: var(--nuppdoc-light-code-background);
     --nuppdoc-text: var(--nuppdoc-light-text);
     --nuppdoc-text-muted: var(--nuppdoc-light-muted);
-    --nuppdoc-api-heading-background: var(--nuppdoc-light-api-heading-background)
+    --nuppdoc-api-heading-background: var(--nuppdoc-light-api-heading-background);
+    --nuppdoc-api-border: var(--nuppdoc-light-api-border)
 }
 
 :root[data-theme="light"] {
@@ -2008,7 +2014,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-content > #annotations ~ .nuppdoc-api-item {
     margin: 1.35rem 0;
     padding: 0 1rem .7rem;
-    border: 1px solid var(--nuppdoc-api-heading-background);
+    border: 1px solid var(--nuppdoc-api-border);
     border-radius: 4px;
     overflow: clip;
     background: transparent;
@@ -2020,7 +2026,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-content > #annotations ~ .nuppdoc-api-item > h3 {
     margin: 0 -1rem .8rem;
     padding: .55rem 1rem;
-    border-bottom: 1px solid var(--nuppdoc-api-heading-background);
+    border-bottom: 1px solid var(--nuppdoc-api-border);
     background: var(--nuppdoc-api-heading-background);
 }
 

@@ -36,6 +36,7 @@
    * states use a different near-black. */
   --nuppdoc-dark-background: #161412;
   --nuppdoc-dark-api-heading-background: #1f1b19;
+  --nuppdoc-dark-api-border: color-mix(in srgb, var(--nuppdoc-dark-api-heading-background) 91.7%, var(--nuppdoc-dark-text));
   --nuppdoc-dark-background-alt: #1b2626;
   --nuppdoc-dark-border: color-mix(in srgb, #50676c 65%, black);
   --nuppdoc-dark-code-background: #1a1d1d;
