@@ -23,4 +23,12 @@ end
 if apply(math.floor, 3.7) == 3 then
     score = score + 8
 end
+if type(package.loaded) == "table" and package.preload["nupp.core.absent"] == nil then
+    score = score + 16
+end
+local installed = package as any
+installed.marker = 5
+if (package as any).marker == 5 then
+    score = score + 32
+end
 export = score

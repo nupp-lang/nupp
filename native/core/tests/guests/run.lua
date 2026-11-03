@@ -136,7 +136,7 @@ local CASES = {
     {"modulesrecords", 0x7FFF000000002BD9},
     {"modulescycle", 0x7FFF000000000017},
     {"modulesdynamic", 0x7FFF000000002B20},
-    {"libraryvalues", 0x7FFF00000000000F},
+    {"libraryvalues", 0x7FFF00000000003F},
     {"modulesqualified", 0x7FFF0000000000E6},
     {"callsoverflow", 0x7FFF000000000003}
 }

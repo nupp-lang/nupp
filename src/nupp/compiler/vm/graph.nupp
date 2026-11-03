@@ -1692,6 +1692,7 @@ end
 local libraryValues: {
     [string]: boolean
 } = {
+    package = true,
     require = true,
     tostring = true,
     tonumber = true,

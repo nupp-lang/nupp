@@ -10,6 +10,9 @@ this module when it takes a library function as a value.
 ]]
 
 export const functions: {[string]: any} = {
+    -- The ambient `package` table: its `loaded` and `preload` as Lua's, empty
+    -- because the image holds the modules, and fields a program sets on it.
+    package = {loaded = {}, preload = {}, path = "", cpath = "", config = "/\n;\n?\n!\n-\n"},
     require = function(name: string): any
         return require(name)
     end,
