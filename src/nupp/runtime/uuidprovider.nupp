@@ -4,14 +4,14 @@ module nupp.runtime.uuidprovider
 
 --[[UUID operations come from one provider selected when this module loads.
 
-External implementations advertise the interface in [](nupp.spi).
+External implementations advertise the interface in [](package.nupp).
 Public utilities use the same retained functions.]]
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
-local contracts = require("nupp.spi")
+local contracts = package.nupp
 local provider: contracts.UuidProvider = do
-    const chosen = spi.select(spi.providers<contracts.UuidProvider>("nupp.spi.UuidProvider"))
+    const chosen = spi.select(spi.providers<contracts.UuidProvider>("package.nupp.UuidProvider"))
     if chosen ~= nil then
         yield chosen
     end

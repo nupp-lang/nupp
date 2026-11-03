@@ -1,6 +1,6 @@
 /* Lua stack adapter for the embedding application's host channel.
  *
- * `nupp.host` requests reach the application's registered C handlers through
+ * `os.host` requests reach the application's registered C handlers through
  * this module, `nupp.host.native`, which the runtime preloads when an
  * application creates or attaches it.
  *

@@ -65,7 +65,7 @@ function M.load(kind, provider)
 
     return instance({["nupp.runtime.packages"] = true, [facade] = true, ["nupp.io.net.internal"] = true}, {
         [
-            "nupp.spi.index"
+            "package.nupp.index"
         ] = {[kind == "process" and "io.Process.Provider" or facade .. ".spi.Provider"] = {"fixture.provider"}},
         ["fixture.provider"] = provider,
     })(facade)
@@ -90,7 +90,7 @@ function M.tls(provider)
     })
 
     return instance({["nupp.runtime.packages"] = true, ["io.net.internal.tls"] = true}, {
-        ["nupp.spi.index"] = {["io.net.spi.TlsProvider"] = {"fixture.provider"}},
+        ["package.nupp.index"] = {["io.net.spi.TlsProvider"] = {"fixture.provider"}},
         ["fixture.provider"] = provider,
         ["nupp.io.net"] = {
             pump = function()
@@ -186,7 +186,7 @@ function M.family(kind, providers)
     end
     local load = instance(
         {["nupp.runtime.packages"] = true, [facade] = true, ["nupp.runtime.provider." .. kind] = true},
-        {["nupp.spi.index"] = {[facade .. ".spi.Provider"] = names},},
+        {["package.nupp.index"] = {[facade .. ".spi.Provider"] = names},},
         preloads
     )
     local spi, counts = load("nupp.runtime.packages"), {resolutions = 0}

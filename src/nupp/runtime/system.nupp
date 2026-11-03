@@ -6,9 +6,9 @@ module nupp.runtime.system
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 
-local contract = require("nupp.spi")
+local contract = package.nupp
 local provider: contract.SystemProvider = do
-    const chosen = spi.select(spi.providers<contract.SystemProvider>("nupp.spi.SystemProvider"))
+    const chosen = spi.select(spi.providers<contract.SystemProvider>("package.nupp.SystemProvider"))
     if chosen ~= nil then
         yield chosen
     end

@@ -363,7 +363,7 @@ impl HostRuntime {
         self.lua()?.poll_suspension().map_err(HostError::Lua)
     }
 
-    /// Hands this state's `nupp.host` requests to `channel`, unless another
+    /// Hands this state's `os.host` requests to `channel`, unless another
     /// runtime attached to the state already answers them.
     pub(crate) fn install_host_channel(
         &self,

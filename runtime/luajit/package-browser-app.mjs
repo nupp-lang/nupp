@@ -84,7 +84,7 @@ async function packageWithService({project, target, output, guest, prebuilt = fa
     record(`${name}.mjs`);
   }
   copyFileSync(path.join(repo,'runtime/wasm/browser-entry.mjs'), path.join(output,'nupp-browser-app.mjs'));
-  // The page's audio for a `nupp.host` stream, which only the page can play.
+  // The page's audio for a `os.host` stream, which only the page can play.
   copyFileSync(path.join(repo,'runtime/wasm/audio.mjs'), path.join(output,'nupp-audio.mjs'));
   copyFileSync(path.join(repo,'runtime/wasm/audio-worklet.mjs'), path.join(output,'nupp-audio-worklet.mjs'));
   // The emitted worker facade determines whether this application needs a pool.

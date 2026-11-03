@@ -897,8 +897,8 @@ local function runtimeImports(name: string, code: string, config: Config, target
         required[#required + 1] = "nupp.runtime.hotreload"
     end
     if name == "nupp.runtime.packages" then
-        required[#required + 1] = "nupp.spi.index"
-    elseif name == "nupp.spi.index" then
+        required[#required + 1] = "package.nupp.index"
+    elseif name == "package.nupp.index" then
         for _, provider in ipairs(config._spiEntries or {}) do
             required[#required + 1] = provider.implementation
         end
@@ -1858,7 +1858,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
 
     if #(config._spiEntries or {}) > 0 then
         linkRuntimeSource("nupp.runtime.packages")
-        linkRuntimeSource("nupp.spi.index")
+        linkRuntimeSource("package.nupp.index")
         for _, provider in ipairs(config._spiEntries) do
             linkRuntimeSource(provider.implementation)
         end

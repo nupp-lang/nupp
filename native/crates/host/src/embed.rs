@@ -81,7 +81,7 @@ pub struct NuppRuntime {
     inner: HostRuntime,
     // Boxed so the pointer the Lua state holds stays put while the runtime moves.
     channel: Box<HostChannel>,
-    // Whether this runtime's channel answers the state's `nupp.host` requests;
+    // Whether this runtime's channel answers the state's `os.host` requests;
     // a second runtime attached to a state does not.
     answers_host: Cell<bool>,
 }

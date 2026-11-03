@@ -1,7 +1,7 @@
-module nupp.host
+module os.host
 
 --[[
-`nupp.host` asks whatever is running the program for something and waits for
+`os.host` asks whatever is running the program for something and waits for
 the answer: the page's JavaScript in a browser, or the C or Rust application
 that embeds the runtime natively. Reach for it when a library needs a facility
 the host has and Nupp does not, such as a canvas, a clipboard or an engine's
@@ -12,7 +12,7 @@ list of values. Declare the kind's signature once as a function type and bind
 it; callers then get named arguments and a checked call:
 
 ```nupp:fragment
-local host = nupp.host
+local host = os.host
 
 --- Returns the host's id for the decoded image, and its width and height.
 local type DecodeImage = function(url: string, format: string?): (integer, integer, integer)
@@ -45,14 +45,14 @@ says so; `call` and `post` take their arguments as `any`, which a borrow cannot
 cross, and carry the other values only:
 
 ```nupp:fragment
-local host = nupp.host
+local host = os.host
 local span = binary.span
 
 local type Digest = function(borrows bytes: span.ByteSpan): (integer, span.ByteSpan)
 local digest = host.bind<Digest>("app.digest")
 
 const text = "hello"
-local length, echoed = digest(bytes = span.fromString(text))
+local length, echoed = digest(bytes = span.fromstring(text))
 ```
 
 A byte result arrives as a byte span the caller owns. A string or byte value
@@ -81,7 +81,7 @@ program owns, at an address it picks, with each message's values filling the
 event's fields in declaration order:
 
 ```nupp:fragment
-local host = nupp.host
+local host = os.host
 
 @derive(events.event)
 local struct PointerMove
@@ -120,10 +120,10 @@ such as `tecs.image.decode`. Names under `nupp.` are reserved for the runtime.
 local spi = require("nupp.runtime.packages")
 local events = require("events")
 local target = require("nupp.runtime.target")
-local contracts = require("nupp.spi")
+local contracts = require("package.nupp")
 
 local provider: contracts.HostProvider = do
-    const chosen = spi.select(spi.providers<contracts.HostProvider>("nupp.spi.HostProvider"))
+    const chosen = spi.select(spi.providers<contracts.HostProvider>("package.nupp.HostProvider"))
     if chosen ~= nil then
         yield chosen
     end

@@ -1,29 +1,5 @@
-module nupp.random
-
---[[
-`nupp.random` provides reproducible random sequences.
-Each generator keeps its own mutable state.
-
-```nupp
-local random = nupp.random
-
-const dice = new random.Xoshiro128(42)
-
-print(dice:integer(20))
-print(dice:next())
-```
-
-A `Xoshiro128` draws an independent xoshiro128** sequence, so the same seed
-always draws the same numbers. Omitting the seed picks a fixed one rather than
-reading a clock. Use `os.randombytes` when bytes must be unpredictable.
-
-A seed is one 32-bit word. A generator is mutable and is not safe to share
-between workers; give each lane its own.
-
-`state` and `setstate` copy the four signed 32-bit state words. That is the
-portable checkpoint format: keep them and the next draw is exactly the one that
-was coming.
-]]
+@!internal
+module math.internal.random
 
 const INV32 = 1.0 / 4294967296.0
 const TWO21 = 2097152

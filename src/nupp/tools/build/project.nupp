@@ -582,7 +582,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         say(opts, "NUPP0001", "nupp: " .. tostring(publishSpiError) .. "\n")
         return 1
     end
-    session.inc.diskChanged(join(root, join(outDir, "generated/nupp/spi/index.nupp")), 2)
+    session.inc.diskChanged(join(root, join(outDir, "generated/package/nupp/index.nupp")), 2)
 
     if opts.checkOnly
         and (target.aot == "require" or target.aot == "require-wasm")

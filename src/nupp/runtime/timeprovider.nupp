@@ -5,7 +5,7 @@ const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.provider.nativetim
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
-local contracts = require("nupp.spi")
+local contracts = package.nupp
 
 -- Optional consumers use only implementations present in their artifact. The
 -- public facade's literal imports carry its built-in fallbacks when that facility
@@ -25,7 +25,7 @@ local function available(name: string): contracts.ClockProvider?
 end
 
 export const provider: contracts.ClockProvider? = do
-    const chosen = spi.select(spi.providers<contracts.ClockProvider>("nupp.spi.ClockProvider"))
+    const chosen = spi.select(spi.providers<contracts.ClockProvider>("package.nupp.ClockProvider"))
     if chosen ~= nil then
         yield chosen
     end

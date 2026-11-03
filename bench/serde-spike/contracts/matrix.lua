@@ -16,7 +16,7 @@ if native then
     package.preload["nupp.codec.json.internal.decoder.fused"] = function()
         return dofile(native .. "/nupp/codec/json/internal/decoder/fused.lua")
     end
-    package.loaded["nupp.spi.index"] = {["serde.json.spi.Provider"] = {"nupp.codec.json.aot"}}
+    package.loaded["package.nupp.index"] = {["serde.json.spi.Provider"] = {"nupp.codec.json.aot"}}
     package.loaded["nupp.codec.json.provider"] = require("nupp.codec.json.aot")
 end
 local json = require("serde.json")

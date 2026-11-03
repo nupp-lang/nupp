@@ -1,7 +1,7 @@
 // Audio for a packaged Nupp browser application, shipped as `nupp-audio.mjs`.
 //
 // The application sends interleaved 32-bit float samples on an outbound
-// `nupp.host` stream; this answers that stream on the page, where audio lives,
+// `os.host` stream; this answers that stream on the page, where audio lives,
 // and plays it through an AudioWorklet that keeps `bufferAheadMs` queued. No
 // SharedArrayBuffer and no cross-origin isolation are needed: each chunk is
 // transferred to the worklet once.

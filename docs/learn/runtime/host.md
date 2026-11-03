@@ -5,7 +5,7 @@ title: Host requests
 
 # Host requests
 
-[](nupp.host) asks whatever runs the program for something and waits for the
+[](os.host) asks whatever runs the program for something and waits for the
 answer: the page's JavaScript in a browser, or the C or Rust application that
 embeds the runtime natively. Use it when a library needs a facility the host
 has and Nupp does not, such as a canvas, a clipboard, an engine's asset loader
@@ -22,7 +22,7 @@ named arguments and a checked call, and nothing is gathered into a table on the
 way through:
 
 ```nupp:fragment
-local host = nupp.host
+local host = os.host
 
 --- Returns the host's id for the decoded image, and its width and height.
 local type DecodeImage = function(url: string): (integer, integer, integer)
@@ -54,7 +54,7 @@ a bound kind whose signature says so; `call` and `post` take `any`, which a
 borrow cannot cross:
 
 ```nupp:fragment
-local host = nupp.host
+local host = os.host
 local span = binary.span
 
 local type Digest = function(borrows bytes: span.ByteSpan): (integer, span.ByteSpan)
@@ -77,7 +77,7 @@ results where no task is waiting. It must not suspend, so it releases through
 `post`, which queues a request and returns at once:
 
 ```nupp:fragment
-local host = nupp.host
+local host = os.host
 
 local type ReleaseImage = function(id: integer): nil
 local releaseImage = host.bindpost<ReleaseImage>("app.image.release")
@@ -100,7 +100,7 @@ program owns, each message's values filling the event's fields in declaration
 order:
 
 ```nupp:fragment
-local host = nupp.host
+local host = os.host
 local span = binary.span
 
 @derive(events.event)
@@ -182,7 +182,7 @@ program run on its own with `nupp run` has no host, and `host.attached()` says
 so.
 
 Natively a park blocks inside the call the application made, so a request the
-application answers later must run under a suspension handler. [](nupp.host.pump)
+application answers later must run under a suspension handler. [](os.host.pump)
 is one: it runs an operation until it finishes or parks, and the application
 polls it from its loop.
 
@@ -202,7 +202,7 @@ together share their frames, so issue independent calls from separate tasks in
 a [task scope](concurrency/task-scopes.md) rather than one after another.
 
 ::: seealso
-- [](nupp.host) for the full API
+- [](os.host) for the full API
 - [suspension.md](concurrency/suspension.md) for what a wait does under a handler
 - [embedding.md](../projects/embedding.md) for the C side of the channel
 :::

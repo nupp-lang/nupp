@@ -44,7 +44,10 @@ local BUNDLED = {
     "nupp.util.internal.pool",
     "nupp.mem.arena",
     "events",
-    "nupp.spi",
+    "package.nupp",
+    "os.host",
+    "os.host.pump",
+    "math.random",
     "debug.profile.trace",
     "debug.profile.zone",
     "debug.profile",
@@ -89,7 +92,11 @@ function M.retiredNamespacesAreNotBundled()
         "binary.hash",
         "binary.hash.digest",
         "binary.hash.checksum",
-        "binary.hash.mac"
+        "binary.hash.mac",
+        "nupp.host",
+        "nupp.host.pump",
+        "nupp.random",
+        "nupp.spi"
     }) do
         testAssert.eq(env.bundledImplementation(name), nil, name)
     end
@@ -120,7 +127,7 @@ end
 function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     local env = envMod.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
     local sources = {
-        ["nupp.spi"] = "/nupp/spi/init.nupp",
+        ["package.nupp"] = "/package/nupp/init.nupp",
         ["debug.profile"] = "/debug/profile/init.nupp",
         ["debug.profile.trace"] = "/debug/profile/trace.nupp",
         ["debug.profile.zone"] = "/debug/profile/zone.nupp",
@@ -200,7 +207,7 @@ end
 function M.providerContractImportErasesWithoutLoadingAnImplementation()
     local parsed = parser.parse(
         [[
-local {type ClockProvider} = require("nupp.spi")
+local {type ClockProvider} = require("package.nupp")
 return function(clock: ClockProvider): number return clock.now() end
 ]],
         "provider-contract-import.nupp"
@@ -210,7 +217,7 @@ return function(clock: ClockProvider): number return clock.now() end
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
     local code = gen.generate(parsed, "provider_contract_import")
-    assert(not code:find('nupp.spi', 1, true), code)
+    assert(not code:find('package.nupp', 1, true), code)
 end
 
 function M.profilingCollectorAndRegistryKeepDistinctQualifiedTypes()

@@ -1,4 +1,4 @@
--- The `nupp.host` channel's contract.
+-- The `os.host` channel's contract.
 --
 -- The browser half runs end to end under Node: `hostchannel/browser.test.mjs`
 -- answers frames with the real page dispatcher while `hostchannel/guest.lua`
@@ -297,7 +297,7 @@ function M.aProgramRunOnItsOwnHasNoHost()
     local file = assert(io.open(directory .. "/main.nupp", "wb"))
     file:write(
         [[
-local host = nupp.host
+local host = os.host
 print("attached", host.attached())
 local ok, problem = pcall(host.call, "app.anything", 1)
 print("refused", not ok, problem)

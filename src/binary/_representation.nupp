@@ -1,10 +1,10 @@
 @!internal
 
 local spi = require("nupp.runtime.packages")
-local contracts = require("nupp.spi")
+local contracts = package.nupp
 
 local storage: contracts.CstorageProvider? = do
-    const chosen = spi.select(spi.providers<contracts.CstorageProvider>("nupp.spi.CstorageProvider"))
+    const chosen = spi.select(spi.providers<contracts.CstorageProvider>("package.nupp.CstorageProvider"))
     if chosen ~= nil then
         yield chosen
     end

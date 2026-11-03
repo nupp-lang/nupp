@@ -478,7 +478,7 @@ while (running) {
 
 ## Answering host requests
 
-A component asks its application for things through [](nupp.host): it names a
+A component asks its application for things through [](os.host): it names a
 kind, such as `game.image.decode`, and waits for the answer. The application
 registers a handler per kind and answers each request with `nupp_host_answer`
 or `nupp_host_fail`, inside the handler or later from its own loop:
@@ -531,10 +531,10 @@ past 4096 waiting messages the oldest is dropped.
 Without a suspension handler, a park blocks inside the `nupp_call` that made it,
 so the application could never answer a request it did not answer at once; such
 a request is refused rather than left to hang. Run the operation that makes it
-under [](nupp.host.pump), which parks instead, and poll the pump from the loop:
+under [](os.host.pump), which parks instead, and poll the pump from the loop:
 
 ```nupp:fragment
-local pump = nupp.host.pump
+local pump = os.host.pump
 
 local session = pump.newpump()
 
@@ -759,7 +759,7 @@ The current embedding release has these deliberate limits:
 - components remain installed until the runtime is destroyed;
 - the managed number kind is binary64 rather than an exact integer family;
 - `nupp_runtime_poll` drives readiness sources and does not provide a scheduler;
-  [](nupp.host.pump) is one a component runs its exports under;
+  [](os.host.pump) is one a component runs its exports under;
 - the in-process compiler is reachable only through a reload session, and not as
   a general compile-this-source API;
 - a reload session is development-only, and needs the project's source tree and a

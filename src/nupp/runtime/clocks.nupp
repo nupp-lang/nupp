@@ -1,7 +1,7 @@
 @!internal
 module nupp.runtime.clocks
 
-local contracts = require("nupp.spi")
+local contracts = package.nupp
 
 local target = require("nupp.runtime.target")
 const provider: contracts.ClockProvider = require("nupp.runtime.timeprovider").provider ?? do

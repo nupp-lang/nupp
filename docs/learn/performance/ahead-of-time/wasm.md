@@ -95,7 +95,7 @@ that hosts the runtime itself calls `runPackagedNuppLuaJITApp()` from
 `app-runtime.mjs` instead. The application may return no value or one
 JSON-compatible value.
 
-`run`'s `host` option answers the application's [](nupp.host) requests, by kind,
+`run`'s `host` option answers the application's [](os.host) requests, by kind,
 on the page or in the application's Worker, and the entry's `push` sends it
 inbound messages; `nupp-audio.mjs` plays an outbound stream of samples. See
 [host.md](../../runtime/host.md#answering-in-a-browser). Worker tasks use a bounded pool of guest

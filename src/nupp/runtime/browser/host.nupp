@@ -2,7 +2,7 @@
 module nupp.runtime.browser.host
 
 --[[
-The page's answers to [](nupp.host) requests.
+The page's answers to [](os.host) requests.
 
 A frame's host traffic is one `host` effect, `x`, carrying binary records
 ([](nupp.runtime.browser.hostwire)) in a read lease and lending a writable

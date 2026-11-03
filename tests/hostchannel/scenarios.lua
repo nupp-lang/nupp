@@ -5,7 +5,7 @@
 -- returns a table the driver's test inspects; a contract violation is an error.
 
 require("nupp.runtime.standardcoroutine")
-local host = require("nupp.host")
+local host = require("os.host")
 local span = require("binary.span")
 local tasks = require("coroutine")
 local time = require("coroutine")

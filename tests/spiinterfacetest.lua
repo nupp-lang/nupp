@@ -352,7 +352,7 @@ function M.runtimeImplementationInterfacesArePublic()
         [[
 module application
 local spi = package
-local contracts = require("nupp.spi")
+local contracts = require("package.nupp")
 local entropy = spi.providers(contracts.EntropyProvider)
 local system = spi.providers(contracts.SystemProvider)
 local clock = spi.providers(contracts.ClockProvider)

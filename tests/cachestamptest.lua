@@ -232,12 +232,12 @@ function M.spiIndexDependenciesRetainNarrowImplementationStamps()
         [
             "nupp/runtime/packages.lua"
         ] = [[
---@requires-dynamically nupp.spi.index
-local index = require("nupp.spi.index")
+--@requires-dynamically package.nupp.index
+local index = require("package.nupp.index")
 return function(name) return require(index[name][1]) end
 ]],
         [
-            "nupp/spi/index.lua"
+            "package/nupp/index.lua"
         ] = [[
 --@requires-dynamically nupp.fixture
 return {["example.spi.Provider"] = {"nupp.fixture"}}

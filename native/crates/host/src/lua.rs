@@ -497,7 +497,7 @@ impl Lua {
         self.protected(|error| unsafe { nupp_lua_clear_worker_context(self.state.as_ptr(), error) })
     }
 
-    /// Hands `nupp.host` requests in this state to `channel`, unless another
+    /// Hands `os.host` requests in this state to `channel`, unless another
     /// runtime's channel already has them; answers whether this one does.
     pub(crate) fn install_host_channel(&self, channel: *const c_void) -> Result<bool, String> {
         let mut installed: c_int = 0;

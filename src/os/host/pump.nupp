@@ -1,9 +1,9 @@
-module nupp.host.pump
+module os.host.pump
 
 --[[
-`nupp.host.pump` runs one operation at a time for an application that embeds
+`os.host.pump` runs one operation at a time for an application that embeds
 the runtime and owns its own loop. Reach for it from the exports such an
-application calls, so that an operation which waits -- on a [](nupp.host)
+application calls, so that an operation which waits -- on a [](os.host)
 request, a timer, the network -- parks instead of blocking the call that
 started it.
 
@@ -14,7 +14,7 @@ runtime's readiness sources, and an operation they make ready resumes inside
 that pass.
 
 ```nupp:fragment
-local pump = nupp.host.pump
+local pump = os.host.pump
 
 local session = pump.newpump()
 
@@ -85,7 +85,7 @@ export record Pump
     --- @raises string when another operation is still parked, or what `body` raised
     function start(self: Pump, body: function(): boolean?): State
         if self.active ~= nil then
-            error("nupp.host.pump: an operation is already parked", 2)
+            error("os.host.pump: an operation is already parked", 2)
         end
         self.result = nil
         self.failure = nil
@@ -114,7 +114,7 @@ export record Pump
     --- @raises string when nothing is parked, or what the operation raised
     function poll(self: Pump): State
         if self.active == nil then
-            error("nupp.host.pump: no operation is parked", 2)
+            error("os.host.pump: no operation is parked", 2)
         end
         suspension.poll()
 
@@ -135,7 +135,7 @@ export record Pump
         end
         resumeTask(self, task, false)
         if coroutine.status(task) ~= "dead" then
-            error("nupp.host.pump: the parked operation did not unwind", 2)
+            error("os.host.pump: the parked operation did not unwind", 2)
         end
         self.active = nil
         self.result = nil
@@ -163,7 +163,7 @@ export function newpump(): Pump
                 if not waiting:ready() then
                     local keepRunning = coroutine.yield()
                     if keepRunning == false then
-                        error(cancellation.create("nupp.host.pump", "the host stopped while it was parked"), 0)
+                        error(cancellation.create("os.host.pump", "the host stopped while it was parked"), 0)
                     end
                 end
             end

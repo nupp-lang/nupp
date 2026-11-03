@@ -2,7 +2,7 @@
 module nupp.runtime.provider.nativehost
 
 --[[
-The embedding application's answers to [](nupp.host) requests.
+The embedding application's answers to [](os.host) requests.
 
 An application embedding the runtime registers a C handler per kind
 (`nupp_host_register`). A request calls that handler directly, with its
@@ -14,7 +14,7 @@ host: `nupp run` installs none, so every request is refused by name.
 Without a suspension handler a park blocks inside the very call the host made,
 so the host could never answer a request it did not answer at once. Such a
 request is refused rather than left to hang; run it under a handler, such as a
-[](nupp.host.pump), and drive it with `nupp_runtime_poll`.
+[](os.host.pump), and drive it with `nupp_runtime_poll`.
 ]]
 
 local suspension = require("coroutine.suspension")
@@ -240,7 +240,7 @@ end
 
 local function readiness(): any
     if source == nil or source.released then
-        source = suspension.source("nupp.host", SOURCE_ORDER, deliver, nil, function(): boolean
+        source = suspension.source("os.host", SOURCE_ORDER, deliver, nil, function(): boolean
             return pendingCount > 0
         end)
     end
@@ -289,7 +289,7 @@ function provider.call(kind: string, late: any, ...: any): ...any
                 "nupp: host "
                 .. kind
                 .. " was not answered during the call, and nothing can wait for it here;"
-                .. " run it under a suspension handler such as nupp.host.pump",
+                .. " run it under a suspension handler such as os.host.pump",
                 0
             )
         end

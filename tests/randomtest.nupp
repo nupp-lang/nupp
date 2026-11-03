@@ -1,4 +1,4 @@
-local random = require("nupp.random")
+local random = math.random
 
 local M = {}
 
@@ -159,6 +159,31 @@ function M.refusesBoundsWithoutAnExactRange(): nil
             generator:integer((0 / 0) as integer)
         end)
     )
+end
+
+function M.keepsTheHostSequenceAndCallableAliases(): nil
+    math.randomseed(813)
+    local first = math.random()
+    local second = math.random(20)
+    local third = math.random(m = -100, n = 100)
+    math.randomseed(813)
+    local draw = math.random
+    local namespace = math
+    assert(draw == namespace.random)
+    assert(draw() == first)
+    assert(draw(20) == second)
+    assert(namespace.random(-100, 100) == third)
+end
+
+function M.independentGeneratorsLeaveTheHostSequenceAlone(): nil
+    math.randomseed(902)
+    local expected = math.random()
+    math.randomseed(902)
+    local generator: math.random.Xoshiro128 = new math.random.Xoshiro128(7)
+    for _ = 1, 10 do
+        generator:next()
+    end
+    assert(math.random() == expected)
 end
 
 assert((random.Xoshiro128 as any).setState == nil)

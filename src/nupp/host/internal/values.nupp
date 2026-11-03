@@ -2,7 +2,7 @@
 module nupp.host.internal.values
 
 --[[
-The value model every [](nupp.host) provider shares.
+The value model every [](os.host) provider shares.
 
 A request's arguments and a host's results are a count and that many flat
 values. Each provider encodes them its own way; this module is what decides

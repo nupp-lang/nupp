@@ -213,7 +213,7 @@ NUPP_API nupp_status nupp_runtime_poll(
     nupp_error **error
 );
 
-/* Answers a `nupp.host` request of one kind. `arguments` are borrowed for the
+/* Answers a `os.host` request of one kind. `arguments` are borrowed for the
  * length of the call: copy what an answer given later needs. A handler answers
  * with nupp_host_answer or nupp_host_fail, at once or later from the host's
  * loop, and either way the waiting task resumes at the next nupp_runtime_poll.

@@ -395,7 +395,7 @@ function M.randomUsesPortableBitops()
     assertClean(
         table.concat(
             {
-                "local random = require('nupp.random')",
+                "local random = require('math.random')",
                 "local generator = new random.Xoshiro128(12345)",
                 "return generator:next(), generator:integer(1, 100)",
             },
@@ -2116,7 +2116,7 @@ function M.nativeFeaturesAreResolvedEffects()
         ["io.newuri('https://example.com')"] = "runtime.uri",
         ["os.uuid7()"] = "runtime.uuid",
         ["os.info()"] = "runtime.system",
-        ["nupp.host.attached()"] = "runtime.host",
+        ["os.host.attached()"] = "runtime.host",
     }
     for source, effect in pairs(expected) do
         local found = effectsOf(source)
@@ -2273,7 +2273,7 @@ function M.randomSurfaceIsBundledOutsideThisCheckout()
     local isolated = envMod.new(os.tmpname() .. "-nupp-random-surface")
     local source = table.concat(
         {
-            "local random = require('nupp.random')",
+            "local random = require('math.random')",
             "local generator = new random.Xoshiro128(12345)",
             "assert(generator:next() >= 0)",
         },

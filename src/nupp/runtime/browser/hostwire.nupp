@@ -2,7 +2,7 @@
 module nupp.runtime.browser.hostwire
 
 --[[
-The binary records a frame's [](nupp.host) traffic travels in.
+The binary records a frame's [](os.host) traffic travels in.
 
 Encoding a request as JSON cost the guest more than everything else it did for
 the request, and the bridge decoded and re-encoded it again; packing the same

@@ -7,7 +7,7 @@
 -- whatever the channel costs there is taken from the frame's game work.
 
 require("nupp.runtime.standardcoroutine")
-local host = require("nupp.host")
+local host = require("os.host")
 local span = require("binary.span")
 local time = require("coroutine")
 local ffi = require("ffi")

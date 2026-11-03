@@ -516,7 +516,7 @@ static int install_worker_modules(lua_State *state) {
     return 0;
 }
 
-/* Gives `nupp.host` requests in this state to an embedding application. A state
+/* Gives `os.host` requests in this state to an embedding application. A state
  * that already has a channel keeps it: the first runtime on a state answers its
  * requests, and `installed` says whether this one is it. Raw, so a globals
  * metatable can neither fake nor hide the marker. */

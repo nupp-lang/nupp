@@ -68,7 +68,7 @@ assert(second.encode("x") == "second:x")
 assert(spi.providers(Codec)() == first)
 assert(package.providers(Codec)() == first)
 assert(package.providers == spi.providers and package.select == spi.select)
-local contracts: any = require("nupp.spi")
+local contracts: any = require("package.nupp")
 assert(contracts.providers == nil and contracts.select == nil and contracts.load == nil)
 local api = require("example.api")
 assert(spi.providers(api.Codec)() == first)
@@ -234,8 +234,8 @@ function M.generatedIndexesAreDeterministicAndReportWriteFailures()
             {interface = "z.Api", implementation = "z.first"},
         }
         assert(discovery.write(dir, "out", entries))
-        local generated = assert(fs.readFile(dir .. "/out/generated/nupp/spi/index.nupp"))
-        local expected = [[module nupp.spi.index
+        local generated = assert(fs.readFile(dir .. "/out/generated/package/nupp/index.nupp"))
+        local expected = [[module package.nupp.index
 const _DYNAMIC_REQUIRES = "@requires-dynamically z.second @requires-dynamically a.first @requires-dynamically z.first"
 export = {
     ["a.Api"] = {"a.first"},
@@ -292,7 +292,7 @@ function M.caughtProviderFailuresDoNotAdvanceToFallback()
     local attempts, fallbackLoads = 0, 0
     local load = require("providerstate").instance(
         {["nupp.runtime.packages"] = true},
-        {["nupp.spi.index"] = {["example.Api"] = {"fixture.broken", "fixture.fallback"}},},
+        {["package.nupp.index"] = {["example.Api"] = {"fixture.broken", "fixture.fallback"}},},
         {
             ["fixture.broken"] = function()
                 attempts = attempts + 1
@@ -315,11 +315,11 @@ end
 function M.providerIndexInitializationErrorsCannotMasqueradeAsAbsence()
     local marker = setmetatable({}, {
         __tostring = function()
-            return "module 'nupp.spi.index' not found: initialization failed"
+            return "module 'package.nupp.index' not found: initialization failed"
         end
     })
     local load = require("providerstate").instance({["nupp.runtime.packages"] = true}, nil, {
-        ["nupp.spi.index"] = function()
+        ["package.nupp.index"] = function()
             error(marker, 0)
         end
     })
@@ -332,7 +332,7 @@ function M.optionalFallbackInitializationErrorsCannotMasqueradeAsAbsence()
     local cases = {
         {
             module = "nupp.runtime.timeprovider",
-            interface = "nupp.spi.ClockProvider",
+            interface = "package.nupp.ClockProvider",
             fallback = "nupp.runtime.provider.nativetime",
         },
         {
@@ -364,7 +364,7 @@ function M.optionalFallbackInitializationErrorsCannotMasqueradeAsAbsence()
             {["nupp.runtime.packages"] = true, [case.module] = true},
             {
                 ["nupp.runtime.target"] = {dialect = "luajit", host = "native"},
-                ["nupp.spi.index"] = {[case.interface] = {}},
+                ["package.nupp.index"] = {[case.interface] = {}},
             },
             preloads
         )
@@ -514,7 +514,7 @@ function M.selectNamesTheInterfaceAndTheModulesThatTied()
     local saved = {}
     for _, name in ipairs({
         "nupp.runtime.packages",
-        "nupp.spi.index",
+        "package.nupp.index",
         "spitest.low",
         "spitest.left",
         "spitest.right"
@@ -522,7 +522,7 @@ function M.selectNamesTheInterfaceAndTheModulesThatTied()
         saved[name] = package.loaded[name]
     end
     package.loaded["nupp.runtime.packages"] = nil
-    package.loaded["nupp.spi.index"] = {["example.api.Codec"] = {"spitest.low", "spitest.left", "spitest.right"}}
+    package.loaded["package.nupp.index"] = {["example.api.Codec"] = {"spitest.low", "spitest.left", "spitest.right"}}
     package.loaded["spitest.low"] = {priority = 1}
     package.loaded["spitest.left"] = {priority = 7}
     package.loaded["spitest.right"] = {priority = 7}
@@ -530,7 +530,7 @@ function M.selectNamesTheInterfaceAndTheModulesThatTied()
     local ok, problem = pcall(spi.select, spi.providers("example.api.Codec"))
     for _, name in ipairs({
         "nupp.runtime.packages",
-        "nupp.spi.index",
+        "package.nupp.index",
         "spitest.low",
         "spitest.left",
         "spitest.right"
@@ -601,7 +601,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
     local cases = {
         {
             module = "nupp.time",
-            interface = "nupp.spi.ClockProvider",
+            interface = "package.nupp.ClockProvider",
             native = "nupp.runtime.provider.nativetime",
             browser = "nupp.runtime.browser.time",
             member = "sleep",
@@ -619,7 +619,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.runtime.system",
-            interface = "nupp.spi.SystemProvider",
+            interface = "package.nupp.SystemProvider",
             native = "nupp.runtime.provider.nativesystem",
             browser = "nupp.runtime.browser.system",
             member = "availableparallelism",
@@ -646,13 +646,13 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.runtime.uuidprovider",
-            interface = "nupp.spi.UuidProvider",
+            interface = "package.nupp.UuidProvider",
             native = "nupp.runtime.provider.nativeuuid",
             browser = "nupp.runtime.browser.crypto"
         },
         {
             module = "nupp.runtime.entropy",
-            interface = "nupp.spi.EntropyProvider",
+            interface = "package.nupp.EntropyProvider",
             native = "nupp.runtime.provider.nativecrypto",
             browser = "nupp.runtime.browser.crypto",
             member = "randombytes",
@@ -669,7 +669,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.text",
-            interface = "nupp.spi.BufferProvider",
+            interface = "package.nupp.BufferProvider",
             native = "nupp.runtime.provider.nativebuffer",
             browser = "nupp.runtime.provider.tablebuffer",
             member = "new",
@@ -678,7 +678,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "binary._representation",
-            interface = "nupp.spi.CstorageProvider",
+            interface = "package.nupp.CstorageProvider",
             native = "nupp.runtime.provider.nativestorage",
             -- No other storage ships: a LuaJIT VM takes native storage on either host.
             browser = "fixture.otherstorage",
@@ -776,7 +776,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                     {
                         ["nupp.runtime.target"] = profile,
                         [
-                            "nupp.spi.index"
+                            "package.nupp.index"
                         ] = {[case.interface] = override and {"fixture.lower", "fixture.chosen"} or {}},
                     },
                     preloads,
@@ -891,7 +891,7 @@ function M.suspensionProvidersPublishCompleteTurnBudgetsOrNone()
         {['nupp.runtime.packages'] = true, ['nupp.suspension'] = true, ['nupp.suspension.selected'] = true},
         {
             ['nupp.runtime.target'] = {dialect = "luajit", host = "native"},
-            ['nupp.spi.index'] = {['nupp.suspension.spi.Provider'] = {'fixture.suspension'},},
+            ['package.nupp.index'] = {['nupp.suspension.spi.Provider'] = {'fixture.suspension'},},
         },
         {
             ['fixture.suspension'] = function()
@@ -922,7 +922,7 @@ function M.suspensionProvidersPublishTheirDriverSeam()
         {['nupp.runtime.packages'] = true, ['nupp.suspension'] = true, ['nupp.suspension.selected'] = true},
         {
             ['nupp.runtime.target'] = {dialect = "luajit", host = "native"},
-            ['nupp.spi.index'] = {['nupp.suspension.spi.Provider'] = {'fixture.suspension'},},
+            ['package.nupp.index'] = {['nupp.suspension.spi.Provider'] = {'fixture.suspension'},},
         },
         {
             ['fixture.suspension'] = function()
@@ -1003,7 +1003,7 @@ local SELECTING_FACADES = {
     {"binary.compress", "binary.compress.spi.Provider"},
     {"binary.digest", "binary.digest.spi.Provider"},
     {"io.gpu", "io.gpu.spi.Provider"},
-    {"nupp.host", "nupp.spi.HostProvider"},
+    {"os.host", "package.nupp.HostProvider"},
     {"io.files", "io.files.spi.Provider"},
     {"nupp.io.http", "nupp.io.http.spi.Provider"},
     {"nupp.io.net", "nupp.io.net.spi.Provider"},
@@ -1012,14 +1012,14 @@ local SELECTING_FACADES = {
     {"io.net", "io.net.spi.TlsProvider"},
     {"nupp.io.uri.provider", "io.spi.UriProvider"},
     {"binary.mac", "binary.mac.spi.Provider"},
-    {"nupp.runtime.entropy", "nupp.spi.EntropyProvider"},
-    {"binary._representation", "nupp.spi.CstorageProvider"},
-    {"nupp.runtime.timeprovider", "nupp.spi.ClockProvider"},
-    {"nupp.runtime.uuidprovider", "nupp.spi.UuidProvider"},
+    {"nupp.runtime.entropy", "package.nupp.EntropyProvider"},
+    {"binary._representation", "package.nupp.CstorageProvider"},
+    {"nupp.runtime.timeprovider", "package.nupp.ClockProvider"},
+    {"nupp.runtime.uuidprovider", "package.nupp.UuidProvider"},
     {"nupp.runtime.workersprovider", "nupp.workers.spi.Provider"},
     {"nupp.suspension.selected", "nupp.suspension.spi.Provider"},
-    {"nupp.runtime.system", "nupp.spi.SystemProvider"},
-    {"nupp.text", "nupp.spi.BufferProvider"},
+    {"nupp.runtime.system", "package.nupp.SystemProvider"},
+    {"nupp.text", "package.nupp.BufferProvider"},
 }
 
 -- Loads `facade` afresh against a provider index holding `priorities`, one
@@ -1053,7 +1053,7 @@ local function loadWithProviders(facade, interface, priorities)
     end
     package.loaded["nupp.runtime.packages"] = nil
     package.loaded[facade] = nil
-    package.loaded["nupp.spi.index"] = {[interface] = names}
+    package.loaded["package.nupp.index"] = {[interface] = names}
     if interface == "io.net.spi.TlsProvider" then
         package.loaded["io.net.internal.tls"] = nil
     end

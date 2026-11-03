@@ -1,4 +1,4 @@
-//! Rust ownership behind `nupp.host` requests to an embedding application.
+//! Rust ownership behind `os.host` requests to an embedding application.
 //!
 //! `host_shim.c` reads and writes the Lua stack and calls the application's
 //! handlers; this side owns the registrations, which requests are outstanding,

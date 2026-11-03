@@ -67,7 +67,7 @@ to the turn.
 ]]
 
 local source1 = require("nupp.tasks")
-local clockContract = require("nupp.spi")
+local clockContract = package.nupp
 local selectedTime = require("nupp.runtime.timeprovider").provider
 
 local function missingClock(...: any): never

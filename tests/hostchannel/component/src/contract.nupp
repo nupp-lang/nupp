@@ -1,16 +1,16 @@
 module contract
 
 --[[
-Runs one of the host channel's contract scenarios under `nupp.host.pump`, for
+Runs one of the host channel's contract scenarios under `os.host.pump`, for
 the embedding application in `tests/hostchannel/driver.c` to drive.
 
 The scenarios are the plain Lua the browser half runs too, loaded at run time;
 requiring what they use here is what puts it in the component.
 ]]
 
-local pump = require("nupp.host.pump")
+local pump = os.host.pump
 local json = require("serde.json")
-local _host = require("nupp.host")
+local _host = os.host
 local _span = require("binary.span")
 local _tasks = require("coroutine")
 local _time = require("coroutine")

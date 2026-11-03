@@ -250,7 +250,7 @@ return codec
     testAssert.eq(state.dependencies["tool:provider"].usage, "tool", "generator discovery installs a host-tool record")
     testAssert.eq(state.dependencies.provider.usage, "target", "runtime discovery keeps a distinct target record")
     assert(
-        exists(dir .. "/out/nupp/spi/index/g.lua") or exists(dir .. "/out/nupp/spi/index.lua"),
+        exists(dir .. "/out/package/nupp/index/g.lua") or exists(dir .. "/out/package/nupp/index.lua"),
         "the build compiles a deterministic SPI index"
     )
 

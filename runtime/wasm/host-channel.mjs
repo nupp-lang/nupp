@@ -1,4 +1,4 @@
-// The page's side of `nupp.host`: requests a Nupp application makes of the page
+// The page's side of `os.host`: requests a Nupp application makes of the page
 // that runs it, answered by handlers the page registers by kind.
 //
 // A handler receives the request's values as an array, one slot per position,
