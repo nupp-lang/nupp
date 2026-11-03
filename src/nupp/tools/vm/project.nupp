@@ -192,6 +192,13 @@ local function emitProject(
         end
         if base and not known then
             table.insert(assert(env.roots), 3, base)
+            -- A build's staged runtime sources are the compiler-carried
+            -- implementations, as a LuaJIT build stages them: what names a
+            -- builtin extension's module there is that module.
+            if base:match("cache/runtime%-source$") then
+                local roots = assert(env.runtimeSourceRoots)
+                roots[#roots + 1] = (base:gsub("\\", "/"):gsub("/+", "/"):gsub("^%./", ""):gsub("/$", ""))
+            end
         end
     end
     table.insert(assert(env.roots), compilerRoot .. "/src")
@@ -588,8 +595,11 @@ end
 --- dependencies. The pinned stage zero takes a soft provider only from
 --- native/crates/vm/lib, where they lived until they replaced their LuaJIT
 --- twins in src, so they are named outright until the pin moves past
---- v0.0.15-vm.2.
+--- v0.0.15-vm.2. So is `nupp.runtime.standardos`, which the compiler's
+--- `os.info` and `os.monotonic` reach as builtin extension members: the
+--- pinned stage zero's closure does not follow those.
 project.ROOT_EXTRAS = "nupp.compiler.hostservices,nupp.compiler.fs,nupp.compiler.project.projectconfig,"
+    .. "nupp.runtime.standardos,"
     .. "nupp.compiler.project.store,nupp.compiler.project.fingerprint,nupp.compiler.hash,"
     .. "nupp.compiler.project.preludecache,nupp.runtime.provider.nativeprocess,"
     .. "nupp.runtime.provider.nativebuffer,nupp.runtime.provider.nativecompression,"

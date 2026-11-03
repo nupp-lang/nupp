@@ -806,7 +806,7 @@ function M.aLongLivedScopeListsOnlyTheWorkerTasksItStillOwes()
             "nupp.lua"
         ] = [[
 return {include = {"src"}, build = {default = "app", targets = {app = {
-   kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
+   kind = "binary", stub = "nupp", entries = {"nupp.internal.scopeobserver"}, outDir = "build",
 }}}}
 ]],
         [
