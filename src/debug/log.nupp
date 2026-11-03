@@ -215,8 +215,8 @@ evaluated, which is the cost of a name chosen at run time.
 
 ## Cost
 
-The installer lands only in modules that reach `debug.log`, like every other
-compiler-provided facility. A module that never logs carries nothing.
+Logging is initialized at startup to provide the global `warn` function. A
+module that uses the severity calls also binds its own logging view.
 
 ::: seealso
 - [diagnostics.md](docs/reference/diagnostics.md#diagnostic-index) for the
@@ -756,5 +756,39 @@ end
 function log.levelname(severity: log.Severity): log.Level
     return (NAMES[severity] or "off") as log.Level
 end
+
+local output = log.formodule("warn")
+local enabled = true
+
+local function argument(value: any, index: integer): string
+    if type(value) == "string" then
+        return value
+    elseif type(value) == "number" then
+        return tostring(value)
+    end
+    error(("bad argument #%d to 'warn' (string expected, got %s)"):format(index, type(value)), 3)
+end
+
+--- Joins messages and emits a warning, or applies a single control string.
+local function warning(message: string, ...: string): nil
+    local parts = {argument(message, 1)}
+    for index = 1, select("#", ...) do
+        parts[index + 1] = argument(select(index, ...), index + 1)
+    end
+    if #parts == 1 and parts[1]:sub(1, 1) == "@" then
+        if parts[1] == "@on" then
+            enabled = true
+        elseif parts[1] == "@off" then
+            enabled = false
+        end
+        return
+    end
+    if enabled then
+        output.emit(2, 0, table.concat(parts))
+    end
+end
+
+rawset(_G, "warn", warning)
+rawset(log, "__nuppwarn", warning)
 
 export = log

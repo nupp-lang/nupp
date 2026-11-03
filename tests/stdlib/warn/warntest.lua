@@ -4,18 +4,12 @@ local M = {}
 
 local function fixture()
     local calls = {}
-    local load = providerstate.instance({warn = true}, {
-        ["debug.log"] = {
-            formodule = function(name)
-                test.eq(name, "warn")
-                return {
-                    emit = function(level, line, message)
-                        calls[#calls + 1] = {level, line, message}
-                    end
-                }
-            end
-        },
-    })
+    local load = providerstate.instance({warn = true, ["debug.log"] = true})
+    local log = load("debug.log")
+    log.setsink(function(level, module, line, message)
+        test.eq(module, "warn")
+        calls[#calls + 1] = {level, line, message}
+    end)
 
     return load("warn"), calls
 end

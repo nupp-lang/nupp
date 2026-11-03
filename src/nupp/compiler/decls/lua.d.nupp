@@ -1843,4 +1843,8 @@ local debug: {
 }
 
 --- Joins its messages and routes a warning through the shared log sink.
+---
+--- A single `"@off"` disables warnings, and `"@on"` enables them again.
+--- @param message the first part of the warning or a control string
+--- @param ... additional parts, concatenated without formatting
 local warn: function(message: string, ...: string): nil

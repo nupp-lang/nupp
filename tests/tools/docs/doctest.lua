@@ -5077,6 +5077,78 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
     assert(not page.markdown:find("### `io.File`", 1, true), "file type leaked into the root index")
 end
 
+function M.callableTypesExposeCallsWithoutTheReceiver()
+    local extract = require("nupp.tools.doc.extract")
+    assert(extract.callSignature("function<A...>(self, A...): A...") == "function<A...>(A...): A...")
+    assert(
+        extract.callSignature(
+            "function(self: function(number): number, value: string): string"
+        ) == "function(value: string): string"
+    )
+    assert(
+        extract.callSignature(
+            "function(self): number & function(self, upper: number): number"
+        ) == "function(): number & function(upper: number): number"
+    )
+    local page = assert(require("nupp.tools.doc.stdlib").page({path = "api"}))
+    local overview = assert(page.markdown:match("%*%*functions%*%*(.-)%*%*modules%*%*"))
+    assert(overview:find("[`assert`]", 1, true) < overview:find("[`collectgarbage`]", 1, true), overview)
+    for _, item in ipairs(page.globalItems) do
+        if item.name == "assert" then
+            assert(item.kind == "function", item.kind)
+            assert(item.signature == "function<A...>(A...): A...", item.signature)
+            return
+        end
+    end
+    error("callable assert is missing")
+end
+
+function M.callableModuleExportsShowTheirPublicCall()
+    local module, errors = doc.extract(
+        [=[
+module counter
+local api = {}
+export = setmetatable(api, {
+    __call = function(self: any, value: number): number
+        return value
+    end,
+})
+]=],
+        "src/counter.nupp",
+        "counter"
+    )
+    assert(module, errors and errors[1] and errors[1].msg)
+    local markdown = doc.markdown({module})
+    assert(markdown:find("### `counter` _function_", 1, true), markdown)
+    assert(markdown:find("function(value: number): number", 1, true), markdown)
+    assert(not markdown:find("self: any", 1, true), markdown)
+
+    module.name = "parent.counter"
+    module.items[1].path = "parent.counter"
+    local parent = {name = "parent", text = "", items = {}}
+    local stdlib = require("nupp.tools.doc.stdlib")
+    stdlib.merge({parent, module}, assert(stdlib.page({path = "api"})))
+    assert(parent.items[1] and parent.items[1].name == "counter", "parent is missing the callable module")
+end
+
+function M.callableNestedModulesKeepTheirFunctionAndModuleEntries()
+    local stdlib = require("nupp.tools.doc.stdlib")
+    local page = assert(stdlib.page({path = "api"}))
+    local modules = {{name = "math", text = "", items = {}}, {name = "math.random", text = "", items = {}},}
+    stdlib.merge(modules, page)
+    local random
+    for _, module in ipairs(modules) do
+        if module.name == "math.random" then
+            random = module
+        end
+    end
+    assert(random, "callable module is missing")
+    local rendered = doc.markdown({random})
+    assert(rendered:find("### `random` _function_", 1, true), rendered)
+    assert(rendered:find("function(m: number, n: number): number", 1, true), rendered)
+    assert(page.markdown:find("[`math.random`](../modules/math/random/index.html)", 1, true), page.markdown)
+end
+
 function M.publicFunctionSignaturesDoNotExposeImplementationBindings()
     local module = assert(
         doc.extract(
@@ -5608,6 +5680,13 @@ end
         assert(renderedAnchors == 1, "rendered global and module anchors collide")
         assert(text:find("function", 1, true), "global signature missing from " .. name)
     end
+    local assertText = readFile(dir .. "/site/modules/assert/llms.txt")
+    assert(assertText:find("### `assert` _function_", 1, true), "callable module is not a function")
+    assert(assertText:find("function<A...>(A...): A...", 1, true), "the call signature includes its receiver")
+    assert(
+        assertText:find("[`assert`](#assert)", 1, true) < assertText:find("[`equal`](#assert.equal)", 1, true),
+        "functions are not sorted"
+    )
     local ffi = readFile(dir .. "/site/modules/ffi/index.html")
     assert(ffi:find('id="ffi.new"', 1, true), "returned record was not projected into the library")
     assert(not ffi:find('id="ffi.ffi"', 1, true), "private returned wrapper became public")
@@ -5617,6 +5696,12 @@ end
     for _, anchor in ipairs({"jit.zone.__call", "jit.zone.Zone", "jit.zone.Zone.extra", "jit.zone.Zone.get"}) do
         assert(zone:find('id="' .. anchor .. '"', 1, true), "lost a returned callable/type member: " .. anchor)
     end
+    local zoneText = readFile(dir .. "/site/modules/jit/zone/llms.txt")
+    assert(zoneText:find("### `zone` _function_", 1, true), "module call was not promoted")
+    assert(zoneText:find("function(name: string?): string?", 1, true), "module call retained its receiver")
+    assert(not zoneText:find("### `__call` _function_", 1, true), "metamethod leaked into module functions")
+    local jitText = readFile(dir .. "/site/modules/jit/llms.txt")
+    assert(jitText:find("[`zone`](#jit.zone.__call)", 1, true), "parent module is missing the callable")
     local index = readFile(dir .. "/site/reference/lua/llms.txt")
     assert(not index:find('<a id="ffi.ffi.new"></a>', 1, true), "obsolete wrapper anchor retained")
     for _, name in ipairs({"io", "debug.bench", "string.extension", "assert", "io.cli", "ffi", "jit.util"}) do

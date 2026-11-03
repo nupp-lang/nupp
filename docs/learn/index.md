@@ -19,8 +19,7 @@ nupp task start
 
 [Getting started](../getting-started/index.md) creates and runs a maintained
 project template. The [tour](../getting-started/tour.md) introduces the core
-language, and the [feature map](../getting-started/features.md) links every larger
-area without turning the tour into a reference manual.
+language.
 
 ## Language and runtime
 

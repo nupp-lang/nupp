@@ -385,7 +385,14 @@ export function indexParts(document: Page): {IndexPart}
         entries: {string}
     }} = {}
     local moduleEntries: {string} = {}
+    local sortedModules: {extractMod.Module} = {}
     for _, module in ipairs(document.indexModules or document.modules) do
+        sortedModules[#sortedModules + 1] = module
+    end
+    table.sort(sortedModules, function(left: extractMod.Module, right: extractMod.Module): boolean
+        return left.name:lower() < right.name:lower()
+    end)
+    for _, module in ipairs(sortedModules) do
         moduleEntries[
             #moduleEntries + 1
         ] = "[`" .. module.name .. "`](" .. prefix .. urlsMod.moduleFile(module.name) .. ")"
@@ -398,14 +405,20 @@ export function indexParts(document: Page): {IndexPart}
         filter: function(extractMod.Item): boolean
     ): nil
         local entries: {string} = {}
+        local sorted: {extractMod.Item} = {}
         for _, item in ipairs(items) do
             if filter(item) then
-                local target = owners[item.name] and prefix .. urlsMod.moduleFile(owners[item.name]) .. "#" .. item.path
-                    or "#" .. item.path
-                entries[
-                    #entries + 1
-                ] = "[`" .. item.name .. "`](" .. target .. ")" .. markdownMod.overviewBadge(item.kind)
+                sorted[#sorted + 1] = item
             end
+        end
+        table.sort(sorted, function(left: extractMod.Item, right: extractMod.Item): boolean
+            local a, b = left.name:lower(), right.name:lower()
+            return a == b and left.path < right.path or a < b
+        end)
+        for _, item in ipairs(sorted) do
+            local target = owners[item.name] and prefix .. urlsMod.moduleFile(owners[item.name]) .. "#" .. item.path
+                or "#" .. item.path
+            entries[#entries + 1] = "[`" .. item.name .. "`](" .. target .. ")" .. markdownMod.overviewBadge(item.kind)
         end
         overview[#overview + 1] = {title = title, entries = entries}
     end
@@ -525,12 +538,12 @@ export function page(settings: Settings?): Page?
     for _, library in ipairs(modules) do
         byModule[library.name] = library
     end
-    local callableTypes: {[string]: boolean} = {}
+    local callableTypes: {[string]: extractMod.Member} = {}
     for _, item in ipairs(qualified) do
         local name = item.module as string
         for _, member in ipairs(item.members or {}) do
             if member.isMetamethod and member.name == "__call" then
-                callableTypes[name .. "." .. item.name] = true
+                callableTypes[name .. "." .. item.name] = member
             end
         end
         local library = byModule[name]
@@ -546,7 +559,19 @@ export function page(settings: Settings?): Page?
     end
     for _, item in ipairs(globals) do
         local typeName = item.signature:match(":%s*([%w_.]+)%s*$")
-        if item.kind == "variable" and typeName and callableTypes[typeName] then
+        local call = typeName and callableTypes[typeName] or nil
+        local signature = call and extractMod.callSignature(call.type) or nil
+        if item.kind == "variable" and call and signature then
+            item.kind = "function"
+            item.signature = signature
+            item.params = {}
+            for index = 2, #call.params do
+                if call.params[index].name ~= "?" then
+                    item.params[#item.params + 1] = call.params[index]
+                end
+            end
+            item.returns = call.returns
+            item.typeargs = call.typeargs or {}
             for _, entry in ipairs(navigation.globals) do
                 if entry.name == item.name then
                     entry.kind = "function"
@@ -554,6 +579,12 @@ export function page(settings: Settings?): Page?
             end
         end
     end
+    table.sort(globals, function(left: extractMod.Item, right: extractMod.Item): boolean
+        return left.name:lower() < right.name:lower()
+    end)
+    table.sort(navigation.globals, function(left: Entry, right: Entry): boolean
+        return left.name:lower() < right.name:lower()
+    end)
     anchorByName(types)
     navigation.types = navigationItems(types)
     markLua(globals)
@@ -561,7 +592,7 @@ export function page(settings: Settings?): Page?
     for _, library in ipairs(modules) do
         markLua(library.items)
     end
-    local symbols: {[string]: string} = {}
+    local symbols: {[string]: string} = {warn = "warn"}
     for _, item in ipairs(types) do
         symbols[item.name] = item.path
     end
@@ -617,6 +648,7 @@ export function merge(modules: {extractMod.Module}, document: Page?): nil
             if held then
                 local replace = (held.kind == "type" and item.kind ~= "type" and item.kind ~= "variable")
                     or (held.kind == "variable" and item.kind == "function")
+                    or (held.isModuleCall and fromBuiltin and item.kind == "function")
                 if replace then
                     for key, value in pairs(item) do
                         if key ~= "doc" and key ~= "members" then
@@ -689,6 +721,49 @@ export function merge(modules: {extractMod.Module}, document: Page?): nil
         return left.name < right.name
     end
 
+    -- A callable namespace is both a module and a function. Its parent's
+    -- documented function also belongs on the namespace's own page.
+    for _, parent in ipairs(modules) do
+        for _, item in ipairs(parent.items) do
+            local target = byName[item.path]
+            if item.kind == "function" and target and target ~= parent then
+                local copy: any = {}
+                for key, value in pairs(item) do
+                    copy[key] = value
+                end
+                copy.name = target.name:match("([^.]+)$") or target.name
+                mergeItems(target.items, {copy})
+            end
+        end
+    end
+    -- A projected `__call` is the call to the module itself. Keep its old
+    -- anchor on that page and expose the call on its parent as well.
+    for _, module in ipairs(modules) do
+        local parentName = module.name:match("^(.*)%.[^.]+$")
+        local parent = parentName and byName[parentName] or nil
+        if parent then
+            for _, item in ipairs(module.items) do
+                if item.kind == "function"
+                    and (item.path == module.name .. ".__call" or item.isModuleCall and item.path == module.name)
+                then
+                    local found = false
+                    for _, existing in ipairs(parent.items) do
+                        if existing.kind == "function" and existing.name == item.name then
+                            found = true
+                            break
+                        end
+                    end
+                    if not found then
+                        local copy: any = {}
+                        for key, value in pairs(item) do
+                            copy[key] = value
+                        end
+                        mergeItems(parent.items, {copy})
+                    end
+                end
+            end
+        end
+    end
     for _, module in ipairs(modules) do
         mergeItems(module.items, {})
         markLua(module.items)

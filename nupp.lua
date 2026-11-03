@@ -539,7 +539,6 @@ return {
                     "src/coroutine",
                     "src/debug",
                     "src/utf8.nupp",
-                    "src/warn.nupp",
                     "src/assert.nupp",
                     "src/simd.nupp",
                     "src/events.nupp"

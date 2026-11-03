@@ -70,9 +70,8 @@ source checkout is documented separately in
 - The standard library covers files, networking, TLS, HTTP, processes, data
   formats, hashes, parsing, memory views, GPU storage, and model assets.
 
-The [Feature map](docs/getting-started/features.md) links each area to the
-page that owns its rules. The complete checking model is under
-[Types](docs/learn/language/types/index.md).
+The [guides](docs/learn/index.md) cover each area. The complete checking model
+is under [Types](docs/learn/language/types/index.md).
 
 ## Compilation and deployment
 

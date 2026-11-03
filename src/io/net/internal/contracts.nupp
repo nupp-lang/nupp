@@ -3,7 +3,7 @@
 --[[
 `io.net.internal.contracts` defines the network transport contract.
 
-```nupp
+```nupp:fragment
 local contract = io.net.internal.contracts
 local type Provider = contract.Provider
 ```

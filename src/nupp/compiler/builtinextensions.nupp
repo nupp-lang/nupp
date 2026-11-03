@@ -9,7 +9,6 @@ local extensions = {}
 
 local ROOTS = {
     math = {module = "nupp.runtime.standardmath", replace = {random = true}, members = {random = true}},
-    warn = {module = "warn", direct = true},
     assert = {module = "assert", direct = true},
     table = {module = "nupp.runtime.standardtable", members = {move = true, Pool = true, newpool = true}},
     io = {

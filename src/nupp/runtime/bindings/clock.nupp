@@ -1,6 +1,9 @@
 @!internal
 module nupp.runtime.bindings.clock
 
+const _DYNAMIC_REQUIRES_1 = "@requires-dynamically nupp.runtime.provider.nativetime"
+const _DYNAMIC_REQUIRES_2 = "@requires-dynamically nupp.runtime.browser.time"
+
 local contracts = require("nupp.runtime.contracts")
 local target = require("nupp.runtime.target")
 local optional = require("nupp.runtime.optional")

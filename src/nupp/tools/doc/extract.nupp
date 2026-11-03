@@ -103,6 +103,9 @@ export type Item = {
     typeargs: {TypeArg},
     annotations: {string}?,
 
+    --- A callable module's synthesized entry, which a declared contract may refine.
+    isModuleCall: boolean?,
+
     --- The published binding is explicitly constant, not merely its implementation.
     readOnly: boolean?,
 
@@ -653,6 +656,60 @@ local function typeFunction(node)
     return widest, overloads
 end
 
+--- Returns a callable metamethod's type without its implicit receiver.
+---
+--- Each overload loses its own first parameter; nested types in that parameter
+--- remain intact while locating the next one.
+export function callSignature(source: string): string?
+    local prefix = "local callable: "
+    local parsed = parser.parse(prefix .. source, "documentation-call-type.nupp")
+    if #parsed.errors > 0 then
+        return nil
+    end
+    local statement = parsed.root.blocks[1] and parsed.root.blocks[1].stats[1]
+    local _, overloads = typeFunction(statement and statement.kind == "localStmt" and statement.types[1])
+    if not overloads then
+        return nil
+    end
+    local result = source
+    for index = #overloads, 1, -1 do
+        local fn = overloads[index]
+        local first = fn.params and fn.params[1]
+        local start = firstToken(first)
+        if not start then
+            return nil
+        end
+        local finish
+        if fn.params[2] then
+            finish = firstToken(fn.params[2]).offset - #prefix - 1
+        else
+            local function lastToken(node)
+                if cst.isToken(node) then
+                    return node
+                end
+                for at = #node, 1, -1 do
+                    local token = lastToken(node[at])
+                    if token then
+                        return token
+                    end
+                end
+
+                return nil
+            end
+
+            local last = lastToken(first)
+            if not last then
+                return nil
+            end
+            finish = last.offset + #last.text - #prefix - 1
+        end
+        local from = start.offset - #prefix
+        result = result:sub(1, from - 1) .. result:sub(finish + 1)
+    end
+
+    return result
+end
+
 -- `spawn` and `fork` are declared with the callable first and written with it last,
 -- and the compiler rotates the call. A reader wants the call, so a rotated member is
 -- printed with its second parameter moved to the end, overload by overload.
@@ -960,6 +1017,18 @@ local function shapeModule(name, entries, text, path, blocks, includePrivate, ex
             else
                 local item = fieldItem(entry, name, includePrivate)
                 if item then
+                    if entry.kind == "metamethodDecl" and entry.name.text == "__call" then
+                        local signature = callSignature(syntax(entry.type))
+                        if signature then
+                            item.name = name:match("([^.]+)$") or name
+                            item.signature = signature
+                            local params = {}
+                            for index = 2, #item.params do
+                                params[#params + 1] = item.params[index]
+                            end
+                            item.params = params
+                        end
+                    end
                     items[#items + 1] = item
                 end
             end
@@ -2185,6 +2254,75 @@ export function extract(source: string, path: string?, name: string, opts: Optio
                     end
                 end
                 result.items = kept
+            end
+        end
+    end
+    -- A literal metatable on the exported value declares the module's own call.
+    -- Do not infer callability from an ordinary field named `__call`.
+    local assignment = cst.exportAssignment(parsed.root)
+    local returned: any = assignment and assignment.value or nil
+    if not returned then
+        for _, block in ipairs(parsed.root.blocks or {}) do
+            for _, statement in ipairs(block.stats or {}) do
+                if statement.kind == "returnStmt" then
+                    returned = #statement.exprs == 1 and statement.exprs[1] or nil
+                end
+            end
+        end
+    end
+    local hasModuleCall = false
+    for _, item in ipairs(result.items) do
+        if item.path == name and item.kind == "function" then
+            hasModuleCall = true
+        end
+    end
+    if not hasModuleCall
+        and returned
+        and returned.kind == "call"
+        and returned.obj
+        and returned.obj.kind == "name"
+        and returned.obj.token.text == "setmetatable"
+        and returned.args
+        and returned.args.kind == "args"
+    then
+        local arguments = returned.args.exprs or {}
+        local metatable = #arguments == 2 and arguments[2] or nil
+        if metatable and metatable.kind == "tableExpr" then
+            for _, field in ipairs(metatable.fields or {}) do
+                local fn = field.kind == "fieldNamed" and field.name.text == "__call" and field.value or nil
+                if fn and fn.kind == "funcExpr" then
+                    local info = entryDoc(field)
+                    local signature = functionSignature(fn, "moduleCall"):gsub("^function%s+moduleCall", "function", 1)
+                    signature = callSignature(signature)
+                    if signature then
+                        local details = functionDetails(fn, info)
+                        local params = {}
+                        for index = 2, #details.params do
+                            params[#params + 1] = details.params[index]
+                        end
+                        local typeargs = {}
+                        for _, generic in ipairs(fn.body.generics and fn.body.generics.names or {}) do
+                            typeargs[#typeargs + 1] = {name = generic.text, text = info.typeargs[generic.text] or ""}
+                        end
+                        result.items[
+                            #result.items + 1
+                        ] = {
+                            name = name:match("([^.]+)$") or name,
+                            kind = "function",
+                            signature = signature,
+                            doc = info,
+                            path = name,
+                            line = firstToken(fn) and firstToken(fn).line or 1,
+                            members = {},
+                            params = params,
+                            returns = details.returns,
+                            raises = info.raises,
+                            typeargs = typeargs,
+                            isModuleCall = true,
+                        }
+                    end
+                    break
+                end
             end
         end
     end

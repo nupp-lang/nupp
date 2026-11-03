@@ -402,10 +402,7 @@ editor and the build never disagree about what your code means.
 
 ::: seealso
 - [tooling.md](../learn/tooling/index.md) for the guided version of that list
-- [why.md](why.md) for what each addition buys and what it costs
 - [file-types.md](../learn/language/file-types.md) for how `.lua` and `.nupp`
   files share a project
 - [overview.md](../learn/language/types/index.md) for the type system as a whole
-- [features.md](features.md) for the broader runtime, compilation, and
-  deployment features
 :::

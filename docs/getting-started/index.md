@@ -46,9 +46,8 @@ manifest, tests, and the tasks needed for its host.
 
 ## Continue learning
 
-Read the [tour](tour.md) for the core language. Use the
-[feature map](features.md) to find comptime, ownership, workers, SIMD, native
-modules, and the standard library. The
+Read the [tour](tour.md) for the core language. The
+[guides](../learn/index.md) cover runtime, performance, and projects. The
 [tooling guide](../learn/tooling/index.md) covers the daily commands in more depth.
 
 [Install a release](installation.md) to get `nupp` on `PATH`. Building Nupp
