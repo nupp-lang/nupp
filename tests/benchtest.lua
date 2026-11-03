@@ -36,6 +36,16 @@ end
 
 local M = {}
 
+-- A source fragment that must check without errors against the project.
+local function compile(source)
+    local parsed = parser.parse(source, "fragment.nupp")
+    testAssert.eq(#parsed.errors, 0)
+    local env = envMod.new(".", {cache = false})
+    for _, diagnostic in ipairs(check.check(parsed, "fragment.nupp", env)) do
+        assert(diagnostic.severity ~= "error", diagnostic.msg)
+    end
+end
+
 function M.bundledBenchmarkChecksWithoutCheckoutModuleRoots()
     local standalone = envMod.new(".", {config = {include = {}}, typeRoots = {}, cache = false})
     local source = [[local bench = require("debug.bench")
