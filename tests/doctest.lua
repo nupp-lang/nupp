@@ -912,6 +912,23 @@ function M.documentsNestedTypesAsTheirOwnSubHeadingWithMembers()
         markdown:find('<a id="config.Config.Settings.enabled"></a>', 1, true),
         "nested type's own field anchor missing"
     )
+    local rendered = require("nupp.tools.doc.html").markdownHtml(markdown)
+    for _, name in ipairs({"enabled", "apply"}) do
+        local path = "config.Config.Settings." .. name
+        assert(markdown:find("::: api-item " .. path .. "\n", 1, true), "member section missing")
+        assert(
+            rendered:find('<section class="nuppdoc-api-item" id="' .. path .. '"><h5>', 1, true),
+            "member must use the shared section renderer and retain its heading level"
+        )
+        local _, anchors = rendered:gsub('id="' .. path:gsub("%.", "%%.") .. '"', "")
+        assert(anchors == 1, "member anchor must occur exactly once")
+        assert(rendered:find('href="#' .. path .. '"', 1, true), "member link missing")
+    end
+    assert(
+        not markdown:find("::: api-item config.Config.Settings\n", 1, true),
+        "nested type should retain its ordinary heading"
+    )
+    assert(rendered:find('id="config.Config.Settings.apply.arguments"', 1, true), "method argument scope missing")
 end
 
 local ANNOTATED_DECLARATIONS = table.concat(

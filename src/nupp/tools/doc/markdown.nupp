@@ -180,6 +180,10 @@ local function renderMarkdownMembers(out, members, level)
     local seen = {}
     for _, member in ipairs(members or {}) do
         local path = overloadAnchor(member.path, seen)
+        local section = not member.isType and not member.isAlias
+        if section then
+            out[#out + 1] = "::: api-item " .. path
+        end
         out[#out + 1] = '<a id="' .. path .. '"></a>'
         out[
             #out + 1
@@ -204,6 +208,10 @@ local function renderMarkdownMembers(out, members, level)
         if member.isType then
             markdownMemberSummary(out, member.members, hSub)
             renderMarkdownMembers(out, member.members, level + 1)
+        end
+        if section then
+            out[#out + 1] = ":::"
+            out[#out + 1] = ""
         end
     end
 end

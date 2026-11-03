@@ -1998,6 +1998,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 }
 
 /* Group API entries with surfaces derived from the current theme. */
+.nuppdoc-api-item .nuppdoc-api-item,
 .nuppdoc-api-group:has(> :is(#functions, #values, #annotations)) > .nuppdoc-api-item,
 .nuppdoc-content > #functions ~ .nuppdoc-api-item:not(#globals ~ .nuppdoc-api-item):not(#types ~ .nuppdoc-api-item):not(#annotations ~ .nuppdoc-api-item),
 .nuppdoc-content > #globals ~ .nuppdoc-api-item:not(#types ~ .nuppdoc-api-item):not(#annotations ~ .nuppdoc-api-item),
@@ -2011,6 +2012,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     overflow: clip;
     background: var(--api-section-background);
 }
+.nuppdoc-api-item .nuppdoc-api-item > :is(h2, h3, h4, h5, h6):first-child,
 .nuppdoc-api-group:has(> :is(#functions, #values, #annotations)) > .nuppdoc-api-item > h3,
 .nuppdoc-content > #functions ~ .nuppdoc-api-item:not(#globals ~ .nuppdoc-api-item):not(#types ~ .nuppdoc-api-item):not(#annotations ~ .nuppdoc-api-item) > h3,
 .nuppdoc-content > #globals ~ .nuppdoc-api-item:not(#types ~ .nuppdoc-api-item):not(#annotations ~ .nuppdoc-api-item) > h3,

@@ -402,8 +402,8 @@ local function extractBlocks(text, links, rendered)
                 index = after - 1
                 body = body:gsub('^<a id="[^"]+"></a>\n', "", 1)
                 local content = markdownHtml(body, links, 0, path)
-                local headingId = content:match('^<h3 id="([^"]+)">')
-                content = content:gsub('^<h3 id="[^"]+">', "<h3>", 1)
+                local headingId = content:match('^<h[2-6] id="([^"]+)">')
+                content = content:gsub('^<h([2-6]) id="[^"]+">', "<h%1>", 1)
                 content = content:gsub('href="#([^"]+)"', function(target: string): string
                     return 'href="#' .. (target == headingId and htmlEscape(path) or target) .. '"'
                 end)
