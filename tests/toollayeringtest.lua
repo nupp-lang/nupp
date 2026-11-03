@@ -209,7 +209,10 @@ end
 function M.noCoreModuleReachesFrozenLowering()
     local sources, found = 0, {}
     for _, path in ipairs(fs.listFiles(ROOT .. "/native/core")) do
-        if path:match("%.nupp$") or path:match("%.lua$") then
+        -- The guest programs the core runs (`tests/catalog-*`) are programs,
+        -- not the core: one may require a computed name on purpose.
+        local guest = path:match("native/core/tests/catalog%-[^/]*$") ~= nil
+        if not guest and (path:match("%.nupp$") or path:match("%.lua$")) then
             sources = sources + 1
             local file = assert(io.open(path, "rb"))
             local text = file:read("*a")
