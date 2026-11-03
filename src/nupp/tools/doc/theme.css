@@ -667,12 +667,13 @@ input {
 .nuppdoc-code-link,
 .nuppdoc-code-link:visited,
 .nuppdoc-code-link:hover {
-    border-bottom: 1px dotted currentColor;
-    text-decoration: none
+    text-decoration: underline dotted;
+    text-decoration-thickness: .5px;
+    text-underline-offset: .12em
 }
 
 .nuppdoc-code-link:hover {
-    border-bottom-style: solid
+    text-decoration-style: solid
 }
 
 .nuppdoc-code-link-type {
