@@ -2000,7 +2000,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-content > #globals ~ .nuppdoc-api-item:not(#types ~ .nuppdoc-api-item):not(#annotations ~ .nuppdoc-api-item),
 .nuppdoc-content > #annotations ~ .nuppdoc-api-item {
     --api-section-background: color-mix(in srgb, var(--nuppdoc-background) 97%, var(--nuppdoc-text));
-    --api-section-border: color-mix(in srgb, var(--api-section-background) 70%, black);
+    --api-section-border: color-mix(in srgb, var(--api-section-background) 70%, var(--nuppdoc-text));
     margin: 1.35rem 0;
     padding: 0 1rem .7rem;
     border: 1px solid var(--api-section-border);
