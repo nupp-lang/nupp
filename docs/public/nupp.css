@@ -207,10 +207,6 @@
   border-top: 1px solid var(--nuppdoc-border);
 }
 
-.nuppdoc-content .nuppdoc-overview + hr {
-  margin-top: 1rem;
-}
-
 .nuppdoc-home-hero + h2 {
   /* The playground toolbar sits 2rem above its editor. Include that offset
    * so the heading keeps a visible 1rem gap instead of touching the toolbar. */
@@ -311,6 +307,13 @@
   color: var(--nuppdoc-feature-heading);
 }
 
+.nuppdoc-content h3:not(:first-child),
+.nuppdoc-api-group:has(> #types) > .nuppdoc-api-item + .nuppdoc-api-item > h3 {
+  margin-top: 2.5rem;
+  padding-top: 2.5rem;
+  border-top: 1px solid var(--nuppdoc-border);
+}
+
 
 /* A `::: columns` block (see the home page's Learning Nupp / Language
  * reference / Performance / Guides groups) reads as peer lists rather than
@@ -347,6 +350,11 @@
 :root[data-theme="dark"] .nuppdoc-content h2,
 :root[data-theme="dark"] .nuppdoc-content hr {
   border-top-color: #c7913d;
+}
+
+.nuppdoc-content .nuppdoc-api-item > .nuppdoc-overview + hr {
+  margin-top: 1rem;
+  border-top-color: var(--nuppdoc-border);
 }
 
 /* The hero title lives inside .nuppdoc-content too, but it is a brand mark
