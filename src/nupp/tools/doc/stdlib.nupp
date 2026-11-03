@@ -383,12 +383,49 @@ local function indexParts(page: stdlib.Page): {stdlib.IndexPart}
             items[#items + 1] = item
         end
     end
-    local out = {"## Modules", ""}
+    local overview: {{
+        title: string,
+        entries: {string}
+    }} = {}
+    local moduleEntries: {string} = {}
     for _, module in ipairs(page.indexModules or page.modules) do
-        out[#out + 1] = "- [`" .. module.name .. "`](" .. prefix .. urlsMod.moduleFile(module.name) .. ")"
+        moduleEntries[
+            #moduleEntries + 1
+        ] = "[`" .. module.name .. "`](" .. prefix .. urlsMod.moduleFile(module.name) .. ")"
     end
-    out[#out + 1] = ""
-    parts[#parts + 1] = {markdown = table.concat(out, "\n")}
+    overview[#overview + 1] = {title = "Modules", entries = moduleEntries}
+
+    local function overviewItems(
+        title: string,
+        items: {extractMod.Item},
+        filter: function(extractMod.Item): boolean
+    ): nil
+        local entries: {string} = {}
+        for _, item in ipairs(items) do
+            if filter(item) then
+                local target = owners[item.name] and prefix .. urlsMod.moduleFile(owners[item.name]) .. "#" .. item.path
+                    or "#" .. item.path
+                entries[
+                    #entries + 1
+                ] = "[`" .. item.name .. "`](" .. target .. ")" .. markdownMod.overviewBadge(item.kind)
+            end
+        end
+        overview[#overview + 1] = {title = title, entries = entries}
+    end
+
+    overviewItems("Functions", page.globalItems, function(item: extractMod.Item): boolean
+        return item.kind == "function" or kinds[item.name] == "function"
+    end)
+    overviewItems("Globals", page.globalItems, function(item: extractMod.Item): boolean
+        return item.kind ~= "function" and kinds[item.name] ~= "function"
+    end)
+    overviewItems("Types", page.typeItems, function(): boolean
+        return true
+    end)
+    overviewItems("Annotations", page.annotationItems, function(): boolean
+        return true
+    end)
+    parts[#parts + 1] = {markdown = markdownMod.overview(overview)}
 
     local function addSection(title: string, text: string, items: {extractMod.Item}, links: {string}?): nil
         if #items == 0 and (not links or #links == 0) then
@@ -418,7 +455,7 @@ local function indexMarkdown(page: stdlib.Page): string
     for _, part in ipairs(indexParts(page)) do
         out[#out + 1] = part.markdown
         if part.items then
-            out[#out + 1] = markdownMod.items(part.items)
+            out[#out + 1] = markdownMod.items(part.items, nil, nil, true)
         end
     end
 

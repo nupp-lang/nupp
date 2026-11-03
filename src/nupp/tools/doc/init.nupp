@@ -57,8 +57,7 @@ local moduleFile, routeFile = urlsMod.moduleFile, urlsMod.routeFile
 local relativePrefix, cleanRoute = urlsMod.relativePrefix, urlsMod.cleanRoute
 local symbolLinkIndex, symbolLinks = urlsMod.symbolLinkIndex, urlsMod.symbolLinks
 local rewriteConfiguredPageLinks = urlsMod.rewriteConfiguredPageLinks
-local moduleSummary, renderHtmlItem, itemGroups = apiMod.moduleSummary, apiMod.renderHtmlItem, apiMod.itemGroups
-local nestedModules = apiMod.nestedModules
+local itemGroups = apiMod.itemGroups
 local renderPage, homeHero, homeFeatures = pageMod.render, pageMod.homeHero, pageMod.homeFeatures
 
 local doc = {}
@@ -222,9 +221,11 @@ function doc.markdown(
     title: string?,
     all: {extractMod.Module}?,
     overview: string?,
-    annotationItems: {extractMod.Item}?
+    annotationItems: {extractMod.Item}?,
+    prefix: string?,
+    links: Links?
 ): string
-    local text = markdownMod.render(modules, title, all, overview)
+    local text = markdownMod.render(modules, title, all, overview, prefix, links)
     if annotationItems and #annotationItems > 0 then
         text = text .. "\n# Annotations\n\n" .. markdownMod.items(annotationItems, 2)
     end
@@ -1648,41 +1649,6 @@ local function appendOutline(items: {pageMod.Entry}, markdown: string?)
     end
 end
 
--- The index keeps Markdown for its downloadable reference, but its declarations
--- use the same HTML renderer as module pages. Keep the old heading anchors too:
--- search results and existing links may still name those rather than item paths.
-local function renderStdlibIndex(
-    page: stdlibMod.Page,
-    markdown: string,
-    links: Links?,
-    candidate: Page2,
-    pages: {Page2},
-    file: string
-): string
-    local out, legacy = {}, {}
-    for _, heading in ipairs(markdownOutline(markdown)) do
-        if heading.level == 3 then
-            legacy[heading.name] = heading.path
-        end
-    end
-    local anchors = {}
-    for _, part in ipairs(stdlibMod.indexParts(page)) do
-        out[#out + 1] = markdownHtml(rewriteConfiguredPageLinks(part.markdown, candidate, pages, file), links, 0)
-        if part.items then
-            rewriteModuleDocLinks({name = "", text = "", items = part.items}, pages, file)
-            for _, item in ipairs(part.items) do
-                local old = legacy[item.name:gsub("[`*_]", "")]
-                if old and old ~= item.path then
-                    out[#out + 1] = '<span id="' .. htmlEscape(old) .. '"></span>'
-                end
-                renderHtmlItem(out, item, links, anchors)
-            end
-        end
-    end
-
-    return table.concat(out, "\n")
-end
-
 ----------------------------------------------------------------------------
 -- Rendering the site
 ----------------------------------------------------------------------------
@@ -1789,11 +1755,8 @@ local function renderSite(root, outDir, modules, title, settings, standardLibrar
             -- A module's blurb is the page's own prose wherever no overview replaces
             -- it, so whichever of the two is rendered is the one the outline lists.
             appendOutline(items, overview ~= "" and overview or module.text)
-            if #children > 0 then
-                items[#items + 1] = new pageMod.Entry(path = "modules", name = "Submodules")
-            end
-            if #module.items > 0 then
-                items[#items + 1] = new pageMod.Entry(path = "module-contents", name = "Module contents")
+            if #children > 0 or #module.items > 0 then
+                items[#items + 1] = new pageMod.Entry(path = "overview", name = "Overview")
             end
             local groups = itemGroups(module.items)
             for _, group in ipairs(groups) do
@@ -1807,53 +1770,11 @@ local function renderSite(root, outDir, modules, title, settings, standardLibrar
                     items[#items + 1] = new pageMod.Entry(path = group.path, name = group.title, items = entries)
                 end
             end
-            markdown = doc.markdown({module}, nil, modules, overview)
             local links = symbolLinks(linkIndex, module, relativePrefix(file))
-            body[#body + 1] = '<h1><code>' .. htmlEscape(module.name) .. '</code></h1>'
-            -- An overview is what the author wanted said here, so it replaces the line
-            -- that stands in for one rather than repeating the subject above it.
-            if overview ~= "" then
-                body[
-                    #body + 1
-                ] = markdownHtml(rewriteConfiguredPageLinks(overview, linkCandidate, linkPages, file), links, 0)
-            elseif module.namespace then
-                body[
-                    #body + 1
-                ] = '<p class="nuppdoc-namespace-note">Modules nested under <code>' .. htmlEscape(
-                    module.name
-                ) .. '</code>. Nothing is required by this name itself.</p>'
-            elseif module.text ~= "" then
-                body[#body + 1] = markdownHtml(module.text, links, 0)
-            end
-            if overview ~= "" and module.text ~= "" then
-                body[#body + 1] = markdownHtml(module.text, links, 0)
-            end
-            body[#body + 1] = nestedModules(children, relativePrefix(file), modules)
-            -- A module with nothing to list says so by listing nothing. The notice that
-            -- used to stand here answered a question the page had not raised, and it
-            -- was the only thing on some pages below the prose that already said what
-            -- the module is for.
-            if #module.items > 0 then
-                body[#body + 1] = moduleSummary(module)
-                local declarationAnchors = {}
-                for _, group in ipairs(groups) do
-                    if #group.items > 0 then
-                        body[
-                            #body + 1
-                        ] = '<section class="nuppdoc-api-group"><h2 id="' .. htmlEscape(
-                            group.path
-                        ) .. '">' .. htmlEscape(
-                            group.title
-                        ) .. '<a class="nuppdoc-header-anchor" href="#' .. htmlEscape(
-                            group.path
-                        ) .. '" aria-label="Link to ' .. htmlEscape(group.title) .. '">#</a></h2>'
-                        for _, item in ipairs(group.items) do
-                            renderHtmlItem(body, item, links, declarationAnchors)
-                        end
-                        body[#body + 1] = "</section>"
-                    end
-                end
-            end
+            markdown = doc.markdown({module}, nil, modules, overview, nil, relativePrefix(file), links)
+            body[
+                #body + 1
+            ] = markdownHtml(rewriteConfiguredPageLinks(markdown, linkCandidate, linkPages, file), links, 0)
         else
             local links = symbolLinks(linkIndex, nil, relativePrefix(file))
             appendOutline(items, markdown)
@@ -1884,7 +1805,7 @@ local function renderSite(root, outDir, modules, title, settings, standardLibrar
                 featureStart, featureEnd = markdown:find("<!-- nupp:features -->", 1, true)
             end
             if candidate.api and standardLibrary then
-                body[#body + 1] = renderStdlibIndex(standardLibrary, markdown, links, linkCandidate, linkPages, file)
+                body[#body + 1] = markdownHtml(renderedMarkdown, links, 0)
             elseif featureStart and featureEnd then
                 local introduction = rewriteConfiguredPageLinks(
                     markdown:sub(1, featureStart - 1),
