@@ -1377,6 +1377,11 @@ function tagged.forVersion(version: integer): any
     -- module's value before its body runs.
     -- The modules a chunk's qualified paths name load as it starts, before
     -- its own exports are made, as one hidden require each.
+    -- Whether `value` is nil, a branch's condition (`a ?? b`).
+    profile.isNil = function(ctx: any, node: any, value: integer): integer
+        local none = ctx.emit(node, "Nil", {}, "tagged")
+        return ctx.emit(node, "Eq", {value, none}, "tagged") as integer
+    end
     profile.qualifiedLoads = function(ctx: any, node: any): nil
         -- A program that requires a computed name has its entry register the
         -- image's modules by name before anything runs.

@@ -115,6 +115,7 @@ local CASES: {[string]: {
     modulesrecords = {fixture = "catalog-modules-records", version = 8, modules = {"catalog-modules-boxes"}},
     modulesqualified = {fixture = "catalog-modules-qualified", version = 8, modules = {"catalog-atlas-geometry"},},
     libraryvalues = {fixture = "catalog-library-values", version = 8},
+    libraryproviders = {fixture = "catalog-library-providers", version = 8, modules = {"src/nupp/runtime/packages"},},
     modulesdynamic = {fixture = "catalog-modules-dynamic", version = 8, modules = {"catalog-modules-geometry"},},
     modulescycle = {
         fixture = "catalog-modules-cycle",
@@ -312,6 +313,22 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
     return held
 end
 
+-- A case names its modules as fixtures (`native/core/tests`), absolute
+-- paths, or library modules under `src/`, which it carries as they are.
+local function libraryModule(name: string): boolean
+    return name:sub(1, 4) == "src/" or name:find("/src/", 1, true) ~= nil
+end
+
+local function modulePath(root: string, name: string): string
+    if name:sub(1, 1) == "/" then
+        return name .. ".nupp"
+    elseif name:sub(1, 4) == "src/" then
+        return root .. "/" .. name .. ".nupp"
+    end
+
+    return root .. "/native/core/tests/" .. name .. ".nupp"
+end
+
 -- The checked program for a case, compiled to the core executable.
 local function compileProgram(caseName: string, fixture: string, version: integer): any
     local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
@@ -334,7 +351,7 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         local graph: any = require("nupp.compiler.vm.graph")
         local takes = false
         for _, name in ipairs(names) do
-            local path = name:sub(1, 1) == "/" and name .. ".nupp" or root .. "/native/core/tests/" .. name .. ".nupp"
+            local path = modulePath(root, name)
             takes = takes or graph.mayTakeLibraryValue(parser.parse(read(path), path).root)
         end
         if takes then
@@ -362,7 +379,7 @@ local function compileProgram(caseName: string, fixture: string, version: intege
     local modules = {}
     local moduleName = ""
     for _, name in ipairs(names) do
-        local path = name:sub(1, 1) == "/" and name .. ".nupp" or root .. "/native/core/tests/" .. name .. ".nupp"
+        local path = modulePath(root, name)
         local source = read(path)
         local parsed = parser.parse(source, path)
         assert(#parsed.errors == 0, "guest source parse failed: " .. name)
@@ -371,7 +388,7 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         if project then
             -- A fixture is checked as its staged copy; a library module
             -- the program carries, where it lives.
-            if name:find("/src/", 1, true) == nil then
+            if not libraryModule(name) then
                 path = staged .. "/" .. declared:gsub("%.", "/") .. ".nupp"
                 assert(read(path) == source, "staged guest source differs: " .. name)
             end

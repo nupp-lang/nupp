@@ -580,26 +580,36 @@ export function overflow(ctx: voidptr): uint64
     return 1ULL
 end
 
--- Raises one of the library's whole
--- Raises "module 'name' not found" for a `require` of a name the image
--- holds no module by.
+-- Raises "module 'name' not found:" and why, for a `require` of a name the
+-- image holds no module by: Lua's first line, which code checks for, and
+-- the core's reason in place of the paths Lua searched. As Lua's, it carries
+-- no position, so the text starts with that line.
 export function moduleNotFound(ctx: voidptr, name: uint64): nil
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
         local builder = state as strings.Builder*
-        raiseText(
-            ctx,
-            h,
-            builder,
-            strings.appendWord(h, builder, 0x2720656c75646f6dULL, 8ULL)
+        local refused = strings.appendWord(h, builder, 0x2720656c75646f6dULL, 8ULL)
             | strings.appendString(h, builder, strings.header(name))
             | strings.appendWord(h, builder, 0x6f6620746f6e2027ULL, 8ULL)
-            | strings.appendWord(h, builder, 0x646e75ULL, 3ULL)
-        )
+            | strings.appendWord(h, builder, 0x3a646e75ULL, 4ULL)
+            | strings.appendWord(h, builder, 0x646f6d206f6e090aULL, 8ULL)
+            | strings.appendWord(h, builder, 0x7420666f20656c75ULL, 8ULL)
+            | strings.appendWord(h, builder, 0x656d616e20746168ULL, 8ULL)
+            | strings.appendWord(h, builder, 0x20656874206e6920ULL, 8ULL)
+            | strings.appendWord(h, builder, 0x6567616d69ULL, 5ULL)
+        if refused ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        local message = values.TAG_OBJ | strings.finish(h, builder)
+        guestscope.raiseLibrary(ctx, message)
+        guestscope.raise(ctx, message, 0ULL)
+        error("library error")
     end
 end
 
+-- Raises one of the library's texts.
 export function libraryError(ctx: voidptr, text: uint64): nil
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do

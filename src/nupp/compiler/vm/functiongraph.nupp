@@ -352,6 +352,32 @@ function frontend.compile(fn: any, options: any, profile: any): any
             return done.result
         elseif node.kind == "istring" and profile.interpolation then
             return invoke("interpolation", node, expected)
+        elseif node.kind == "binop" and node.op.text == "??" and profile.isNil then
+            -- `a ?? b`: a unless it is nil, then b, evaluated only then.
+            local lhs = expression(node.lhs, expected)
+            if not block then
+                return nil
+            end
+            assert(lhs ~= nil, "function graph: continued coalescing operand requires a value")
+            local key = {}
+            bindings[key], bindingOrder[#bindingOrder + 1] = lhs, key
+            local absent = invoke("isNil", node, lhs)
+            local parent = block
+            local right, done = branch(), branch()
+            bindings[key], bindingOrder[#bindingOrder] = nil, nil
+            parent.term = {kind = "branch", value = absent, edges = {right.edge, done.edge}, pos = position(node)}
+            resume(right)
+            local rhs = expression(node.rhs, expected)
+            if block then
+                assert(rhs ~= nil, "function graph: continued coalescing operand requires a value")
+                bindings[key] = rhs
+                jump(done, node)
+            end
+            resume(done)
+            local result = bindings[key]
+            bindings[key], bindingOrder[#bindingOrder] = nil, nil
+            context()
+            return result as integer
         elseif node.kind == "binop" then
             local operator = node.op.text
             if operator ~= "and" and operator ~= "or" then
