@@ -1063,14 +1063,18 @@ return imported]],
 end
 
 function M.taggedDynamicAndShadowedLoadersRefuse()
+    -- A require of a computed name is no require site: from profile v8 the
+    -- core looks the name up among the image's modules when it runs; the
+    -- profiles before it refuse it.
     local p = describe([[local name = "unknown_module"
 return require(name)]])
-    test.eq(#p.requires, 1)
+    test.eq(#p.requires, 0)
+    test.eq(p.dynamicRequires, true)
     refuses(
         function()
             program.compile(p, tagged)
         end,
-        "dynamic or missing require target"
+        "only checked static require calls are supported"
     )
     local shadowed = describe([[local function require(name: any): any return name end
 return require("anything")]])
