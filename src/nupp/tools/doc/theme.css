@@ -2010,7 +2010,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     border: 1px solid var(--api-section-border);
     border-radius: 4px;
     overflow: clip;
-    background: var(--api-section-background);
+    background: transparent;
 }
 .nuppdoc-api-item .nuppdoc-api-item > :is(h2, h3, h4, h5, h6):first-child,
 .nuppdoc-api-group:has(> :is(#functions, #values, #annotations)) > .nuppdoc-api-item > h3,
