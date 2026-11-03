@@ -8,6 +8,7 @@ const context = require("nupp.runtime.core.context")
 const values = require("nupp.runtime.vm.values")
 const heap = require("nupp.runtime.vm.heap")
 const guestscope = require("nupp.runtime.core.guestscope")
+const threads = require("nupp.runtime.core.threads")
 
 export const INVALID: uint64 = 4ULL
 export const RESOURCE: uint64 = 5ULL
@@ -674,6 +675,33 @@ export function metaCall(
     if nv < 5ULL or nargs > 3ULL then
         fail(ctx, frame, pc, INVALID)
         return 0ULL
+    end
+    -- A wrapped coroutine's function as the metamethod: its thread resumes
+    -- with the arguments, and what it yields or returns first lands in
+    -- resultSlot, a boolean for a comparison.
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    local wrapped = threads.wrapped(native.load64(window, native.index((nv - 4ULL) * 8ULL)))
+    if wrapped ~= 0ULL then
+        local args = guestscope.packValues(ctx, native.offset(window, native.index((nv - 3ULL) * 8ULL)), nargs, 0ULL)
+        -- The frame roots the pack until the thread has it.
+        native.store64(window, native.index((nv - 3ULL) * 8ULL), args)
+        local answer = threads.resume(
+            ctx,
+            frame,
+            pc,
+            wrapped,
+            args,
+            threads.MODE_CALL,
+            resultSlot | (1ULL << 32ULL) | (truth << 62ULL)
+        )
+        if answer == threads.RAISED then
+            fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return 0ULL
+        elseif answer ~= threads.SWITCHED then
+            fail(ctx, frame, pc, INVALID)
+            return 0ULL
+        end
+        return 1ULL
     end
     local child = metaPrepare(ctx, frame, pc, nv - 4ULL, nargs, resultSlot)
     if child == 0ULL then

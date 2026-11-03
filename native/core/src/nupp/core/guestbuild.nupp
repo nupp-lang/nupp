@@ -98,6 +98,7 @@ local CASES: {[string]: {
     threadscalls = {fixture = "catalog-threads-calls", version = 8},
     threadsclose = {fixture = "catalog-threads-close", version = 8},
     threadsiterate = {fixture = "catalog-threads-iterate", version = 8},
+    threadsmeta = {fixture = "catalog-threads-meta", version = 8},
     outputwrite = {fixture = "catalog-output-write", version = 8},
     libraryspread = {fixture = "catalog-library-spread", version = 8},
     tableslibrarymeta = {fixture = "catalog-tables-library-meta", version = 8},

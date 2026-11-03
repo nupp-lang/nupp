@@ -123,6 +123,7 @@ local CASES = {
     {"threadscalls", 0x7FFF00000000003F},
     {"threadsclose", 0x7FFF00000000007F},
     {"threadsiterate", 0x7FFF00000000001F},
+    {"threadsmeta", 0x7FFF000000105C53},
     {"outputwrite", 0x7FFF000000000001},
     {"libraryspread", 0x7FFF000000000C8D},
     {"tableslibrarymeta", 0x7FFF000000000007},
@@ -163,7 +164,8 @@ local STRESS = {
     stringsLibrary = true,
     stringsGsubFunction = true,
     libraryspread = true,
-    threadsiterate = true
+    threadsiterate = true,
+    threadsmeta = true
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
@@ -227,6 +229,7 @@ local NUMERIC = {
     threadscalls = "catalog-threads-calls",
     threadsclose = "catalog-threads-close",
     threadsiterate = "catalog-threads-iterate",
+    threadsmeta = "catalog-threads-meta",
     outputwrite = "catalog-output-write",
     libraryspread = "catalog-library-spread",
     tableslibrarymeta = "catalog-tables-library-meta",

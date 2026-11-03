@@ -42,6 +42,9 @@ export struct Thread
     resumerframe: uint64
     resumerslot: uint64
     resumerwanted: uint64
+    -- 1 when the resumer takes the first value as a boolean: a comparison
+    -- metamethod's answer (`where`'s bit 62).
+    resumertruth: uint64
     -- The slot the pending yield's results land in when it is resumed.
     yieldslot: uint64
     mark: arena.Mark
@@ -365,7 +368,7 @@ end
 
 -- Stores `result`, a pack, in `frame` as `mode` takes it: whole in `slot`,
 -- or its first `wanted` values from `slot` on, nil past its end.
-local function place(frame: voidptr, mode: uint64, slot: uint64, wanted: uint64, result: uint64): nil
+local function place(frame: voidptr, mode: uint64, slot: uint64, wanted: uint64, result: uint64, truth: uint64): nil
     local window = native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("values")))
     if mode == MODE_PACK or mode == MODE_CLOSE or wanted == 0ULL then
         native.store64(window, native.index(slot * 8ULL), result)
@@ -378,6 +381,9 @@ local function place(frame: voidptr, mode: uint64, slot: uint64, wanted: uint64,
         local value = values.NIL
         if i < count then
             value = tables.get(pack, values.TAG_INTEGER | (i + 1ULL))
+        end
+        if i == 0ULL and truth == 1ULL then
+            value = native.chooseWord(value == values.NIL or value == values.FALSE, values.FALSE, values.TRUE)
         end
         native.store64(window, native.index((slot + i) * 8ULL), value)
         i = i + 1ULL
@@ -392,7 +398,8 @@ local function deliver(t: voidptr, result: uint64): nil
         native.load64(t, native.fieldOffset<Thread>("mode")),
         native.load64(t, native.fieldOffset<Thread>("resumerslot")),
         native.load64(t, native.fieldOffset<Thread>("resumerwanted")),
-        result
+        result,
+        native.load64(t, native.fieldOffset<Thread>("resumertruth"))
     )
 end
 
@@ -547,7 +554,8 @@ export function resume(
     where: uint64
 ): uint64
     local slot = where & 0xffffffffULL
-    local wanted = where >> 32ULL
+    local wanted = (where >> 32ULL) & 0x3fffffffULL
+    local truth = (where >> 62ULL) & 1ULL
     local t = bodyof(value)
     if t == 0ULL then
         texts.argumentError(ctx, 1ULL, texts.TEXT_COROUTINE, 0ULL, value)
@@ -561,7 +569,7 @@ export function resume(
         end
         local reason = texts.textvalue(ctx, text)
         if mode ~= MODE_CALL then
-            place(frame, mode, slot, wanted, failure(ctx, reason))
+            place(frame, mode, slot, wanted, failure(ctx, reason), 0ULL)
             return REFUSED
         end
         -- Positioned at the call, as a wrapped thread's errors are.
@@ -571,6 +579,7 @@ export function resume(
     native.store64(body, native.fieldOffset<Thread>("mode"), mode)
     native.store64(body, native.fieldOffset<Thread>("resumerslot"), slot)
     native.store64(body, native.fieldOffset<Thread>("resumerwanted"), wanted)
+    native.store64(body, native.fieldOffset<Thread>("resumertruth"), truth)
     if state == FRESH then
         if start(ctx, value, body, args) ~= 1ULL then
             return BROKEN
@@ -850,6 +859,7 @@ export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, 
     native.store64(body, native.fieldOffset<Thread>("mode"), MODE_CLOSE)
     native.store64(body, native.fieldOffset<Thread>("resumerslot"), slot)
     native.store64(body, native.fieldOffset<Thread>("resumerwanted"), 1ULL)
+    native.store64(body, native.fieldOffset<Thread>("resumertruth"), 0ULL)
     local yielding = native.pointer(active)
     native.store64(
         native.pointer(native.load64(yielding, native.fieldOffset<frames.Frame>("values"))),
