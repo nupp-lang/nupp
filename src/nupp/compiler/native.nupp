@@ -274,9 +274,6 @@ local FEATURES: {[string]: native.Feature} = {
 
     ["runtime.test"] = {name = "test", module = "assert", runtimeModule = "assert", portableRuntime = true,},
     ["native.lpeg"] = {name = "lpeg", module = "lpeg", host = "lpeg", binary = true, externalModule = true,},
-    [
-        "stdlib.lpeg.re"
-    ] = {name = "lpeg_re", module = "re", runtimeModule = "re", portableRuntime = true, requires = {"native.lpeg"},},
     -- The native JSON effect binds the package-private codec provider.
     [
         "native.json"

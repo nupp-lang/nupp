@@ -2063,9 +2063,6 @@ function M.nativeFeaturesAreResolvedEffects()
 
     local lpeg = effectsOf("local parser = require('lpeg')")
     assert(lpeg["native.lpeg"], "require('lpeg') records its native effect")
-    local re = effectsOf("local parser = require('re')")
-    assert(re["stdlib.lpeg.re"], "require('re') records its reference-module effect")
-    assert(native.expand(re)["native.lpeg"], "the re module brings native LPeg")
 
     local json = effectsOf("local json = require('serde.json')")
     assert(json["native.json"], "require('serde.json') records its JSON effect")
@@ -2963,17 +2960,14 @@ function M.pureAndNativeRuntimeFeaturesComposeAsLua()
     testAssert.eq(io, nil, "selecting a native facility installs no ambient io namespace")
 end
 
-function M.lpegAndReUseTheNativeRuntime()
+function M.lpegUsesTheNativeRuntime()
     local previousNupp = rawget(_G, "nupp")
     local previousLoaded = package.loaded.lpeg
     local previousPreload = package.preload.lpeg
-    local previousReLoaded = package.loaded.re
-    local previousRePreload = package.preload.re
-    package.loaded.lpeg, package.loaded.re = nil, nil
-    package.preload.lpeg, package.preload.re = nil, nil
+    package.loaded.lpeg, package.preload.lpeg = nil, nil
     _G.nupp = nil
     local source = stdlib.bootstrap({
-        ["stdlib.lpeg.re"] = true
+        ["native.lpeg"] = true
     })
         .. [=[
 local lpeg = require("lpeg")
@@ -2987,19 +2981,13 @@ local same = Cg(C(R("az")^1), "word") * P(":") * Cb("word")
 local grammar = P({"value", value = P("x") + P("(") * V("value") * P(")")})
 local substitution = Cs((C(R("09")^1) / "[%0]" + P(1))^0)
 local positions = Ct(Cp() * Cc("tag") * C(P("ok")) * Cp())
-local re = require("re")
 return identifier:match("name9"), fields:match("1,22,333"),
     same:match("echo:rest"), lpeg.match(grammar * -P(1), "((x))"),
-    substitution:match("a12b"), positions:match("ok"), lpeg.version,
-    re.match("item:42", "{[a-z]+} ':' {[0-9]+} !.")
+    substitution:match("a12b"), positions:match("ok"), lpeg.version
 ]=]
-    local identifier, fields, same, recursive, substitution, positions, version, reFirst, reSecond = assert(
-        loadstring(source)
-    )()
+    local identifier, fields, same, recursive, substitution, positions, version = assert(loadstring(source))()
     package.loaded.lpeg = previousLoaded
     package.preload.lpeg = previousPreload
-    package.loaded.re = previousReLoaded
-    package.preload.re = previousRePreload
     _G.nupp = previousNupp
     testAssert.eq(identifier, "name9", "LPeg facade substring capture")
     testAssert.eq(fields[3], "333", "LPeg facade table capture")
@@ -3009,8 +2997,6 @@ return identifier:match("name9"), fields:match("1,22,333"),
     testAssert.eq(positions[1], 1, "LPeg facade first position")
     testAssert.eq(positions[4], 3, "LPeg facade final position")
     testAssert.eq(version, "LPeg 1.1.0", "LPeg facade version field")
-    testAssert.eq(reFirst, "item", "bundled re first capture")
-    testAssert.eq(reSecond, "42", "bundled re second capture")
 end
 
 function M.nativeFeatureOverridesAreTriState()

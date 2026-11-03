@@ -141,7 +141,6 @@ local RESOURCES = {
     {source = "src/nupp/codec/json/number.nupp", output = "nupp/compiler/nupp/codec/json/number.nupp"},
     {source = "src/io/spi.nupp", output = "nupp/compiler/io/spi.nupp"},
     {source = "src/nupp/runtime/target.nupp", output = "nupp/compiler/nupp/runtime/target.nupp"},
-    {source = "src/re.nupp", output = "nupp/compiler/re.nupp"},
     {source = "src/nupp/text/internal/buffer.d.nupp", output = "nupp/compiler/nupp/text/internal/buffer.d.nupp"},
     {source = "src/nupp/text/init.nupp", output = "nupp/compiler/nupp/text/init.nupp"},
     {source = "src/io/cli/init.nupp", output = "nupp/compiler/io/cli/init.nupp"},

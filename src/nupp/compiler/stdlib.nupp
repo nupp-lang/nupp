@@ -72,9 +72,6 @@ function stdlib.bootstrap(effects: {[string]: any}?, watch: boolean?, installing
     if effects["stdlib.math"] then
         out[#out + 1] = MATH
     end
-    if effects["stdlib.lpeg.re"] then
-        out[#out + 1] = 'require("re");'
-    end
     if effects["stdlib.fieldcodec"] then
         out[#out + 1] = FIELDCODEC
     end

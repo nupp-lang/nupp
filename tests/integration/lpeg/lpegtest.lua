@@ -1,5 +1,5 @@
 local testAssert = require("assert")
--- Typed LPeg captures and the bundled third-party re module.
+-- Typed LPeg captures and the documentation toolchain's upstream re dependency.
 local parser = require("nupp.compiler.syntax.parser")
 local gen = require("nupp.compiler.lua.gen")
 local check = require("helpers.fragment")
@@ -25,16 +25,6 @@ local function officialLpeg()
         end
     end
     error("the LPeg oracle is not installed in package.cpath")
-end
-
-local function officialRe(lpeg)
-    local savedLpeg, savedRe = package.loaded.lpeg, package.loaded.re
-    package.loaded.lpeg, package.loaded.re = lpeg, nil
-    local ok, re = pcall(require, "re")
-    package.loaded.lpeg, package.loaded.re = savedLpeg, savedRe
-    assert(ok, re)
-
-    return re
 end
 
 local function compile(source)
@@ -345,22 +335,22 @@ return {
     testAssert.eq(got.overflow, true, "LPeg optimizes tail-recursive grammar calls")
 end
 
-function M.bundlesTheReferenceReModuleOverTheLpegFacade()
-    local captured, first, last, replaced, patternType = run(
-        [==[
-local re = require("re")
-local pattern = re.compile("{[a-z]+} ':' {[0-9]+} !.")
-local captured = {pattern:match("item:42")}
-local first, last = re.find("-- item:42 --", "[a-z]+ ':' [0-9]+")
-return captured, first, last, re.gsub("a1b22", "[0-9]+", "#"), type(pattern)
-]==]
-    )
-    testAssert.eq(captured[1], "item", "bundled re first capture")
-    testAssert.eq(captured[2], "42", "bundled re second capture")
-    testAssert.eq(first, 4, "bundled re find start")
-    testAssert.eq(last, 10, "bundled re find inclusive end")
-    testAssert.eq(replaced, "a#b#", "bundled re global substitution")
-    testAssert.eq(patternType, "userdata", "re compiles to the same opaque pattern")
+function M.documentationUsesTheUpstreamReDependency()
+    local loadRe = assert(loadfile(HERE .. "/../.rocks/share/lua/5.1/re.lua"))
+    local previous = package.loaded.lpeg
+    package.loaded.lpeg = officialLpeg()
+    local ok, re = pcall(loadRe)
+    package.loaded.lpeg = previous
+    assert(ok, re)
+    local pattern = re.compile("{[a-z]+} ':' {[0-9]+} !.")
+    local captured = {pattern:match("item:42")}
+    local first, last = re.find("-- item:42 --", "[a-z]+ ':' [0-9]+")
+    testAssert.eq(captured[1], "item")
+    testAssert.eq(captured[2], "42")
+    testAssert.eq(first, 4)
+    testAssert.eq(last, 10)
+    testAssert.eq(re.gsub("a1b22", "[0-9]+", "#"), "a#b#")
+    testAssert.eq(type(pattern), "userdata")
 end
 
 return M

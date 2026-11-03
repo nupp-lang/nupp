@@ -106,6 +106,24 @@ function M.retiredNamespacesAreNotBundled()
     end
 end
 
+function M.reIsNotACompilerProvidedModule()
+    local env = envMod.new("/private/tmp/nupp-retired-re-consumer", {
+        memoryOnly = true,
+        nativeCompilerServices = false,
+        typeRoots = {},
+    })
+    testAssert(not env.bundled.re, "re must not have a bundled declaration")
+    testAssert.eq(env.bundledImplementation("re"), nil)
+    testAssert.eq(env.resolveModuleExports(env, "re"), nil)
+    local manifest = assert(loadfile(ROOT .. "/nupp.lua"))()
+    for _, resource in ipairs(manifest.build.targets.compiler.resources) do
+        if type(resource) == "table" then
+            testAssert.ne(resource.source, "src/re.nupp")
+            testAssert.ne(resource.source, "src/nupp/compiler/decls/re.d.nupp")
+        end
+    end
+end
+
 function M.compilerCarriesEveryFeatureRuntimeSource()
     local manifest = assert(loadfile(ROOT .. "/nupp.lua"))()
     local resources = {}

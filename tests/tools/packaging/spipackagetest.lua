@@ -132,8 +132,8 @@ function M.fixedHostLibrariesRemainOrdinaryBundleImports()
             kind = "bundle", outDir = "out",
             output = "out/app.lua", entries = {"main"}
         }}]],
-        ["src/main.nupp"] = [[local re = require("re")
-return re.match("aaa", "'a'+")]],
+        ["src/main.nupp"] = [[local lpeg = require("lpeg")
+return (lpeg.P("a") ^ 1):match("aaa")]],
     })
     testAssert.eq(project.build(dir), 0, "bundle with host LPeg")
     local output = read(dir .. "/out/app.lua")
