@@ -693,6 +693,15 @@ local function main()
                     local again = bridgeRun(label .. " stress", bundle, input, stressed, 0)
                     check(again == (OUTPUT[name] or ""), label .. " printed output under collect-at-every-allocation")
                     check(read(stressed) == u64(expectedWord), label .. " result under collect-at-every-allocation")
+                    -- And with interleaved incremental collection, the
+                    -- oracle checking every cycle (a failure is status 1001).
+                    local stepped = OUT .. "/" .. label .. "-interleaved.bin"
+                    write(stepped, u64(-1) .. u64(0) .. u64(2))
+                    local steppedOut = OUT .. "/" .. label .. "-interleaved.out"
+                    os.remove(steppedOut)
+                    local printedStepped = bridgeRun(label .. " interleaved", bundle, stepped, steppedOut, 0)
+                    check(printedStepped == (OUTPUT[name] or ""), label .. " printed output under interleaved collection")
+                    check(read(steppedOut) == u64(expectedWord), label .. " result under interleaved collection")
                 end
                 -- The workloads read BENCH_SCALE at run time; scale 2 has its own
                 -- checksums (bench/vm/workloads.bench.nupp).

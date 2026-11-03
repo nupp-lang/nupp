@@ -92,6 +92,8 @@ export struct Services
     replaykey: uint64
     replayvalue: uint64
     libraryanswer: uint64
+    -- What the collector's oracle found wrong, kept when the heap closes.
+    oraclefailures: uint64
 end
 
 -- tableSet's answer when a __newindex function is to be called instead.
@@ -183,8 +185,13 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("replayvalue"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("libraryanswer"), 0ULL)
         collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 6ULL)
-        -- Collect-at-every-allocation: a whole cycle at every safepoint.
-        h.stress = stress ~= 0ULL
+        -- Collect-at-every-allocation (1): a whole cycle at every safepoint;
+        -- interleaved (2): a small incremental step at every safepoint, the
+        -- oracle checking each cycle's survivors.
+        h.stress = stress == 1ULL
+        h.interleave = stress == 2ULL
+        h.oracle = stress == 2ULL
+        native.store64(services, native.fieldOffset<Services>("oraclefailures"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("heap"), native.address(h))
         native.store64(services, native.fieldOffset<Services>("arena"), native.address(a))
         native.store64(services, native.fieldOffset<Services>("raised"), 0ULL)
@@ -214,6 +221,7 @@ export function close(services: voidptr): nil
         -- Unrooted, a last cycle retires every table so its owned parts are
         -- released before the heap goes.
         local h = native.pointer(address) as heap.Heap*
+        native.store64(services, native.fieldOffset<Services>("oraclefailures"), h.oracleFailures)
         h.ranges.count = 0ULL
         collector.fullCycle(h)
         tables.drain(h)
@@ -231,11 +239,15 @@ export function close(services: voidptr): nil
 end
 
 -- The first raised error code, or 1000 when the scope cannot close cleanly
--- (a mapping is still live or backing was retained).
+-- (a mapping is still live or backing was retained), or 1001 when the
+-- collector's oracle found a survivor wrong.
 export function finish(services: voidptr): uint64
     local failure = native.load64(services, native.fieldOffset<servicescope.ServiceScope>("error"))
     if servicescope.close(services) ~= 1ULL and failure == 0ULL then
         return 1000ULL
+    end
+    if failure == 0ULL and native.load64(services, native.fieldOffset<Services>("oraclefailures")) ~= 0ULL then
+        return 1001ULL
     end
 
     return failure
