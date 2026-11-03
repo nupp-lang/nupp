@@ -301,6 +301,33 @@
   border-radius: 4px;
 }
 
+/* Thin, unobtrusive scrollbars use the same border colors as the site. */
+@media (forced-colors: none) {
+  * {
+    scrollbar-width: thin;
+    scrollbar-color: var(--nuppdoc-border) transparent;
+  }
+
+  *::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+
+  *::-webkit-scrollbar-track,
+  *::-webkit-scrollbar-corner {
+    background: transparent;
+  }
+
+  *::-webkit-scrollbar-thumb {
+    background: var(--nuppdoc-border);
+    border-radius: 4px;
+  }
+
+  *::-webkit-scrollbar-thumb:hover {
+    background: color-mix(in srgb, var(--nuppdoc-border) 60%, var(--nuppdoc-text));
+  }
+}
+
 /* Headings are the text face throughout; the heading color is what marks
  * them out. */
 .nuppdoc-content h1,
@@ -368,11 +395,6 @@
 
 :root[data-theme="dark"] .nuppdoc-content hr {
   border-top-color: #c7913d;
-}
-
-.nuppdoc-content .nuppdoc-api-item > .nuppdoc-overview + hr {
-  margin-top: 1rem;
-  border-top-color: var(--nuppdoc-border);
 }
 
 /* The hero title lives inside .nuppdoc-content too, but it is a brand mark
