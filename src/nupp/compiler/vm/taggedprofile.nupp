@@ -142,6 +142,11 @@ local stringLibrary: {[string]: {integer}} = {
     ["math.tointeger"] = {42, 1, 1},
     ["math.type"] = {43, 1, 1},
     ["math.sqrt"] = {44, 1, 1},
+    ["math.f32.narrow"] = {91, 1, 1},
+    ["math.u32.wrap"] = {92, 1, 1},
+    ["math.i32.wrap"] = {93, 1, 1},
+    rawequal = {88, 2, 2},
+    next = {89, 1, 2},
     ["math.exp"] = {57, 1, 1},
     ["math.log"] = {58, 1, 2},
     ["math.sin"] = {59, 1, 1},
@@ -180,6 +185,7 @@ local packLibrary: {
     ["string.byte"] = 25,
     ["string.gsub"] = 27,
     ["table.unpack"] = 37,
+    next = 90,
     ["coroutine.resume"] = 76,
     ["coroutine.yield"] = 77,
     ["coroutine.running"] = 80,
@@ -246,6 +252,18 @@ local function recordOrigin(t: any): any
     end
     local origin = t and (t.origin or t)
     if origin and origin.tag == "nominal" and origin.declKind == "record" and origin.fieldOrder then
+        return origin
+    end
+
+    return nil
+end
+
+-- The record behind a checked type when the program declares it, whose
+-- instances keep fields in slots. A record a declaration file describes is
+-- a table the host or Lua code makes, keyed by its field names.
+local function ownrecord(ctx: any, t: any): any
+    local origin = recordOrigin(t)
+    if origin and catalog(ctx).recordDecls[origin.deriveDeclaration] then
         return origin
     end
 
@@ -343,7 +361,7 @@ end
 
 -- Whether a value of type `t` is an interface's: a table its fields are
 -- read from by name.
-local function interfaceType(t: any): boolean
+local function interfacetype(t: any): boolean
     while t and (t.tag == "literal" or t.tag == "const") do
         t = t.tag == "literal" and t.base or t.inner
     end
@@ -757,7 +775,7 @@ end
 -- with a destination.
 -- Whether a value of type `t` may have a metatable: anything but a string,
 -- number, Boolean or nil.
-local function mayHaveMeta(t: any): boolean
+local function mayhavemeta(t: any): boolean
     while t and (t.tag == "const" or t.tag == "literal") do
         t = t.tag == "literal" and t.base or t.inner
     end
@@ -792,7 +810,7 @@ local function valuespack(ctx: any, node: any, exprs: any, texts: boolean?): int
     end
     if texts then
         for index, operand in ipairs(operands) do
-            if mayHaveMeta(fixed[index].inferredType) then
+            if mayhavemeta(fixed[index].inferredType) then
                 operands[index] = ctx.emit(node, "LibCall", {1, operand}, "tagged")
             end
         end
@@ -846,6 +864,46 @@ packedCall = function(ctx: any, node: any, arguments: any, id: integer): integer
 end
 
 -- print(...): its values in a pack, written as one line.
+-- An ownership intrinsic's `count` values: a transfer's, the value it
+-- moves; `partition`'s, its two parts. The ownership is the checker's.
+local function ownership(ctx: any, node: any, count: integer): {integer}?
+    local operation = node.ownershipIntrinsic
+    local args = node.args and node.args.exprs or {}
+    -- A `drop` with nothing to clean up ends its value's life: nil.
+    if operation == "drop" then
+        if args[1] and ctx.expression(args[1], "tagged") == nil then
+            return nil
+        end
+        local results = {}
+        for index = 1, count do
+            results[index] = ctx.emit(node, "Nil", {}, "tagged")
+        end
+        return results
+    end
+    local sources = operation == "partition" and {args[2], args[3]} or {operation == "region" and args[2] or args[1]}
+    local present, kinds = {}, {}
+    for index = 1, math.min(count, #sources) do
+        if sources[index] then
+            present[#present + 1], kinds[#kinds + 1] = sources[index], "tagged"
+        end
+    end
+    local operands = #present > 0 and ctx.operands(present, kinds) or {}
+    if operands == nil then
+        return nil
+    end
+    local results, at = {}, 0
+    for index = 1, count do
+        if index <= #sources and sources[index] then
+            at = at + 1
+            results[index] = operands[at]
+        else
+            results[index] = ctx.emit(node, "Nil", {}, "tagged")
+        end
+    end
+
+    return results
+end
+
 local function printValues(ctx: any, node: any): integer
     local pack = valuespack(ctx, node, node.args.exprs or {}, true)
     if pack == nil then
@@ -987,7 +1045,7 @@ local function invokeMethod(ctx: any, node: any, keepResult: boolean, count: int
     need(site.method and site.owner == ctx.fn.id, "method callsite belongs to another owner")
     local contract
     if site.dynamic then
-        contract = graph.dynamicMethodContract(node, count)
+        contract = graph.dynamicmethodcontract(node, count)
     else
         local target = need(p.functionsByDefinition[site.definition], "method call lacks its checked method")
         contract = graph.invokeContract(target, node)
@@ -1309,7 +1367,8 @@ local function cleanupProfile(base: any): any
     profile.cleanupRun = function(ctx: any, node: any, plan: any, value: integer, reason: string): nil
         local held = ctx.hold(value)
         for index = #plan.methods, 1, -1 do
-            local class = ctx.expression({kind = "name", token = plan.token, plan.token}, "tagged")
+            local class = plan.token.foreign and ctx.emit(node, "LibCall", {29, ctx.readHeld(held)}, "tagged")
+                or ctx.expression({kind = "name", token = plan.token, plan.token}, "tagged")
             local key = ctx.emit(node, "K", {pool(ctx, "str", plan.methods[index])}, "tagged")
             local callee = ctx.emit(node, "GetIdx", {class, key}, "tagged")
             ctx.emit(node, "Destroy", {callee, ctx.readHeld(held)}, nil)
@@ -1696,7 +1755,7 @@ function tagged.forVersion(version: integer): any
             elseif libraryField == "math.mininteger" then
                 return ctx.emit(node, "K", {pool(ctx, "int64", "-9223372036854775808")}, "tagged") as integer
             end
-            local slot = recordSlot(recordOrigin(node.obj.inferredType), node.name and node.name.text)
+            local slot = recordSlot(ownrecord(ctx, node.obj.inferredType), node.name and node.name.text)
             -- A field of a plain table is its string key, and so is one of a
             -- record's name (`R.f`), which holds the table of its methods.
             local tag = typeKind(node.obj.inferredType)
@@ -1708,7 +1767,8 @@ function tagged.forVersion(version: integer): any
                     or tag == "shape"
                     or tag == "typeobject"
                     or tag == "any"
-                    or interfaceType(node.obj.inferredType)
+                    or interfacetype(node.obj.inferredType)
+                    or recordOrigin(node.obj.inferredType) ~= nil
                 )
                 and node.name ~= nil
             if slot == nil and not plain then
@@ -1725,7 +1785,7 @@ function tagged.forVersion(version: integer): any
         end
         profile.assignmentTarget = function(ctx: any, node: any, rhs: any): any
             if node.kind == "dotIndex" then
-                local slot = recordSlot(recordOrigin(node.obj.inferredType), node.name and node.name.text)
+                local slot = recordSlot(ownrecord(ctx, node.obj.inferredType), node.name and node.name.text)
                 local tag = typeKind(node.obj.inferredType)
                 -- `R.f = ...` writes the table a record's name holds.
                 local plain = slot == nil
@@ -1736,7 +1796,8 @@ function tagged.forVersion(version: integer): any
                         or tag == "shape"
                         or tag == "typeobject"
                         or tag == "any"
-                        or interfaceType(node.obj.inferredType)
+                        or interfacetype(node.obj.inferredType)
+                        or recordOrigin(node.obj.inferredType) ~= nil
                     )
                     and node.name ~= nil
                 need(slot ~= nil or plain, "only record and table field assignment is admitted")
@@ -2057,6 +2118,9 @@ function tagged.forVersion(version: integer): any
         end
         -- `count` results of a call, for `local a, b = f()` and its kin.
         profile.callResults = function(ctx: any, node: any, count: integer): {integer}?
+            if node.ownershipIntrinsic then
+                return ownership(ctx, node, count)
+            end
             -- `local a, b = ...` reads the pack in order; past its end is nil.
             if node.kind == "vararg" then
                 local values = {}
@@ -2224,6 +2288,13 @@ function tagged.forVersion(version: integer): any
             ctx.block = nil
         end
         profile.call = function(ctx: any, node: any, expected: string?): integer
+            if node.ownershipIntrinsic then
+                local results = ownership(ctx, node, 1)
+                if results == nil then
+                    return nil as any
+                end
+                return results[1]
+            end
             -- `require` of a computed name: the module the image holds by it.
             if graph.dynamicRequire(node) then
                 need(#(node.args.exprs or {}) == 1, "require takes one module name")
@@ -2391,7 +2462,7 @@ function tagged.forVersion(version: integer): any
         end
         profile.statementCall = function(ctx: any, node: any): nil
             local site = catalog(ctx).callByNode[node]
-            if graph.dynamicRequire(node) then
+            if graph.dynamicRequire(node) or node.ownershipIntrinsic then
                 profile.call(ctx, node, nil)
             elseif node.runtimeLoader == "require" then
                 tagged.statementCall(ctx, node)

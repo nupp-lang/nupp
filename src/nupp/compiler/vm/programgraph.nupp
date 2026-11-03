@@ -50,6 +50,23 @@ local function bindingMode(definition: any): string
     return definition.constant and "value" or "cell"
 end
 
+-- The ownership intrinsics the core runs: transfers, which answer the value
+-- they move, and `partition`, which answers its two parts. Their ownership
+-- is the checker's; at run time each is its value.
+local executableintrinsics: {
+    [string]: boolean
+} = {adopt = true, release = true, borrow = true, borrowFrom = true, region = true, partition = true}
+
+-- Whether the core runs ownership intrinsic call `node`: an executable one,
+-- or a `drop` with no cleanups to run, which ends a lifetime and nothing
+-- more.
+local function executable(node: any): boolean
+    local operation = node.ownershipIntrinsic
+
+    return executableintrinsics[operation] == true
+        or operation == "drop" and next(node.ownerCleanups or {}) == nil and not node.cleanupRegistrations
+end
+
 local function need(ok: any, message: string): any
     assert(ok, "program graph: " .. message)
     return ok
@@ -208,6 +225,8 @@ function program.describe(modules: {any}, entryModule: string): any
         -- declaration whose destructor it runs, mapped to a synthetic
         -- reference to that record's name.
         cleanupTokens = {},
+        -- Every record declaration in the program's modules.
+        recordDecls = {},
         -- The owners (by id) with any such site.
         cleanupOwners = {},
         -- The definition of the record each method or constructor written in
@@ -280,6 +299,9 @@ function program.describe(modules: {any}, entryModule: string): any
         if cst.isToken(node) then
             binding(node, owner)
             return
+        end
+        if node.kind == "recordDecl" then
+            p.recordDecls[node] = true
         end
         if node.kind == "recordDecl" and node.name then
             for _, entry in ipairs(node.entries or {}) do
@@ -400,7 +422,7 @@ function program.describe(modules: {any}, entryModule: string): any
         local required = b.definition.requiredModule
         if required then
             local target = need(
-                moduleNames[graph.coreModule(required)],
+                moduleNames[graph.coremodule(required)],
                 "required checked module is missing: " .. required
             )
             p.imports[#p.imports + 1] = {binding = b.id, target = target.chunk}
@@ -416,7 +438,16 @@ function program.describe(modules: {any}, entryModule: string): any
             need(mode == nil or existing.mode == mode, "conflicting capture modes")
             return existing
         end
-        local parent = need(owner.parent ~= nil and p.owners[owner.parent + 1], "capture escapes lexical ancestry")
+        local parent = need(
+            owner.parent ~= nil and p.owners[owner.parent + 1],
+            "capture escapes lexical ancestry: " .. tostring(
+                b.definition.name
+            ) .. " of " .. tostring(
+                b.definition.filename
+            ) .. ":" .. tostring(
+                b.definition.token and b.definition.token.line
+            ) .. " from " .. tostring(owner.scope and owner.scope.path)
+        )
         local source = parent.id == b.owner and b.id or capture(parent, b, nil).id
         local item: any = {
             id = #owner.captures,
@@ -479,7 +510,9 @@ function program.describe(modules: {any}, entryModule: string): any
                     id = #p.externals,
                     definition = definition,
                     path = definition.filename,
-                    token = definition.token
+                    token = definition.token,
+                    -- Where it is first read, for the refusal to name.
+                    first = location
                 }
                 p.externals[#p.externals + 1], p.externalsByDefinition[definition] = external, external
             end
@@ -600,6 +633,14 @@ function program.describe(modules: {any}, entryModule: string): any
             if not (declaration and declaration.kind == "recordDecl" and declaration.name) then
                 return
             end
+            -- Another module's record: its table is the owned instance's
+            -- metatable, which the cleanup reads.
+            if declaration.name.definition and declaration.name.definition.filename ~= owner.scope.path then
+                p.cleanupTokens[site] = p.cleanupTokens[site] or {}
+                p.cleanupTokens[site][declaration] = {foreign = true, text = declaration.name.text}
+                p.cleanupOwners[owner.id] = true
+                return
+            end
             local token: any = {
                 kind = "name",
                 text = declaration.name.text,
@@ -694,7 +735,7 @@ function program.describe(modules: {any}, entryModule: string): any
             p.dynamicRequires = true
         end
         if loader then
-            local name = node.requiredModule and graph.coreModule(node.requiredModule)
+            local name = node.requiredModule and graph.coremodule(node.requiredModule)
             local target = name and moduleNames[name]
             local item = {
                 id = #p.requires,
@@ -932,7 +973,7 @@ function program.verify(p: any): boolean
             )
             need(
                 p.requireByNode[node] == item
-                and item.module == (node.requiredModule and graph.coreModule(node.requiredModule))
+                and item.module == (node.requiredModule and graph.coremodule(node.requiredModule))
                 and item.typeOnly == (node.typeOnlyRequire == true),
                 "require callsite metadata mismatch"
             )
@@ -1057,7 +1098,7 @@ function program.verify(p: any): boolean
         local b = need(p.bindings[imported.binding + 1], "invalid import binding")
         local target = need(p.owners[imported.target + 1], "invalid import initializer")
         need(
-            target.kind == "module" and graph.coreModule(b.definition.requiredModule) == target.scope.name,
+            target.kind == "module" and graph.coremodule(b.definition.requiredModule) == target.scope.name,
             "checked import target mismatch"
         )
     end
@@ -1199,11 +1240,15 @@ end
 function program.functionGraph(p: any, owner: any, profile: any): any
     program.verify(p)
     need(p.owners[owner.id + 1] == owner, "foreign function owner")
+    graph.checking(owner.scope and owner.scope.path)
     for _, reference in ipairs(p.externalReferences) do
         need(reference.owner ~= owner.id, "external execution bindings are not established")
     end
     for _, intrinsic in ipairs(p.intrinsics) do
-        need(intrinsic.owner ~= owner.id, "intrinsic execution is not established: " .. intrinsic.operation)
+        need(
+            intrinsic.owner ~= owner.id or executable(intrinsic.node),
+            "intrinsic execution is not established: " .. intrinsic.operation
+        )
     end
     -- A profile may give a function that acquires cleanups its own variant.
     local chosen = profile.forOwner and profile.forOwner(p, owner) or profile
@@ -1312,11 +1357,28 @@ function program.compile(p: any, profile: any): any
     if #p.externals ~= 0 then
         local names = {}
         for _, external in ipairs(p.externals) do
-            names[#names + 1] = tostring(external.definition and external.definition.name)
+            names[
+                #names + 1
+            ] = tostring(external.definition and external.definition.name) .. " (" .. tostring(external.first) .. ")"
         end
         need(false, "external execution bindings are not established: " .. table.concat(names, ", "))
     end
-    need(#p.intrinsics == 0, "intrinsic execution is not established")
+    do
+        local names = {}
+        for _, intrinsic in ipairs(p.intrinsics) do
+            if not executable(intrinsic.node) then
+                local token = cst.firstToken(intrinsic.node)
+                names[
+                    #names + 1
+                ] = tostring(
+                    intrinsic.operation
+                ) .. " (" .. tostring(
+                    p.owners[intrinsic.owner + 1].scope.path
+                ) .. ":" .. tostring(token and token.line) .. ")"
+            end
+        end
+        need(#names == 0, "intrinsic execution is not established: " .. table.concat(names, ", "))
+    end
     local graphs, modules = {}, {}
     for index, owner in ipairs(p.owners) do
         graphs[index] = program.functionGraph(p, owner, profile)

@@ -1302,6 +1302,28 @@ function graph.omits(called: any, given: integer): boolean
     return true
 end
 
+-- The call whose contract is being checked, and the module it is in, for
+-- a refusal to name.
+local checkingcall: any = nil
+local checkingpath: string? = nil
+
+function graph.checking(path: string?): nil
+    checkingpath = path
+end
+
+local function checkingat(): string
+    local node = checkingcall
+    while type(node) == "table" and node.kind ~= nil and node.line == nil do
+        node = node.obj or node[1]
+    end
+    local token = type(node) == "table" and (node.token or node.name or node) or nil
+    if type(token) ~= "table" or token.line == nil then
+        return ""
+    end
+
+    return " in the call at " .. tostring(checkingpath) .. ":" .. tostring(token.line)
+end
+
 local invokeScalar: function(any): nil
 invokeScalar = function(t: any): nil
     -- An owned value passes as the value it owns; its cleanup is the
@@ -1322,12 +1344,19 @@ invokeScalar = function(t: any): nil
         and (t.tag == "int64" or t.tag == "number" or t.tag == "float64" or t.tag == "boolean" or t.tag == "string" or t.tag == "nil"
         -- Tables and functions pass as values; core graph contracts admit
         -- them from profile v8.
-        or t.tag == "array" or t.tag == "map" or t.tag == "table" or t.tag == "func" or t.tag == "userdata"
+        or t.tag == "array"
+        or t.tag == "map"
+        or t.tag == "table"
+        or t.tag == "shape"
+        or t.tag == "func"
+        or t.tag == "userdata"
+        -- A function that never returns gives no value to check.
+        or t.tag == "never"
         -- A plain type parameter erases to a value, and a record is a table.
         or t.tag == "typevar" or t.tag == "nominal" and t.declKind == "record"
         -- `any` is a value checked where it is used.
         or t.tag == "any"),
-        "invoke requires a checked scalar type, got " .. tostring(t and t.tag)
+        "invoke requires a checked scalar type, got " .. tostring(t and t.tag) .. checkingat()
     )
 end
 
@@ -1420,9 +1449,10 @@ end
 local anySignatures: {[any]: any} = setmetatable({}, {__mode = "k"})
 -- A dynamic method call's signature: the receiver and its arguments in, as
 -- many values out as it keeps, all `any`.
-local methodSignatures: {[any]: any} = setmetatable({}, {__mode = "k"})
+local methodsignatures: {[any]: any} = setmetatable({}, {__mode = "k"})
 
 local function invokeContract(contract: any): nil
+    checkingcall = contract.call
     if contract.dynamic then
         nativeContract(contract, {
             dynamic = true,
@@ -1444,7 +1474,7 @@ local function invokeContract(contract: any): nil
             assert(
                 type(call) == "table"
                 and call.kind == "methodCall"
-                and methodSignatures[call] == called
+                and methodsignatures[call] == called
                 and not call.scalarIntrinsic
                 and not call.ownershipIntrinsic
                 and not call.runtimeLoader,
@@ -1682,7 +1712,12 @@ end
 -- an operation: `math.floor` on the prelude's `math`. Otherwise nil.
 local coreLibrary: {[string]: boolean} = {
     ["math.floor"] = true,
+    ["math.f32.narrow"] = true,
+    ["math.u32.wrap"] = true,
+    ["math.i32.wrap"] = true,
     assert = true,
+    rawequal = true,
+    next = true,
     tostring = true,
     tonumber = true,
     select = true,
@@ -1775,7 +1810,9 @@ local libraryValues: {
     ["string.lower"] = true,
     ["string.len"] = true,
     ["string.reverse"] = true,
-    ["os.getenv"] = true
+    ["string.byte"] = true,
+    ["os.getenv"] = true,
+    debug = true
 }
 
 -- The library name `node` reads when it names a library function, `tostring`
@@ -1828,11 +1865,14 @@ end
 
 -- The image module the core answers a host module's `require` with: the
 -- portable FIFO buffer for `string.buffer`, until the heap's byte objects
--- carry one. Any other name is its own.
-local coreModules: {[string]: string} = {["string.buffer"] = "nupp.runtime.provider.tablebuffer"}
+-- carry one, and the portable BitOp library for `bit`. Any other name is
+-- its own.
+local coremodules: {
+    [string]: string
+} = {["string.buffer"] = "nupp.runtime.provider.tablebuffer", bit = "nupp.runtime.provider.scalarbitops"}
 
-function graph.coreModule(name: string): string
-    return coreModules[name] or name
+function graph.coremodule(name: string): string
+    return coremodules[name] or name
 end
 
 -- A `require` whose module the checker could not name: of a computed name,
@@ -1892,6 +1932,18 @@ function graph.coreLibraryCall(call: any): string?
         and preludeName(call.obj.obj)
     then
         name = call.obj.obj.token.text .. "." .. call.obj.name.text
+    elseif call
+        and call.kind == "call"
+        and call.obj
+        and call.obj.kind == "dotIndex"
+        and call.obj.name
+        and call.obj.obj
+        and call.obj.obj.kind == "dotIndex"
+        and call.obj.obj.name
+        and preludeName(call.obj.obj.obj)
+    then
+        -- A library's nested table: `math.f32.narrow`.
+        name = call.obj.obj.obj.token.text .. "." .. call.obj.obj.name.text .. "." .. call.obj.name.text
     elseif call and call.kind == "call" and call.obj and call.obj.namespacePath == "math.random" then
         -- `math.random` is also a standard module path, which the checker
         -- resolves as one: its root is then not the prelude's name.
@@ -1914,6 +1966,7 @@ local packedlibrary: {
     ["string.byte"] = true,
     ["string.gsub"] = true,
     ["table.unpack"] = true,
+    next = true,
     ["coroutine.resume"] = true,
     ["coroutine.yield"] = true,
     ["coroutine.running"] = true,
@@ -2015,8 +2068,8 @@ function graph.iteratorcontract(stat: any, count: integer): any
 end
 
 -- `count`: the results the call keeps, which a call through `any` declares.
-function graph.dynamicMethodContract(call: any, count: integer?): any
-    local signature = methodSignatures[call]
+function graph.dynamicmethodcontract(call: any, count: integer?): any
+    local signature = methodsignatures[call]
     if signature == nil or #signature.rets ~= (count or 1) then
         -- A `...` last passes its values after the others, as a variadic
         -- callee takes them.
@@ -2042,7 +2095,7 @@ function graph.dynamicMethodContract(call: any, count: integer?): any
             rets = rets,
             retPack = {head = rets, modes = retModes}
         }
-        methodSignatures[call] = signature
+        methodsignatures[call] = signature
     end
     local contract = {
         dynamic = true,

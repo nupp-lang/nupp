@@ -71,8 +71,10 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
             or value.tag == "array"
             or value.tag == "map"
             or value.tag == "table"
+            or value.tag == "shape"
             or value.tag == "func"
             or value.tag == "userdata"
+            or value.tag == "never"
             or value.tag == "any"
         )
     then
@@ -307,7 +309,7 @@ function contracts.normalize(compiled: any, version: integer?): any
                 type(binding) == "table"
                 and type(binding.definition) == "table"
                 and target ~= nil
-                and graph.coreModule(binding.definition.requiredModule) == target.name,
+                and graph.coremodule(binding.definition.requiredModule) == target.name,
                 "checked import target or source identity differs"
             )
         end
@@ -334,7 +336,7 @@ function contracts.normalize(compiled: any, version: integer?): any
             and requireSite.node.runtimeLoader == "require"
             and p.requireByNode[requireSite.node] == requireSite
             and imported.target == first.chunk
-            and graph.coreModule(binding.definition.requiredModule) == first.name,
+            and graph.coremodule(binding.definition.requiredModule) == first.name,
             "checked import target or source identity differs"
         )
         requiresites = {requireSite}

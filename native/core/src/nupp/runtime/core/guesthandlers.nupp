@@ -17,6 +17,8 @@ const heap = require("nupp.runtime.vm.heap")
 const wide = require("nupp.runtime.core.coreintegers")
 const threads = require("nupp.runtime.core.threads")
 const guestio = require("nupp.runtime.core.guestio")
+const basics = require("nupp.runtime.core.guestbasics")
+const widths = require("nupp.runtime.core.guestwidths")
 const modules = require("nupp.runtime.core.modules")
 const texts = require("nupp.runtime.core.guesttexts")
 
@@ -1532,9 +1534,23 @@ export function LibCall(
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
+    -- rawequal(a, b): equality without __eq.
+    if libraryId == basics.LIB_RAWEQUAL then
+        if equal(a, b) == 1ULL then
+            slots.writeValue(frame, regs, dst, values.TRUE)
+        else
+            slots.writeValue(frame, regs, dst, values.FALSE)
+        end
+        local after = ops.branch(ctx, frame, pc, 0)
+        if after == 0ULL then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
+    end
     -- assert(v [, message]): v when it holds; else the message, or
     -- "assertion failed!" for none, raised without a position as Lua's is.
-    if libraryId == guestlib.ASSERT then
+    if libraryId == basics.LIB_ASSERT then
         if a == values.NIL or a == values.FALSE then
             local message = b
             if count < 2 or b == values.NIL then
@@ -1643,6 +1659,15 @@ export function LibCall(
     end
     if libraryId == guestio.LIB_WRITE then
         slots.writeValue(frame, regs, dst, guestio.write(ctx, a))
+    elseif libraryId >= widths.LIB_NARROW and libraryId <= widths.LIB_I32WRAP then
+        slots.writeValue(frame, regs, dst, widths.call(ctx, libraryId, a))
+    elseif libraryId == basics.LIB_NEXT or libraryId == basics.LIB_NEXT_ALL then
+        guestscope.nameLibrary(ctx, texts.NAME_NEXT)
+        local after = values.NIL
+        if count >= 2 then
+            after = b
+        end
+        slots.writeValue(frame, regs, dst, basics.rawnext(ctx, a, after, libraryId == basics.LIB_NEXT_ALL))
     elseif libraryId == modules.LIB_NAMES then
         modules.register(ctx, a)
         slots.writeValue(frame, regs, dst, values.NIL)

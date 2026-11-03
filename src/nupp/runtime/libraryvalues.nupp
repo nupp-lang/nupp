@@ -64,6 +64,11 @@ export const functions: {[string]: any} = {
     ["string.reverse"] = function(s: string): string
         return string.reverse(s)
     end,
+    ["string.byte"] = function(s: string, i: integer?, j: integer?): ...integer
+        return string.byte(s, i, j)
+    end,
+    -- The core's debug library: none of its functions yet.
+    debug = {},
     ["os.getenv"] = function(name: string): string?
         return os.getenv(name)
     end,

@@ -108,8 +108,6 @@ export const MATH_RANDOMSEED_HOST: uint64 = 72ULL
 export const NAMED_PACK: uint64 = 73ULL
 -- A table constructor's tail: a pack's values stored from a position.
 export const PACK_APPEND: uint64 = 74ULL
--- assert(v [, message]).
-export const ASSERT: uint64 = 87ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -307,7 +305,7 @@ end
 
 -- An integer argument as Lua reads one: an integer, or a float with an exact
 -- integer value; `absent` when the argument is nil.
-local function integerArgument(ctx: voidptr, value: uint64, absent: int64, position: uint64): int64
+export function integerArgument(ctx: voidptr, value: uint64, absent: int64, position: uint64): int64
     if value == values.NIL then
         return absent
     end
@@ -326,7 +324,7 @@ local function integerArgument(ctx: voidptr, value: uint64, absent: int64, posit
 end
 
 -- A number's float bits, or NIL bits for anything else.
-local function floatOf(value: uint64): uint64
+export function floatOf(value: uint64): uint64
     if ints.isInteger(value) then
         return ints.toFloatBits(ints.bitsOf(value))
     end
@@ -338,7 +336,7 @@ local function floatOf(value: uint64): uint64
 end
 
 -- A float result as a value: NaNs collapse to the one quiet NaN.
-local function floatValue(bits: uint64): uint64
+export function floatValue(bits: uint64): uint64
     local x = native.fromBits(bits)
     if x ~= x then
         return values.QNAN
@@ -923,7 +921,7 @@ local function isFloat(value: uint64): boolean
 end
 
 -- The number a math function takes, raising as Lua does for anything else.
-local function numberArgument(ctx: voidptr, value: uint64, position: uint64): uint64
+export function numberArgument(ctx: voidptr, value: uint64, position: uint64): uint64
     if not ints.isInteger(value) and not isFloat(value) then
         texts.argumentError(ctx, position, texts.TEXT_NUMBER, 0ULL, value)
     end

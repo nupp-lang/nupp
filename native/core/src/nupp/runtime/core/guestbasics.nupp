@@ -1,0 +1,57 @@
+module nupp.runtime.core.guestbasics
+
+-- The basic library's calls the handlers answer beside guestlib's:
+-- assert, rawequal and next.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const context = require("nupp.runtime.core.context")
+const tables = require("nupp.runtime.core.coretables")
+const guestscope = require("nupp.runtime.core.guestscope")
+const texts = require("nupp.runtime.core.guesttexts")
+
+-- assert(v [, message]).
+export const LIB_ASSERT: uint64 = 87ULL
+-- rawequal(a, b).
+export const LIB_RAWEQUAL: uint64 = 88ULL
+-- next(t [, k]): its key alone, and its key and value as a pack.
+export const LIB_NEXT: uint64 = 89ULL
+export const LIB_NEXT_ALL: uint64 = 90ULL
+
+local function heapof(ctx: voidptr): heap.Heap*
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        return native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+    end
+end
+
+-- next(t [, k]): the key after k in t, raw, or nil past the last; with
+-- `all`, a pack of that key and its value, or of the one nil.
+export function rawnext(ctx: voidptr, subject: uint64, after: uint64, all: boolean): uint64
+    @unsafe do
+        local h = heapof(ctx)
+        local t = guestscope.tableof(subject)
+        if t == 0ULL then
+            texts.argumentError(ctx, 1ULL, texts.TEXT_TABLE, 0ULL, subject)
+        end
+        local key = tables.nextKey(t, after)
+        if key == values.TRUE then
+            texts.libraryError(ctx, texts.TEXT_NEXT_KEY)
+        end
+        if not all then
+            return key
+        end
+        local pack = guestscope.newTable(ctx)
+        if key == values.NIL then
+            tables.set(h, pack, values.TAG_INTEGER, values.TAG_INTEGER | 1ULL)
+            tables.set(h, pack, values.TAG_INTEGER | 1ULL, values.NIL)
+        else
+            tables.set(h, pack, values.TAG_INTEGER, values.TAG_INTEGER | 2ULL)
+            tables.set(h, pack, values.TAG_INTEGER | 1ULL, key)
+            tables.set(h, pack, values.TAG_INTEGER | 2ULL, tables.get(t, key))
+        end
+        tables.drain(h)
+
+        return values.TAG_OBJ | pack
+    end
+end

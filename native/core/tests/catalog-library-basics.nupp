@@ -1,0 +1,32 @@
+module nupp.core.cataloglibrarybasics
+
+local bits = require("bit")
+
+local score = 0
+local t = {x = 1}
+if rawequal(t, t) and not rawequal(t, {x = 1}) and rawequal(1, 1.0) then
+    score = score + 1
+end
+local key = next(t)
+local k, v = next(t)
+if key == "x" and k == "x" and v == 1 and next({}) == nil then
+    score = score + 2
+end
+if math.f32.narrow(0.1) == 0.10000000149011612 and math.f32.narrow(3.0) == 3.0 then
+    score = score + 4
+end
+if math.u32.wrap(-1) == 4294967295 and math.i32.wrap(4294967295) == -1 then
+    score = score + 8
+end
+local byte = string.byte
+if byte("A") == 65 then
+    score = score + 16
+end
+if bits.band(12, 10) == 8 and bits.bxor(1, 3) == 2 then
+    score = score + 32
+end
+local unpacked = unpack({4, 5})
+if unpacked == 4 then
+    score = score + 64
+end
+export = score
