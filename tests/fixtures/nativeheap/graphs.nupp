@@ -471,6 +471,32 @@ local function scopedRegistration(): int64
     end
 end
 
+-- `scopedRegistration`'s case with the registration ended by hand. The
+-- native core runs this one: its ownership review admits no owning pointer
+-- returned as `collector.rooted` returns one.
+local function explicitRegistration(): int64
+    @unsafe do
+        do
+            local a = arena.openGrowable(65536);
+            local h = heap.create(a)
+            h.automatic = false
+            local record = rootsIn(a, 2)
+            collector.register(h, record, 2)
+            setRoot(record, 0, node(h, 1))
+            setRoot(record, 1, node(h, 1))
+            collector.fullCycle(h)
+            local inside = verdict(h)
+            -- `unregister`, which takes the heap its owner held.
+            heap.wordsPop(h.ranges)
+            heap.wordsPop(h.ranges)
+            collector.fullCycle(h)
+            local after = verdict(h)
+            heap.destroy(h)
+            return inside * 10 + after
+        end
+    end
+end
+
 -- Pacing (4.10): `count` allocations of which one in `keep` is linked into a
 -- bounded ring of survivors; collection runs from allocation debt alone.
 -- Answers cycles run, a thousand times, plus survivors after a final cycle;

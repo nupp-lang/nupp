@@ -89,11 +89,9 @@ function tagged.initialize(fn: any, options: any): any
         -- A `...` last is the hidden pack parameter, named or not.
         local pack = parameter.vararg and index == #params
         need(
-            -- `takes` moves ownership, a fact the checker settled: the core passes
-            -- the value.
-            (parameter.name and not parameter.vararg or pack)
-            and (not parameter.modeTok or parameter.modeTok.text == "takes")
-            and not parameter.constTok,
+            -- `takes`, `borrows` and `exclusive` are ownership facts the
+            -- checker settled: the core passes the value.
+            (parameter.name and not parameter.vararg or pack) and not parameter.constTok,
             "parameter ownership or variadic lowering is unsupported"
         )
     end
@@ -147,6 +145,7 @@ local stringLibrary: {[string]: {integer}} = {
     ["storagecalls.allocbytes"] = {94, 1, 1},
     ["storagecalls.allocate"] = {95, 2, 2},
     ["storagecalls.view"] = {96, 3, 4},
+    ["storagecalls.cast"] = {103, 2, 2},
     ["storagecalls.copy"] = {97, 3, 3},
     ["storagecalls.fill"] = {98, 3, 3},
     ["storagecalls.text"] = {99, 2, 2},

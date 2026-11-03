@@ -1186,12 +1186,9 @@ function M.taggedUnsupportedControlAndFunctionContractsRefuse()
         end,
         "checked function signature required"
     )
-    refuses(
-        function()
-            program.compile(describe("local function f(borrows value: any): nil return end\nreturn f"), tagged)
-        end,
-        "parameter ownership or variadic lowering is unsupported"
-    )
+    -- A parameter's ownership mode is the checker's fact; the core passes
+    -- the value.
+    program.compile(describe("local function f(borrows value: any): nil return end\nreturn f"), tagged)
 end
 
 function M.scalarSimultaneousLocalsKeepExactOldBinding()

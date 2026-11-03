@@ -1,0 +1,29 @@
+module nupp.core.catalogstorageprovider
+
+local storage = require("nupp.runtime.storage")
+
+local score = 0
+local bytes = storage.allocateBytes(6)
+storage.copy(bytes, "abcdef", 6)
+if storage.string(bytes, 6) == "abcdef" then
+    score = score + 1
+end
+storage.fill(bytes, 2, 120)
+if storage.string(bytes, 3) == "xxc" then
+    score = score + 2
+end
+if storage.decodeUint16(storage.encodeUint16(513)) == 513 and storage.encodeUint8(65) == "A" then
+    score = score + 4
+end
+if storage.decodeInt32(storage.encodeInt32(-7)) == -7 then
+    score = score + 8
+end
+if storage.decodeFloat64(storage.encodeFloat64(0.5)) == 0.5 then
+    score = score + 16
+end
+const greeting = "hi"
+local view = storage.borrowString(greeting)
+if storage.string(view, 2) == "hi" and storage.sizeOf(storage.scalar("int32")) == 4 then
+    score = score + 32
+end
+export = score

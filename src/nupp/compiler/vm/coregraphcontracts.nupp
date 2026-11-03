@@ -64,20 +64,17 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
     -- v8 passes strings, tables and functions as dynamic values, checked where
     -- used.
     if dynamic
-        and (
-            value.tag == "string"
-            or value.tag == "typevar"
-            or value.tag == "nominal" and value.declKind == "record"
-            or value.tag == "array"
-            or value.tag == "map"
-            or value.tag == "table"
-            or value.tag == "shape"
-            or value.tag == "func"
-            or value.tag == "userdata"
-            or value.tag == "never"
-            or value.tag == "any"
-        )
-    then
+        and (value.tag == "string" or value.tag == "typevar" or value.tag == "nominal" and value.declKind == "record" or value.tag == "array" or value.tag == "map" or value.tag == "table" or value.tag == "shape" or value.tag == "func" or value.tag == "userdata" or value.tag == "carray" or value.tag == "ptr" or value.tag == "ctype" or value.tag == "nominal" and value.declKind == "interface" or value.tag == "never"
+        -- Fixed-width numbers are integers and floats at run time.
+        or value.tag == "int8"
+        or value.tag == "int16"
+        or value.tag == "int32"
+        or value.tag == "uint8"
+        or value.tag == "uint16"
+        or value.tag == "uint32"
+        or value.tag == "uint64"
+        or value.tag == "float32"
+        or value.tag == "any") then
         return "value"
     end
     -- An optional or other union is dynamic too, each member admissible.
@@ -91,7 +88,9 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
         value.tag == "boolean"
         or value.tag == "nil"
         or numeric and (value.tag == "number" or value.tag == "float64" or value.tag == "int64"),
-        "unsupported scalar signature"
+        "unsupported scalar signature: " .. tostring(
+            value.tag
+        ) .. (value.declKind and " " .. tostring(value.declKind) or "")
     )
 
     return (value.tag == "float64" or value.tag == "int64") and "number" or value.tag
@@ -133,10 +132,6 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
             empty(signature[key], "callable " .. key)
         end
     end
-    need(
-        not signature.borrowsParam and not signature.borrowsSelf and not signature.borrowsResult,
-        "borrowed callable signature"
-    )
     local params, result = {}, nil
     for _, pack in ipairs(resultsIgnored and {signature.paramPack} or {signature.paramPack, signature.retPack}) do
         -- Open results (`R...`) are as many as the caller keeps.

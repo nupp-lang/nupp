@@ -1302,6 +1302,11 @@ function graph.omits(called: any, given: integer): boolean
     return true
 end
 
+-- The fixed-width number types, which pass as values.
+local fixedwidths: {
+    [string]: boolean
+} = {int8 = true, int16 = true, int32 = true, uint8 = true, uint16 = true, uint32 = true, uint64 = true, float32 = true}
+
 -- The call whose contract is being checked, and the module it is in, for
 -- a refusal to name.
 local checkingcall: any = nil
@@ -1350,6 +1355,10 @@ invokeScalar = function(t: any): nil
         or t.tag == "shape"
         or t.tag == "func"
         or t.tag == "userdata"
+        -- Fixed-width numbers are integers and floats at run time.
+        or fixedwidths[t.tag] == true
+        -- Storage and views of it are values on the core's heap.
+        or t.tag == "carray" or t.tag == "ptr" or t.tag == "ctype" or t.tag == "nominal" and t.declKind == "interface"
         -- A function that never returns gives no value to check.
         or t.tag == "never"
         -- A plain type parameter erases to a value, and a record is a table.
@@ -1394,10 +1403,8 @@ local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
             "invoke generic or ownership contract is unsupported: " .. field
         )
     end
-    assert(
-        not signature.borrowsParam and not signature.borrowsSelf and not signature.borrowsResult,
-        "invoke borrowed result is unsupported"
-    )
+    -- A borrowed result is what its source keeps alive, a static fact: at
+    -- run time it is a value, which the collector keeps alive itself.
     -- Open results (`R...`) are as many as the caller keeps.
     for _, pack in ipairs(resultsIgnored and {signature.paramPack} or {signature.paramPack, signature.retPack}) do
         assert(
@@ -1716,6 +1723,7 @@ local coreLibrary: {[string]: boolean} = {
     ["storagecalls.allocate"] = true,
     ["storagecalls.allocbytes"] = true,
     ["storagecalls.view"] = true,
+    ["storagecalls.cast"] = true,
     ["storagecalls.copy"] = true,
     ["storagecalls.fill"] = true,
     ["storagecalls.text"] = true,
@@ -1883,11 +1891,15 @@ end
 
 -- The image module the core answers a host module's `require` with: the
 -- portable FIFO buffer for `string.buffer`, until the heap's byte objects
--- carry one, and the portable BitOp library for `bit`. Any other name is
--- its own.
+-- carry one, the portable BitOp library for `bit`, and storage on the guest
+-- heap for the VM's FFI storage. Any other name is its own.
 local coremodules: {
     [string]: string
-} = {["string.buffer"] = "nupp.runtime.provider.tablebuffer", bit = "nupp.runtime.provider.scalarbitops"}
+} = {
+    ["string.buffer"] = "nupp.runtime.provider.tablebuffer",
+    bit = "nupp.runtime.provider.scalarbitops",
+    ["nupp.vm.storagebinding"] = "nupp.runtime.provider.heapstorage"
+}
 
 function graph.coremodule(name: string): string
     return coremodules[name] or name

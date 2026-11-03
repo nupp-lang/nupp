@@ -33,6 +33,8 @@ export const LIB_TEXT: uint64 = 99ULL
 export const LIB_FROMSTRING: uint64 = 100ULL
 export const LIB_ELEMENTS: uint64 = 101ULL
 export const LIB_ELEMENTKIND: uint64 = 102ULL
+-- cast(storage, kind): view(storage, kind, 0).
+export const LIB_CAST: uint64 = 103ULL
 
 -- No index: an error was raised instead.
 const NOINDEX: uint64 = 0xffffffffffffffffULL
@@ -206,7 +208,7 @@ export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: u
             return values.TAG_INTEGER | corestorage.elementcount(object)
         elseif id == LIB_ELEMENTKIND then
             return values.TAG_INTEGER | corestorage.elementkind(object)
-        elseif id == LIB_VIEW then
+        elseif id == LIB_VIEW or id == LIB_CAST then
             local kind: uint64 = 0ULL
             if ints.isInteger(b) then
                 kind = ints.bitsOf(b)
@@ -215,9 +217,12 @@ export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: u
             if width == 0ULL then
                 texts.argumentError(ctx, 2ULL, texts.TEXT_NUMBER, 0ULL, b)
             end
-            local offset = countargument(ctx, c, 3ULL, size)
+            local offset: uint64 = 0ULL
+            if id == LIB_VIEW then
+                offset = countargument(ctx, c, 3ULL, size)
+            end
             local count = (size - offset) // width
-            if n >= 4ULL and d ~= values.NIL then
+            if id == LIB_VIEW and n >= 4ULL and d ~= values.NIL then
                 count = countargument(ctx, d, 4ULL, count)
             end
             local made = corestorage.newview(h, object, kind, offset, count)

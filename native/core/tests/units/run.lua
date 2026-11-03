@@ -279,7 +279,7 @@ local SHARED = {
         {"barrierKeeps", {1}, 0},
         {"frames", {}, 600},
         {"handlesAndScopes", {}, 40021},
-        {"scopedRegistration", {}, 20},
+        {"explicitRegistration", {}, 20},
         {"nonnullRootCandidates", {}, 621},
         {"paced", {100000, 100}, 4065}
     },

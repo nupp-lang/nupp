@@ -14,25 +14,29 @@ local record storagecalls
 
     --- A view of `storage`'s bytes from byte `offset`, as `count` elements
     --- of `kind` (as many as fit when omitted), keeping the storage alive.
-    view: function(storage: any, kind: integer, offset: integer, count: integer?): any
+    view: function(borrows storage: any, kind: integer, offset: integer, count: integer?): any borrows (storage)
+
+    --- `storage`'s bytes as elements of `kind`, as many as fit: a view, which
+    --- keeps the storage alive whoever holds it.
+    cast: function(storage: any, kind: integer): any
 
     --- Copies `count` bytes of `source`, storage or a string, into `target`.
-    copy: function(target: any, source: any, count: integer): nil
+    copy: function(borrows target: any, borrows source: any, count: integer): nil
 
     --- Sets `count` bytes of `target` to `byte`.
     fill: function(target: any, count: integer, byte: integer): nil
 
     --- The first `count` bytes of `storage` as a string.
-    text: function(storage: any, count: integer): string
+    text: function(borrows storage: any, count: integer): string
 
-    --- New byte storage holding a copy of `s`.
-    fromstring: function(s: string): uint8[?]
+    --- Byte storage holding a copy of `s`, read-only.
+    fromstring: function(borrows s: string): const uint8[?] borrows (s)
 
     --- How many elements `storage` holds.
-    elements: function(storage: any): integer
+    elements: function(borrows storage: any): integer
 
     --- The kind of `storage`'s elements.
-    elementkind: function(storage: any): integer
+    elementkind: function(borrows storage: any): integer
 end
 
 local calls: storagecalls

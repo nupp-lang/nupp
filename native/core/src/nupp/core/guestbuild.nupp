@@ -121,6 +121,7 @@ local CASES: {[string]: {
     libraryproviders = {fixture = "catalog-library-providers", version = 8, modules = {"src/nupp/runtime/packages"},},
     librarybasics = {fixture = "catalog-library-basics", version = 8, follow = true},
     storagebasics = {fixture = "catalog-storage-basics", version = 8},
+    storageprovider = {fixture = "catalog-storage-provider", version = 8, follow = true},
     textfacade = {fixture = "catalog-text-facade", version = 8, follow = true},
     stringbuffer = {
         fixture = "catalog-string-buffer",

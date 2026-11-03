@@ -1,0 +1,216 @@
+@!internal
+
+module nupp.runtime.provider.heapstorage
+
+--[[
+The native core's storage provider: typed storage on the guest heap, through
+the core's own calls ([](nupp.runtime.storagecalls)), where the VM's provider
+goes through FFI. The core answers `require("nupp.vm.storagebinding")` with
+this module.
+
+A scalar descriptor is a table naming its element kind and width, one per
+kind. Storage indexes from zero, and `storage + n` is a view `n` elements in,
+as an FFI pointer is. A view, a cast or a borrowed string keeps what it views
+alive. Structs are the portable [](nupp.runtime.provider.tablestruct)'s, so
+`structs` is absent here.
+]]
+
+local calls = require("nupp.runtime.storagecalls")
+
+export const representation = "native"
+
+local type Descriptor = {
+    kind: integer,
+    size: integer,
+    name: string
+}
+
+-- The element kinds the core's storage holds, by scalar name.
+local kinds: {
+    [string]: integer
+} = {
+    uint8 = 1,
+    int8 = 2,
+    uint16 = 3,
+    int16 = 4,
+    uint32 = 5,
+    int32 = 6,
+    uint64 = 7,
+    int64 = 8,
+    float = 9,
+    float32 = 9,
+    number = 10,
+    float64 = 10,
+    double = 10,
+}
+local widths: {integer} = {1, 1, 2, 2, 4, 4, 8, 8, 4, 8}
+local descriptors: {[string]: Descriptor} = {}
+
+export function scalar(kind: string): any
+    local found = descriptors[kind]
+    if found == nil then
+        local code = kinds[kind]
+        assert(code ~= nil, "nupp: storage has no scalar kind " .. kind)
+        found = {kind = code, size = widths[code], name = kind}
+        descriptors[kind] = found
+    end
+
+    return found
+end
+
+local byKind: {[integer]: Descriptor} = {}
+
+-- The descriptor of a storage value's elements.
+export function descriptor(value: any): any
+    local code = calls.elementkind(value)
+    local found = byKind[code]
+    if found == nil then
+        found = {kind = code, size = widths[code], name = tostring(code)}
+        byKind[code] = found
+    end
+
+    return found
+end
+
+export function allocbytes(count: integer): uint8[?]
+    assert(count >= 0, "nupp: storage byte extent must be a whole, finite count")
+    return calls.allocbytes(count)
+end
+
+export function allocarray(element: any, count: integer): any
+    local scalarelement = element as Descriptor
+    assert(type(element) == "table" and kinds[scalarelement.name] ~= nil, "nupp: storage arrays hold scalars")
+    return calls.allocate(scalarelement.kind, count)
+end
+
+export function borrowstring(borrows bytes: string): const uint8[?] borrows (bytes)
+    return calls.fromstring(bytes)
+end
+
+export function copy(borrows destination: any, borrows source: any, count: integer): nil
+    calls.copy(destination, source, count)
+end
+
+export function fill(destination: any, count: integer, value: integer): nil
+    calls.fill(destination, count, value)
+end
+
+-- The width of a descriptor, or the bytes a storage value spans.
+export function sizeof(element: any): integer
+    if type(element) == "table" then
+        return (element as Descriptor).size
+    end
+
+    return calls.elements(element) * widths[calls.elementkind(element)]
+end
+
+export function string(borrows source: any, count: integer): string
+    return calls.text(source, count)
+end
+
+export function castbytes(borrows pointer: any): const uint8[?] borrows (pointer)
+    return calls.view(pointer, 1, 0)
+end
+
+export function castelements<T>(element: ctype<T>, pointer: any): any
+    return calls.cast(pointer, ((element as any) as Descriptor).kind)
+end
+
+-- Raw references require the caller to supply their readable extent.
+export function boundedcount(borrows source: any, count: integer): integer
+    return count
+end
+
+-- A value of `kind` from the first bytes of `bytes`.
+local function decode(kind: integer, bytes: string): any
+    local holder: any = calls.allocate(kind, 1)
+    calls.copy(holder, bytes, widths[kind])
+    return holder[0]
+end
+
+-- `value` as the bytes of one `kind` element.
+local function encode(kind: integer, value: any): string
+    local holder: any = calls.allocate(kind, 1)
+    holder[0] = value
+    return calls.text(holder, widths[kind])
+end
+
+export function decodeuint8(bytes: string): uint32
+    return math.u32.wrap(decode(1, bytes) as integer)
+end
+
+export function encodeuint8(value: uint32): string
+    return encode(1, value)
+end
+
+export function decodeint8(bytes: string): int32
+    return math.i32.wrap(decode(2, bytes) as integer)
+end
+
+export function encodeint8(value: int32): string
+    return encode(2, value)
+end
+
+export function decodeuint16(bytes: string): uint32
+    return math.u32.wrap(decode(3, bytes) as integer)
+end
+
+export function encodeuint16(value: uint32): string
+    return encode(3, value)
+end
+
+export function decodeint16(bytes: string): int32
+    return math.i32.wrap(decode(4, bytes) as integer)
+end
+
+export function encodeint16(value: int32): string
+    return encode(4, value)
+end
+
+export function decodeuint32(bytes: string): uint32
+    return math.u32.wrap(decode(5, bytes) as integer)
+end
+
+export function encodeuint32(value: uint32): string
+    return encode(5, value)
+end
+
+export function decodeint32(bytes: string): int32
+    return math.i32.wrap(decode(6, bytes) as integer)
+end
+
+export function encodeint32(value: int32): string
+    return encode(6, value)
+end
+
+export function decodeuint64(bytes: string): uint64
+    return decode(7, bytes)
+end
+
+export function encodeuint64(value: uint64): string
+    return encode(7, value)
+end
+
+export function decodeint64(bytes: string): int64
+    return decode(8, bytes)
+end
+
+export function encodeint64(value: int64): string
+    return encode(8, value)
+end
+
+export function decodefloat32(bytes: string): float32
+    return math.f32.narrow(decode(9, bytes) as number)
+end
+
+export function encodefloat32(value: number): string
+    return encode(9, value)
+end
+
+export function decodefloat64(bytes: string): number
+    return decode(10, bytes)
+end
+
+export function encodefloat64(value: number): string
+    return encode(10, value)
+end
