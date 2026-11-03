@@ -568,11 +568,16 @@ export function tableGet(ctx: voidptr, table: uint64, key: uint64): uint64
             if value ~= values.NIL or tables.meta(t) == values.NIL then
                 return value
             end
-            -- A record instance's field read by name is its slot.
+            -- A record instance's field read by name is its slot. An empty
+            -- one is an absent key, as a Lua table's: `__index` answers it,
+            -- as the record's method a field declares.
             if depth == 0ULL and strings.header(key) ~= 0ULL then
                 local slot = recordSlot(ctx, t, key)
                 if slot ~= values.NIL then
-                    return tables.lookup(h, t, slot)
+                    local held = tables.lookup(h, t, slot)
+                    if held ~= values.NIL then
+                        return held
+                    end
                 end
             end
             local index = metaField(ctx, t, META_INDEX)
@@ -1478,6 +1483,41 @@ export function typeName(ctx: voidptr, value: uint64): uint64
         tables.drain(h)
         return values.TAG_OBJ | s
     end
+end
+
+-- Whether Lua's tostring of `value` is its type and address: a table,
+-- function, thread or userdata.
+export function identified(value: uint64): boolean
+    local phrase = typePhrase(value)
+
+    return phrase == PHRASE_TABLE or phrase == PHRASE_FUNCTION or phrase == PHRASE_THREAD or phrase == PHRASE_USERDATA
+end
+
+-- Appends Lua's tostring of an `identified` value with no __tostring: its
+-- type and address in hexadecimal, "table: 0x6000012345a0".
+export function appendIdentity(h: heap.Heap*, b: strings.Builder*, value: uint64): uint64
+    -- ": 0x" as a little-endian byte word.
+    local refused = appendPhrase(h, b, typePhrase(value)) | strings.appendWord(h, b, 0x7830203aULL, 4ULL)
+    local address = value & values.PAYLOAD
+    local shift: uint64 = 60ULL
+    local started = false
+    while true do
+        local digit = (address >> shift) & 15ULL
+        if digit ~= 0ULL or started or shift == 0ULL then
+            started = true
+            local c = digit + 48ULL
+            if digit >= 10ULL then
+                c = digit + 87ULL
+            end
+            refused = refused | strings.appendWord(h, b, c, 1ULL)
+        end
+        if shift == 0ULL then
+            break
+        end
+        shift = shift - 4ULL
+    end
+
+    return refused
 end
 
 -- The message a handler's guest error carries, as Lua words it (without the

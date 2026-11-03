@@ -68,3 +68,13 @@ export const functions: {[string]: any} = {
         return os.getenv(name)
     end,
 }
+
+-- `_G`: the library functions above by their global names, and itself.
+local globals: {[string]: any} = {}
+for name, value in pairs(functions) do
+    if string.find(name, ".", 1, true) == nil then
+        globals[name] = value
+    end
+end
+globals._G = globals
+functions._G = globals

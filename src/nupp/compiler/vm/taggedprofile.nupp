@@ -209,8 +209,12 @@ local function libraryCall(ctx: any, node: any, id: integer, arguments: any): in
     if (id == 26 or id == 27) and graph.callbackArgument(node) ~= nil then
         return gsubWith(ctx, node, arguments, id == 27)
     end
-    -- string.format and table.move past four arguments take the rest packed.
-    if (id == 2 or id == 67) and #arguments > 4 then
+    -- string.format and table.move past four arguments, or spreading a
+    -- `...` or a call's results last, take the rest packed.
+    local last = arguments[#arguments]
+    if (id == 2 or id == 67)
+        and (#arguments > 4 or #arguments > 1 and (last.kind == "vararg" or graph.expandsResults(last)))
+    then
         return packedCall(ctx, node, arguments, id == 2 and 54 or 68)
     end
     need(#arguments >= 1 and #arguments <= 4, "core library calls take one to four arguments")
@@ -491,7 +495,7 @@ local function requireSite(ctx: any, node: any): any
     local item = need(catalog(ctx).requireByNode[node], "only checked static require calls are supported")
     need(item.owner == ctx.fn.id and node.runtimeLoader == "require", "foreign require callsite")
     need(
-        type(item.module) == "string" and item.target ~= nil,
+        type(item.module) == "string" and (item.target ~= nil or item.typeOnly),
         "dynamic or missing require target is unsupported: " .. tostring(item.module)
     )
 
@@ -507,7 +511,18 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
         return librarypack(ctx, node)
     end
     local p = catalog(ctx)
-    local site = need(p.callByNode[node], "ordinary call lacks checked callsite")
+    local site = need(
+        p.callByNode[node],
+        "ordinary call lacks checked callsite DEBUG " .. tostring(
+            node.kind
+        ) .. " " .. tostring(
+            node.obj and node.obj.token and node.obj.token.text
+        ) .. " " .. tostring(
+            node.obj and node.obj.name and node.obj.name.text
+        ) .. " line " .. tostring(
+            node.obj and node.obj.token and node.obj.token.line
+        ) .. " " .. tostring(graph.coreLibraryCall(node)) .. " open " .. tostring(open)
+    )
     need(site.owner == ctx.fn.id, "callsite belongs to another owner")
     local target = ctx.callee(node)
     local contract
@@ -539,6 +554,12 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
         end
     end
     local args = ctx.operands(fixed, kinds)
+    -- Parameters the call leaves off are nil, as Lua passes them.
+    if args ~= nil and not spreads and not expands and graph.omits(contract.callSignature, #args) then
+        while #args < #contract.callSignature.params do
+            args[#args + 1] = ctx.emit(node, "Nil", {}, "tagged")
+        end
+    end
     local pack = spreads and ctx.varargPack() or nil
     if expands and args ~= nil then
         local held = {}
@@ -725,31 +746,26 @@ end
 -- A library call `id` with its first argument and the rest in a pack, the
 -- count at key 0: string.format with more than three values, table.move
 -- with a destination.
-packedCall = function(ctx: any, node: any, arguments: any, id: integer): integer
-    need(arguments[#arguments].kind ~= "vararg", "a library call cannot spread `...` yet")
-    local kinds = {}
-    for index = 1, #arguments do
-        kinds[index] = "tagged"
+-- Whether a value of type `t` may have a metatable: anything but a string,
+-- number, Boolean or nil.
+local function mayHaveMeta(t: any): boolean
+    while t and (t.tag == "const" or t.tag == "literal") do
+        t = t.tag == "literal" and t.base or t.inner
     end
-    local operands = ctx.operands(arguments, kinds)
-    if operands == nil then
-        return nil as any
+    if t == nil then
+        return true
     end
-    local pack = ctx.emit(node, "NewTable", {}, "tagged")
-    for index = 2, #operands do
-        local key = ctx.emit(node, "K", {pool(ctx, "int64", tostring(index - 1))}, "tagged")
-        ctx.emit(node, "SetIdx", {pack, key, operands[index]}, nil)
-    end
-    local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
-    local count = ctx.emit(node, "K", {pool(ctx, "int64", tostring(#operands - 1))}, "tagged")
-    ctx.emit(node, "SetIdx", {pack, zero, count}, nil)
+    local tag = t.tag
 
-    return ctx.emit(node, "LibCall", {id, operands[1], pack}, "tagged") as integer
+    return not (
+        tag == "string" or tag == "number" or tag == "int64" or tag == "float64" or tag == "boolean" or tag == "nil"
+    )
 end
 
 -- The values of `exprs` as one pack, the count at key 0: a `...` or a call
--- giving other than one result last gives them all.
-local function valuespack(ctx: any, node: any, exprs: any): integer
+-- giving other than one result last gives them all. With `texts`, each fixed
+-- value that may have a metatable is its tostring, its __tostring called.
+local function valuespack(ctx: any, node: any, exprs: any, texts: boolean?): integer
     local last = exprs[#exprs]
     local tail = last ~= nil and (last.kind == "vararg" or graph.expandsResults(last))
     local fixed, kinds = {}, {}
@@ -763,6 +779,13 @@ local function valuespack(ctx: any, node: any, exprs: any): integer
         operands = ctx.operands(fixed, kinds)
         if operands == nil then
             return nil as any
+        end
+    end
+    if texts then
+        for index, operand in ipairs(operands) do
+            if mayHaveMeta(fixed[index].inferredType) then
+                operands[index] = ctx.emit(node, "LibCall", {1, operand}, "tagged")
+            end
         end
     end
     local pack = ctx.emit(node, "NewTable", {}, "tagged")
@@ -791,9 +814,31 @@ local function valuespack(ctx: any, node: any, exprs: any): integer
     return pack
 end
 
+-- A library call's first argument and the rest of them as one pack.
+packedCall = function(ctx: any, node: any, arguments: any, id: integer): integer
+    local first = ctx.expression(arguments[1], "tagged")
+    if first == nil then
+        return nil as any
+    end
+    local held = ctx.hold(first)
+    local rest = {}
+    for index = 2, #arguments do
+        rest[#rest + 1] = arguments[index]
+    end
+    local pack = valuespack(ctx, node, rest)
+    if pack == nil or ctx.block == nil then
+        ctx.release(held)
+        return nil as any
+    end
+    local value = ctx.emit(node, "LibCall", {id, ctx.readHeld(held), pack}, "tagged")
+    ctx.release(held)
+
+    return value as integer
+end
+
 -- print(...): its values in a pack, written as one line.
 local function printValues(ctx: any, node: any): integer
-    local pack = valuespack(ctx, node, node.args.exprs or {})
+    local pack = valuespack(ctx, node, node.args.exprs or {}, true)
     if pack == nil then
         return nil as any
     end
@@ -931,18 +976,51 @@ local function invokeMethod(ctx: any, node: any, keepResult: boolean, count: int
     local p = catalog(ctx)
     local site = need(p.callByNode[node], "method call lacks checked callsite")
     need(site.method and site.owner == ctx.fn.id, "method callsite belongs to another owner")
-    local target = need(p.functionsByDefinition[site.definition], "method call lacks its checked method")
-    local contract = graph.invokeContract(target, node)
+    local contract
+    if site.dynamic then
+        contract = graph.dynamicMethodContract(node, count)
+    else
+        local target = need(p.functionsByDefinition[site.definition], "method call lacks its checked method")
+        contract = graph.invokeContract(target, node)
+    end
+    -- A `...` last spreads its whole pack after the other arguments.
+    local arguments = node.args.exprs or {}
+    local spreads = #arguments > 0 and arguments[#arguments].kind == "vararg"
     local exprs, kinds = {node.obj}, {"tagged"}
-    for _, argument in ipairs(node.args.exprs or {}) do
-        need(argument.kind ~= "vararg", "a method call cannot spread `...` yet")
-        exprs[#exprs + 1], kinds[#kinds + 1] = argument, "tagged"
+    for index, argument in ipairs(arguments) do
+        need(argument.kind ~= "vararg" or index == #arguments, "`...` spreads only last")
+        if not (spreads and index == #arguments) then
+            exprs[#exprs + 1], kinds[#kinds + 1] = argument, "tagged"
+        end
     end
     -- The overload the checker selected has a member of its own.
     local member = node.overloadMember or node.name.text
     local value: integer = 0
     local args: any = nil
-    if site.metatable then
+    if site.dynamic then
+        -- The method the receiver answers for its name.
+        local receiver = ctx.expression(node.obj, "tagged")
+        if receiver == nil then
+            return nil
+        end
+        local heldReceiver = ctx.hold(receiver)
+        local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
+        local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldReceiver), key}, "tagged"))
+        table.remove(exprs, 1)
+        table.remove(kinds, 1)
+        local rest = ctx.operands(exprs, kinds)
+        value = ctx.readHeld(callee)
+        ctx.release(callee)
+        local first = ctx.readHeld(heldReceiver)
+        ctx.release(heldReceiver)
+        if rest == nil then
+            return nil
+        end
+        args = {first}
+        for _, item in ipairs(rest) do
+            args[#args + 1] = item
+        end
+    elseif site.metatable then
         -- Another module's record: its table is the receiver's metatable.
         local receiver = ctx.expression(node.obj, "tagged")
         if receiver == nil then
@@ -982,11 +1060,12 @@ local function invokeMethod(ctx: any, node: any, keepResult: boolean, count: int
             return nil
         end
     end
+    local pack = spreads and ctx.varargPack() or nil
     if count then
-        return ctx.invokeMany(node, value, args, contract, count)
+        return ctx.invokeMany(node, value, args, contract, count, pack)
     end
 
-    return ctx.invoke(node, value, args, contract, keepResult)
+    return ctx.invoke(node, value, args, contract, keepResult, pack)
 end
 
 function tagged.call(ctx: any, node: any, expected: string?): integer
@@ -2142,6 +2221,12 @@ function tagged.forVersion(version: integer): any
             need(library ~= "io.write", "io.write's result, its file, is not yet supported")
             if library == "tostring" or library == "table.concat" then
                 return libraryCall(ctx, node, library == "tostring" and 1 or 3, node.args.exprs or {})
+            elseif library == "assert" then
+                -- assert(v [, message]): v, its one result here, or the
+                -- message raised.
+                local count = #(node.args.exprs or {})
+                need(count >= 1 and count <= 2, "assert takes a value and an optional message")
+                return libraryCall(ctx, node, 87, node.args.exprs)
             elseif library == "tonumber" then
                 need(#(node.args.exprs or {}) == 1, "tonumber takes one value; a base is not yet admitted")
                 return libraryCall(ctx, node, 9, node.args.exprs)

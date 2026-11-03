@@ -1532,6 +1532,26 @@ export function LibCall(
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
+    -- assert(v [, message]): v when it holds; else the message, or
+    -- "assertion failed!" for none, raised without a position as Lua's is.
+    if libraryId == guestlib.ASSERT then
+        if a == values.NIL or a == values.FALSE then
+            local message = b
+            if count < 2 or b == values.NIL then
+                message = texts.textvalue(ctx, texts.TEXT_ASSERTION)
+            end
+            guestscope.raise(ctx, message, 0ULL)
+            ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return native.fail()
+        end
+        slots.writeValue(frame, regs, dst, a)
+        local after = ops.branch(ctx, frame, pc, 0)
+        if after == 0ULL then
+            ops.fail(ctx, frame, pc, ops.INVALID)
+            return native.fail()
+        end
+        return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
+    end
     guestscope.librarySite(ctx, frame, pc, native.word(count), encoded >> 7ULL)
     -- The coroutine library. Resume and yield switch threads: the context
     -- then runs the other thread, from its active frame.

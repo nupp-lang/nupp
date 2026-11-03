@@ -108,6 +108,8 @@ export const MATH_RANDOMSEED_HOST: uint64 = 72ULL
 export const NAMED_PACK: uint64 = 73ULL
 -- A table constructor's tail: a pack's values stored from a position.
 export const PACK_APPEND: uint64 = 74ULL
+-- assert(v [, message]).
+export const ASSERT: uint64 = 87ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -130,7 +132,8 @@ local function guestHeap(ctx: voidptr): heap.Heap*
 end
 
 -- Appends Lua's tostring of `value`: strings as they are, integers in
--- decimal, booleans and nil by name.
+-- decimal, booleans and nil by name, and tables, functions, threads and
+-- userdata by type and address. A __tostring is the caller's to call.
 export function appendText(h: heap.Heap*, b: strings.Builder*, value: uint64): uint64
     local s = strings.header(value)
     if s ~= 0ULL then
@@ -176,6 +179,9 @@ export function appendText(h: heap.Heap*, b: strings.Builder*, value: uint64): u
         return strings.appendWord(h, b, 0x65736c6166ULL, 5ULL)
     elseif value == values.NIL then
         return strings.appendWord(h, b, 0x6c696eULL, 3ULL)
+    end
+    if guestscope.identified(value) then
+        return guestscope.appendIdentity(h, b, value)
     end
     error("tostring of this value is not yet supported by the core")
 

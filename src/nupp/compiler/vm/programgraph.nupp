@@ -797,6 +797,16 @@ function program.describe(modules: {any}, entryModule: string): any
                 classToken = classToken
             }
             p.calls[#p.calls + 1], p.callByNode[node] = item, item
+        elseif node.kind == "methodCall"
+            and node.name
+            and target == nil
+            and graph.coreLibraryCall(node) == nil
+            and p.callByNode[node] == nil
+        then
+            -- A method the program holds no body for, as a declared type's:
+            -- read from the receiver when the call runs.
+            local item = {id = #p.calls, owner = owner.id, node = node, method = true, dynamic = true}
+            p.calls[#p.calls + 1], p.callByNode[node] = item, item
         end
         -- A parenthesized literal is registered at the literal itself, which is
         -- what lowering reads once it has looked through the parentheses.
@@ -1072,7 +1082,15 @@ function program.verify(p: any): boolean
     for index, item in ipairs(p.calls) do
         local node = item.node
         need(item.id == index - 1 and p.owners[item.owner + 1], "invalid callsite owner")
-        if item.method then
+        if item.method and item.dynamic then
+            need(
+                node.kind == "methodCall"
+                and p.callByNode[node] == item
+                and item.definition == nil
+                and p.functionsByDefinition[node.name.definition] == nil,
+                "dynamic method callsite identity mismatch"
+            )
+        elseif item.method then
             need(
                 node.kind == "methodCall" and p.callByNode[node] == item and node.name.definition == item.definition,
                 "method callsite identity mismatch"

@@ -71,6 +71,7 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
             or value.tag == "map"
             or value.tag == "table"
             or value.tag == "func"
+            or value.tag == "userdata"
             or value.tag == "any"
         )
     then
@@ -136,9 +137,14 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
     local params, result = {}, nil
     for _, pack in ipairs(resultsIgnored and {signature.paramPack} or {signature.paramPack, signature.retPack}) do
         -- Open results (`R...`) are as many as the caller keeps.
+        -- An unannotated function's results are open: any number of values.
         need(
             pack
-            and (not pack.tail or variadic and pack == signature.paramPack or dynamic and pack == signature.retPack)
+            and (
+                not pack.tail
+                or variadic and pack == signature.paramPack
+                or (dynamic or pack.tail.kind == "unknown" and #pack.head == 0) and pack == signature.retPack
+            )
             and not pack.alternatives,
             "closed signature pack required"
         )
@@ -160,10 +166,11 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
         result = "value"
     else
         results = dense(signature.rets, dynamic and 16 or 1)
+        if signature.retPack.tail ~= nil and #signature.retPack.head == 0 then
+            results = 0
+        end
         need(
-            dense(signature.params, 239) == #signature.paramPack.head
-            and (results >= 1 or signature.retPack.tail ~= nil)
-            and #signature.retPack.head == results,
+            dense(signature.params, 239) == #signature.paramPack.head and #signature.retPack.head == results,
             "fixed single-result signature required"
         )
     end
@@ -171,13 +178,14 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
         need(value == signature.paramPack.head[index], "checked parameter pack differs")
         params[index] = scalar(value, numeric, dynamic)
     end
-    for index, value in ipairs(resultsIgnored and {} or signature.rets) do
+    for index, value in ipairs((resultsIgnored or results == 0) and {} or signature.rets) do
         need(value == signature.retPack.head[index], "checked result pack differs")
         result = scalar(value, numeric, dynamic)
     end
     -- RetN and the caller's frame carry the counts, so the signature needs
     -- only the kind.
-    if results > 1 or not resultsIgnored and signature.retPack.tail ~= nil then
+    -- None, as a function that returns nothing, is read as values are.
+    if results ~= 1 or not resultsIgnored and signature.retPack.tail ~= nil then
         result = "value"
     end
     if variadic then
@@ -261,7 +269,16 @@ function contracts.normalize(compiled: any, version: integer?): any
             byname[module.name], bychunk[module.chunk] = module, module
         end
         need(type(p.requireByNode) == "table", "checked require source required")
+        -- A require that selects only types is erased: it loads nothing.
+        local loading = {}
         for _, site in ipairs(p.requires) do
+            if not (
+                type(site) == "table" and site.typeOnly and type(site.node) == "table" and site.node.typeOnlyRequire
+            ) then
+                loading[#loading + 1] = site
+            end
+        end
+        for _, site in ipairs(loading) do
             local target = type(site) == "table" and byname[site.module] or nil
             need(
                 target ~= nil

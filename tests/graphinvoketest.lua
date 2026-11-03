@@ -363,7 +363,7 @@ function M.closedPacksAndScalarSignaturesAreRequired()
                 ", integer",
                 16
             ) .. ") return 1" .. string.rep(", 1", 16) .. " end; return target()",
-            "one to sixteen checked scalar results"
+            "at most sixteen checked scalar results"
         },
     }) do
         local owner, call = checked(case[1], true)

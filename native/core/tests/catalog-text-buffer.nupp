@@ -1,0 +1,53 @@
+module nupp.core.catalogtextbuffer
+
+const tablebuffer = require("nupp.runtime.provider.tablebuffer")
+
+local b = tablebuffer.new()
+b:put("hello", ", ", 42)
+local score = 0
+if #b == 9 then
+    score = score + 1
+end
+if b:tostring() == "hello, 42" then
+    score = score + 2
+end
+if b:get(5) == "hello" then
+    score = score + 4
+end
+if tostring(b) == ", 42" then
+    score = score + 8
+end
+b:skip(2)
+if b:get() == "42" and #b == 0 then
+    score = score + 16
+end
+b:putf("%d-%s", 7, "x")
+if b .. ">" == "7-x>" then
+    score = score + 32
+end
+b:reset()
+if #b == 0 then
+    score = score + 64
+end
+local failed, reason = pcall(function()
+    assert(false, "boom")
+end)
+if not failed and reason == "boom" then
+    score = score + 128
+end
+local bare, text = pcall(function()
+    assert(nil)
+end)
+if not bare and text == "assertion failed!" then
+    score = score + 256
+end
+if assert(5) == 5 then
+    score = score + 512
+end
+if string.sub(tostring({}), 1, 9) == "table: 0x" then
+    score = score + 1024
+end
+-- print takes a value's __tostring.
+b:put("shown")
+print(b)
+export = score
