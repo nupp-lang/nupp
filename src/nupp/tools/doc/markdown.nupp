@@ -351,7 +351,7 @@ function markdown.overview(groups: {{
     local count = 0
     for _, group in ipairs(ordered) do
         if #group.entries > 0 then
-            out[#out + 1] = "**" .. group.title .. "**"
+            out[#out + 1] = "**" .. group.title:lower() .. "**"
             out[#out + 1] = ""
             for _, entry in ipairs(group.entries) do
                 out[#out + 1] = "- " .. entry

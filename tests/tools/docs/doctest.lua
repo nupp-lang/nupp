@@ -84,7 +84,7 @@ function M.apiOverviewUsesBalancedColumnsAndKindBadges()
     entries[1] = entries[1] .. markdown.overviewBadge("record")
     entries[2] = entries[2] .. markdown.overviewBadge("type")
     local source = markdown.overview({{title = "Types", entries = entries}})
-    assert(source:find("**Types**", 1, true), source)
+    assert(source:find("**types**", 1, true), source)
     local rendered = html.markdownHtml(source, nil, 0)
     assert(rendered:find('class="nuppdoc-overview nuppdoc-overview-3"', 1, true), rendered)
     assert(rendered:find('nuppdoc-kind-record nuppdoc-overview-badge" title="Record">R</abbr>', 1, true), rendered)
@@ -134,7 +134,7 @@ end
     local overview = assert(markdown:match("#### Members\n\n(::: api%-overview.-\n:::)"), markdown)
     local last = 0
     for _, title in ipairs({"Methods", "Constructors", "Metamethods", "Types", "Fields"}) do
-        local position = assert(overview:find("**" .. title .. "**", 1, true), title)
+        local position = assert(overview:find("**" .. title:lower() .. "**", 1, true), title)
         assert(position > last, "member groups out of order")
         last = position
     end
@@ -863,8 +863,8 @@ function M.documentsFunctionTypedRecordFieldsAsMethods()
     assert(html:find("How much to add.", 1, true) and html:find("The counter itself.", 1, true), html)
     local markdown = doc.markdown({module})
     assert(markdown:find("#### Members", 1, true), "member overview missing")
-    assert(markdown:find("**Methods**\n\n- [`step`](#num.Counter.step)", 1, true), markdown)
-    assert(markdown:find("**Fields**\n\n- [`count`](#num.Counter.count)", 1, true), markdown)
+    assert(markdown:find("**methods**\n\n- [`step`](#num.Counter.step)", 1, true), markdown)
+    assert(markdown:find("**fields**\n\n- [`count`](#num.Counter.count)", 1, true), markdown)
     assert(markdown:find("#### `step` _method_", 1, true), "method sub-heading missing")
     assert(markdown:find("##### Arguments", 1, true), "method arguments missing")
     assert(markdown:find('<a id="num.Counter.count"></a>', 1, true), "field anchor missing")
@@ -1012,7 +1012,7 @@ function M.documentsNestedTypesAsTheirOwnSubHeadingWithMembers()
     assert(markdown:find("#### `Settings` _record_", 1, true), "nested type heading missing")
     assert(markdown:find("##### Members", 1, true), "nested type's own overview missing")
     assert(
-        markdown:find("**Methods**\n\n- [`apply`](#config.Config.Settings.apply)", 1, true),
+        markdown:find("**methods**\n\n- [`apply`](#config.Config.Settings.apply)", 1, true),
         "nested type's own method list missing"
     )
     assert(markdown:find("##### `enabled` _field_", 1, true), "nested type's own field sub-heading missing")
@@ -3189,9 +3189,9 @@ function M.markdownLinksNestedModulesAndReferences()
     local api = readFile(dir .. "/api.md")
     -- one document holds every module, so every reference in it resolves
     assert(api:find('<a id="engine"></a>', 1, true), api)
-    assert(api:find("**Submodules**", 1, true), api)
+    assert(api:find("**submodules**", 1, true), api)
     assert(
-        assert(api:find("**Functions**", 1, true)) < assert(api:find("**Submodules**", 1, true)),
+        assert(api:find("**functions**", 1, true)) < assert(api:find("**submodules**", 1, true)),
         "functions must precede submodules in the module overview"
     )
     assert(api:find("[`audio`](#engine.audio)", 1, true), api)
@@ -3237,7 +3237,7 @@ function M.namespaceBackedDeclarationsBelongOnlyToTheirSubmodule()
     local nestedAt = assert(api:find('<a id="nupp.widgets"></a>', 1, true), api)
     local parent = api:sub(1, nestedAt - 1)
     local nested = api:sub(nestedAt)
-    assert(parent:find("**Submodules**", 1, true), parent)
+    assert(parent:find("**submodules**", 1, true), parent)
     assert(parent:find("[`widgets`](#nupp.widgets)", 1, true), parent)
     assert(not parent:find("### `widgets` _record_", 1, true), parent)
     assert(not parent:find("record nupp.widgets", 1, true), parent)
@@ -4141,7 +4141,7 @@ function M.siteMatchesTheNuppdocPageModel()
     local pointAt = assert(module:find('<section class="nuppdoc-api-item" id="math.Point"><h3>', typesAt, true))
     local addAt = assert(module:find('<section class="nuppdoc-api-item" id="math.add"><h3>', functionsAt, true))
     assert(functionsAt < addAt and addAt < typesAt and typesAt < pointAt, module)
-    assert(module:find("<strong>Functions</strong>", 1, true) < module:find("<strong>Types</strong>", 1, true), module)
+    assert(module:find("<strong>functions</strong>", 1, true) < module:find("<strong>types</strong>", 1, true), module)
     assert(not module:find('<section class="nuppdoc-api-item" id="math.add"><h2>', 1, true), module)
     assert(
         module:find('<a href="#math.Point.x"><code>x</code></a>', 1, true),
@@ -4260,7 +4260,7 @@ function M.siteMatchesTheNuppdocPageModel()
 
     -- a function that hands back an instance is a function, whatever it is named
     assert(not branchModule:find("<h3>Constructors</h3>", 1, true), branchModule)
-    assert(branchModule:find("<strong>Functions</strong>", 1, true), branchModule)
+    assert(branchModule:find("<strong>functions</strong>", 1, true), branchModule)
     assert(branchModule:find('<a href="#engine.newEngine"><code>newEngine</code></a>', 1, true), branchModule)
     assert(branchModule:find('<a href="#engine.boot"><code>boot</code></a>', 1, true), branchModule)
 
@@ -4300,7 +4300,7 @@ function M.siteMatchesTheNuppdocPageModel()
 
     assert(readFile(dir .. "/site/modules/math/llms.txt"):find("# `math`", 1, true))
     local engineMarkdown = readFile(dir .. "/site/modules/engine/llms.txt")
-    assert(engineMarkdown:find("**Submodules**", 1, true), engineMarkdown)
+    assert(engineMarkdown:find("**submodules**", 1, true), engineMarkdown)
     assert(engineMarkdown:find("[`gpu`](../../modules/engine/gpu/index.html)", 1, true), engineMarkdown)
     assert(readFile(dir .. "/site/modules/engine/gpu/llms.txt"):find("# `engine.gpu`", 1, true))
     -- The downloadable Markdown retains the same navigable references as the site.
@@ -4938,9 +4938,9 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
     for _, section in ipairs(sections) do
         assert(page.markdown:find("\n## " .. section .. "\n", 1, true), "no section for " .. section)
     end
-    assert(page.markdown:find("**Modules**", 1, true), "no modules overview")
+    assert(page.markdown:find("**modules**", 1, true), "no modules overview")
     assert(
-        assert(page.markdown:find("**Functions**", 1, true)) < assert(page.markdown:find("**Modules**", 1, true)),
+        assert(page.markdown:find("**functions**", 1, true)) < assert(page.markdown:find("**modules**", 1, true)),
         "functions must precede modules in the main API overview"
     )
     -- Library declarations live on their module page; this page retains index links.
@@ -5028,8 +5028,8 @@ function M.tableBuiltinsUseFunctionCategoriesAndLuaBadges()
     assert(#items.move.params == 5 and items.move.params[5].name == "destination")
     assert(items.move.returns[1].type == "{V}" and items.move.returns[1].text == "the destination table")
     local summary = doc.markdown({library})
-    assert(summary:find("**Functions**", 1, true), summary)
-    assert(not summary:find("**Values**", 1, true), "table acquired a bogus Values category")
+    assert(summary:find("**functions**", 1, true), summary)
+    assert(not summary:find("**values**", 1, true), "table acquired a bogus Values category")
     local model = require("testjson").decode(doc.json({library}))
     local found = {}
     for _, item in ipairs(model.modules[1].items) do
