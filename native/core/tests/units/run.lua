@@ -265,7 +265,8 @@ local SHARED = {
         {"frames", {}, 600},
         {"handlesAndScopes", {}, 40021},
         {"scopedRegistration", {}, 20},
-        {"nonnullRootCandidates", {}, 621}
+        {"nonnullRootCandidates", {}, 621},
+        {"paced", {100000, 100}, 4065}
     },
     weak = {
         {"weakValues", {}, 22111},
