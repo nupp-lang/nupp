@@ -1,10 +1,10 @@
-module serde.base64
+module binary.base64
 
 --[[
-Standard base64.
+`binary.base64` encodes bytes as standard Base64 text and decodes it.
 
 ```nupp
-const base64 = serde.base64
+const base64 = binary.base64
 
 const text = base64.encode("Nupp")
 
@@ -287,7 +287,7 @@ end
 --- Encodes bytes as standard base64, padded.
 ---
 --- ```nupp
---- assert(serde.base64.encode("Nupp") == "TnVwcA==")
+--- assert(binary.base64.encode("Nupp") == "TnVwcA==")
 --- ```
 --- @param value the bytes to encode
 --- @return the encoded text
@@ -299,11 +299,11 @@ end
 --- Decodes canonical standard base64 with required padding.
 ---
 --- Text that is not canonical padded base64 is an ordinary answer, as it is for
---- `serde.hex.decode`: nil and the reason.
+--- `binary.hex.decode`: nil and the reason.
 ---
 --- ```nupp
---- assert(serde.base64.decode("TnVwcA==") == "Nupp")
---- local bytes, reason = serde.base64.decode("TnVwcA")
+--- assert(binary.base64.decode("TnVwcA==") == "Nupp")
+--- local bytes, reason = binary.base64.decode("TnVwcA")
 --- assert(bytes == nil and reason ~= nil)
 --- ```
 --- @param text the text to decode

@@ -30,10 +30,9 @@ local ROOTS = {
             popen = true,
             newbuffer = true,
             Reader = true,
+            Writer = true,
             newreader = true,
             newwriter = true,
-            newsreader = true,
-            newswriter = true,
             readall = true,
         }
     },

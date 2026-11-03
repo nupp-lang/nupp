@@ -1,7 +1,7 @@
 const assert2 = require("assert")
 
 local json = require("serde.json")
-local hex = require("serde.hex")
+local hex = require("binary.hex")
 local text = require("nupp.text")
 local utf8 = require("utf8")
 local uri = io

@@ -77,6 +77,301 @@ local function range(length: integer, offset: any, count: any, what: string, lev
     return from, taking
 end
 
+const _SCALAR_REQUIRES = "@requires-dynamically nupp.io.internal.scalars"
+local scalarModule: any = nil
+
+local function scalarImplementation(name: string): any
+    if scalarModule == nil then
+        scalarModule = require(name)
+    end
+    return scalarModule
+end
+
+--- Reads fixed-width numbers from a source of bytes.
+--- @export
+export interface ScalarReader is own.Closeable
+
+    --- How many bytes are left, when that is knowable.
+    --- @param self this reader
+    --- @return the remaining byte count, or nil over an open-ended source
+    --- @raises string when the reader is closed
+    remaining: function(self: ScalarReader): integer?
+
+    --- Whether the source has nothing left.
+    --- @param self this reader
+    --- @return whether it is at the end
+    --- @raises string when the reader is closed, or its source failed
+    atend: function(self: ScalarReader): boolean
+
+    --- Discards bytes.
+    --- @param self this reader
+    --- @param count how many to discard
+    --- @return this reader
+    --- @raises string when there are not that many
+    function skip(borrows self, count: integer): ScalarReader borrows (self)
+        self:readbytes(count)
+
+        return self
+    end
+
+    --- Reads bytes as they are.
+    --- @param self this reader
+    --- @param count how many to read
+    --- @return the bytes
+    --- @raises string when there are not that many
+    readbytes: function(self: ScalarReader, count: integer): string
+
+    --- Reads an unsigned 8-bit integer.
+    --- @param self this reader
+    --- @return the value, 0 through 255
+    --- @raises string when the source has no bytes left
+    function readuint8(self): uint32
+        local raw = self:readbytes(1)
+        local value = physical.decodeUint8(raw)
+
+        return math.u32.wrap(value as integer)
+    end
+
+    --- Reads a signed 8-bit integer.
+    --- @param self this reader
+    --- @return the value, -128 through 127
+    --- @raises string when the source has no bytes left
+    function readint8(self): int32
+        local raw = self:readbytes(1)
+        local value = physical.decodeInt8(raw)
+
+        return math.i32.wrap(value as integer)
+    end
+
+    --- Reads an unsigned 16-bit integer in the machine's byte order.
+    --- @param self this reader
+    --- @return the value, 0 through 65535
+    --- @raises string when fewer than 2 bytes are left
+    function readuint16(self): uint32
+        local raw = self:readbytes(2)
+        local value = physical.decodeUint16(raw)
+
+        return math.u32.wrap(value as integer)
+    end
+
+    --- Reads a signed 16-bit integer in the machine's byte order.
+    --- @param self this reader
+    --- @return the value, -32768 through 32767
+    --- @raises string when fewer than 2 bytes are left
+    function readint16(self): int32
+        local raw = self:readbytes(2)
+        local value = physical.decodeInt16(raw)
+
+        return math.i32.wrap(value as integer)
+    end
+
+    --- Reads an unsigned 32-bit integer in the machine's byte order.
+    --- @param self this reader
+    --- @return the value, 0 through 4294967295
+    --- @raises string when fewer than 4 bytes are left
+    function readuint32(self): uint32
+        local raw = self:readbytes(4)
+        local value = physical.decodeUint32(raw)
+
+        return math.u32.wrap(value as integer)
+    end
+
+    --- Reads a signed 32-bit integer in the machine's byte order.
+    --- @param self this reader
+    --- @return the value
+    --- @raises string when fewer than 4 bytes are left
+    function readint32(self): int32
+        local raw = self:readbytes(4)
+        local value = physical.decodeInt32(raw)
+
+        return math.i32.wrap(value as integer)
+    end
+
+    --- Reads an unsigned 64-bit integer in the machine's byte order.
+    --- @param self this reader
+    --- @return the value, as `uint64` cdata
+    --- @raises string when fewer than 8 bytes are left
+    function readuint64(self): uint64
+        local raw = self:readbytes(8)
+        local value = physical.decodeUint64(raw)
+
+        return value as uint64
+    end
+
+    --- Reads a signed 64-bit integer in the machine's byte order.
+    --- @param self this reader
+    --- @return the value, as `int64` cdata
+    --- @raises string when fewer than 8 bytes are left
+    function readint64(self): int64
+        local raw = self:readbytes(8)
+        local value = physical.decodeInt64(raw)
+
+        return value as int64
+    end
+
+    --- Reads a 32-bit float in the machine's byte order.
+    --- @param self this reader
+    --- @return the value, widened to a Lua number
+    --- @raises string when fewer than 4 bytes are left
+    function readfloat32(self): float
+        local raw = self:readbytes(4)
+        local value = physical.decodeFloat32(raw)
+
+        return math.f32.narrow(value as number)
+    end
+
+    --- Reads a 64-bit float in the machine's byte order.
+    --- @param self this reader
+    --- @return the value
+    --- @raises string when fewer than 8 bytes are left
+    function readfloat64(self): number
+        local raw = self:readbytes(8)
+        local value = physical.decodeFloat64(raw)
+
+        return value as number
+    end
+
+    --- Closes the reader, and the reader it was built over when there was one.
+    ---
+    --- Repeated calls are safe.
+    --- @param self this reader, spent by the call
+    close: @nosuspend function(takes self: ScalarReader): nil
+end
+
+--- Writes fixed-width numbers into a destination.
+--- @export
+export interface ScalarWriter is own.Closeable
+
+    --- Writes bytes as they are.
+    --- @param self this writer
+    --- @param bytes the bytes to write
+    --- @return this writer
+    --- @raises string when bytes is not a string
+    writebytes: function(borrows self: ScalarWriter, bytes: string): ScalarWriter borrows (self)
+
+    --- Writes an unsigned 8-bit integer.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
+    function writeuint8(borrows self, value: uint32): ScalarWriter borrows (self)
+        self:writebytes(physical.encodeUint8(value))
+
+        return self
+    end
+
+    --- Writes a signed 8-bit integer.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
+    function writeint8(borrows self, value: int32): ScalarWriter borrows (self)
+        self:writebytes(physical.encodeInt8(value))
+
+        return self
+    end
+
+    --- Writes an unsigned 16-bit integer in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
+    function writeuint16(borrows self, value: uint32): ScalarWriter borrows (self)
+        self:writebytes(physical.encodeUint16(value))
+
+        return self
+    end
+
+    --- Writes a signed 16-bit integer in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
+    function writeint16(borrows self, value: int32): ScalarWriter borrows (self)
+        self:writebytes(physical.encodeInt16(value))
+
+        return self
+    end
+
+    --- Writes an unsigned 32-bit integer in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
+    function writeuint32(borrows self, value: uint32): ScalarWriter borrows (self)
+        self:writebytes(physical.encodeUint32(value))
+
+        return self
+    end
+
+    --- Writes a signed 32-bit integer in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
+    function writeint32(borrows self, value: int32): ScalarWriter borrows (self)
+        self:writebytes(physical.encodeInt32(value))
+
+        return self
+    end
+
+    --- Writes an unsigned 64-bit integer in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
+    function writeuint64(borrows self, value: uint64): ScalarWriter borrows (self)
+        self:writebytes(physical.encodeUint64(value))
+
+        return self
+    end
+
+    --- Writes a signed 64-bit integer in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
+    function writeint64(borrows self, value: int64): ScalarWriter borrows (self)
+        self:writebytes(physical.encodeInt64(value))
+
+        return self
+    end
+
+    --- Writes a 32-bit float in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
+    function writefloat32(borrows self, value: float): ScalarWriter borrows (self)
+        self:writebytes(physical.encodeFloat32(value))
+
+        return self
+    end
+
+    --- Writes a 64-bit float in the machine's byte order.
+    --- @param self this writer
+    --- @param value the number to write
+    --- @return this writer
+    function writefloat64(borrows self, value: number): ScalarWriter borrows (self)
+        self:writebytes(physical.encodeFloat64(value))
+
+        return self
+    end
+
+    --- Flushes the destination, when there is one to flush.
+    ---
+    --- This is where a destination that failed to take its bytes says so:
+    --- `close` returns nothing, so a caller that needs to know flushes first.
+    --- @param self this writer
+    --- @return whether it flushed
+    --- @return why it did not, when it did not
+    flush: function(self: ScalarWriter): (boolean, string?)
+
+    --- Closes the writer, and the writer it was built over when there was one.
+    ---
+    --- Repeated calls are safe.
+    --- @param self this writer, spent by the call
+    close: @nosuspend function(takes self: ScalarWriter): nil
+end
+
+--- Scalar reads and writes over one byte handle.
+--- @export
+export interface ScalarStream is ScalarReader, ScalarWriter
+    --- Closes the shared byte handle once.
+    close: @nosuspend function(takes self: ScalarStream): nil
+end
+
 ----------------------------------------------------------------------------
 -- Owners
 ----------------------------------------------------------------------------
@@ -109,6 +404,19 @@ export interface Writer is own.Closeable
     --- @return whether the writer is open
     --- @return why it is not, when it is not
     flush: function(self: Writer): (boolean, string?)
+
+    --- Takes this writer and adds fixed-width numeric writes in native byte order.
+    ---
+    --- Closing the scalar writer closes this writer. Buffers remain owned by
+    --- their caller and must outlive the adapter.
+    --- @param self the writer to take
+    --- @return the scalar writer, owned by the caller
+    function scalar(takes self): affine(ScalarWriter)
+        local create: function(
+            takes source: Writer
+        ): affine(ScalarWriter) = scalarImplementation("nupp.io.internal.scalars").writer
+        return create(self)
+    end
 
 end
 
@@ -199,11 +507,39 @@ export interface Reader is own.Closeable
         return makeLines(self, limit)
     end
 
+    --- Takes this reader and adds fixed-width numeric reads in native byte order.
+    ---
+    --- Closing the scalar reader closes this reader. Short reads raise.
+    --- @param self the reader to take
+    --- @return the scalar reader, owned by the caller
+    function scalar(takes self): affine(ScalarReader)
+        local create: function(
+            takes source: Reader
+        ): affine(ScalarReader) = scalarImplementation("nupp.io.internal.scalars").reader
+        return create(self)
+    end
+
 end
 
 --- Carries the default method table through compilers that erase interface exports.
 --- @internal
 export const readerdefaults = Reader
+
+--- Carries the writer default methods through the bootstrap compiler.
+--- @internal
+export const writerdefaults = Writer
+
+--- Carries scalar defaults through the bootstrap compiler.
+--- @internal
+export const scalarreaderdefaults = ScalarReader
+
+--- Carries scalar defaults through the bootstrap compiler.
+--- @internal
+export const scalarwriterdefaults = ScalarWriter
+
+--- Carries read/write scalar defaults through the bootstrap compiler.
+--- @internal
+export const scalarstreamdefaults = ScalarStream
 
 -- A lease is handed out by the buffer it borrows, so its terminal has to be declared
 -- ahead of both. One generic terminal over the shape the lease record shares with its
@@ -284,7 +620,7 @@ export sealed interface ByteView is own.Closeable
     len: function(borrows self: ByteView): integer
     getstring: function(borrows self: ByteView): string
     readspan: function(borrows self: ByteView): span.ByteSpan borrows (self)
-    newreader: function(self: ByteView): Reader
+    reader: function(self: ByteView): Reader
     view: function(self: ByteView, offset: integer?, count: integer?): affine(ByteView)
     isreleased: function(self: ByteView): boolean
     close: @nosuspend function(takes self: ByteView): nil
@@ -319,7 +655,7 @@ local record Snapshot is ByteView
         return span.fromstring(self._bytes)
     end
 
-    function newreader(self): Reader
+    function reader(self): Reader
         opened(self._closed, "io.ByteView", 2)
         return newReaderOver(self._bytes)
     end
@@ -362,8 +698,8 @@ export sealed interface Buffer is own.Closeable
         count: integer
     ): affine(BufferWriteLease, destroyLease) borrows (self)
     view: function(self: Buffer, offset: integer?, count: integer?): affine(ByteView)
-    newreader: function(self: Buffer): Reader
-    newwriter: function(exclusive self: Buffer): affine(Writer) borrows (self)
+    reader: function(self: Buffer): Reader
+    writer: function(exclusive self: Buffer): affine(Writer) borrows (self)
     isreleased: function(borrows self: Buffer): boolean
     close: @nosuspend function(takes self: Buffer): nil
 end
@@ -470,12 +806,12 @@ local record HeapBuffer is Buffer
         return newView(bytesAt(self, from, taking))
     end
 
-    function newreader(self): Reader
+    function reader(self): Reader
         opened(self._closed, "io.Buffer", 2)
         return newReaderOver(bytesAt(self, 0, self._length))
     end
 
-    function newwriter(exclusive self): affine(Writer) borrows (self)
+    function writer(exclusive self): affine(Writer) borrows (self)
         opened(self._closed, "io.Buffer", 2)
         self:clear()
         return newWriterOver(self)
@@ -938,6 +1274,18 @@ newView = function(bytes: string): affine(ByteView)
     return new Snapshot(_bytes = bytes, _closed = false)
 end
 
+--- Returns a finite byte count for the built-in reader representations.
+--- @internal
+export function readerRemaining(borrows source: Reader): integer?
+    if source is StringReader then
+        return #source._bytes - source._at + 1
+    elseif source is QueueReader then
+        return queueLength(source._source as ByteQueue)
+    end
+
+    return nil
+end
+
 newReaderOver = function(bytes: string): Reader
     return new StringReader(_bytes = bytes, _at = 1, _closed = false)
 end
@@ -1061,7 +1409,7 @@ export const newReader: function(source: string | ByteQueue): Reader
 
 --- Opens a byte writer that clears and exclusively borrows a buffer.
 export function newWriter(exclusive destination: Buffer): affine(Writer) borrows (destination)
-    return destination:newwriter()
+    return destination:writer()
 end
 
 --- Reads a reader to its end and returns everything it held as a string.

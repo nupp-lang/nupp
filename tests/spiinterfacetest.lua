@@ -75,7 +75,7 @@ local output = lease:span()
 response.body:readspan(output)
 own.drop(output)
 lease:commit(8)
-local writer = destination:newwriter()
+local writer = destination:writer()
 response.body:transferto(writer)
 writer:close()
 end

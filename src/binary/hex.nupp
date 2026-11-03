@@ -1,10 +1,10 @@
-module serde.hex
+module binary.hex
 
 --[[
-Bytes as hexadecimal.
+`binary.hex` encodes bytes as hexadecimal text and decodes it.
 
 ```nupp
-const hex = serde.hex
+const hex = binary.hex
 
 print(hex.encode("Nu"))          -- 4e75
 print(hex.decode("4E75"))        -- Nu

@@ -25,7 +25,7 @@ do
 end
 lease:commit(5)
 local remainder = io.newbuffer()
-local writer = remainder:newwriter()
+local writer = remainder:writer()
 assert2(response.body:transferto(writer) ~= nil)
 writer:close()
 assert2(response.body:read(1) == "")

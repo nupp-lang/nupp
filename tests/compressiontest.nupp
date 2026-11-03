@@ -59,7 +59,7 @@ end
 function M.writerAndReaderComposeWithByteIo(): nil
     local gzip = compression.format("gzip")
     local encoded = io.newbuffer()
-    local sink = encoded:newwriter()
+    local sink = encoded:writer()
     local writer = gzip:newwriter(sink, {workspacebytes = 2, gzip = {level = 6}})
     test(writer:write("hello "))
     test(writer:write("world"))
@@ -68,7 +68,7 @@ function M.writerAndReaderComposeWithByteIo(): nil
     local source = io.newreader(encoded:getstring())
     local reader = gzip:newreader(source, {workspacebytes = 3})
     local decoded = io.newbuffer()
-    local destination = decoded:newwriter()
+    local destination = decoded:writer()
     test(reader:transferto(destination) == 11)
     reader:close()
     destination:close()
@@ -83,7 +83,7 @@ function M.aFlushFinishesWithOneOrTwoWorkspaceBytes(): nil
     for workspace = 1, 2 do
         local gzip = compression.format("gzip")
         local encoded = io.newbuffer()
-        local sink = encoded:newwriter()
+        local sink = encoded:writer()
         local writer = gzip:newwriter(sink, {workspacebytes = workspace, gzip = {level = 6}})
         test(writer:write("hello"))
         test(writer:flush())
@@ -194,7 +194,7 @@ function M.closingAnUnfinishedWriterFails(): nil
     test.raises(
         function(): nil
             local destination = io.newbuffer()
-            local sink = destination:newwriter()
+            local sink = destination:writer()
             local writer = gzip:newwriter(sink)
             writer:close()
         end,

@@ -51,6 +51,7 @@ local spi = require("nupp.runtime.packages")
 const span = require("binary.span")
 const provider = require("binary.checksum.spi")
 const {type Writer} = require("io")
+const Writer = require("nupp.io.internal.bytes").writerdefaults
 
 --- Owned incremental checksum state with non-consuming numeric reads.
 export interface Checksum is Writer

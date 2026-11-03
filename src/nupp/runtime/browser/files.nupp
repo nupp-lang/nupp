@@ -6,6 +6,7 @@ local messages = require("io.files.messages")
 local appPaths = require("io.files.internal.path")
 local io = require("io")
 local privateIo = require("nupp.io")
+local scalarAdapters = require("nupp.io.internal.scalars")
 local span = require("binary.span")
 local suspension = require("coroutine.suspension")
 local memory = require("nupp.runtime.browser.memory") as any
@@ -268,6 +269,10 @@ function files.glob(pattern: string): (nil, string?)
 end
 
 local record File is io.Reader, io.Writer
+    function scalar(takes self): affine(privateIo.ScalarStream)
+        return scalarAdapters.duplex(self)
+    end
+
     @private _handle: integer
     @private _closed: boolean
 

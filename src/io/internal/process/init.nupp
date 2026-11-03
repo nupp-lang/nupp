@@ -322,7 +322,7 @@ end
 --- prelude's `io.Writer.write` writes the whole value, which a drain loop serving
 --- three pipes cannot afford to wait for. The completion-oriented `write` remains the
 --- ordinary `nupp.io.Writer` operation; `offer` is concrete and additional.
-record process.Writer is Writer2
+record process.Writer is io.Writer
     @private owner: any
     @private handle: any
     @private closed: boolean

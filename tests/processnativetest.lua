@@ -138,7 +138,7 @@ function M.sharedViewsUseTheRealStreamsAndDeliverEof()
     writer:close()
 
     local destination = buffers.newbuffer()
-    local sink = destination:newwriter()
+    local sink = destination:writer()
     local copied = assert(reader:transferto(sink))
     sink:close()
     test.eq(copied, 7)

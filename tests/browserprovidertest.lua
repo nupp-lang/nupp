@@ -394,7 +394,7 @@ function M.aWorkerScopeListsOnlyWhatItStillOwes()
                     end
                     return 0, {ok = true, value = {started = started}}
                 elseif request.operation == "await" then
-                    local base64 = app.load("serde.base64")
+                    local base64 = app.load("binary.base64")
                     local codec = app.load("nupp.runtime.browser.workercodec")
                     local payload = payloads[request.task]
                     local arguments = codec.decode(assert(base64.decode(payload)))

@@ -9,7 +9,7 @@ Its byte interfaces work over buffers, files, and HTTP response bodies.
 
 ```nupp:playground
 local bytes = io.newbuffer("hello")
-local reader = bytes:newreader()
+local reader = bytes:reader()
 assert(reader:read(5) == "hello")
 ```
 
@@ -283,64 +283,51 @@ with a reason. Closing or dropping the line reader closes the source it took.
 
 ## Typed scalars
 
-A reader and a writer move bytes. `newsreader` and `newswriter` add
-the missing piece, a sized integer or float landing on those bytes without an
-`ffi.cast` at every call site.
+`Reader:scalar()` and `Writer:scalar()` add fixed-width numeric operations to
+byte handles. Multi-byte values use the machine's byte order.
 
 ```nupp
-local writer = io.newswriter()
-writer:writeuint32(1447383632):writefloat64(1.5)
-
-local stored = writer:buffer()
-assert(stored ~= nil)
-local reader = io.newsreader(stored)
+local stored = io.newbuffer()
+do
+    local writer = stored:writer():scalar()
+    writer:writeuint32(1447383632):writefloat64(1.5)
+end
+local reader = stored:reader():scalar()
 assert(reader:readuint32() == 1447383632)
 assert(reader:readfloat64() == 1.5)
 assert(reader:atend())
 ```
 
-Every write returns the writer, so calls chain. A short read raises rather than
-answering a reason, which is the one place this pair departs from the reader and
-writer contracts above: a scalar either landed whole or the source was not what
-the format said, and there is no partial value to hand back.
+The scalar adapter takes its byte handle and closes it when dropped or closed.
+A short scalar read raises. Writes return the scalar writer so calls chain.
 
 ### Scalar sources
 
-`newsreader` takes whatever holds the bytes. A string, a `ByteView` or a
-`Buffer` is read from a copy taken there and then, so `remaining()` knows the
-count:
+Create a byte reader over a string, buffer, view, or queue, then adapt it:
 
 ```nupp
-local reader = io.newsreader("\1\2\3\4")
+local reader = io.newreader("\1\2\3\4"):scalar()
 assert(reader:remaining() == 4)
 ```
 
-A `Reader` is consumed as it goes, which is what lets a file or an HTTP body be
-read a field at a time. It cannot say how much is left, so `remaining()` returns
-nil and `atend()` is the question to ask instead. The scalar adapter takes that
-reader: closing the adapter, by hand or at the end of its scope, closes the
-reader exactly once.
+`remaining()` reports the bytes left in built-in string and queue readers,
+including bytes buffered by the adapter. Open-ended readers return nil.
+`atend()` checks whether a scalar reader has reached the end.
 
 ### Scalar destinations
 
-`newswriter` appends to a `Buffer`, keeping what that buffer already
-holds, or writes through a `Writer`. Given nothing it starts a buffer of its
-own, which `buffer()` hands back:
+A scalar writer writes at its byte writer's current position. Creating a
+buffer writer clears the buffer; adapting that writer preserves its position.
+The caller retains the buffer and reads it after the writer is dropped:
 
 ```nupp
-local destination = io.newbuffer("header:")
+local destination = io.newbuffer()
 do
-    local scalars = io.newswriter(destination)
-    scalars:writeuint8(33)
+    local writer = destination:writer():scalar()
+    writer:writeuint8(33)
 end
-assert(destination:getstring() == "header:!")
+assert(destination:getstring() == "!")
 ```
-
-A writer pointed at somebody else's `Writer` returns nil from `buffer()`, since
-the bytes are already gone. That writer is taken, so closing the scalar adapter
-closes it exactly once. A buffer supplied by the caller is only borrowed. The
-buffer created by the no-argument form belongs to the scalar writer; `buffer()`
-borrows it for as long as the scalar writer remains live.
 
 ## Failures
 
@@ -367,7 +354,7 @@ buffer or a string reader returns through the same contract.
 ## Byte queues
 
 A [`nupp.text`](nupp.text) buffer is a byte queue: `put` appends to the back
-and `get` consumes from the front. `newsreader` accepts one directly, so
+and `get` consumes from the front. `io.newreader(queue):scalar()` adapts one, so
 bytes assembled there are read without copying everything in it first, and the
 queue's own `get` stays usable over the same bytes.
 
@@ -376,7 +363,7 @@ local queue = nupp.text.newbuffer()
 queue:put("header:")
 queue:put("!")
 
-local reader = io.newsreader(queue)
+local reader = io.newreader(queue):scalar()
 assert(reader:readbytes(7) == "header:")
 assert(queue:tostring() == "!")
 assert(reader:readuint8() == 33)
@@ -393,7 +380,7 @@ local queue = nupp.text.newbuffer()
 queue:put("payload")
 do
     local reader = io.newreader(queue)
-    assert(reader:transferto(destination:newwriter()) == 7)
+    assert(reader:transferto(destination:writer()) == 7)
 end
 assert(destination:getstring() == "payload")
 ```
@@ -443,13 +430,19 @@ export const Reader = source1.Reader
 
 export type ScalarReader = source1.ScalarReader
 export type ScalarWriter = source1.ScalarWriter
+
+--- Scalar reads and writes over one byte handle.
+export type ScalarStream = source1.ScalarStream
+
 export type Writer = source1.Writer
+
+--- @internal
+export const Writer = source1.Writer
+
 export const Error = source1.Error
 export const newbuffer = source1.newBuffer
 export const newreader = source1.newReader
 export const newwriter = source1.newWriter
-export const newsreader = source1.newScalarReader
-export const newswriter = source1.newScalarWriter
 export const readall = source1.readAll
 
 const {type Process as ChildProcess} = require("io.internal.process")
@@ -634,10 +627,9 @@ export const value: table = do
     original.Error = Error
     original.newbuffer = newbuffer
     original.Reader = Reader
+    original.Writer = Writer
     original.newreader = newreader
     original.newwriter = newwriter
-    original.newsreader = newsreader
-    original.newswriter = newswriter
     original.readall = readall
     original.popen = popen
     yield original

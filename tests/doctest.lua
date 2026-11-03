@@ -6073,4 +6073,24 @@ function M.theVersionsRegistryMatchesTheConstants()
     end
 end
 
+function M.omitsVoidReturnsAndKeepsNullableAndMultipleResults()
+    for _, case in ipairs({
+        {source = "export function finish(): nil end", returns = false},
+        {
+            source = "export record Worker\nfunction finish(self): nil end\nflush: function(self: Worker): nil\nend",
+            returns = false
+        },
+        {source = "export function fetch(): string? end", returns = true},
+        {source = "export function fetch(): (nil, string) end", returns = true},
+    }) do
+        local module = assert(doc.extract(case.source, "src/example.nupp", "example"))
+        local rendered = {}
+        require("nupp.tools.doc.api").renderHtmlItem(rendered, module.items[1])
+        local html = table.concat(rendered)
+        local markdown = doc.markdown({module})
+        assert((html:find(">Returns</", 1, true) ~= nil) == case.returns, html)
+        assert((markdown:find(" Returns\n", 1, true) ~= nil) == case.returns, markdown)
+    end
+end
+
 return M

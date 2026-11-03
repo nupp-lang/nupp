@@ -208,7 +208,7 @@ end
 function M.laneFailuresKeepTheirStackAndCancellationIdentity()
     local effects = require("nupp.runtime.browser.effects")
     local cancellation = require("coroutine.suspension.cancellation")
-    local base64 = require("serde.base64")
+    local base64 = require("binary.base64")
     local moduleName = "browser-worker-failure-fixture"
     local providerName = "nupp.runtime.browser.workers"
     local previousModule = package.loaded[moduleName]

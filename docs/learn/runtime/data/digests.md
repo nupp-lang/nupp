@@ -65,7 +65,7 @@ even when finalization fails. The destination remains owned by the caller.
 One-shot conveniences are `binary.digest.digest(name, bytes)` and
 `binary.digest.hexdigest(name, bytes)`. Encoding is also available
 separately:
-`serde.hex.encode(raw)` or `serde.base64.encode(raw)`.
+`binary.hex.encode(raw)` or `binary.base64.encode(raw)`.
 
 ## Checksums and MACs
 

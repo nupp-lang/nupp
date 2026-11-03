@@ -4,7 +4,7 @@ const io2 = require("io")
 
 local span = require("binary.span")
 local array = require("nupp.mem.array")
-local base64 = require("serde.base64")
+local base64 = require("binary.base64")
 local valuebuilder = require("serde.valuebuilder")
 
 local function u32(value: integer): uint32
