@@ -227,7 +227,10 @@ local function libraryCall(ctx: any, node: any, id: integer, arguments: any): in
     -- errors count arguments from the one after self, as Lua's do.
     table.insert(operands, 1, node.kind == "methodCall" and id + 128 or id)
 
-    return ctx.emit(node, "LibCall", operands, "tagged") as integer
+    -- A function that owns affine values lands an error the library raises
+    -- here as it lands one from a call.
+
+    return landed(ctx, node, ctx.emit(node, "LibCall", operands, "tagged")) as integer
 end
 
 -- The nominal record type behind a checked type, or nil.

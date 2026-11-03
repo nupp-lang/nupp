@@ -1472,6 +1472,55 @@ export function ownsaffine(ctx: voidptr, frame: uint64): uint64
     return 0ULL
 end
 
+-- A function that owns affine values and raised an error itself, at the
+-- instruction `index` of function `owner` that its code follows with a
+-- landing check (LibCall 45, as after a call, its operand made by the Nil or
+-- Move before it): the active frame, to resume at that check, or 0 when the
+-- error does not land there. Move and Nil are the frozen table's 1 and 2;
+-- LibCall is the core's 251.
+local function selfLanding(ctx: voidptr, state: voidptr, owner: uint64, index: uint64): uint64
+    @unsafe do
+        local active = native.load64(state, native.fieldOffset<frames.State>("active"))
+        if active == 0ULL or not lands(ctx, active) then
+            return 0ULL
+        end
+        local frame = native.pointer(active)
+        if native.load64(frame, native.fieldOffset<frames.Frame>("functionId")) ~= owner then
+            return 0ULL
+        end
+        local count = native.load64(frame, native.fieldOffset<frames.Frame>("instructionCount"))
+        local code = native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("code")))
+        local check = index + 1ULL
+        local found = false
+        while not found and check < count and check <= index + 4ULL do
+            local at = native.offset(code, native.index(check * 16ULL))
+            local op = native.load8(at, 0)
+            if op == 251 and native.load8(at, 2) & 127 == 45 then
+                found = true
+            elseif op == 1 or op == 2 then
+                check = check + 1ULL
+            else
+                return 0ULL
+            end
+        end
+        if not found then
+            return 0ULL
+        end
+        -- A call the failing instruction prepared and never published.
+        local child = native.load64(frame, native.fieldOffset<frames.Frame>("child"))
+        if child ~= 0ULL
+            and native.load64(native.pointer(child), native.fieldOffset<frames.Frame>("phase")) == frames.PREPARED
+            and frames.abortPrepared(state, frame, native.pointer(child)) ~= 1ULL
+        then
+            return 0ULL
+        end
+        native.store64(frame, native.fieldOffset<frames.Frame>("resumePC"), index + 1ULL)
+        -- From there the Nil or Move runs, then the check.
+
+        return active
+    end
+end
+
 -- The frame an error lands at: one that owns affine values and waits on the
 -- call the error came from, if there is one before the nearest protected
 -- call; 0 otherwise.
@@ -1537,6 +1586,16 @@ export function recoverEntry(ctx: voidptr): uint64
         native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), 0ULL)
         local value = native.load64(services, native.fieldOffset<Services>("raised"))
         local level = native.load64(services, native.fieldOffset<Services>("raisedLevel"))
+        -- Where the error was raised: a failing handler's pc, or a library
+        -- call's when the library raised it.
+        local failedOwner = native.load64(ctx, context.ERROR_OWNER)
+        local failedIndex = native.load64(ctx, context.ERROR_PC)
+        local located = status == context.GUEST_ERROR_STATUS
+        if not located and native.load64(services, native.fieldOffset<Services>("libraryRaised")) == 1ULL then
+            failedOwner = native.load64(services, native.fieldOffset<Services>("libraryOwner"))
+            failedIndex = native.load64(services, native.fieldOffset<Services>("libraryPc"))
+            located = true
+        end
         if value == 0ULL then
             value = runtimeError(ctx)
             level = 1ULL
@@ -1567,11 +1626,22 @@ export function recoverEntry(ctx: voidptr): uint64
         native.store64(services, native.fieldOffset<Services>("replaysuspend"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("lastError"), value)
         local state = native.loadPointer(ctx, context.STATE)
-        -- A frame that owns affine values and waits on a call nearer than any
-        -- protected call takes the error first.
-        local landing = landingFrame(ctx, state)
+        -- A frame that owns affine values and raised the error itself, or
+        -- waits on a call nearer than any protected call, takes it first.
+        local closing = native.load64(services, native.fieldOffset<Services>("closing")) == 1ULL
+        local own: uint64 = 0ULL
+        if located and not closing then
+            own = selfLanding(ctx, state, failedOwner, failedIndex)
+        end
+        local landing: uint64 = 0ULL
+        if own == 0ULL then
+            landing = landingFrame(ctx, state)
+        end
         local parent: uint64 = 0ULL
-        if landing ~= 0ULL then
+        if own ~= 0ULL then
+            parent = own
+            native.store64(services, native.fieldOffset<Services>("landed"), 1ULL)
+        elseif landing ~= 0ULL then
             parent = frames.land(state, landing)
             if parent ~= 0ULL then
                 native.store64(services, native.fieldOffset<Services>("landed"), 1ULL)
