@@ -32,8 +32,30 @@ function tests.lightweightUploadsKeepTheirNarrowContract(): nil
     assert2(closed[1])
 end
 
+function tests.byteReadersSnapshotBuffersAndViews(): nil
+    local buffer = standard.newbuffer("before")
+    local view = buffer:view()
+    local fromBuffer = standard.newreader(buffer)
+    local fromView = standard.newreader(view)
+    buffer:clear()
+    buffer:close()
+    view:close()
+    assert2(fromBuffer:read(6) == "before")
+    assert2(fromView:read(6) == "before")
+end
+
+function tests.byteWriterExclusivelyBorrowsAndClearsItsBuffer(): nil
+    local buffer = standard.newbuffer("old")
+    do
+        local writer = standard.newwriter(buffer)
+        assert2(writer:write("new"))
+        assert2(writer:flush())
+    end
+    assert2(buffer:getstring() == "new")
+end
+
 function tests.ordinaryReadersSatisfyTheUploadSubset(): nil
-    assert2(consume(standard.newstringreader("abcdef")) == "abcdef")
+    assert2(consume(standard.newreader("abcdef")) == "abcdef")
 end
 
 local record Queue is standard.ByteQueue
@@ -56,7 +78,7 @@ end
 
 function tests.byteQueuesAreStructuralSources(): nil
     local queue = new Queue(bytes = "abcdef")
-    local reader = standard.newqueuereader(queue)
+    local reader = standard.newreader(queue)
     assert2(reader:read(3) == "abc")
     assert2(#queue.bytes == 3)
     assert2(reader:read(3) == "def")
@@ -65,7 +87,7 @@ end
 
 function tests.scalarReadersAcceptStructuralQueues(): nil
     local queue = new Queue(bytes = "\1\2\3\4")
-    local reader = standard.newscalarreader(queue)
+    local reader = standard.newsreader(queue)
     assert2(reader:remaining() == 4)
     assert2(reader:readuint32() == 67305985)
     assert2(reader:remaining() == 0)
@@ -74,7 +96,7 @@ end
 
 function tests.structuralQueuesReadIntoBuffersAndWritableSpans(): nil
     local queue = new Queue(bytes = "abcdef")
-    local reader = standard.newqueuereader(queue)
+    local reader = standard.newreader(queue)
     local destination = standard.newbuffer(8)
     assert2(reader:readinto(destination, 0, 3) == 3)
     local lease = destination:reservewrite(3, 3)
@@ -89,7 +111,7 @@ function tests.structuralQueuesReadIntoBuffersAndWritableSpans(): nil
 end
 
 function tests.stringReadersFillWritableSpans(): nil
-    local reader = standard.newstringreader("abc")
+    local reader = standard.newreader("abc")
     local destination = standard.newbuffer(3)
     local lease = destination:reservewrite(0, 3)
     do
@@ -102,7 +124,7 @@ function tests.stringReadersFillWritableSpans(): nil
 end
 
 function tests.linesKeepTerminatorsAndFinalFragments(): nil
-    local lines = standard.newlines(standard.newstringreader("one\r\ntwo\nlast"))
+    local lines = standard.newreader("one\r\ntwo\nlast"):lines()
     assert2(lines:read() == "one")
     assert2(lines:read() == "two")
     assert2(lines:read() == "last")

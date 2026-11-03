@@ -10,7 +10,7 @@ process, and whoever installed a handler decides what runs meanwhile -- an
 event loop, a poll, the next frame.
 
 ```nupp:fragment
-local suspension = require("coroutine.suspension")
+local suspension = coroutine.suspension
 
 local function readLine(reader: Reader): string
     return suspension.suspend("example.readLine", function(

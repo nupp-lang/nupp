@@ -1,7 +1,7 @@
 module nupp.tools.cli.schema
 
 -- Detect report-schema requests using the command's derived grammar.
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 local schema = {}
 
 function schema.requests(subject: any, argv: {string}): boolean

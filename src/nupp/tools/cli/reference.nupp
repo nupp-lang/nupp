@@ -14,7 +14,7 @@ sections themselves, for a consumer that would rather render its own.
 ]]
 
 local usageError = require("nupp.tools.cli.error").forCommand("reference")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 local report = require("nupp.tools.cli.report")
 
 local REPORT_SCHEMA = {

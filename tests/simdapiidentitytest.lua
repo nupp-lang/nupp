@@ -147,9 +147,9 @@ function M.importAndGlobalRootKeepTheCheckedWorkgroupContract()
     local before
     for _, imported in ipairs({true, false}) do
         local env = envMod.new(HERE .. "/..")
-        local source = WORKGROUP:format("gpu")
+        local source = WORKGROUP:format("io.gpu")
         if not imported then
-            source = source:gsub('local gpu = require%("gpu"%)', "local gpu = gpu")
+            source = source:gsub('local gpu = require%("io%.gpu"%)', "local gpu = io.gpu")
         end
         local parsed = parser.parse(source, "gpu-identity.nupp")
         test.eq(#parsed.errors, 0)
@@ -160,7 +160,7 @@ function M.importAndGlobalRootKeepTheCheckedWorkgroupContract()
         local function visit(node)
             if node.kind == "call" then
                 local canonical = callIdentity(node.obj)
-                if canonical == "gpu.workgroups" then
+                if canonical == "io.gpu.workgroups" then
                     calls[#calls + 1] = node
                 end
             end
@@ -215,10 +215,19 @@ end
 
 function M.formerPublicModulesAreAbsentAndGpuImplementationStaysPrivate()
     local env = envMod.new(HERE .. "/..")
-    for _, name in ipairs({"nupp.gpu", "nupp.gpu.layout", "nupp.gpu.spi", "nupp.simd", "nupp.events"}) do
+    for _, name in ipairs({
+        "gpu",
+        "gpu.layout",
+        "gpu.spi",
+        "nupp.gpu",
+        "nupp.gpu.layout",
+        "nupp.gpu.spi",
+        "nupp.simd",
+        "nupp.events"
+    }) do
         test.eq(env.resolveModule(env, name), nil, name)
     end
-    test.eq(env.moduleAccess(env, "gpu", "nupp.gpu.api"), nil)
+    test.eq(env.moduleAccess(env, "io.gpu", "nupp.gpu.api"), nil)
     local reason = env.moduleAccess(env, "application", "nupp.gpu.api")
     assert(reason and reason:find("internal", 1, true), tostring(reason))
 end

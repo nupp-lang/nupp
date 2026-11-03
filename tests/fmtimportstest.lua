@@ -19,8 +19,8 @@ local function formatted(source, env)
     return output
 end
 
-local function compile(source)
-    local env = envMod.new(".")
+local function compile(source, environment)
+    local env = environment or envMod.new(".")
     local result = parser.parse(source, "format.nupp")
     local errors = check.check(result, "format.nupp", env)
     for _, err in ipairs(errors) do
@@ -34,80 +34,123 @@ local function image(source)
     return program.image(compile(source), "format", "format.nupp")
 end
 
-function M.bindsAbsoluteModuleCalls()
-    local output = formatted('return io.files.read("a"), io.files.read("b")\n')
-    assert(output:find('const files = require("io.files")', 1, true), output)
-    assert(output:find('return files.read("a"), files.read("b")', 1, true), output)
+local function withUserModules(run)
+    local dir = os.tmpname()
+    os.remove(dir)
+    assert(os.execute("mkdir -p '" .. dir .. "/src/app'") == 0)
+    local sources = {
+        [
+            "files.nupp"
+        ] = [[
+module app.files
+export function read(path: string): (string?, string?) return path, nil end
+export function exists(path: string): boolean return true end
+export interface Reader
+    read: function(self): string
+end
+]],
+        ["span.nupp"] = [[
+module app.span
+export type Span<T> = binary.span.Span<T>
+]],
+    }
+    for name, source in pairs(sources) do
+        local file = assert(io.open(dir .. "/src/app/" .. name, "wb"))
+        file:write(source)
+        file:close()
+    end
+    local ok, result = pcall(run, envMod.new(dir, {cache = false, config = {include = {"src"}}}))
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(ok, result)
+
+    return result
 end
 
-function M.typeOnlyImportsRemainErased()
+local function userFormatted(source)
+    return withUserModules(function(env)
+        return formatted(source, env)
+    end)
+end
+
+function M.retainsBuiltinNamespaceCalls()
+    local output = formatted('return io.files.read("a"), io.files.read("b")\n')
+    assert(not output:find("require", 1, true), output)
+    assert(output:find('return io.files.read("a"), io.files.read("b")', 1, true), output)
+end
+
+function M.builtinTypeAccessRemainsQualifiedAndErased()
     local source = 'local function count(value: binary.span.Span<uint8>): integer\nreturn #value\nend\nreturn count\n'
     local output = formatted(source)
-    assert(output:find('const {type Span} = require("binary.span")', 1, true), output)
-    assert(output:find('value: Span<uint8>', 1, true), output)
+    assert(not output:find("require", 1, true), output)
+    assert(output:find('value: binary.span.Span<uint8>', 1, true), output)
     local before, after = image(source), image(output)
     -- Neither image requires the module at run time.
     assert(not before:find('"nupp.mem.span"', 1, true), before)
     assert(not after:find('"nupp.mem.span"', 1, true), after)
 end
 
-function M.turnsAnExistingModuleAliasIntoItsImport()
+function M.keepsDirectBuiltinAliases()
     local output = formatted('local files = io.files\nreturn files.read("a"), io.files.read("b")\n')
-    assert(output == 'local files = require("io.files")\nreturn files.read("a"), files.read("b")\n', output)
+    assert(output == 'local files = io.files\nreturn files.read("a"), io.files.read("b")\n', output)
 end
 
 function M.avoidsCapturingNamesInAnyScope()
-    local output = formatted(
-        'local files = 1\nlocal function read(files2)\nreturn io.files.read("a"), files2\nend\nreturn read, files\n'
+    local output = userFormatted(
+        'local files = 1\nlocal function read(files2)\nreturn app.files.read("a"), files2\nend\nreturn read, files\n'
     )
-    assert(output:find('const files3 = require("io.files")', 1, true), output)
+    assert(output:find('const files3 = require("app.files")', 1, true), output)
     assert(output:find('return files3.read("a"), files2', 1, true), output)
 end
 
 function M.respectsShadowedPackageRoots()
-    local output = formatted(
-        'local function fake(io)\nreturn io.files.read("a")\nend\nreturn io.files.read("b"), fake\n'
+    local output = userFormatted(
+        'local function fake(app)\nreturn app.files.read("a")\nend\nreturn app.files.read("b"), fake\n'
     )
-    assert(output:find('return io.files.read("a")', 1, true), output)
+    assert(output:find('return app.files.read("a")', 1, true), output)
     assert(output:find('return files.read("b"), fake', 1, true), output)
 end
 
 function M.avoidsTheLeafNameOfAQualifiedDeclaration()
-    local output = formatted('local process = {}\ninterface process.Reader is io.http.Reader\nend\nreturn process\n')
-    assert(output:find('const {type Reader as Reader2} = require("io.http")', 1, true), output)
-    assert(output:find('interface process.Reader is Reader2', 1, true), output)
-    image(output)
+    withUserModules(function(env)
+        local output = formatted(
+            'local process = {}\ninterface process.Reader is app.files.Reader\nend\nreturn process\n',
+            env
+        )
+        assert(output:find('const {type Reader as Reader2} = require("app.files")', 1, true), output)
+        assert(output:find('interface process.Reader is Reader2', 1, true), output)
+        compile(output, env)
+    end)
 end
 
 function M.leavesIntrinsicsAndExplicitRequirePlacement()
     local output = formatted(
-        'local function size()\nreturn nupp.sizeof(int32), require("io.files").read("a")\nend\nreturn size\n'
+        'local function size()\nreturn types.sizeof(int32), require("io.files").read("a")\nend\nreturn size\n'
     )
     assert(not output:find('const files', 1, true), output)
-    assert(output:find('nupp.sizeof(int32)', 1, true), output)
+    assert(output:find('types.sizeof(int32)', 1, true), output)
     assert(output:find('require("io.files").read', 1, true), output)
 end
 
 function M.preservesCommentsAndStrings()
     local output = formatted('-- nupp.io.files.read\nreturn "nupp.io.files.read", io.files.read("a")\n')
     assert(output:find('-- nupp.io.files.read', 1, true), output)
-    assert(output:find('"nupp.io.files.read", files.read', 1, true), output)
+    assert(output:find('"nupp.io.files.read", io.files.read', 1, true), output)
     local inside = formatted('return io -- keep this\n.files.read("a")\n')
     assert(inside:find('-- keep this', 1, true), inside)
     assert(not inside:find('const files', 1, true), inside)
 end
 
 function M.importsFollowModuleHeaderAndPreserveDocblocks()
-    local output = formatted(
-        'module app.reader -- module comment\n\n--- Read a file.\nexport function read(): string?\nreturn io.files.read("a")\nend\n'
+    local output = userFormatted(
+        'module app.reader -- module comment\n\n--- Read a file.\nexport function read(): string?\nreturn app.files.read("a")\nend\n'
     )
-    assert(output:find('module app.reader -- module comment\n\nconst files = require("io.files")', 1, true), output)
+    assert(output:find('module app.reader -- module comment\n\nconst files = require("app.files")', 1, true), output)
     assert(output:find('--- Read a file.\nexport function read', 1, true), output)
 end
 
 function M.keepsModuleDocumentationAheadOfImports()
-    local output = formatted(
-        'module format\n\n--[[A documented module.]]\nexport function read(): (string?, string?)\nreturn io.files.read("a")\nend\n'
+    local output = userFormatted(
+        'module format\n\n--[[A documented module.]]\nexport function read(): (string?, string?)\nreturn app.files.read("a")\nend\n'
     )
     assert(output:find('--[[A documented module.]]\nconst files', 1, true), output)
     local documented = require("nupp.tools.doc.extract").extract(output, "format.nupp", "format")
@@ -121,30 +164,31 @@ function M.doesNotRewritePlainLuaOrDisabledFiles()
     assert(fmt.format(disabled, "example.nupp") == disabled)
 end
 
-function M.reusesAnUnshadowedModuleBinding()
+function M.leavesAuthoredBuiltinImportsAndOtherQualifiedAccesses()
     local output = formatted('local files = require("io.files")\nreturn io.files.read("a"), files.exists("b")\n')
     assert(not output:find('const files', 1, true), output)
-    assert(output:find('return files.read("a"), files.exists("b")', 1, true), output)
+    assert(output:find('return io.files.read("a"), files.exists("b")', 1, true), output)
 end
 
 function M.keepsInnerAnnotationsBeforeImports()
-    local output = formatted('@!internal\nreturn io.files.read("a")\n')
+    local output = userFormatted('@!internal\nreturn app.files.read("a")\n')
     assert(output:find('@!internal\nconst files', 1, true), output)
 end
 
-function M.convertsAnExistingTypeAliasWithoutAddingAnotherAlias()
+function M.keepsDirectBuiltinTypeAliases()
     local output = formatted(
         'local type Bytes = binary.span.Span\nlocal function count(values: Bytes<uint8>): integer\nreturn #values\nend\nreturn count\n'
     )
-    assert(output:find('const {type Span as Bytes} = require("binary.span")', 1, true), output)
-    assert(not output:find('local type Bytes', 1, true), output)
+    assert(output:find('local type Bytes = binary.span.Span', 1, true), output)
+    assert(not output:find('require', 1, true), output)
+    compile(output)
 end
 
-function M.constructsTheSameRecordThroughADeclarationImport()
+function M.constructsTheSameRecordThroughItsBuiltinNamespace()
     local source = 'local function make(): io.files.TemporaryOptions\nreturn new io.files.TemporaryOptions(prefix = "fmt-test")\nend\nreturn make()\n'
     local output = formatted(source)
-    assert(output:find('const {TemporaryOptions}', 1, true), output)
-    assert(output:find('const {type TemporaryOptions}', 1, true), output)
+    assert(not output:find('require', 1, true), output)
+    assert(output:find('new io.files.TemporaryOptions', 1, true), output)
     local baseline = 'local files = require("io.files")\n' .. source:gsub(
         "io%.files%.TemporaryOptions",
         "files.TemporaryOptions"
@@ -163,8 +207,10 @@ function M.formatsIsolatedSignaturesWithoutImportsWhenRequested()
 end
 
 function M.preservesCodeOnTheModuleHeadersLine()
-    local output = formatted('module app; export function read(): (string?, string?) return io.files.read("a") end\n')
-    assert(output:find('const files = require("io.files")', 1, true), output)
+    local output = userFormatted(
+        'module app; export function read(): (string?, string?) return app.files.read("a") end\n'
+    )
+    assert(output:find('const files = require("app.files")', 1, true), output)
     assert(output:find('return files.read("a")', 1, true), output)
 end
 
@@ -187,8 +233,8 @@ return kind
     assert(not output:find('require("types.derive")', 1, true), output)
     assert(program.run(compile(output), "format", "format.nupp") == "array")
 
-    local mixed = formatted((source:gsub("return kind\n$", 'return io.files.exists("a"), kind\n')))
-    assert(mixed:find('const files2 = require("io.files")', 1, true), mixed)
+    local mixed = userFormatted((source:gsub("return kind\n$", 'return app.files.exists("a"), kind\n')))
+    assert(mixed:find('const files2 = require("app.files")', 1, true), mixed)
     assert(not mixed:find('require("types")', 1, true), mixed)
     assert(mixed:find("types.array(files)", 1, true), mixed)
 end
@@ -206,11 +252,63 @@ function M.ambientDeclarationsKeepTheirQualifiedNamespaces()
     assert(not ordinary:find("require", 1, true), ordinary)
     assert(ordinary:find("io.files.read", 1, true), ordinary)
     local runtime = formatted((source:gsub("@comptime ", "")))
-    assert(runtime:find('require("io.files")', 1, true), runtime)
+    assert(not runtime:find('require', 1, true), runtime)
+    assert(runtime:find('io.files.read', 1, true), runtime)
     local explicit = 'const files = require("io.files")\nlocal read: function(string): string = files.read\n'
     local authored, issues = formatter:format(explicit, "external.d.nupp")
     assert(#issues == 0, issues[1] and issues[1].msg)
     assert(authored:find('require("io.files")', 1, true), authored)
+end
+
+function M.shortensUserModuleAndGenericTypeAliases()
+    withUserModules(function(env)
+        local output = formatted('local files = app.files\nreturn files.read("a"), app.files.read("b")\n', env)
+        assert(output == 'local files = require("app.files")\nreturn files.read("a"), files.read("b")\n', output)
+        local typed = formatted(
+            'local type Bytes = app.span.Span\nlocal function count(values: Bytes<uint8>): integer return #values end\nreturn count\n',
+            env
+        )
+        assert(typed:find('const {type Span as Bytes} = require("app.span")', 1, true), typed)
+        compile(typed, env)
+    end)
+end
+
+function M.builtinNamespacesRemainQualifiedBesideUserImportsAndLexicalShadows()
+    local output = userFormatted(
+        [[
+local function fake(io)
+    return io.files.read("shadow")
+end
+local files = io.files
+local type Bytes = binary.span.Span
+return app.files.read("user"), io.files.read("builtin"), files, fake
+]]
+    )
+    assert(output:find('const files2 = require("app.files")', 1, true), output)
+    assert(output:find('io.files.read("shadow")', 1, true), output)
+    assert(output:find('io.files.read("builtin")', 1, true), output)
+    assert(output:find('local files = io.files', 1, true), output)
+    assert(output:find('local type Bytes = binary.span.Span', 1, true), output)
+    assert(
+        not output:find('require("io.files")', 1, true) and not output:find('require("binary.span")', 1, true),
+        output
+    )
+end
+
+function M.keepsBuiltinScopeBorrowingAndCallableLastSubmission()
+    local source = [[
+module format
+export function start(borrows scope: coroutine.Scope): integer
+    local child = scope:work(function(): integer return 1 end)
+    return child:await()
+end
+]]
+    local output = formatted(source)
+    assert(not output:find("require", 1, true), output)
+    assert(output:find("borrows scope: coroutine.Scope", 1, true), output)
+    assert(output:find("scope:work", 1, true) and output:find("child:await", 1, true), output)
+    compile(source)
+    compile(output)
 end
 
 return M

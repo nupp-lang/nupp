@@ -10,7 +10,7 @@ manifest already configured; the options here override it for one run.
 const {type Config} = require("nupp.tools.build.manifest")
 const {type Target} = require("nupp.tools.build.manifest")
 
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 
 local report = require("nupp.tools.cli.report")
 

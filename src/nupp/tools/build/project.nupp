@@ -798,7 +798,7 @@ function project.test(root: string?, args: {string}?, opts: project.TestOptions?
     -- A stamped compiler has no checkout root and is already its own executable.
     if argv[1] == "nupp" and argv[2] == "test" and argv[3] == "--internal-runner" then
         local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
-        argv[1] = compilerRoot and compilerRoot .. "/bin/nupp" or tostring(arg[0] or argv[1])
+        argv[1] = compilerRoot and compilerRoot .. "/bin/nupp" or tostring(io.cli.args[0] or argv[1])
     end
     local env: {[string]: string} = {}
     for key, value in pairs(test.env or {}) do

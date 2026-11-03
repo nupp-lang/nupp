@@ -23,6 +23,7 @@ local check = require("nupp.compiler.check")
 local envMod = require("nupp.compiler.project.env")
 local fs = require("nupp.compiler.fs")
 local syntax = require("nupp.compiler.syntax.docsyntax")
+local lexer = require("nupp.compiler.syntax.lexer")
 
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 if not HERE:match("^/") then
@@ -186,6 +187,24 @@ end
 -- Checks every block and returns one line per example that is wrong.
 local function examine(env, where, blocks, problems, counts)
     for _, block in ipairs(blocks) do
+        local tokens = lexer.lex(block.text)
+        for index, token in ipairs(tokens) do
+            if token.text == "require" then
+                local argument = tokens[index + 1]
+                if argument and argument.text == "(" then
+                    argument = tokens[index + 2]
+                end
+                local name = argument and argument.kind == "string" and argument.text:match("^[\"']([%w_.]+)[\"']$")
+                local builtin = name and (env.bundled[name] or not name:find(".", 1, true) and env.globals[name])
+                if builtin and not env.bundledInternal(name) then
+                    problems[
+                        #problems + 1
+                    ] = (
+                        "%s:%d: use builtin %s directly instead of require"
+                    ):format(where, block.line + token.line, name)
+                end
+            end
+        end
         if not marked(block, "fragment") then
             counts.checked = counts.checked + 1
             local errors = errorsOf(env, exampleName(where, block), block.text)

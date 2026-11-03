@@ -4,7 +4,7 @@ module serde.hex
 Bytes as hexadecimal.
 
 ```nupp
-const hex = require("serde.hex")
+const hex = serde.hex
 
 print(hex.encode("Nu"))          -- 4e75
 print(hex.decode("4E75"))        -- Nu

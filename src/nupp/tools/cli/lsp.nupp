@@ -16,7 +16,7 @@ everywhere and rejected afterwards.
 
 local json = require("serde.json")
 local fs = require("nupp.compiler.fs")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 
 local type CodeActionContext = {
     diagnostics: {any},

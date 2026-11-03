@@ -24,7 +24,7 @@ The streaming algorithms use the target's 32-bit operations. A selected
 `crypto.hmac_sha256` implementation supplies the one-shot HMAC functions.
 The module resolves that optional implementation during initialization.
 
-Public callers use [](binary.hash.digest) or [](binary.hash.mac); these snapshot
+Public callers use [](binary.digest) or [](binary.mac); these snapshot
 engines are private implementation details of their consuming provider contexts.
 ]]
 

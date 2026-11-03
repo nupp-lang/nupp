@@ -12,13 +12,11 @@ and a host never subscribes to a readiness source, so neither has to read past t
 other's operations to find its own.
 
 ```nupp:fragment
-local host = require("coroutine.suspension.host")
+local host = coroutine.suspension.host
 
 local function application(): nil
-    do
-        local installation = host.install(frameHandler)
-        work()
-    end
+    local installation = host.install(frameHandler)
+    work()
 end
 ```
 

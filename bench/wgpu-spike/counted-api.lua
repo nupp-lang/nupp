@@ -1,7 +1,7 @@
 -- Untimed shader conformance against Lua's numeric-for semantics.
 local ffi = require("ffi")
 local span = require("binary.span")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local generated = require("counted")
 local context = gpu.open()
 local size = 257 -- Includes a partially populated dispatch workgroup.

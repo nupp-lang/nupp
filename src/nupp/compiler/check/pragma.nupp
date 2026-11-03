@@ -64,8 +64,8 @@ function pragma.install(c: state.Checker): state.StatHandlers
         if nameToken == nil or functionType == nil or functionType.tag ~= "func" then
             return
         end
-        local gpuModule = c.env and c.env.resolveModule and c.env.resolveModule(c.env, "gpu") or nil
-        local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(c.env, "gpu") or nil
+        local gpuModule = c.env and c.env.resolveModule and c.env.resolveModule(c.env, "io.gpu") or nil
+        local exports = c.env and c.env.resolveModuleExports and c.env.resolveModuleExports(c.env, "io.gpu") or nil
         local context = nominalValue(
             exports and exports.types.Context or (gpuModule and c.fieldType(gpuModule, "Context") or nil)
         )

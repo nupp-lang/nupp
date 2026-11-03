@@ -1,8 +1,9 @@
 module types
 
 --[[
-`types` provides type builders, typed keys, stores, and generated debug formatting.
-Compiler-only builders run inside `@comptime` functions.
+`types` provides type builders, constraint validation, target layout queries,
+typed keys, stores, and generated debug formatting. Compiler-only builders run
+inside `@comptime` functions.
 
 ```nupp
 const theme: types.Key<string> = types.newkey("app.theme")
@@ -10,6 +11,10 @@ const store = types.newstore()
 store:set(theme, "dark")
 assert(store:get(theme) == "dark")
 ```
+
+`types.admit` validates a value against its constrained destination type.
+`types.sizeof`, `types.alignof`, and `types.offsetof` run inside a `comptime do`
+block against the selected build's `layoutTarget`.
 
 See [derives.md](docs/reference/derives.md) for [](Debug),
 [](types.derive) for recipes, and [](types.reflect) for reflection.
@@ -21,6 +26,9 @@ local api = {}
 
 --- The interface implemented by the Debug provider.
 type api.Debug = nupp.__Debug
+
+--- The C memory layout of a reified struct, with fields of type `Layout.Field`.
+type api.Layout = types.Layout
 
 --- A typed identity for a value in a [](Store).
 type api.Key<T> = store.Key<T>

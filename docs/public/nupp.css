@@ -1,7 +1,6 @@
 :root {
-  /* The documentation theme starts at 16px; raise the site-wide rem scale by
-   * roughly 15% so prose and supporting UI read comfortably at normal zoom. */
-  font-size: 115%;
+  /* Follow the browser's default text size. */
+  font-size: 100%;
   /* A palette surveyed across woodblock prints — thirty-eight colors: paper
    * through ink black, the earth/moss/indigo tones between, and (since the
    * survey ran short of both) three near-whites and three near-blacks, each
@@ -33,11 +32,8 @@
   --nuppdoc-dark-accent: #d64a3b;
   --nuppdoc-dark-accent-hover: color-mix(in srgb, #d64a3b 85%, white);
   --nuppdoc-dark-accent-soft: #161214;
-  /* True black for the page itself; code blocks sit one step up at the
-   * surveyed near-black instead, with the sidebar and header on a
-   * teal-black panel between the two, and the active/soft panel state on a
-   * different near-black again (mauve-toned) so all four stay tellable
-   * apart. */
+  /* The sidebar and header use a teal-black panel; active and soft panel
+   * states use a different near-black. */
   --nuppdoc-dark-background: #1c1917;
   --nuppdoc-dark-background-alt: #1b2626;
   --nuppdoc-dark-border: color-mix(in srgb, #50676c 65%, black);
@@ -288,9 +284,6 @@
   color: var(--nuppdoc-feature-heading);
 }
 
-.nuppdoc-content h2 {
-  border-top-width: 2px;
-}
 
 /* A `::: columns` block (see the home page's Learning Nupp / Language
  * reference / Performance / Guides groups) reads as peer lists rather than
@@ -376,7 +369,6 @@
   margin: 0;
   padding: 1.2rem 1.35rem;
   border-radius: 6px;
-  box-shadow: 0 18px 46px rgb(23 51 51 / 11%);
 }
 
 .nuppdoc-showcase-visual img {

@@ -364,14 +364,14 @@ local ENTRIES: {any} = {
     },
     {
         code = "NUPP2013",
-        summary = "nupp.admit was written without a constrained destination or with the wrong value",
-        rule = "`nupp.admit(value)` takes the constrained type it admits into from where "
+        summary = "types.admit was written without a constrained destination or with the wrong value",
+        rule = "`types.admit(value)` takes the constrained type it admits into from where "
         .. "its result goes: an annotated binding, a declared result, or a parameter. "
         .. "A destination that is not constrained gives it nothing to establish, and a "
         .. "value that is not already the constraint's base is a conversion rather than "
         .. "an admission, which this does not do.",
-        wrong = "local type Small = types.range(integer, 0, 10)\nlocal function of(v: integer): integer\n    return nupp.admit(v)\nend\nreturn of\n",
-        right = "local type Small = types.range(integer, 0, 10)\nlocal function of(v: integer): Small\n    return nupp.admit(v)\nend\nreturn of\n",
+        wrong = "local type Small = types.range(integer, 0, 10)\nlocal function of(v: integer): integer\n    return types.admit(v)\nend\nreturn of\n",
+        right = "local type Small = types.range(integer, 0, 10)\nlocal function of(v: integer): Small\n    return types.admit(v)\nend\nreturn of\n",
         related = {"NUPP2011", "NUPP2422"},
         docs = "docs/reference/diagnostics.md#nupp2013",
     },
@@ -2190,8 +2190,8 @@ ENTRIES[
 ] = {
     code = "NUPP2419",
     summary = "A layout intrinsic has no target, a bad shape, or an unknown field",
-    rule = "nupp.sizeof, nupp.alignof, and nupp.offsetof run only inside a comptime block, against the actual nupp global, with one concrete type argument (plus a compile-time-known field name for offsetof). Once the call's shape is right, it still needs the selected build's layoutTarget configured and a type with a runtime C layout to measure; a record or an unmodeled type has none. A program that only needs the host's own layout should measure it at runtime with ffi.sizeof instead.",
-    wrong = "local struct Value\n    n: int32\nend\nreturn comptime do return nupp.sizeof(Value) end\n",
+    rule = "types.sizeof, types.alignof, and types.offsetof run only inside a comptime block, against the actual types namespace, with one concrete type argument (plus a compile-time-known field name for offsetof). Once the call's shape is right, it still needs the selected build's layoutTarget configured and a type with a runtime C layout to measure; a record or an unmodeled type has none. A program that only needs the host's own layout should measure it at runtime with ffi.sizeof instead.",
+    wrong = "local struct Value\n    n: int32\nend\nreturn comptime do return types.sizeof(Value) end\n",
     right = "local struct Value\n    n: int32\nend\nlocal size = ffi.sizeof<Value>()\nreturn size\n",
     related = {"NUPP2410", "NUPP2416"},
     docs = "docs/reference/diagnostics.md#nupp2419",

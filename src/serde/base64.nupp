@@ -4,7 +4,7 @@ module serde.base64
 Standard base64.
 
 ```nupp
-const base64 = require("serde.base64")
+const base64 = serde.base64
 
 const text = base64.encode("Nupp")
 

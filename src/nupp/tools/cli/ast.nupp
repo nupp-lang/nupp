@@ -14,7 +14,7 @@ times it is a person.
 ]]
 
 local usageError = require("nupp.tools.cli.error").forCommand("ast")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 local report = require("nupp.tools.cli.report")
 
 local REPORT_SCHEMA = {

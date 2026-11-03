@@ -923,7 +923,7 @@ function M.osDateDerivesItsResultFromALiteralFormat()
                 "local utc = os.date('!*t')",
                 "const storedFormat = '*t'",
                 "local stored = os.date(storedFormat)",
-                "local chosen: DateFields | string = os.date(...)",
+                "local chosen: os.DateFields | string = os.date(...)",
                 "local at: number = os.time(os.date('*t'))",
                 "local year: integer, dst: boolean = fields.year, fields.isdst",
                 "return stamp, default, utc.yday, stored.wday, chosen, at, year, dst",
@@ -2886,23 +2886,23 @@ function M.aShapeMustCarryAnInterfacesDefaultMember()
 end
 
 -- A value the checker cannot prove is refused where it would enter a constrained
--- type, and `nupp.admit` is how the source says it meant it. The destination
+-- type, and `types.admit` is how the source says it meant it. The destination
 -- supplies the type, so nothing names it twice.
 function M.admissionIsWrittenWhereProofRunsOut()
     local alias = "local type Small = types.range(integer, 0, 10)\n"
-    clean(alias .. "local function of(v: integer): Small\n    return nupp.admit(v)\nend\nprint(of(1))")
-    clean(alias .. "local v: integer = 1\nlocal x: Small = nupp.admit(v)\nprint(x)")
+    clean(alias .. "local function of(v: integer): Small\n    return types.admit(v)\nend\nprint(of(1))")
+    clean(alias .. "local v: integer = 1\nlocal x: Small = types.admit(v)\nprint(x)")
     -- a proved value may be admitted too: a bound can move, and the source that
     -- says what it meant should keep compiling when it does
-    clean(alias .. "local function of(): Small\n    return nupp.admit(7)\nend\nprint(of())")
+    clean(alias .. "local function of(): Small\n    return types.admit(7)\nend\nprint(of())")
     -- the destination has to be constrained
     testAssert.eq(
-        codes(alias .. "local function of(v: integer): integer\n    return nupp.admit(v)\nend\nprint(of(1))"),
+        codes(alias .. "local function of(v: integer): integer\n    return types.admit(v)\nend\nprint(of(1))"),
         "NUPP2013"
     )
     -- and the value has to be the constraint's base: this admits, it does not convert
     testAssert.eq(
-        codes(alias .. "local function of(v: string): Small\n    return nupp.admit(v)\nend\nprint(of('x'))"),
+        codes(alias .. "local function of(v: string): Small\n    return types.admit(v)\nend\nprint(of('x'))"),
         "NUPP2013"
     )
 end
@@ -2920,7 +2920,7 @@ function M.admissionTestsWhatProofLeaves()
                 "    return v",
                 "end",
                 "local function of(v: number): Small",
-                "    return nupp.admit(read(v) as integer)",
+                "    return types.admit(read(v) as integer)",
                 "end",
                 "return of(1), pcall(of, 11), pcall(of, 1.5), reads",
             },
@@ -2932,7 +2932,28 @@ function M.admissionTestsWhatProofLeaves()
     testAssert.eq(high, false, "the test carries the upper bound")
     testAssert.eq(fraction, false, "an integer base tests integrality")
     testAssert.eq(reads, 3, "each admission reads its value once")
-    testAssert.eq(run(alias .. "local function of(): Small\n    return nupp.admit(7)\nend\nreturn of()", "admit"), 7)
+    testAssert.eq(run(alias .. "local function of(): Small\n    return types.admit(7)\nend\nreturn of()", "admit"), 7)
+end
+
+function M.admissionUsesTheTypesBindingAndRejectsRetiredNames()
+    clean(
+        [[
+local types = {admit = function(value: integer): string return tostring(value) end}
+local result: string = types.admit(7)
+return result
+]]
+    )
+    clean(
+        [[
+local type Small = types.range(integer, 0, 10)
+local query = types
+local function checked(value: integer): Small return query.admit(value) end
+return checked
+]]
+    )
+    for _, name in ipairs({"admit", "sizeof", "alignof", "offsetof"}) do
+        assert(codes("return nupp." .. name) ~= "", "retired nupp." .. name .. " must be refused")
+    end
 end
 
 -- One constraint is one type however it was reached: written in a type, returned
@@ -3087,9 +3108,9 @@ function M.admissionCarriesExactlyTheEffectsItLeft()
         return alias .. table.concat(
             {
                 "local function of(v: integer): Small",
-                "    local out: Small = nupp.admit(0)",
+                "    local out: Small = types.admit(0)",
                 "    " .. region .. " do",
-                "        out = nupp.admit(" .. value .. ")",
+                "        out = types.admit(" .. value .. ")",
                 "    end",
                 "    return out",
                 "end",
@@ -3138,7 +3159,7 @@ function M.aConstrainedTypeReachesAUnionAsItself()
     clean(alias .. "local function pass(v: Short): Short?\n    return v\nend\nprint(pass('ab'))")
     -- and an assignment into a field resolves what it admits into, like a binding
     local box = alias .. "local record Box\n    text: Short\nend\n"
-    clean(box .. "local function put(b: Box, v: string): nil\n    b.text = nupp.admit(v)\nend\nprint(put)")
+    clean(box .. "local function put(b: Box, v: string): nil\n    b.text = types.admit(v)\nend\nprint(put)")
 end
 
 function M.integerAliasesShareTheCanonicalRangeDomain()

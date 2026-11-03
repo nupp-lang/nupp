@@ -4,7 +4,7 @@ module coroutine.suspension.cancellation
 `coroutine.suspension.cancellation` identifies cancellation within one Lua state.
 
 ```nupp
-local cancellation = require("coroutine.suspension.cancellation")
+local cancellation = coroutine.suspension.cancellation
 local stopped = cancellation.create("read", "closed")
 assert(cancellation.is(stopped))
 ```

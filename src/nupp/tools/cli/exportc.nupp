@@ -3,7 +3,7 @@ module nupp.tools.cli.exportc
 -- `nupp export-c`: canonical C declarations for ordinary Nupp structs.
 
 local usageError = require("nupp.tools.cli.error").forCommand("export-c")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 local report = require("nupp.tools.cli.report")
 
 local REPORT_SCHEMA = {

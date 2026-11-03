@@ -11,7 +11,7 @@ determinism rests on.
 ]]
 
 local usageError = require("nupp.tools.cli.error").forCommand("fixpoint")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 
 local REPORT_SCHEMA = {
     type = "object",

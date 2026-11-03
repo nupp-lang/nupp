@@ -1,11 +1,16 @@
 local test = require("assert")
 local M = {}
 
-function M.theFacadeKeepsTerminalHelpersUnderItsOwnModule()
+function M.theCliModuleKeepsTerminalAndArgumentHelpersTogether()
     local original = rawget(_G, "io")
     local loaded = require("io")
     local write, stdout = original.write, original.stdout
-    local terminal = require("io.terminal")
+    local terminal = require("io.cli")
+    test.eq(terminal, require("io.cli"))
+    test.eq(terminal.args, rawget(_G, "arg"))
+    test.eq(type(terminal.parse), "function")
+    test.eq(type(terminal.application), "function")
+    test.eq(type(terminal.optparser), "function")
     test.eq(require("io"), loaded)
     test.eq(loaded, original)
     test.eq(original.write, write)
@@ -30,7 +35,7 @@ function M.theFacadeKeepsTerminalHelpersUnderItsOwnModule()
 end
 
 function M.theFacadeSharesTheApplicationColorPolicy()
-    local terminal = require("io.terminal")
+    local terminal = require("io.cli")
     local implementation = require("nupp.cli.internal.terminal")
     terminal.withcolormode("always", function()
         test.eq(implementation.colorEnabled(io.stderr), true)

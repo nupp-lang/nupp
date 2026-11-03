@@ -9,7 +9,7 @@ it found -- an array opens here, this byte range is a key, that one is a number
 
 ```nupp
 local u32 = math.u32
-local valuebuilder = require("serde.valuebuilder")
+local valuebuilder = serde.valuebuilder
 
 --- Decodes the fixed document `{"id": 41}`.
 --- @raises string when the stream is left incomplete
@@ -68,7 +68,7 @@ local implementation = require("nupp.serde.internal.valuebuilder")
 ---
 --- ```nupp
 --- local u32 = math.u32
---- local valuebuilder = require("serde.valuebuilder")
+--- local valuebuilder = serde.valuebuilder
 ---
 --- --- Builds `[true, null]` without a source document.
 --- --- @raises string when the stream is left incomplete

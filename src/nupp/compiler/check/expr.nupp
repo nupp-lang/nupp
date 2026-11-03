@@ -1531,7 +1531,7 @@ function expr.install(c: state.Checker): nil
                         "%s is not established as %s, and `as` does not establish it"
                     ):format(T.tostring(source), T.tostring(target)),
                     nil,
-                    {help = "use nupp.admit(value) to check it, or `value is " .. T.tostring(target) .. "` to test it"}
+                    {help = "use types.admit(value) to check it, or `value is " .. T.tostring(target) .. "` to test it"}
                 )
             end
             node.fixedWidthEstablished = nil

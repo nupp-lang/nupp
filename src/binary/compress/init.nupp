@@ -7,7 +7,7 @@ Ask for a format, then use its one-shot helpers or wrap a [](io) reader or
 writer:
 
 ```nupp:fragment
-local compression = require("binary.compress")
+local compression = binary.compress
 
 const gzip = compression.format("gzip")
 
@@ -745,7 +745,7 @@ export record Format
         exclusive destination: io.Buffer,
         options: ReaderOptions?
     ): nil
-        local source = io.newstringreader(storage.string(bytes:ref(), #bytes))
+        local source = io.newreader(storage.string(bytes:ref(), #bytes))
         local reader = self:newreader(source, options)
         local writer = destination:newwriter()
         local _, reason = reader:transferto(writer)

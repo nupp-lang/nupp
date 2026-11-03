@@ -7,8 +7,6 @@ const assert2 = require("assert")
 -- agent is run and how its work is recorded.
 
 local files = require("io.files")
-local paths = require("io.path")
-local process = require("nupp.io.process")
 
 local json = require("serde.json")
 
@@ -51,7 +49,7 @@ local function rounded(value: number, places: integer): number
 end
 
 function harness.absolute(path: string): string
-    local answer, reason = paths.newpath(path):absolute()
+    local answer, reason = io.newpath(path):absolute()
     if answer == nil then
         error(reason or "cannot make path absolute: " .. path, 2)
     end
@@ -60,11 +58,11 @@ function harness.absolute(path: string): string
 end
 
 function harness.join(first: string, ...: string): string
-    return paths.newpath(first):join(...):tostring()
+    return io.newpath(first):join(...):tostring()
 end
 
 function harness.parent(path: string): string
-    local parent = paths.newpath(path):parent()
+    local parent = io.newpath(path):parent()
     if parent == nil then
         return "."
     end
@@ -182,7 +180,7 @@ function harness.run(
     env: {[string]: string}?,
     timeoutSeconds: number?
 ): harness.CommandResult
-    local options: process.Options = {
+    local options: io.Process.Options = {
         args = launchable(argv),
         cwd = cwd,
         env = env,
@@ -196,7 +194,7 @@ function harness.run(
         )
         or nil,
     }
-    local child, spawnProblem = process.spawn(options)
+    local child, spawnProblem = io.popen(options)
     if child == nil then
         error("cannot start " .. tostring(argv[1]) .. ": " .. tostring(spawnProblem), 2)
     end

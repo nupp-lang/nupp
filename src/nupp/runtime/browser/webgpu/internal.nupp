@@ -16,8 +16,8 @@ Synchronization and host responses may suspend. Context-dependent values retain
 their context borrows, and closing the context or any of its children queues
 the host's destruction without waiting for it.
 
-The browser application must install WebGPU effects and memory before requiring
-[](gpu). Its facade binds `open` directly; dispatch and cleanup use
+The browser application must install WebGPU effects and memory before using
+[](io.gpu). Its facade binds `open` directly; dispatch and cleanup use
 retained context state without service lookups.
 ]]
 

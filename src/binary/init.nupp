@@ -5,7 +5,6 @@ module binary
 mutable set of bit positions counting from zero.
 
 ```nupp
-local binary = require("binary")
 local selected = new binary.Bitset(64)
 selected:set(31)
 selected:set(32)
@@ -16,7 +15,7 @@ A bitset keeps 32 positions in each stored word. Positions and word indexes
 start at zero; `wordat` returns a signed 32-bit word. The set grows as positions
 are added, and clearing it retains capacity for reuse.
 
-See [](binary.span) for checked storage views, [](binary.hash) for byte hashing,
+See [](binary.span) for checked storage views, [](binary.digest) for digests,
 and [](binary.compress) for compression streams.
 ]]
 
@@ -26,3 +25,8 @@ local bitset = require("nupp.util.internal.bitset")
 export type Bitset = bitset.Bitset
 
 export const Bitset = bitset.Bitset
+
+local hash = require("nupp.util.internal.hash")
+
+--- Hashes bytes with FNV-1a over 64 bits, as sixteen lowercase hexadecimal digits.
+export const fnv1a64 = hash.fnv1a64

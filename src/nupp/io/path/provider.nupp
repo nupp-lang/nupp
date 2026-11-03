@@ -3,17 +3,17 @@ module nupp.io.path.provider
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
-local contracts = require("io.path.spi")
+local contracts = require("io.spi")
 
-local provider: contracts.Provider = do
-    const chosen = spi.select(spi.providers<contracts.Provider>("io.path.spi.Provider"))
+local provider: contracts.PathProvider = do
+    const chosen = spi.select(spi.providers<contracts.PathProvider>("io.spi.PathProvider"))
     if chosen ~= nil then
         yield chosen
     end
     if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativepath") as contracts.Provider
+        yield _G.require("nupp.runtime.provider.nativepath") as contracts.PathProvider
     end
-    yield _G.require("nupp.runtime.browser.path") as contracts.Provider
+    yield _G.require("nupp.runtime.browser.path") as contracts.PathProvider
 end
 
 export = provider

@@ -115,8 +115,7 @@ and a field that Debug can render need not have a JSON representation. A caller
 can also render an explicit binding or append to an existing Buffer:
 
 ```nupp
-local serde = require("serde")
-local debug = require("serde.debug")
+local debug = serde.debug
 local struct Vec2
     x: float
     y: float
@@ -136,8 +135,6 @@ into storage it already holds. It generates no members; what it adds is the
 bounded by.
 
 ```nupp
-local events = require("events")
-
 @derive(events.event)
 @event(name = "combat.Damage")
 local record Damage

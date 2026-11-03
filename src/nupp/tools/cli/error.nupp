@@ -1,6 +1,6 @@
 module nupp.tools.cli.error
 
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
 local errors = {}
 

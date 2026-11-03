@@ -1,7 +1,7 @@
 const assert2 = require("assert")
 
-local gpu = require("gpu")
-local layout = require("gpu.layout")
+local gpu = require("io.gpu")
+local layout = require("io.gpu.layout")
 
 local M = {}
 

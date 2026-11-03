@@ -1,0 +1,78 @@
+module io.spi
+
+--[[Implementation interfaces consumed during ordinary module initialization.
+Discover with package.providers; the consumer chooses the unique highest priority.
+Omitted priority is zero. Importing these declarations loads no implementation.]]
+
+--- Environmental path facts, independent of lexical path manipulation.
+---
+--- sep reports the host convention. cwd and canonicalize may
+--- return nil with an explanatory message when the host has no such facility or
+--- an operating-system operation fails. The public path type is `io.Path`.
+export interface PathProvider
+    @readonly priority: integer?
+
+    --- Returns the host path separator.
+    @readonly sep: function(): string
+
+    --- Returns the process directory or nil and an environmental error.
+    @readonly cwd: function(): (string?, string?)
+
+    --- Resolves a host filesystem path or returns nil and an error.
+    @readonly canonicalize: function(path: string): (string?, string?)
+end
+
+--- Normalized absolute-URI components shared by every parser.
+---
+--- Every parser reads text as the WHATWG URL Standard's basic URL parser does
+--- (https://url.spec.whatwg.org/), so text is the standard's serialization and
+--- each component is the standard's. A parser without IDNA refuses a
+--- special-scheme host that needs it rather than answering another host.
+---
+--- Use nil for an absent optional component and an empty string for a present empty
+--- one; an empty password is absent, as the standard drops it. The public URI
+--- wrapper uses this record without introducing a provider-specific nominal
+--- identity.
+export record UriParts
+    --- Normalized complete URI text.
+    text: string
+
+    --- Normalized scheme without the colon.
+    scheme: string
+
+    --- Serialized authority, or nil if the URI has none.
+    authority: string?
+
+    --- Username component, empty when absent.
+    username: string
+
+    --- Password component, or nil when absent or empty.
+    password: string?
+
+    --- Normalized host, or nil for a URI without one.
+    host: string?
+
+    --- Explicit non-default port when present.
+    port: integer?
+
+    --- Normalized path component.
+    path: string
+
+    --- Query without its question mark, or nil when absent.
+    query: string?
+
+    --- Fragment without its hash mark, or nil when absent.
+    fragment: string?
+end
+
+--- Absolute-URI parsing into canonical components, by the WHATWG URL Standard.
+---
+--- Return nil and a diagnostic for unsupported or invalid input. Successful parses
+--- must make text, authority, host, port, and path mutually consistent and preserve
+--- absent versus empty query and fragment values.
+export interface UriProvider
+    @readonly priority: integer?
+
+    --- Parses an absolute URI into shared components or returns nil and a message.
+    @readonly parse: function(text: string): (UriParts?, string?)
+end

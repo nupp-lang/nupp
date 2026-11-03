@@ -2,7 +2,7 @@
 
 module nupp.vm.storagebinding
 
-const {type CstorageProvider} = require("nupp.mem.representation.spi")
+const {type CstorageProvider} = require("nupp.spi")
 local binding: any = package.loaded["nupp.runtime.provider.nativestorage"]
 assert(type(binding) == "table", "the frozen VM storage provider is unavailable")
 

@@ -332,7 +332,7 @@ whole-span loop iteration to one GPU invocation. With the native `aot =
 "require"` policy, the compiler emits canonical SPIR-V for the Rust WGPU
 provider and replaces the declaration with a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
-resident `gpu.Buffer<T>` values in the span parameters' order and types, and
+resident `io.gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block. The
 kernel returned by `compile` borrows its context, and the binding returned by
 `bind` borrows its kernel; both are closeable.
@@ -343,7 +343,7 @@ running on it finds no device.
 
 The GPU subset has two entry shapes. A complete-span map assigns one invocation
 to every element. A structured workgroup entry ends in
-`gpu.workgroups(groups, size, controller)`: `controller` allocates statically
+`io.gpu.workgroups(groups, size, controller)`: `controller` allocates statically
 sized scratch with `phases:scratch` and divides execution into immediate
 `phases:run` callbacks. On CPU each callback runs for local indices zero through
 `size - 1` before the next callback begins; on GPU the boundary is a workgroup

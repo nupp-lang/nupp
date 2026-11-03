@@ -3,7 +3,7 @@ module demo.derived
 const assert2 = require("assert")
 const own2 = require("own")
 
-local cli = require("arg")
+local cli = require("io.cli")
 local derive = require("nupp.derive")
 local json = require("serde.json")
 local constructed = require("demo.qualifiedconstructor")

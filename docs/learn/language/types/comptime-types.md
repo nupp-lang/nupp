@@ -354,13 +354,13 @@ result type rather than `any`:
 
 ```nupp
 local stamp: string = os.date("%Y-%m-%dT%H:%M:%S")
-local fields: DateFields = os.date("*t")
+local fields: os.DateFields = os.date("*t")
 print(fields.year, fields.isdst)
 ```
 
 A leading `!` selects UTC and does not change the result, so `"!*t"` is
-`DateFields` too. Omitting the format formats with `"%c"` and returns a string.
-A format the compiler cannot read returns `DateFields | string`, which narrows
+`os.DateFields` too. Omitting the format formats with `"%c"` and returns a string.
+A format the compiler cannot read returns `os.DateFields | string`, which narrows
 like any other union.
 
 Two literal formats are rejected rather than typed, both with `NUPP2006`. One

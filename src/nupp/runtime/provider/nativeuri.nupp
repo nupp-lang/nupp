@@ -8,7 +8,7 @@ library's C ABI. Absent components stay distinct from present empty strings,
 and parsing errors return `nil, message`.
 ]]
 
-local contracts = require("io.uri.spi")
+local contracts = require("io.spi")
 const host = require("nupp.vm.uri")
 
 local function parse(text: string): (contracts.UriParts?, string?)
@@ -31,5 +31,5 @@ local function parse(text: string): (contracts.UriParts?, string?)
     )
 end
 
-local checked: contracts.Provider = {parse = parse}
+local checked: contracts.UriProvider = {parse = parse}
 export = checked

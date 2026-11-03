@@ -27,7 +27,7 @@ local tasks = require("coroutine")
 local io = require("io")
 local privateIo = require("nupp.io")
 local span = require("binary.span")
-local uri = require("io.uri")
+local uri = require("io.internal.uri")
 const messages = require("nupp.io.http.messages")
 local contracts = require("io.http.spi")
 local http = {}
@@ -606,11 +606,9 @@ end
 --- wanted the status does.
 ---
 --- ```nupp:fragment
---- do
----     local response = assert(client:send(request))
----     if response:ok() then
----         print(response:header("content-type"))
----     end
+--- local response = assert(client:send(request))
+--- if response:ok() then
+---     print(response:header("content-type"))
 --- end
 --- ```
 record http.Response is contracts.Response
@@ -804,12 +802,10 @@ record http.Client is BodyClient, contracts.Client
     --- Keep one for the program rather than one per request.
     ---
     --- ```nupp:fragment
-    --- do
-    ---     local client = http.newclient({
-    ---         useragent = "nupp/1",
-    ---         timeoutms = 5000,
-    ---     })
-    --- end
+    --- local client = http.newclient({
+    ---     useragent = "nupp/1",
+    ---     timeoutms = 5000,
+    --- })
     --- ```
     ---
     --- @param self the client being initialized
@@ -923,13 +919,11 @@ end
 --- reason.
 ---
 --- ```nupp:fragment
---- do
----     local response, reason = client:send(new http.Request(
----         url = assert(uri.newURI("https://example.com/data.json"))
----     ))
----     assert(response, reason)
----     local text = assert(response.body:read(1 << 20))
---- end
+--- local response, reason = client:send(new http.Request(
+---     url = assert(uri.newuri("https://example.com/data.json"))
+--- ))
+--- assert(response, reason)
+--- local text = assert(response.body:read(1 << 20))
 --- ```
 ---
 --- The request is borrowed for the transfer. Its owner may close it explicitly or

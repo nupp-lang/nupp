@@ -42,7 +42,7 @@
 @@ -0,0 +1,3 @@
 +module nupp.spi.index
 +
-+export = {["nupp.text.spi.Provider"] = {"nupp.runtime.provider.tablebuffer"}}
++export = {["nupp.spi.BufferProvider"] = {"nupp.runtime.provider.tablebuffer"}}
 --- a/src/tecs/internal/archetype.nupp
 +++ b/src/tecs/internal/archetype.nupp
 @@ -14,0 +15,6 @@

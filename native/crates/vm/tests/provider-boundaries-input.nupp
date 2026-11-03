@@ -10,7 +10,7 @@ function probe.run(): integer
     assert(info.pointerbits == raw.pointerbits and info.parallelism >= 1)
     assert(info.endianness == raw.endianness and #standard.randombytes(3) == 3)
     assert(standard.value == rawget(_G, "os"))
-    local digest = require("binary.hash.digest")
+    local digest = require("binary.digest")
     local algorithm = digest.algorithm("sha256")
     assert(algorithm.digestsize == 32 and (algorithm as any).digestSize == nil)
     local context = algorithm:newdigest()

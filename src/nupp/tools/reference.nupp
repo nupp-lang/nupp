@@ -2136,12 +2136,12 @@ the same bounds written in a type are the same type. The alias name is what
 hover and diagnostics show.
 
 Entering one is admission rather than subtyping. A value the compiler can prove
-needs nothing written; a value it cannot is refused, and `nupp.admit(value)`
+needs nothing written; a value it cannot is refused, and `types.admit(value)`
 says the program meant it. That is the rule `int32` already follows, and for the
 same reason: `as` is erased, so it can claim a value is one of these but cannot
 establish it, and claiming it is `NUPP2013`.
 
-`nupp.admit` takes the type from where its result goes -- an annotated binding, a
+`types.admit` takes the type from where its result goes -- an annotated binding, a
 declared result, a parameter, an assignment to a declared binding -- so nothing
 names it twice. It raises when the constraint does not hold. `value is Type` is
 the same test without the raise, for a caller that wants to recover.
@@ -2178,7 +2178,7 @@ function m.widen(value: Digit): Percent
 end
 
 function m.shift(value: integer): ShiftCount
-    return nupp.admit(value)
+    return types.admit(value)
 end
 
 function m.label(text: string): Short?
@@ -2303,7 +2303,7 @@ maps one whole-span loop iteration to one GPU invocation. With the native `aot =
 canonical SPIR-V for the Rust WGPU provider and replaces the declaration with
 a typed kernel specification. Its
 `compile(context)` method owns the shader and entrypoint, `bind(...)` accepts
-resident `gpu.Buffer<T>` values in the span parameters' order and types, and
+resident `io.gpu.Buffer<T>` values in the span parameters' order and types, and
 `dispatch(...)` accepts the scalar parameters and packs their uniform block.
 The kernel returned by `compile` borrows its context, and the binding returned
 by `bind` borrows its kernel; both are closeable. `aot = "off"` retains the
@@ -2327,7 +2327,7 @@ indices and use its physical extent for cursor bounds. Host transfers and
 dispatch-indexed spans remain dense; broadcast views are read-only because
 their zero strides alias.
 
-A structured kernel calls `gpu.workgroups(groups, size, controller)` with
+A structured kernel calls `io.gpu.workgroups(groups, size, controller)` with
 `groups` written as `u32.div(u32.wrap(#span), size)` and a literal `size` from
 1 through 256. It runs exactly that many groups, floor(`#span` / `size`), on
 the CPU and on the device alike: when the span is not a whole number of groups,
@@ -2650,12 +2650,11 @@ local m = {}
 
 local http = require("io.http")
 local tasks = require("coroutine")
-local uri = require("io.uri")
 
 function m.statuses(urls: {string}): {integer}
     local function storeStatus(codes: {integer}, index: integer, url: string): nil
         local client = http.newclient()
-        local response = assert(client:send(new http.Request(url = assert(uri.newuri(url)))))
+        local response = assert(client:send(new http.Request(url = assert(io.newuri(url)))))
         codes[index] = response.status
         response:close()
     end
@@ -2962,7 +2961,7 @@ directly as `kind`, `name`, `fields`, `annotations`, and `fingerprint`.
 Comptime code reads descriptor members, uses `#`, and traverses arrays with
 deterministic `ipairs` or `pairs`. Views preserve identity for equality, reject
 mutation, and cannot escape as runtime tables. Reflection reads declared meaning
-rather than FFI layout, so `nupp.sizeof`, `nupp.alignof`, and `nupp.offsetof`
+rather than FFI layout, so `types.sizeof`, `types.alignof`, and `types.offsetof`
 use the build's `layoutTarget` instead.
 
 The fingerprint is computed from the canonical semantic graph rather than the

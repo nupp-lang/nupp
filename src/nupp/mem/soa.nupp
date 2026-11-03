@@ -15,11 +15,9 @@ local struct Position
 end
 
 local positions = soa.alloc(ffi.typeof<Position>(), 128)
-do
-    local rows = positions:write()
-    for index = 1, #rows do
-        rows[index].x += rows[index].velocity
-    end
+local rows = positions:write()
+for index = 1, #rows do
+    rows[index].x += rows[index].velocity
 end
 ```
 
@@ -352,10 +350,8 @@ sealed interface soa.WriteSpan<T>
     --- ever materialized.
     ---
     --- ```nupp:fragment
-    --- do
-    ---     local rows = target:write()
-    ---     rows:copyfrom(3, source:read(), 1, 2)
-    --- end
+    --- local rows = target:write()
+    --- rows:copyfrom(3, source:read(), 1, 2)
     --- ```
     copyfrom: function(
         exclusive self: WriteSpan<T>,
@@ -605,10 +601,8 @@ end
 ---
 --- ```nupp:fragment
 --- local positions = soa.alloc(ffi.typeof<Position>(), 128)
---- do
----     local rows = positions:write()
----     rows[1].x = 3.5
---- end
+--- local rows = positions:write()
+--- rows[1].x = 3.5
 --- ```
 ---
 --- @param element the ctype of a row

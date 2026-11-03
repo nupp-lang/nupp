@@ -65,7 +65,7 @@ function M.writerAndReaderComposeWithByteIo(): nil
     test(writer:write("world"))
     test(writer:finish())
 
-    local source = io.newstringreader(encoded:getstring())
+    local source = io.newreader(encoded:getstring())
     local reader = gzip:newreader(source, {workspacebytes = 3})
     local decoded = io.newbuffer()
     local destination = decoded:newwriter()

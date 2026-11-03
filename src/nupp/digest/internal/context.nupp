@@ -15,7 +15,7 @@ context operations perform no provider resolution.
 const span = require("binary.span")
 const storage = require("nupp.runtime.storage")
 const hex = require("serde.hex")
-const provider = require("binary.hash.digest.spi")
+const provider = require("binary.digest.spi")
 const {type Writer} = require("io")
 
 export interface Digest is Writer

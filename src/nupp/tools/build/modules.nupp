@@ -851,11 +851,11 @@ local function openSession(
 
     local function stageGpuRuntime(): nil
         stageBundled("nupp.gpu.internal")
-        stageBundled("gpu.layout")
+        stageBundled("io.gpu.layout")
         if target.host ~= "browser" then
             stageBundled("nupp.runtime.native")
         end
-        stageBundled("gpu")
+        stageBundled("io.gpu")
     end
 
     return new modules.Session(

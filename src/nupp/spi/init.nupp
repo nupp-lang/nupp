@@ -1,0 +1,295 @@
+module nupp.spi
+
+--[[
+`nupp.spi` declares service-provider contracts for host facilities.
+Packages advertise implementations through `package.providers`; consumers select
+one with `package.select`.
+
+```nupp:fragment
+local providers = package.providers<nupp.spi.ClockProvider>()
+local clock = assert(package.select(providers))
+print(clock.now())
+```
+
+Importing these declarations selects no provider. Each consumer retains its own
+selection and fallback policy. Omitted priorities are zero, and the unique
+highest priority wins where a consumer uses `package.select`.
+]]
+
+local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
+
+--- Cryptographically secure randomness for the executing host.
+---
+--- Use the host secure random source and propagate its failures. Deterministic
+--- pseudo-random generators do not satisfy this contract. Host requests may suspend.
+export interface EntropyProvider
+    @readonly priority: integer?
+
+    --- Returns exactly count random bytes. Accepts integers from zero through
+    --- 1048576; zero returns an empty string. Raises on invalid counts or failure.
+    @readonly randombytes: function(count: integer): string
+end
+
+--- Facts and a parallelism query for the executing ABI.
+export interface SystemProvider
+    @readonly priority: integer?
+
+    --- Platform name, such as macos, linux, windows, or browser.
+    @readonly platform: string
+
+    --- Architecture name, such as aarch64, x86_64, or wasm32.
+    @readonly architecture: string
+
+    --- Byte order: little or big.
+    @readonly endianness: string
+
+    --- Pointer width in bits: 32 or 64.
+    @readonly pointerbits: integer
+
+    --- Estimates usable execution units, always at least one.
+    @readonly availableparallelism: function(): integer
+end
+
+--- Clocks and cancellable waits, measured in milliseconds.
+---
+--- now is monotonic with an unspecified origin; walltime is Unix epoch time and
+--- must not be used for monotonic deadlines. wakeat and sleepuntil use the same
+--- origin as now. Finite non-negative durations and deadlines are required.
+--- Waits cooperate with the selected suspension implementation. Timer callbacks and
+--- cancellation functions belong to the current Lua state.
+export interface ClockProvider
+    @readonly priority: integer?
+
+    --- Schedules a deadline callback and returns its cancellation function.
+    --- Registration itself must not suspend the subscriber.
+    @readonly wakeat: function(deadline: number, resume: function(boolean): nil): function(): nil
+
+    --- Returns monotonic milliseconds used for durations and deadlines.
+    @readonly now: function(): number
+
+    --- Returns milliseconds since the Unix epoch.
+    @readonly walltime: function(): number
+
+    --- Waits for a relative interval through the current suspension context.
+    @readonly sleep: function(ms: number): nil
+
+    --- Waits until an absolute deadline in the now clock domain.
+    @readonly sleepuntil: function(deadline: number): nil
+end
+
+--- Canonical lowercase, hyphenated UUID generation for [](os.uuid4) and [](os.uuid7).
+---
+--- Version 4 provides random UUIDs and version 7 provides time-ordered UUIDs.
+--- Version and variant bits must be correct; randomness failures must be reported.
+export interface UuidProvider
+    @readonly priority: integer?
+
+    --- Generates a random version 4 UUID.
+    @readonly uuid4: function(): string
+
+    --- Generates a time-ordered version 7 UUID.
+    @readonly uuid7: function(): string
+end
+
+--- Construction of the canonical portable FIFO Buffer.
+---
+--- Return the shared Buffer type from nupp.text.internal.buffer. Implementations may
+--- use native objects or portable state, but all signatures and chaining results
+--- must retain that identity. Native pointer and serializer facilities are outside
+--- this portable contract.
+export interface BufferProvider
+    @readonly priority: integer?
+
+    --- Creates an independent FIFO buffer; accepts a size hint or an options table.
+    @readonly new: function(size: (integer | table)?, options: table?): SharedBuffer
+end
+
+--- Called with the results of a call whose caller stopped waiting.
+export type Late = function(...: any): nil
+
+--- What a full stream does with one more message: suspend the sender until
+--- the stream ships (`block`, outbound only), keep only the newest (`latest`),
+--- or drop the oldest past the limit (`dropoldest`).
+export type Policy = "block" | "latest" | "dropoldest"
+
+export interface HostProvider
+    --- Ranks a discovered implementation; the highest unique priority wins.
+    @readonly priority: integer?
+
+    --- Reports whether something is attached to answer requests at all.
+    @readonly attached: function(): boolean
+
+    --- Sends a request and suspends until the host answers it.
+    --- Raises the host's failure as an error in the caller.
+    @readonly call: function(kind: string, late: Late?, ...: any): ...any
+
+    --- Queues a request for the host without waiting for its answer.
+    @readonly post: function(kind: string, ...: any): nil
+
+    --- Appends a message to the kind's outbound stream, applying `policy` with
+    --- `limit` when the stream already holds that many unshipped messages.
+    @readonly send: function(kind: string, policy: Policy, limit: integer, ...: any): nil
+
+    --- Delivers the kind's inbound messages to `deliver` at each turn boundary,
+    --- keeping at most `limit` per turn as `policy` says. Returns two
+    --- functions: one stops the route when called; the other returns how many
+    --- messages it has dropped.
+    @readonly route: function(
+        kind: string,
+        policy: Policy,
+        limit: integer,
+        deliver: function(...: any): nil
+    ): (function(): nil, function(): integer)
+end
+
+--- Casts storage to elements of any supplied ctype.
+---
+--- The implementation must remain generic in T and use the target's representation;
+--- accepting one particular element type is not sufficient.
+export type CastElements = function<T>(element: ctype<T>, pointer: any): any
+
+--- A coherent family of physical storage operations.
+---
+--- `representation` is `native`, the only family Nupp compiles for, and the facade
+--- checks it before publishing this table: a provider built for some other layout
+--- cannot be selected into a program whose layout is already compiled.
+---
+--- Allocation, descriptors, scalar codecs, and copies must agree on byte order,
+--- alignment, width, and pointer units. Decode inputs contain at least the scalar
+--- width in bytes. Borrowed views preserve source lifetimes;
+--- `borrows`, generic casts, and const views are part of the implementation contract.
+--- Opaque values in these signatures carry provider storage, not permission to
+--- change a compiled representation at runtime.
+export interface CstorageProvider
+    @readonly priority: integer?
+
+    --- Returns the requested count after any representation-specific extent check.
+    --- Callers remain responsible for valid native pointer extents.
+    @readonly boundedcount: function(borrows source: any, count: integer): integer
+
+    --- The storage family this table implements, which must be `native`.
+    @readonly representation: string
+
+    --- Struct descriptors and row operations sharing this storage family.
+    @readonly structs: StructvalueProvider?
+
+    --- Returns target layout facts for a type or descriptor, where the family reports
+    --- them.
+    @readonly layout: (function(subject: any): any)?
+
+    --- Returns the canonical descriptor for a scalar kind within this provider.
+    @readonly scalar: function(kind: string): any
+
+    --- Reports layout and bounds for a provider value.
+    @readonly descriptor: function(value: any): any
+
+    --- Creates a deferred descriptor reference for recursive layouts.
+    @readonly reference: (function(resolve: function(): any): any)?
+
+    --- Allocates count elements of the supplied descriptor.
+    @readonly allocarray: function(element: any, count: integer): any
+
+    --- Allocates a writable byte region containing count bytes.
+    @readonly allocbytes: function(count: integer): uint8[?]
+
+    --- Returns a read-only byte view whose lifetime borrows the source string.
+    @readonly borrowstring: function(borrows bytes: string): const uint8[?] borrows (bytes)
+
+    --- Returns a read-only byte view borrowing the pointer owner.
+    @readonly castbytes: function(borrows pointer: any): const uint8[?] borrows (pointer)
+
+    --- Interprets a pointer using any supplied element ctype.
+    @readonly castelements: CastElements
+
+    --- Copies count bytes into destination without replacing its owner.
+    @readonly copy: function(borrows destination: any, borrows source: any, count: integer): nil
+
+    --- Fills count bytes in destination with the given byte value.
+    @readonly fill: function(destination: any, count: integer, value: integer): nil
+
+    --- Returns the descriptor size in bytes.
+    @readonly sizeof: function(element: any): integer
+
+    --- Copies count source bytes into an independent Lua string.
+    @readonly string: function(borrows source: any, count: integer): string
+
+    --- Decodes a unsigned 8-bit integer using the target storage byte order.
+    @readonly decodeuint8: function(bytes: string): uint32
+
+    --- Encodes a unsigned 8-bit integer using the target storage byte order.
+    @readonly encodeuint8: function(value: uint32): string
+
+    --- Decodes a signed 8-bit integer using the target storage byte order.
+    @readonly decodeint8: function(bytes: string): int32
+
+    --- Encodes a signed 8-bit integer using the target storage byte order.
+    @readonly encodeint8: function(value: int32): string
+
+    --- Decodes a unsigned 16-bit integer using the target storage byte order.
+    @readonly decodeuint16: function(bytes: string): uint32
+
+    --- Encodes a unsigned 16-bit integer using the target storage byte order.
+    @readonly encodeuint16: function(value: uint32): string
+
+    --- Decodes a signed 16-bit integer using the target storage byte order.
+    @readonly decodeint16: function(bytes: string): int32
+
+    --- Encodes a signed 16-bit integer using the target storage byte order.
+    @readonly encodeint16: function(value: int32): string
+
+    --- Decodes a unsigned 32-bit integer using the target storage byte order.
+    @readonly decodeuint32: function(bytes: string): uint32
+
+    --- Encodes a unsigned 32-bit integer using the target storage byte order.
+    @readonly encodeuint32: function(value: uint32): string
+
+    --- Decodes a signed 32-bit integer using the target storage byte order.
+    @readonly decodeint32: function(bytes: string): int32
+
+    --- Encodes a signed 32-bit integer using the target storage byte order.
+    @readonly encodeint32: function(value: int32): string
+
+    --- Decodes a unsigned 64-bit integer using the target storage byte order.
+    @readonly decodeuint64: function(bytes: string): uint64
+
+    --- Encodes a unsigned 64-bit integer using the target storage byte order.
+    @readonly encodeuint64: function(value: uint64): string
+
+    --- Decodes a signed 64-bit integer using the target storage byte order.
+    @readonly decodeint64: function(bytes: string): int64
+
+    --- Encodes a signed 64-bit integer using the target storage byte order.
+    @readonly encodeint64: function(value: int64): string
+
+    --- Decodes an IEEE-754 binary32 value using the target storage byte order.
+    @readonly decodefloat32: function(bytes: string): float32
+
+    --- Encodes an IEEE-754 binary32 value using the target storage byte order.
+    @readonly encodefloat32: function(value: number): string
+
+    --- Decodes an IEEE-754 binary64 value using the target storage byte order.
+    @readonly decodefloat64: function(bytes: string): number
+
+    --- Encodes an IEEE-754 binary64 value using the target storage byte order.
+    @readonly encodefloat64: function(value: number): string
+end
+
+--- Struct-value operations supplied as part of the storage family.
+---
+--- Descriptors, arrays, and constructed values must agree with compiler layouts and
+--- canonical struct declarations. referencevalued reports whether a row reference
+--- addresses the underlying storage. The storage implementation
+--- supplies compatible struct operations as part of the same family.
+export interface StructvalueProvider
+    --- Returns a scalar descriptor accepted by define and array.
+    @readonly scalar: function(kind: string): any
+
+    --- Allocates count elements using this family's element descriptor.
+    @readonly array: function(element: any, count: integer): any
+
+    --- Constructs a type descriptor from a compiler layout and method table.
+    @readonly define: function(layout: any, methods: table): any
+
+    --- Whether row references address their underlying storage.
+    @readonly referencevalued: boolean
+end

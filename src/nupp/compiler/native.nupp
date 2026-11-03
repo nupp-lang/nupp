@@ -71,8 +71,7 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "files_runtime",
         module = "io.files",
-        modules = {"nupp.io.files"},
-        runtimeModule = "nupp.io.files",
+        runtimeModule = "io.files",
         portableRuntime = true,
         requires = {
             "runtime.files_messages",
@@ -83,14 +82,12 @@ local FEATURES: {[string]: native.Feature} = {
             "stdlib.io",
         }
     },
-    [
-        "runtime.files_messages"
-    ] = {name = "files_messages", runtimeModule = "nupp.io.files.messages", portableRuntime = true},
+    ["runtime.files_messages"] = {name = "files_messages", runtimeModule = "io.files.messages", portableRuntime = true},
     [
         "runtime.files_path"
     ] = {
         name = "files_path",
-        runtimeModule = "nupp.io.files.path",
+        runtimeModule = "io.files.internal.path",
         portableRuntime = true,
         requires = {"runtime.path", "stdlib.io"},
     },
@@ -98,7 +95,7 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.files_spi"
     ] = {
         name = "files_spi",
-        runtimeModule = "nupp.io.files.spi",
+        runtimeModule = "io.files.spi",
         portableRuntime = true,
         requires = {"runtime.files_messages", "runtime.files_path", "stdlib.io"},
     },
@@ -122,8 +119,10 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.process"
     ] = {
         name = "process_runtime",
-        module = "nupp.io.process",
-        runtimeModule = "nupp.io.process",
+        module = "io.internal.process",
+        globals = {"io.popen"},
+        exports = {"nupp.runtime.standardio.popen"},
+        runtimeModule = "io.internal.process",
         portableRuntime = true,
         requires = {"runtime.suspension"}
     },
@@ -131,9 +130,9 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.tls"
     ] = {
         name = "tls_runtime",
-        module = "io.tls",
-        modules = {"nupp.io.tls"},
-        runtimeModule = "nupp.io.tls",
+        module = "io.net.internal.tls",
+        exports = {"io.net.tlsclient", "io.net.tlsserver"},
+        runtimeModule = "io.net.internal.tls",
         portableRuntime = true,
         requires = {"runtime.suspension"}
     },
@@ -176,10 +175,14 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "uuid_runtime",
         globals = {"os.uuid4", "os.uuid7"},
-        exports = {"os.uuid4", "os.uuid7"},
+        exports = {"os.uuid4", "os.uuid7", "nupp.runtime.standardos.uuid4", "nupp.runtime.standardos.uuid7"},
         runtimeModule = "nupp.runtime.uuidprovider",
-        portableRuntime = true
+        portableRuntime = true,
+        requires = {"runtime.uuid_helpers"}
     },
+    [
+        "runtime.uuid_helpers"
+    ] = {name = "uuid_helpers", runtimeModule = "nupp.util.internal.uuid", portableRuntime = true},
     [
         "runtime.bitops"
     ] = {name = "bitops", runtimeModule = "nupp.runtime.bitops", portableRuntime = true, requires = {}},
@@ -225,26 +228,21 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {name = "net_internal", runtimeModule = "nupp.io.net.internal", portableRuntime = true, requires = {}},
     [
         "runtime.tls_contract"
-    ] = {
-        name = "tls_contract",
-        runtimeModule = "nupp.io.tls.spi",
-        portableRuntime = true,
-        requires = {"runtime.tls_types"}
-    },
+    ] = {name = "tls_contract", runtimeModule = "io.net.spi", portableRuntime = true, requires = {"runtime.tls_types"}},
     [
         "runtime.tls_types"
-    ] = {name = "tls_types", runtimeModule = "nupp.io.tls.types", portableRuntime = true, requires = {}},
+    ] = {name = "tls_types", runtimeModule = "io.net.internal.tlstypes", portableRuntime = true, requires = {}},
     [
         "runtime.process_contract"
     ] = {
         name = "process_contract",
-        runtimeModule = "nupp.io.process.spi",
+        runtimeModule = "io.internal.process.spi",
         portableRuntime = true,
         requires = {"runtime.process_types"}
     },
     [
         "runtime.process_types"
-    ] = {name = "process_types", runtimeModule = "nupp.io.process.types", portableRuntime = true, requires = {}},
+    ] = {name = "process_types", runtimeModule = "io.internal.process.types", portableRuntime = true, requires = {}},
     [
         "runtime.http_messages"
     ] = {name = "http_messages", runtimeModule = "nupp.io.http.messages", portableRuntime = true, requires = {}},
@@ -262,14 +260,6 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {
         name = "io_internal_scalars",
         runtimeModule = "nupp.io.internal.scalars",
-        portableRuntime = true,
-        requires = {"runtime.io_internal_bytes"}
-    },
-    [
-        "runtime.io_internal_lines"
-    ] = {
-        name = "io_internal_lines",
-        runtimeModule = "nupp.io.internal.lines",
         portableRuntime = true,
         requires = {"runtime.io_internal_bytes"}
     },
@@ -295,16 +285,16 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.gpu_layout"
     ] = {
         name = "gpu_layout",
-        modules = {"gpu.layout"},
-        runtimeModule = "gpu.layout",
+        modules = {"io.gpu.layout"},
+        runtimeModule = "io.gpu.layout",
         portableRuntime = true,
         requires = {"runtime.gpu_layoutfacts"},
     },
     [
         "runtime.gpu_layoutfacts"
     ] = {name = "gpu_layoutfacts", runtimeModule = "nupp.gpu.layoutfacts", portableRuntime = true},
-    ["runtime.gpu_api"] = {name = "gpu_api", runtimeModule = "gpu", portableRuntime = true},
-    ["runtime.gpu"] = {name = "gpu_runtime", module = "gpu", runtimeModule = "gpu", portableRuntime = true},
+    ["runtime.gpu_api"] = {name = "gpu_api", runtimeModule = "io.gpu", portableRuntime = true},
+    ["runtime.gpu"] = {name = "gpu_runtime", module = "io.gpu", runtimeModule = "io.gpu", portableRuntime = true},
     ["native.gpu"] = {
         name = "gpu",
         modules = {"nupp.runtime.provider.nativegpu"},
@@ -365,17 +355,17 @@ local FEATURES: {[string]: native.Feature} = {
         name = "io",
         globals = {
             "io.newbuffer",
-            "io.newlines",
-            "io.newqueuereader",
-            "io.newscalarreader",
-            "io.newscalarwriter",
-            "io.newstringreader",
+            "io.Reader.lines",
+            "io.newreader",
+            "io.newwriter",
+            "io.newsreader",
+            "io.newswriter",
             "io.readall",
         },
         modules = {"nupp.io"},
         runtimeModule = "nupp.io",
         portableRuntime = true,
-        requires = {"runtime.io_internal_bytes", "runtime.io_internal_scalars", "runtime.io_internal_lines"},
+        requires = {"runtime.io_internal_bytes", "runtime.io_internal_scalars"},
     },
     [
         "runtime.text_buffer"
@@ -429,8 +419,10 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.path"
     ] = {
         name = "path_runtime",
-        module = "io.path",
-        runtimeModule = "io.path",
+        module = "io.internal.path",
+        globals = {"io.newpath", "io.cwd", "io.sep"},
+        exports = {"nupp.runtime.standardio.newpath", "nupp.runtime.standardio.cwd", "nupp.runtime.standardio.sep"},
+        runtimeModule = "io.internal.path",
         portableRuntime = true,
         requires = {"runtime.pathtext", "runtime.path_provider"},
     },
@@ -452,8 +444,23 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.uri"
     ] = {
         name = "uri_runtime",
-        module = "io.uri",
-        runtimeModule = "io.uri",
+        module = "io.internal.uri",
+        globals = {
+            "io.newuri",
+            "io.validateuri",
+            "io.URI.withscheme",
+            "io.URI.withuserinfo",
+            "io.URI.withhost",
+            "io.URI.withport",
+            "io.URI.withpath",
+            "io.URI.withquery",
+            "io.URI.withfragment",
+            "io.URI.concatpath",
+            "io.URI.resolve",
+            "io.URI.withendpoint"
+        },
+        exports = {"nupp.runtime.standardio.newuri", "nupp.runtime.standardio.validateuri"},
+        runtimeModule = "io.internal.uri",
         portableRuntime = true,
         requires = {"runtime.uri_whatwg"}
     },
@@ -532,6 +539,7 @@ local FEATURES: {[string]: native.Feature} = {
         "native.time"
     ] = {
         name = "time",
+        host = "native-time",
         module = "nupp.runtime.provider.nativetime",
         runtimeModule = "nupp.runtime.provider.nativetime",
         provider = "nupp_native",
@@ -767,6 +775,9 @@ function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: st
         end
         local t = entry and entry.t
         for index = 2, #parts do
+            if t and (t.tag == "typeobject" or t.tag == "metatable") then
+                t = t.of
+            end
             if index == #parts and t then
                 decorate(t, parts[index], effect)
                 -- A qualified namespace nominal also binds its

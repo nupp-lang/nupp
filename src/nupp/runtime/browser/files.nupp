@@ -3,7 +3,7 @@ module nupp.runtime.browser.files
 
 local effects = require("nupp.runtime.browser.effects")
 local messages = require("io.files.messages")
-local appPaths = require("nupp.io.files.path")
+local appPaths = require("io.files.internal.path")
 local io = require("io")
 local privateIo = require("nupp.io")
 local span = require("binary.span")
@@ -15,7 +15,7 @@ local pending: integer = 0
 local READ_SIZE: integer = 65536
 local ORIGINS = {set = 0, current = 1, ["end"] = 2,}
 local MODES = {r = true, w = true, a = true, ["r+"] = true, ["w+"] = true, ["a+"] = true,}
-local APPLICATION_KINDS = {configuration = true, data = true, cache = true,}
+local APP_KINDS = {configuration = true, data = true, cache = true,}
 local MAX_EXACT_INTEGER: integer = 9007199254740991
 
 local function unavailable(operation: string): string
@@ -24,9 +24,9 @@ end
 
 local function descriptor(value: any, level: integer): any
     if not appPaths.is(value) then
-        error("nupp: browser file paths must come from an application path", level)
+        error("nupp: browser file paths must come from an app path", level)
     end
-    local described = appPaths.descriptor(value as appPaths.ApplicationPath)
+    local described = appPaths.descriptor(value as appPaths.AppPath)
     if described.provider ~= "browser" then
         error("nupp: browser file paths must come from this browser provider", level)
     end
@@ -94,7 +94,7 @@ local function effect(operation: string, path: any?, extra: any?, discard: (func
     end)
     if not completed then
         -- The wait failed, not the file operation: a cancelled task, or an
-        -- application the page cancelled. Answering that as a file error would let
+        -- app the page cancelled. Answering that as a file error would let
         -- the task carry on as though nothing had asked it to stop.
         if payload.lease ~= nil then
             memory.releaseLease(payload.lease)
@@ -132,15 +132,11 @@ function files.capabilities(): messages.Capabilities
     )
 end
 
-function files.applicationPath(
-    kind: string,
-    organization: string,
-    application: string
-): (appPaths.ApplicationPath?, string?)
-    if APPLICATION_KINDS[kind] == nil then
-        return nil, "unknown application path kind"
+function files.apppath(kind: string, organization: string, app: string): (appPaths.AppPath?, string?)
+    if APP_KINDS[kind] == nil then
+        return nil, "unknown app path kind"
     end
-    local path = appPaths.browser(kind, organization, application)
+    local path = appPaths.browser(kind, organization, app)
     local value, reason = effect("create-directory", path)
     if reason ~= nil then
         return nil, reason

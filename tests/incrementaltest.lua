@@ -1369,7 +1369,7 @@ function M.stagingACarriedModuleChecksNothingAgain()
     local dir = os.tmpname()
     os.remove(dir)
     local staged = dir .. "/build/cache/runtime-source"
-    os.execute("mkdir -p '" .. staged .. "/nupp/io/files'")
+    os.execute("mkdir -p '" .. staged .. "/io/files'")
     local mainPath = dir .. "/main.nupp"
     local file = assert(io.open(mainPath, "wb"))
     file:write(
@@ -1397,14 +1397,14 @@ function M.stagingACarriedModuleChecksNothingAgain()
     testAssert.eq(#inc.checkFile(mainPath).diags, 0, "checks cold")
     local checks = inc.q.stats.checkModule
 
-    local source = assert(require("nupp.compiler.bundled").source("/nupp/io/files/init.nupp"))
+    local source = assert(require("nupp.compiler.bundled").source("/io/files/init.nupp"))
     inc.env.roots[#inc.env.roots + 1] = staged
-    local stagedPath = staged .. "/nupp/io/files/init.nupp"
+    local stagedPath = staged .. "/io/files/init.nupp"
     local copy = assert(io.open(stagedPath, "wb"))
     copy:write(source)
     copy:close()
-    inc.stageCarriedDocument("nupp.io.files", stagedPath, source)
-    testAssert.eq(inc.modulePath("nupp.io.files"), stagedPath, "the build finds the staged copy to link")
+    inc.stageCarriedDocument("io.files", stagedPath, source)
+    testAssert.eq(inc.modulePath("io.files"), stagedPath, "the build finds the staged copy to link")
     testAssert.eq(#inc.checkFile(mainPath).diags, 0, "still clean with the module staged")
     testAssert.eq(inc.q.stats.checkModule, checks, "staging the carried copy checks nothing again")
 

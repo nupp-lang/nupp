@@ -9,19 +9,15 @@ Open a scope, spawn children into it, and the block that holds it does not end
 until every one of them has run, been cancelled, or unwound.
 
 ```nupp
-local greeting = ""
+local scope = coroutine.scope()
+const hello = scope:spawn(function(): string
+    return "hello"
+end)
+const world = scope:spawn(function(): string
+    return "world"
+end)
 
-do
-    local scope = coroutine.scope()
-    const hello = scope:spawn(function(): string
-        return "hello"
-    end)
-    const world = scope:spawn(function(): string
-        return "world"
-    end)
-
-    greeting = hello:await() .. " " .. world:await()
-end
+local greeting = hello:await() .. " " .. world:await()
 
 assert(greeting == "hello world")
 ```
@@ -32,22 +28,18 @@ cooperates by calling `checkpoint`, which is where it learns the scope was
 cancelled or its deadline passed.
 
 ```nupp
-local total = 0
+local scope = coroutine.scope(timeoutms = 1000)
+const sum = scope:spawn("sum values", function(): integer
+    local answer: integer = 0
+    for value = 1, 1000 do
+        coroutine.checkpoint()
+        answer = answer + value
+    end
 
-do
-    local scope = coroutine.scope(timeoutms = 1000)
-    const sum = scope:spawn("sum values", function(): integer
-        local answer: integer = 0
-        for value = 1, 1000 do
-            coroutine.checkpoint()
-            answer = answer + value
-        end
+    return answer
+end)
 
-        return answer
-    end)
-
-    total = sum:await()
-end
+local total = sum:await()
 
 assert(total == 500500)
 ```
@@ -1387,13 +1379,11 @@ end
 --- exit. A child spawned after this settles as cancelled without running.
 ---
 --- ```nupp:fragment
---- do
----     local scope = coroutine.scope(limit = 4)
----     for _, mirror in ipairs(mirrors) do
----         scope:spawn(mirror, probe)
----     end
----     scope:cancel("one mirror is enough")
+--- local scope = coroutine.scope(limit = 4)
+--- for _, mirror in ipairs(mirrors) do
+---     scope:spawn(mirror, probe)
 --- end
+--- scope:cancel("one mirror is enough")
 --- ```
 ---
 --- @param reason why, for whoever catches the cancellation
@@ -1739,11 +1729,9 @@ end
 ---
 --- ```nupp:fragment
 --- const sizes: {integer} = {}
---- do
----     local scope = coroutine.scope(limit = 8)
----     for index, url in ipairs(urls) do
----         scope:spawn(sizes, index, url, storeSize)
----     end
+--- local scope = coroutine.scope(limit = 8)
+--- for index, url in ipairs(urls) do
+---     scope:spawn(sizes, index, url, storeSize)
 --- end
 --- ```
 ---

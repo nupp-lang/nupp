@@ -135,6 +135,13 @@ function aot.install(c: state.Checker): aot.Ops
                 exact = definition ~= nil and definition.exactCallExport or nil
             end
 
+            if exact == nil and callee ~= nil then
+                local identity = apiidentity.sourceExpression(c, callee)
+                if identity ~= nil then
+                    exact = {identity = identity,}
+                end
+            end
+
             return exact
         end
 
@@ -303,7 +310,7 @@ function aot.install(c: state.Checker): aot.Ops
                 local call = current as cst.Call
                 local callee = call.obj
                 local exact = exactCall(call)
-                if exact ~= nil and apiidentity.canonical(exact.identity) == "gpu.workgroups" then
+                if exact ~= nil and apiidentity.canonical(exact.identity) == "io.gpu.workgroups" then
                     walk(callee, false)
                     local args = call.args ~= nil and ((call.args as cst.Args).exprs or {}) or {}
                     walk(args[1], false)

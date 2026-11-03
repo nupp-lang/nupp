@@ -5,7 +5,7 @@ local ffi = require("ffi")
 local span = require("binary.span")
 local gemm = require("gemm")
 local transformer = require("transformer")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))
 local now = dofile(here .. "clock.lua")

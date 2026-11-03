@@ -1,6 +1,6 @@
 local ffi = require("ffi")
 local span = require("binary.span")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 local generated = require("compaction")
 
 local here = assert(debug.getinfo(1, "S").source:match("^@(.*[/\\])"))

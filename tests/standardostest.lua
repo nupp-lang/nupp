@@ -4,6 +4,9 @@ local M = {}
 
 function M.preservesTheHostTableAndQueriesParallelismPerCall()
     local count, queries = 2, 0
+    local uuidLoads, calls4, calls7 = 0, 0, 0
+    local valid4 = "12345678-1234-4123-8123-123456789abc"
+    local valid7 = "12345678-1234-7123-8123-123456789abc"
     local original = {
         clock = function()
             return 9
@@ -15,15 +18,17 @@ function M.preservesTheHostTableAndQueriesParallelismPerCall()
         return 1700000000123
     end
     local uuid4, uuid7 = function()
-        return "uuid4"
+        calls4 = calls4 + 1
+        return valid4
     end, function()
-        return "uuid7"
+        calls7 = calls7 + 1
+        return valid7
     end
     local randombytes = function(count)
         return ("r"):rep(count)
     end
     local load = providerstate.instance(
-        {["nupp.runtime.standardos"] = true},
+        {["nupp.runtime.standardos"] = true, ["nupp.util.internal.uuid"] = true},
         {
             ["nupp.runtime.system"] = {
                 platform = "fixture",
@@ -36,10 +41,14 @@ function M.preservesTheHostTableAndQueriesParallelismPerCall()
                 end,
             },
             ["nupp.runtime.clocks"] = {selected = {now = monotonic, walltime = walltime}},
-            ["nupp.util.internal.uuid"] = {uuid4 = uuid4, uuid7 = uuid7},
             ["nupp.runtime.entropy"] = {randombytes = randombytes},
         },
-        nil,
+        {
+            ["nupp.runtime.uuidprovider"] = function()
+                uuidLoads = uuidLoads + 1
+                return {uuid4 = uuid4, uuid7 = uuid7}
+            end,
+        },
         {os = original}
     )
     local surface = load("nupp.runtime.standardos")
@@ -57,8 +66,19 @@ function M.preservesTheHostTableAndQueriesParallelismPerCall()
     test.eq(queries, 2)
     test.eq(original.monotonic, monotonic)
     test.eq(original.walltime, walltime)
-    test.eq(original.uuid4, uuid4)
-    test.eq(original.uuid7, uuid7)
+    test.eq(uuidLoads, 0, "system and clock queries do not select a UUID provider")
+    local random, ordered = original.uuid4, original.uuid7
+    test.eq(random, surface.uuid4, "the public table and exported function share one callable")
+    test.eq(ordered, surface.uuid7)
+    test.eq(original.uuid4, random, "repeated public reads retain their callable identity")
+    test.eq(original.uuid7, ordered)
+    test.eq(random(), valid4)
+    test.eq(original.uuid4(), valid4)
+    test.eq(ordered(), valid7)
+    test.eq(surface.uuid7(), valid7)
+    test.eq(uuidLoads, 1, "both UUID versions retain the same selected provider")
+    test.eq(calls4, 2, "each public version 4 call invokes its provider exactly once")
+    test.eq(calls7, 2, "each public version 7 call invokes its provider exactly once")
     test.eq(surface.randombytes, randombytes)
     test.eq(original.randombytes, randombytes)
     test.eq(original.randombytes(3), "rrr")

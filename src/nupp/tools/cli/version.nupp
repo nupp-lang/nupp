@@ -15,7 +15,7 @@ so this returns without loading the compiler it is the version of.
 
 local usageError = require("nupp.tools.cli.error").forCommand("version")
 local versionMod = require("nupp.tools.version")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 
 local REPORT_SCHEMA = {
     type = "object",

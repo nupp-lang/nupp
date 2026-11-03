@@ -110,8 +110,7 @@ Select a declaration binding and pass it to the typed JSON codec. A binding
 chooses the model independently of the format.
 
 ```nupp
-local serde = require("serde")
-local json = require("serde.json")
+local json = serde.json
 local record User
     id: uint32
 end

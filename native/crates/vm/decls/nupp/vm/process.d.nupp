@@ -1,4 +1,4 @@
-local types = require("nupp.io.process.types")
+local types = require("io.internal.process.types")
 const {type Path} = require("io.files")
 -- Frozen host spawn descriptor, distinct from the public process.Options names.
 local type SpawnOptions = {

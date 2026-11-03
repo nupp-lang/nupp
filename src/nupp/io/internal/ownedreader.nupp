@@ -7,6 +7,7 @@ local bytes = require("nupp.io.internal.bytes")
 local span = require("binary.span")
 local physical = require("nupp.runtime.storage")
 local type Reader = bytes.Reader
+local Reader = bytes.readerdefaults
 local type Writer = bytes.Writer
 local type Buffer = bytes.Buffer
 local positive = bytes.validatePositive

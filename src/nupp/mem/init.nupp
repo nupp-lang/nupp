@@ -7,7 +7,7 @@ Nothing is re-exported here: every member is a module of its own, reached by the
 name it has.
 
 ```nupp
-const span = require("binary.span")
+const span = binary.span
 
 local struct Point
     x: float64

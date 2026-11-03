@@ -10,19 +10,15 @@ Open a scope, spawn children into it, and the block that holds it does not end
 until every one of them has run, been cancelled, or unwound.
 
 ```nupp
-local greeting = ""
+local scope = coroutine.scope()
+const hello = scope:spawn(function(): string
+    return "hello"
+end)
+const world = scope:spawn(function(): string
+    return "world"
+end)
 
-do
-    local scope = coroutine.scope()
-    const hello = scope:spawn(function(): string
-        return "hello"
-    end)
-    const world = scope:spawn(function(): string
-        return "world"
-    end)
-
-    greeting = hello:await() .. " " .. world:await()
-end
+local greeting = hello:await() .. " " .. world:await()
 
 assert(greeting == "hello world")
 ```
@@ -33,22 +29,18 @@ cooperates by calling `checkpoint`, which is where it learns the scope was
 cancelled or its deadline passed.
 
 ```nupp
-local total = 0
+local scope = coroutine.scope(timeoutms = 1000)
+const sum = scope:spawn("sum values", function(): integer
+    local answer: integer = 0
+    for value = 1, 1000 do
+        coroutine.checkpoint()
+        answer = answer + value
+    end
 
-do
-    local scope = coroutine.scope(timeoutms = 1000)
-    const sum = scope:spawn("sum values", function(): integer
-        local answer: integer = 0
-        for value = 1, 1000 do
-            coroutine.checkpoint()
-            answer = answer + value
-        end
+    return answer
+end)
 
-        return answer
-    end)
-
-    total = sum:await()
-end
+local total = sum:await()
 
 assert(total == 500500)
 ```
@@ -75,7 +67,7 @@ to the turn.
 ]]
 
 local source1 = require("nupp.tasks")
-local clockContract = require("nupp.time.spi")
+local clockContract = require("nupp.spi")
 local selectedTime = require("nupp.runtime.timeprovider").provider
 
 local function missingClock(...: any): never
@@ -95,10 +87,10 @@ export const iscancelled = source1.isCancelled
 export const scope = source1.open
 export const race = source1.race
 export const run = source1.run
-export const sleep: clockContract.Provider.["sleep"] = selectedTime and selectedTime.sleep or missingClock
-export const sleepuntil: clockContract.Provider.["sleepuntil"] = selectedTime and selectedTime.sleepuntil
+export const sleep: clockContract.ClockProvider.["sleep"] = selectedTime and selectedTime.sleep or missingClock
+export const sleepuntil: clockContract.ClockProvider.["sleepuntil"] = selectedTime and selectedTime.sleepuntil
     or missingClock
-export const wakeat: clockContract.Provider.["wakeat"] = selectedTime and selectedTime.wakeat or missingClock
+export const wakeat: clockContract.ClockProvider.["wakeat"] = selectedTime and selectedTime.wakeat or missingClock
 
 --- @internal
 export const value: table = do

@@ -3,22 +3,22 @@
 module nupp.runtime.provider.nativetls
 
 --[[
-The VM's native TLS provider for [](nupp.io.tls): the same polling protocol as
+The VM's native TLS provider for [](io.net): the same polling protocol as
 the LuaJIT provider, written over the VM's `nupp.vm.net` primitives. Sessions
 take the stream handles of [](nupp.runtime.provider.nativenet), whose readiness
 pump also drives them, and destroying a session closes the stream it owns.
 ]]
 
-local contract = require("nupp.io.tls.spi")
+local contract = require("io.net.spi")
 const host = require("nupp.vm.net")
 
 local function reason(prefix: string, problem: string?): string
     return prefix .. ": " .. (problem or "unknown error")
 end
 
-local provider: contract.Provider = {
+local provider: contract.TlsProvider = {
     wrap = function(
-        self: contract.Provider,
+        self: contract.TlsProvider,
         handle: any,
         server: boolean,
         hostname: string,
@@ -45,7 +45,7 @@ local provider: contract.Provider = {
         return session
     end,
 
-    handshake = function(self: contract.Provider, session: any): (boolean?, string?)
+    handshake = function(self: contract.TlsProvider, session: any): (boolean?, string?)
         local ready, problem = host.tlsHandshake(session as integer)
         if ready == nil then
             return nil, reason("nupp: the handshake failed", problem)
@@ -54,15 +54,15 @@ local provider: contract.Provider = {
         return ready
     end,
 
-    verified = function(self: contract.Provider, session: any): boolean
+    verified = function(self: contract.TlsProvider, session: any): boolean
         return host.tlsVerified(session as integer)
     end,
 
-    resumed = function(self: contract.Provider, session: any): boolean
+    resumed = function(self: contract.TlsProvider, session: any): boolean
         return host.tlsResumed(session as integer)
     end,
 
-    read = function(self: contract.Provider, session: any, wanted: integer): (string?, string?)
+    read = function(self: contract.TlsProvider, session: any, wanted: integer): (string?, string?)
         local bytes, problem = host.tlsRead(session as integer, wanted)
         if problem ~= nil then
             return nil, reason("nupp: could not read", problem)
@@ -71,7 +71,7 @@ local provider: contract.Provider = {
         return bytes
     end,
 
-    write = function(self: contract.Provider, session: any, bytes: string): (integer?, string?)
+    write = function(self: contract.TlsProvider, session: any, bytes: string): (integer?, string?)
         local count, problem = host.tlsWrite(session as integer, bytes)
         if problem ~= nil then
             return nil, reason("nupp: could not write", problem)
@@ -80,7 +80,7 @@ local provider: contract.Provider = {
         return count
     end,
 
-    flushed = function(self: contract.Provider, session: any): (boolean, string?)
+    flushed = function(self: contract.TlsProvider, session: any): (boolean, string?)
         local done, problem = host.tlsFlushed(session as integer)
         if problem ~= nil then
             return false, reason("nupp: could not flush", problem)
@@ -89,7 +89,7 @@ local provider: contract.Provider = {
         return done
     end,
 
-    closenotify = function(self: contract.Provider, session: any): (boolean, string?)
+    closenotify = function(self: contract.TlsProvider, session: any): (boolean, string?)
         local done, problem = host.tlsCloseNotify(session as integer)
         if problem ~= nil then
             return false, reason("nupp: could not send close_notify", problem)
@@ -98,15 +98,15 @@ local provider: contract.Provider = {
         return done
     end,
 
-    destroy = function(self: contract.Provider, session: any): nil
+    destroy = function(self: contract.TlsProvider, session: any): nil
         host.tlsDestroy(session as integer)
     end,
 
-    connected = function(self: contract.Provider, session: any): boolean
+    connected = function(self: contract.TlsProvider, session: any): boolean
         return host.tlsConnected(session as integer)
     end,
 
-    protocol = function(self: contract.Provider, session: any): string?
+    protocol = function(self: contract.TlsProvider, session: any): string?
         return host.tlsProtocol(session as integer)
     end,
 }

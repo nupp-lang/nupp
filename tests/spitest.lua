@@ -68,8 +68,8 @@ assert(second.encode("x") == "second:x")
 assert(spi.providers(Codec)() == first)
 assert(package.providers(Codec)() == first)
 assert(package.providers == spi.providers and package.select == spi.select)
-local oldModuleAvailable = pcall(require, "nupp.spi")
-assert(not oldModuleAvailable)
+local contracts: any = require("nupp.spi")
+assert(contracts.providers == nil and contracts.select == nil and contracts.load == nil)
 local api = require("example.api")
 assert(spi.providers(api.Codec)() == first)
 local encode = first.encode
@@ -333,7 +333,7 @@ function M.optionalFallbackInitializationErrorsCannotMasqueradeAsAbsence()
     local cases = {
         {
             module = "nupp.runtime.timeprovider",
-            interface = "nupp.time.spi.Provider",
+            interface = "nupp.spi.ClockProvider",
             fallback = "nupp.runtime.provider.nativetime",
         },
         {
@@ -602,7 +602,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
     local cases = {
         {
             module = "nupp.time",
-            interface = "nupp.time.spi.Provider",
+            interface = "nupp.spi.ClockProvider",
             native = "nupp.runtime.provider.nativetime",
             browser = "nupp.runtime.browser.time",
             member = "sleep",
@@ -620,7 +620,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.runtime.system",
-            interface = "nupp.system.spi.Provider",
+            interface = "nupp.spi.SystemProvider",
             native = "nupp.runtime.provider.nativesystem",
             browser = "nupp.runtime.browser.system",
             member = "availableparallelism",
@@ -628,32 +628,32 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.io.path.provider",
-            interface = "io.path.spi.Provider",
+            interface = "io.spi.PathProvider",
             native = "nupp.runtime.provider.nativepath",
             browser = "nupp.runtime.browser.path"
         },
         {
             module = "nupp.io.uri.provider",
-            interface = "io.uri.spi.Provider",
+            interface = "io.spi.UriProvider",
             native = "nupp.runtime.provider.nativeuri",
             browser = "nupp.runtime.browser.uri"
         },
         {
-            module = "nupp.io.files",
-            interface = "nupp.io.files.spi.Provider",
+            module = "io.files",
+            interface = "io.files.spi.Provider",
             native = "nupp.runtime.provider.nativefiles",
             browser = "nupp.runtime.browser.files",
             member = "capabilities"
         },
         {
             module = "nupp.runtime.uuidprovider",
-            interface = "nupp.util.spi.UuidProvider",
+            interface = "nupp.spi.UuidProvider",
             native = "nupp.runtime.provider.nativeuuid",
             browser = "nupp.runtime.browser.crypto"
         },
         {
             module = "nupp.runtime.entropy",
-            interface = "nupp.random.spi.Provider",
+            interface = "nupp.spi.EntropyProvider",
             native = "nupp.runtime.provider.nativecrypto",
             browser = "nupp.runtime.browser.crypto",
             member = "randombytes",
@@ -670,7 +670,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.text",
-            interface = "nupp.text.spi.Provider",
+            interface = "nupp.spi.BufferProvider",
             native = "nupp.runtime.provider.nativebuffer",
             browser = "nupp.runtime.provider.tablebuffer",
             member = "new",
@@ -679,7 +679,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.mem.representation",
-            interface = "nupp.mem.representation.spi.CstorageProvider",
+            interface = "nupp.spi.CstorageProvider",
             native = "nupp.runtime.provider.nativestorage",
             -- No other storage ships: a LuaJIT VM takes native storage on either host.
             browser = "fixture.otherstorage",
@@ -864,11 +864,11 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
     end
 end
 
-function M.memoizedApplicationPathsAreRecreated()
+function M.memoizedAppPathsAreRecreated()
     local root = {}
     local resolved, created = 0, 0
     local provider = {
-        applicationPath = function()
+        apppath = function()
             resolved = resolved + 1
             return root
         end,
@@ -879,10 +879,10 @@ function M.memoizedApplicationPathsAreRecreated()
         end,
     }
     local files = require("providerstate").load("files", provider)
-    files.setApplicationIdentity("example", "application-path-test")
+    files.setappid("example", "application-path-test")
 
-    assert(files.dataPath() == root)
-    assert(files.dataPath() == root)
+    assert(files.datapath() == root)
+    assert(files.datapath() == root)
     assert(resolved == 1, "the platform root is resolved once")
     assert(created == 1, "a cached root is recreated if the caller removed it")
 end
@@ -999,28 +999,28 @@ end
 -- table is the consumer inventory; a new facade that selects a provider
 -- belongs in it.
 local SELECTING_FACADES = {
-    {"binary.hash.checksum", "binary.hash.checksum.spi.Provider"},
+    {"binary.checksum", "binary.checksum.spi.Provider"},
     {"nupp.codec.json.provider", "serde.json.spi.Provider"},
     {"binary.compress", "binary.compress.spi.Provider"},
-    {"binary.hash.digest", "binary.hash.digest.spi.Provider"},
-    {"gpu", "gpu.spi.Provider"},
-    {"nupp.host", "nupp.host.spi.Provider"},
-    {"nupp.io.files", "nupp.io.files.spi.Provider"},
+    {"binary.digest", "binary.digest.spi.Provider"},
+    {"io.gpu", "io.gpu.spi.Provider"},
+    {"nupp.host", "nupp.spi.HostProvider"},
+    {"io.files", "io.files.spi.Provider"},
     {"nupp.io.http", "nupp.io.http.spi.Provider"},
     {"nupp.io.net", "nupp.io.net.spi.Provider"},
-    {"nupp.io.path.provider", "io.path.spi.Provider"},
-    {"nupp.io.process", "nupp.io.process.spi.Provider"},
-    {"nupp.io.tls", "nupp.io.tls.spi.Provider"},
-    {"nupp.io.uri.provider", "io.uri.spi.Provider"},
-    {"binary.hash.mac", "binary.hash.mac.spi.Provider"},
-    {"nupp.runtime.entropy", "nupp.random.spi.Provider"},
-    {"nupp.mem.representation", "nupp.mem.representation.spi.CstorageProvider"},
-    {"nupp.runtime.timeprovider", "nupp.time.spi.Provider"},
-    {"nupp.runtime.uuidprovider", "nupp.util.spi.UuidProvider"},
+    {"nupp.io.path.provider", "io.spi.PathProvider"},
+    {"io.internal.process", "io.Process.Provider"},
+    {"io.net", "io.net.spi.TlsProvider"},
+    {"nupp.io.uri.provider", "io.spi.UriProvider"},
+    {"binary.mac", "binary.mac.spi.Provider"},
+    {"nupp.runtime.entropy", "nupp.spi.EntropyProvider"},
+    {"nupp.mem.representation", "nupp.spi.CstorageProvider"},
+    {"nupp.runtime.timeprovider", "nupp.spi.ClockProvider"},
+    {"nupp.runtime.uuidprovider", "nupp.spi.UuidProvider"},
     {"nupp.runtime.workersprovider", "nupp.workers.spi.Provider"},
     {"nupp.suspension.selected", "nupp.suspension.spi.Provider"},
-    {"nupp.runtime.system", "nupp.system.spi.Provider"},
-    {"nupp.text", "nupp.text.spi.Provider"},
+    {"nupp.runtime.system", "nupp.spi.SystemProvider"},
+    {"nupp.text", "nupp.spi.BufferProvider"},
 }
 
 -- Loads `facade` afresh against a provider index holding `priorities`, one
@@ -1055,7 +1055,17 @@ local function loadWithProviders(facade, interface, priorities)
     package.loaded["nupp.runtime.packages"] = nil
     package.loaded[facade] = nil
     package.loaded["nupp.spi.index"] = {[interface] = names}
-    local ok, problem = pcall(require, facade)
+    if interface == "io.net.spi.TlsProvider" then
+        package.loaded["io.net.internal.tls"] = nil
+    end
+    local ok, problem = pcall(function()
+        local api = require(facade)
+        if interface == "io.net.spi.TlsProvider" then
+            return api.tlsclient({}, {verify = false})
+        end
+
+        return api
+    end)
     for name in pairs(package.loaded) do
         if before[name] == nil then
             package.loaded[name] = nil

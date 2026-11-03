@@ -9,7 +9,7 @@ not of the command line, and a caller reaching it another way should meet it too
 ]]
 
 local usageError = require("nupp.tools.cli.error").forCommand("clean")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 
 local REPORT_SCHEMA = {
     type = "object",

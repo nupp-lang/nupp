@@ -14,7 +14,7 @@ kernel checks and binds but no device runs it.
 :::
 
 ```nupp
-local span = require("binary.span")
+local span = binary.span
 
 @aot(target = "gpu")
 local function scale(
@@ -47,31 +47,24 @@ specification. The application allocates buffers, compiles the specification,
 binds buffers in parameter order, and dispatches scalar uniforms separately:
 
 ```nupp:fragment
-local gpu = require("gpu")
 local kernels = require("kernels")
 local array = nupp.mem.array
 
 local source = array.scalar(array.float32, 1024)
 local result = array.scalar(array.float32, 1024)
 
+local context = io.gpu.open()
+local input = context:buffer(array.float32, 1024)
+local output = context:buffer(array.float32, 1024)
+local kernel = kernels.scale:compile(context)
 do
-    local context = gpu.open()
-    do
-        local input = context:buffer(array.float32, 1024)
-        local output = context:buffer(array.float32, 1024)
-        do
-            local kernel = kernels.scale:compile(context)
-            do
-                local binding = kernel:bind(output, input)
-                context:upload(input, source:read())
-                binding:dispatch(2.0)
-            end
-        end
-        context:enqueuedownload(output)
-        context:synchronize()
-        context:readdownloaded(output, result:write())
-    end
+    local binding = kernel:bind(output, input)
+    context:upload(input, source:read())
+    binding:dispatch(2.0)
 end
+context:enqueuedownload(output)
+context:synchronize()
+context:readdownloaded(output, result:write())
 ```
 
 Uploads, dispatches, and downloads enqueue work. `synchronize()` is the explicit
@@ -86,8 +79,8 @@ borrows the closed value, and any use after a close. A local in a `do` block
 gives each one lexical extent; `own.drop(buffer)` releases a buffer early.
 Closing a root buffer
 releases its allocation, and closing a view ends only the view. No close
-suspends. `gpu.open()` raises when no device can be opened, so a program with
-another way to run asks `gpu.available()` first.
+suspends. `io.gpu.open()` raises when no device can be opened, so a program with
+another way to run asks `io.gpu.available()` first.
 
 ## Map kernels
 
@@ -117,13 +110,12 @@ position.
 
 ## Structured workgroups
 
-`gpu.workgroups(groups, size, controller)` describes a fixed-size workgroup.
+`io.gpu.workgroups(groups, size, controller)` describes a fixed-size workgroup.
 The controller allocates bounded scratch and divides execution into immediate
 `phases:run` callbacks:
 
 ```nupp
-local gpu = require("gpu")
-local span = require("binary.span")
+local span = binary.span
 
 @aot(target = "gpu")
 local function reduce(
@@ -134,7 +126,7 @@ local function reduce(
         math.u32.wrap(#input),
         math.u32.wrap(4)
     )
-    gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
+    io.gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: io.gpu.Phases)
         local shared = phases:scratch(math.f32.narrow(0.0), 4)
         phases:run(function(localIndex: uint32)
             local cursor = groupIndex * 4 + localIndex
@@ -166,7 +158,7 @@ artifact; unordered and atomic reductions are not part of this contract.
 ## Tensor layouts and fixed-width storage
 
 `Context:tensor(element, shape)` allocates dense row-major storage. The
-`gpu.layout` module (imported as `layout`) builds one with
+`io.gpu.layout` module (imported as `layout`) builds one with
 `layout.new(shape, strides, offset?)` and provides `layout.subview`,
 `layout.transpose`, `layout.broadcast`, and `layout.asStrided` to transform
 checked layout values without allocating. A layout provides `dimensions()`,
@@ -272,6 +264,6 @@ and synchronization costs before any residency optimization is attempted.
 ::: seealso
 - [`@aot`](../../../api.md#annotation-aot)
   for the exact `@aot` arguments
-- [](gpu) for the generated binding and resident-buffer API
-- [](gpu.layout) for layout functions
+- [](io.gpu) for the generated binding and resident-buffer API
+- [](io.gpu.layout) for layout functions
 :::

@@ -613,7 +613,7 @@ pub fn current_directory() -> io::Result<Vec<u8>> {
 /// Returns one platform application-storage base without requiring it to exist.
 ///
 /// Codes are configuration, durable data and disposable cache respectively. The
-/// three never alias: `nupp.io.files` hands each one out as its own directory,
+/// three never alias: `io.files` hands each one out as its own directory,
 /// and a recursive remove of one must not reach into another.
 pub fn application_base(which: u32) -> io::Result<Vec<u8>> {
     let platform = if cfg!(windows) {

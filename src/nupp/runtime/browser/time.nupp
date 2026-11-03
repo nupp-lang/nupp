@@ -19,7 +19,7 @@ belong to the current browser state and are not carried into worker lanes.
 ]]
 
 local response = require("nupp.runtime.browser.response")
-local contracts = require("nupp.time.spi")
+local contracts = require("nupp.spi")
 local effects = require("nupp.runtime.browser.effects")
 local time = {}
 local browserHost = rawget(_G, "__nuppBrowser")
@@ -85,7 +85,7 @@ function time.wakeat(deadline: number, resume: function(boolean): nil): function
     )
 end
 
-local checked: contracts.Provider = {
+local checked: contracts.ClockProvider = {
     wakeat = time.wakeat,
     now = time.now,
     walltime = time.walltime,

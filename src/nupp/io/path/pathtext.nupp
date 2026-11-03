@@ -5,7 +5,7 @@ module nupp.io.path.pathtext
 --[[
 Path text, as rules about characters.
 
-Most operations `io.path` offers are questions about the text of a
+Most operations `io.Path` offers are questions about the text of a
 path, and none of those needs the filesystem or the platform it is running on.
 They were C, and being C meant each of them crossed the FFI, allocated an
 answer, copied it back out and freed it -- for a path of a few dozen bytes,

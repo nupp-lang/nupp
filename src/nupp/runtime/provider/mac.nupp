@@ -1,7 +1,7 @@
 @!internal
 module nupp.runtime.provider.mac
 
---[[Built-in HMAC-SHA256 catalog for `binary.hash.mac` API 1.
+--[[Built-in HMAC-SHA256 catalog for `binary.mac` API 1.
 
 Initialization creates only the immutable 32-byte algorithm descriptor. Each
 factory invocation creates independent keyed incremental state through the fixed
@@ -11,8 +11,8 @@ worker boundary; each Lua state loads this module independently. Operations use
 retained implementation functions without further SPI resolution.
 ]]
 
-local contract = require("binary.hash.mac.spi")
-local {type State} = require("binary.hash.digest.spi")
+local contract = require("binary.mac.spi")
+local {type State} = require("binary.digest.spi")
 local builtin = require("nupp.digest.internal.builtin")
 local record Algorithm is contract.Algorithm
     @readonly name: string = "hmac-sha256"

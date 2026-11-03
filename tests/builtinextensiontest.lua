@@ -68,13 +68,14 @@ end
     file:write(source);
     file:close()
     local argvSource = [[
-module arg
-local methods = {}
-function methods.parse(value: string): string return value end
-local argv: {string} = rawget(_G, "arg") as {string}
-export = setmetatable(argv, {__index = methods})
+module io.cli
+local cli = {}
+function cli.parse(value: string): string return value end
+cli.args = rawget(_G, "arg") as {string}
+export = cli
 ]]
-    local argvPath = root .. "/src/arg.nupp"
+    assert(os.execute("mkdir -p '" .. root .. "/src/io'") == 0)
+    local argvPath = root .. "/src/io/cli.nupp"
     local argvFile = assert(io.open(argvPath, "wb"));
     argvFile:write(argvSource);
     argvFile:close()
@@ -196,27 +197,28 @@ end
     end)
 end
 
-function M.directArgRootKeepsOneRawArrayInstance()
+function M.cliArgumentsRemainSeparateFromTheLibraryTable()
     withExtension(function(env, source, path)
-        local previous, loaded, preload = arg, package.loaded.arg, package.preload.arg
+        local previous = rawget(_G, "arg")
+        local loaded, preload = package.loaded["io.cli"], package.preload["io.cli"]
         local argv = {[0] = "fixture", [1] = "value", [-1] = "nupp"}
         local ok, reason = pcall(function()
             rawset(_G, "arg", argv)
-            package.loaded.arg = nil
+            package.loaded["io.cli"] = nil
             local implementation = compile(source, path, env)
-            local loadArg = assert(loadProgram(implementation))
+            local loadCli = assert(loadProgram(implementation))
             local loads = 0
-            package.preload.arg = function(...)
+            package.preload["io.cli"] = function(...)
                 loads = loads + 1
-                return loadArg(...)
+                return loadCli(...)
             end
             local code = compile(
                 [[
-require("arg")
-local current = arg
-require("arg")
-local imported = require("arg")
-return current == imported, current.parse("kept"), #current
+require("io.cli")
+local current = io.cli.args
+require("io.cli")
+local imported = require("io.cli")
+return current == imported.args, imported.parse("kept"), #current
 ]],
                 "argv-consumer.nupp",
                 env
@@ -227,8 +229,10 @@ return current == imported, current.parse("kept"), #current
             test.eq(count, 1)
             test.eq(loads, 1, "standalone and value requires share one initialization")
             test.eq(rawget(argv, "parse"), nil)
+            test.eq(getmetatable(argv), nil, "the library must not attach an argv metatable")
             test.eq(argv[-1], "nupp")
-            test.eq(package.loaded.arg, argv)
+            test.eq(package.loaded["io.cli"].args, argv)
+            test.ne(package.loaded["io.cli"], argv)
             local rawCount = 0
             for _ in pairs(argv) do
                 rawCount = rawCount + 1
@@ -236,7 +240,7 @@ return current == imported, current.parse("kept"), #current
             test.eq(rawCount, 3)
         end)
         rawset(_G, "arg", previous)
-        package.loaded.arg, package.preload.arg = loaded, preload
+        package.loaded["io.cli"], package.preload["io.cli"] = loaded, preload
         assert(ok, reason)
     end)
 end
@@ -594,6 +598,23 @@ end
         test.eq(same, true)
         test.eq(label, "kept")
         test.eq(require("nupp.runtime.standardio").value, io)
+    end)
+end
+
+function M.extendedLuaPipeRemainsWritable()
+    compile([[
+io.popen = function(...: any): (nil, nil)
+    return nil, nil
+end
+]], "replace-popen.nupp", envMod.new("."))
+end
+
+function M.aPartialIoExtensionPreservesTheLuaPipe()
+    withExtension(function(env)
+        compile([[
+local pipe = io.popen("true")
+if pipe ~= nil then pipe:close() end
+]], "partial-io-popen.nupp", env)
     end)
 end
 

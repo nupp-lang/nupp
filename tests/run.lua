@@ -2681,8 +2681,8 @@ local PROCESS_ISOLATED = {
 local processCalls = {
     'require("nupp.workers")',
     "require('nupp.workers')",
-    'require("nupp.io.process")',
-    "require('nupp.io.process')",
+    'require("io.internal.process")',
+    "require('io.internal.process')",
     'require("coroutine.workers")',
     "require(\"coroutine.workers\")",
     -- Reaching into the loader is process-shaped whether or not a process is
@@ -2868,8 +2868,8 @@ then
         --- Keeping start separate from collection lets both executor kinds run at
         --- once: every pipe and task is live before this process waits for either.
         ---
-        --- `nupp.suspension`'s combinators would express the fan-out more directly,
-        --- and do for a Nupp program, but reaching `nupp.io.process` from here means
+        --- `nupp.suspension`'s combinators would express the fan-out more directly, and
+        --- do for a Nupp program, but reaching `io.internal.process` from here means
         --- building a compiler environment first so its native provider resolves --
         --- more machinery in the parent than the parent is doing.
         ---

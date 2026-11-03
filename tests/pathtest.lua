@@ -1,4 +1,4 @@
--- `io.path` through the real provider.
+-- `io.Path` through the real provider.
 --
 -- One table of answers, recorded from the implementation this replaced. A path
 -- library's whole job is to agree with everybody else about what a piece of text
@@ -38,7 +38,7 @@ function M.beforeAll()
     os.execute("mkdir -p '" .. root .. "'")
     -- The VM carries its own provider: the facade reaches it the way a VM
     -- program does.
-    path = require("io.path")
+    path = require("io.internal.path")
 end
 
 function M.afterAll()
@@ -218,14 +218,14 @@ function M.pathStagesOnlyTheGenericFilesystemSlice()
     test.eq(feature.runtimeModule, "nupp.runtime.provider.nativepath")
     test.eq(table.concat(feature.requires or {}, ","), "runtime.path,runtime.native")
     local runtime = assert(native.feature("runtime.path"))
-    test.eq(runtime.runtimeModule, "io.path")
+    test.eq(runtime.runtimeModule, "io.internal.path")
     test.eq(runtime.portableRuntime, true)
     local handle = io.open("runtime/native/c/path.c", "rb")
     if handle then
         handle:close()
         error("the removed path provider still exists")
     end
-    local source = assert(io.open("src/io/path/init.nupp", "rb"))
+    local source = assert(io.open("src/io/internal/path.nupp", "rb"))
     local text = source:read("*a")
     source:close()
     assert(not text:find("nupp.runtime.native", 1, true), "the shared path implementation has no provider dependency")
@@ -278,9 +278,9 @@ function M.joiningOntoABareDriveStaysDriveRelative()
 end
 
 function M.absolutizingADriveRelativePathRequiresTheCurrentDrive()
-    local loadedPath = package.loaded["io.path"]
+    local loadedPath = package.loaded["io.internal.path"]
     local loadedProvider = package.loaded["nupp.io.path.provider"]
-    package.loaded["io.path"] = nil
+    package.loaded["io.internal.path"] = nil
     package.loaded["nupp.io.path.provider"] = {
         sep = function()
             return "\\"
@@ -292,8 +292,8 @@ function M.absolutizingADriveRelativePathRequiresTheCurrentDrive()
             return value, nil
         end,
     }
-    local ok, windowsPath = pcall(require, "io.path")
-    package.loaded["io.path"] = loadedPath
+    local ok, windowsPath = pcall(require, "io.internal.path")
+    package.loaded["io.internal.path"] = loadedPath
     package.loaded["nupp.io.path.provider"] = loadedProvider
     assert(ok, windowsPath)
 

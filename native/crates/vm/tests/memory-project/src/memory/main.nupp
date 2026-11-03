@@ -11,9 +11,9 @@ const tasks = require("coroutine")
 local heap = require("nupp.mem.heap")
 local soa = require("nupp.mem.soa")
 local sharedbytes = require("nupp.mem.sharedbytes")
-local log = require("log")
+local log = require("debug.log")
 local host = require("nupp.host")
-local gpu = require("gpu")
+local gpu = require("io.gpu")
 
 local test = {}
 

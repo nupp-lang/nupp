@@ -3,19 +3,19 @@
 module nupp.runtime.provider.nativefiles
 
 --[[
-The VM's native filesystem provider for [](nupp.io.files): the same contract and
+The VM's native filesystem provider for [](io.files): the same contract and
 records as the LuaJIT provider, written over the VM's `nupp.vm.files` primitives
 rather than the native library's C ABI. Whole-file transfers complete before
 they return, so `pendingTransfers` is always zero.
 ]]
 
 const host = require("nupp.vm.files")
-const paths = require("io.path")
+const paths = require("io.internal.path")
 const io = require("io")
 local privateIo = require("nupp.io")
 const span = require("binary.span")
 const messages = require("io.files.messages")
-const appPaths = require("nupp.io.files.path")
+const appPaths = require("io.files.internal.path")
 
 export type Info = messages.Info
 export type Entry = messages.Entry
@@ -32,7 +32,7 @@ local ORIGINS: {[string]: string} = {set = "set", current = "current", ["end"] =
 local FOLDERS: {
     [string]: integer
 } = {home = 0, documents = 1, downloads = 2, desktop = 3, pictures = 4, music = 5, videos = 6,}
-local APPLICATION_BASES: {[string]: integer} = {configuration = 0, data = 1, cache = 2,}
+local APP_BASES: {[string]: integer} = {configuration = 0, data = 1, cache = 2,}
 
 --- @raises string when value is neither a path nor a string
 local function named(value: any, what: string, level: integer): string
@@ -40,7 +40,7 @@ local function named(value: any, what: string, level: integer): string
         return value as string
     end
     if appPaths.is(value) then
-        return (value as appPaths.ApplicationPath):tostring()
+        return (value as appPaths.AppPath):tostring()
     end
     if type(value) == "table" and (value as any).tostring ~= nil then
         return (value as paths.Path):tostring()
@@ -583,21 +583,17 @@ export function capabilities(): messages.Capabilities
     )
 end
 
---- Returns an application's configuration, data or cache directory, created.
-export function applicationPath(
-    kind: string,
-    organization: string,
-    application: string
-): (appPaths.ApplicationPath?, string?)
-    local code = APPLICATION_BASES[kind]
+--- Returns an app's configuration, data or cache directory, created.
+export function apppath(kind: string, organization: string, app: string): (appPaths.AppPath?, string?)
+    local code = APP_BASES[kind]
     if code == nil then
-        return nil, "unknown application path kind"
+        return nil, "unknown app path kind"
     end
     local base, reason = host.applicationBase(code)
     if base == nil then
         return nil, reason
     end
-    local value = appPaths.native(base, organization, application)
+    local value = appPaths.native(base, organization, app)
     local made, failure = host.createDirectory(value:tostring())
     if not made then
         return nil, failure

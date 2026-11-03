@@ -147,7 +147,6 @@ local function moduleTree(modules, pages)
 
             category("@globals", "Globals", "globals", catalog.globals)
             category("@intrinsic-types", "Intrinsic types", "types", catalog.types)
-            category("@reflection", "Layout reflection", "reflection", catalog.reflection)
             category("@annotations", "Annotations", "annotations", catalog.annotations or {})
 
         end

@@ -66,7 +66,7 @@ function M.decoderEofCanFillMoreThanOneOutputSpan()
             end)
         ),
     })
-    local reader = load("binary.compress").format("fixture"):newreader(io2.newstringreader("input"), {
+    local reader = load("binary.compress").format("fixture"):newreader(io2.newreader("input"), {
         workspacebytes = 1,
         unbounded = true
     })
@@ -86,7 +86,7 @@ function M.rejectsInvalidProviderAndSourceProgress()
         end,
     }) do
         local load = state.family("compression", {provider("fixture", decoder(finishInput))})
-        local reader = load("binary.compress").format("fixture"):newreader(io2.newstringreader("input"), {
+        local reader = load("binary.compress").format("fixture"):newreader(io2.newreader("input"), {
             workspacebytes = 1,
             unbounded = true
         })
@@ -128,7 +128,7 @@ function M.rejectsMalformedUntypedOptions()
     local format = load("binary.compress").format("fixture")
 
     local function rejects(options, expected)
-        local source = io2.newstringreader("")
+        local source = io2.newreader("")
         local ok, problem = pcall(format.newreader, format, source, options)
         if ok then
             problem:close()

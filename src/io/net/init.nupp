@@ -5,7 +5,7 @@ module io.net
 and connections this process opens itself.
 
 ```nupp
-local net = require("io.net")
+local net = io.net
 local listener = assert(net.listen({host = "127.0.0.1", port = 0}))
 local sender = assert(net.connect({host = "127.0.0.1", port = listener:port()}))
 assert(sender:write("x"))
@@ -25,6 +25,48 @@ empty because the peer closed its sending half; empty is only ever the end.
 A listener and a connection are owners. See
 [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract they are handed
 out under.
+
+## TLS
+
+`tlsclient` and `tlsserver` take ownership of an open connection and return
+encrypted sessions.
+
+```nupp
+local function fetch(): string
+    local stream = assert(io.net.connect({host = "example.com", port = 443}))
+    local session = assert(io.net.tlsclient(stream, {
+        hostname = "example.com",
+    }))
+    assert(session:handshake())
+    assert(session:write("GET / HTTP/1.1\r\nHost: example.com\r\nConnection: close\r\n\r\n"))
+    const body = assert(session:read(1024))
+    session:close()
+
+    return body
+end
+```
+
+Passing `authority` selects exactly those PEM roots. Omitting it uses the
+platform's root certificates. `SSL_CERT_FILE` and `SSL_CERT_DIR` override the
+platform on every system; without them, macOS reads Security.framework anchors,
+Windows reads its root stores, and other Unix systems search the ordinary
+distribution locations. The roots are loaded once per process. An explicitly
+configured file which cannot be read is a failure rather than permission to
+silently trust something else.
+
+A session reads and writes through the same `Reader` and `Writer` contracts a
+plain connection does, so a parser written against byte I/O reads an encrypted
+connection without knowing it has one.
+
+The session owns the connection. There is no plaintext handle alongside it and
+no second reactor polling the same socket. Closing the session sends
+`close_notify`, drains it, and closes the transport.
+
+Compatible client and server configurations are cached in bounded native
+process state so Rustls can reuse its resumption state across sessions and
+worker lanes. It is not persistent across processes. Resumption never sends
+application data before the handshake: TLS 1.3 early data is deliberately not
+enabled because accepting it requires an application-level replay policy.
 ]]
 local source1 = require("nupp.io.net")
 export type Address = source1.Address
@@ -45,3 +87,28 @@ export const bind = source1.bind
 export const connect = source1.connect
 export const listen = source1.listen
 export const pump = source1.pump
+
+const {
+    type TlsClientOptions as ClientOptions,
+    type TlsServerOptions as ServerOptions,
+    type TlsSession as Session
+} = require("io.net.internal.tls")
+
+--- Client certificate verification and application protocol options.
+export type TlsClientOptions = ClientOptions
+
+--- Server certificate, private key and application protocol options.
+export type TlsServerOptions = ServerOptions
+
+--- An owned encrypted connection implementing `io.Reader` and `io.Writer`.
+export type TlsSession = Session
+
+--- Encrypts a connection as a client, consuming the connection even on failure.
+export function tlsclient(takes stream: Stream, options: TlsClientOptions?): (affine(TlsSession)?, io.Error?)
+    return require("io.net.internal.tls").tlsclient(stream, options)
+end
+
+--- Encrypts a connection as a server, consuming the connection even on failure.
+export function tlsserver(takes stream: Stream, options: TlsServerOptions): (affine(TlsSession)?, io.Error?)
+    return require("io.net.internal.tls").tlsserver(stream, options)
+end

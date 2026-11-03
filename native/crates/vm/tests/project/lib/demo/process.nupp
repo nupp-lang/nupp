@@ -1,16 +1,12 @@
 module demo.process
 
-local process = require("nupp.io.process")
 local files = require("io.files")
 local api = {}
 
 function api.run(): integer
     local directory = assert(files.tmpdirectory())
     local output = directory:tostring() .. "/result"
-    local child, spawnError = process.spawn({
-        args = {"/bin/sh", "-c", "cat; printf problem >&2; exit 7"},
-        timeoutms = 5000,
-    })
+    local child, spawnError = io.popen({args = {"/bin/sh", "-c", "cat; printf problem >&2; exit 7"}, timeoutms = 5000,})
     if not child then
         error(spawnError and spawnError.message or "spawn failed")
     end

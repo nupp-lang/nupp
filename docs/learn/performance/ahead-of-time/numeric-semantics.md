@@ -296,7 +296,7 @@ initializers, assignments, arguments, return values, and loop conditions, when:
   predicate it never evaluated.
 
 ```nupp
-local span = require("binary.span")
+local span = binary.span
 
 local struct Code
     value: int32

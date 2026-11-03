@@ -6,8 +6,6 @@ module utf8
 validate or truncate text whose bytes came from somewhere else.
 
 ```nupp
-const utf8 = utf8
-
 assert(utf8.len("A€") == 2)
 assert(utf8.encode(0x20ac) == "€")
 ```
@@ -31,8 +29,6 @@ it with the offset it starts at, so the two walk in opposite directions over the
 same positions:
 
 ```nupp
-const utf8 = utf8
-
 local codepoint, nextByte = utf8.decodeat("A€", 2)
 assert(codepoint == 0x20ac and nextByte == 5)
 
@@ -45,8 +41,6 @@ damaged text makes progress rather than stalling. Nil is the end of the value,
 and that is what stops the walk:
 
 ```nupp:fragment
-const utf8 = utf8
-
 local at: integer = 1
 while true do
     local codepoint, nextAt = utf8.decodeat(text, at)
@@ -63,8 +57,6 @@ Validation is explicit, because decoding never refuses. `isvalid` checks a
 complete byte sequence:
 
 ```nupp
-const utf8 = utf8
-
 assert(utf8.isvalid("café"))
 assert(not utf8.isvalid("\xff"))
 ```
@@ -79,8 +71,6 @@ from splitting a scalar in half. `truncate` applies that to a string and copies
 the prefix:
 
 ```nupp
-const utf8 = utf8
-
 assert(utf8.validprefixlen("A€B", 4) == 4)
 assert(utf8.truncate("A€B", 4) == "A€")
 ```
@@ -93,7 +83,7 @@ accept a string or a byte view.
 - [](serde.json) for JSON encoding and decoding
 :::
 ]]
-const {type ByteView} = require("io")
+const {type ByteView} = require("nupp.io.internal.bytes")
 
 -- `string.byte` by name rather than as a method. Written `source:byte(at)` the
 -- name is looked up on the string metatable before every call; a loop long enough
@@ -229,7 +219,6 @@ local utf8 = {}
 --- A malformed byte counts as one.
 ---
 --- ```nupp
---- const utf8 = utf8
 ---
 --- assert(utf8.len("A€") == 2)
 --- ```
@@ -255,7 +244,6 @@ end
 --- returns `0xFFFD` and still advances:
 ---
 --- ```nupp:fragment
---- const utf8 = utf8
 ---
 --- local at: integer = 1
 --- while true do
@@ -282,7 +270,6 @@ end
 --- directions, so decoding forward and then back lands where it started:
 ---
 --- ```nupp
---- const utf8 = utf8
 ---
 --- local codepoint, nextByte = utf8.decodeat("A€", 2)
 --- assert(codepoint == 0x20ac and nextByte == 5)
@@ -319,7 +306,6 @@ end
 --- Encodes a codepoint as UTF-8 bytes.
 ---
 --- ```nupp
---- const utf8 = utf8
 ---
 --- assert(utf8.encode(0x20ac) == "€")
 --- ```
@@ -361,7 +347,6 @@ end
 --- Reports whether the whole value is well-formed UTF-8.
 ---
 --- ```nupp
---- const utf8 = utf8
 ---
 --- assert(utf8.isvalid("café"))
 --- assert(not utf8.isvalid("\xff"))
@@ -378,7 +363,6 @@ end
 --- Measures the longest well-formed prefix no longer than `maxbytes`.
 ---
 --- ```nupp
---- const utf8 = utf8
 ---
 --- -- "A€B" is 5 bytes; the 4-byte budget stops just short of "B" rather
 --- -- than splitting "€" in half.
@@ -401,7 +385,6 @@ end
 --- Cuts text to at most `maxbytes`, never through a codepoint.
 ---
 --- ```nupp
---- const utf8 = utf8
 ---
 --- assert(utf8.truncate("A€B", 4) == "A€")
 --- ```

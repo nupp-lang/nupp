@@ -10,8 +10,6 @@ caller built allocates nothing. Observers receive the event as a call-scoped
 borrow they may write to but not keep.
 
 ```nupp
-local events = require("events")
-
 @derive(events.event)
 local record Damage
     amount: number

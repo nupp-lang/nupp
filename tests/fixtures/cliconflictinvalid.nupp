@@ -1,6 +1,6 @@
 module tests.fixtures.cliconflictinvalid
 
-local cli = require("arg")
+local cli = require("io.cli")
 
 @derive(cli.arguments)
 local record Conflicting

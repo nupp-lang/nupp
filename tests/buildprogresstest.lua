@@ -1,4 +1,4 @@
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
 local testAssert = require("assert")
 -- What a build says about itself while it runs and when it finishes.

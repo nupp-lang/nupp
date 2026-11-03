@@ -5,7 +5,7 @@ module nupp.random
 Each generator keeps its own mutable state.
 
 ```nupp
-local random = require("nupp.random")
+local random = nupp.random
 
 const dice = new random.Xoshiro128(42)
 

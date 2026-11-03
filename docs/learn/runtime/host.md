@@ -107,7 +107,6 @@ order:
 
 ```nupp:fragment
 local host = nupp.host
-local events = require("events")
 local span = binary.span
 
 @derive(events.event)

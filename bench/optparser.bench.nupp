@@ -2,7 +2,7 @@
 -- Run: nupp bench --file bench/optparser.bench.nupp
 
 local bench = require("debug.bench")
-local cli = require("arg")
+local cli = require("io.cli")
 const {type Invocation} = require("debug.bench")
 
 local record LegacyToken

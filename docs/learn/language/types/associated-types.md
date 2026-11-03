@@ -18,7 +18,7 @@ end
 local record Lines is Reader
     associated type Item = string
 
-    handle: LuaFile
+    handle: io.File
 end
 ```
 
@@ -237,7 +237,7 @@ worth knowing.
 
 ### Reified positions need a resolved answer
 
-A reified position, meaning `nupp.sizeof`, `layoutof`, a struct field, or a
+A reified position, meaning `types.sizeof`, `layoutof`, a struct field, or a
 fixed array, needs a representation, so a projection is legal there only once
 it resolves to a reifiable type. An opaque one is refused by the ordinary
 reification error. An array asks about its element and a pointer does not ask

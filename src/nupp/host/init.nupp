@@ -84,7 +84,6 @@ event's fields in declaration order:
 
 ```nupp:fragment
 local host = nupp.host
-local events = require("events")
 
 @derive(events.event)
 local struct PointerMove
@@ -120,17 +119,17 @@ such as `tecs.image.decode`. Names under `nupp.` are reserved for the runtime.
 local spi = require("nupp.runtime.packages")
 local events = require("events")
 local target = require("nupp.runtime.target")
-local contracts = require("nupp.host.spi")
+local contracts = require("nupp.spi")
 
-local provider: contracts.Provider = do
-    const chosen = spi.select(spi.providers<contracts.Provider>("nupp.host.spi.Provider"))
+local provider: contracts.HostProvider = do
+    const chosen = spi.select(spi.providers<contracts.HostProvider>("nupp.spi.HostProvider"))
     if chosen ~= nil then
         yield chosen
     end
     if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativehost") as contracts.Provider
+        yield _G.require("nupp.runtime.provider.nativehost") as contracts.HostProvider
     end
-    yield _G.require("nupp.runtime.browser.host") as contracts.Provider
+    yield _G.require("nupp.runtime.browser.host") as contracts.HostProvider
 end
 
 local host = {}

@@ -1,7 +1,7 @@
 const http = require("io.http")
 const net = require("io.net")
 const time = require("coroutine")
-const uri = require("io.uri")
+const uri = io
 
 const SAMPLES = 9
 const WARMUPS = 2
@@ -273,7 +273,7 @@ end
 io.stdout:setvbuf("no")
 print(("NUPP_BENCH_PID %d"):format(nativeProcessId()))
 
-const mode = arg[1] or "benchmark"
+const mode = io.cli.args[1] or "benchmark"
 if mode == "net-slow-reader" then
     netSlowReader()
 elseif mode == "net-slow-writer" then

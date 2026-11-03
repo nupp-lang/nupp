@@ -24,7 +24,6 @@ local bench = require("debug.bench")
 
 local files = require("io.files")
 local json = require("serde.json")
-local process = require("nupp.io.process")
 
 --- Milliseconds one check may take before it counts as hung.
 local CHECK_TIMEOUT_MS: integer = 600000
@@ -37,7 +36,7 @@ local function fail(message: string): nil
 end
 
 local function shell(command: string): nil
-    local child, spawnProblem = process.spawn({args = {"sh", "-c", command}, stdin = "null", stderr = "pipe"})
+    local child, spawnProblem = io.popen({args = {"sh", "-c", command}, stdin = "null", stderr = "pipe"})
     if child == nil then
         fail("cannot start sh: " .. tostring(spawnProblem))
 
@@ -59,7 +58,7 @@ end
 --- Runs one check in `project` and returns its wall time in milliseconds.
 local function check(executable: string, project: string, cacheDir: string, state: string): number
     local started = os.monotonic()
-    local child, spawnProblem = process.spawn({
+    local child, spawnProblem = io.popen({
         args = {executable, "check", "--json"},
         cwd = project,
         env = {NUPP_CACHE_DIR = cacheDir, NUPP_CHECK_JOBS = "1"},

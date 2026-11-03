@@ -45,7 +45,7 @@ function M.helperSeedsOnlyReusableWorktreeState()
     assert(os.execute(("cp %s/scripts/worktree %s/scripts/worktree"):format(quote(ROOT), quote(origin))) == 0)
     assert(os.execute("chmod +x " .. quote(origin .. "/scripts/worktree")) == 0)
     write(origin .. "/src/main.nupp", "return true\n")
-    for _, name in ipairs({"nupp", "serde", "binary", "arg"}) do
+    for _, name in ipairs({"nupp", "serde", "binary", "io"}) do
         assert(os.execute(("mkdir -p %s/src/%s %s/build/%s"):format(quote(origin), name, quote(origin), name)) == 0)
         write(origin .. "/src/" .. name .. "/init.nupp", "return true\n")
         write(origin .. "/build/" .. name .. "/member.lua", name .. " member\n")
@@ -80,7 +80,7 @@ function M.helperSeedsOnlyReusableWorktreeState()
     assert(read(task .. "/build/cache/checks.buf") == "compiler-cache\n", "the incremental cache was not seeded")
     assert(read(task .. "/build/.nupp-test-times.json"):find('"slow":10', 1, true), "test timings were not seeded")
     assert(read(task .. "/build/nupp/tools/main.lua") == "return true\n", "a current compiler was not seeded")
-    for _, name in ipairs({"serde", "binary", "arg"}) do
+    for _, name in ipairs({"serde", "binary", "io"}) do
         assert(
             read(task .. "/build/" .. name .. "/member.lua") == name .. " member\n",
             name .. " output directory was not seeded"

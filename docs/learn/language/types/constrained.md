@@ -59,20 +59,20 @@ being passed. That is admission, and it is written.
 ## Admission is written
 
 A value the compiler can prove needs nothing. A value it cannot prove is
-refused, and `nupp.admit` is how the program says it meant it.
+refused, and `types.admit` is how the program says it meant it.
 
 ```nupp
 local type ShiftCount = types.range(integer, 0, 31)
 
 local function shift(bits: integer, by: integer): integer
-    local count: ShiftCount = nupp.admit(by)
+    local count: ShiftCount = types.admit(by)
     return bits * count
 end
 
 print(shift(1, 4))
 ```
 
-`nupp.admit` takes the constrained type from where its result goes -- an
+`types.admit` takes the constrained type from where its result goes -- an
 annotated binding, a declared result, a parameter, or an assignment to a
 declared binding -- so nothing names the type twice. It raises when the
 constraint does not hold.
@@ -175,7 +175,7 @@ record m.Box
 end
 
 function m.put(box: m.Box, value: integer): nil
-    box.n = nupp.admit(value)
+    box.n = types.admit(value)
 end
 
 return m

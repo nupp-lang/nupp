@@ -1,4 +1,4 @@
-local span = require("binary.span")
+local span = binary.span
 
 @aot(target = "gpu")
 local function scores(

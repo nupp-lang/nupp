@@ -9,9 +9,8 @@ operation to several values at once. In Nupp, an [`@aot`](index.md) function
 uses `simd` to multiply a sequence of values in groups:
 
 ```nupp
-local array = require("nupp.mem.array")
-local span = require("binary.span")
-local simd = require("simd")
+local array = nupp.mem.array
+local span = binary.span
 
 @aot
 local function scale(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>, factor: float32): nil
@@ -118,9 +117,8 @@ illustrate parts of a kernel. The opening
 kernel becomes a runnable program when supplied with arrays:
 
 ```nupp
-local array = require("nupp.mem.array")
-local span = require("binary.span")
-local simd = require("simd")
+local array = nupp.mem.array
+local span = binary.span
 
 @aot
 local function scale(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>, factor: float32): nil
@@ -399,9 +397,8 @@ it is false.
 with that bound, and values above the upper bound with the upper bound:
 
 ```nupp
-local array = require("nupp.mem.array")
-local span = require("binary.span")
-local simd = require("simd")
+local array = nupp.mem.array
+local span = binary.span
 
 @aot
 local function clamp(exclusive values: span.WriteSpan<float32>, low: float32, high: float32): nil
@@ -470,9 +467,8 @@ This is a *divergent loop*: its lanes need different numbers of iterations.
 The mask named `live` tracks the lanes that still have work:
 
 ```nupp
-local array = require("nupp.mem.array")
-local span = require("binary.span")
-local simd = require("simd")
+local array = nupp.mem.array
+local span = binary.span
 
 @aot
 local function halvings(exclusive output: span.WriteSpan<float64>, borrows input: span.Span<float64>): nil
@@ -595,7 +591,6 @@ A compensated reducer can preserve the small contributions when it receives
 `1`, `big`, `1`, and `-big` separately:
 
 ```nupp
-local simd = require("simd")
 local big = 1e100
 local ordered = simd.reducer.orderedsum(0.0)
 local compensated = simd.reducer.compensatedsum(0.0)
@@ -646,9 +641,8 @@ The loop has the same structure as the earlier kernels. Passing its mask to
 `add` keeps the tail's empty lanes from contributing:
 
 ```nupp
-local array = require("nupp.mem.array")
-local span = require("binary.span")
-local simd = require("simd")
+local array = nupp.mem.array
+local span = binary.span
 
 @aot
 local function total(borrows values: span.Span<float64>): float64
@@ -681,9 +675,8 @@ A *dot product* multiplies corresponding elements of two sequences and sums
 the products. A dot reducer takes both values for each contribution:
 
 ```nupp
-local array = require("nupp.mem.array")
-local span = require("binary.span")
-local simd = require("simd")
+local array = nupp.mem.array
+local span = binary.span
 
 @aot
 local function dot(borrows left: span.Span<float32>, borrows right: span.Span<float32>): float32
@@ -817,9 +810,8 @@ to find the first byte equal to `needle`, the byte being sought, and returns
 its one-based position or zero when no byte matches:
 
 ```nupp
-local array = require("nupp.mem.array")
-local span = require("binary.span")
-local simd = require("simd")
+local array = nupp.mem.array
+local span = binary.span
 
 @aot
 local function find(borrows text: span.Span<uint8>, needle: uint32): integer
@@ -865,9 +857,8 @@ A *filter* keeps elements that pass a test, preserving their order. Vector
 number kept, and a mask limits the store to those lanes:
 
 ```nupp
-local array = require("nupp.mem.array")
-local span = require("binary.span")
-local simd = require("simd")
+local array = nupp.mem.array
+local span = binary.span
 
 @aot
 local function above(exclusive output: span.WriteSpan<float32>, borrows input: span.Span<float32>, threshold: float32): integer
@@ -1029,9 +1020,8 @@ A prefix sum needs the last lane of each chunk to carry into the next one.
 The index can depend on the species' lane count:
 
 ```nupp
-local array = require("nupp.mem.array")
-local span = require("binary.span")
-local simd = require("simd")
+local array = nupp.mem.array
+local span = binary.span
 
 @aot
 local function prefix(exclusive out: span.WriteSpan<uint32>, borrows input: span.Span<uint32>): integer
@@ -1100,8 +1090,6 @@ the views a kernel takes.
 A native CPU `@aot` function can take and return vectors or masks:
 
 ```nupp
-local simd = require("simd")
-
 @aot
 local function twice(value: simd.Vector<float32, simd.Preferred>): simd.Vector<float32, simd.Preferred>
     return value + value
@@ -1161,8 +1149,6 @@ A struct whose vectors are all `Fixed<N>` is instead a storage struct; see
 [Stored vector fields](#stored-vector-fields) below.
 
 ```nupp
-local simd = require("simd")
-
 local struct Pair
     re: simd.Vector<float32, simd.Preferred>
     im: simd.Vector<float32, simd.Preferred>
@@ -1233,8 +1219,7 @@ array holds it, and the field is read and written whole through its row, in
 a native kernel and in ordinary code alike:
 
 ```nupp
-local span = require("binary.span")
-local simd = require("simd")
+local span = binary.span
 
 local struct Particle
     mass: float32

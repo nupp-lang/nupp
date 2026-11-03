@@ -237,7 +237,6 @@ input {
     padding: .45rem .65rem;
     color: var(--nuppdoc-text-muted);
     border-radius: 7px;
-    font-size: .76rem;
     text-decoration: none
 }
 
@@ -263,8 +262,7 @@ input {
     color: var(--nuppdoc-text-muted);
     border: 1px solid var(--nuppdoc-border);
     border-radius: 6px;
-    background: var(--nuppdoc-background-alt);
-    font-size: .75rem
+    background: var(--nuppdoc-background-alt)
 }
 
 .nuppdoc-theme {
@@ -300,7 +298,8 @@ input {
     top: var(--nuppdoc-header-height);
     overflow: auto;
     max-height: calc(100vh - var(--nuppdoc-header-height));
-    padding: 1.25rem 1rem 2rem
+    padding: 1.25rem 1rem 2rem;
+    font-size: .96rem
 }
 
 .nuppdoc-sidebar {
@@ -313,7 +312,7 @@ input {
 .nuppdoc-outline h2 {
     margin: 0 0 .75rem;
     color: var(--nuppdoc-text-muted);
-    font-size: .68rem;
+    font-size: inherit;
     text-transform: uppercase;
     letter-spacing: .06em
 }
@@ -323,6 +322,10 @@ input {
     margin: 0;
     padding: 0;
     list-style: none
+}
+
+.nuppdoc-sidebar ul ul {
+    font-size: .84rem
 }
 
 .nuppdoc-sidebar a,
@@ -339,8 +342,13 @@ input {
 }
 
 .nuppdoc-sidebar a {
-    padding-left: var(--nuppdoc-sidebar-indent);
-    font-size: .88rem
+    padding-left: var(--nuppdoc-sidebar-indent)
+}
+
+/* Module names use code elements, whose browser default is smaller. */
+.nuppdoc-sidebar code {
+    font-family: var(--nuppdoc-font-mono);
+    font-size: inherit
 }
 
 .nuppdoc-sidebar a:hover {
@@ -365,14 +373,14 @@ input {
 
 .nuppdoc-outline a {
     padding: .16rem 0;
-    font-size: .66rem
+    font-size: .84rem
 }
 
 .nuppdoc-content {
-    width: min(100% - 10rem, var(--nuppdoc-content-width));
+    width: min(100% - clamp(1.6rem, 6.4vw, 8rem), var(--nuppdoc-content-width));
     margin: 0 auto;
     padding: 1.25rem 0 6rem;
-    font-size: .88rem
+    font-size: 1rem
 }
 
 .nuppdoc-content h1,
@@ -484,8 +492,8 @@ input {
     padding: .8rem .9rem;
     border: 1px solid var(--nuppdoc-border);
     border-radius: 8px;
-    background: var(--nuppdoc-code-background);
-    line-height: 1.55
+    background: transparent;
+    line-height: 1.65
 }
 
 .nuppdoc-content pre code {
@@ -496,9 +504,8 @@ input {
 }
 
 .nuppdoc-content :not(pre)>code {
-    padding: .1em .35em;
-    border-radius: 4px;
-    background: var(--nuppdoc-code-background);
+    padding: 0;
+    background: transparent;
     font-family: var(--nuppdoc-font-mono);
     font-size: .91em
 }
@@ -522,6 +529,44 @@ input {
     color: var(--nuppdoc-text-muted);
     font-size: .68rem;
     text-transform: uppercase
+}
+
+/* API detail tables should read at the same size as the surrounding prose. */
+.nuppdoc-api-item :is(h4, h5, h6)+table {
+    font-size: 1rem
+}
+
+.nuppdoc-api-item :is(h4, h5, h6)+table th {
+    font-size: .76rem
+}
+
+.nuppdoc-api-item :is(h4, h5, h6)+table td p:first-child {
+    margin-top: 0
+}
+
+.nuppdoc-api-item :is(h4, h5, h6)+table td p:last-child {
+    margin-bottom: 0
+}
+
+.nuppdoc-api-details {
+    margin: .75rem 0 1.5rem
+}
+
+.nuppdoc-api-details dt {
+    margin-top: 1rem;
+    overflow-wrap: anywhere
+}
+
+.nuppdoc-api-details dd {
+    margin: .25rem 0 0 1rem
+}
+
+.nuppdoc-api-details dd p:first-child {
+    margin-top: 0
+}
+
+.nuppdoc-api-details dd p:last-child {
+    margin-bottom: 0
 }
 
 
@@ -654,10 +699,6 @@ input {
     .nuppdoc-outline {
         display: none
     }
-
-    .nuppdoc-content {
-        width: min(100% - 5rem, var(--nuppdoc-content-width))
-    }
 }
 
 @media(max-width:760px) {
@@ -694,7 +735,7 @@ input {
 
     .nuppdoc-content {
         width: auto;
-        padding: 1.5rem 1.25rem 4rem
+        padding: 1.5rem clamp(1rem, 2.4vw, 1.25rem) 4rem
     }
 }
 
@@ -853,7 +894,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     margin: 1.25rem 0;
     border: 1px solid var(--nuppdoc-border);
     border-radius: var(--nuppdoc-code-block-radius);
-    background: var(--nuppdoc-code-background);
+    background: transparent;
     box-shadow: none
 }
 
@@ -999,7 +1040,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     color: var(--nuppdoc-text-faint);
     font-family: var(--nuppdoc-font-mono);
     font-size: 14px;
-    line-height: 1.55;
+    line-height: 1.65;
     text-align: right;
     user-select: none;
     -webkit-user-select: none
@@ -1099,7 +1140,6 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     margin: 0;
     padding: .24rem .55rem .24rem var(--nuppdoc-sidebar-indent);
     color: var(--nuppdoc-text-muted);
-    font-size: .88rem;
     font-weight: 500;
     cursor: pointer;
     list-style: none
@@ -1162,7 +1202,6 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-outline-title {
     margin: 0 0 .75rem;
     color: var(--nuppdoc-text-muted);
-    font-size: .66rem;
     font-weight: 600
 }
 
@@ -1542,7 +1581,6 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     border-radius: 6px;
     background: var(--nuppdoc-background-alt);
     box-shadow: none;
-    font-size: .76rem;
     cursor: pointer
 }
 
@@ -1789,6 +1827,30 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
         overflow: visible
     }
 
+    .nuppdoc-sidebar,
+    .nuppdoc-sidebar ul ul {
+        font-size: 1rem
+    }
+
+    .nuppdoc-sidebar li>a,
+    .nuppdoc-sidebar summary {
+        display: flex;
+        align-items: center;
+        min-height: 44px
+    }
+
+    .nuppdoc-sidebar summary {
+        padding-right: 2rem
+    }
+
+    .nuppdoc-sidebar :is(.nuppdoc-sidebar-section, .nuppdoc-module-branch)>details>summary>a {
+        display: flex;
+        align-items: center;
+        flex: 1;
+        min-height: 44px;
+        padding: 0
+    }
+
     .is-mobile-nav-open .nuppdoc-sidebar {
         transform: translateX(0)
     }
@@ -1823,20 +1885,6 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 
     .nuppdoc-page-nav-next {
         grid-column: 1
-    }
-}
-
-@media(max-width:760px) {
-
-    .nuppdoc-sidebar a,
-    .nuppdoc-sidebar-section summary {
-        font-size: 1rem
-    }
-}
-
-@media(max-width:760px) {
-    .nuppdoc-content {
-        font-size: 1rem
     }
 }
 
@@ -1902,4 +1950,31 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     overflow: visible;
     padding: 0;
     white-space: normal
+}
+
+/* Keep navigation hierarchy visible while emphasizing the current item. */
+.nuppdoc-sidebar a,
+.nuppdoc-outline a {
+    opacity: .75
+}
+
+.nuppdoc-sidebar>ul>li>a,
+.nuppdoc-sidebar>ul>li>details>summary>a,
+.nuppdoc-sidebar a[aria-current="page"],
+.nuppdoc-outline a[aria-current] {
+    opacity: 1
+}
+
+/* Nested summaries also contain labels and arrows outside their links. */
+.nuppdoc-sidebar ul ul summary {
+    opacity: .75
+}
+
+.nuppdoc-sidebar ul ul summary>a,
+.nuppdoc-sidebar ul ul summary:has(>a[aria-current="page"]) {
+    opacity: 1
+}
+
+.nuppdoc-outline-section summary::after {
+    opacity: .75
 }

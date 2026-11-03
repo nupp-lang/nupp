@@ -134,7 +134,7 @@ The type is the value `error` is called with. An ordinary Lua message is a
 links the name to that declaration's own documentation:
 
 ```nupp:fragment
-const tasks = require("coroutine")
+const tasks = coroutine
 
 --- Waits for the batch to settle.
 ---
@@ -579,8 +579,9 @@ The declarations do not promise runtime availability: the VM provides neither
 `ffi` nor the `jit` modules, while `string.buffer` and `bit` are available.
 
 The index links every documented module and groups standalone functions under
-Globals. Intrinsic types and the `Layout` graph appear after the modules.
-The API navigation starts with each library collapsed.
+Globals. Types appear on their owning module pages, including `types.Layout`
+and `types.Layout.Field` on the `types` page. The API navigation starts with
+each library collapsed.
 
 The builtin declarations come from the compiler's prelude and its library
 declaration files, so the reference uses the signatures the checker enforces.

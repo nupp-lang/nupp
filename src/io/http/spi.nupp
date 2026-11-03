@@ -4,7 +4,7 @@ module io.http.spi
 `io.http.spi` defines the HTTP implementation contracts.
 
 ```nupp
-local contract = require("io.http.spi")
+local contract = io.http.spi
 local type Provider = contract.Provider
 ```
 
@@ -12,7 +12,7 @@ local type Provider = contract.Provider
 The HTTP module selects during initialization. Provider functions
 have no implicit receiver; Client and Response methods do. Request, Options,
 Version, and Capabilities come from [](io.http), URI from
-[](io.uri), and Body is the canonical [](io) Reader interface.
+[](io), and Body is the canonical [](io) Reader interface.
 
 A Client owns its transport and outstanding work. A successful send returns an
 affine Response owning the response resources and body reader. Preserve borrowing

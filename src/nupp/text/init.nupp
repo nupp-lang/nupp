@@ -7,7 +7,7 @@ module nupp.text
 other, and the string is built once instead of once per concatenation.
 
 ```nupp
-local text = require("nupp.text")
+local text = nupp.text
 
 const out = text.newbuffer()
 out:put("hello", ", ", "world")
@@ -29,13 +29,13 @@ local spi = require("nupp.runtime.packages")
 const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.provider.nativebuffer"
 
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
-local contracts = require("nupp.text.spi")
-local provider: contracts.Provider = do
-    const chosen = spi.select(spi.providers<contracts.Provider>("nupp.text.spi.Provider"))
+local contracts = require("nupp.spi")
+local provider: contracts.BufferProvider = do
+    const chosen = spi.select(spi.providers<contracts.BufferProvider>("nupp.spi.BufferProvider"))
     if chosen ~= nil then
         yield chosen
     end
-    yield _G.require("nupp.runtime.provider.nativebuffer") as contracts.Provider
+    yield _G.require("nupp.runtime.provider.nativebuffer") as contracts.BufferProvider
 end
 
 --- A mutable FIFO byte sequence.

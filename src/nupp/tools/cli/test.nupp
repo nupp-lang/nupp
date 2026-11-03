@@ -10,11 +10,11 @@ ends up running. Colour is the exception: it governs both the build this command
 performs and the configured runner, so it is read here and still passed along.
 ]]
 
-const terminal2 = require("io.terminal")
+const terminal2 = require("io.cli")
 
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 local usageError = require("nupp.tools.cli.error").forCommand("test")
 
 --- What a

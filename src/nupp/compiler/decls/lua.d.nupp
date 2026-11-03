@@ -23,7 +23,7 @@ their result and argument packs live here rather than beside the Nupp
 namespaces, because the library they type is here. `types.Debug` comes with them:
 `format` names it, and it has to be declared before anything that reads a format
 string. `os.date` reads its literal format the same way, and its helper sits
-beside `os` rather than with these, because the `DateFields` it returns belongs
+beside `os` rather than with these, because the `os.DateFields` it returns belongs
 there too.
 ]]
 
@@ -153,7 +153,7 @@ local setmetatable: function<T>(takes t: T, mt: metatable<T>?): T preserves t
 local getmetatable: function<T>(v: T): metatable<T>?
 
 --- Callable assertions and test-suite operations.
-local interface Assertion
+interface assert.Assertion
     eq: function(any, any, string?): any
     ne: function(any, any, string?): any
     deepeq: function(any, any, string?): any
@@ -178,7 +178,7 @@ end
 
 --- Returns every argument when the first is truthy; otherwise raises the second.
 --- The error is "assertion failed!" when the second argument is omitted.
-local assert: Assertion
+local assert: assert.Assertion
 
 --- Raises `msg` as an error, unwinding to the nearest `pcall`. A string message is
 --- prefixed with a source position chosen by `level`: 1, the default, blames the caller
@@ -1080,7 +1080,7 @@ local math: {
 --- Every one is present, which is what separates this from the table `os.time` accepts:
 --- there a partial civil time is completed for you, and here the platform has already
 --- done it. `wday` counts from Sunday and `yday` from January 1st, both from 1.
-local interface DateFields
+interface os.DateFields
     --- The full year, not an offset from 1900.
     year: integer
 
@@ -1166,13 +1166,13 @@ local os: {
     --- instead of a string.
     ---
     --- A literal `fmt` decides which of those two the call returns: "*t" and
-    --- "!*t" give `DateFields`, and every other literal gives a string. A `fmt`
+    --- "!*t" give `os.DateFields`, and every other literal gives a string. A `fmt`
     --- the compiler cannot read gives either, so narrow it before use.
     ---
     --- @param fmt the `strftime` format, "%c" by default
     --- @param t the time to format, the current time by default
     --- @return the formatted string, or the field table for "*t"
-    date: function<Format is string>(fmt: Format?, t: number?): __NuppDateResult(Format, DateFields),
+    date: function<Format is string>(fmt: Format?, t: number?): __NuppDateResult(Format, os.DateFields),
 
     --- Returns the number of seconds from `t1` to `t2`.
     ---
@@ -1283,39 +1283,39 @@ local package: {
 -- Layouts and file handles
 ----------------------------------------------------------------------------
 
---- A field of a reified `struct`, as it is actually laid out in C memory.
----
---- `size` is the field's own, from its C type. `padding` is what follows it before the
---- next field starts, or before the struct ends. They are separate because they answer
---- different questions: a reader wants the size, and a writer walking bytes has to know
---- about the gap. An `int8` before a `number` has size 1 and padding 7.
-local interface LayoutField
-    --- The field's name, as the declaration spells it.
-    name: string
-
-    --- Its C type, as the generated `ffi.typeof` spells it.
-    ctype: string
-
-    --- Bytes from the start of the struct.
-    offset: integer
-
-    --- Bytes the field itself occupies.
-    size: integer
-
-    --- Required byte alignment of the field's C type.
-    alignment: integer
-
-    --- Bytes of alignment padding after it.
-    padding: integer
-end
-
 --- How a reified `struct` is laid out, as `layoutof` returns it.
 ---
 --- Every number here is this platform's: sizes and offsets come from the FFI at load
 --- rather than being baked in, because padding depends on the target. The fingerprint
 --- therefore describes one platform's layout, which is what makes it usable for
 --- detecting that saved data no longer matches.
-local interface Layout
+interface types.Layout
+    --- A field of a reified `struct`, as it is actually laid out in C memory.
+    ---
+    --- `size` is the field's own, from its C type. `padding` follows it before
+    --- the next field starts, or before the struct ends. A reader wants the size;
+    --- a writer walking bytes also needs the gap. An `int8` before a `number`
+    --- has size 1 and padding 7.
+    interface Field
+        --- The field's name, as the declaration spells it.
+        name: string
+
+        --- Its C type, as the generated `ffi.typeof` spells it.
+        ctype: string
+
+        --- Bytes from the start of the struct.
+        offset: integer
+
+        --- Bytes the field itself occupies.
+        size: integer
+
+        --- Required byte alignment of the field's C type.
+        alignment: integer
+
+        --- Bytes of alignment padding after it.
+        padding: integer
+    end
+
     --- The declaration's name.
     name: string
 
@@ -1330,23 +1330,23 @@ local interface Layout
     fingerprint: string
 
     --- The fields, in declaration order.
-    fields: {LayoutField}
+    fields: {Field}
 end
 
 --- A Lua file handle. Ownership is attached by producers rather than this interface, so
 --- standard streams and borrowed handles use the same type.
-local interface LuaFile
-    close: @nosuspend function(self: LuaFile): (boolean?, string?)
-    flush: function(self: LuaFile): (boolean?, string?)
-    lines: function(self: LuaFile, ...: any): @nosuspend function(): any
-    read: function(self: LuaFile, ...: any): any
-    seek: function(self: LuaFile, whence: string?, offset: number?): (number?, string?)
-    setvbuf: function(self: LuaFile, mode: string, size: number?): (boolean?, string?)
-    write: function(self: LuaFile, ...: any): (LuaFile?, string?)
+interface io.File
+    close: @nosuspend function(self: io.File): (boolean?, string?)
+    flush: function(self: io.File): (boolean?, string?)
+    lines: function(self: io.File, ...: any): @nosuspend function(): any
+    read: function(self: io.File, ...: any): any
+    seek: function(self: io.File, whence: string?, offset: number?): (number?, string?)
+    setvbuf: function(self: io.File, mode: string, size: number?): (boolean?, string?)
+    write: function(self: io.File, ...: any): (io.File?, string?)
 end
 
 --- Closes a file that leaves its owning lexical scope.
-local __nuppCloseFile: @nosuspend function(takes handle: LuaFile): nil
+local __nuppCloseFile: @nosuspend function(takes handle: io.File): nil
 
 --- File input and output.
 
@@ -1362,7 +1362,7 @@ local io: {
     --- @param mode the mode to open it in, "r" by default
     --- @return the file handle, or nil when it cannot be opened
     --- @return the reason it could not be opened
-    open: function(path: string, mode: string?): (affine(LuaFile, __nuppCloseFile)?, string?),
+    open: function(path: string, mode: string?): (affine(io.File, __nuppCloseFile)?, string?),
 
     --- Returns an iterator over the lines of the file at `path`, closing it once the
     --- iterator runs out, or over the default input file when `path` is omitted.
@@ -1389,7 +1389,7 @@ local io: {
     ---
     --- @param f the file to close
     --- @return whether the file closed cleanly
-    close: function(f: LuaFile?): boolean?,
+    close: function(f: io.File?): boolean?,
 
     --- Classifies an open or closed file handle.
     --- @param value the value to inspect
@@ -1401,14 +1401,14 @@ local io: {
     ---
     --- @param f the file handle or name to switch to
     --- @return the default input file
-    input: function(f: (LuaFile | string)?): LuaFile,
+    input: function(f: (io.File | string)?): io.File,
 
     --- Sets the default output file, opening `f` first when it is a name. With no
     --- argument it returns the current one instead.
     ---
     --- @param f the file handle or name to switch to
     --- @return the default output file
-    output: function(f: (LuaFile | string)?): LuaFile,
+    output: function(f: (io.File | string)?): io.File,
 
     --- Runs `cmd` in a separate process and returns a handle on one of its streams: its
     --- standard output for "r", its standard input for "w".
@@ -1417,21 +1417,21 @@ local io: {
     --- @param mode which stream to connect, "r" by default
     --- @return the file handle, or nil when the process cannot start
     --- @return the reason it could not start
-    popen: function(cmd: string, mode: string?): (affine(LuaFile, __nuppCloseFile)?, string?),
+    popen: function(cmd: string, mode: string?): (affine(io.File, __nuppCloseFile)?, string?),
 
     --- Opens a temporary file in update mode, removed when the program ends.
     ---
     --- @return the file handle
-    tmpfile: function(): affine(LuaFile, __nuppCloseFile)?,
+    tmpfile: function(): affine(io.File, __nuppCloseFile)?,
 
     --- The standard output stream.
-    stdout: LuaFile,
+    stdout: io.File,
 
     --- The standard error stream.
-    stderr: LuaFile,
+    stderr: io.File,
 
     --- The standard input stream.
-    stdin: LuaFile
+    stdin: io.File
 }
 
 --- Cooperative multitasking. A callback with typed start, yield, resume, and return
@@ -1518,7 +1518,6 @@ local coroutine: {
 --- Nupp provides access to LuaJIT's BitOp library, which every target has.
 ---
 --- ```nupp
---- const bit = require("bit")
 ---
 --- -- No operator spells these, so the module does.
 --- print(bit.tohex(bit.bswap(0x11223344))) -- 44332211
@@ -1842,11 +1841,6 @@ local debug: {
     --- @return the registry table
     getregistry: function(): table
 }
-
---- The command-line arguments of the running script, where `arg[1]` is the first one.
---- Index 0 holds the script name, and negative indices hold the interpreter and the
---- options it was given.
-local arg: {string}
 
 --- Joins its messages and routes a warning through the shared log sink.
 local warn: function(message: string, ...: string): nil

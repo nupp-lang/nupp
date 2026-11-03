@@ -1,7 +1,7 @@
 module nupp.runtime.provider.nativeprocess
 
 local host = require("nupp.vm.process")
-local shared = require("nupp.io.process.types")
+local shared = require("io.internal.process.types")
 local provider = {}
 
 function provider.spawn(_: any, options: shared.Options): (any?, any?, any?, any?, integer, string?)
@@ -21,7 +21,7 @@ end
 function provider.poll(_: any, child: any): shared.Exit?
     local code, killed = host.poll(child)
     if code ~= nil then
-        return shared.exited(code, killed, false)
+        return {exitcode = code, killed = killed, timedout = false}
     end
 end
 

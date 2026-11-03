@@ -16,12 +16,12 @@ they are appended to the task's own argv and belong to whatever ends up
 running.
 ]]
 
-const terminal2 = require("io.terminal")
+const terminal2 = require("io.cli")
 
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
 local usageError = require("nupp.tools.cli.error").forCommand("task")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 
 local report = require("nupp.tools.cli.report")
 

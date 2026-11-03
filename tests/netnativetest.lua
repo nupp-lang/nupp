@@ -506,7 +506,7 @@ function M.linesComeOffAConnectionThroughTheSharedReader()
     )
     assert(client:shutdownwrite(), "and ends its sending half")
 
-    local lines = io_.newlines(served:asreader())
+    local lines = served:asreader():lines()
     testAssert.eq(assert(lines:read()), "first", "CRLF ends a line and is not part of it")
     testAssert.eq(assert(lines:read()), "second", "and so does a bare LF")
     testAssert.eq(assert(lines:read()), "third without a terminator", "and what is left at the end is still a line")
@@ -523,7 +523,7 @@ function M.anOverlongLineIsRefusedRatherThanBuffered()
     -- peer takes the process down.
     local listener, client, served = pair()
     assert(client:write(("x"):rep(4096)), "the client sends a very long line")
-    local lines = io_.newlines(served:asreader(), 64)
+    local lines = served:asreader():lines(64)
     local line, why = lines:read()
     testAssert.eq(line, nil, "the read is refused")
     assert(why ~= nil and why:find("longer than the limit", 1, true) ~= nil, "and says the line was too long")
@@ -539,7 +539,7 @@ function M.anOverlongLineIsRefusedEvenWhenItsTerminatorArrivesWithIt()
     -- otherwise walk straight past it.
     local listener, client, served = pair()
     assert(client:write(("x"):rep(100) .. "\n"), "a 100-byte line arrives whole")
-    local lines = io_.newlines(served:asreader(), 64)
+    local lines = served:asreader():lines(64)
     local line, why = lines:read()
     testAssert.eq(line, nil, "and is still refused against a 64-byte limit")
     assert(
@@ -655,7 +655,7 @@ function M.aLineOfExactlyTheLimitIsAccepted()
     -- length.
     local listener, client, served = pair()
     assert(client:write(("y"):rep(64) .. "\r\n"), "a 64-byte line ends with CRLF")
-    local lines = io_.newlines(served:asreader(), 64)
+    local lines = served:asreader():lines(64)
     testAssert.eq(assert(lines:read()), ("y"):rep(64), "and is accepted at a 64-byte limit")
     lines:close()
     served:close()
@@ -669,6 +669,7 @@ end
 local function chunkedReader(chunks)
     local at = 0
     return {
+        lines = require("nupp.io.internal.bytes").Reader.lines,
         read = function(_self, _count)
             if at >= #chunks then
                 return ""
@@ -688,7 +689,7 @@ function M.aLimitLengthLineSplitBeforeItsLineFeedIsStillAccepted()
     -- half of a terminator, so it must not count against the limit before the
     -- next chunk says which it was: a line's acceptance cannot depend on where
     -- its bytes happened to fall.
-    local lines = io_.newlines(chunkedReader({"abcde\r", "\n"}), 5)
+    local lines = chunkedReader({"abcde\r", "\n"}):lines(5)
     testAssert.eq(assert(lines:read()), "abcde", "the line is accepted at a 5-byte limit")
     testAssert.eq(lines:read(), nil, "and then the stream ends")
     lines:close()
@@ -698,7 +699,7 @@ function M.aTrailingCarriageReturnCountsAgainstTheLimitAtTheEnd()
     -- At the end of the stream a carriage return with no line feed after it is
     -- line content, so the byte of grace granted while more could still arrive
     -- is taken back once nothing more can.
-    local lines = io_.newlines(chunkedReader({"abcde\r"}), 5)
+    local lines = chunkedReader({"abcde\r"}):lines(5)
     local line, why = lines:read()
     testAssert.eq(line, nil, "a 6-byte unterminated tail is refused at a 5-byte limit")
     assert(why ~= nil and why:find("longer than the limit", 1, true) ~= nil, "for being longer than the limit")
@@ -708,7 +709,7 @@ end
 function M.aCarriageReturnWithinTheLimitIsContentAtTheEnd()
     -- The bytes after the last terminator are a line, carriage return included:
     -- with nothing following it, it terminated nothing.
-    local lines = io_.newlines(chunkedReader({"abcd\r"}), 5)
+    local lines = chunkedReader({"abcd\r"}):lines(5)
     testAssert.eq(assert(lines:read()), "abcd\r", "an unterminated tail keeps its carriage return")
     testAssert.eq(lines:read(), nil, "and then the stream ends")
     lines:close()

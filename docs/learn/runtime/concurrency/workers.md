@@ -15,7 +15,7 @@ isolated. Eligible closure captures cross only as independent copies.
 module jobs
 
 export function hash(bytes: string): string
-    return binary.hash.fnv1a64(bytes)
+    return binary.fnv1a64(bytes)
 end
 ```
 
@@ -26,13 +26,11 @@ const jobs = require("jobs")
 const tasks = coroutine
 
 export function hashes(left: string, right: string): (string, string)
-    do
-        local scope = tasks.scope()
-        const first = scope:work(left, jobs.hash)
-        const second = scope:work(right, jobs.hash)
+    local scope = tasks.scope()
+    const first = scope:work(left, jobs.hash)
+    const second = scope:work(right, jobs.hash)
 
-        return first:await(), second:await()
-    end
+    return first:await(), second:await()
 end
 ```
 
@@ -96,17 +94,13 @@ export function hashEach(inputs: {string}): {string}
     local hashed: {string} = {}
 
     local function hashInto(index: integer, bytes: string): nil
-        do
-            local lane = tasks.scope()
-            hashed[index] = lane:work(bytes, jobs.hash):await()
-        end
+        local lane = tasks.scope()
+        hashed[index] = lane:work(bytes, jobs.hash):await()
     end
 
-    do
-        local scope = tasks.scope()
-        for index, bytes in ipairs(inputs) do
-            scope:spawn(index, bytes, hashInto)
-        end
+    local scope = tasks.scope()
+    for index, bytes in ipairs(inputs) do
+        scope:spawn(index, bytes, hashInto)
     end
 
     return hashed
@@ -128,13 +122,11 @@ work divides:
 
 ```nupp:fragment
 export function bothHashes(left: string, right: string): (string, string)
-    do
-        local scope = tasks.scope()
-        const task = scope:work(right, jobs.hash)
-        const mine = jobs.hash(left)
+    local scope = tasks.scope()
+    const task = scope:work(right, jobs.hash)
+    const mine = jobs.hash(left)
 
-        return mine, task:await()
-    end
+    return mine, task:await()
 end
 ```
 
@@ -149,10 +141,8 @@ export function hashChunks(inputs: {string}, size: integer): {string}
     local chunks: {{string}} = {}
 
     local function hashChunk(at: integer, chunk: {string}): nil
-        do
-            local lane = tasks.scope()
-            chunks[at] = lane:work(chunk, jobs.hashAll):await()
-        end
+        local lane = tasks.scope()
+        chunks[at] = lane:work(chunk, jobs.hashAll):await()
     end
 
     do
@@ -215,11 +205,9 @@ const tasks = coroutine
 -- worker scope.
 export function countAll(shards: {{string}}): integer
     local total: integer = 0
-    do
-        local scope = tasks.scope()
-        for _, paths in ipairs(shards) do
-            total = total + scope:work(|| -> #paths):await()
-        end
+    local scope = tasks.scope()
+    for _, paths in ipairs(shards) do
+        total = total + scope:work(|| -> #paths):await()
     end
 
     return total
@@ -242,10 +230,8 @@ export function countAll(shards: {{string}}): number
     local total: number = 0
 
     local function countShard(paths: {string}): nil
-        do
-            local lane = tasks.scope()
-            total = total + lane:work(paths, indexJobs.count):await()
-        end
+        local lane = tasks.scope()
+        total = total + lane:work(paths, indexJobs.count):await()
     end
 
     do
@@ -366,22 +352,20 @@ A rejection names the position it found, so the message says which argument and
 which field stopped the copy rather than that the message was untransferable:
 
 ```nupp:fragment
-do
-    local scope = tasks.scope()
-    const row = new jobs.Row(name = "a")
+local scope = tasks.scope()
+const row = new jobs.Row(name = "a")
 
-    -- The lane receives its own jobs.Row metatable, so its methods work there.
-    scope:work(row, jobs.displayRow)
+-- The lane receives its own jobs.Row metatable, so its methods work there.
+scope:work(row, jobs.displayRow)
 
-    const plain = {name = "a"}
+const plain = {name = "a"}
 
-    -- nupp: cannot copy task arguments: arguments[1][2] repeats a table
-    -- already present in the message
-    scope:work({plain, plain}, jobs.count)
+-- nupp: cannot copy task arguments: arguments[1][2] repeats a table
+-- already present in the message
+scope:work({plain, plain}, jobs.count)
 
-    -- Two tables, and a lane that reads two rows:
-    scope:work({{name = "a"}, {name = "a"}}, jobs.count)
-end
+-- Two tables, and a lane that reads two rows:
+scope:work({{name = "a"}, {name = "a"}}, jobs.count)
 ```
 
 All fields present on a record table cross, including dynamic fields not named
@@ -492,12 +476,10 @@ export function observed(): string
 end
 
 export function unobserved(): string
-    do
-        local scope = tasks.scope()
-        scope:work("beta", jobs.refuse)
+    local scope = tasks.scope()
+    scope:work("beta", jobs.refuse)
 
-        return jobs.hash("alpha") -- the failure is raised leaving the scope
-    end
+    return jobs.hash("alpha") -- the failure is raised leaving the scope
 end
 ```
 
@@ -543,4 +525,4 @@ lanes privately; `work` is the only way in.
 The same rule applies to nontermination: an infinite worker task makes its
 scope infinite. Worker tasks are for bounded CPU work. Durable work, retries
 across process failure, and jobs that outlive the caller belong to a broker or
-[](nupp.io.process), not this scheduler.
+[](io.Process), not this scheduler.

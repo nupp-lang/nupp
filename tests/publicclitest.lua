@@ -17,7 +17,7 @@ end
 
 function M.runsAProgramRequiringTheProcessModuleFromTheRepositoryRoot()
     -- ER-011: the repository root is a project whose sources include
-    -- nupp.io.process itself, so the runner compiles that copy on demand. A
+    -- io.internal.process itself, so the runner compiles that copy on demand. A
     -- compile path that required the same module mid-load reported "loop or
     -- previous error loading module".
     local status, output = process.capture({NUPP, "run", HERE .. "/fixtures/processrequire.nupp"}, {cwd = ROOT})
@@ -77,14 +77,14 @@ local function runVmPrimitiveProbe()
                 [[
 module main
 assert(rawget(_G, "__nupp_load_image") ~= nil, "the primitive probe runs on the VM")
-local cli = require("arg")
+local cli = require("io.cli")
 assert(package.loaded["arg.internal.optparser"])
 assert(not package.loaded["arg.internal.decode"])
 assert(not package.loaded["arg.internal.application"])
 assert(not package.loaded["arg.internal.terminal"])
 assert(not package.loaded["nupp.derive"])
 local parser = cli.optparser({"--flag"})
-assert(parser:next() == cli.longOption)
+assert(parser:next() == cli.longoption)
 assert(parser:key() == "flag")
 ]]
             )
@@ -110,7 +110,7 @@ function M.primitiveLoadingDoesNotPullInHigherLayers()
     local probe = (
         [[
 package.path = %q
-local cli = require("arg")
+local cli = require("io.cli")
 assert(package.loaded["arg.internal.optparser"])
 assert(not package.loaded["arg.internal.decode"])
 assert(not package.loaded["arg.internal.application"])

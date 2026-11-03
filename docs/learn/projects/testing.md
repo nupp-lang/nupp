@@ -124,7 +124,7 @@ The `app` and `lib` templates include a real suite using `assert`.
 A test is a function on the table a suite returns:
 
 ```lua
-local test = require("assert")
+local test = assert
 local M = {}
 
 function M.narrowsOnIs()
@@ -151,7 +151,7 @@ other leaves use native equality. `test.suite.skip("reason")` records a skipped 
 unique within the suite, and independent of execution order:
 
 ```lua
-local test = require("assert")
+local test = assert
 
 return test.suite.cases(
    {

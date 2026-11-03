@@ -548,6 +548,7 @@ function M.aReadThatFailsMidFileSurfacesFromTheLineReader()
         open = function()
             local reads = 0
             return {
+                lines = require("nupp.io.internal.bytes").Reader.lines,
                 read = function(_, count)
                     reads = reads + 1
                     if reads == 1 then
@@ -573,7 +574,7 @@ end
 
 function M.pathsAndFoldersAnswerTheEnvironment()
     local files = ready()
-    test.eq(files.cwd, nil, "the working directory is io.path's question")
+    test.eq(files.cwd, nil, "the working directory is queried through io.cwd")
     local home = assert(files.userfolder("home"))
     assert(type(home) == "table", "a user folder is a path value")
     assert(files.isdirectory(home), "the home folder is a directory")
@@ -687,31 +688,28 @@ function M.theProviderIsSelectedOnlyByReachingIt()
     assert(source:find('require("nupp.vm.files")', 1, true), "the module calls the VM's files host")
 end
 
-function M.applicationPathsAreScopedPortableAndStable()
+function M.appPathsAreScopedPortableAndStable()
     local files = ready()
-    test.eq(files.applicationidentity(), nil)
+    test.eq(files.appid(), nil)
     local missing, reason = files.datapath()
     test.eq(missing, nil)
-    assert(tostring(reason):find("setApplicationIdentity", 1, true))
+    assert(tostring(reason):find("setappid", 1, true))
 
-    local application = "portable-files-" .. tostring(math.random(1, 1e9))
-    files.setapplicationidentity("nupp", application)
-    local organization, selected = files.applicationidentity()
+    local app = "portable-files-" .. tostring(math.random(1, 1e9))
+    files.setappid("nupp", app)
+    local organization, selected = files.appid()
     test.eq(organization, "nupp")
-    test.eq(selected, application)
-    local applicationPaths = require("nupp.io.files.path")
-    test.eq(applicationPaths.encodeIdentity("Tecs"), "Tecs")
-    test.eq(applicationPaths.encodeIdentity("a%b"), "a%25b")
-    test.eq(applicationPaths.encodeIdentity("a/b\\c"), "a%2Fb%5Cc")
-    test.eq(applicationPaths.encodeIdentity("line\nfeed"), "line%0Afeed")
-    test.eq(applicationPaths.encodeIdentity("tail."), "tail%2E")
-    test.eq(applicationPaths.encodeIdentity("NUL"), "%4EUL")
-    test.eq(applicationPaths.encodeIdentity("COM¹"), "%43OM¹")
-    assert(
-        applicationPaths.encodeIdentity("/") ~= applicationPaths.encodeIdentity("%2F"),
-        "identity escaping remains reversible"
-    )
-    local data = applicationPaths.native(root, "nupp", application)
+    test.eq(selected, app)
+    local apppaths = require("io.files.internal.path")
+    test.eq(apppaths.encodeid("Tecs"), "Tecs")
+    test.eq(apppaths.encodeid("a%b"), "a%25b")
+    test.eq(apppaths.encodeid("a/b\\c"), "a%2Fb%5Cc")
+    test.eq(apppaths.encodeid("line\nfeed"), "line%0Afeed")
+    test.eq(apppaths.encodeid("tail."), "tail%2E")
+    test.eq(apppaths.encodeid("NUL"), "%4EUL")
+    test.eq(apppaths.encodeid("COM¹"), "%43OM¹")
+    assert(apppaths.encodeid("/") ~= apppaths.encodeid("%2F"), "identity escaping remains reversible")
+    local data = apppaths.native(root, "nupp", app)
 
     local safe = data:join("save files", "slot-1.dat")
     assert(safe:tostring():find("save files", 1, true))
@@ -739,14 +737,14 @@ function M.applicationPathsAreScopedPortableAndStable()
             function()
                 data:join(invalid)
             end,
-            "ApplicationPath component"
+            "AppPath component"
         )
     end
 
-    files.setapplicationidentity("nupp", application .. "-next")
-    local nextData = applicationPaths.native(root, "nupp", application .. "-next")
+    files.setappid("nupp", app .. "-next")
+    local nextData = apppaths.native(root, "nupp", app .. "-next")
     assert(nextData:tostring() ~= data:tostring(), "changing identity selects another root")
-    assert(data:join("old"):tostring():find(application, 1, true), "an existing path retains its identity")
+    assert(data:join("old"):tostring():find(app, 1, true), "an existing path retains its identity")
 
 end
 

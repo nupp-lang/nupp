@@ -12,7 +12,7 @@ local M = {}
 local process, buffers
 
 local function startProcess(options)
-    return process.spawn(options)
+    return process.popen(options)
 end
 
 local SHELL = os.getenv("NUPP_TEST_SH") or "/bin/sh"
@@ -22,7 +22,7 @@ local function shell(command)
 end
 
 function M.beforeAll()
-    process = require("nupp.io.process")
+    process = require("io")
     buffers = require("io")
 end
 
@@ -64,7 +64,7 @@ function M.deadlineEndsAQuietRealChild()
 
     assert(exit.killed, "the quiet child was terminated")
     assert(exit.timedout, "and the deadline was the reason")
-    assert(not exit:succeeded())
+    assert(not (not exit.killed and not exit.timedout and exit.exitcode == 0))
 end
 
 function M.sharedViewsUseTheRealStreamsAndDeliverEof()
@@ -84,7 +84,7 @@ function M.sharedViewsUseTheRealStreamsAndDeliverEof()
     reader:close()
     local exit = child:wait()
     child:close()
-    assert(exit:succeeded())
+    assert((not exit.killed and not exit.timedout and exit.exitcode == 0))
 end
 
 function M.theTecsPublicCallShapesRunAgainstTheNuppModule()
@@ -99,7 +99,7 @@ function M.theTecsPublicCallShapesRunAgainstTheNuppModule()
     test.eq(reply, "tecs call site\n")
     test.eq(assert(child.stdout:read(64)), "")
     local exit = child:wait()
-    assert(exit:succeeded())
+    assert((not exit.killed and not exit.timedout and exit.exitcode == 0))
     child:close()
 end
 
@@ -131,7 +131,8 @@ function M.aProcessWriterTakesCheckedSpans()
     assert(wrote, reason)
     test.eq(wrote, 13)
     child.stdin:close()
-    assert(child:wait():succeeded())
+    local exit = child:wait()
+    assert(not exit.killed and not exit.timedout and exit.exitcode == 0)
     child:close()
 end
 
@@ -158,7 +159,7 @@ function M.environmentAndWorkingDirectoryKeepTheirTecsMeaning()
     local child = assert(
         startProcess({
             args = shell("printf '%s|%s' \"$PWD\" \"$NUPP_PROCESS_MARKER\""),
-            cwd = require("io.path").newpath("/"),
+            cwd = require("io.internal.path").newpath("/"),
             clearenv = true,
             env = {NUPP_PROCESS_MARKER = "present"},
             stderr = "null",
@@ -189,13 +190,14 @@ function M.plainLuaReceivesTheSameArgumentAndTimeoutChecks()
     ok, reason = pcall(child.stdout.poll, child.stdout, nil, 1.5)
     assert(not ok and tostring(reason):find("timeout", 1, true), tostring(reason))
     child.stdin:close()
-    assert(child:wait():succeeded())
+    local exit = child:wait()
+    assert(not exit.killed and not exit.timedout and exit.exitcode == 0)
     child:close()
 end
 
 function M.thePublicModuleSelectsOnlyItsPrivateProvider()
     ready()
-    test.eq(native.forModule("nupp.io.process"), "runtime.process")
+    test.eq(native.forModule("io.internal.process"), "runtime.process")
     local feature = assert(native.feature("native.process"))
     test.eq(feature.providerFeature, "process")
     test.eq(feature.provider, "nupp_native")

@@ -5,16 +5,16 @@ const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.provider.nativetim
 
 local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
-local contracts = require("nupp.time.spi")
+local contracts = require("nupp.spi")
 
 -- Optional consumers use only implementations present in their artifact. The
 -- public facade's literal imports carry its built-in fallbacks when that facility
 -- is actually used; this dynamic require does not add a native dependency itself.
-local function available(name: string): contracts.Provider?
+local function available(name: string): contracts.ClockProvider?
     local wasPresent = package.loaded[name] ~= nil or package.preload[name] ~= nil
     local ok, value = pcall(require, name)
     if ok then
-        return value as contracts.Provider
+        return value as contracts.ClockProvider
     end
     local wasMissing = tostring(value):find("module '" .. name .. "' not found:", 1, true) == 1
     if wasPresent or not wasMissing then
@@ -24,8 +24,8 @@ local function available(name: string): contracts.Provider?
     return nil
 end
 
-export const provider: contracts.Provider? = do
-    const chosen = spi.select(spi.providers<contracts.Provider>("nupp.time.spi.Provider"))
+export const provider: contracts.ClockProvider? = do
+    const chosen = spi.select(spi.providers<contracts.ClockProvider>("nupp.spi.ClockProvider"))
     if chosen ~= nil then
         yield chosen
     end

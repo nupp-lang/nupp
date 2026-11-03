@@ -1289,7 +1289,7 @@ nupp completions fish > ~/.config/fish/completions/nupp.fish
 ```
 
 ```text [nupp completions bash]
-# Completion for nupp; generated from arg.
+# Completion for nupp; generated from io.cli.
 _nupp() {
   local cur="${COMP_WORDS[COMP_CWORD]}"
   local words=( "${COMP_WORDS[@]:1}" )
@@ -1627,9 +1627,10 @@ Options:
 ```
 
 The first non-option argument is the program; everything after it goes to the
-program, options included. Arguments arrive as the chunk's varargs and in the
-global `arg`, where `arg[0]` is the program and `arg[1]` onwards what followed
-it. A `.nupp` file is checked and lowered to an image first; anything else is
+program, options included. Arguments arrive as the chunk's varargs and in
+`io.cli.args`, where `io.cli.args[0]` is the program and index 1 onwards holds
+what followed it. Plain Lua scripts see the same table as their global `arg`.
+A `.nupp` file is checked and lowered to an image first; anything else is
 loaded as plain Lua. Either way it runs on the VM.
 
 ```text [nupp run src/main.nupp]

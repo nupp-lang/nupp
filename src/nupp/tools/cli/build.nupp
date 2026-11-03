@@ -9,7 +9,7 @@ and the file options describe different jobs, so asking for both is refused
 rather than resolved.
 ]]
 
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 
 local REPORT_SCHEMA = {
     type = "object",

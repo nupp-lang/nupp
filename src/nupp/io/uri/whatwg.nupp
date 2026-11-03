@@ -5,7 +5,7 @@ module nupp.io.uri.whatwg
 The WHATWG URL Standard's basic URL parser, for hosts without a URL parser of
 their own.
 
-Every provider behind [](io.uri) returns the result the URL Standard
+Every provider behind [](io) returns the result the URL Standard
 defines, because that is what both transports send: the native HTTP client is
 built on the `url` crate and the browser on Fetch. This module is the reading
 used where neither a native library nor a host `URL` is available, and the one
@@ -24,7 +24,7 @@ The percent-encode sets are the ones the `url` crate the native provider uses
 implements, so that the two agree byte for byte.
 ]]
 
-local contracts = require("io.uri.spi")
+local contracts = require("io.spi")
 
 local whatwg = {}
 

@@ -36,7 +36,7 @@ const io = require("nupp.io")
 const {type Reader} = require("nupp.io")
 const {type Writer} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
-const {type Path} = require("nupp.io.files")
+const {type Path} = require("io.files")
 
 local suspension = require("coroutine.suspension")
 local span = require("binary.span")
@@ -367,7 +367,7 @@ end
 --- Closing one ends that direction rather than the connection: the writing view
 --- half-closes, and the reading view stops this side reading. Neither is the
 --- cleanup obligation, which stays with the connection.
-record net.DirectionView is Reader, Writer
+record net.DirectionView is io.Reader, Writer
     --- The same platform and handle the connection has. Not the connection
     --- itself: a view that held one would own it, and closing the view would
     --- release a socket somebody else is still using.
@@ -520,7 +520,7 @@ end
 --- The owner of the socket, and the only cleanup obligation: a direction view
 --- borrows this and ends a direction, while `close` here ends the connection.
 --- @export
-record net.Stream is Reader, Writer
+record net.Stream is io.Reader, Writer
     @private _provider: contract.Provider
     @private _handle: any
     @private _closed: boolean

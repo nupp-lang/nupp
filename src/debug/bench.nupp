@@ -385,7 +385,7 @@ local options = {
 }
 
 local function readOptions(): nil
-    local argv = _G.arg as {string}?
+    local argv = io.cli.args as {string}?
     if not argv then
         return
     end

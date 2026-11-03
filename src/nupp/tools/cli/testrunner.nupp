@@ -12,14 +12,14 @@ end
 
 function testrunner.run(args: any): integer
     local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
-    local executable = compilerRoot and compilerRoot .. "/bin/nupp" or tostring(arg[0] or "nupp")
+    local executable = compilerRoot and compilerRoot .. "/bin/nupp" or tostring(io.cli.args[0] or "nupp")
     local forwarded = {[0] = executable}
     for index, argument in ipairs(args) do
         forwarded[index] = argument
     end
     setmetatable(forwarded, getmetatable(rawget(_G, "arg")))
     rawset(_G, "arg", forwarded)
-    package.loaded.arg = forwarded
+    io.cli.args = forwarded
 
     -- The carried runner is still one ordinary Lua program. These two values are
     -- the process facts a file invocation used to derive from arg[0]: where suites

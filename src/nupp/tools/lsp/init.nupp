@@ -1,5 +1,7 @@
 module nupp.tools.lsp
 
+const {type Options as ChildOptions} = require("io.internal.process.types")
+
 --[[
 The Language Server Protocol server, over stdio.
 
@@ -11,7 +13,7 @@ dependent module rechecks only when an interface really changed.
 This module is the session, the handlers, and the loop. What each handler
 returns with is next door.
 ]]
-const arg2 = require("arg")
+const arg2 = io.cli.args
 
 local incremental = require("nupp.compiler.project.incremental")
 
@@ -2008,7 +2010,7 @@ function lsp.run(rootDir: string?): integer
         io.stdout:write("Content-Length: " .. #body .. "\r\n\r\n" .. body)
     end
 
-    local process = require("nupp.io.process")
+    local process = require("nupp.runtime.standardio")
     local compilerRoot = os.getenv("NUPP_COMPILER_ROOT")
     local executable = compilerRoot and compilerRoot .. "/bin/nupp"
         or type(arg2) == "table" and type(arg2[0]) == "string" and arg2[0]
@@ -2019,13 +2021,13 @@ function lsp.run(rootDir: string?): integer
     end
     -- A checkout's launcher is a shell script, which Windows cannot start.
     local relayArgs = require("nupp.compiler.process").isolatedArguments({executable, "__lsp-reader"})
-    local relayOptions: process.Options = {args = relayArgs, stdin = "inherit", stdout = "pipe", stderr = "inherit",}
+    local relayOptions: ChildOptions = {args = relayArgs, stdin = "inherit", stdout = "pipe", stderr = "inherit",}
     -- The relay lives in a managed cell rather than in this frame, because it is
     -- read from two places: the loop below, and `pump`, which the session keeps in
     -- `host` and calls from inside long work. A closure over a borrow of an owner
     -- held here could not be stored there; an alias is copyable and checks the cell
     -- at each use instead.
-    local spawned, spawnProblem = process.spawn(relayOptions)
+    local spawned, spawnProblem = process.popen(relayOptions)
     if spawned == nil then
         io.stderr:write("nupp-lsp: cannot start the input relay: " .. tostring(spawnProblem) .. "\n")
         return 1
@@ -2131,7 +2133,8 @@ function lsp.run(rootDir: string?): integer
     local relayFailed = false
     if ended then
         relay:with(function(borrows child: process.Process): nil
-            relayFailed = not child:wait():succeeded()
+            local exit = child:wait()
+            relayFailed = exit.killed or exit.timedout or exit.exitcode ~= 0
         end)
     end
     own.drop(relayOwner)

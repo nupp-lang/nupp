@@ -52,14 +52,12 @@ and lexical scopes make C pointer lifetimes and deterministic cleanup visible to
 the checker.
 
 ```nupp
-local function consume(borrows file: LuaFile): string
+local function consume(borrows file: io.File): string
     return file:read("*a")
 end
 
-do
-    local report = assert(io.open("report.txt", "r"))
-    print(consume(report))
-end
+local report = assert(io.open("report.txt", "r"))
+print(consume(report))
 ```
 
 C headers import as checked declarations, and a Rust application can embed the
@@ -125,7 +123,7 @@ stated. `target = "gpu"` checks a function as a typed resident-buffer kernel;
 the VM has no GPU provider yet, so no device runs one.
 
 ```nupp
-local span = require("binary.span")
+local span = binary.span
 
 @aot
 local function double(exclusive values: span.WriteSpan<float>): nil

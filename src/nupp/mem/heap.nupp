@@ -10,14 +10,12 @@ only through checked span views.
 ```nupp
 local heap = nupp.mem.heap
 
-do
-    local values = heap.alloc(ffi.typeof<int32>(), 4)
-    local writable = values:write()
-    writable[1] = 42 as int32
-    own.drop(writable)
-    local readable = values:read()
-    print(readable[1], #readable)
-end -- released here
+local values = heap.alloc(ffi.typeof<int32>(), 4)
+local writable = values:write()
+writable[1] = 42 as int32
+own.drop(writable)
+local readable = values:read()
+print(readable[1], #readable)
 ```
 
 The array is managed storage, so it takes part in collection and snapshots, and
@@ -114,10 +112,8 @@ end
 --- bytes start zeroed.
 ---
 --- ```nupp:fragment
---- do
----     local values = heap.alloc(ffi.typeof<int32>(), 1000000)
----     print(values.count)
---- end
+--- local values = heap.alloc(ffi.typeof<int32>(), 1000000)
+--- print(values.count)
 --- ```
 ---
 --- @param element the ctype of an element

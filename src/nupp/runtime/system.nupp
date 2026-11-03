@@ -7,16 +7,16 @@ local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 local nativeProvider = require("nupp.vm.systembinding")
 
-local contract = require("nupp.system.spi")
-local provider: contract.Provider = do
-    const chosen = spi.select(spi.providers<contract.Provider>("nupp.system.spi.Provider"))
+local contract = require("nupp.spi")
+local provider: contract.SystemProvider = do
+    const chosen = spi.select(spi.providers<contract.SystemProvider>("nupp.spi.SystemProvider"))
     if chosen ~= nil then
         yield chosen
     end
     if target.host == "native" then
         yield nativeProvider
     end
-    yield _G.require("nupp.runtime.browser.system") as contract.Provider
+    yield _G.require("nupp.runtime.browser.system") as contract.SystemProvider
 end
 if provider.platform == "" or provider.architecture == "" then
     error("system provider must name its platform and architecture", 2)
@@ -57,11 +57,9 @@ export const pointerBits = provider.pointerbits
 --- no worker pool, so it is a fair default for the `limit` one is opened with.
 ---
 --- ```nupp:fragment
---- do
----     local scope = coroutine.scope(limit = os.info().parallelism)
----     for _, shard in ipairs(shards) do
----         scope:work(shard, jobs.shard)
----     end
+--- local scope = coroutine.scope(limit = os.info().parallelism)
+--- for _, shard in ipairs(shards) do
+---     scope:work(shard, jobs.shard)
 --- end
 --- ```
 ---

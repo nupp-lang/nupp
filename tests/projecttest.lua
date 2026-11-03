@@ -766,7 +766,7 @@ local struct PointerSized
     tag: int8
     pointer: int8*
 end
-return comptime do return nupp.sizeof(PointerSized) end
+return comptime do return types.sizeof(PointerSized) end
 ]],
     })
 
@@ -806,7 +806,7 @@ return {include = {"src"}, build = {outDir = "out", entries = {"main"},
 ]],
         ["src/main.nupp"] = [[
 local models = require("models")
-return comptime do return nupp.sizeof(models.Wire) end
+return comptime do return types.sizeof(models.Wire) end
 ]],
         ["src/models.nupp"] = model,
     })
@@ -1085,7 +1085,7 @@ function M.browserHostsCannotSelectNativeDistributionPlatforms()
         "a check rejects the resolved host before applying a native layout"
     )
 
-    local root = assert(require("io.path").cwd()):tostring()
+    local root = assert(require("io.internal.path").cwd()):tostring()
     local status, output = process.capture({root .. "/bin/nupp", "build", "--host", "browser"}, {cwd = dir})
     testAssert.eq(status, 1, "the command-line host override is also rejected\n" .. output)
     assert(output:find('platforms selects native binary hosts', 1, true), output)
@@ -1952,10 +1952,7 @@ return random, time
     testAssert.eq(project.check(dir, {produced = warm, diagnostics = {}}), 0)
     testAssert.eq(warm.timing.compiledModules, 0, "the unchanged runtime closure is reused")
     for _, span in ipairs(warm.timing.slowest) do
-        assert(
-            span.module ~= "nupp.mem.representation.spi",
-            "a warm check must not recheck shared representation declarations"
-        )
+        assert(span.module ~= "nupp.spi", "a warm check must not recheck shared representation declarations")
     end
 
     remove(dir)

@@ -5,8 +5,7 @@ local testAssert = require("assert")
 -- Driven by a fake backend, on purpose. What is being checked here is the lifecycle,
 -- the draining and the deadlines -- the policy above the Rust-backed provider -- so
 -- the test supplies the platform and the module supplies the behaviour.
-local process = require("nupp.io.process")
-local processTypes = require("nupp.io.process.types")
+local processTypes = require("io.internal.process.types")
 local suspension = require("coroutine.suspension")
 local suspensionHost = require("coroutine.suspension.host")
 
@@ -27,6 +26,10 @@ end
 -- A script where every write is accepted whole and every read is immediately ready
 -- cannot tell a combined step from a sequential one, which is what made the first
 -- version of these tests pass against a deadlocking implementation.
+local function packed(...)
+    return {n = select("#", ...), ...}
+end
+
 local function fakeBackend(script)
     local clock = 0
     local self = {}
@@ -77,12 +80,12 @@ local function fakeBackend(script)
             if state.killPolls <= (state.killLag or 0) then
                 return nil
             end
-            state.exited = processTypes.exited(137, true, false)
+            state.exited = {exitcode = 137, killed = true, timedout = false}
             return state.exited
         end
         -- Having stopped reading, it is done: the next poll is what notices.
         if script.stopsReadingAfter ~= nil and #state.written >= script.stopsReadingAfter then
-            state.exited = processTypes.exited(script.code or 0, false, false)
+            state.exited = {exitcode = script.code or 0, killed = false, timedout = false}
 
             return state.exited
         end
@@ -93,7 +96,7 @@ local function fakeBackend(script)
         end
         -- Exits once both output scripts are spent and the script says so.
         if script.exitAfter ~= nil and state.polls >= script.exitAfter then
-            state.exited = processTypes.exited(script.code or 0, false, false)
+            state.exited = {exitcode = script.code or 0, killed = false, timedout = false}
             return state.exited
         end
 
@@ -306,7 +309,11 @@ function M.aKilledChildDidNotSucceed()
     local exit = child:wait()
     child:close()
     assert(exit.killed, "it was killed")
-    testAssert.eq(exit:succeeded(), false, "a killed child never succeeded, whatever status was reported")
+    testAssert.eq(
+        (not exit.killed and not exit.timedout and exit.exitcode == 0),
+        false,
+        "a killed child never succeeded, whatever status was reported"
+    )
 end
 
 function M.aDeadlineIsMeasuredFromTheStart()
@@ -319,7 +326,7 @@ function M.aDeadlineIsMeasuredFromTheStart()
     child:close()
     assert(exit.killed, "the deadline killed it")
     assert(exit.timedout, "and said that is why")
-    testAssert.eq(exit:succeeded(), false, "a timeout is not a success")
+    testAssert.eq((not exit.killed and not exit.timedout and exit.exitcode == 0), false, "a timeout is not a success")
 end
 
 function M.aDeadlineThatHasNotPassedDoesNotFire()
@@ -1412,7 +1419,7 @@ function M.aWaitInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
     scope:close()
     local waitSleeps = sleeps
     child:close()
-    testAssert.eq(exit.exitCode, 0, "the child's exit")
+    testAssert.eq(exit.exitcode, 0, "the child's exit")
     assert(waitSleeps > 0, "the driver slept in the platform between quiet passes")
 end
 
@@ -1495,6 +1502,93 @@ end
 function M.taskDrainIgnoresAnInactiveWaitSource()
     retainInactiveWaitSource()
     M.drainingInsideATaskScopeSleepsInThePlatformRatherThanSpinning()
+end
+
+function M.popenPreservesLuaCallsAndLoadsStructuredProcessesLazily()
+    local loads, received = 0
+    local handle = {}
+    local host = {
+        popen = function(...)
+            received = packed(...)
+            return handle, nil, "tail"
+        end,
+    }
+    local options = {args = {"fixture"}}
+    local child, problem = {}, {}
+    local facade = require("providerstate").processIO(host, function()
+        loads = loads + 1
+        return {
+            spawn = function(given)
+                testAssert.eq(given, options)
+                return child, problem
+            end,
+        }
+    end)
+    testAssert.eq(facade.value, host)
+    testAssert.eq(host.popen, facade.popen)
+    testAssert.eq(loads, 0, "loading io does not select a process provider")
+
+    local result = packed(host.popen("printf fixture", "r", nil, "extra"))
+    testAssert.eq(received.n, 4)
+    testAssert.eq(received[1], "printf fixture")
+    testAssert.eq(received[2], "r")
+    testAssert.eq(received[4], "extra")
+    testAssert.eq(result.n, 3)
+    testAssert.eq(result[1], handle)
+    testAssert.eq(result[2], nil)
+    testAssert.eq(result[3], "tail")
+    testAssert.eq(loads, 0, "the Lua form uses the captured host function")
+
+    result = packed(host.popen(options))
+    testAssert.eq(result.n, 2)
+    testAssert.eq(result[1], child)
+    testAssert.eq(result[2], problem)
+    testAssert.eq(loads, 1)
+    host.popen(options)
+    testAssert.eq(loads, 1, "the structured implementation is shared")
+    testAssert.eq(facade.processexit, nil)
+    testAssert.eq(host.processexit, nil)
+end
+
+function M.popenPropagatesTheCapturedLuaError()
+    local sentinel = {}
+    local facade = require("providerstate").processIO(
+        {
+            popen = function()
+                error(sentinel)
+            end
+        },
+        function()
+            error("the string form must not load a process implementation")
+        end
+    )
+    local ok, problem = pcall(facade.popen, "fixture")
+    testAssert.eq(ok, false)
+    testAssert.eq(problem, sentinel)
+end
+
+function M.exitValuesArePlainDataAndSuccessIncludesTerminationFlags()
+    for _, fields in ipairs({
+        {0, false, false, true},
+        {1, false, false, false},
+        {0, true, false, false},
+        {0, false, true, false},
+        {0, true, true, false},
+    }) do
+        local exit = {exitcode = fields[1], killed = fields[2], timedout = fields[3]}
+        local backend = fakeBackend({out = {}, err = {}, exitAfter = 1})
+        function backend:poll(_handle)
+            return exit
+        end
+
+        local child = spawnOn(backend, {args = {"fixture"}})
+        local result = assert(child:communicate())
+        assert(rawequal(result.exit, exit), "the provider returns plain exit data")
+        testAssert.eq(getmetatable(result.exit), nil)
+        testAssert.eq(result.exit.succeeded, nil)
+        testAssert.eq(result:succeeded(), fields[4])
+        child:close()
+    end
 end
 
 return M

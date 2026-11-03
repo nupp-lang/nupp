@@ -1,7 +1,7 @@
 const assert2 = require("assert")
 
-local cli = require("arg")
-const {type TokenKind, type DecodeError} = require("arg")
+local cli = require("io.cli")
+const {type TokenKind, type DecodeError} = require("io.cli")
 
 @derive(cli.arguments)
 local record Options
@@ -13,9 +13,10 @@ local options: Options?, problem: DecodeError? = cli.parse(Options, {"--name", "
 assert2(problem == nil, problem and problem.message)
 assert2(options ~= nil)
 assert2(options.name == "Ada")
-assert2(cli == rawget(_G, "arg"))
+assert2(cli.args == rawget(_G, "arg"))
+assert2(cli ~= cli.args)
 
-local alias = require("arg")
+local alias = require("io.cli")
 local parser = alias.optparser({"--flag"})
 local kind: TokenKind? = parser:next()
 assert2(kind == alias.longoption)

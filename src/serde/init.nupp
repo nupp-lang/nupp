@@ -7,8 +7,7 @@ codec that chooses its wire representation. See
 and documents.
 
 ```nupp
-local serde = require("serde")
-local json = require("serde.json")
+local json = serde.json
 local record User
     id: integer
     name: string
@@ -66,8 +65,7 @@ export type Binding<T> = core.Binding<T>
 --- discriminator.
 ---
 --- ```nupp
---- local serde = require("serde")
---- local json = require("serde.json")
+--- local json = serde.json
 --- local record Node
 ---     name: string
 ---     children: {Node} = {}
@@ -92,8 +90,7 @@ export const binding = declarations.binding
 --- it is a whitelist, so a field it does not mention is neither written nor read.
 ---
 --- ```nupp
---- local serde = require("serde")
---- local json = require("serde.json")
+--- local json = serde.json
 --- local record Account
 ---     displayName: string
 ---     passwordHash: string?
@@ -127,8 +124,7 @@ export const FieldOptions = declarations.FieldOptions
 --- RFC 3339 timestamp, and reads one back.
 ---
 --- ```nupp
---- local serde = require("serde")
---- local json = require("serde.json")
+--- local json = serde.json
 --- local record Event
 ---     at: integer
 --- end
@@ -161,7 +157,6 @@ export const Access = accessors.Access
 --- Returns the [](Access) for a declaration, cached on the declaration.
 ---
 --- ```nupp
---- local serde = require("serde")
 --- local record Point
 ---     x: number
 ---     y: number = 0
@@ -194,9 +189,8 @@ export type Adapter<T, M is core.Member> = core.Adapter<T, M>
 --- [](serde.json.membernamepolicy).
 ---
 --- ```nupp
---- local serde = require("serde")
---- local adapters = require("serde.adapters")
---- local json = require("serde.json")
+--- local adapters = serde.adapters
+--- local json = serde.json
 --- local record Member is serde.Member
 ---     @readonly name: string
 ---     @readonly index: integer?
@@ -330,8 +324,7 @@ export type DocumentEntry<S> = core.DocumentEntry<S>
 --- and `suppressed` collects failures raised while cleaning up after it.
 ---
 --- ```nupp
---- local serde = require("serde")
---- local json = require("serde.json")
+--- local json = serde.json
 --- local record User
 ---     id: integer
 --- end

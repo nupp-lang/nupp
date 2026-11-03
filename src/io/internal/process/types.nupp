@@ -1,0 +1,98 @@
+@!internal
+
+module io.internal.process.types
+
+const {type Path} = require("io.files.internal.path")
+const {type Buffer, type Error} = require("nupp.io")
+const {type ByteView} = require("nupp.io")
+
+local process = {}
+
+type process.StreamMode = "pipe" | "inherit" | "null"
+
+type process.ErrorMode = Error.Mode
+
+type process.Options = {
+    --- The program in `args[1]`, then its arguments. A program with no separator in
+    --- it is resolved through `PATH` by the platform, not by this module.
+    args: {string},
+
+    --- The child's working directory, as anything [](io.files) accepts, or nil
+    --- to inherit this one.
+    cwd: Path?,
+
+    --- Variables overlaid on the inherited environment, or the whole environment
+    --- when `clearenv` is set. A name must be non-empty and contain no `=`.
+    env: {[string]: string}?,
+
+    --- Whether to start from an empty environment rather than this process's.
+    clearenv: boolean?,
+
+    --- Where the child's standard input comes from, `"pipe"` by default.
+    stdin: process.StreamMode?,
+
+    --- Where the child's standard output goes, `"pipe"` by default.
+    stdout: process.StreamMode?,
+
+    --- Where the child's standard error goes, `"pipe"` by default.
+    stderr: process.ErrorMode?,
+
+    --- Kill the child after this many milliseconds. The clock starts when it is
+    --- created, not when it is first waited on.
+    timeoutms: integer?
+}
+
+type process.CommunicateOptions = {
+    --- Complete standard input.
+    ---
+    --- Omitted input sends EOF immediately.
+    input: (string | Buffer | ByteView)?,
+
+    --- Maximum stdout and stderr bytes together.
+    ---
+    --- Defaults to 256 MiB.
+    maxoutputbytes: integer?
+}
+
+interface process.Exit
+    --- The platform status code. A Unix signal is reported as 128 plus its number.
+    --- Zero indicates success only when neither `killed` nor `timedout` is set.
+    exitcode: integer
+
+    --- Whether it was terminated rather than exiting on its own.
+    killed: boolean
+
+    --- Whether it was terminated because its deadline passed.
+    timedout: boolean
+
+end
+
+record process.Result
+    --- How the child ended.
+    exit: process.Exit
+
+    --- Captured standard output.
+    output: string
+
+    --- Captured standard error.
+    erroroutput: string
+
+    --- Whether the child exited normally with status zero.
+    function succeeded(self): boolean
+        return not self.exit.killed and not self.exit.timedout and self.exit.exitcode == 0
+    end
+end
+
+record process.Interest
+    --- The child, when its termination is one of the things being waited for, and nil
+    --- when this wait would not be advanced by it.
+    child: any?
+
+    --- Stream handles this wait wants bytes from.
+    read: {any}
+
+    --- Stream handles this wait wants to put bytes into.
+    write: {any}
+end
+
+export = process

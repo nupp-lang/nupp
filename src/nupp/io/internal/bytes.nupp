@@ -112,6 +112,32 @@ export interface Writer is own.Closeable
 
 end
 
+--- A reader taken apart into lines.
+---
+--- Reading a line means reading past its end, so something has to hold what came
+--- after it. That is what this owns, and it is why a line reader takes its
+--- source rather than borrowing one: two things reading the same bytes would
+--- each see half of them.
+--- @export
+export sealed interface Lines is own.Closeable
+    --- Reads the next line, without its terminator.
+    ---
+    --- Both `\n` and `\r\n` end a line. Bytes left after the last terminator are
+    --- a line, because a stream that ended without one still said something.
+    --- @param self this line reader
+    --- @return the line, or nil at the end
+    --- @return why it could not read, when unsuccessful
+    read: function(self: Lines): (string?, string?)
+
+    --- Whether this reader has been released.
+    isreleased: function(self: Lines): boolean
+
+    --- Releases this reader and the source it took.
+    close: @nosuspend function(takes self: Lines): nil
+end
+
+local makeLines: function(takes source: Reader, limit: integer?): affine(Lines)
+
 --- A forward-only byte source.
 ---
 --- An interface rather than the concrete things that satisfy it. A buffer's
@@ -161,7 +187,23 @@ export interface Reader is own.Closeable
     --- @return why it could not, when unsuccessful
     transferto: function(exclusive self: Reader, exclusive destination: Writer): (integer?, string?)
 
+    --- Takes this reader and separates its bytes into lines.
+    ---
+    --- Closing the result closes this reader. Both `\n` and `\r\n` end a
+    --- line; an unterminated final line is returned too.
+    --- @param self the reader to take
+    --- @param limit the most bytes one line may hold, or 65536
+    --- @return the line reader, owned by the caller
+    --- @raises string when limit is not a positive integer
+    function lines(takes self, limit: integer?): affine(Lines)
+        return makeLines(self, limit)
+    end
+
 end
+
+--- Carries the default method table through compilers that erase interface exports.
+--- @internal
+export const readerdefaults = Reader
 
 -- A lease is handed out by the buffer it borrows, so its terminal has to be declared
 -- ahead of both. One generic terminal over the shape the lease record shares with its
@@ -310,7 +352,7 @@ export sealed interface Buffer is own.Closeable
     len: function(borrows self: Buffer): integer
     capacity: function(borrows self: Buffer): integer
     clear: function(exclusive self: Buffer): nil
-    ensurecapacity: function(exclusive self: Buffer, minimum: integer): nil
+    ensure: function(exclusive self: Buffer, minimum: integer): nil
     resize: function(exclusive self: Buffer, len: integer): nil
     getstring: function(borrows self: Buffer, offset: integer?, count: integer?): string
     setstring: function(exclusive self: Buffer, bytes: string, offset: integer?): nil
@@ -356,7 +398,7 @@ local record HeapBuffer is Buffer
         self._length = 0
     end
 
-    function ensurecapacity(exclusive self, minimum: integer): nil
+    function ensure(exclusive self, minimum: integer): nil
         opened(self._closed, "io.Buffer", 2)
         reserve(self, integer_(minimum, "io.Buffer capacity", 2))
     end
@@ -932,15 +974,11 @@ end
 --- content, and the buffer is still empty afterwards.
 ---
 --- ```nupp
---- const io = io
+--- local buffer = io.newbuffer("hello")
+--- assert(buffer:len() == 5)
 ---
---- do
----     local buffer = io.newbuffer("hello")
----     assert(buffer:len() == 5)
----
----     local sized = io.newbuffer(4096)
----     assert(sized:len() == 0 and sized:capacity() == 4096)
---- end
+--- local sized = io.newbuffer(4096)
+--- assert(sized:len() == 0 and sized:capacity() == 4096)
 --- ```
 ---
 --- @param initial the starting bytes, a starting capacity, or nothing
@@ -949,10 +987,10 @@ end
 --- @export
 export function newBuffer(initial: integer | string?): affine(Buffer)
     if initial ~= nil and type(initial) ~= "number" and type(initial) ~= "string" then
-        error("nupp: io.newBuffer initial value must be bytes or a capacity", 2)
+        error("nupp: io.newbuffer initial value must be bytes or a capacity", 2)
     end
     local bytes = type(initial) == "string" and initial as string or ""
-    local capacity = type(initial) == "number" and integer_(initial, "io.newBuffer capacity", 2) or #bytes
+    local capacity = type(initial) == "number" and integer_(initial, "io.newbuffer capacity", 2) or #bytes
     local data = physical.allocateBytes(math.max(capacity, 1))
     if #bytes > 0 then
         physical.copy(data, bytes, #bytes)
@@ -968,9 +1006,8 @@ end
 --- changing:
 ---
 --- ```nupp
---- local io = require("io")
 ---
---- local reader = io.newstringreader("hello")
+--- local reader = io.newreader("hello")
 --- assert(reader:read(5) == "hello")
 --- assert(reader:read(1) == "")
 --- ```
@@ -981,7 +1018,7 @@ end
 --- @export
 export function newStringReader(text: string): Reader
     if type(text) ~= "string" then
-        error("nupp: io.newStringReader needs a string", 2)
+        error("nupp: io.newreader needs a string", 2)
     end
 
     return newReaderOver(text)
@@ -999,10 +1036,33 @@ end
 --- @export
 export function newQueueReader(source: ByteQueue): Reader
     if not queueLike(source) then
-        error("nupp: io.newQueueReader needs a byte queue", 2)
+        error("nupp: io.newreader needs a byte queue", 2)
     end
 
     return new QueueReader(_source = source, _closed = false)
+end
+
+-- Both buffer and view inputs are copied into an independent snapshot.
+local function openReader(source: any): Reader
+    if type(source) == "string" then
+        return newStringReader(source as string)
+    elseif queueLike(source) then
+        return newQueueReader(source as ByteQueue)
+    end
+
+    return newReaderOver(source:getstring() as string)
+end
+
+--- Opens a byte reader over a string, queue, buffer, or view.
+---
+--- Buffers and views are copied into independent snapshots. A queue remains
+--- live and is drained as the reader advances; closing leaves the queue open.
+export const newReader: function(source: string | ByteQueue): Reader
+    & function(borrows source: Buffer | ByteView): Reader = openReader as any
+
+--- Opens a byte writer that clears and exclusively borrows a buffer.
+export function newWriter(exclusive destination: Buffer): affine(Writer) borrows (destination)
+    return destination:newwriter()
 end
 
 --- Reads a reader to its end and returns everything it held as a string.
@@ -1019,7 +1079,7 @@ end
 export function readAll(takes reader: Reader, maxbytes: integer?): (string?, string?)
     local limit: integer? = nil
     if maxbytes ~= nil then
-        limit = positive(maxbytes, "io.readAll maxBytes", 2)
+        limit = positive(maxbytes, "io.readall maxbytes", 2)
     end
     local parts: {string} = {}
     local total: integer = 0
@@ -1056,3 +1116,105 @@ export const validatePositive = positive
 export const validateInteger = integer_
 
 export type OwnedBuffer = affine(Buffer)
+
+local record LineReader is Lines
+    @private _source: Reader
+    @private _held: string
+    @private _at: integer
+    @private _limit: integer
+    @private _closed: boolean
+    @private _ended: boolean
+
+    function isreleased(self): boolean
+        return self._closed
+    end
+
+    function read(self): (string?, string?)
+        if self._closed then
+            return nil, "the line reader is closed"
+        end
+        while true do
+            const found = self._held:find("\n", self._at + 1, true)
+            if found ~= nil then
+                local line = self._held:sub(self._at + 1, found - 1)
+                if line:sub(-1) == "\r" then
+                    line = line:sub(1, -2)
+                end
+                -- Measured against the line, not against the bytes it arrived
+                -- in. Checked here rather than only before asking for more,
+                -- because a terminator in the same chunk as an overlong line
+                -- would otherwise walk past the bound; and after the carriage
+                -- return has gone, because neither terminator byte belongs to
+                -- the line and counting one against the limit would refuse a
+                -- line of exactly the length that was allowed.
+                if #line > self._limit then
+                    return nil, "a line was longer than the limit"
+                end
+                self._at = found
+                if self._at >= #self._held then
+                    self._held = ""
+                    self._at = 0
+                end
+
+                return line
+            end
+            -- No terminator yet. A line that never ends is not a line, and
+            -- growing until it does is how a peer takes the process down, so
+            -- the bound is checked before asking for more rather than after.
+            -- A trailing carriage return gets one byte of grace, because it
+            -- may be half of a terminator split across chunks: without it a
+            -- line of exactly the allowed length would be refused or kept
+            -- depending on where the chunks happened to fall.
+            local grace = self._held:sub(-1) == "\r" and 1 or 0
+            if #self._held - self._at > self._limit + grace then
+                return nil, "a line was longer than the limit"
+            end
+            if self._ended then
+                if self._at >= #self._held then
+                    return nil
+                end
+                const rest = self._held:sub(self._at + 1)
+                -- At the end a trailing carriage return is line content, not
+                -- half a terminator, so the grace granted while more could
+                -- still arrive is taken back here.
+                if #rest > self._limit then
+                    return nil, "a line was longer than the limit"
+                end
+                self._held = ""
+                self._at = 0
+
+                return rest
+            end
+            local held = #self._held - self._at
+            local room = self._limit - held
+            local wanted = (room < DEFAULT_READ - 2 and room + 2 or DEFAULT_READ) as integer
+            const chunk, why = self._source:read(wanted)
+            if chunk == nil then
+                return nil, why
+            end
+            if #chunk > wanted then
+                error("nupp: io.Reader returned more bytes than requested", 2)
+            end
+            if #chunk == 0 then
+                self._ended = true
+            else
+                if self._at > 0 then
+                    self._held = self._held:sub(self._at + 1)
+                    self._at = 0
+                end
+                self._held = self._held .. chunk
+            end
+        end
+    end
+
+    function close(takes self): nil
+        self._closed = true
+        self._source:close()
+    end
+end
+
+makeLines = function(takes source: Reader, limit: integer?): affine(Lines)
+    const bound = positive(limit or 65536, "io.Reader:lines limit", 2)
+
+    return new LineReader(_source = source, _held = "", _at = 0, _limit = bound, _closed = false, _ended = false)
+end

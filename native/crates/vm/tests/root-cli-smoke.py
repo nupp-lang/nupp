@@ -143,7 +143,7 @@ for _ = 1, 2 do
 end
 assert(failures == 1)
 store.close()
-assert(not require("nupp.io.files").exists(path))
+assert(not require("io.files").exists(path))
 print(42)
 """)
     case("root-help", ["--help"], work, contains="nupp")

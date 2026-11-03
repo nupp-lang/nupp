@@ -10,7 +10,7 @@ deadlines, comparing baselines, and retaining machine-readable history.
 ]]
 
 local usageError = require("nupp.tools.cli.error").forCommand("bench")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 local report = require("nupp.tools.cli.report")
 
 local RUN_SCHEMA = {
@@ -258,7 +258,7 @@ local function run(options: any): integer
     local hosted = rawget(_G, "__NUPP_EXECUTABLE")
     local executable = compilerRoot and compilerRoot .. "/bin/nupp"
         or type(hosted) == "string" and hosted
-        or tostring(arg[0] or "nupp")
+        or tostring(io.cli.args[0] or "nupp")
     const {type Options} = require("nupp.tools.benchrunner")
     local runner = require("nupp.tools.benchrunner")
 

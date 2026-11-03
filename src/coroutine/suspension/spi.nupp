@@ -4,7 +4,7 @@ module coroutine.suspension.spi
 `coroutine.suspension.spi` defines the scheduler integration contracts.
 
 ```nupp
-local contract = require("coroutine.suspension.spi")
+local contract = coroutine.suspension.spi
 local type Provider = contract.Provider
 ```
 

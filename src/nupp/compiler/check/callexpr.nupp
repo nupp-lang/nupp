@@ -14,6 +14,10 @@ argument, which is all `:` means.
 ]]
 
 local apiidentity = require("nupp.compiler.apiidentity")
+local LAYOUT_INTRINSICS: {
+    [string]: string
+} = {["types.sizeof"] = "sizeof", ["types.alignof"] = "alignof", ["types.offsetof"] = "offsetof",}
+
 local builtinExtensions = require("nupp.compiler.builtinextensions")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
@@ -145,7 +149,7 @@ end
 --- The severity a logging call site carries, as the runtime numbers them.
 local LOG_SEVERITY: {[string]: integer} = {error = 1, warn = 2, info = 3, debug = 4}
 
--- Which severity `log.<name>` names, or nil for anything else.
+-- Which severity `debug.log.<name>` names, or nil for anything else.
 --
 -- Marking the node rather than answering the call's type is deliberate: the call goes
 -- on to be checked like any other, so the format directives and their arguments are
@@ -156,7 +160,7 @@ local function logIntrinsic(c, callee): integer?
         return nil
     end
     local identity = apiidentity.expression(c, callee)
-    local member = identity and identity:match("^log%.([%w_]+)$")
+    local member = identity and identity:match("^debug%.log%.([%w_]+)$")
 
     return member and LOG_SEVERITY[member] or nil
 end
@@ -233,7 +237,7 @@ local type Token = lexer.Token
 
 --- Builds the same declared-field specification as `layoutof`, but marks it for the
 --- SoA runtime rather than exposing an AoS byte stride. Kept here because an aliased
---- `soa.allocate` has no syntactic relationship to the global layout intrinsic.
+--- `soa.alloc` has no syntactic relationship to the global layout intrinsic.
 --- Whether every argument is positional. A named or plucked argument is
 --- positional only after the adjustment the ordinary call path performs, so an
 --- intrinsic that goes around that path keeps its call when one is present.
@@ -461,7 +465,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
     -- Calls
     ---------------------------------------------------------------------
 
-    --- `nupp.admit(value)` once the ordinary machinery has decided what it
+    --- `types.admit(value)` once the ordinary machinery has decided what it
     --- returns.
     ---
     --- The destination supplies the constrained type, so this runs after inference
@@ -469,21 +473,13 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
     --- to what it promised. The predicate travels to the generator on the node, the
     --- same way `is` carries one.
     local function admitted(node: cst.Call | cst.SafeCall, result: Type): Type
-        local callee = node.obj
-        if not callee or callee.kind ~= "dotIndex" then
-            return result
-        end
-        local base = callee.obj
-        if not base or base.kind ~= "name" or not base.token or base.token.text ~= "nupp" then
-            return result
-        end
-        if not callee.name or callee.name.text ~= "admit" then
+        if apiidentity.expression(c, node.obj) ~= "types.admit" then
             return result
         end
         local args = (node.args as cst.Args?)
         local exprs = args and args.exprs or nil
         if not exprs or #exprs ~= 1 then
-            c.diag("NUPP2013", node, "nupp.admit takes one value")
+            c.diag("NUPP2013", node, "types.admit takes one value")
             return result
         end
         local constraint = T.constraintOf(result)
@@ -491,7 +487,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             c.diag(
                 "NUPP2013",
                 node,
-                ("nupp.admit needs a constrained destination, and this one is %s"):format(T.tostring(result)),
+                ("types.admit needs a constrained destination, and this one is %s"):format(T.tostring(result)),
                 nil,
                 {help = "annotate the binding, result or parameter with a constrained type"}
             )
@@ -504,7 +500,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             c.diag(
                 "NUPP2013",
                 exprs[1],
-                ("nupp.admit narrows %s, and this value is %s"):format(T.tostring(into), T.tostring(supplied)),
+                ("types.admit narrows %s, and this value is %s"):format(T.tostring(into), T.tostring(supplied)),
                 nil,
                 {help = why}
             )
@@ -576,13 +572,9 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             argTable = callArgs.table
         end
         local calleeIdentity = apiidentity.expression(c, callee)
-        local comptimeIntrinsic, intrinsicQualified = cst.comptimeTypeIntrinsicSpelling(callee)
-        if comptimeIntrinsic == "reflect" then
-            comptimeIntrinsic, intrinsicQualified = nil, false
-        end
-        if calleeIdentity == "types.reflect" then
-            comptimeIntrinsic, intrinsicQualified = "reflect", true
-        end
+        local layoutIntrinsic = calleeIdentity and LAYOUT_INTRINSICS[calleeIdentity] or nil
+        local comptimeIntrinsic = layoutIntrinsic or (calleeIdentity == "types.reflect" and "reflect" or nil)
+        local intrinsicQualified = comptimeIntrinsic ~= nil
         if not comptimeIntrinsic and callArgs and callArgs.typeArg and callArgs.ordinaryTypeArg then
             local original = callArgs.typeArg
             local ordinary = callArgs.ordinaryTypeArg
@@ -594,20 +586,17 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 end
             end
         end
-        local layoutIntrinsic = intrinsicQualified and comptimeIntrinsic ~= "reflect" and comptimeIntrinsic or nil
         if layoutIntrinsic and not argStr and not argTable then
             if (c.comptimeDepth or 0) == 0 then
-                c.diag("NUPP2419", node, "nupp." .. layoutIntrinsic .. " is available only inside a comptime block")
+                c.diag("NUPP2419", node, "types." .. layoutIntrinsic .. " is available only inside a comptime block")
                 return T.any
             end
-            local globals = c.env and c.env.globals
-            local stable = globals and c.lookupEntry("nupp") == globals.nupp
             local expected = layoutIntrinsic == "offsetof" and 2 or 1
-            if not stable or #argExprs ~= expected then
+            if #argExprs ~= expected then
                 c.diag(
                     "NUPP2419",
                     node,
-                    ("nupp.%s expects %d argument%s"):format(layoutIntrinsic, expected, expected == 1 and "" or "s")
+                    ("types.%s expects %d argument%s"):format(layoutIntrinsic, expected, expected == 1 and "" or "s")
                 )
                 return T.any
             end
@@ -617,7 +606,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                 c.diag(
                     "NUPP2419",
                     argExprs[1] or node,
-                    "nupp." .. layoutIntrinsic .. " expects one concrete type name",
+                    "types." .. layoutIntrinsic .. " expects one concrete type name",
                     nil,
                     {help = "pass a declared or qualified type, not a runtime value"}
                 )
@@ -625,7 +614,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             end
             local target = c.env and c.env.layoutTarget or nil
             if not target then
-                c.diag("NUPP2419", node, "nupp." .. layoutIntrinsic .. " needs an explicit build layout target", nil, {
+                c.diag("NUPP2419", node, "types." .. layoutIntrinsic .. " needs an explicit build layout target", nil, {
                     help = "set layoutTarget on the selected build target in nupp.lua"
                 })
                 return T.any
@@ -653,7 +642,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                     c.diag(
                         "NUPP2419",
                         argExprs[2] or node,
-                        "nupp.offsetof field name must be a compile-time-known string"
+                        "types.offsetof field name must be a compile-time-known string"
                     )
                     return T.any
                 end
@@ -700,7 +689,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             if positionalOnly(argExprs) and format and format.kind == "string" then
                 node.logIntrinsic = severity
                 local sourceIdentity = apiidentity.sourceExpression(c, callee)
-                node.logModule = sourceIdentity and sourceIdentity:match("^(.*)%.[^.]+$") or "log"
+                node.logModule = sourceIdentity and sourceIdentity:match("^(.*)%.[^.]+$") or "debug.log"
                 node.logFormatIntrinsic = debugFormatPlan(literalString(format) or "")
             end
         end
@@ -2036,6 +2025,17 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             ot = withoutNil(ot)
         end
         local rawReceiver = rawType(ot)
+        local featureEffects = c.env and c.env.featureEffects
+        local featureFields = featureEffects
+            and (
+                featureEffects[rawReceiver]
+                or rawReceiver.tag == "nominal" and rawReceiver.origin and featureEffects[rawReceiver.origin]
+            )
+        local feature = featureFields and featureFields[member.text]
+        if feature and c.recordEffect then
+            (node as any).compilerFeatureEffect = feature
+            c.recordEffect(feature)
+        end
         local indexedView = indexedViews.describe(rawReceiver)
         if indexedView and member.text == "slice" then
             node.indexedViewOperation = {kind = "slice", descriptor = indexedView,}

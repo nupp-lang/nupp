@@ -44,6 +44,7 @@ local BUNDLED = {
     "nupp.util.internal.pool",
     "nupp.mem.arena",
     "events",
+    "nupp.spi",
 }
 
 -- Checks a strict program against the prelude and answers its diagnostics as
@@ -66,6 +67,30 @@ local function diagsUnderPrelude(source)
 end
 
 local M = {}
+
+function M.tlsOverviewExampleChecksAgainstItsPublicApi()
+    local source = assert(require("nupp.compiler.bundled").source("/io/net/init.nupp"))
+    local example = assert(source:match("## TLS.-```nupp\n(.-)\n```"))
+    testAssert.eq(diagsUnderPrelude(example), "")
+end
+
+function M.retiredNamespacesAreNotBundled()
+    local env = strictEnv()
+    for _, name in ipairs({
+        "io.uri",
+        "io.uri.spi",
+        "io.path",
+        "io.path.spi",
+        "io.net.tls",
+        "io.net.tls.spi",
+        "binary.hash",
+        "binary.hash.digest",
+        "binary.hash.checksum",
+        "binary.hash.mac"
+    }) do
+        testAssert.eq(env.bundledImplementation(name), nil, name)
+    end
+end
 
 function M.compilerCarriesEveryFeatureRuntimeSource()
     local manifest = assert(loadfile(ROOT .. "/nupp.lua"))()
@@ -92,6 +117,7 @@ end
 function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     local env = envMod.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
     local sources = {
+        ["nupp.spi"] = "/nupp/spi/init.nupp",
         ["binary"] = "/binary/init.nupp",
         ["binary.span"] = "/binary/span.nupp",
         ["nupp.runtime.entropy"] = "/nupp/runtime/entropy.nupp",
@@ -108,9 +134,8 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         ["io.http.spi"] = "/io/http/spi.nupp",
         ["io.net"] = "/io/net/init.nupp",
         ["io.net.spi"] = "/io/net/spi.nupp",
-        ["io.terminal"] = "/io/terminal.nupp",
-        ["io.tls"] = "/io/tls/init.nupp",
-        ["io.tls.spi"] = "/io/tls/spi.nupp",
+        ["io.cli"] = "/io/cli/init.nupp",
+        ["io.net.internal.tls"] = "/io/net/internal/tls.nupp",
         ["nupp.runtime.standardcoroutine"] = "/nupp/runtime/standardcoroutine.nupp",
     }
     for name, path in pairs(sources) do
@@ -136,6 +161,11 @@ function M.finalNamespaceHomesKeepCheckedTypesOutsideTheCheckout()
     local env = envMod.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
     local source = [[
 local binary = require("binary")
+local client: io.net.TlsClientOptions = {hostname = "example.com"}
+local server: io.net.TlsServerOptions = {certificate = "certificate", privatekey = "key"}
+local function ready(borrows session: io.net.TlsSession): boolean
+    return session:isready()
+end
 local {type Pool, newpool} = require("table")
 local record Value
     number: integer
@@ -428,7 +458,7 @@ end
 -- A public standard module the compiler ships but cannot load the types of
 -- resolves to `unknown` at every consumer, and a field read on `unknown` says
 -- "no field X in unknown" rather than naming the module that was never loaded.
--- That is how `nupp.io.net` and `nupp.io.tls` sat unresolvable: both were
+-- That is how `nupp.io.net` and `io.net` sat unresolvable: both were
 -- staged into the distribution and classified as public, and neither was in
 -- the table the checker loads types from. A consumer got `unknown` for the
 -- whole module, so a call to a function that does not exist read the same as
@@ -507,7 +537,7 @@ function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()
     local overrides = {
         ["/nupp/io/init.nupp"] = false,
         ["/nupp/io.nupp"] = "@!internal\nmodule nupp.io\nexport record Token value: integer end\n",
-        ["/nupp/io/process/init.nupp"] = "module nupp.io.process\nexport const answer: integer = 29\n",
+        ["/nupp/io/child/init.nupp"] = "module nupp.io.child\nexport const answer: integer = 29\n",
         ["/nupp/tasks.nupp"] = false,
         ["/nupp/tasks/init.nupp"] = "@!internal\nmodule nupp.tasks\nexport record Token value: integer end\n",
     }
@@ -527,7 +557,7 @@ function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()
         testAssert.eq(ioModule.resource, "/nupp/io.nupp")
         testAssert.eq(env.bundledImplementation("nupp.io"), "/nupp/io.nupp")
         assert(env.moduleAccess(env, "application", "nupp.io"))
-        testAssert.eq(env.moduleAccess(env, "application", "nupp.io.process"), nil)
+        testAssert.eq(env.moduleAccess(env, "application", "nupp.io.child"), nil)
         testAssert.eq(env.moduleAccess(env, "io.facade", "nupp.io"), nil)
         local tasks = env.loadBundledModule("nupp.tasks")
         assert(tasks and tasks.exports.types.Token)

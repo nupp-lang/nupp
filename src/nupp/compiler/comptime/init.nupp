@@ -689,6 +689,11 @@ local function buildEnvironment(state)
     end
 
     materializeProviders.installEvaluator(state, env)
+    for _, name in ipairs({"sizeof", "alignof", "offsetof"}) do
+        local token = {}
+        env.types[name] = token
+        state.layoutIntrinsics[token] = name
+    end
 
     return env, libraries
 end
@@ -715,6 +720,7 @@ local function newState()
         intrinsics = {},
         reflections = {},
         layouts = {},
+        layoutIntrinsics = {},
         comptimeFunctions = {},
         callDepth = 0,
     }
@@ -1144,7 +1150,16 @@ local function evalArgs(state, argsNode)
         return {n = 1, value}
     end
 
-    return evalList(state, argsNode and argsNode.exprs or {})
+    local expressions = argsNode and argsNode.exprs or {}
+    if argsNode and argsNode.ordinaryTypeArg then
+        local ordinary = {}
+        for index, expression in ipairs(expressions) do
+            ordinary[index] = index == 1 and argsNode.ordinaryTypeArg or expression
+        end
+        expressions = ordinary
+    end
+
+    return evalList(state, expressions)
 end
 
 --- The value of an expression.
@@ -1512,9 +1527,13 @@ end
 evalMulti = function(state, node)
     local kind = node.kind
     local values
-    local comptimeIntrinsic, intrinsicQualified = cst.comptimeTypeIntrinsicSpelling(node.obj)
+    local comptimeIntrinsic, intrinsicQualified = nil, false
     local simpleCallee = kind == "call" and node.obj and (node.obj.kind == "name" or node.obj.kind == "dotIndex")
     local intrinsicValue = simpleCallee and evalExpr(state, node.obj) or nil
+    local layoutIntrinsic = intrinsicValue ~= nil and state.layoutIntrinsics[intrinsicValue] or nil
+    if layoutIntrinsic then
+        comptimeIntrinsic, intrinsicQualified = layoutIntrinsic, true
+    end
     local deriveHelper = intrinsicValue ~= nil and intrinsicValue == state.deriveHelperIntrinsic
     if intrinsicValue ~= nil and intrinsicValue == state.reflectionIntrinsic then
         comptimeIntrinsic, intrinsicQualified = "reflect", true

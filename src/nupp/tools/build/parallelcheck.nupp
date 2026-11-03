@@ -17,7 +17,7 @@ reuses them as it would records from an earlier run, so anything this checker ge
 wrong is caught there or rechecked serially, and any failure here returns the whole
 check to the serial checker before a partial record is published.
 ]]
-const arg2 = require("arg")
+const arg2 = io.cli.args
 
 local envMod = require("nupp.compiler.project.env")
 local fingerprint = require("nupp.compiler.project.fingerprint")

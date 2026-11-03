@@ -22,7 +22,7 @@ carries a name from the program the reader wrote is what keeps its colour: the
 for.
 
 Nothing here decides whether to colour. A palette is asked for with the answer,
-which the CLI takes from `arg`, so redirected output is plain by the same
+which the CLI takes from `io.cli`, so redirected output is plain by the same
 rule every other command follows.
 ]]
 

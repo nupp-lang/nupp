@@ -2,8 +2,8 @@ module nupp.tests.vmdata
 
 local uuid = require("nupp.tests.providers.uuid")
 local nativeUuid = require("nupp.runtime.provider.nativeuuid")
-local checksum = require("binary.hash.checksum")
-local digest = require("binary.hash.digest")
+local checksum = require("binary.checksum")
+local digest = require("binary.digest")
 local span = require("binary.span")
 local tasks = require("coroutine")
 local tests = {}
@@ -69,7 +69,7 @@ function tests.worker(): integer
     do
         local scope = tasks.scope();
         local child = scope:work(function(): uint64
-            local sums = require("binary.hash.checksum")
+            local sums = require("binary.checksum")
             local ids = require("nupp.runtime.provider.nativeuuid")
             assert(#ids.uuid4() == 36 and #ids.uuid7() == 36)
             return sums.value("crc64nvme", "123456789")

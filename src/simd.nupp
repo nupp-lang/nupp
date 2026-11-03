@@ -9,9 +9,8 @@ once and `species:over` runs it a chunk at a time, the last chunk under its tail
 mask:
 
 ```nupp
-local array = require("nupp.mem.array")
-local span = require("binary.span")
-local simd = require("simd")
+local array = nupp.mem.array
+local span = binary.span
 
 @aot
 local function countQuotes(borrows source: span.Span<uint8>): uint32

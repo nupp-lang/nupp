@@ -8,22 +8,22 @@ contract, as the WHATWG URL Standard does.
 A page host that answers `__nuppBrowser.url` hands the text to its own `URL`,
 which brings the host's IDNA mapping with it; the canonical text it answers is
 then read back into components. Without one, for instance on a hostless
-portable target, [](io.uri.whatwg) parses the text itself and refuses a
+portable target, [](io.newuri) parses the text itself and refuses a
 special-scheme host that needs IDNA.
 
 Either way text that is not valid UTF-8 or holds a NUL byte is refused first,
 with the reasons the native provider gives. Parsing performs no network or
-effect request. [](io.uri) retains the parser during module initialization
+effect request. [](io) retains the parser during module initialization
 and constructs its shared public URI values from the returned components.
 ]]
 
-local contracts = require("io.uri.spi")
+local contracts = require("io.spi")
 const whatwg = require("nupp.io.uri.whatwg")
 local browserHost: any = rawget(_G, "__nuppBrowser")
 local provider = {}
 
 -- Browser URI parsing supplies components; the public URI value and its
--- operations are owned by io.uri on every host.
+-- operations are owned by io.URI on every host.
 function provider.parse(text: string): (contracts.UriParts?, string?)
     local hostParse: any = browserHost ~= nil and browserHost.url or nil
     if hostParse == nil then
@@ -48,5 +48,5 @@ function provider.parse(text: string): (contracts.UriParts?, string?)
     return parts, reason
 end
 
-local checked: contracts.Provider = {parse = provider.parse}
+local checked: contracts.UriProvider = {parse = provider.parse}
 export = checked

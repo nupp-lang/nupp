@@ -42,7 +42,7 @@ end
 -- The logging module itself, so behaviour can be exercised without generating a
 -- module around it. It is an ordinary module now, not something a bootstrap installs.
 local function runtime()
-    return require("log")
+    return require("debug.log")
 end
 
 -- A sink that records what it was handed, so a test can read the parts rather
@@ -57,36 +57,43 @@ end
 local M = {}
 
 function M.formatDirectivesAreCheckedAtTheCallSite()
-    testAssert.eq(codesOf("log.error('id %d', 3)"), "", "a well-formed call is clean")
-    testAssert.eq(codesOf("log.error('id %d')"), "NUPP2006", "a directive with no argument is reported")
-    testAssert.eq(codesOf("log.info('%s and %d', 'a', 'b')"), "NUPP2006", "an argument of the wrong type is reported")
-    testAssert.eq(codesOf("log.debug('plain')"), "", "a format with no directives is clean")
+    testAssert.eq(codesOf("debug.log.error('id %d', 3)"), "", "a well-formed call is clean")
+    testAssert.eq(codesOf("debug.log.error('id %d')"), "NUPP2006", "a directive with no argument is reported")
+    testAssert.eq(
+        codesOf("debug.log.info('%s and %d', 'a', 'b')"),
+        "NUPP2006",
+        "an argument of the wrong type is reported"
+    )
+    testAssert.eq(codesOf("debug.log.debug('plain')"), "", "a format with no directives is clean")
     testAssert.eq(
         codesOf(
             table.concat(
-                {"@derive(types.debug)", "local record Value end", "log.debug('value=%?', new Value())",},
+                {"@derive(types.debug)", "local record Value end", "debug.log.debug('value=%?', new Value())",},
                 "\n"
             )
         ),
         "",
         "a debug directive accepts types.Debug"
     )
-    testAssert.eq(codesOf("log.debug('value=%?', 'wrong')"), "NUPP2006", "a debug directive requires types.Debug")
+    testAssert.eq(codesOf("debug.log.debug('value=%?', 'wrong')"), "NUPP2006", "a debug directive requires types.Debug")
     testAssert.eq(
-        codesOf(table.concat({"local logger = log.named('named')", "logger:debug('value=%?', 'wrong')",}, "\n")),
+        codesOf(table.concat({"local logger = debug.log.named('named')", "logger:debug('value=%?', 'wrong')",}, "\n")),
         "NUPP2006",
         "a named logger requires the same contract"
     )
 end
 
 function M.levelNamesAreCheckedAtTheCallSite()
-    testAssert.eq(codesOf("log.setlevel('debug')"), "", "a known level is clean")
-    testAssert.eq(codesOf("log.setmodulelevel('game.physics', 'debug')"), "", "a module level is checked")
-    testAssert.eq(codesOf("log.setmodulelevel('game.physics', 'inherit')"), "", "an override can be removed")
-    testAssert.eq(codesOf("log.enabled('warn')"), "", "enabled takes the same names")
-    assert(codesOf("log.setlevel('verbose')"):find("NUPP2006") ~= nil, "an unknown level is not one of the level names")
+    testAssert.eq(codesOf("debug.log.setlevel('debug')"), "", "a known level is clean")
+    testAssert.eq(codesOf("debug.log.setmodulelevel('game.physics', 'debug')"), "", "a module level is checked")
+    testAssert.eq(codesOf("debug.log.setmodulelevel('game.physics', 'inherit')"), "", "an override can be removed")
+    testAssert.eq(codesOf("debug.log.enabled('warn')"), "", "enabled takes the same names")
     assert(
-        codesOf("log.setmodulelevel('game.physics', 'verbose')"):find("NUPP2006") ~= nil,
+        codesOf("debug.log.setlevel('verbose')"):find("NUPP2006") ~= nil,
+        "an unknown level is not one of the level names"
+    )
+    assert(
+        codesOf("debug.log.setmodulelevel('game.physics', 'verbose')"):find("NUPP2006") ~= nil,
         "an unknown module level is refused"
     )
 end
@@ -104,7 +111,7 @@ local function logged(src, level)
 end
 
 function M.aStatementCallWithALiteralFormatIsLowered()
-    local lines = logged("log.error('id %d', 3)")
+    local lines = logged("debug.log.error('id %d', 3)")
     testAssert.eq(#lines, 1, "the site emitted")
     testAssert.eq(lines[1].level, 1, "at its own severity")
     testAssert.eq(lines[1].line, 1, "the line is a constant")
@@ -122,7 +129,7 @@ function M.aDebugDirectiveLowersInsideTheLevelGuard()
             "        return 'v'",
             "    end",
             "end",
-            "log.debug('value=%?', new Value())",
+            "debug.log.debug('value=%?', new Value())",
             "return renders",
         },
         "\n"
@@ -157,7 +164,7 @@ end
 
 function M.eachSeverityCarriesItsOwnIndex()
     for index, name in ipairs({"error", "warn", "info", "debug"}) do
-        local lines = logged(("log.%s('m')"):format(name))
+        local lines = logged(("debug.log.%s('m')"):format(name))
         testAssert.eq(lines[1].level, index, name .. " tests its own level")
     end
 end
@@ -172,10 +179,10 @@ local function assertOrdinaryCall(src, message, why)
 end
 
 function M.whatIsNotLoweredStaysAnOrdinaryCall()
-    assertOrdinaryCall("local f = 'id %d'\nlog.error(f, 3)", "id 3", "a computed format has nothing to fold")
-    assertOrdinaryCall("local f = log.error\nf('id %d', 3)", "id 3", "reading the function is not calling it")
+    assertOrdinaryCall("local f = 'id %d'\ndebug.log.error(f, 3)", "id 3", "a computed format has nothing to fold")
+    assertOrdinaryCall("local f = debug.log.error\nf('id %d', 3)", "id 3", "reading the function is not calling it")
 
-    local lines, ok = logged("local ok = log.enabled('warn')\nreturn ok")
+    local lines, ok = logged("local ok = debug.log.enabled('warn')\nreturn ok")
     testAssert.eq(ok, true, "a call in value position keeps its value")
     testAssert.eq(#lines, 0, "and logs nothing")
 
@@ -185,7 +192,7 @@ function M.whatIsNotLoweredStaysAnOrdinaryCall()
                 "local record Value",
                 "    function debug(self): string return 'v' end",
                 "end",
-                "local ignored = log.debug('value=%?', new Value())",
+                "local ignored = debug.log.debug('value=%?', new Value())",
             },
             "\n"
         ),
@@ -197,21 +204,21 @@ function M.whatIsNotLoweredStaysAnOrdinaryCall()
         table.concat(
             {
                 "local seen = ''",
-                "local log = {error = function(m: string): nil seen = m end}",
-                "log.error('m')",
+                "local debug = {log = {error = function(m: string): nil seen = m end}}",
+                "debug.log.error('m')",
                 "return seen",
             },
             "\n"
         )
     )
-    testAssert.eq(answer, "m", "a local called nupp is the one that was written")
+    testAssert.eq(answer, "m", "a local called debug is the one that was written")
     testAssert.eq(#reached, 0, "and the logger is not reached")
 end
 
 function M.aNamedArgumentKeepsTheOrdinaryCall()
     -- Named arguments are positional only after the adjustment the ordinary call path
     -- performs, and lowering goes around it.
-    assertOrdinaryCall("log.error(fmt = 'plain')", "plain", "a named argument keeps its call")
+    assertOrdinaryCall("debug.log.error(fmt = 'plain')", "plain", "a named argument keeps its call")
 end
 
 function M.aPluckedArgumentKeepsTheOrdinaryCall()
@@ -222,7 +229,7 @@ function M.aPluckedArgumentKeepsTheOrdinaryCall()
                 "    fmt: string",
                 "end",
                 "local message = new Message(fmt = 'plain')",
-                "log.error({fmt} = message)",
+                "debug.log.error({fmt} = message)",
             },
             "\n"
         ),
@@ -525,27 +532,27 @@ function M.everyPathCallRunsFromAModule()
     local module = run(
         table.concat(
             {
-                "return function(sink: log.Sink): {any}",
+                "return function(sink: debug.log.Sink): {any}",
                 "    local answers: {any} = {}",
-                "    answers[#answers + 1] = log.setlevel('debug')",
-                "    answers[#answers + 1] = log.level()",
-                "    answers[#answers + 1] = log.setmodulelevel('amb.other', 'error')",
-                "    answers[#answers + 1] = log.modulelevel('amb.other')",
-                "    answers[#answers + 1] = log.setmodulelevel('amb.other', 'inherit')",
-                "    answers[#answers + 1] = log.enabled('info')",
-                "    answers[#answers + 1] = log.settimestampformat('')",
-                "    answers[#answers + 1] = log.timestampformat()",
-                "    answers[#answers + 1] = log.timestamp()",
-                "    log.setformatter(function(level: integer, module: string, line: integer, message: string, stamp: string): string",
+                "    answers[#answers + 1] = debug.log.setlevel('debug')",
+                "    answers[#answers + 1] = debug.log.level()",
+                "    answers[#answers + 1] = debug.log.setmodulelevel('amb.other', 'error')",
+                "    answers[#answers + 1] = debug.log.modulelevel('amb.other')",
+                "    answers[#answers + 1] = debug.log.setmodulelevel('amb.other', 'inherit')",
+                "    answers[#answers + 1] = debug.log.enabled('info')",
+                "    answers[#answers + 1] = debug.log.settimestampformat('')",
+                "    answers[#answers + 1] = debug.log.timestampformat()",
+                "    answers[#answers + 1] = debug.log.timestamp()",
+                "    debug.log.setformatter(function(level: integer, module: string, line: integer, message: string, stamp: string): string",
                 "        return message",
                 "    end)",
-                "    answers[#answers + 1] = log.formatter() ~= nil",
-                "    log.setformatter(nil)",
-                "    log.setsink(sink)",
-                "    answers[#answers + 1] = log.sink() == sink",
-                "    answers[#answers + 1] = log.levelname(3)",
-                "    log.named('amb.named'):info('named %d', 1)",
-                "    log.info('lowered %d', 2)",
+                "    answers[#answers + 1] = debug.log.formatter() ~= nil",
+                "    debug.log.setformatter(nil)",
+                "    debug.log.setsink(sink)",
+                "    answers[#answers + 1] = debug.log.sink() == sink",
+                "    answers[#answers + 1] = debug.log.levelname(3)",
+                "    debug.log.named('amb.named'):info('named %d', 1)",
+                "    debug.log.info('lowered %d', 2)",
                 "    return answers",
                 "end",
             },
@@ -569,9 +576,13 @@ function M.everyPathCallRunsFromAModule()
 end
 
 function M.precedingModuleViewFactoryIsAbsent()
-    local log = require("log")
+    local log = require("debug.log")
     testAssert.eq(log.forModule, nil)
     testAssert.eq(type(log.formodule), "function")
+end
+
+function M.theFormerGlobalIsUnavailable()
+    assert(codesOf("log.info('old root')") ~= "", "logging is only under debug.log")
 end
 
 return M

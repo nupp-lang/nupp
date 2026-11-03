@@ -559,7 +559,7 @@ function M.theDeriveRefusesWhatReusedStorageCannotHold()
     contains(output, "lets self escape")
     contains(output, "moves an owned value into self")
     contains(output, "is generic, so every specialization shares one runtime identity")
-    contains(output, "events.Event admits a record or a fixed-layout struct")
+    contains(output, "events.event admits a record or a fixed-layout struct")
 end
 
 return M

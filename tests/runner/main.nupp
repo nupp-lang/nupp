@@ -15,7 +15,7 @@ module main
 -- a name the checker does not read. Carrying them is what makes a suite's
 -- `require` of a compiler module the carried one rather than a compile from
 -- source.
-const terminal = require("io.terminal")
+const terminal = require("io.cli")
 
 @allow("unused-binding")
 const _DYNAMIC_REQUIRES = [[
@@ -38,15 +38,14 @@ end
 -- modules are stamped into it, and a bare `luajit tests/run.lua` has none of
 -- them beside a project's empty build directory.
 -- The LuaJIT host names itself in __NUPP_EXECUTABLE; the VM in arg[0].
-const program = tostring(rawget(_G, "__NUPP_EXECUTABLE") or arg[0])
+const program = tostring(rawget(_G, "__NUPP_EXECUTABLE") or io.cli.args[0])
 rawset(_G, "__NUPP_TEST_RUNNER_COMMAND", "'" .. program:gsub("'", "'\\''") .. "'")
-arg[0] = "tests/run.lua"
+io.cli.args[0] = "tests/run.lua"
 
 -- The runner is loaded as a file, so its dependency is invisible to the module
 -- graph unless the host names it. Keeping the public module loaded also means every
 -- worker state and every suite observes the same assertion implementation.
 package.loaded["assert"] = require("assert")
-require("arg")
 local _ = terminal.style
 
 -- File-loaded suites share these host facilities in the parent and worker states.
@@ -56,18 +55,18 @@ const carriedpool = table.newpool
 const carriedentropy = os.randombytes
 const _ = os.info
 require("utf8")
-require("binary.hash")
-require("binary.hash.digest")
-require("binary.hash.checksum")
-require("binary.hash.mac")
+require("binary")
+require("binary.digest")
+require("binary.checksum")
+require("binary.mac")
 require("binary.compress")
 require("serde.json")
-require("io.path")
-require("io.uri")
+const carriedpath = io.newpath
+const carrieduri = io.newuri
 require("nupp.text")
 require("coroutine")
 require("io.net")
-require("nupp.io.process")
+const carriedprocess = io.popen
 require("coroutine.workers")
 -- These three reach providers only the LuaJIT host loads up front. A VM lane is a
 -- process of its own with no worker states to share them with, so there a suite
@@ -79,5 +78,5 @@ if not rawget(_G, "__nupp_load_image") then
     load("nupp.gpu")
 end
 
-const run = assert(loadfile(arg[0]))
+const run = assert(loadfile(io.cli.args[0]))
 run()

@@ -4,7 +4,7 @@
 The `nupp` namespace itself: the intrinsics the compiler owns, and the ambient
 library namespaces reached without a `require`. `nupp` loads this file into every
 check environment with `declare_globals`, after `lua.d.nupp`, so the declarations
-below may name Lua types such as `LuaFile`.
+below may name Lua types such as `io.File`.
 
 ## Conventions
 
@@ -93,6 +93,14 @@ end
 --- @namespace nupp
 local nupp: {
 
+    --- Compiler-internal materialization conformance surface.
+    --- @internal
+    __materializationTest: nupp.__MaterializationTestAPI
+}
+
+--- Type inspection, construction, constraint validation, and target layout queries.
+--- @namespace types
+local types: {
     --- Admits a value into the constrained type the destination declares.
     ---
     --- The constrained type is taken from where the result goes -- an annotated
@@ -108,23 +116,18 @@ local nupp: {
     --- @raises string when the value does not satisfy the constraint
     admit: function<T>(value: any): T,
 
-    --- Size in bytes under the build target's declared C ABI.
+    --- Returns the size in bytes under the build target's declared C ABI.
+    --- Evaluates inside a comptime block with an explicit layoutTarget.
     sizeof: function(typename: any): integer,
 
-    --- Alignment in bytes under the build target's declared C ABI.
+    --- Returns the alignment in bytes under the build target's declared C ABI.
+    --- Evaluates inside a comptime block with an explicit layoutTarget.
     alignof: function(typename: any): integer,
 
-    --- Byte offset of a field under the build target's declared C ABI.
+    --- Returns a field's byte offset under the build target's declared C ABI.
+    --- Evaluates inside a comptime block with an explicit layoutTarget.
     offsetof: function(typename: any, fieldname: string): integer,
 
-    --- Compiler-internal materialization conformance surface.
-    --- @internal
-    __materializationTest: nupp.__MaterializationTestAPI
-}
-
---- Compiler-only type inspection and construction, with shared runtime types.
---- @namespace types
-local types: {
     --- The dynamic type; compatible with everything, checked at neither end.
     @readonly any: @comptime type,
 
@@ -218,7 +221,7 @@ local types: {
     ---
     --- A constrained type is a subtype of its base: it goes wherever the base goes.
     --- Entering one is admission rather than subtyping, so a value the checker
-    --- cannot prove is refused and `nupp.admit` is how the program says it meant
+    --- cannot prove is refused and `types.admit` is how the program says it meant
     --- it. A literal is decided here and needs nothing written.
     ---
     --- The base is `integer`, `int32`, `uint32`, or a constrained alias of one,

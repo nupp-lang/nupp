@@ -1,5 +1,7 @@
 module nupp.compiler.process
 
+const {type Options as ChildOptions} = require("io.internal.process.types")
+
 --[[
 Running a subprocess, given its argument vector.
 
@@ -10,15 +12,15 @@ of this module, and callers pass an argv and never build a command line.
 ]]
 const assert2 = require("assert")
 
-const {type Process as NativeProcess, type Options as NativeOptions} = require("nupp.io.process")
+const {type Process as NativeProcess} = require("io.internal.process")
 const {type Error as IoError} = require("nupp.io")
 
-local type ProcessHost = {spawn: function(NativeOptions): (affine(NativeProcess)?, IoError?)}
+local type ProcessHost = {spawn: function(ChildOptions): (affine(NativeProcess)?, IoError?)}
 
 -- Only isolated children need the native provider. Retain its fingerprint and
 -- its ownership contract when loading it on demand.
 @allow("unused-binding")
-const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.io.process"
+const _DYNAMIC_REQUIRES = "@requires-dynamically io.internal.process"
 local loadProcess: function(string): ProcessHost = require
 
 local process = {}
@@ -278,8 +280,8 @@ end
 function process.captureIsolated(argv: {string}, opts: process.Options?): integer, string
     opts = (opts or {}) as process.Options
     local args = boundedArgs(argv, opts)
-    local native = loadProcess("nupp.io.process")
-    local nativeOptions: NativeOptions = {
+    local native = loadProcess("io.internal.process")
+    local nativeOptions: ChildOptions = {
         args = args,
         cwd = opts.cwd,
         env = opts.env,
@@ -357,8 +359,8 @@ function process.startIsolated(argv: {string}, opts: process.Options?): (affine(
         "process.startIsolated leaves deadlines and cancellation to the session caller"
     )
     local args = boundedArgs(argv, opts)
-    local native = loadProcess("nupp.io.process")
-    local nativeOptions: NativeOptions = {
+    local native = loadProcess("io.internal.process")
+    local nativeOptions: ChildOptions = {
         args = args,
         cwd = opts.cwd,
         env = opts.env,

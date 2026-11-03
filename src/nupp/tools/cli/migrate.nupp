@@ -3,7 +3,7 @@ module nupp.tools.cli.migrate
 -- `nupp migrate`: one extension-dispatched path from foreign source facts into Nupp.
 
 local usageError = require("nupp.tools.cli.error").forCommand("migrate")
-local cliModule = require("arg")
+local cliModule = require("io.cli")
 local report = require("nupp.tools.cli.report")
 
 local REPORT_SCHEMA = {

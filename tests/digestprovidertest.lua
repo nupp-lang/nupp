@@ -8,31 +8,32 @@ local function selected(kind, algorithms)
     return state.family(kind, {{algorithms = algorithms}})
 end
 
-function M.hashRootDoesNotInitializeAnyAlgorithmFamily()
+function M.binaryRootDoesNotInitializeStorageOrAlgorithmFamilies()
     local preloads = {}
     for _, name in ipairs({
-        "binary.hash.checksum",
-        "binary.hash.digest",
-        "binary.hash.mac",
+        "binary.checksum",
+        "binary.digest",
+        "binary.mac",
         "nupp.runtime.provider.checksum",
         "nupp.runtime.provider.digest",
         "nupp.runtime.provider.mac",
         "nupp.runtime.packages",
+        "nupp.runtime.storage",
     }) do
         preloads[name] = function()
             error("hash root initialized " .. name)
         end
     end
-    local load = state.instance({["binary.hash"] = true}, nil, preloads)
-    local hash = load("binary.hash")
+    local load = state.instance({["binary"] = true, ["nupp.util.internal.bitset"] = true}, nil, preloads)
+    local hash = load("binary")
     assert(hash.fnv1a64("hello") == "a430d84680aabd0b")
-    assert(load("binary.hash") == hash)
+    assert(load("binary") == hash)
 end
 
 function M.binaryContextNamesUseCanonicalKeysOnly()
     for _, kind in ipairs({"checksum", "digest", "mac"}) do
         local load = state.family(kind, {})
-        local facade = load("binary.hash." .. kind)
+        local facade = load("binary." .. kind)
         local name = kind == "checksum" and "crc32" or kind == "digest" and "sha256" or "hmac-sha256"
         local algorithm = facade.algorithm(name)
         local final = kind == "checksum" and "newchecksum" or kind == "digest" and "newdigest" or "newmac"
@@ -73,7 +74,7 @@ function M.providerSelectionAndCleanup()
             end
         }
     })
-    local digest = load("binary.hash.digest")
+    local digest = load("binary.digest")
     local initialized = counts.resolutions
     assert(initialized > 0)
     assert(digest.algorithm("sha256").digestsize == 32 and created == 0)
@@ -84,7 +85,7 @@ function M.providerSelectionAndCleanup()
     end
     assert(created == 20 and closed == 20)
     assert(counts.resolutions == initialized, "operations must not resolve providers")
-    assert(load("binary.hash.digest") == digest)
+    assert(load("binary.digest") == digest)
 end
 
 function M.digestAndMacProviderFailuresCloseAndDoNotFallBack()
@@ -115,7 +116,7 @@ function M.digestAndMacProviderFailuresCloseAndDoNotFallBack()
                     end,
                 },
             })
-            local api = load("binary.hash." .. kind)
+            local api = load("binary." .. kind)
             local ok, problem
             if kind == "digest" then
                 ok, problem = pcall(api.hexdigest, name, "abc")
@@ -149,7 +150,7 @@ function M.checksumProviderFailureClosesAndDoesNotFallBack()
             end,
         },
     })
-    local checksum = load("binary.hash.checksum")
+    local checksum = load("binary.checksum")
     local ok, problem = pcall(checksum.value, "crc32c", "abc")
     assert(not ok and tostring(problem):find("test checksum provider failure", 1, true))
     assert(closed == 1, "failed checksum update closes exactly once")
@@ -180,7 +181,7 @@ function M.checksumOneShotClosesSuccessfulAndFailedReads()
                 end,
             },
         })
-        local checksum = load("binary.hash.checksum")
+        local checksum = load("binary.checksum")
         local ok, answer = pcall(checksum.value, "custom", "payload")
         assert(ok ~= failRead)
         assert(failRead and tostring(answer):find("test checksum read failure", 1, true) or answer == 42)
@@ -203,7 +204,7 @@ function M.invalidDescriptorsFailAtRequireTime()
                 end
             }
         })
-        local ok, problem = pcall(load, "binary.hash." .. case[1])
+        local ok, problem = pcall(load, "binary." .. case[1])
         assert(not ok and tostring(problem):find("wrong " .. case[3], 1, true), tostring(problem))
     end
 end
@@ -214,7 +215,7 @@ function M.failedLoadFailsTheFacadeInitialization()
             error("loader failure")
         end
     })
-    local ok, problem = pcall(load, "binary.hash.digest")
+    local ok, problem = pcall(load, "binary.digest")
     assert(not ok and tostring(problem):find("loader failure", 1, true))
 end
 
@@ -223,7 +224,7 @@ local FACTORIES = {digest = "newdigest", checksum = "newchecksum", mac = "newmac
 function M.emptyDiscoveryRetainsBuiltinsAndIndependentListings()
     for _, kind in ipairs({"digest", "checksum", "mac"}) do
         local load = state.family(kind)
-        local api = load("binary.hash." .. kind)
+        local api = load("binary." .. kind)
         assert(api.lookup("not-installed") == nil)
         local factory = assert(api[FACTORIES[kind]], kind .. " names its factory after what it makes")
         assert(not pcall(factory, "not-installed", "key"))
@@ -272,7 +273,7 @@ function M.checksumAndMacRetainCatalogsDuringOperations()
     for _, kind in ipairs({"checksum", "mac"}) do
         local builtinProvider = require("nupp.runtime.provider." .. kind)
         local load, counts = state.family(kind, {builtinProvider})
-        local api = load("binary.hash." .. kind)
+        local api = load("binary." .. kind)
         local initialized = counts.resolutions
         assert(initialized > 0)
         for _ = 1, 20 do
@@ -307,7 +308,7 @@ function M.priorityWinsRegardlessOfDependencyOrder()
             {catalog(kind, "negative", -1), catalog(kind, "default", nil)},
         }) do
             local load = state.family(kind, providers)
-            local api = load("binary.hash." .. kind)
+            local api = load("binary." .. kind)
             assert(api.lookup(providers[1].priority == -1 and "default" or "high"))
             assert(api.lookup("low") == nil and api.lookup("negative") == nil)
         end
@@ -317,14 +318,14 @@ end
 function M.lowerTiesCanBeSupersededButHighestTiesFail()
     for _, kind in ipairs({"digest", "checksum", "mac"}) do
         local load = state.family(kind, {catalog(kind, "a", 0), catalog(kind, "b", 0), catalog(kind, "winner", 1),})
-        assert(load("binary.hash." .. kind).lookup("winner"))
+        assert(load("binary." .. kind).lookup("winner"))
         for _, providers in ipairs({
             {catalog(kind, "a", 1), catalog(kind, "b", 1)},
             {catalog(kind, "a", nil), catalog(kind, "b", 0)},
             {catalog(kind, "high", 2), catalog(kind, "low", 0), catalog(kind, "alsoHigh", 2)},
         }) do
             local failed = state.family(kind, providers)
-            local ok, problem = pcall(failed, "binary.hash." .. kind)
+            local ok, problem = pcall(failed, "binary." .. kind)
             assert(not ok and tostring(problem):find("highest priority", 1, true), tostring(problem))
         end
     end

@@ -480,7 +480,7 @@ end)
 print(ok, tostring(problem):find("deliberate worker failure", 1, true) ~= nil)
 assert(tostring(problem):find("stack traceback:", 1, true) ~= nil, tostring(problem))
 assert(tostring(problem):find("nupp-worker", 1, true) ~= nil, tostring(problem))
-if arg[1] == "check-stack" then
+if io.cli.args[1] == "check-stack" then
     assert(tostring(problem):find("failInsideWorker", 1, true) ~= nil, tostring(problem))
 end
 

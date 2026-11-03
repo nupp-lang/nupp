@@ -9,9 +9,7 @@ type. The same call blocks in a command-line program and parks its coroutine
 where a host installed a [suspension handler](#hosts-supply-scheduling-policy):
 
 ```nupp
-local process = nupp.io.process
-
-local child = assert(process.spawn({args = {"cc", "--version"}}))
+local child = assert(io.popen({args = {"cc", "--version"}}))
 local result = assert(child:communicate())
 print(result.output)
 child:close()
@@ -34,7 +32,7 @@ does not intercept other calls.
   the host runs other work.
 
 The library describes the wait. The handler owns scheduling policy, and the
-caller's result remains `process.Result` on every path. See [Child
+caller's result remains `io.Process.Result` on every path. See [Child
 processes](io) for the operation itself.
 
 ## Hosts supply scheduling policy
@@ -52,19 +50,16 @@ park without accepting a scheduler parameter:
 
 ```nupp:fragment [main.nupp]
 local frame = require("scheduler")
-local process = nupp.io.process
 
 local function printCompilerVersion(): nil
-    local child = assert(process.spawn({args = {"cc", "--version"}}))
+    local child = assert(io.popen({args = {"cc", "--version"}}))
     print(assert(child:communicate()).output)
     child:close()
 end
 
 local function application(): nil
-    do
-        local installation = coroutine.suspension.host.install(frame.handler)
-        printCompilerVersion()
-    end
+    local installation = coroutine.suspension.host.install(frame.handler)
+    printCompilerVersion()
 end
 
 frame.run(application)
@@ -94,7 +89,7 @@ trip:
    which runs another coroutine, request, or frame.
 4. `suspension.poll()` discovers that the child has completed, the library
    resumes the wait, and the handler queues its coroutine again.
-5. The coroutine runs, and `communicate()` returns its `process.Result`.
+5. The coroutine runs, and `communicate()` returns its `io.Process.Result`.
 
 The handler decides when the coroutine runs again. It never supplies the result;
 the library's guarded `resume` function does that.
@@ -105,10 +100,8 @@ Waiting does not introduce `async function`, `await`, or a future return type.
 An ordinary wrapper returns the value produced after the wait:
 
 ```nupp
-local process = nupp.io.process
-
 local function compilerVersion(): string
-    local child = assert(process.spawn({args = {"cc", "--version"}}))
+    local child = assert(io.popen({args = {"cc", "--version"}}))
     local result = assert(child:communicate())
     child:close()
     return result.output
@@ -233,13 +226,11 @@ local function childWork(): nil
 end
 
 local function application(): nil
-    do
-        local installation = coroutine.suspension.host.install(frame.handler)
-        local task = suspension.create(childWork)
-        local ok, problem = coroutine.resume(task)
-        if not ok then
-            error(problem)
-        end
+    local installation = coroutine.suspension.host.install(frame.handler)
+    local task = suspension.create(childWork)
+    local ok, problem = coroutine.resume(task)
+    if not ok then
+        error(problem)
     end
 end
 
@@ -427,10 +418,8 @@ them, and `goto` may reach a label outside:
 local frame = require("scheduler")
 
 local function choose(): integer
-    do
-        local installation = coroutine.suspension.host.install(frame.handler)
-        return 1
-    end
+    local installation = coroutine.suspension.host.install(frame.handler)
+    return 1
 end
 
 print(choose())

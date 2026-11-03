@@ -13,7 +13,7 @@ local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))
 local root, http, buffers, process, files, port, server, unavailable
 
 local function startProcess(options)
-    return assert(process.spawn(options))
+    return assert(process.popen(options))
 end
 
 local function newHttpClient(options)
@@ -59,7 +59,7 @@ function M.beforeAll()
     root = temporaryRoot()
     os.execute("mkdir -p '" .. root .. "'")
 
-    process = require("nupp.io.process")
+    process = require("io")
     http = require("io.http")
     buffers = require("io")
     files = require("io.files")
@@ -84,7 +84,7 @@ local function ready()
 end
 
 local function endpoint(path)
-    return assert(require("io.uri").newuri("http://127.0.0.1:" .. port .. path))
+    return assert(require("io.internal.uri").newuri("http://127.0.0.1:" .. port .. path))
 end
 
 local function readAll(body, chunkSize)
@@ -320,7 +320,7 @@ end
 function M.genericReadersAndLargeDownloadsStayProgressive()
     local client = ready()
     local payload = string.rep("reader-", 8192)
-    local reader = buffers.newstringreader(payload)
+    local reader = buffers.newreader(payload)
     local response, reason = client:send({
         url = endpoint("/echo"),
         method = "POST",

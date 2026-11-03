@@ -42,6 +42,7 @@ local index = {}
 
 -- Compiler-owned package intrinsics take precedence over disk module lookup.
 local INTRINSIC_NAMESPACE: {[string]: boolean} = {["package.providers"] = true, ["package.select"] = true,}
+local TYPE_INTRINSICS: {[string]: boolean} = {admit = true, sizeof = true, alignof = true, offsetof = true}
 
 -- Modules projected through builtin namespaces. The source path deliberately lives
 -- apart from the prelude table's runtime shape: LuaJIT does not put these modules on
@@ -427,7 +428,12 @@ function index.install(c: state.Checker): state.ExprHandlers
                 intrinsicType, definition = c.fieldType(intrinsicNamespace, intrinsicMember as string)
             end
             if intrinsicType
-                and (namespace == "types.derive" or namespace == "own" or compilerOnlyValue(intrinsicType))
+                and (
+                    namespace == "types.derive"
+                    or namespace == "own"
+                    or namespace == "types" and TYPE_INTRINSICS[intrinsicMember]
+                    or compilerOnlyValue(intrinsicType)
+                )
             then
                 c.infer(target)
                 if not node.writeContext
