@@ -2,9 +2,8 @@
 Where everything lives in the built site, and how one page refers to another.
 
 Pages are written as `route/index.html`, so every link out of one is relative to
-its own depth. The symbol index is what lets a name inside a highlighted code
-block become a link to its declaration; a name that two modules both export is
-dropped rather than guessed at.
+its own depth. The symbol index resolves Markdown references to declarations.
+A name that two modules both export is dropped rather than guessed at.
 ]]
 module nupp.tools.doc.urls
 
@@ -15,9 +14,9 @@ local syntax = require("nupp.compiler.syntax.docsyntax")
 
 local normalize, join, dirname = filesMod.normalize, filesMod.join, filesMod.dirname
 
---- A name to the page it is declared on, for every name a code block might
---- mention. Reading a name the index does not hold returns nil, which is how a
---- highlighted token decides whether it becomes a link.
+--- Maps a documented name to the page that declares it.
+---
+--- Names absent from the index do not resolve to a documentation link.
 export type Links = {[string]: string}
 
 --- What a link rewrite needs to know about a configured page: the file its markdown was

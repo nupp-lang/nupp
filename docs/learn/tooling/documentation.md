@@ -521,9 +521,8 @@ so it cannot drift from the file it documents.
 ### Highlighting
 
 Use `nupp` as the language for Nupp source. It is highlighted by the compiler's
-own parser and lexer, which agree about tokens and contextual syntax and can
-turn a name into a link into the API reference. A `:playground` fence is
-checked instead, by the compiler itself, once the reader engages with the
+parser and lexer, which agree about tokens and contextual syntax. A
+`:playground` fence is checked by the compiler once the reader engages with the
 frame. Every other language goes to Scintillua.
 
 ### Links between pages
@@ -663,8 +662,7 @@ A target that reads as a URL or has a slash is left alone, so ordinary links are
 never captured. A name nothing documents is left alone too, except that empty
 link text still renders the name, so a reference to something that has moved
 reads as the name it used to have rather than as an invisible link. References
-inside a code block are code. A highlighted Nupp block can link names into the
-API reference; a `:playground` block treats them only as program text.
+inside a code block are code.
 
 In `markdown` output the same references resolve to anchors within the
 document. A module's own `llms.txt` holds one module, so a reference to a

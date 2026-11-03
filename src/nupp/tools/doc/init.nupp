@@ -1274,9 +1274,7 @@ local function rewriteModuleDocLinks(module: Module, pages: {Page2}, file: strin
         for _, result in ipairs(returns) do
             result.text = rewrite(result.text)
         end
-        -- Only the condition. The type beside it is a type rather than prose, and the
-        -- link it deserves is the one the highlighter makes out of the declaration it
-        -- names, not one a page path configured for prose would invent.
+        -- The condition is prose; the type beside it is not a page path.
         for _, raise in ipairs(raises) do
             raise.text = rewrite(raise.text)
         end

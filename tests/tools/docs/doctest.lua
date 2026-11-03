@@ -2770,8 +2770,7 @@ function M.highlightsLjppWithTheNativeLexer()
                 "end",
             },
             "\n"
-        ),
-        {Point = "#math.Point"}
+        )
     )
     assert(html:find("nuppdoc-token-comment", 1, true))
     assert(html:find("nuppdoc-token-keyword", 1, true))
@@ -2783,7 +2782,7 @@ function M.highlightsLjppWithTheNativeLexer()
     assert(html:find('nuppdoc-token-meta">readonly<', 1, true), html)
     assert(html:find('nuppdoc-token-meta">writeonly<', 1, true), html)
     assert(html:find("keyword-local", 1, true), html)
-    assert(html:find('href="#math.Point"', 1, true))
+    assert(not html:find("<a ", 1, true), html)
 end
 
 function M.highlightsCurrentNuppSyntaxWithTheParser()
@@ -2864,30 +2863,20 @@ function M.highlightsAssociatedTypeAndDirectiveKeywordsWithTheParser()
     assert(not html:find("keyword-nosuspend", 1, true), html)
 end
 
-function M.linksOnlyTheDeclaredMembersOfAContainerSignature()
-    local html = highlight.nuppSource(
-        table.concat({"interface Buffer", "    length: function(self: Buffer): integer", "end",}, "\n"),
-        nil,
-        {length = "#Buffer.length"}
-    )
-    assert(
-        html:find(
-            '<a class="nuppdoc-code-link nuppdoc-code-link-property" '
-            .. 'href="#Buffer.length"><span class="token property '
-            .. 'nuppdoc-token-property">length</span></a>',
-            1,
-            true
-        ),
-        html
-    )
-    assert(
-        not html:find(
-            'href="#Buffer.length"><span class="token variable ' .. 'nuppdoc-token-variable">self</span>',
-            1,
-            true
-        ),
-        html
-    )
+function M.codeExamplesStayHighlightedWithoutAutomaticLinks()
+    local markdown = table.concat({"```nupp", "local item: Widget = createWidget()", "```", "", "[](Widget)",}, "\n")
+    local html = require("nupp.tools.doc.html").markdownHtml(markdown, {Widget = "#widget", createWidget = "#create"})
+    local code = assert(html:match("<pre>(.-)</pre>"), html)
+    assert(code:find("nuppdoc-token-", 1, true), code)
+    assert(not code:find("<a ", 1, true), code)
+    assert(html:find('href="#widget"', 1, true), "explicit symbol link is missing")
+
+    local details = require(
+        "nupp.tools.doc.html"
+    ).markdownHtml("#### Arguments\n\n`item` - `Widget`\n:   a widget\n", {Widget = "#widget"}, 0, "example")
+    local term = assert(details:match("<dt>(.-)</dt>"), details)
+    assert(term:find("nuppdoc-token-", 1, true), term)
+    assert(not term:find("<a ", 1, true), term)
 end
 
 function M.scintilluaLexerUnderstandsCurrentNuppSyntax()
@@ -3270,10 +3259,7 @@ function M.hoistsQualifiedTypesOutOfHiddenDeclarationModules()
     assert(doc.build(dir, config, {sources = {"src"}}, {format = "site", output = "site"}) == 0)
     local public = readFile(dir .. "/site/modules/nupp/index.html")
     assert(public:find('<section class="nuppdoc-api-item" id="nupp.JSON">', 1, true), public)
-    assert(
-        public:find('href="../../modules/nupp/index.html#nupp.JSON"', 1, true),
-        "qualified return type did not link to its declaration"
-    )
+    assert(not public:find("nuppdoc-code-link", 1, true), "qualified return type was automatically linked")
     assert(
         not io.open(dir .. "/site/modules/nupp/compiler/prelude/index.html", "rb"),
         "the hidden declaration module was documented"
@@ -4255,10 +4241,8 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(guide:find('data-source="local%20record%20Resource%20end', 1, true), guide)
     assert(guide:find('<script type="module" src="/playground/doc-app.js"></script>', 1, true), guide)
     assert(guide:find("keyword-local", 1, true), guide)
-    assert(
-        guide:find('href="../modules/math/index.html#math.Point"', 1, true),
-        "custom-page Nupp example did not link to the API reference"
-    )
+    assert(guide:find(">Point</span>", 1, true), "custom-page example lost its type highlighting")
+    assert(not guide:find("nuppdoc-code-link", 1, true), "custom-page example was automatically linked")
     assert(
         guide:find('href="../reference/details/index.html"', 1, true),
         "configured Markdown page link was not rewritten to its public route"
@@ -5347,13 +5331,10 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
     assert(not sidebar:find(">LuaJIT</a>", 1, true), sidebar)
     assert(not sidebar:find(">LuaJIT standard library</a>", 1, true), sidebar)
     local modulePage = readFile(dir .. "/site/modules/math/index.html")
-    assert(
-        modulePage:find('href="../../modules/io/index.html#io.File"', 1, true),
-        "a module signature did not link io.File"
-    )
+    assert(not modulePage:find("nuppdoc-code-link", 1, true), "a module signature was automatically linked")
     assert(
         modulePage:find('href="../../modules/own/index.html#own.Closeable"', 1, true),
-        "a module signature did not link own.Closeable"
+        "the implements overview did not link own.Closeable"
     )
 
     local dir2 = tempProject({["src/math.nupp"] = SOURCE})

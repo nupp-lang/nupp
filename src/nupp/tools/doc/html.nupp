@@ -187,7 +187,7 @@ local function lineNumbersHtml(source, start)
     return table.concat(out)
 end
 
-local function codeBlockHtml(source, language, links, firstLine)
+local function codeBlockHtml(source, language, firstLine)
     language = language ~= "" and language or "text"
     return '<div class="nuppdoc-code-block' .. (
         firstLine and " has-line-numbers" or ""
@@ -195,9 +195,7 @@ local function codeBlockHtml(source, language, links, firstLine)
         language
     ) .. '"><pre>' .. (
         firstLine and lineNumbersHtml(source, firstLine) or ""
-    ) .. '<code class="language-' .. htmlEscape(
-        language
-    ) .. '">' .. codeHtml(source, language, links) .. "</code></pre></div>"
+    ) .. '<code class="language-' .. htmlEscape(language) .. '">' .. codeHtml(source, language) .. "</code></pre></div>"
 end
 
 -- A ```playground fence: the inline editor from editors/playground, checking with the
@@ -242,14 +240,14 @@ local function isPlayground(block): boolean
     return block.language == "nupp" and block.playground == true and not block.firstLine
 end
 
-local function renderedCodeBlockHtml(block, links)
+local function renderedCodeBlockHtml(block)
     if isPlayground(block) then
         return playgroundHtml(block.source, block.caption)
     end
-    return codeBlockHtml(block.source, block.language, links, block.firstLine)
+    return codeBlockHtml(block.source, block.language, block.firstLine)
 end
 
-local function codeGroupHtml(blocks, links)
+local function codeGroupHtml(blocks)
     local captioned = false
     for _, block in ipairs(blocks) do
         captioned = captioned or block.caption ~= nil
@@ -257,7 +255,7 @@ local function codeGroupHtml(blocks, links)
     if not captioned then
         local out = {'<div class="nuppdoc-code-group" role="group">'}
         for _, block in ipairs(blocks) do
-            out[#out + 1] = renderedCodeBlockHtml(block, links)
+            out[#out + 1] = renderedCodeBlockHtml(block)
         end
         out[#out + 1] = "</div>"
         return table.concat(out)
@@ -284,7 +282,7 @@ local function codeGroupHtml(blocks, links)
     end
     out[#out + 1] = "</div>"
     for _, block in ipairs(blocks) do
-        out[#out + 1] = '<figure class="nuppdoc-code-panel">' .. renderedCodeBlockHtml(block, links) .. "</figure>"
+        out[#out + 1] = '<figure class="nuppdoc-code-panel">' .. renderedCodeBlockHtml(block) .. "</figure>"
     end
     out[#out + 1] = "</div>"
 
@@ -401,7 +399,7 @@ local function extractBlocks(text, links, rendered)
                     index = index + 1
                 end
             end
-            placeholder(codeGroupHtml(blocks, links))
+            placeholder(codeGroupHtml(blocks))
         elseif marker:match("^::: api%-item ") then
             local path = marker:match("^::: api%-item (.+)$") or ""
             local body, after = readContainer(lines, index)
@@ -503,9 +501,9 @@ local function extractBlocks(text, links, rendered)
             local block, after = readFence(lines, index)
             index = after - 1
             if isPlayground(block) then
-                placeholder(renderedCodeBlockHtml(block, links))
+                placeholder(renderedCodeBlockHtml(block))
             else
-                local markup = renderedCodeBlockHtml(block, links)
+                local markup = renderedCodeBlockHtml(block)
                 if block.caption then
                     markup = '<figure class="nuppdoc-labeled-code"><figcaption>' .. htmlEscape(
                         block.caption
@@ -580,7 +578,6 @@ end
 -- per doc comment. The heading state it reads is reset by every call into markdownHtml,
 -- which is the only caller.
 local parse, headings, headingIndex, headingShiftBy = nil, {}, 0, 1
-local definitionLinks: Links? = nil
 local apiDefinitions = false
 
 -- Lunamark 0.6 asks for the `lua-utf8` rock in two places. Nupp supplies the
@@ -618,7 +615,7 @@ local function lunamarkParser(): any
                         :gsub("&#39;", "'")
                         :gsub("&amp;", "&")
 
-                    return "<code>" .. highlightMod.nuppSource(source, definitionLinks) .. "</code>"
+                    return "<code>" .. highlightMod.nuppSource(source) .. "</code>"
                 end)
             end
         end
@@ -720,7 +717,7 @@ markdownHtml = function(text: string?, links: Links?, headingShift: integer?, he
     local slugs, withoutBadges = headingSlugs(prepared, headingScope)
     headings, headingIndex, prepared = slugs, 0, withoutBadges
     headingShiftBy = headingShift == nil and 1 or headingShift
-    definitionLinks, apiDefinitions = links, headingScope ~= nil
+    apiDefinitions = headingScope ~= nil
     -- Annotated because the parser is reached through an untyped rock: without this the
     -- rendered document arrives as `any` and the replacement pass below narrows it to
     -- whatever `gsub` handed back second.

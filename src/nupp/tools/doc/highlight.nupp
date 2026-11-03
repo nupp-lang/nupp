@@ -1,9 +1,8 @@
 --[[
-Source code as coloured HTML.
+Source code as colored HTML.
 
-Nupp is highlighted by the compiler's own parser and lexer, which agree about
-both tokens and contextual syntax and know enough to turn a name into a link.
-Every other language in a fenced block is handed to
+Nupp is highlighted by the compiler's parser and lexer, which agree about
+tokens and contextual syntax. Every other language in a fenced block is handed to
 Scintillua, a rock the documentation target depends on; without it a block
 renders as plain escaped text.
 
@@ -28,7 +27,6 @@ it looks a lexer up by asking `loadfile` for it and reading the answer.
 ]]
 module nupp.tools.doc.highlight
 
-const {type Links} = require("nupp.tools.doc.urls")
 const files = require("io.files")
 
 local lexer = require("nupp.compiler.syntax.lexer")
@@ -47,17 +45,6 @@ local highlight = {}
 --- the bundled Scintillua lexers were unpacked to.
 type highlight.Settings = {lexers: string?}
 
-local function qualifiedName(tokens, index)
-    local name = tokens[index].text
-    local cursor = index - 1
-    while cursor > 1 and tokens[cursor].text == "." and tokens[cursor - 1].kind == "name" do
-        name = tokens[cursor - 1].text .. "." .. name
-        cursor = cursor - 2
-    end
-
-    return name
-end
-
 local function tokenClasses(style, text)
     if style == "type" then
         return "token class-name nuppdoc-token-type"
@@ -70,14 +57,6 @@ local function tokenClasses(style, text)
     end
 
     return "token " .. style .. " nuppdoc-token-" .. style
-end
-
-local function declarationName(tokens, index)
-    local previous = tokens[index - 1]
-    return previous
-        and (
-            previous.kind == "function" or previous.text == "metamethod" or syntaxstyle.TYPE_DECLARATIONS[previous.text]
-        )
 end
 
 --- Builds one valid HTML fragment per source line. Syntax tokens may cross a line
@@ -93,7 +72,7 @@ local function lineWriter(source)
     end
     local lines = {""}
 
-    local function append(text, class, href)
+    local function append(text, class)
         local start = 1
         while true do
             local finish = text:find("\n", start, true)
@@ -101,14 +80,6 @@ local function lineWriter(source)
             local rendered = htmlEscape(piece)
             if class and piece ~= "" then
                 rendered = '<span class="' .. class .. '">' .. rendered .. "</span>"
-                if href then
-                    rendered = '<a class="nuppdoc-code-link nuppdoc-code-link-'
-                        .. href.style
-                        .. '" href="'
-                        .. htmlEscape(
-                            href.url
-                        ) .. '">' .. rendered .. "</a>"
-                end
             end
             lines[#lines] = lines[#lines] .. rendered
             if not finish then
@@ -122,41 +93,11 @@ local function lineWriter(source)
     return {lines = lines, append = append}
 end
 
--- A complete record or interface signature is parsed as one top-level declaration.
--- Its entry tokens are unambiguous even when their bare names are not: `length` here
--- means this container's `length`, not every member with that common name elsewhere.
-local function containerMemberUrls(parsed, memberLinks)
-    local urls = {}
-    if not memberLinks then
-        return urls
-    end
-    for _, block in ipairs(parsed.root.blocks or {}) do
-        for _, outer in ipairs(block.stats or {}) do
-            local declaration = outer
-            while declaration.kind == "pragmaStmt" and declaration.stat do
-                declaration = declaration.stat
-            end
-            if declaration.kind == "recordDecl" then
-                for _, entry in ipairs(declaration.entries or {}) do
-                    local name = entry.name
-                    local url = name and memberLinks[name.text]
-                    if url then
-                        urls[name] = url
-                    end
-                end
-            end
-        end
-    end
-
-    return urls
-end
-
-local function highlightNuppLines(source, links, memberLinks)
+local function highlightNuppLines(source)
     local out = lineWriter(source)
     local parsed = parser.parse(source, "documentation-code-block.nupp")
     local tokens = parsed.tokens
     local syntaxKinds = semantic.syntaxKinds(parsed)
-    local memberUrls = containerMemberUrls(parsed, memberLinks)
     for index, token in ipairs(tokens) do
         for index = 1, token.triviaCount do
             local kind = lexer.triviaKind(token, index)
@@ -169,11 +110,7 @@ local function highlightNuppLines(source, links, memberLinks)
         end
         if token.kind ~= "eof" then
             local style = syntaxstyle.token(tokens, index, syntaxKinds)
-            local url = memberUrls[token]
-            if not url and links and token.kind == "name" and not declarationName(tokens, index) then
-                url = links[qualifiedName(tokens, index)] or links[token.text]
-            end
-            out.append(token.text, tokenClasses(style, token.text), url and {url = url, style = style} or nil)
+            out.append(token.text, tokenClasses(style, token.text))
         end
     end
     if source:sub(-1) == "\n" then
@@ -183,8 +120,8 @@ local function highlightNuppLines(source, links, memberLinks)
     return out.lines
 end
 
-local function highlightNupp(source: string, links: Links?, memberLinks: Links?): string
-    return table.concat(highlightNuppLines(source, links, memberLinks), "\n")
+local function highlightNupp(source: string): string
+    return table.concat(highlightNuppLines(source), "\n")
 end
 
 local SCINTILLUA_ALIASES = {
@@ -426,15 +363,15 @@ end
 
 --- Highlights a source with Scintillua even when the language also has a native
 --- highlighter. This keeps custom lexer integration testable without changing the
---- public `nupp` fence, whose parser-aware links and contextual colours are richer.
+--- public `nupp` fence, which uses the parser for contextual colors.
 local function highlightScintillua(source: string, language: string): string?
     local lines = highlightScintilluaLines(source, language)
     return lines and table.concat(lines, "\n") or nil
 end
 
-local function codeLines(source: string, language: string?, links: Links?): {string}
+local function codeLines(source: string, language: string?): {string}
     if language == "nupp" then
-        return highlightNuppLines(source, links)
+        return highlightNuppLines(source)
     end
     local highlighted = highlightScintilluaLines(source, language)
     if highlighted then
@@ -449,8 +386,8 @@ local function codeLines(source: string, language: string?, links: Links?): {str
     return out.lines
 end
 
-local function codeHtml(source: string, language: string?, links: Links?): string
-    return table.concat(codeLines(source, language, links), "\n")
+local function codeHtml(source: string, language: string?): string
+    return table.concat(codeLines(source, language), "\n")
 end
 
 highlight.nuppSource = highlightNupp

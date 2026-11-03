@@ -676,34 +676,6 @@ input {
     color: var(--nuppdoc-syntax-variable)
 }
 
-.nuppdoc-code-link,
-.nuppdoc-code-link:visited,
-.nuppdoc-code-link:hover {
-    text-decoration: underline dotted;
-    text-decoration-thickness: .5px;
-    text-underline-offset: .12em
-}
-
-.nuppdoc-code-link:hover {
-    text-decoration-style: solid
-}
-
-.nuppdoc-code-link-type {
-    color: var(--nuppdoc-syntax-type)
-}
-
-.nuppdoc-code-link-function {
-    color: var(--nuppdoc-syntax-function)
-}
-
-.nuppdoc-code-link-property {
-    color: var(--nuppdoc-syntax-property)
-}
-
-.nuppdoc-code-link-variable {
-    color: var(--nuppdoc-syntax-variable)
-}
-
 @media(max-width:1100px) {
     .nuppdoc-shell {
         grid-template-columns: var(--nuppdoc-sidebar-width) minmax(0, 1fr)
