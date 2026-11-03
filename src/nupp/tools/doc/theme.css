@@ -2018,14 +2018,13 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     background: color-mix(in srgb, var(--nuppdoc-background) 91%, var(--nuppdoc-text));
 }
 
-/* A compact index flows down each column in reading order. */
-.nuppdoc-overview { column-gap: 2rem; column-fill: balance; }
-.nuppdoc-overview-2 { columns: 2 11rem; }
-.nuppdoc-overview-3 { columns: 3 11rem; }
+/* Available width determines how many columns fit; entry count caps the total. */
+.nuppdoc-overview { column-width: 9rem; column-count: 1; column-gap: 2rem; column-fill: balance; }
+.nuppdoc-overview-2 { column-count: 2; }
+.nuppdoc-overview-3 { column-count: 3; }
 .nuppdoc-overview p { margin: 0 0 .25rem; break-after: avoid; }
 .nuppdoc-overview ul { margin: 0 0 .85rem; padding: 0; list-style: none; }
 .nuppdoc-overview li { break-inside: avoid; }
 .nuppdoc-overview a { text-decoration: none; }
 .nuppdoc-overview a:hover { text-decoration: underline; }
 .nuppdoc-overview-badge { margin-left: .35rem; cursor: help; }
-@media (max-width: 520px) { .nuppdoc-overview { columns: 1; } }
