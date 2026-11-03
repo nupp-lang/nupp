@@ -146,7 +146,9 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
         need(dense(pack.modes, 240) == #pack.head, "signature modes differ")
         for at, mode in ipairs(pack.modes) do
             need(
-                mode == "plain" or dynamic and mode == "scoped" and pack.head[at].tag == "func",
+                mode == "plain"
+                or dynamic and mode == "scoped" and pack.head[at].tag == "func"
+                or dynamic and mode == "borrows" and pack == signature.paramPack,
                 "qualified scalar signature"
             )
         end
@@ -267,7 +269,10 @@ function contracts.normalize(compiled: any, version: integer?): any
                 and site.target == target.chunk
                 and not site.typeOnly
                 and (
-                    site.node.runtimeLoader == "require" or site.qualified and site.node.qualifiedModule == site.module
+                    (
+                        site.node.runtimeLoader == "require"
+                        or site.qualified and (site.library ~= nil or site.node.qualifiedModule == site.module)
+                    )
                 )
                 and p.requireByNode[site.node] == site,
                 "checked require target or source identity differs"

@@ -114,6 +114,7 @@ local CASES: {[string]: {
     modulespattern = {fixture = "catalog-modules-pattern", version = 8, modules = {"catalog-modules-geometry"}},
     modulesrecords = {fixture = "catalog-modules-records", version = 8, modules = {"catalog-modules-boxes"}},
     modulesqualified = {fixture = "catalog-modules-qualified", version = 8, modules = {"catalog-atlas-geometry"},},
+    libraryvalues = {fixture = "catalog-library-values", version = 8},
     modulesdynamic = {fixture = "catalog-modules-dynamic", version = 8, modules = {"catalog-modules-geometry"},},
     modulescycle = {
         fixture = "catalog-modules-cycle",
@@ -327,6 +328,19 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         end
         names[#names + 1] = fixture
     end
+    -- A program that takes a library function as a value carries the
+    -- functions that make those calls, before its entry.
+    if version >= 8 then
+        local graph: any = require("nupp.compiler.vm.graph")
+        local takes = false
+        for _, name in ipairs(names) do
+            local path = name:sub(1, 1) == "/" and name .. ".nupp" or root .. "/native/core/tests/" .. name .. ".nupp"
+            takes = takes or graph.mayTakeLibraryValue(parser.parse(read(path), path).root)
+        end
+        if takes then
+            table.insert(names, #names, root .. "/src/nupp/runtime/libraryvalues")
+        end
+    end
     local staged = root .. "/build/core-guest-programs/source"
     local project: any = nil
     if #names > 1 then
@@ -355,8 +369,12 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         local declared = assert(cst.declaredModule(parsed.root), "guest module declaration required")
         local diagnostics
         if project then
-            path = staged .. "/" .. declared:gsub("%.", "/") .. ".nupp"
-            assert(read(path) == source, "staged guest source differs: " .. name)
+            -- A fixture is checked as its staged copy; a library module
+            -- the program carries, where it lives.
+            if name:find("/src/", 1, true) == nil then
+                path = staged .. "/" .. declared:gsub("%.", "/") .. ".nupp"
+                assert(read(path) == source, "staged guest source differs: " .. name)
+            end
             local checked = project.checkFile(path)
             parsed, diagnostics = assert(checked.result, "checked guest result required"), checked.diags
         else

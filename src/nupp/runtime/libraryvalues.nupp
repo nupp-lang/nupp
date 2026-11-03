@@ -1,0 +1,67 @@
+@!internal
+
+module nupp.runtime.libraryvalues
+
+--[[
+The core's library functions as values. A call of `tostring` is an operation
+the core makes itself; `tostring` passed, stored, or handed to `pcall` is the
+function here under its name, which makes that call. A program's image carries
+this module when it takes a library function as a value.
+]]
+
+export const functions: {[string]: any} = {
+    require = function(name: string): any
+        return require(name)
+    end,
+    tostring = function(value: any): string
+        return tostring(value)
+    end,
+    tonumber = function(value: any): number?
+        return tonumber(value)
+    end,
+    type = function(value: any): string
+        return type(value)
+    end,
+    error = function(value: any, level: integer?): nil
+        error(value, level or 1)
+    end,
+    rawget = function(t: table, key: any): any
+        return rawget(t, key)
+    end,
+    rawset = function(t: table, key: any, value: any): table
+        return rawset(t, key, value)
+    end,
+    setmetatable = function(t: table, metatable: table?): table
+        return setmetatable(t, metatable)
+    end,
+    getmetatable = function(value: any): any
+        return getmetatable(value)
+    end,
+    ["math.floor"] = function(x: number): number
+        return math.floor(x)
+    end,
+    ["math.ceil"] = function(x: number): number
+        return math.ceil(x)
+    end,
+    ["math.abs"] = function(x: number): number
+        return math.abs(x)
+    end,
+    ["math.sqrt"] = function(x: number): number
+        return math.sqrt(x)
+    end,
+    ["string.upper"] = function(s: string): string
+        return string.upper(s)
+    end,
+    ["string.lower"] = function(s: string): string
+        return string.lower(s)
+    end,
+    ["string.len"] = function(s: string): integer
+        return string.len(s)
+    end,
+    ["string.reverse"] = function(s: string): string
+        return string.reverse(s)
+    end,
+    ["os.getenv"] = function(name: string): string?
+        return os.getenv(name)
+    end,
+}

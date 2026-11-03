@@ -504,6 +504,25 @@ function program.describe(modules: {any}, entryModule: string): any
         if bodyOwner then
             owner = bodyOwner
         end
+        -- A library function taken as a value: the function the image's
+        -- `nupp.runtime.libraryvalues` carries under its name, read through a
+        -- require of that module.
+        local libraryValue = graph.libraryValue(node)
+        local values = moduleNames["nupp.runtime.libraryvalues"]
+        if libraryValue and values then
+            local item = {
+                id = #p.requires,
+                owner = owner.id,
+                node = node,
+                module = "nupp.runtime.libraryvalues",
+                typeOnly = false,
+                target = values.chunk,
+                qualified = true,
+                library = libraryValue
+            }
+            p.requires[#p.requires + 1], p.requireByNode[node] = item, item
+            return
+        end
         -- A declared module's qualified path (`m.sub.f`) whose root no binding
         -- holds: a hidden require of m, which the chunk loads as it starts and
         -- the path reads, never a reference to its root name.
@@ -693,8 +712,15 @@ function program.describe(modules: {any}, entryModule: string): any
         -- first argument, so it is a callsite all the same.
         local protected = node.kind == "call"
             and (graph.coreLibraryCall(node) == "pcall" or graph.coreLibraryCall(node) == "xpcall")
+        -- A library function the core does not call itself, called by its
+        -- name, is called through its value (`nupp.runtime.libraryvalues`).
+        local throughValue = node.kind == "call"
+            and node.obj.kind == "name"
+            and graph.libraryValue(node.obj) ~= nil
+            and moduleNames["nupp.runtime.libraryvalues"] ~= nil
         if node.kind == "call"
             and node.obj.kind == "name"
+            and not throughValue
             and not loader
             and not intrinsic
             and (not loopForms[node] or protected)
@@ -714,7 +740,7 @@ function program.describe(modules: {any}, entryModule: string): any
         -- that function's callsite: table.sort's comparator, and gsub's
         -- function replacement, in `s:gsub(p, f)` form too.
         if node.kind == "call"
-            and node.obj.kind ~= "name"
+            and (node.obj.kind ~= "name" or throughValue)
             and not loader
             and not intrinsic
             and (not loopForms[node] or graph.callbackArgument(node) ~= nil)
@@ -876,8 +902,11 @@ function program.verify(p: any): boolean
         need(item.id == index - 1 and p.owners[item.owner + 1], "invalid require callsite owner")
         if item.qualified then
             need(
-                (node.kind == "dotIndex" or item.eager and node.kind == "qualifiedLoad")
-                and node.qualifiedModule == item.module
+                (
+                    item.library ~= nil and (node.kind == "name" or node.kind == "dotIndex")
+                    or (node.kind == "dotIndex" or item.eager and node.kind == "qualifiedLoad")
+                    and node.qualifiedModule == item.module
+                )
                 and not requireNodes[node],
                 "qualified path lacks its checked module"
             )

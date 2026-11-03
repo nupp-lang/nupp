@@ -1362,10 +1362,13 @@ local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
         dense(pack.modes)
         assert(#pack.modes == #pack.head, "invoke pack modes differ")
         for index, t in ipairs(pack.head) do
-            -- A scoped callback cannot escape; at run time it passes as a value.
+            -- A scoped callback cannot escape, and a borrowed argument stays
+            -- its caller's; at run time each passes as a value.
             assert(
-                pack.modes[index] == "plain" or pack.modes[index] == "scoped" and t and t.tag == "func",
-                "invoke ownership mode is unsupported"
+                pack.modes[index] == "plain"
+                or pack.modes[index] == "scoped" and t and t.tag == "func"
+                or pack.modes[index] == "borrows" and pack == signature.paramPack,
+                "invoke ownership mode is unsupported: " .. tostring(pack.modes[index])
             )
             invokeScalar(t)
         end
@@ -1682,6 +1685,79 @@ local coreLibrary: {[string]: boolean} = {
 local function preludeName(node: any): boolean
     local definition = node and node.kind == "name" and node.token and node.token.definition
     return type(definition) == "table" and definition.filename == "nupp:lua.d.nupp"
+end
+
+-- The library functions `nupp.runtime.libraryvalues` carries, which a name
+-- of one taken as a value (not called) reads.
+local libraryValues: {
+    [string]: boolean
+} = {
+    require = true,
+    tostring = true,
+    tonumber = true,
+    type = true,
+    error = true,
+    rawget = true,
+    rawset = true,
+    setmetatable = true,
+    getmetatable = true,
+    ["math.floor"] = true,
+    ["math.ceil"] = true,
+    ["math.abs"] = true,
+    ["math.sqrt"] = true,
+    ["string.upper"] = true,
+    ["string.lower"] = true,
+    ["string.len"] = true,
+    ["string.reverse"] = true,
+    ["os.getenv"] = true
+}
+
+-- The library name `node` reads when it names a library function, `tostring`
+-- or `string.upper`, outside the callee of a call the core makes itself.
+function graph.libraryValue(node: any): string?
+    local name: string? = nil
+    if node and node.kind == "name" and preludeName(node) then
+        name = node.token.text
+    elseif node and node.kind == "dotIndex" and node.name and preludeName(node.obj) then
+        name = node.obj.token.text .. "." .. node.name.text
+    end
+
+    return name and libraryValues[name] and name or nil
+end
+
+-- Whether an unchecked tree may take a library function as a value: a name
+-- or field spelled as one, outside a call's callee. A builder reads it to
+-- carry `nupp.runtime.libraryvalues`; carrying it needlessly costs nothing.
+function graph.mayTakeLibraryValue(root: any): boolean
+    local found = false
+    local walk: function(any, boolean): nil
+    walk = function(node: any, callee: boolean): nil
+        if found or type(node) ~= "table" then
+            return
+        end
+        if not callee then
+            if node.kind == "name" and node.token and libraryValues[node.token.text] then
+                found = true
+                return
+            end
+            if node.kind == "dotIndex"
+                and node.name
+                and node.obj
+                and node.obj.kind == "name"
+                and node.obj.token
+                and libraryValues[node.obj.token.text .. "." .. node.name.text]
+            then
+                found = true
+                return
+            end
+        end
+        for _, child in ipairs(node) do
+            walk(child, (node.kind == "call" or node.kind == "methodCall") and child == node.obj)
+        end
+    end
+    walk(root, false)
+
+    return found
 end
 
 -- A `require` whose module the checker could not name: of a computed name,
