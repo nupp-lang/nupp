@@ -1191,6 +1191,127 @@ function M.documentsInheritedContractsMetamethodsAndInlineMethods()
     assert(task.members[2].params[1].name == "prefix")
 end
 
+function M.typeOverviewsIncludeImplementedContractsWithoutOwnMembers()
+    local module, errors = doc.extract(
+        [[
+module contracts
+export interface Named
+    name: string
+end
+export interface Reader<T>
+    read: function(self): T
+end
+export interface ChildReader<T> is Reader<T>
+end
+export record Task<T is Reader<string>> is Named, Reader<T>
+    record Child is Named
+    end
+end
+export record Unknown is External<string>
+end
+export record Plain
+end
+]],
+        "src/contracts.nupp",
+        "contracts"
+    )
+    assert(module, errors and errors[1] and errors[1].msg)
+    local items = {}
+    for _, item in ipairs(module.items) do
+        items[item.name] = item
+    end
+    assert(items.Task.supertypes[1] == "Named")
+    assert(items.Task.supertypes[2] == "Reader<T>")
+    assert(items.Task.members[1].supertypes[1] == "Named")
+    local markdown = doc.markdown({module})
+    assert(
+        markdown:find("**implements**\n\n- [`Named`](#contracts.Named)\n- [`Reader<T>`](#contracts.Reader)", 1, true),
+        markdown
+    )
+    assert(
+        markdown:find("##### Members\n\n::: api-overview\n**implements**\n\n- [`Named`](#contracts.Named)", 1, true),
+        markdown
+    )
+    assert(markdown:find("**implements**\n\n- [`Reader<T>`](#contracts.Reader)", 1, true), markdown)
+    assert(markdown:find("**implements**\n\n- `External<string>`", 1, true), markdown)
+    assert(not markdown:find("](External", 1, true), "an undocumented contract must not become a broken link")
+    local plain = require("nupp.tools.doc.markdown").items({items.Plain})
+    assert(not plain:find("**implements**", 1, true), plain)
+    local model = require("testjson").decode(doc.json({module}))
+    for _, item in ipairs(model.modules[1].items) do
+        if item.name == "Task" then
+            assert(item.supertypes[2] == "Reader<T>")
+            assert(item.members[1].supertypes[1] == "Named")
+        end
+    end
+end
+
+function M.implementedContractLinksSurvivePrivateAndNestedReexports()
+    local dir = tempProject({
+        ["src/contracts.nupp"] = [[
+module contracts
+export interface Reader<T>
+    read: function(self): T
+end
+]],
+        [
+            "src/internal/model.nupp"
+        ] = [[
+module internal.model
+local {type Reader as SourceReader} = require("contracts")
+export record Worker<T> is SourceReader<T>
+    record Child is SourceReader<string>
+    end
+end
+export record Empty is SourceReader<string>
+end
+]],
+        [
+            "src/api.nupp"
+        ] = [[
+module api
+local hidden = require("internal.model")
+export type Worker<T> = hidden.Worker<T>
+export record Holder
+    type Empty = hidden.Empty
+end
+]],
+        [
+            "src/direct.nupp"
+        ] = [[
+module direct
+local {type Reader as ImportedReader} = require("contracts")
+export record Worker<T> is ImportedReader<T>
+end
+export record Holder
+    record Child<T> is ImportedReader<T>
+    end
+end
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "site", output = "site"}) == 0)
+    local api = readFile(dir .. "/site/modules/api/llms.txt")
+    local direct = readFile(dir .. "/site/modules/direct/llms.txt")
+    local generic = "**implements**\n\n- [`contracts.Reader<T>`](../../modules/contracts/index.html#contracts.Reader)"
+    assert(api:find(generic, 1, true), api)
+    assert(direct:find(generic, 1, true), direct)
+    local concrete = "**implements**\n\n- [`contracts.Reader<string>`](../../modules/contracts/index.html#contracts.Reader)"
+    local _, count = api:gsub("%*%*implements%*%*", "")
+    assert(count == 3, "root, nested record and nested alias must retain their contracts")
+    assert(api:find(concrete, 1, true), api)
+    assert(not api:find("SourceReader", 1, true) and not api:find("hidden.", 1, true), api)
+    local html = readFile(dir .. "/site/modules/api/index.html")
+    assert(
+        html:find(
+            '<a href="../../modules/contracts/index.html#contracts.Reader"><code>contracts.Reader&lt;T&gt;</code></a>',
+            1,
+            true
+        ),
+        html
+    )
+    os.execute("rm -rf '" .. dir .. "'")
+end
+
 -- A module's functions are the ones called through the module. A method belongs to
 -- its type, whether the record declared it, the implementation carried the prose, or
 -- the type it extends is one this module never documents.

@@ -159,8 +159,9 @@ local function byOverviewName(left: OverviewMember, right: OverviewMember): bool
     return a == b and left.order < right.order or a < b
 end
 
-local function markdownMemberSummary(out, members, heading, title, path)
-    if not members or #members == 0 then
+local function markdownMemberSummary(out, members, heading, title, path, supertypes)
+    members = members or {}
+    if #members == 0 and #(supertypes or {}) == 0 then
         return
     end
     for _, member in ipairs(members) do
@@ -202,6 +203,17 @@ local function markdownMemberSummary(out, members, heading, title, path)
         }
     end
     local overview = {}
+    local implemented = {}
+    for _, supertype in ipairs(supertypes or {}) do
+        local name = supertype:match("^([%w_.]+)") or supertype
+        local owner = path:match("^(.*)%.[^.]+$")
+        local target = anchors and (anchors[name] or owner and anchors[owner .. "." .. name]) or known and known[name]
+        local label = codeSpan(supertype)
+        implemented[#implemented + 1] = target and target ~= "" and "[" .. label .. "](" .. target .. ")" or label
+    end
+    if #implemented > 0 then
+        overview[#overview + 1] = {title = "Implements", entries = implemented}
+    end
     for _, group in ipairs(groups) do
         table.sort(group.entries, byOverviewName)
         local entries = {}
@@ -249,7 +261,7 @@ local function renderMarkdownMembers(out, members, level)
         markdownReturns(out, member.returns, hSub)
         markdownRaises(out, member.raises, hSub)
         if member.isType then
-            markdownMemberSummary(out, member.members, hSub, nil, path)
+            markdownMemberSummary(out, member.members, hSub, nil, path, member.supertypes)
             renderMarkdownMembers(out, member.members, level + 1)
         end
         if section then
@@ -294,7 +306,14 @@ local function renderMarkdownItem(out, item, level, bodyOnly, path)
     markdownArguments(out, item.params, hSub)
     markdownReturns(out, item.returns, hSub)
     markdownRaises(out, item.raises, hSub)
-    markdownMemberSummary(out, item.members, hSub, item.kind == "annotation" and "Values" or nil, path or item.path)
+    markdownMemberSummary(
+        out,
+        item.members,
+        hSub,
+        item.kind == "annotation" and "Values" or nil,
+        path or item.path,
+        item.supertypes
+    )
     renderMarkdownMembers(out, item.members, level + 1)
     if not bodyOnly then
         out[#out + 1] = ":::"

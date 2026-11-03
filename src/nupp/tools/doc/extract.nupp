@@ -71,6 +71,7 @@ record extract.Member
     generics: string?
     typeargs: {extract.TypeArg}?
     members: {Member}?
+    supertypes: {string}?
 
     --- The compiler-only value kind, when this member exists only during comptime.
     comptimeKind: string?
@@ -97,6 +98,7 @@ type extract.Item = {
     module: string?,
     line: integer,
     members: {extract.Member},
+    supertypes: {string}?,
     params: {extract.Param},
     returns: {extract.Result},
     raises: {docblock.Raise},
@@ -451,6 +453,15 @@ local function genericText(node)
     return node and node.generics and syntax(node.generics) or ""
 end
 
+local function structureSupertypes(stat): {string}?
+    local names: {string} = {}
+    for _, supertype in ipairs(stat.supertypes or {}) do
+        names[#names + 1] = syntax(supertype)
+    end
+
+    return #names > 0 and names or nil
+end
+
 -- A structure's signature is its opening line and nothing below it: the modifiers, the
 -- name, its generic parameters, the contracts written after `is`, and a `where`
 -- refinement. Rendering the whole declaration instead said everything twice, since the
@@ -469,11 +480,8 @@ local function structureHeader(stat): string
     end
     parts[#parts + 1] = stat.declKind or "record"
     parts[#parts + 1] = declaredName(stat) .. genericText(stat)
-    local supertypes: {string} = {}
-    for _, supertype in ipairs(stat.supertypes or {}) do
-        supertypes[#supertypes + 1] = syntax(supertype)
-    end
-    if #supertypes > 0 then
+    local supertypes = structureSupertypes(stat)
+    if supertypes then
         parts[#parts + 1] = "is " .. table.concat(supertypes, ", ")
     end
     if stat.whereClause then
@@ -1148,6 +1156,10 @@ local function buildMembers(
             )
         elseif entry.kind == "recordDecl" and entryVisible then
             local nestedPath = basePath .. "." .. entry.name.text
+            local typeargs = {}
+            for _, generic in ipairs(entry.generics and entry.generics.names or {}) do
+                typeargs[#typeargs + 1] = {name = generic.text, text = entryInfo.typeargs[generic.text] or ""}
+            end
             members[
                 #members + 1
             ] = new extract.Member(
@@ -1159,6 +1171,8 @@ local function buildMembers(
                 returns = {},
                 raises = {},
                 isType = true,
+                supertypes = structureSupertypes(entry),
+                typeargs = typeargs,
                 members = buildMembers(
                     entry.entries,
                     nestedPath,
@@ -1434,6 +1448,7 @@ declarationItem = function(
         name = name,
         kind = kind,
         signature = signature,
+        supertypes = stat.kind == "recordDecl" and structureSupertypes(stat) or nil,
         aliasSource = stat.kind == "typeAlias" and syntax(stat.value)
         or (stat.kind == "localStmt" or stat.kind == "assignStmt")
         and stat.exprs
@@ -2225,6 +2240,10 @@ function extract.extract(
             for _, value in ipairs(values) do
                 value.path = publicName(value.path)
                 value.type = publicName(value.type)
+                local supertypes = value.supertypes or {}
+                for index, supertype in ipairs(supertypes) do
+                    supertypes[index] = publicName(supertype)
+                end
                 for _, param in ipairs(value.params) do
                     param.type = publicName(param.type)
                 end
@@ -2241,6 +2260,10 @@ function extract.extract(
                 item.path = name .. "." .. item.name
             end
             item.signature = publicName(item.signature)
+            local supertypes = item.supertypes or {}
+            for index, supertype in ipairs(supertypes) do
+                supertypes[index] = publicName(supertype)
+            end
             for _, param in ipairs(item.params) do
                 param.type = publicName(param.type)
             end
@@ -2272,6 +2295,10 @@ function extract.extract(
                 for _, value in ipairs(values) do
                     value.path = publicName(value.path)
                     value.type = publicName(value.type)
+                    local supertypes = value.supertypes or {}
+                    for index, supertype in ipairs(supertypes) do
+                        supertypes[index] = publicName(supertype)
+                    end
                     for _, param in ipairs(value.params or {}) do
                         param.type = publicName(param.type)
                     end
@@ -2288,6 +2315,10 @@ function extract.extract(
                 end
                 item.path = namespace .. "." .. item.name
                 item.signature = publicName(item.signature)
+                local supertypes = item.supertypes or {}
+                for index, supertype in ipairs(supertypes) do
+                    supertypes[index] = publicName(supertype)
+                end
                 for _, param in ipairs(item.params) do
                     param.type = publicName(param.type)
                 end
