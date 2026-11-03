@@ -207,7 +207,7 @@ end
 
 function M.laneFailuresKeepTheirStackAndCancellationIdentity()
     local effects = require("nupp.runtime.browser.effects")
-    local cancellation = require("coroutine.suspension.cancellation")
+    local cancellation = require("coroutine.sus.cancellation")
     local binary = require("binary")
     local moduleName = "browser-worker-failure-fixture"
     local providerName = "nupp.runtime.browser.workers"

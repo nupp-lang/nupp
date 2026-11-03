@@ -35,10 +35,10 @@ a [cancellation](docs/learn/runtime/concurrency/suspension.md) inside it, so its
 cleanup runs before the application shuts down.
 ]]
 
-local suspension = require("coroutine.suspension")
-local suspensionHost = require("coroutine.suspension.host")
-local suspensionContract = require("coroutine.suspension.spi")
-local cancellation = require("coroutine.suspension.cancellation")
+local suspension = require("coroutine.sus")
+local suspensionHost = require("coroutine.sus.host")
+local suspensionContract = require("coroutine.sus.spi")
+local cancellation = require("coroutine.sus.cancellation")
 
 --- What a `start` or `poll` left the operation doing.
 export type State = "parked" | "continue" | "stopped"

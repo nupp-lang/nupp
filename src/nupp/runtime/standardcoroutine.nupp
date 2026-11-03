@@ -49,7 +49,7 @@ assert(total == 500500)
 
 [](coroutine.gather) and [](coroutine.race) take a family that is complete when
 the call is written; children cannot be added later.
-[](coroutine.suspension.create) makes a coroutine that inherits a handler but
+[](coroutine.sus.create) makes a coroutine that inherits a handler but
 does not own its result, failure, or lifetime. A server, a loading pipeline, or
 a scene needs somewhere to put children found over time and one answer to what
 happens when the body returns, a child fails, or the whole thing is cancelled.
@@ -67,6 +67,8 @@ to the turn.
 ]]
 
 local source1 = require("nupp.tasks")
+local suspension = require("nupp.suspension")
+local suspensionContract = require("nupp.suspension.spi")
 local clockContract = package.nupp
 local selectedTime = require("nupp.runtime.timeprovider").provider
 
@@ -87,6 +89,13 @@ export const iscancelled = source1.isCancelled
 export const scope = source1.open
 export const race = source1.race
 export const run = source1.run
+
+--- Waits for a callback to produce a value while the handler runs other work.
+---
+--- The subscription returns cleanup that runs when the wait ends or is cancelled.
+--- Use [](coroutine.sus.source) when readiness needs a pump.
+export const suspend: suspensionContract.Provider.["suspend"] = suspension.suspend
+
 export const sleep: clockContract.ClockProvider.["sleep"] = selectedTime and selectedTime.sleep or missingClock
 export const sleepuntil: clockContract.ClockProvider.["sleepuntil"] = selectedTime and selectedTime.sleepuntil
     or missingClock
@@ -104,6 +113,7 @@ export const value: table = do
     original.scope = scope
     original.race = race
     original.run = run
+    original.suspend = suspend
     original.sleep = sleep
     original.sleepuntil = sleepuntil
     original.wakeat = wakeat

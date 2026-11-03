@@ -23,7 +23,7 @@ use the retained client and effect transport directly.
 local effects = require("nupp.runtime.browser.effects")
 local span = require("binary.span")
 local response = require("nupp.runtime.browser.response")
-local suspension = require("coroutine.suspension")
+local suspension = require("nupp.suspension")
 local uri = require("io.internal.uri")
 const {type Path} = require("io.internal.path")
 local io = require("io")

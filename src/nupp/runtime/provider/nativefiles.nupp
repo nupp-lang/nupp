@@ -297,7 +297,7 @@ Scheduling a transfer costs more than those cost to run.
 ----------------------------------------------------------------------------
 
 const native = require("nupp.runtime.native")
-const suspension = require("coroutine.suspension")
+const suspension = require("nupp.suspension")
 const paths = require("io.internal.path")
 const io = require("io")
 local scalarAdapters = require("nupp.io.internal.scalars")

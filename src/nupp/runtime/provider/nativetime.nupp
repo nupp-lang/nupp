@@ -16,11 +16,11 @@ registrations may be pending; cancellation releases a registration without
 waiting for its deadline. State and callbacks are local to one Lua state.
 
 The [](coroutine) facade retains these functions during module loading. Native
-clock support and [](coroutine.suspension) must be available before it resolves.
+clock support and [](coroutine.sus) must be available before it resolves.
 ]]
 
 local native = require("nupp.runtime.native")
-local suspension = require("coroutine.suspension")
+local suspension = require("nupp.suspension")
 
 native.ffi.cdef(
     dedent[[

@@ -1,6 +1,6 @@
-local suspension = require("coroutine.suspension")
+local suspension = require("coroutine.sus")
 
-suspension.suspend("wait for cancellation", function(
+coroutine.suspend("wait for cancellation", function(
     _resume: function(any): nil,
     _context: suspension.Context
 ): function()

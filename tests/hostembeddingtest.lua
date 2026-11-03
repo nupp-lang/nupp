@@ -1057,7 +1057,7 @@ return {
 local POLL_COMPONENT_SOURCE = [[
 module clock
 
-local suspension = require("coroutine.suspension")
+local suspension = require("coroutine.sus")
 
 local remaining: integer = 0
 local count: integer = 0
@@ -1119,7 +1119,7 @@ int main(int argc, char **argv) {
 
     if (argc != 2 || !(bytes = read_all(argv[1], &length))) return 2;
     if (nupp_runtime_new(NULL, &runtime, &error) != NUPP_STATUS_OK) return 1;
-    /* Nothing has loaded coroutine.suspension yet, so there is nothing to drive. */
+    /* Nothing has loaded coroutine.sus yet, so there is nothing to drive. */
     if (nupp_runtime_poll(runtime, &error) != NUPP_STATUS_OK) return 1;
     if (nupp_component_load(runtime, bytes, length, argv[1], &component, &error) != NUPP_STATUS_OK) return 1;
     if (nupp_export_find(runtime, component, "clock.arm", &arm, &error) != NUPP_STATUS_OK) return 1;

@@ -49,6 +49,7 @@ local ROOTS = {
             race = true,
             run = true,
             iscancelled = true,
+            suspend = true,
             sleep = true,
             sleepuntil = true,
             wakeat = true,

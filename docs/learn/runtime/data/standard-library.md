@@ -85,9 +85,9 @@ intrinsic namespaces and the declared modules:
 - [](os.randombytes) provides cryptographically secure random bytes.
   [](math.random) owns deterministic pseudo-random sequences with explicit,
   serializable state.
-- [](coroutine.suspension), [](coroutine), and [](coroutine.workers) provide
+- [](coroutine.sus), [](coroutine), and [](coroutine.workers) provide
   waiting, application task scopes, and isolated worker lanes.
-  [](coroutine.suspension.host) is the other side of waiting: what a host
+  [](coroutine.sus.host) is the other side of waiting: what a host
   installs to decide which coroutine runs while something is parked.
 - [](os) provides monotonic and wall clocks. [](coroutine) owns sleeps and
   deadlines.

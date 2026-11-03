@@ -31,7 +31,7 @@ local decodeImage = host.bind<DecodeImage>("app.image.decode")
 local id, width, height = decodeImage(url = "sprites.png")
 ```
 
-A call suspends through [](coroutine.suspension) until the host answers, so it
+A call suspends through [](coroutine.suspend) until the host answers, so it
 composes with [task scopes](concurrency/task-scopes.md), deadlines and
 cancellation. A host failure is raised in the caller with the host's message,
 and a kind no host answers is refused by name. `host.call(kind, ...)` is the

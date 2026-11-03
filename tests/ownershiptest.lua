@@ -1255,7 +1255,7 @@ function M.coroutineChildrenCannotCaptureAParentBorrow()
             table.concat(
                 {
                     RESOURCE,
-                    "local suspension = require(\"coroutine.suspension\")",
+                    "local suspension = require(\"coroutine.sus\")",
                     "local value = resource_new()",
                     "do",
                     "   local view = borrow(value)",
@@ -4274,9 +4274,9 @@ function M.aHandledSuspensionThroughAHelperIsAllowed()
         RESOURCE .. table.concat(
             {
                 "",
-                'local suspension = require("coroutine.suspension")',
+                'local suspension = require("coroutine.sus")',
                 "local function pause()",
-                "   suspension.suspend('test', function(resume: function(any), _: any): (function()?)",
+                "   coroutine.suspend('test', function(resume: function(any), _: any): (function()?)",
                 "      resume(true)",
                 "      return nil",
                 "   end)",
@@ -6290,7 +6290,7 @@ return run()
     local chunk = assert(loadstring(code))
     setfenv(chunk, globals)
     testAssert.eq(chunk(), 7)
-    assert(not code:find('require("coroutine.suspension")', 1, true), code)
+    assert(not code:find('require("coroutine.sus")', 1, true), code)
 end
 
 function M.inlineTerminalsRegisterTheirRuntimeOwner()

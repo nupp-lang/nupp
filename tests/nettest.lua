@@ -416,8 +416,8 @@ function M.aConnectPolledAgainBeforeItRunsResumesOnce()
     -- resumed the connect and before the connect runs. That once resumed it twice.
     local backend, state = fakeBackend({connectAfter = 2})
     install(backend)
-    local suspension = require("coroutine.suspension")
-    local suspensionHost = require("coroutine.suspension.host")
+    local suspension = require("coroutine.sus")
+    local suspensionHost = require("coroutine.sus.host")
     local installation = suspensionHost.install({
         park = function(_, waiting)
             while not waiting:ready() do
@@ -439,8 +439,8 @@ end
 function M.abandoningAConnectReleasesItsRequest()
     local backend, state = fakeBackend({connectAfter = 2})
     install(backend)
-    local suspension = require("coroutine.suspension")
-    local suspensionHost = require("coroutine.suspension.host")
+    local suspension = require("coroutine.sus")
+    local suspensionHost = require("coroutine.sus.host")
     local installation = suspensionHost.install({
         park = function()
         end,

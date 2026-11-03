@@ -6,8 +6,8 @@ local test = require("assert")
 local native = require("nupp.compiler.native")
 local stdlib = require("nupp.compiler.stdlib")
 local nativeStage = require("nupp.tools.build.native")
-local suspension = require("coroutine.suspension")
-local suspensionHost = require("coroutine.suspension.host")
+local suspension = require("coroutine.sus")
+local suspensionHost = require("coroutine.sus.host")
 local tasks = require("coroutine")
 
 local M = {}

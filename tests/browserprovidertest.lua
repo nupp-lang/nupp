@@ -16,7 +16,7 @@ local providerstate = require("providerstate")
 local M = {}
 
 local BASE = {
-    ["coroutine.suspension"] = true,
+    ["coroutine.sus"] = true,
     ["nupp.tasks"] = true,
     ["nupp.suspension"] = true,
     ["nupp.suspension.host"] = true,

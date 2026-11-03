@@ -801,8 +801,8 @@ function M.aHostSleepingOnTheReadinessGenerationIsWokenByTheNetwork()
     -- sources, and when nothing moved, wait from the snapshot. A wait that ran to its
     -- timeout means the network never advanced the generation the host sleeps on.
     local ffi = require("ffi")
-    local suspension = require("coroutine.suspension")
-    local suspensionHost = require("coroutine.suspension.host")
+    local suspension = require("coroutine.sus")
+    local suspensionHost = require("coroutine.sus.host")
     local C = require("nupp.runtime.native").C
     local seen, found = ffi.new("uint64_t[1]"), ffi.new("uint64_t[1]")
     local sleeps = 0

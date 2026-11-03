@@ -17,9 +17,9 @@ request is refused rather than left to hang; run it under a handler, such as a
 [](os.host.pump), and drive it with `nupp_runtime_poll`.
 ]]
 
-local suspension = require("coroutine.suspension")
-local suspensionHost = require("coroutine.suspension.host")
-local suspensionContract = require("coroutine.suspension.spi")
+local suspension = require("nupp.suspension")
+local suspensionHost = require("coroutine.sus.host")
+local suspensionContract = require("coroutine.sus.spi")
 local values = require("nupp.host.internal.values")
 local ffi = require("ffi")
 

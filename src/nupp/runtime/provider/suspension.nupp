@@ -6,7 +6,7 @@ module nupp.runtime.provider.suspension
 LuaJIT suspension and readiness-source implementation.
 
 The `suspension` API 1 contract is declared in
-[](coroutine.suspension.spi). This provider maintains ordered readiness
+[](coroutine.sus.spi). This provider maintains ordered readiness
 sources and coroutine-local handler installations. Without a handler, waiting
 drives the registered sources; with one, `suspend` delegates parking while its
 Context records which sources may make progress.
@@ -18,12 +18,12 @@ handler installations restore the captured outer handler.
 
 All public Source, Context, Waiting, Handler, and Installed values use the shared
 contract declarations. Cancellation values come from
-[](coroutine.suspension.cancellation), so tasks and worker lanes recognize the
-same cancellation identity within a state. [](coroutine.suspension) resolves this
+[](coroutine.sus.cancellation), so tasks and worker lanes recognize the
+same cancellation identity within a state. [](coroutine.sus) resolves this
 implementation at require-time; scheduling operations retain it directly.
 ]]
 
-local contract = require("coroutine.suspension.spi")
+local contract = require("coroutine.sus.spi")
 local suspension = {}
 
 --- How many times a release drives the readiness pumps waiting for an abandoned park to
@@ -415,7 +415,7 @@ end
 --- the wait needs a way to say so.
 ---
 --- ```nupp:fragment
---- const line = suspension.suspend("io.readLine", function(
+--- const line = coroutine.suspend("io.readLine", function(
 ---     resume: function(string),
 ---     context: suspension.Context
 --- ): function()

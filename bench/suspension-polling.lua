@@ -13,7 +13,8 @@
 --     BENCH_SUSPENSION_POLLS=5000 BENCH_SUSPENSION_TASKS=2000 \
 --     luajit bench/suspension-polling.lua
 
-local suspension = require("coroutine.suspension")
+require("nupp.runtime.standardcoroutine")
+local suspension = require("coroutine.sus")
 local clock = os.clock
 local format = string.format
 
@@ -106,7 +107,7 @@ local function parkedFanout()
     for index = 1, TASK_COUNT do
         local slot = index
         bodies[slot] = function()
-            return suspension.suspend("bench.parked", function(resume, context)
+            return coroutine.suspend("bench.parked", function(resume, context)
                 local passes = 0
                 context:source(format("bench.task.%06d", slot), slot % 127, function()
                     passes = passes + 1

@@ -347,8 +347,8 @@ end
 -- the handler, which drives the registered pump and resumes it.
 function M.aTransferParksUnderAHandlerAndBlocksWithoutOne()
     local files = ready()
-    local suspension = require("coroutine.suspension")
-    local suspensionHost = require("coroutine.suspension.host")
+    local suspension = require("coroutine.sus")
+    local suspensionHost = require("coroutine.sus.host")
     assert(files.mkdir(inRoot("parking")))
     assert(files.write(inRoot("parking/payload.bin"), ("park"):rep(40000)))
 

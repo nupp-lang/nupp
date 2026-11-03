@@ -21,7 +21,7 @@ operate on the retained context without further service resolution.
 ]]
 
 local native = require("nupp.runtime.native")
-local suspension = require("coroutine.suspension")
+local suspension = require("nupp.suspension")
 local layoutFacts = require("nupp.gpu.layoutfacts").layoutFacts
 local span = require("binary.span")
 local ffi = native.ffi

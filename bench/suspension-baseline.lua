@@ -285,14 +285,15 @@ end
 -- above, so the comparison is like for like; the hoisted variant separates the
 -- runtime's
 -- own cost from it.
-local nuppOk, nupp = pcall(require, "coroutine.suspension")
+local nuppOk = pcall(require, "nupp.runtime.standardcoroutine")
+local suspension = nuppOk and require("coroutine.sus")
 if nuppOk then
     bench(
         "nupp-ready",
         function(n)
             for _ = 1, n do
                 payload(
-                    nupp.suspend("bench", function(resume)
+                    coroutine.suspend("bench", function(resume)
                         resume(1)
 
                         return nil
@@ -312,7 +313,7 @@ if nuppOk then
         "nupp-ready-h",
         function(n)
             for _ = 1, n do
-                payload(nupp.suspend("bench", hoisted))
+                payload(coroutine.suspend("bench", hoisted))
             end
         end,
         "the same, subscription hoisted out"
@@ -343,7 +344,7 @@ if nuppOk then
         "nupp-create",
         function(n)
             for _ = 1, n do
-                local co = nupp.create(function()
+                local co = suspension.create(function()
                     coroutine.yield()
                 end)
                 coroutine.resume(co)

@@ -9,21 +9,21 @@ Parking yields through the browser effect channel, which only the application's
 root coroutine can reach: a wait with no handler anywhere else is refused, as is
 one that nothing queued, in flight, or registered could complete. Source polling,
 nested handler restoration, and subscription cleanup implement the same canonical
-records declared by [](coroutine.suspension.spi).
+records declared by [](coroutine.sus.spi).
 
 A bounded activation budget returns control to the browser event loop so queued
 callbacks and cancellation can make progress. Resume settles a wait once;
 release removes registrations without suspending. Tasks and worker lanes use
-[](coroutine.suspension.cancellation) for cancellation identity.
+[](coroutine.sus.cancellation) for cancellation identity.
 
 The browser host must install its effect transport before consumers load
-[](coroutine.suspension). Handler, source, and waiting state stays local to each Lua
+[](coroutine.sus). Handler, source, and waiting state stays local to each Lua
 state, and scheduling operations never resolve the service again.
 ]]
 const assert2 = require("assert")
 
 local effects = require("nupp.runtime.browser.effects")
-local contract = require("coroutine.suspension.spi")
+local contract = require("coroutine.sus.spi")
 local suspension = {}
 local running = coroutine.running
 local sources: {any} = {}

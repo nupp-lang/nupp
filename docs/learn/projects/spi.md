@@ -170,7 +170,7 @@ Importing these contracts does not select or initialize an implementation.
 | `io.files.spi`, `io.http.spi`, `io.net.spi` | `Provider` |
 | `io.net.spi` | `TlsProvider` |
 | `io` | `Process.Provider` |
-| `coroutine.suspension.spi`, `coroutine.workers.spi` | `Provider` |
+| `coroutine.sus.spi`, `coroutine.workers.spi` | `Provider` |
 
 The core interfaces name their concerns. A library-specific interface can keep
 `Provider` where its module identifies the concern. The UUID service uses

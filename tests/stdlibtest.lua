@@ -2107,6 +2107,12 @@ function M.nativeFeaturesAreResolvedEffects()
         ["utf8.len('hello')"] = "runtime.data_utf8",
         ["io.newbuffer('hello')"] = "stdlib.io",
         ["coroutine.sleep(0)"] = "runtime.time",
+        [
+            "coroutine.suspend('ready', function(resume: function(integer)): function()? resume(42) return nil end)"
+        ] = "runtime.suspension",
+        [
+            "local co = coroutine; co.suspend('ready', function(resume: function(integer)): function()? resume(42) return nil end)"
+        ] = "runtime.suspension",
         ["coroutine.sleepuntil(0)"] = "runtime.time",
         ["coroutine.wakeat(0,function(ok: boolean): nil end)"] = "runtime.time",
         ["math.lerp(10, 20, 0.25)"] = "stdlib.math",
@@ -3428,20 +3434,20 @@ function M.suspensionRecordsHideProviderState()
     -- neither spelling resolves: not the field, and not the underscored name a
     -- provider happens to store it under.
     for _, example in ipairs({
-        {"coroutine.suspension", "Source", "sequence"},
-        {"coroutine.suspension", "Source", "poller"},
-        {"coroutine.suspension", "Source", "waiter"},
-        {"coroutine.suspension", "Source", "released"},
-        {"coroutine.suspension", "Context", "handler"},
-        {"coroutine.suspension", "Context", "associated"},
-        {"coroutine.suspension.host", "Waiting", "state"},
-        {"coroutine.suspension.host", "Waiting", "context"},
-        {"coroutine.suspension.host", "Installed", "co"},
-        {"coroutine.suspension.host", "Installed", "previous"},
-        {"coroutine.suspension.host", "Installed", "restored"},
-        {"coroutine.suspension.host", "Installed", "released"},
-        {"coroutine.suspension.host", "Installed", "parks"},
-        {"coroutine.suspension.host", "Installed", "transparent"},
+        {"coroutine.sus", "Source", "sequence"},
+        {"coroutine.sus", "Source", "poller"},
+        {"coroutine.sus", "Source", "waiter"},
+        {"coroutine.sus", "Source", "released"},
+        {"coroutine.sus", "Context", "handler"},
+        {"coroutine.sus", "Context", "associated"},
+        {"coroutine.sus.host", "Waiting", "state"},
+        {"coroutine.sus.host", "Waiting", "context"},
+        {"coroutine.sus.host", "Installed", "co"},
+        {"coroutine.sus.host", "Installed", "previous"},
+        {"coroutine.sus.host", "Installed", "restored"},
+        {"coroutine.sus.host", "Installed", "released"},
+        {"coroutine.sus.host", "Installed", "parks"},
+        {"coroutine.sus.host", "Installed", "transparent"},
     }) do
         local module, record, field = example[1], example[2], example[3]
         for _, spelling in ipairs({field, "_" .. field}) do

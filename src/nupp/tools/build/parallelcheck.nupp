@@ -134,7 +134,7 @@ function parallelcheck.run(input: any): (any?, string?)
 
     report:at(input.build and "parallel build" or "parallel check")
     local tasks = require("coroutine")
-    local suspension = require("coroutine.suspension")
+    local suspension = require("nupp.suspension")
     local process = require("nupp.compiler.process")
     local moduleobject = require("nupp.tools.build.moduleobject")
     local compilerRoot = envMod.compilerRoot()
