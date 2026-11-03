@@ -21,7 +21,7 @@ layout arithmetic, and other ordinary helpers are normal modules.
 
 Library-specific interfaces live beside their consuming library in `.spi`
 modules. Shared core provider contracts live in the declarations-only
-[](nupp.spi) module. Importing a declaration loads no implementation. Packages
+[](package.nupp) module. Importing a declaration loads no implementation. Packages
 advertise their modules in `nupp/spi.json`; `package.providers(Interface)` lazily
 iterates them in dependency order. The consumer decides what wins.
 
@@ -34,9 +34,9 @@ its actual operations during module initialization, so calls perform no SPI look
 ## Runtime interfaces
 
 [SPI](../spi.md#standard-library-providers) lists each interface and its owning
-module. `nupp.spi.CstorageProvider` and `nupp.spi.StructvalueProvider` describe
-shared storage and struct operations. Their layouts and scalar codecs must
-agree with the representation compiled into the program.
+module. `package.nupp.CstorageProvider` and `package.nupp.StructvalueProvider`
+describe shared storage and struct operations. Their layouts and scalar codecs
+must agree with the representation compiled into the program.
 
 `nupp.text` owns the portable buffer surface and one shared `Buffer` type.
 Its native adapter uses `string.buffer`. Explicitly native pointer and

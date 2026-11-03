@@ -25,7 +25,7 @@ local json = require("serde.json")
 local buildProcess = require("nupp.compiler.process")
 local files = require("io.files")
 local process = require("nupp.runtime.standardio")
-local random = require("nupp.random")
+local random = math.random
 local statistics = require("nupp.bench.internal.statistics")
 local system = os.info()
 

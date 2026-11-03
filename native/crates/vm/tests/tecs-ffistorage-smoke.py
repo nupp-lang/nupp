@@ -60,7 +60,7 @@ image = args.image
 try:
     if image is None:
         emitted = run("emit", [binary, "run", str(args.seed.resolve()), "nupp.tools.vm.project", "emit",
-                              str(project.resolve()), module, "nupp.spi.index,nupp.runtime.provider.tablebuffer"], dict(env, NO_JIT="1"))
+                              str(project.resolve()), module, "package.nupp.index,nupp.runtime.provider.tablebuffer"], dict(env, NO_JIT="1"))
         image = args.output / "ffistorage.image"
         image.write_text(json.loads(emitted))
     report["sha256"] = {name: hashlib.sha256(path.read_bytes()).hexdigest() for name, path in (

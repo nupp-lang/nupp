@@ -1,0 +1,70 @@
+module math.random
+
+--[[
+`math.random` provides reproducible random sequences.
+Each generator keeps its own mutable state; calling `math.random(...)` retains
+the host random sequence controlled by `math.randomseed`.
+
+```nupp
+local random = math.random
+
+const dice = new random.Xoshiro128(42)
+
+print(dice:integer(20))
+print(dice:next())
+```
+
+A `Xoshiro128` draws an independent xoshiro128** sequence, so the same seed
+always draws the same numbers. Omitting the seed picks a fixed one rather than
+reading a clock. Use `os.randombytes` when bytes must be unpredictable.
+
+A seed is one 32-bit word. A generator is mutable and is not safe to share
+between workers; give each lane its own.
+
+`state` and `setstate` copy the four signed 32-bit state words. That is the
+portable checkpoint format: keep them and the next draw is exactly the one that
+was coming.
+]]
+
+local implementation = require("math.internal.random")
+
+--- An independent deterministic xoshiro128** sequence.
+export type Xoshiro128 = implementation.Xoshiro128
+
+local type HostRandom = @nosuspend function(...: number): number
+local host = rawget(_G, "math") as table
+local original = rawget(host, "random") as HostRandom
+-- Lua 5.5's: a float in [0, 1) without bounds, an integer within integer
+-- bounds.
+local type RandomCall = @nosuspend function(_self: any): float
+    & @nosuspend function(_self: any, m: integer): integer
+    & @nosuspend function(_self: any, m: integer, n: integer): integer
+
+local interface UnitCall
+    metamethod __call: @nosuspend function(self): float
+end
+
+local interface UpperCall
+    metamethod __call: @nosuspend function(self, m: integer): integer
+end
+
+local interface RangeCall
+    metamethod __call: @nosuspend function(self, m: integer, n: integer): integer
+end
+
+local type Callable<G> = {@readonly Xoshiro128: G} & UnitCall & UpperCall & RangeCall
+
+local function call(_self: any, ...: number): number
+    @nosuspend do
+        return original(...)
+    end
+end
+
+local function namespace<G>(generator: G): Callable<G>
+    local value = {Xoshiro128 = generator} as Callable<G>
+    return setmetatable(value, {__call = call as RandomCall})
+end
+
+local callable = namespace(implementation.Xoshiro128)
+rawset(host, "random", callable)
+export = callable

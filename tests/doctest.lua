@@ -69,6 +69,51 @@ local SOURCE = table.concat(
 
 local M = {}
 
+local function renderMarkdownItem(out, item)
+    out[#out + 1] = require("nupp.tools.doc.html").markdownHtml(
+        require("nupp.tools.doc.markdown").items({
+            item
+        }),
+        nil,
+        0
+    )
+end
+
+function M.apiOverviewUsesBalancedColumnsAndKindBadges()
+    local markdown = require("nupp.tools.doc.markdown")
+    local html = require("nupp.tools.doc.html")
+    local entries = {}
+    for index = 1, 25 do
+        entries[index] = "[`item" .. index .. "`](#item" .. index .. ")"
+    end
+    entries[1] = entries[1] .. markdown.overviewBadge("record")
+    entries[2] = entries[2] .. markdown.overviewBadge("type")
+    local source = markdown.overview({{title = "Types", entries = entries}})
+    assert(source:find("**Types**", 1, true), source)
+    local rendered = html.markdownHtml(source, nil, 0)
+    assert(rendered:find('class="nuppdoc-overview nuppdoc-overview-3"', 1, true), rendered)
+    assert(rendered:find('nuppdoc-kind-record nuppdoc-overview-badge" title="Record">R</abbr>', 1, true), rendered)
+    assert(rendered:find('nuppdoc-kind-type nuppdoc-overview-badge" title="Type alias">T</abbr>', 1, true), rendered)
+    for index = 25, 9, -1 do
+        entries[index] = nil
+    end
+    assert(
+        html.markdownHtml(
+            markdown.overview({
+                {title = "Types", entries = entries}
+            })
+        ):find('class="nuppdoc-overview nuppdoc-overview-1"', 1, true)
+    )
+    entries[9] = "[`item9`](#item9)"
+    assert(
+        html.markdownHtml(
+            markdown.overview({
+                {title = "Types", entries = entries}
+            })
+        ):find('class="nuppdoc-overview nuppdoc-overview-2"', 1, true)
+    )
+end
+
 function M.extractsStructuredDocsFromTheParserCST()
     local module, errors = doc.extract(SOURCE, "src/math.nupp", "math")
     assert(module, errors and errors[1] and errors[1].msg)
@@ -269,7 +314,7 @@ end
     local item = module.items[1]
     assert(#item.members == 2 and item.members[1].path == item.members[2].path)
     local out = {}
-    require("nupp.tools.doc.api").renderHtmlItem(out, item)
+    renderMarkdownItem(out, item)
     local text = table.concat(out)
     local ids = {}
     for id in text:gmatch('id="([^"]+)"') do
@@ -634,18 +679,11 @@ function M.documentsComptimeCallablesAndTypeHandlesAsCompilerOnly()
     assert(members.build.isFunction and members.build.comptimeKind == "function")
     assert(not members.value.isFunction and members.value.comptimeKind == "type")
 
-    local api = require("nupp.tools.doc.api")
-    local summary = api.moduleSummary(module)
-    assert(not summary:find("<h3>Constructors</h3>", 1, true), summary)
-    assert(summary:find("nuppdoc-kind-comptime-function", 1, true), summary)
-    assert(summary:find(">comptime</span>", 1, true), summary)
-    assert(summary:find("nuppdoc-kind-comptime-type", 1, true), summary)
-
-    local rendered = {}
-    api.renderHtmlItem(rendered, items.Compiler)
-    local html = table.concat(rendered)
-    assert(html:find("nuppdoc-kind-comptime-function", 1, true), html)
-    assert(html:find("nuppdoc-kind-comptime-type", 1, true), html)
+    local markdownRenderer = require("nupp.tools.doc.markdown")
+    local htmlRenderer = require("nupp.tools.doc.html")
+    local rendered = htmlRenderer.markdownHtml(markdownRenderer.items({items.Compiler}))
+    assert(rendered:find("nuppdoc-kind-comptime-function", 1, true), rendered)
+    assert(rendered:find("nuppdoc-kind-comptime-type", 1, true), rendered)
 
     local markdown = doc.markdown({module})
     assert(markdown:find("### `newType` _comptime function_", 1, true), markdown)
@@ -710,7 +748,7 @@ function M.documentsFunctionTypedRecordFieldsAsMethods()
     assert(step.params[2].name == "by" and step.params[2].text == "How much to add.")
     assert(step.returns[1].text == "The counter itself.", step.returns[1].text)
     local rendered = {}
-    require("nupp.tools.doc.api").renderHtmlItem(rendered, counter)
+    renderMarkdownItem(rendered, counter)
     local html = table.concat(rendered)
     assert(html:find('>Arguments<a', 1, true) and html:find('<dl class="nuppdoc-api-details">', 1, true), html)
     assert(html:find('>Returns<a', 1, true), html)
@@ -739,7 +777,7 @@ export function identity(value: string): string return value end
         )
     )
     local rendered = {}
-    require("nupp.tools.doc.api").renderHtmlItem(rendered, module.items[1])
+    renderMarkdownItem(rendered, module.items[1])
     local html = table.concat(rendered)
     assert(html:find('>Arguments<a', 1, true) and html:find('<dl class="nuppdoc-api-details">', 1, true), html)
     assert(html:find('>Returns<a', 1, true), html)
@@ -762,7 +800,7 @@ export function choose(option: 'collect' | 'rock & roll'): 'collect' end
         )
     )
     local rendered = {}
-    require("nupp.tools.doc.api").renderHtmlItem(rendered, module.items[1])
+    renderMarkdownItem(rendered, module.items[1])
     local html = assert(table.concat(rendered):match('<dl class="nuppdoc%-api%-details">(.-)</dl>'))
     assert(html:find("&#39;collect&#39;", 1, true), html)
     assert(html:find("&#39;rock &amp; roll&#39;", 1, true), html)
@@ -808,11 +846,11 @@ export function callback(): function(): nil end
     assert(api.memberSpelling(members.pair):find(": nil, string", 1, true))
     local markdown = doc.markdown({module})
     assert(markdown:find('`self` - `example.Box<T>`', 1, true), markdown)
-    local free = assert(markdown:match("<a id=\"example.free\"></a>(.*)"))
+    local free = markdown:match("<a id=\"example.free\"></a>(.-)\n## ")
+        or assert(markdown:match("<a id=\"example.free\"></a>(.*)"))
     assert(not free:find("Returns", 1, true), free)
-    local rendered = {}
-    api.renderHtmlItem(rendered, items.free)
-    assert(not table.concat(rendered):find(">Returns<", 1, true))
+    local rendered = require("nupp.tools.doc.html").markdownHtml(require("nupp.tools.doc.markdown").items({items.free}))
+    assert(not rendered:find(">Returns<a", 1, true))
 end
 
 local NESTED_DECLARATIONS = table.concat(
@@ -956,7 +994,7 @@ function M.documentsAnnotationsAndParameterModes()
     assert(markdown:find("`@deprecated", 1, true), "the annotation is not rendered")
     assert(markdown:find("`takes self` - `", 1, true), "the parameter mode is not rendered")
     local rendered = {}
-    require("nupp.tools.doc.api").renderHtmlItem(rendered, handle)
+    renderMarkdownItem(rendered, handle)
     assert(table.concat(rendered):find('class="nuppdoc-annotation">@deprecated', 1, true))
 end
 
@@ -1828,7 +1866,7 @@ end
 -- under nupp.compiler.decls, where the internal root hid them. They sit beside their
 -- modules now, inside the namespace a reader browses, so each has to say so itself.
 function M.hostBoundariesDeclareThemselvesInternal()
-    local boundaries = {"src/nupp/workers/native.d.nupp",}
+    local boundaries = {"src/nupp/workers/native.d.nupp", "src/binary/_representation.nupp",}
     for _, relative in ipairs(boundaries) do
         local source = readFile(HERE .. "/../" .. relative)
         assert(source, "no boundary at " .. relative)
@@ -3009,8 +3047,8 @@ function M.markdownLinksNestedModulesAndReferences()
     local api = readFile(dir .. "/api.md")
     -- one document holds every module, so every reference in it resolves
     assert(api:find('<a id="engine"></a>', 1, true), api)
-    assert(api:find("## Submodules", 1, true), api)
-    assert(api:find("| [`engine.audio`](#engine.audio) | Audio helpers. |", 1, true), api)
+    assert(api:find("**Submodules**", 1, true), api)
+    assert(api:find("[`audio`](#engine.audio)", 1, true), api)
     assert(api:find("[`engine.audio`](#engine.audio), and a run holds one", 1, true), api)
     assert(api:find("[`engine.Engine`](#engine.Engine)", 1, true), api)
     os.execute("rm -rf '" .. dir .. "'")
@@ -3053,8 +3091,8 @@ function M.namespaceBackedDeclarationsBelongOnlyToTheirSubmodule()
     local nestedAt = assert(api:find('<a id="nupp.widgets"></a>', 1, true), api)
     local parent = api:sub(1, nestedAt - 1)
     local nested = api:sub(nestedAt)
-    assert(parent:find("## Submodules", 1, true), parent)
-    assert(parent:find("[`nupp.widgets`](#nupp.widgets)", 1, true), parent)
+    assert(parent:find("**Submodules**", 1, true), parent)
+    assert(parent:find("[`widgets`](#nupp.widgets)", 1, true), parent)
     assert(not parent:find("### `widgets` _record_", 1, true), parent)
     assert(not parent:find("record nupp.widgets", 1, true), parent)
     assert(nested:find("Constructs widgets%."), nested)
@@ -3926,7 +3964,7 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(not details:find("<<<", 1, true), "embed directive was left in the rendered page")
 
     local module = readFile(dir .. "/site/modules/math/index.html")
-    assert(module:find("Module contents", 1, true), module)
+    assert(module:find("nuppdoc-overview", 1, true), module)
     -- A module page opens the API reference, while its library branches stay
     -- collapsed even along the path to the current module.
     assert(module:find('<details open><summary>API reference</summary>', 1, true), module)
@@ -3950,7 +3988,8 @@ function M.siteMatchesTheNuppdocPageModel()
     local functionsAt = assert(module:find('<section class="nuppdoc-api-group"><h2 id="functions">Functions', 1, true))
     local pointAt = assert(module:find('<section class="nuppdoc-api-item" id="math.Point"><h3>', typesAt, true))
     local addAt = assert(module:find('<section class="nuppdoc-api-item" id="math.add"><h3>', functionsAt, true))
-    assert(typesAt < pointAt and pointAt < functionsAt and functionsAt < addAt, module)
+    assert(functionsAt < addAt and addAt < typesAt and typesAt < pointAt, module)
+    assert(module:find("<strong>Functions</strong>", 1, true) < module:find("<strong>Types</strong>", 1, true), module)
     assert(not module:find('<section class="nuppdoc-api-item" id="math.add"><h2>', 1, true), module)
     assert(
         module:find('<a href="#math.Point.x"><code>x</code></a>', 1, true),
@@ -3982,11 +4021,13 @@ function M.siteMatchesTheNuppdocPageModel()
         module
     )
     assert(module:find('id="nuppdoc-outline" aria-label="On this page"', 1, true), module)
+    local outline = assert(module:match('<aside class="nuppdoc%-outline"(.-)</aside>'))
+    assert(outline:find('href="#functions"', 1, true) < outline:find('href="#types"', 1, true), outline)
     local moduleMarkdown = readFile(dir .. "/site/modules/math.md")
-    local markdownTypesAt = assert(moduleMarkdown:find("\n## Types\n", 1, true))
-    local markdownFunctionsAt = assert(moduleMarkdown:find("\n## Functions\n", markdownTypesAt, true))
-    assert(moduleMarkdown:find("\n### `Point`", markdownTypesAt, true) < markdownFunctionsAt, moduleMarkdown)
-    assert(moduleMarkdown:find("\n### `add`", markdownFunctionsAt, true), moduleMarkdown)
+    local markdownFunctionsAt = assert(moduleMarkdown:find("\n## Functions\n", 1, true))
+    local markdownTypesAt = assert(moduleMarkdown:find("\n## Types\n", markdownFunctionsAt, true))
+    assert(moduleMarkdown:find("\n### `add`", markdownFunctionsAt, true) < markdownTypesAt, moduleMarkdown)
+    assert(moduleMarkdown:find("\n### `Point`", markdownTypesAt, true), moduleMarkdown)
     assert(not moduleMarkdown:find("\n## Records\n", 1, true), moduleMarkdown)
     assert(not moduleMarkdown:find("\n## Variables\n", 1, true), moduleMarkdown)
     assert(module:find("Functions", 1, true), module)
@@ -3996,7 +4037,7 @@ function M.siteMatchesTheNuppdocPageModel()
 
     -- a configured page whose path is a module's route is that module's
     -- overview: prose above the generated API rather than a second page beside it
-    assert(module:find("<h1><code>math</code></h1>", 1, true), module)
+    assert(module:find("<h1 id=\"math\"><code>math</code>", 1, true), module)
     assert(module:find("Hand-written prose above the generated API.", 1, true), module)
     assert(module:find('<h2 id="where-to-start">Where to start', 1, true), module)
     -- it is ordinary page markdown, so both kinds of link still resolve
@@ -4011,7 +4052,7 @@ function M.siteMatchesTheNuppdocPageModel()
     -- the prose comes before the generated contents, and its headings are in the
     -- outline above them
     assert(
-        module:find("Where to start", 1, true) < module:find("Module contents", 1, true),
+        module:find("Where to start", 1, true) < module:find("nuppdoc-overview", 1, true),
         "the overview must open the page"
     )
     assert(module:find('<a href="#where-to-start" title="Where to start">', 1, true), module)
@@ -4045,50 +4086,16 @@ function M.siteMatchesTheNuppdocPageModel()
         branchModule
     )
 
-    -- a module's page lists the modules nested under it, so a namespace is
-    -- somewhere a reader can arrive at rather than only pass through
-    assert(branchModule:find('<h2 id="modules">Submodules</h2>', 1, true), branchModule)
-    assert(
-        branchModule:find(
-            '<a href="../../modules/engine/audio/index.html">'
-            .. "<code>engine.audio</code></a></td><td>Audio helpers.</td>",
-            1,
-            true
-        ),
-        branchModule
-    )
-    assert(branchModule:find('<a href="../../modules/engine/render/index.html">', 1, true), branchModule)
-    -- engine.gpu has no module of its own, so it is a namespace: a page of its
-    -- own, described by what it holds rather than by a blurb it has not got
-    assert(
-        branchModule:find(
-            '<a href="../../modules/engine/gpu/index.html">' .. "<code>engine.gpu</code></a></td><td>1 module</td>",
-            1,
-            true
-        ),
-        branchModule
-    )
-    assert(
-        branchModule:find('<a href="#modules" title="Submodules">', 1, true),
-        "the outline did not list the nested modules"
-    )
-    assert(
-        not readFile(dir .. "/site/modules/engine/audio/index.html"):find('<h2 id="modules">', 1, true),
-        "a module with nothing nested under it still rendered a Modules table"
-    )
+    -- The Markdown overview links directly to each child module.
+    assert(branchModule:find('href="../../modules/engine/audio/index.html"', 1, true), branchModule)
+    assert(branchModule:find('href="../../modules/engine/render/index.html"', 1, true), branchModule)
+    assert(branchModule:find('href="../../modules/engine/gpu/index.html"', 1, true), branchModule)
+    assert(branchModule:find('<a href="#overview" title="Overview">', 1, true), branchModule)
 
     local namespace = readFile(dir .. "/site/modules/engine/gpu/index.html")
-    assert(namespace:find("<h1><code>engine.gpu</code></h1>", 1, true), namespace)
+    assert(namespace:find('<h1 id="engine.gpu"><code>engine.gpu</code>', 1, true), namespace)
     assert(namespace:find("Nothing is required by this name itself", 1, true), namespace)
-    assert(
-        namespace:find(
-            '<a href="../../../modules/engine/gpu/vulkan/index.html">'
-            .. "<code>engine.gpu.vulkan</code></a></td><td>The Vulkan backend.</td>",
-            1,
-            true
-        ),
-        namespace
-    )
+    assert(namespace:find('href="../../../modules/engine/gpu/vulkan/index.html"', 1, true), namespace)
     -- it holds no declarations, and nothing ever suggested it would
     assert(not namespace:find("No public declarations", 1, true), namespace)
     assert(not namespace:find("Module contents", 1, true), namespace)
@@ -4101,14 +4108,7 @@ function M.siteMatchesTheNuppdocPageModel()
 
     -- a function that hands back an instance is a function, whatever it is named
     assert(not branchModule:find("<h3>Constructors</h3>", 1, true), branchModule)
-    assert(
-        branchModule:find(
-            "<h3>Functions</h3><table><thead><tr>" .. "<th>Function</th><th>Kind</th><th>Description</th>",
-            1,
-            true
-        ),
-        branchModule
-    )
+    assert(branchModule:find("<strong>Functions</strong>", 1, true), branchModule)
     assert(branchModule:find('<a href="#engine.newEngine"><code>newEngine</code></a>', 1, true), branchModule)
     assert(branchModule:find('<a href="#engine.boot"><code>boot</code></a>', 1, true), branchModule)
 
@@ -4148,13 +4148,15 @@ function M.siteMatchesTheNuppdocPageModel()
 
     assert(readFile(dir .. "/site/modules/math/llms.txt"):find("# `math`", 1, true))
     local engineMarkdown = readFile(dir .. "/site/modules/engine/llms.txt")
-    assert(engineMarkdown:find("## Submodules", 1, true), engineMarkdown)
-    assert(engineMarkdown:find("| `engine.gpu` | 1 module |", 1, true), engineMarkdown)
+    assert(engineMarkdown:find("**Submodules**", 1, true), engineMarkdown)
+    assert(engineMarkdown:find("[`gpu`](../../modules/engine/gpu/index.html)", 1, true), engineMarkdown)
     assert(readFile(dir .. "/site/modules/engine/gpu/llms.txt"):find("# `engine.gpu`", 1, true))
-    -- the same references in markdown: an anchor when the document holds what it
-    -- names, and the bare name when it does not
-    assert(engineMarkdown:find("[`engine.Engine`](#engine.Engine)", 1, true), engineMarkdown)
-    assert(engineMarkdown:find("Sound comes out of audio.", 1, true), engineMarkdown)
+    -- The downloadable Markdown retains the same navigable references as the site.
+    assert(
+        engineMarkdown:find("[`engine.Engine`](../../modules/engine/index.html#engine.Engine)", 1, true),
+        engineMarkdown
+    )
+    assert(engineMarkdown:find("[audio](../../modules/engine/audio/index.html)", 1, true), engineMarkdown)
     assert(readFile(dir .. "/site/llms.txt"):find("Complete documentation", 1, true))
     assert(readFile(dir .. "/site/llms-full.txt"):find("Guide", 1, true))
     local search = readFile(dir .. "/site/assets/search-index.js")
@@ -4715,10 +4717,11 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
     local page = assert(stdlib.page({path = "luajit"}))
     assert(page.path == "luajit")
     assert(page.title == "API reference")
-    local sections = {"Globals", "Modules", "Annotations"}
+    local sections = {"Functions", "Globals", "Annotations"}
     for _, section in ipairs(sections) do
         assert(page.markdown:find("\n## " .. section .. "\n", 1, true), "no section for " .. section)
     end
+    assert(page.markdown:find("**Modules**", 1, true), "no modules overview")
     -- Library declarations live on their module page; this page retains index links.
     assert(page.markdown:find("[`string`](../modules/string/index.html)", 1, true))
     assert(not page.markdown:find("### `string.format`", 1, true), "library documentation duplicated in its index")
@@ -4743,6 +4746,13 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
         "the module page lost the builtin signature or documentation"
     )
     assert(page.markdown:find("### `print`", 1, true), "no ambient global")
+    local functions = assert(page.markdown:match("\n## Functions\n(.-)\n## Globals\n"))
+    local globalsSection = assert(page.markdown:match("\n## Globals\n(.-)\n## "))
+    assert(functions:find('### `print`', 1, true) and not functions:find('### `_G`', 1, true))
+    assert(functions:find('### `assert`', 1, true), "a callable global is missing from functions")
+    assert(globalsSection:find('### `_G`', 1, true) and globalsSection:find('### `_VERSION`', 1, true))
+    assert(not globalsSection:find('### `print`', 1, true))
+    assert(not globalsSection:find('### `assert`', 1, true))
     local globals = {}
     for _, item in ipairs(page.globalItems) do
         globals[item.name] = item
@@ -4796,9 +4806,9 @@ function M.tableBuiltinsUseFunctionCategoriesAndLuaBadges()
     assert(#items.insert.params == 3 and items.insert.params[2].name == "pos")
     assert(#items.move.params == 5 and items.move.params[5].name == "destination")
     assert(items.move.returns[1].type == "{V}" and items.move.returns[1].text == "the destination table")
-    local summary = require("nupp.tools.doc.api").moduleSummary(library)
-    assert(summary:find(">Functions</h3>", 1, true), summary)
-    assert(not summary:find(">Values</h3>", 1, true), "table acquired a bogus Values category")
+    local summary = doc.markdown({library})
+    assert(summary:find("**Functions**", 1, true), summary)
+    assert(not summary:find("**Values**", 1, true), "table acquired a bogus Values category")
     local model = require("testjson").decode(doc.json({library}))
     local found = {}
     for _, item in ipairs(model.modules[1].items) do
@@ -5156,7 +5166,8 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
     for _, name in ipairs({"string.buffer", "jit.util", "jit.profile", "jit.zone", "jit.vmdef"}) do
         assert(api:find('data-module="' .. name .. '"', 1, true), "missing nested builtin " .. name)
     end
-    assert(api:find('>Globals</a>', 1, true), "standalone functions need their own group")
+    assert(api:find('>Functions</a>', 1, true), "global functions need their own group")
+    assert(api:find('>Globals</a>', 1, true), "global variables need their own group")
     assert(not api:find('>Intrinsic types</a>', 1, true), "empty root type category")
     assert(not api:find('>Layout reflection</a>', 1, true), "retired root reflection category")
     assert(api:find('<code>types</code>', 1, true), "the public types root disappeared")
@@ -5171,11 +5182,12 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
     for _, name in ipairs({"example", "example.tools", "example.tools.widget"}) do
         assert(api:find('data-module="' .. name .. '"', 1, true), "a qualified namespace disappeared: " .. name)
     end
-    local sectionAnchors = {globals = true, types = true, annotations = true}
+    local sectionAnchors = {functions = true, globals = true, types = true, annotations = true}
     for anchor in api:gmatch('href="[^\"]*#([^\"]+)"') do
         assert(sectionAnchors[anchor], "a declaration became a left navigation leaf: " .. anchor)
     end
     assert(api:find('href="../../../reference/lua/index.html#globals"', 1, true), "global content link missing")
+    assert(api:find('href="../../../reference/lua/index.html#functions"', 1, true), "function content link missing")
     local tableNode = assert(api:match('<li data%-module="table">(.-)</li>'), "a leaf module is not a plain link")
     assert(tableNode:find('href="../../../modules/table/index.html"', 1, true), "a leaf module lost its page")
     assert(not tableNode:find("<details", 1, true), "a leaf module has an empty expander")
@@ -6040,7 +6052,7 @@ function M.omitsVoidReturnsAndKeepsNullableAndMultipleResults()
     }) do
         local module = assert(doc.extract(case.source, "src/example.nupp", "example"))
         local rendered = {}
-        require("nupp.tools.doc.api").renderHtmlItem(rendered, module.items[1])
+        renderMarkdownItem(rendered, module.items[1])
         local html = table.concat(rendered)
         local markdown = doc.markdown({module})
         assert((html:find(">Returns<a", 1, true) ~= nil) == case.returns, html)

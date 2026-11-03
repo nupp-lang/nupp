@@ -12,7 +12,7 @@ local heap = require("nupp.mem.heap")
 local soa = require("nupp.mem.soa")
 local sharedbytes = require("nupp.mem.sharedbytes")
 local log = require("debug.log")
-local host = require("nupp.host")
+local host = require("os.host")
 local gpu = require("io.gpu")
 
 local test = {}
@@ -198,7 +198,7 @@ end
 -- The storage provider's private view of where an allocation lives: a shared
 -- block has one address in every VM holding it, and a moved allocation keeps
 -- its address in the VM it moved to.
-local representation: any = require("nupp.mem.representation").storage
+local representation: any = require("binary._representation").storage
 
 local function regionAddress(region: sharedbytes.Region): number
     return representation.address(((region as any)._handle as any).data) as number

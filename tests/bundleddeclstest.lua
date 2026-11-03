@@ -44,7 +44,10 @@ local BUNDLED = {
     "nupp.util.internal.pool",
     "nupp.mem.arena",
     "events",
-    "nupp.spi",
+    "package.nupp",
+    "os.host",
+    "os.host.pump",
+    "math.random",
 }
 
 -- Checks a strict program against the prelude and answers its diagnostics as
@@ -86,7 +89,11 @@ function M.retiredNamespacesAreNotBundled()
         "binary.hash",
         "binary.hash.digest",
         "binary.hash.checksum",
-        "binary.hash.mac"
+        "binary.hash.mac",
+        "nupp.host",
+        "nupp.host.pump",
+        "nupp.random",
+        "nupp.spi"
     }) do
         testAssert.eq(env.bundledImplementation(name), nil, name)
     end
@@ -117,7 +124,7 @@ end
 function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     local env = envMod.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
     local sources = {
-        ["nupp.spi"] = "/nupp/spi/init.nupp",
+        ["package.nupp"] = "/package/nupp/init.nupp",
         ["binary"] = "/binary/init.nupp",
         ["binary.span"] = "/binary/span.nupp",
         ["nupp.runtime.entropy"] = "/nupp/runtime/entropy.nupp",

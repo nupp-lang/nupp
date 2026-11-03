@@ -1,24 +1,9 @@
 module nupp.tools.doc.api
 
 --[[
-One documented declaration, as HTML: its signature, its type parameters, its
-arguments and results, its members. The module summary above them is the same
-information as a table, for a reader deciding which declaration to scroll to.
+Shared classification and signature formatting for generated API Markdown.
 ]]
-const {type Links} = require("nupp.tools.doc.urls")
-
-local stringsMod = require("nupp.tools.doc.strings")
-local htmlMod = require("nupp.tools.doc.html")
 local extractMod = require("nupp.tools.doc.extract")
-local urlsMod = require("nupp.tools.doc.urls")
-
-local htmlEscape = stringsMod.htmlEscape
-local summaryText = stringsMod.summaryText
-local markdownHtml, tableHtml = htmlMod.markdownHtml, htmlMod.tableHtml
-local inlineHtml = htmlMod.inlineHtml
-local kindBadge = htmlMod.kindBadge
-local childModules = extractMod.children
-local moduleFile = urlsMod.moduleFile
 
 local api = {}
 
@@ -127,15 +112,15 @@ local function itemGroups(items: {extractMod.Item}): {api.ItemGroup}
     local groups: {
         api.ItemGroup
     } = {
-        {title = "Types", path = "types", kinds = true, items = {}},
         {title = "Functions", path = "functions", kinds = true, items = {}},
+        {title = "Types", path = "types", kinds = true, items = {}},
         {title = "Values", path = "values", kinds = true, items = {}},
         {title = "Annotations", path = "annotations", kinds = true, items = {}},
     }
     for _, item in ipairs(items) do
-        local group = groups[1]
+        local group = groups[2]
         if item.kind == "function" or item.kind == "method" then
-            group = groups[2]
+            group = groups[1]
         elseif item.kind == "variable" then
             group = groups[3]
         elseif item.kind == "annotation" then
@@ -148,83 +133,6 @@ local function itemGroups(items: {extractMod.Item}): {api.ItemGroup}
     end
 
     return groups
-end
-
--- A function is written `function profile.sample(...)`, so its name carries the table
--- it
--- was assigned into. A record or a local is declared with one identifier and never
--- does.
--- Stripping that one prefix, when the module's own tail spells it, leaves every row of
--- a
--- module's own page as bare as the type and value rows already are.
-local function unqualifiedName(moduleName, name)
-    local tail = moduleName:match("([^.]+)$") or moduleName
-    local prefix = tail .. "."
-    if name:sub(1, #prefix) == prefix then
-        return name:sub(#prefix + 1)
-    end
-
-    return name
-end
-
---- A name with no module behind it has no blurb to summarize, so it is described by
---- what it holds. Left to the ordinary path it would be the one row saying nothing.
-local function namespaceSummary(modules: {extractMod.Module}, name: string): string
-    local held = #childModules(modules, name)
-
-    return held .. " module" .. (held == 1 and "" or "s")
-end
-
--- The modules nested under this one. A namespace has this table and nothing else, and a
--- reader who arrived at one has nowhere else to go.
-local function nestedModules(children: {extractMod.Module}, prefix: string, modules: {extractMod.Module}): string
-    if #children == 0 then
-        return ""
-    end
-    local rows = {}
-    for _, child in ipairs(children) do
-        rows[
-            #rows + 1
-        ] = {
-            '<a href="' .. htmlEscape(
-                prefix .. moduleFile(child.name)
-            ) .. '"><code>' .. htmlEscape(child.name) .. '</code></a>',
-            child.namespace and namespaceSummary(modules, child.name) or inlineHtml(summaryText(child.text)),
-        }
-    end
-
-    return '<section class="nuppdoc-module-modules"><h2 id="modules">Submodules</h2>' .. tableHtml(
-        {"Module", "Description"},
-        rows
-    ) .. "</section>"
-end
-
-local function moduleSummary(module: extractMod.Module): string
-    local groups = itemGroups(module.items)
-    local out = {'<section class="nuppdoc-module-summary"><h2 id="module-contents">Module contents</h2>'}
-    for _, group in ipairs(groups) do
-        if #group.items > 0 then
-            local rows = {}
-            for _, item in ipairs(group.items) do
-                local row = {
-                    '<a href="#' .. htmlEscape(
-                        item.path
-                    ) .. '"><code>' .. htmlEscape(unqualifiedName(module.name, item.name)) .. '</code></a>'
-                }
-                if group.kinds then
-                    row[#row + 1] = kindBadge(displayKind(item))
-                end
-                row[#row + 1] = inlineHtml(summaryText(item.doc.text))
-                rows[#rows + 1] = row
-            end
-            local headers = group.kinds and {group.title:sub(1, -2), "Kind", "Description"}
-                or {group.title:sub(1, -2), "Description"}
-            out[#out + 1] = '<h3>' .. group.title .. '</h3>' .. tableHtml(headers, rows)
-        end
-    end
-    out[#out + 1] = "</section>"
-
-    return table.concat(out)
 end
 
 -- How a member reads as source. An alias names a type rather than holding a value, so
@@ -243,34 +151,7 @@ local function memberSpelling(member: extractMod.Member): string
     return member.name .. ": " .. (member.isFunction and omitNilResult(member.type, member.returns) or member.type)
 end
 
--- API details share the Markdown emitted for llms.txt. The surrounding section is a
--- site layout hook; all declaration content comes from the same Markdown renderer.
-local function renderHtmlItem(out: {string}, item: extractMod.Item, links: Links?, anchors: {[string]: integer}?): nil
-    local markdownMod = require("nupp.tools.doc.markdown")
-    local source = markdownMod.items({item}, 3, anchors)
-    local path = source:match('^<a id="([^"]+)"></a>') or item.path
-    local body = markdownHtml(source, links, 0, path)
-    body = body:gsub('^<h3 id="[^"]+">', "<h3>", 1)
-    body = body:gsub(
-        "<p><strong>Read%-only binding%.</strong></p>",
-        '<div class="nuppdoc-annotations"><span class="nuppdoc-annotation">Read-only binding</span></div>'
-    )
-    body = body:gsub("<p>(.-)</p>", function(content: string): string
-        local remaining = content:gsub("<code>@.-</code>", ""):gsub("%s+", "")
-        if remaining ~= "" or not content:find("<code>@", 1, true) then
-            return "<p>" .. content .. "</p>"
-        end
-        local badges = content:gsub("<code>(@.-)</code>", '<span class="nuppdoc-annotation">%1</span>')
-
-        return '<div class="nuppdoc-annotations">' .. badges .. "</div>"
-    end)
-    out[#out + 1] = '<section class="nuppdoc-api-item" id="' .. htmlEscape(path) .. '">' .. body .. "</section>"
-end
-
-api.moduleSummary = moduleSummary
 api.itemGroups = itemGroups
-api.nestedModules = nestedModules
-api.renderHtmlItem = renderHtmlItem
 api.displayKind = displayKind
 api.displaySignature = displaySignature
 api.memberKind = memberKind

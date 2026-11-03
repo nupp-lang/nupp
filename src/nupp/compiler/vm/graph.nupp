@@ -1720,6 +1720,10 @@ function graph.coreLibraryCall(call: any): string?
         and preludeName(call.obj.obj)
     then
         name = call.obj.obj.token.text .. "." .. call.obj.name.text
+    elseif call and call.kind == "call" and call.obj and call.obj.namespacePath == "math.random" then
+        -- `math.random` is also a standard module path, which the checker
+        -- resolves as one: its root is then not the prelude's name.
+        name = "math.random"
     end
 
     return name and coreLibrary[name] and name or nil

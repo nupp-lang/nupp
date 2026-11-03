@@ -1,7 +1,7 @@
 module tecs.tests.entitycolumn
 
 local columns = require("tecs.internal.entitycolumn")
-local storage: any = assert(require("nupp.mem.representation").storage)
+local storage: any = assert(require("binary._representation").storage)
 local persist = require("nupp.vm.persist")
 local test = {}
 

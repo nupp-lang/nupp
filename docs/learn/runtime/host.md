@@ -5,7 +5,7 @@ title: Host requests
 
 # Host requests
 
-[](nupp.host) asks whatever runs the program for something and waits for the
+[](os.host) asks whatever runs the program for something and waits for the
 answer. It is meant for a library that needs a facility the host has and Nupp
 does not, such as a canvas, a clipboard, an engine's asset loader or its input
 devices, and should not care which host it runs under.
@@ -29,7 +29,7 @@ named arguments and a checked call, and nothing is gathered into a table on the
 way through:
 
 ```nupp:fragment
-local host = nupp.host
+local host = os.host
 
 --- Returns the host's id for the decoded image, and its width and height.
 local type DecodeImage = function(url: string): (integer, integer, integer)
@@ -61,7 +61,7 @@ a bound kind whose signature says so; `call` and `post` take `any`, which a
 borrow cannot cross:
 
 ```nupp:fragment
-local host = nupp.host
+local host = os.host
 local span = binary.span
 
 local type Digest = function(borrows bytes: span.ByteSpan): (integer, span.ByteSpan)
@@ -83,7 +83,7 @@ results where no task is waiting. It must not suspend, so it releases through
 `post`, which queues a request and returns at once:
 
 ```nupp:fragment
-local host = nupp.host
+local host = os.host
 
 local type ReleaseImage = function(id: integer): nil
 local releaseImage = host.bindpost<ReleaseImage>("app.image.release")
@@ -106,7 +106,7 @@ program owns, each message's values filling the event's fields in declaration
 order:
 
 ```nupp:fragment
-local host = nupp.host
+local host = os.host
 local span = binary.span
 
 @derive(events.event)
@@ -132,6 +132,6 @@ route would drop never costs the program anything. An inbound message carries
 scalars and strings, which is what an event's fields hold.
 
 ::: seealso
-- [](nupp.host) for the full API
+- [](os.host) for the full API
 - [suspension.md](concurrency/suspension.md) for what a wait does under a handler
 :::

@@ -1,12 +1,12 @@
-module nupp.spi
+module package.nupp
 
 --[[
-`nupp.spi` declares service-provider contracts for host facilities.
+`package.nupp` declares service-provider contracts for host facilities.
 Packages advertise implementations through `package.providers`; consumers select
 one with `package.select`.
 
 ```nupp:fragment
-local providers = package.providers<nupp.spi.ClockProvider>()
+local providers = package.providers<package.nupp.ClockProvider>()
 local clock = assert(package.select(providers))
 print(clock.now())
 ```

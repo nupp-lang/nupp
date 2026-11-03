@@ -7,7 +7,7 @@ Native binary64 entity IDs keep the count in slot zero. Managed byte owners
 replace FFI allocations; indexing and capacity changes retain the original rules.
 ]]
 
-local storage: any = assert(require("nupp.mem.representation").storage)
+local storage: any = assert(require("binary._representation").storage)
 local element = storage.scalar("number")
 
 --- Exposes one-based exact packed entity IDs and the count in slot zero.

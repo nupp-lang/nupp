@@ -9,12 +9,12 @@ Public callers use `package.providers` and `package.select`; see
 pinned compiler build its own libraries before it understands the public call.
 ]]
 
-const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.spi.index"
+const _DYNAMIC_REQUIRES = "@requires-dynamically package.nupp.index"
 
-local indexName = "nupp.spi.index"
+local indexName = "package.nupp.index"
 local indexWasPresent = package.loaded[indexName] ~= nil or package.preload[indexName] ~= nil
 local found, loaded = pcall(require, indexName)
-local indexWasMissing = not found and tostring(loaded):find("module 'nupp.spi.index' not found:", 1, true) == 1
+local indexWasMissing = not found and tostring(loaded):find("module 'package.nupp.index' not found:", 1, true) == 1
 if not found and (indexWasPresent or not indexWasMissing) then
     error("nupp: cannot read provider index: " .. tostring(loaded), 0)
 end

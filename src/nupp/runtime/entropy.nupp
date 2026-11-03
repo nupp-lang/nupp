@@ -5,9 +5,9 @@ local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 local nativeProvider = require("nupp.vm.cryptobinding")
 
-local contracts = require("nupp.spi")
+local contracts = package.nupp
 local provider: contracts.EntropyProvider = do
-    const chosen = spi.select(spi.providers<contracts.EntropyProvider>("nupp.spi.EntropyProvider"))
+    const chosen = spi.select(spi.providers<contracts.EntropyProvider>("package.nupp.EntropyProvider"))
     if chosen ~= nil then
         yield chosen
     end

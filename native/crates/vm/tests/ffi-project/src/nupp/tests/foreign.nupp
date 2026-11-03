@@ -1,7 +1,7 @@
 module nupp.tests.foreign
 
 local foreign: any = _G.require("nupp.vm.foreign")
-local storage: any = assert(require("nupp.mem.representation").storage)
+local storage: any = assert(require("binary._representation").storage)
 local test = {}
 
 local struct Pair

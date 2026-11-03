@@ -156,13 +156,13 @@ A standard-library consumer chooses with `package.select`: the unique highest
 highest priorities. Without an external implementation it chooses its built-in
 fallback under ordinary target and host conditions.
 
-[](nupp.spi) contains declarations only. Its eight provider interfaces share
+[](package.nupp) contains declarations only. Its eight provider interfaces share
 one home; discovery remains on `package.providers` and `package.select`.
 Importing these contracts does not select or initialize an implementation.
 
 | Interface module | Implementation interface |
 | --- | --- |
-| `nupp.spi` | `EntropyProvider`, `SystemProvider`, `ClockProvider`, `UuidProvider`, `BufferProvider`, `HostProvider`, `CstorageProvider`, `StructvalueProvider` |
+| `package.nupp` | `EntropyProvider`, `SystemProvider`, `ClockProvider`, `UuidProvider`, `BufferProvider`, `HostProvider`, `CstorageProvider`, `StructvalueProvider` |
 | `serde.json.spi` | `Provider` |
 | `io.spi` | `PathProvider`, `UriProvider` |
 | `binary.digest.spi`, `binary.checksum.spi`, `binary.mac.spi` | `Provider` |
@@ -174,11 +174,11 @@ Importing these contracts does not select or initialize an implementation.
 
 The core interfaces name their concerns. A library-specific interface can keep
 `Provider` where its module identifies the concern. The UUID service uses
-`nupp.spi.UuidProvider`, independently of the `os` namespace that exposes it.
+`package.nupp.UuidProvider`, independently of the `os` namespace that exposes it.
 
-`nupp.spi.Late` and `nupp.spi.Policy` describe host callbacks and stream policy;
-`nupp.spi.CastElements` describes a generic storage cast. These are helper types,
-not additional provider interfaces.
+`package.nupp.Late` and `package.nupp.Policy` describe host callbacks and stream
+policy; `package.nupp.CastElements` describes a generic storage cast. These are
+helper types, not additional provider interfaces.
 
 An algorithm catalog overlays its entries on the built-in catalog, and each
 interface module declares the shared resource types and cleanup identities to

@@ -23,6 +23,7 @@ record stdlib.Entry
     path: string
     items: {stdlib.Entry}?
     module: string?
+    kind: string?
 end
 
 --- The builtin libraries, globals, and intrinsic types extracted for navigation.
@@ -264,9 +265,8 @@ end
 local INTRO = "The API reference includes Lua functions and the libraries implemented in Nupp. "
     .. "Each module page documents both in one place; a Lua badge identifies functions with Lua API names."
 
-local GLOBALS = "The functions and values a program can name anywhere. Their "
-    .. "declarations are loaded before any source is checked, so nothing requires them "
-    .. "and nothing can shadow them by accident."
+local FUNCTIONS = "These functions are available without a require."
+local GLOBALS = "These global variables are available without a require."
 
 local TYPES = "The types the declarations above name in their signatures. They are "
     .. "written by the prelude rather than by a program, which is why they have no "
@@ -337,7 +337,12 @@ local function navigationItems(items: {any}): {stdlib.Entry}
     for _, item in ipairs(items) do
         entries[
             #entries + 1
-        ] = new stdlib.Entry(name = item.name, path = item.path, items = navigationItems(item.members or {}))
+        ] = new stdlib.Entry(
+            name = item.name,
+            path = item.path,
+            items = navigationItems(item.members or {}),
+            kind = item.kind
+        )
     end
 
     return entries
@@ -355,44 +360,85 @@ end
 local function indexParts(page: stdlib.Page): {stdlib.IndexPart}
     local parts: {stdlib.IndexPart} = {{markdown = "# " .. page.title .. "\n\n" .. INTRO .. "\n"}}
     local prefix = urlsMod.relativePrefix(urlsMod.routeFile(page.path))
-    local owners = {}
+    local owners, kinds = {}, {}
     for _, entry in ipairs(page.navigation and page.navigation.globals or {}) do
+        kinds[entry.name] = entry.kind
         if entry.module then
             owners[entry.name] = entry.module
         end
     end
-    local globals = {}
+    local functions, globals = {}, {}
+    local functionLinks, globalLinks = {}, {}
     for _, item in ipairs(page.globalItems) do
-        if not owners[item.name] then
-            globals[#globals + 1] = item
+        local owner = owners[item.name]
+        local isFunction = item.kind == "function" or kinds[item.name] == "function"
+        local items = isFunction and functions or globals
+        local links = isFunction and functionLinks or globalLinks
+        if owner then
+            links[#links + 1] = '<a id="' .. item.path .. '"></a>'
+            links[
+                #links + 1
+            ] = "- [`" .. item.name .. "`](" .. prefix .. urlsMod.moduleFile(owner) .. "#" .. item.path .. ")"
+        else
+            items[#items + 1] = item
         end
     end
-    local out = {"## Modules", ""}
+    local overview: {{
+        title: string,
+        entries: {string}
+    }} = {}
+    local moduleEntries: {string} = {}
     for _, module in ipairs(page.indexModules or page.modules) do
-        out[#out + 1] = "- [`" .. module.name .. "`](" .. prefix .. urlsMod.moduleFile(module.name) .. ")"
+        moduleEntries[
+            #moduleEntries + 1
+        ] = "[`" .. module.name .. "`](" .. prefix .. urlsMod.moduleFile(module.name) .. ")"
     end
-    out[#out + 1] = ""
-    parts[#parts + 1] = {markdown = table.concat(out, "\n")}
+    overview[#overview + 1] = {title = "Modules", entries = moduleEntries}
 
-    local function addSection(title: string, text: string, items: {extractMod.Item}): nil
-        if #items == 0 then
+    local function overviewItems(
+        title: string,
+        items: {extractMod.Item},
+        filter: function(extractMod.Item): boolean
+    ): nil
+        local entries: {string} = {}
+        for _, item in ipairs(items) do
+            if filter(item) then
+                local target = owners[item.name] and prefix .. urlsMod.moduleFile(owners[item.name]) .. "#" .. item.path
+                    or "#" .. item.path
+                entries[
+                    #entries + 1
+                ] = "[`" .. item.name .. "`](" .. target .. ")" .. markdownMod.overviewBadge(item.kind)
+            end
+        end
+        overview[#overview + 1] = {title = title, entries = entries}
+    end
+
+    overviewItems("Functions", page.globalItems, function(item: extractMod.Item): boolean
+        return item.kind == "function" or kinds[item.name] == "function"
+    end)
+    overviewItems("Globals", page.globalItems, function(item: extractMod.Item): boolean
+        return item.kind ~= "function" and kinds[item.name] ~= "function"
+    end)
+    overviewItems("Types", page.typeItems, function(): boolean
+        return true
+    end)
+    overviewItems("Annotations", page.annotationItems, function(): boolean
+        return true
+    end)
+    parts[#parts + 1] = {markdown = markdownMod.overview(overview)}
+
+    local function addSection(title: string, text: string, items: {extractMod.Item}, links: {string}?): nil
+        if #items == 0 and (not links or #links == 0) then
             return
         end
         parts[#parts + 1] = {markdown = "## " .. title .. "\n\n" .. text .. "\n", items = items}
-    end
-
-    addSection("Globals", GLOBALS, globals)
-    out = {}
-    for _, item in ipairs(page.globalItems) do
-        local owner = owners[item.name]
-        if owner then
-            out[#out + 1] = '<a id="' .. item.path .. '"></a>'
-            out[
-                #out + 1
-            ] = "- [`" .. item.name .. "`](" .. prefix .. urlsMod.moduleFile(owner) .. "#" .. item.path .. ")"
+        if links and #links > 0 then
+            parts[#parts + 1] = {markdown = table.concat(links, "\n")}
         end
     end
-    parts[#parts + 1] = {markdown = table.concat(out, "\n")}
+
+    addSection("Functions", FUNCTIONS, functions, functionLinks)
+    addSection("Globals", GLOBALS, globals, globalLinks)
     addSection("Types", TYPES, page.typeItems)
     addSection(
         "Annotations",
@@ -409,7 +455,7 @@ local function indexMarkdown(page: stdlib.Page): string
     for _, part in ipairs(indexParts(page)) do
         out[#out + 1] = part.markdown
         if part.items then
-            out[#out + 1] = markdownMod.items(part.items)
+            out[#out + 1] = markdownMod.items(part.items, nil, nil, true)
         end
     end
 
@@ -484,8 +530,14 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
     for _, library in ipairs(modules) do
         byModule[library.name] = library
     end
+    local callableTypes: {[string]: boolean} = {}
     for _, item in ipairs(qualified) do
         local name = item.module as string
+        for _, member in ipairs(item.members or {}) do
+            if member.isMetamethod and member.name == "__call" then
+                callableTypes[name .. "." .. item.name] = true
+            end
+        end
         local library = byModule[name]
         if not library then
             library = {name = name, text = "", items = {}}
@@ -498,6 +550,16 @@ function stdlib.page(settings: stdlib.Settings?): stdlib.Page?
             member.path = item.path .. "." .. member.name
         end
         library.items[#library.items + 1] = item
+    end
+    for _, item in ipairs(globals) do
+        local typeName = item.signature:match(":%s*([%w_.]+)%s*$")
+        if item.kind == "variable" and typeName and callableTypes[typeName] then
+            for _, entry in ipairs(navigation.globals) do
+                if entry.name == item.name then
+                    entry.kind = "function"
+                end
+            end
+        end
     end
     anchorByName(types)
     navigation.types = navigationItems(types)

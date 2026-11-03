@@ -1,7 +1,7 @@
 @!internal
 module nupp.vm.cryptobinding
 
-const {type EntropyProvider as Provider} = require("nupp.spi")
+const {type EntropyProvider as Provider} = require("package.nupp")
 local binding: any = package.loaded["nupp.runtime.provider.nativecrypto"]
 assert(type(binding) == "table", "the frozen VM nativecrypto provider is unavailable")
 

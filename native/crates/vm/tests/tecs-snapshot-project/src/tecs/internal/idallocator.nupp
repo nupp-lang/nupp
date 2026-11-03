@@ -12,7 +12,7 @@ World code uses placement operations instead of retaining references across
 growth. Bulk transaction stamps share the slot array.
 ]]
 
-local nativeStorage: any = assert(require("nupp.mem.representation").storage)
+local nativeStorage: any = assert(require("binary._representation").storage)
 
 local SLOT_BITS: integer = 22
 local GEN_BITS: integer = 31

@@ -138,7 +138,7 @@ function spi.check(session: any, entries: {any}, root: string, outDir: string): 
         local source = (
             "local {type %s as Interface} = require(%q)\nlocal implementation: Interface = require(%q)\nreturn implementation\n"
         ):format(typeName, moduleName, entry.implementation)
-        local checkedPath = fs.join(root, fs.join(outDir, "generated/nupp/spi/check" .. index .. ".nupp"))
+        local checkedPath = fs.join(root, fs.join(outDir, "generated/package/nupp/check" .. index .. ".nupp"))
         session.inc.openGeneratedDocument(checkedPath, source)
         local checked = session.inc.checkFile(checkedPath)
         session.inc.closeDocument(checkedPath)
@@ -188,7 +188,7 @@ function spi.write(root: string, outDir: string, entries: {any}): (boolean?, str
         dependencies[#dependencies + 1] = "@requires-dynamically " .. entry.implementation
     end
     local lines = {
-        "module nupp.spi.index",
+        "module package.nupp.index",
         "const _DYNAMIC_REQUIRES = " .. string.format("%q", table.concat(dependencies, " ")),
         "export = {",
     }
@@ -198,7 +198,7 @@ function spi.write(root: string, outDir: string, entries: {any}): (boolean?, str
     lines[#lines + 1] = "}\n"
 
     return fs.writeFileIfChanged(
-        fs.join(root, fs.join(outDir, "generated/nupp/spi/index.nupp")),
+        fs.join(root, fs.join(outDir, "generated/package/nupp/index.nupp")),
         table.concat(lines, "\n")
     )
 end

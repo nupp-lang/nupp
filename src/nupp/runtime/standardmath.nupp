@@ -1,0 +1,9 @@
+@!internal
+
+--- @namespace math
+module nupp.runtime.standardmath
+
+--- The host random function with independently seeded generator types.
+export const random = require("math.random")
+
+export const value: table = rawget(_G, "math") as table

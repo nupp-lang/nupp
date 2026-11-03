@@ -772,7 +772,7 @@ function span.writeFixedCarray<T, const N: integer>(
     ) as span.FixedWriteSpan<T, N>
 end
 
--- Private reader for [](nupp.host) providers, which receive arguments as `any`
+-- Private reader for [](os.host) providers, which receive arguments as `any`
 -- and must tell a shared span from every other value without a checked type.
 -- Answers the rooted pointer and count of a shared span, or nothing for any
 -- other value; the caller decides whether the element type is a byte.

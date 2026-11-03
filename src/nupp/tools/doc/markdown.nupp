@@ -212,6 +212,7 @@ local function renderMarkdownItem(out, item, level, bodyOnly, path)
     level = level or 3
     local h, hSub = heading(level), heading(level + 1)
     if not bodyOnly then
+        out[#out + 1] = "::: api-item " .. (path or item.path)
         out[#out + 1] = '<a id="' .. (path or item.path) .. '"></a>'
         out[#out + 1] = h .. " `" .. item.name .. "` _" .. displayKind(item) .. "_" .. (item.lua and " _Lua_" or "")
         out[#out + 1] = ""
@@ -244,6 +245,10 @@ local function renderMarkdownItem(out, item, level, bodyOnly, path)
     markdownRaises(out, item.raises, hSub)
     markdownMemberSummary(out, item.members, hSub, item.kind == "annotation" and "Values" or nil)
     renderMarkdownMembers(out, item.members, level + 1)
+    if not bodyOnly then
+        out[#out + 1] = ":::"
+        out[#out + 1] = ""
+    end
 end
 
 --- Renders declarations as sections, for a page that writes its own headings around
@@ -257,10 +262,17 @@ end
 --- @param items the declarations to render, in the order they should be read
 --- @param level the heading depth of an item's name, 3 by default
 --- @return the markdown, or the empty string when there is nothing to render
-function markdown.items(items: {Item}, level: integer?, seen: {[string]: integer}?): string
+function markdown.items(items: {Item}, level: integer?, seen: {[string]: integer}?, legacy: boolean?): string
     local out = {}
     local seen = seen or {}
     for _, item in ipairs(items) do
+        if legacy then
+            local heading = "`" .. item.name .. "` _" .. displayKind(item) .. "_" .. (item.lua and " _Lua_" or "")
+            local old = stringsMod.headingId(heading)
+            if old ~= item.path then
+                out[#out + 1] = '<span id="' .. old .. '"></span>'
+            end
+        end
         renderMarkdownItem(out, item, level or 3, false, overloadAnchor(item.path, seen))
     end
 
@@ -274,6 +286,88 @@ function markdown.itemBody(item: Item): string
     return table.concat(out, "\n")
 end
 
+-- A compact index is ordinary Markdown inside a layout directive. The links and
+-- kind labels remain readable in the downloadable Markdown as well as on the site.
+function markdown.overview(groups: {{
+    title: string,
+    entries: {string}
+}}): string
+    local out = {"## Overview", "", "::: api-overview"}
+    local count = 0
+    for _, group in ipairs(groups) do
+        if #group.entries > 0 then
+            out[#out + 1] = "**" .. group.title .. "**"
+            out[#out + 1] = ""
+            for _, entry in ipairs(group.entries) do
+                out[#out + 1] = "- " .. entry
+                count = count + 1
+            end
+            out[#out + 1] = ""
+        end
+    end
+    if count == 0 then
+        return ""
+    end
+    out[#out + 1] = ":::"
+    out[#out + 1] = ""
+
+    return table.concat(out, "\n")
+end
+
+function markdown.overviewBadge(kind: string): string
+    local letter = kind == "record" and "R" or kind == "type" and "T" or nil
+    if not letter then
+        return ""
+    end
+    local label = kind == "record" and "Record" or "Type alias"
+
+    return ' <abbr class="nuppdoc-kind-badge nuppdoc-kind-'
+        .. kind
+        .. ' nuppdoc-overview-badge" title="'
+        .. label
+        .. '">'
+        .. letter
+        .. '</abbr>'
+end
+
+function markdown.moduleOverview(module: Module, all: {Module}, prefix: string?): string
+    local groups: {{
+        title: string,
+        entries: {string}
+    }} = {}
+    local children = childModules(all, module.name)
+    if #children > 0 then
+        local entries: {string} = {}
+        for _, child in ipairs(children) do
+            local name = child.name:sub(#module.name + 2)
+            local label = codeSpan(name)
+            local target = prefix and prefix .. urlsMod.moduleFile(child.name) or anchors and anchors[child.name]
+            entries[#entries + 1] = target and "[" .. label .. "](" .. target .. ")" or label
+        end
+        groups[#groups + 1] = {title = "Submodules", entries = entries}
+    end
+    local tail = module.name:match("([^.]+)$") or module.name
+    for _, group in ipairs(itemGroups(module.items)) do
+        local entries: {string} = {}
+        local seen: {[string]: boolean} = {}
+        for _, item in ipairs(group.items) do
+            if not seen[item.path] then
+                seen[item.path] = true
+                local name = item.name
+                if name:sub(1, #tail + 1) == tail .. "." then
+                    name = name:sub(#tail + 2)
+                end
+                entries[
+                    #entries + 1
+                ] = "[" .. codeSpan(name) .. "](#" .. item.path .. ")" .. markdown.overviewBadge(item.kind)
+            end
+        end
+        groups[#groups + 1] = {title = group.title, entries = entries}
+    end
+
+    return markdown.overview(groups)
+end
+
 --- Renders modules as a markdown document.
 ---
 --- `all` is every module the run documented. A page renders one module at a time but
@@ -283,12 +377,25 @@ end
 ---
 --- `overview` is the handwritten prose a page opens with, which is why it only makes
 --- sense for a single module: it belongs to a page rather than to the set.
-function markdown.render(modules: {Module}, title: string?, all: {Module}?, overview: string?): string
+function markdown.render(
+    modules: {Module},
+    title: string?,
+    all: {Module}?,
+    overview: string?,
+    prefix: string?,
+    siteLinks: Links?
+): string
     local all = all or modules
     anchors = symbolLinkIndex(modules, function(module: string, path: string?): string
+        if prefix then
+            return prefix .. urlsMod.moduleFile(module) .. (path and "#" .. path or "")
+        end
         return "#" .. (path or module)
     end)
-    known = symbolLinkIndex(all, function(): string
+    known = siteLinks or symbolLinkIndex(all, function(module: string, path: string?): string
+        if prefix then
+            return prefix .. urlsMod.moduleFile(module) .. (path and "#" .. path or "")
+        end
         return ""
     end)
     local out = {}
@@ -323,33 +430,17 @@ function markdown.render(modules: {Module}, title: string?, all: {Module}?, over
             out[#out + 1] = prose(module.text);
             out[#out + 1] = ""
         end
-        local children = childModules(all, module.name)
-        if #children > 0 then
-            out[#out + 1] = "## Submodules"
-            out[#out + 1] = ""
-            out[#out + 1] = "| Module | Description |"
-            out[#out + 1] = "| --- | --- |"
-            for _, child in ipairs(children) do
-                -- A child is linked only where this document also renders it. One
-                -- module's markdown names its children without holding them.
-                local label = "`" .. markdownEscape(child.name) .. "`"
-                local anchor = anchors and anchors[child.name]
-                local held = #childModules(all, child.name)
-                local description = child.namespace and held .. " module" .. (held == 1 and "" or "s")
-                    or markdownCell(summaryText(child.text))
-                out[
-                    #out + 1
-                ] = "| " .. (anchor and "[" .. label .. "](" .. anchor .. ")" or label) .. " | " .. description .. " |"
-            end
-            out[#out + 1] = ""
-        end
+        out[#out + 1] = markdown.moduleOverview(module, all, prefix)
         for _, group in ipairs(itemGroups(module.items)) do
             if #group.items > 0 then
+                out[#out + 1] = "::: api-group"
                 out[#out + 1] = "## " .. group.title
                 out[#out + 1] = ""
                 for _, item in ipairs(group.items) do
                     renderMarkdownItem(out, item, nil, false, overloadAnchor(item.path, seen))
                 end
+                out[#out + 1] = ":::"
+                out[#out + 1] = ""
             end
         end
         if moduleIndex < #modules then

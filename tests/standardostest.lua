@@ -82,7 +82,7 @@ function M.preservesTheHostTableAndQueriesParallelismPerCall()
     test.eq(surface.randombytes, randombytes)
     test.eq(original.randombytes, randombytes)
     test.eq(original.randombytes(3), "rrr")
-    test.eq(require("nupp.random").randombytes, nil)
+    test.eq(require("math.random").randombytes, nil)
     test.eq(original.clock(), 9)
 end
 

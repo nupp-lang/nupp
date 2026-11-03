@@ -98,7 +98,7 @@ function hostDescription(host) {
 /**
  * Starts the application and settles with its result. A page runs it once.
  *
- * `host` answers the application's `nupp.host` requests: `handlers` by kind on
+ * `host` answers the application's `os.host` requests: `handlers` by kind on
  * the page, and `module`, a module URL loaded into the application's Worker
  * whose exported `handlers` answer there, nearer the application and without
  * a hop to the page. `end` runs once the application has finished.

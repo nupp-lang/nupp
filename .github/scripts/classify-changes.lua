@@ -41,7 +41,7 @@ local rules = {
     {"^src/nupp/compiler/", {"compiler"}},
     {"^src/simd%.nupp$", {"library", "aot", "browser"}},
     {"^src/simd/", {"library", "aot", "browser"}},
-    {"^src/nupp/mem/representation/", {"library", "browser", "native"}},
+    {"^src/binary/_representation%.nupp$", {"library", "browser", "native"}},
     {"^src/nupp/runtime/storage%.nupp$", {"library", "browser", "native"}},
     {"^src/nupp/runtime/provider/nativestorage%.nupp$", {"library", "browser", "native"}},
     -- The browser and native UUID providers both implement this interface.
@@ -63,6 +63,10 @@ local rules = {
     {"^src/nupp/io/", {"library", "native"}},
     -- The host facility's browser and native providers both implement it.
     {"^src/nupp/host/", {"library", "browser", "native"}},
+    {"^src/os/host/", {"library", "browser", "native"}},
+    {"^src/math/random%.nupp$", {"library", "browser"}},
+    {"^src/math/internal/random%.nupp$", {"library", "browser"}},
+    {"^src/package/nupp/", {"compiler", "library", "browser", "native"}},
     {"^src/nupp/", {"library"}},
 
     {"^native/", {"native"}},

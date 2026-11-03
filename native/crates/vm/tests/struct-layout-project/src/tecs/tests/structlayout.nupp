@@ -1,6 +1,6 @@
 module tecs.tests.structlayout
 
-local storage: any = assert(require("nupp.mem.representation").storage)
+local storage: any = assert(require("binary._representation").storage)
 local test = {}
 
 -- The actual snapshot benchmark declares these two field layouts.

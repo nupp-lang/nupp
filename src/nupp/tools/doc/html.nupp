@@ -348,6 +348,68 @@ local function extractBlocks(text, links, rendered)
                 end
             end
             placeholder(codeGroupHtml(blocks, links))
+        elseif marker:match("^::: api%-item ") then
+            local path = marker:match("^::: api%-item (.+)$") or ""
+            local body, after = readContainer(lines, index)
+            if body then
+                index = after - 1
+                body = body:gsub('^<a id="[^"]+"></a>\n', "", 1)
+                local content = markdownHtml(body, links, 0, path)
+                local headingId = content:match('^<h3 id="([^"]+)">')
+                content = content:gsub('^<h3 id="[^"]+">', "<h3>", 1)
+                content = content:gsub('href="#([^"]+)"', function(target: string): string
+                    return 'href="#' .. (target == headingId and htmlEscape(path) or target) .. '"'
+                end)
+                content = content:gsub(
+                    "<p><strong>Read%-only binding%.</strong></p>",
+                    '<div class="nuppdoc-annotations"><span class="nuppdoc-annotation">Read-only binding</span></div>'
+                )
+                content = content:gsub("<p>(.-)</p>", function(value: string): string
+                    local remaining = value:gsub("<code>@.-</code>", ""):gsub("%s+", "")
+                    if remaining ~= "" or not value:find("<code>@", 1, true) then
+                        return "<p>" .. value .. "</p>"
+                    end
+
+                    return '<div class="nuppdoc-annotations">' .. value:gsub(
+                        "<code>(@.-)</code>",
+                        '<span class="nuppdoc-annotation">%1</span>'
+                    ) .. "</div>"
+                end)
+                placeholder(
+                    '<section class="nuppdoc-api-item" id="' .. htmlEscape(path) .. '">' .. content .. '</section>'
+                )
+            else
+                out[#out + 1] = line
+            end
+        elseif marker == "::: api-group" then
+            local body, after = readContainer(lines, index)
+            if body then
+                index = after - 1
+                placeholder('<section class="nuppdoc-api-group">' .. markdownHtml(body, links, 0) .. '</section>')
+            else
+                out[#out + 1] = line
+            end
+        elseif marker == "::: api-overview" then
+            local body, after = readContainer(lines, index)
+            if body then
+                index = after - 1
+                local count = 0
+                for _, bodyLine in ipairs(syntax.lines:match(body) or {}) do
+                    if bodyLine:match("^%- ") then
+                        count = count + 1
+                    end
+                end
+                local columns = count > 24 and 3 or count > 8 and 2 or 1
+                placeholder(
+                    '<div class="nuppdoc-overview nuppdoc-overview-' .. columns .. '">' .. markdownHtml(
+                        body,
+                        links,
+                        0
+                    ) .. '</div>'
+                )
+            else
+                out[#out + 1] = line
+            end
         elseif marker == "::: columns" then
             local body, after = readContainer(lines, index)
             if body then
@@ -418,10 +480,18 @@ local function headingSlugs(text, headingScope: string?)
         if hashes then
             local name, badge, lua = headingBadge(heading)
             local base = headingId(heading)
-            if namedAnchor then
+            local target = namedAnchor or base
+            if namedAnchor
+                and headingScope
+                and (namedAnchor == headingScope or namedAnchor:sub(1, #headingScope + 1) == headingScope .. ".")
+            then
+                -- Generated members already carry the declaration's full path.
                 activeScope = namedAnchor
+            elseif activeScope then
+                target = activeScope .. "." .. target
             end
-            local id = uniqueHeading(namedAnchor or (activeScope and activeScope .. "." .. base or base), used)
+            local id = uniqueHeading(target, used)
+            local explicit = namedAnchor
             if namedAnchor and anchorAt then
                 -- The heading already owns this exact anchor. Keeping the empty
                 -- anchor before it would give the document two identical IDs.
@@ -430,7 +500,9 @@ local function headingSlugs(text, headingScope: string?)
             namedAnchor, anchorAt = nil, nil
             -- The label is read aloud by a screen reader following the anchor, so it is
             -- the heading as it reads rather than as it was written.
-            slugs[#slugs + 1] = {id = id, base = base, text = name:gsub("[`*_]", ""), badge = badge, lua = lua}
+            slugs[
+                #slugs + 1
+            ] = {id = id, base = base, anchor = explicit, text = name:gsub("[`*_]", ""), badge = badge, lua = lua}
             out[#out + 1] = badge and hashes .. " " .. name or line
         else
             out[#out + 1] = line
@@ -529,6 +601,9 @@ markdownHtml = function(text: string?, links: Links?, headingShift: integer?, he
         local targets: {[string]: string} = {}
         for _, slug in ipairs(slugs) do
             targets[slug.base] = targets[slug.base] or slug.id
+            if slug.anchor then
+                targets[slug.anchor] = targets[slug.anchor] or slug.id
+            end
         end
         out = out:gsub('href="#([^"]+)"', function(target: string): string
             local scoped = targets[target]

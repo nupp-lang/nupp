@@ -1,6 +1,6 @@
 module tecs.tests.snapshotcodec
 
-local native: any = assert(require("nupp.mem.representation").storage)
+local native: any = assert(require("binary._representation").storage)
 local persist = require("nupp.vm.persist")
 local text = require("nupp.text")
 local archetype = require("tecs.internal.archetype")

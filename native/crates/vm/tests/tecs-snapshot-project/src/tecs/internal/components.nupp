@@ -14,7 +14,7 @@ local snapshotvalue = require("tecs.internal.snapshotvalue")
 local ffistorage = require("tecs.internal.ffistorage")
 local derived = require("tecs.internal.derived")
 local derive = require("nupp.derive")
-local nativeStorage: any = assert(require("nupp.mem.representation").storage)
+local nativeStorage: any = assert(require("binary._representation").storage)
 
 -- Reuse the compiler declaration's canonical physical descriptor.
 local function nativeType(witness: any): any

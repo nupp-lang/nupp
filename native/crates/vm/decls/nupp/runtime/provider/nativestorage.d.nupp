@@ -1,2 +1,2 @@
-local {type CstorageProvider} = require("nupp.spi")
+local {type CstorageProvider} = require("package.nupp")
 return CstorageProvider

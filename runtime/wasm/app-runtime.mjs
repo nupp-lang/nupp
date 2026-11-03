@@ -854,7 +854,7 @@ export async function handleBrowserEffects(message, options = {}) {
   }
   const detached = detachedEffects(options);
   const held = [];
-  // A `nupp.host` frame is read after everything else the frame carries, so an
+  // A `os.host` frame is read after everything else the frame carries, so an
   // upload it names has arrived, and answered last, with whatever its inbox can
   // take once the frame has waited.
   const hostFrames = [];

@@ -9,7 +9,7 @@ reserve and bulk relocation. Archetypes own capacity; indexing uses the
 runtime's physical row views. Portable buffer I/O currently copies strings.
 ]]
 
-local native: any = assert(require("nupp.mem.representation").storage)
+local native: any = assert(require("binary._representation").storage)
 local buffer = require("nupp.text")
 
 export record Field

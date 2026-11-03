@@ -184,7 +184,7 @@ end
 function M.numericConsumersKeepIntegerIndicesAndCounts()
     local parsed = checked(
         [[
-local random = require("nupp.random")
+local random = require("math.random")
 local binary = require("binary")
 local json = require("serde.json")
 local codec = require("serde.codec")

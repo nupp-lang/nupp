@@ -19,7 +19,7 @@ belong to the current browser state and are not carried into worker lanes.
 ]]
 
 local response = require("nupp.runtime.browser.response")
-local contracts = require("nupp.spi")
+local contracts = package.nupp
 local effects = require("nupp.runtime.browser.effects")
 local time = {}
 local browserHost = rawget(_G, "__nuppBrowser")

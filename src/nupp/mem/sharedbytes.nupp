@@ -52,7 +52,7 @@ local span = require("binary.span")
 local spanImplementation = require("nupp.mem.span")
 local files = require("nupp.vm.files")
 local storage: any = assert2(
-    require("nupp.mem.representation").storage,
+    require("binary._representation").storage,
     "nupp.mem.sharedbytes: no storage implementation is available for the target"
 )
 

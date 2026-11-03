@@ -33,4 +33,28 @@ function M.explicitHeadingAnchorsAreNotDuplicatedByScoping()
     assert(count == 1, rendered)
 end
 
+function M.explicitLocalAliasesScopeTheirLinksAndLaterHeadings()
+    local source = '<a id="usage"></a>\n\n## Examples\n\n[Alias](#usage) and [Heading](#examples).\n\n## Returns\n'
+    for _, scope in ipairs({"first.read", "second.read"}) do
+        local rendered = html.markdownHtml(source, nil, nil, scope)
+        assert(rendered:find('id="' .. scope .. '.usage"', 1, true), rendered)
+        assert(rendered:find('href="#' .. scope .. '.usage"', 1, true), rendered)
+        assert(not rendered:find('href="#usage"', 1, true), rendered)
+        assert(not rendered:find('href="#examples"', 1, true), rendered)
+        assert(rendered:find('id="' .. scope .. '.returns"', 1, true), rendered)
+    end
+end
+
+function M.generatedMemberAnchorsKeepTheirCanonicalPaths()
+    local source = '<a id="sample.Reader.read"></a>\n\n### `read` _method_\n\n'
+        .. '<a id="usage"></a>\n\n#### Examples\n\n[Example](#usage) and [Member](#sample.Reader.read).\n'
+    local rendered = html.markdownHtml(source, nil, nil, "sample.Reader")
+    assert(rendered:find('id="sample.Reader.read"', 1, true), rendered)
+    assert(rendered:find('id="sample.Reader.read.usage"', 1, true), rendered)
+    assert(rendered:find('href="#sample.Reader.read.usage"', 1, true), rendered)
+    assert(rendered:find('href="#sample.Reader.read"', 1, true), rendered)
+    local _, count = rendered:gsub('id="sample%.Reader%.read"', "")
+    assert(count == 1, rendered)
+end
+
 return M

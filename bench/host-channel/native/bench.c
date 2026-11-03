@@ -6,7 +6,7 @@
  *   n2  the host channel answered at once: input pushed and routed by a poll,
  *       one frame export, the packet sent on a stream to a borrowing handler.
  *   n3  the host channel answered later: the frame waits on a call this loop
- *       answers, driven by nupp.host.pump.
+ *       answers, driven by os.host.pump.
  *
  * n1-input, n1-rest, n2-input, n2-poll and n2-send time one part of a frame;
  * n2-unrouted pushes and polls with no route, which is the channel's own cost.

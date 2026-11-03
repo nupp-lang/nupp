@@ -6,7 +6,7 @@ Direct storage tests adapted from tests/tecs/ffistoragetest.nupp at
 see the project LICENSE-MIT. The original world and engine tests remain separate.
 ]]
 local test = require("assert")
-local native: any = assert(require("nupp.mem.representation").storage)
+local native: any = assert(require("binary._representation").storage)
 local buffer = require("nupp.text")
 local ffistorage = require("tecs.internal.ffistorage")
 local persist = require("nupp.vm.persist")

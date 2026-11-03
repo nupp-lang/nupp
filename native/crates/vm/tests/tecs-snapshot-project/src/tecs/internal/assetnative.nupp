@@ -1,7 +1,7 @@
 module tecs.internal.assetnative
 
 local foreign: any = _G.require("nupp.vm.foreign")
-local storage: any = assert(require("nupp.mem.representation").storage)
+local storage: any = assert(require("binary._representation").storage)
 local nativelibrary = require("tecs.internal.nativelibrary")
 local native: any = nil
 

@@ -29,9 +29,9 @@ local spi = require("nupp.runtime.packages")
 const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.runtime.provider.nativebuffer"
 
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
-local contracts = require("nupp.spi")
+local contracts = package.nupp
 local provider: contracts.BufferProvider = do
-    const chosen = spi.select(spi.providers<contracts.BufferProvider>("nupp.spi.BufferProvider"))
+    const chosen = spi.select(spi.providers<contracts.BufferProvider>("package.nupp.BufferProvider"))
     if chosen ~= nil then
         yield chosen
     end

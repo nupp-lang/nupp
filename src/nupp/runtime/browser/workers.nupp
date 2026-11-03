@@ -22,7 +22,7 @@ Each consumer chooses during initialization; provider state remains in its lane.
 @allow("unused-binding")
 const _DYNAMIC_REQUIRES = "@requires-dynamically nothing"
 
-local base64 = require("binary.base64")
+local binary = require("binary")
 local browserEffects = require("nupp.runtime.browser.effects")
 local codec = require("nupp.runtime.browser.workercodec")
 local suspension = require("coroutine.suspension")
@@ -282,7 +282,7 @@ local function settle(task: any, value: any): nil
     end
     local status = value ~= nil and value.status or nil
     if status == "done" then
-        local packed = codec.decode((assert(base64.decode(value.payload as string))))
+        local packed = codec.decode((assert(binary.base64decode(value.payload as string))))
         task._values = packed.values
         task._count = packed.count
         task._state = "done"
@@ -501,7 +501,7 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
             submitted.values[captures.count + index] = arguments.values[index]
         end
     end
-    local payload = base64.encode(codec.encode(submitted))
+    local payload = binary.base64encode(codec.encode(submitted))
     if unsettledCount >= MAX_UNSETTLED or unsettledBytes + #payload > MAX_UNSETTLED_BYTES then
         -- Backpressure, which awaiting what is already submitted relieves. A pool that
         -- has closed fails the tasks it held instead of refusing new ones here.
@@ -698,7 +698,7 @@ local function runFrame(frame: any): any
             if type(callable) ~= "function" then
                 error(("%s.%s is not a registered sendable function"):format(moduleName, member), 0)
             end
-            local arguments = codec.decode((assert(base64.decode(frame.payload as string))))
+            local arguments = codec.decode((assert(binary.base64decode(frame.payload as string))))
 
             return pack(callable(unpack(arguments.values, 1, arguments.count)))
         end,
@@ -729,7 +729,12 @@ local function runFrame(frame: any): any
         }
     end
 
-    return {operation = "reply", task = frame.task, status = "done", payload = base64.encode(codec.encode(produced)),}
+    return {
+        operation = "reply",
+        task = frame.task,
+        status = "done",
+        payload = binary.base64encode(codec.encode(produced)),
+    }
 end
 
 --- Runs the lane loop inside one worker Lua state. Compiler-owned bootstrap only.

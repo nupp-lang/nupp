@@ -3,17 +3,17 @@ local fixtures = require("providerstate")
 local M = {}
 
 local function runtime(storage)
-    local advertised = {['nupp.spi.CstorageProvider'] = storage and {'fixture.storage'} or {}}
+    local advertised = {['package.nupp.CstorageProvider'] = storage and {'fixture.storage'} or {}}
 
     return fixtures.instance(
         {
             ['nupp.runtime.packages'] = true,
-            ['nupp.mem.representation'] = true,
+            ['binary._representation'] = true,
             ['nupp.runtime.storage'] = true,
             ['nupp.runtime.structvalue'] = true,
         },
         {
-            ['nupp.spi.index'] = advertised,
+            ['package.nupp.index'] = advertised,
             ['nupp.runtime.target'] = {dialect = 'luajit'},
             ['fixture.storage'] = storage,
         }
@@ -40,13 +40,13 @@ end
 
 function M.incompatibleStorageIsRejectedBeforeUse()
     local load = runtime({representation = 'linear32'})
-    local ok, problem = pcall(load, 'nupp.mem.representation')
+    local ok, problem = pcall(load, 'binary._representation')
     assert(not ok and tostring(problem):find('target requires native pointer storage', 1, true))
 end
 
 function M.canonicalStorageBindingRetainsTheFrozenProviderAndOperations()
     local raw = package.loaded["nupp.runtime.provider.nativestorage"]
-    local selected = require("nupp.mem.representation").storage
+    local selected = require("binary._representation").storage
     local binding = require("nupp.vm.storagebinding")
     assert(raw == binding and selected == raw, "the provider table keeps its identity")
     assert(binding.structs == package.loaded["nupp.runtime.structvalue"])

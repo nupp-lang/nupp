@@ -52,7 +52,7 @@ intrinsic namespaces and the declared modules:
   as numeric values; protocols choose their serialization byte order.
 - [](binary.mac) provides keyed authentication, including HMAC-SHA256.
 - [](binary.fnv1a64) hashes bytes with FNV-1a.
-- [](serde.json), [](binary.base64) and [](binary.hex) encode and decode
+- [](serde.json) and [](binary) encode and decode
   representations. [](serde.valuebuilder) supports codec authors.
 - [](utf8) validates and walks UTF-8 text.
 - [](serde) binds application types to reusable serialization schemas.
@@ -65,9 +65,9 @@ intrinsic namespaces and the declared modules:
   width and available parallelism. `os.uuid4()` and `os.uuid7()` generate
   identifiers; `os.monotonic()` and `os.walltime()` read the host clocks. See
   [System services](../system.md) for their contracts.
-- [](nupp.host) asks whatever runs the program, a page or an embedding
+- [](os.host) asks whatever runs the program, a page or an embedding
   application, for something by kind, and carries streams between them.
-  [](nupp.host.pump) runs an embedded component's operations for a host-owned
+  [](os.host.pump) runs an embedded component's operations for a host-owned
   loop. See [host.md](../host.md).
 - [](io) owns byte buffers, readers, writers, and typed scalar reads and writes
   over them.
@@ -83,7 +83,7 @@ intrinsic namespaces and the declared modules:
 - [](io.gpu) owns resident buffers, generated kernel dispatches, and tensor views.
   [](io.gpu.layout) owns the checked layout algebra.
 - [](os.randombytes) provides cryptographically secure random bytes.
-  [](nupp.random) owns deterministic pseudo-random sequences with explicit,
+  [](math.random) owns deterministic pseudo-random sequences with explicit,
   serializable state.
 - [](coroutine.suspension), [](coroutine), and [](coroutine.workers) provide
   waiting, application task scopes, and isolated worker lanes.

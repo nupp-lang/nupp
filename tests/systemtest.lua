@@ -1,9 +1,36 @@
 local system = os.info()
-local random = require("nupp.random")
+local random = require("math.random")
 local uuid = os
 local providerstate = require("providerstate")
 local targetLayout = require("nupp.compiler.targetlayout")
 local M = {}
+
+function M.randomNamespaceForwardsTheHostCallExactly()
+    local host = {}
+    for key, value in pairs(math) do
+        host[key] = value
+    end
+    local calls = {}
+    local failure = {}
+    host.random = function(...)
+        local count = select("#", ...)
+        calls[#calls + 1] = {count = count, ...}
+        if count > 0 and (...) == nil then
+            error(failure)
+        end
+
+        return 0.25
+    end
+    local load = providerstate.instance({["math.random"] = true}, nil, nil, {math = host})
+    local moved = load("math.random")
+    assert(moved == host.random and moved == load("math.random"))
+    assert(moved() == 0.25 and moved(8) == 0.25 and moved(-4, 12) == 0.25)
+    assert(calls[1].count == 0)
+    assert(calls[2].count == 1 and calls[2][1] == 8)
+    assert(calls[3].count == 2 and calls[3][1] == -4 and calls[3][2] == 12)
+    local ok, reason = pcall(moved, nil)
+    assert(not ok and reason == failure, "the host's validation error must survive")
+end
 
 function M.systemReportsExecutingAbiWithoutWorkers()
     assert(type(system.platform) == "string" and #system.platform > 0)

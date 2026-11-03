@@ -10,7 +10,7 @@ Copyright (c) 2026 Michael Dowling; see the project LICENSE-MIT.
 ]]
 const assert2 = require("assert")
 
-local native: any = assert2(require("nupp.mem.representation").storage)
+local native: any = assert2(require("binary._representation").storage)
 local persist = require("nupp.vm.persist")
 local buffer = require("nupp.text")
 local archetype = require("tecs.internal.archetype")

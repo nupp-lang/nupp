@@ -115,6 +115,7 @@ end
     coroutineFile:close()
     local env = envMod.new(root, {config = {include = {"src"}}})
     local name = "nupp.runtime.standardio"
+    local nativePopen = require(name).popen
     local loaded, preload, columns = package.loaded[name], package.preload[name], rawget(io, "columns")
     local newbuffer = rawget(io, "newbuffer")
     local ioError = rawget(io, "Error")
@@ -125,7 +126,14 @@ end
     local ok, reason = pcall(function()
         local code = compile(source, path, env)
         package.loaded[name] = nil
-        package.preload[name] = assert(loadProgram(code, "@standardio-fixture"))
+        local fixture = assert(loadProgram(code, "@standardio-fixture"))
+        package.preload[name] = function(...)
+            local value = fixture(...)
+            -- Checking a dependency can start the comptime worker while this
+            -- fixture is installed. Keep its subprocess transport available.
+            value.popen = nativePopen
+            return value
+        end
         local coroutineCode = compile(coroutineSource, coroutinePath, env)
         package.loaded[coroutineName] = nil
         package.preload[coroutineName] = assert(loadProgram(coroutineCode, "@standardcoroutine-fixture"))

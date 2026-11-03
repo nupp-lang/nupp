@@ -3,7 +3,7 @@
 module nupp.runtime.provider.nativehost
 
 --[[
-The VM's answer to [](nupp.host) requests: none yet.
+The VM's answer to [](os.host) requests: none yet.
 
 LuaJIT's provider reaches the C handlers an embedding application registers
 through `nupp_host_register` in the LuaJIT embedding, which the VM does not
