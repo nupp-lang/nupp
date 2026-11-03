@@ -16,10 +16,8 @@ const span = require("binary.span")
 const storage = require("nupp.runtime.storage")
 const hex = require("binary.hex")
 const provider = require("binary.digest.spi")
-const {type Writer} = require("io")
-const Writer = require("nupp.io.internal.bytes").writerdefaults
 
-export interface Digest is Writer
+export interface Digest is io.Writer
     --- Consumes an unfinished context and releases provider state without suspension.
     close: @nosuspend function(takes self: Digest): nil
 

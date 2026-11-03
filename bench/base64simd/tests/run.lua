@@ -118,7 +118,7 @@ if arg[1] == "--time" then
     end
 
     print("")
-    print(("%10s %12s %12s %12s"):format("bytes", "nupp-simd", "reference", "codec.base64"))
+    print(("%10s %12s %12s %12s"):format("bytes", "nupp-simd", "reference", "binary.base64"))
     for _, size in ipairs({64, 1024, 65536, 1048576}) do
         local value = random(size)
         local vec = measure(simd.encode, value, 0.5) / size * 1e9

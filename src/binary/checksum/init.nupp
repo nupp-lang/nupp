@@ -50,11 +50,9 @@ local spi = require("nupp.runtime.packages")
 
 const span = require("binary.span")
 const provider = require("binary.checksum.spi")
-const {type Writer} = require("io")
-const Writer = require("nupp.io.internal.bytes").writerdefaults
 
 --- Owned incremental checksum state with non-consuming numeric reads.
-export interface Checksum is Writer
+export interface Checksum is io.Writer
     --- Consumes this context and releases its provider state without suspension.
     close: @nosuspend function(takes self: Checksum): nil
 

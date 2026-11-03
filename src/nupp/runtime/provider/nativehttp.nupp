@@ -958,7 +958,11 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
     local contentType = nil
     if body ~= nil then
         local concrete: any = body
-        if concrete.reader ~= nil then
+        if type(concrete.len) == "function" and type(concrete.getstring) == "function" then
+            bodyKind = BODY_INLINE
+            bodyLength = concrete:len()
+            body = concrete:getstring()
+        elseif concrete.reader ~= nil then
             reader = concrete.reader
             bodyKind = BODY_UPLOAD
             bodyLength = concrete.len
@@ -974,10 +978,6 @@ function http.Client:send(borrows request: http.Request): (http.Response?, io.Er
         elseif type(body) == "string" then
             bodyKind = BODY_INLINE
             bodyLength = #(body as string)
-        elseif type(concrete.len) == "function" and type(concrete.getstring) == "function" then
-            bodyKind = BODY_INLINE
-            bodyLength = concrete:len()
-            body = concrete:getstring()
         else
             error("nupp: HTTP request body is not bytes, a Buffer, ReaderBody, or FileBody", 2)
         end
