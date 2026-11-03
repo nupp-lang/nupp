@@ -266,7 +266,9 @@ function contracts.normalize(compiled: any, version: integer?): any
                 and type(site.node) == "table"
                 and site.target == target.chunk
                 and not site.typeOnly
-                and site.node.runtimeLoader == "require"
+                and (
+                    site.node.runtimeLoader == "require" or site.qualified and site.node.qualifiedModule == site.module
+                )
                 and p.requireByNode[site.node] == site,
                 "checked require target or source identity differs"
             )

@@ -1348,6 +1348,13 @@ function tagged.forVersion(version: integer): any
     end
     -- A module with named exports: its export table, published as the
     -- module's value before its body runs.
+    -- The modules a chunk's qualified paths name load as it starts, before
+    -- its own exports are made, as one hidden require each.
+    profile.qualifiedLoads = function(ctx: any, node: any): nil
+        for _, site in ipairs(catalog(ctx).qualifiedLoads[ctx.fn.id] or {}) do
+            ctx.emit(site.node, "Require", {pool(ctx, "str", site.module)}, "tagged")
+        end
+    end
     profile.moduleExports = function(ctx: any, node: any): integer
         local exports = ctx.emit(node, "NewTable", {}, "tagged")
         return ctx.emit(node, "LibCall", {84, exports}, "tagged") as integer
@@ -1525,6 +1532,18 @@ function tagged.forVersion(version: integer): any
             return record as integer
         end
         profile.fieldRead = function(ctx: any, node: any, expected: string?): integer
+            -- A declared module's qualified path: the module, as a require
+            -- answers it, then the members the path names in it.
+            local site = catalog(ctx).requireByNode[node]
+            if site and site.qualified then
+                need(site.owner == ctx.fn.id, "foreign qualified path")
+                local value = ctx.emit(node, "Require", {pool(ctx, "str", site.module)}, "tagged")
+                for _, member in ipairs(node.qualifiedMembers or {}) do
+                    local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
+                    value = ctx.emit(node, "GetIdx", {value, key}, "tagged")
+                end
+                return value as integer
+            end
             -- math.huge, math.pi, math.maxinteger and math.mininteger fold.
             local libraryField = graph.coreLibraryField(node)
             if libraryField == "math.huge" or libraryField == "math.pi" then

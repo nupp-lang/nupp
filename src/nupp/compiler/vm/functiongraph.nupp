@@ -226,6 +226,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
     local expression: function(any, string?): integer?
     local unwind: function(integer, any, string, any?): nil
     local registerCleanup: function(any, any, any, integer): nil
+
     -- Whether a function statement names a bare name, not a table's field.
     local function bareFunction(stat: any): boolean
         if not (stat.name and stat.name.base) then
@@ -1099,7 +1100,9 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 end
             elseif stat.kind == "funcStmt" and profile.functionStatement and not bareFunction(stat) then
                 invoke("functionStatement", stat, nil)
-            elseif (stat.kind == "localFuncStmt" or stat.kind == "funcStmt" and bareFunction(stat)) and profile.closure then
+            elseif (stat.kind == "localFuncStmt" or stat.kind == "funcStmt" and bareFunction(stat))
+                and profile.closure
+            then
                 -- `function f()` in a declared module binds a module local,
                 -- as `local function f()` does.
                 local name = stat.kind == "funcStmt" and stat.name.base or stat.name
@@ -1623,6 +1626,9 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     named = true
                 end
             end
+        end
+        if profile.qualifiedLoads then
+            invoke("qualifiedLoads", fn.node, nil)
         end
         if named and profile.moduleExports then
             context()

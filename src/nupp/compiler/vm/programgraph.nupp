@@ -201,6 +201,7 @@ function program.describe(modules: {any}, entryModule: string): any
         imports = {},
         requires = {},
         requireByNode = {},
+        qualifiedLoads = {},
         calls = {},
         callByNode = {},
         -- Per cleanup site (a local's statement), the record
@@ -489,6 +490,11 @@ function program.describe(modules: {any}, entryModule: string): any
         end
     end
 
+    -- The chunk being collected, and the modules its qualified paths load as
+    -- it starts: one site each, at the first path that names the module.
+    local currentChunk: any = nil
+    local loaded: {[any]: {[string]: boolean}} = {}
+
     local collect: function(any, any): nil
     collect = function(node: any, owner: any): nil
         if cst.isToken(node) or typeSyntax[node.kind] then
@@ -497,6 +503,49 @@ function program.describe(modules: {any}, entryModule: string): any
         local bodyOwner = p.byBody[node]
         if bodyOwner then
             owner = bodyOwner
+        end
+        -- A declared module's qualified path (`m.sub.f`) whose root no binding
+        -- holds: a hidden require of m, which the chunk loads as it starts and
+        -- the path reads, never a reference to its root name.
+        local qualified = node.kind == "dotIndex" and node.qualifiedModule and moduleNames[node.qualifiedModule]
+        if qualified then
+            local root = node.obj
+            while root and root.kind == "dotIndex" do
+                root = root.obj
+            end
+            local rootDefinition = root and root.kind == "name" and root.token and root.token.definition
+            if root and root.kind == "name" and (rootDefinition == nil or rootDefinition.kind == "module") then
+                local item = {
+                    id = #p.requires,
+                    owner = owner.id,
+                    node = node,
+                    module = node.qualifiedModule,
+                    typeOnly = false,
+                    target = qualified.chunk,
+                    qualified = true
+                }
+                p.requires[#p.requires + 1], p.requireByNode[node] = item, item
+                local seen = loaded[currentChunk] or {}
+                loaded[currentChunk] = seen
+                if not seen[node.qualifiedModule] then
+                    seen[node.qualifiedModule] = true
+                    local load = {kind = "qualifiedLoad", qualifiedModule = node.qualifiedModule, root.token}
+                    local eager = {
+                        id = #p.requires,
+                        owner = currentChunk.id,
+                        node = load,
+                        module = node.qualifiedModule,
+                        typeOnly = false,
+                        target = qualified.chunk,
+                        qualified = true,
+                        eager = true
+                    }
+                    p.requires[#p.requires + 1], p.requireByNode[load] = eager, eager
+                    p.qualifiedLoads[currentChunk.id] = p.qualifiedLoads[currentChunk.id] or {}
+                    table.insert(p.qualifiedLoads[currentChunk.id], eager)
+                end
+                return
+            end
         end
         -- `for i, v in ipairs(t)` and `pairs(t)` are loop forms the profile lowers
         -- itself: the iterator is never called, so it is neither a reference nor a
@@ -751,7 +800,8 @@ function program.describe(modules: {any}, entryModule: string): any
         end
     end
     for _, module in ipairs(p.modules) do
-        collect(module.parsed.root, p.owners[module.chunk + 1])
+        currentChunk = p.owners[module.chunk + 1]
+        collect(module.parsed.root, currentChunk)
     end
     -- Capture ownership mode is independent of its transported representation.
     -- Only shared mutable bindings and recursive declaration self-references
@@ -821,16 +871,26 @@ function program.verify(p: any): boolean
     for index, item in ipairs(p.requires) do
         local node = item.node
         need(item.id == index - 1 and p.owners[item.owner + 1], "invalid require callsite owner")
-        need(
-            node.kind == "call" and node.runtimeLoader == "require" and not requireNodes[node],
-            "require callsite lacks checked loader identity"
-        )
-        need(
-            p.requireByNode[node] == item
-            and item.module == node.requiredModule
-            and item.typeOnly == (node.typeOnlyRequire == true),
-            "require callsite metadata mismatch"
-        )
+        if item.qualified then
+            need(
+                (node.kind == "dotIndex" or item.eager and node.kind == "qualifiedLoad")
+                and node.qualifiedModule == item.module
+                and not requireNodes[node],
+                "qualified path lacks its checked module"
+            )
+            need(p.requireByNode[node] == item and not item.typeOnly, "require callsite metadata mismatch")
+        else
+            need(
+                node.kind == "call" and node.runtimeLoader == "require" and not requireNodes[node],
+                "require callsite lacks checked loader identity"
+            )
+            need(
+                p.requireByNode[node] == item
+                and item.module == node.requiredModule
+                and item.typeOnly == (node.typeOnlyRequire == true),
+                "require callsite metadata mismatch"
+            )
+        end
         local target = item.module and modules[item.module]
         need(item.target == (target and target.id or nil), "require callsite target mismatch")
         requireNodes[node] = true

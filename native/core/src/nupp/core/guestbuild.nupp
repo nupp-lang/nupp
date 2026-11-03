@@ -109,6 +109,7 @@ local CASES: {[string]: {
     modulesnamed = {fixture = "catalog-modules-named", version = 8, modules = {"catalog-modules-geometry"}},
     modulespattern = {fixture = "catalog-modules-pattern", version = 8, modules = {"catalog-modules-geometry"}},
     modulesrecords = {fixture = "catalog-modules-records", version = 8, modules = {"catalog-modules-boxes"}},
+    modulesqualified = {fixture = "catalog-modules-qualified", version = 8, modules = {"catalog-atlas-geometry"},},
     modulescycle = {
         fixture = "catalog-modules-cycle",
         version = 8,
@@ -330,7 +331,13 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         project = incremental.new(root, {
             cache = false,
             nativeCompilerServices = false,
-            config = {include = {"src", "build/core-guest-programs/source"}}
+            -- Its output is not the build directory the staged sources sit
+            -- in, which the project index would leave out, and a qualified
+            -- path resolves only modules the index declares.
+            config = {
+                include = {"src", "build/core-guest-programs/source"},
+                build = {outDir = "build/core-guest-programs/out"},
+            }
         })
     end
     local modules = {}

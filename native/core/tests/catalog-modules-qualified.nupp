@@ -1,0 +1,12 @@
+module nupp.core.catalogmodulesqualified
+
+-- A declared module's qualified path needs no require: the path names the
+-- module, one hidden require loads it, and every use reads that module.
+local first = atlas.geometry.scale(2)
+atlas.geometry.bump()
+
+local function later(): integer
+    return atlas.geometry.bump() * 100
+end
+
+export = first + later() + atlas.geometry.unit
