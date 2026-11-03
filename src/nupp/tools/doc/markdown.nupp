@@ -151,9 +151,15 @@ end
 -- The members of a declaration as one table above the sections documenting them. The
 -- signature fence elides the entries, so this is where a reader sees what the type
 -- holds without scrolling the whole of it, and the name links to the rest.
-local function markdownMemberSummary(out, members, heading, title)
+local function markdownMemberSummary(out, members, heading, title, path)
     if not members or #members == 0 then
         return
+    end
+    for _, member in ipairs(members) do
+        if member.name == (title or "Members"):lower() then
+            out[#out + 1] = '<a id="' .. path .. '.members-overview"></a>'
+            break
+        end
     end
     out[#out + 1] = heading .. " " .. (title or "Members")
     out[#out + 1] = ""
@@ -206,7 +212,7 @@ local function renderMarkdownMembers(out, members, level)
         markdownReturns(out, member.returns, hSub)
         markdownRaises(out, member.raises, hSub)
         if member.isType then
-            markdownMemberSummary(out, member.members, hSub)
+            markdownMemberSummary(out, member.members, hSub, nil, path)
             renderMarkdownMembers(out, member.members, level + 1)
         end
         if section then
@@ -251,7 +257,7 @@ local function renderMarkdownItem(out, item, level, bodyOnly, path)
     markdownArguments(out, item.params, hSub)
     markdownReturns(out, item.returns, hSub)
     markdownRaises(out, item.raises, hSub)
-    markdownMemberSummary(out, item.members, hSub, item.kind == "annotation" and "Values" or nil)
+    markdownMemberSummary(out, item.members, hSub, item.kind == "annotation" and "Values" or nil, path or item.path)
     renderMarkdownMembers(out, item.members, level + 1)
     if not bodyOnly then
         out[#out + 1] = ":::"
@@ -417,9 +423,7 @@ function markdown.render(
         for _, item in ipairs(module.items) do
             rootDeclaration = rootDeclaration or item.path == module.name
         end
-        if not rootDeclaration then
-            out[#out + 1] = '<a id="' .. module.name .. '"></a>'
-        end
+        out[#out + 1] = '<a id="' .. module.name .. (rootDeclaration and "-module" or "") .. '"></a>'
         out[#out + 1] = "# `" .. module.name .. "`"
         out[#out + 1] = ""
         -- An overview is what the author wanted said here, so it replaces the line that
@@ -442,6 +446,9 @@ function markdown.render(
         for _, group in ipairs(itemGroups(module.items)) do
             if #group.items > 0 then
                 out[#out + 1] = "::: api-group"
+                if group.path == module.name then
+                    out[#out + 1] = '<a id="' .. group.path .. '-group"></a>'
+                end
                 out[#out + 1] = "## " .. group.title
                 out[#out + 1] = ""
                 for _, item in ipairs(group.items) do

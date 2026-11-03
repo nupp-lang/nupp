@@ -1,10 +1,8 @@
 module nupp.text
 
 --[[
-`nupp.text` builds and reads text a byte at a time.
-
-`newbuffer` hands back a FIFO byte buffer: append to one end, read from the
-other, and the string is built once instead of once per concatenation.
+`nupp.text` creates mutable FIFO byte buffers through a shared provider contract.
+Append at one end and consume bytes from the other.
 
 ```nupp
 local text = nupp.text
@@ -14,12 +12,12 @@ out:put("hello", ", ", "world")
 print(out:get())
 ```
 
-A buffer comes from the host. On LuaJIT it is `string.buffer`; everywhere else
-it is a portable one written in Nupp. Both answer to the same [](Buffer), so a
-program that only ever writes and reads bytes does not notice which it has.
+A buffer comes from the selected provider. The native fallback uses
+[](string.buffer); the portable provider is written in Nupp. Both implement
+[](Buffer), which contains FIFO and formatting operations. Native pointer
+access and serialization are available only through `string.buffer`.
 
-[](utf8) is the other half of this namespace: codepoints rather than
-bytes.
+Use [](utf8) to validate text and walk codepoints.
 ]]
 
 local spi = require("nupp.runtime.packages")

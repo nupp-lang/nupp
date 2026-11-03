@@ -1,12 +1,8 @@
 module nupp.mem.sharedbytes
 
 --[[
-Engine-owned immutable byte regions.
-
-A region names an extent of one reference-counted engine block. It crosses
-worker boundaries by reference, slices without copying, and is read in place
-through a borrowed [](binary.span) byte view; converting it to a Lua string
-is one explicit call.
+Shared-byte regions retain immutable engine-owned storage.
+They require the Nupp engine host supplied by a stamped binary.
 
 ```nupp
 const sharedbytes = nupp.mem.sharedbytes
@@ -15,6 +11,11 @@ const region = sharedbytes.copy("hello, region")
 const hello = region:slice(0, 5)
 assert(hello:len() == 5 and hello:tostring() == "hello")
 ```
+
+A region names an extent of one reference-counted engine block. It crosses
+worker boundaries by reference, slices without copying, and is read in place
+through a borrowed [](binary.span) byte view; converting it to a Lua string
+is one explicit call.
 
 A region is storage, so its positions are zero-based offsets and counts, as a
 [](io.Buffer)'s are: `slice(offset, count)` and `view(offset, count)`

@@ -17,8 +17,12 @@ end
 local positions = soa.alloc(ffi.typeof<Position>(), 128)
 local rows = positions:write()
 for index = 1, #rows do
+    rows[index] = new Position(0, 1)
+end
+for index = 1, #rows do
     rows[index].x += rows[index].velocity
 end
+assert(rows[1].x == 1)
 ```
 
 The compiler supplies the private layout argument to `alloc` and `layoutof`,

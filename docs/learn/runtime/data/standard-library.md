@@ -15,8 +15,10 @@ print(#digest, math.lerp(10, 20, 0.25))
 
 ## Intrinsics and declared modules
 
-`nupp` names compiler intrinsics. The compiler selects their implementations
-from the members checked source reaches.
+Compiler intrinsics live in their subject namespaces, such as `types`, `simd`,
+and `own`. The compiler selects their implementations from the members checked
+source reaches. `nupp.mem` and `nupp.text` contain the remaining public storage
+and portable text-buffer modules.
 
 Nupp-authored libraries outside that surface are ordinary declared modules on
 disk. A qualified module path loads one only when the source uses it:
@@ -37,7 +39,7 @@ local bytes = binary.span.fromstring(text)
 ```
 
 It lowers to one hidden `require` in the containing module. It does not build a
-global `nupp.mem` table and does not add a load check at every call. The same
+global `binary.span` table and does not add a load check at every call. The same
 rule applies to a dependency root such as `tecs`. See [modules.md](../../language/modules.md)
 for how a declared module is named and resolved.
 
@@ -74,7 +76,7 @@ intrinsic namespaces and the declared modules:
 - [](io.files) owns filesystem metadata and directories.
 - [](io.net) owns listeners, plain connections, and TLS sessions.
 - [](io) models filesystem paths and resource identifiers.
-- [](log) owns leveled logging over a swappable destination.
+- [](debug.log) owns leveled logging over a swappable destination.
 - [](math) owns scalar and two-dimensional vector helpers.
 - [](binary.span) owns rooted, bounds-checked shared and writable C array views.
 - [`nupp.mem.soa`](structure-of-arrays.md) stores every top-level field of a
@@ -85,8 +87,9 @@ intrinsic namespaces and the declared modules:
 - [](os.randombytes) provides cryptographically secure random bytes.
   [](math.random) owns deterministic pseudo-random sequences with explicit,
   serializable state.
-- [](coroutine.sus), [](coroutine), and [](coroutine.workers) provide
-  waiting, application task scopes, and isolated worker lanes.
+- [](coroutine.suspend) waits for a callback result. [](coroutine) owns
+  application task scopes, and [](coroutine.workers) provides isolated worker
+  lanes. [](coroutine.sus) registers and polls readiness sources.
   [](coroutine.sus.host) is the other side of waiting: what a host
   installs to decide which coroutine runs while something is parked.
 - [](os) provides monotonic and wall clocks. [](coroutine) owns sleeps and
@@ -99,8 +102,8 @@ scheduler and sendable values.
 ## Availability and initialization
 
 Compiler namespaces and builtin-table extensions use canonical declarations.
-Declared library modules load through qualified references or ordinary
-`require` calls. Providers resolve while their facades load.
+Use builtin libraries through their qualified names. The compiler inserts the
+module loads those references need. Providers resolve while their facades load.
 
 ### Selection follows use
 
@@ -127,14 +130,15 @@ A module selects its implementation while it is required and retains the actual
 functions. Generated module prologues bind those modules before the consumer body
 runs. Exported operations perform no SPI lookup.
 
-Implementations satisfy the interface in the library's `.spi` module and are
-advertised in `nupp/spi.json`. Standard-library consumers choose the unique highest
-priority, or use their built-in fallback when discovery is empty. See
+Implementations satisfy interfaces in the library's `.spi` module or the shared
+[](package.nupp) contracts and are advertised in `nupp/spi.json`. Standard-library
+consumers choose the unique highest priority, or use their built-in fallback
+when discovery is empty. See
 [SPI](../../projects/spi.md) for ordinary selection code and package discovery.
 
-The public surface does not expose the JSON provider module, a provider's own
-handles, or FFI pointers. Those are implementation details, so application code
-keeps the same Nupp API when a provider changes.
+Provider handles remain implementation details of each facade. Explicit C
+interop APIs, including native `string.buffer` pointer operations, retain their
+own target and lifetime requirements.
 
 ### Forcing a native feature
 
@@ -155,29 +159,31 @@ string or [](utf8), use 1-based positions, as a Lua array and
 
 ## Errors and ownership
 
-An operation that can fail because of the environment returns `nil, reason`. The
-files, process, network, TLS and HTTP modules give that reason as a
-[](io.Error), whose `kind` names the failure the same way on every
-platform, so a program branches on `err.kind == "notfound"` rather than on the
-message. An invalid argument or a malformed programmer-owned value raises at the
-call site. Every owner the library hands out, from a buffer to an open file, is
-an `own.Closeable`: `close` consumes it and returns nothing, `own.drop` closes
-it early, and the end of its scope closes it otherwise. A destination that
-buffers writes reports a failure through `flush`, so a caller that has to know
-flushes before it closes. Buffers and views report use after release, and a
-reader or writer returns a reason once it has been closed. See
-[ownership.md](../ownership/index.md) for the cleanup obligation an affine
-result carries.
+Check each operation's return signature before handling a failure. The typed
+file, process, network, TLS and HTTP services use [](io.Error), whose `kind`
+identifies failures such as `"notfound"`. The Lua stream function `io.open`
+and `nupp.mem.sharedbytes.readfile` return string reasons. Invalid arguments may
+raise instead of returning a failure value.
+
+A result declared `affine(...)` has a cleanup obligation: its local scope drops
+it, and `own.drop` ends its lifetime early. Other values have different storage
+lifetimes. `nupp.mem.array` and arena pages use managed storage; shared-byte
+regions retain engine references; the portable text buffer provides `free` to
+discard retained capacity. None of those APIs promises automatic cleanup merely
+because a local leaves scope.
+
+A writer that buffers output reports delivery failures through `flush`. Check
+that result before closing when delivery matters. See
+[ownership.md](../ownership/index.md) for affine ownership and borrowing.
 
 ## FAQ
 
 ### Does an intrinsic need a `require`?
 
-No. A member reached through the `nupp` namespace is selected by the compiler
-from the source that names it, which is why the example above runs with no
-imports. A declared module such as `binary.span` is a file on disk, so it is
-bound with `require` or reached through its qualified name, as [Intrinsics and
-declared modules](#intrinsics-and-declared-modules) shows.
+No. Use builtin APIs directly, such as `types.sizeof`, `debug.log.info`, or
+`binary.span.fromstring`. The compiler resolves the qualified name and inserts
+any required module load. See [Intrinsics and declared
+modules](#intrinsics-and-declared-modules) for the distinction.
 
 ### Does an unused facility cost anything in the built program?
 

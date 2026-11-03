@@ -119,6 +119,7 @@ end
 
 local function markdownOutline(text: string?): {html.Heading}
     local out, fenced = {}, nil
+    local namedAnchor: string? = nil
     local used: {[string]: boolean} = {}
     for _, line in ipairs(syntax.lines:match(tostring(text or "")) or {}) do
         local marker
@@ -126,16 +127,22 @@ local function markdownOutline(text: string?): {html.Heading}
         if not marker and not fenced then
             local hashes, heading = syntax.heading:match(line)
             if hashes and heading then
-                local id = uniqueHeading(headingId(heading), used)
+                local id = uniqueHeading(namedAnchor or headingId(heading), used)
+                namedAnchor = nil
                 if #hashes <= 3 then
                     local name = headingBadge(heading)
-                    -- The slug still comes from the whole heading, badge and all: the
-                    -- page has been anchoring its declarations that way, and the name
-                    -- alone collides with the anchor a generated page writes above the
-                    -- heading.
                     out[#out + 1] = {path = id, name = name:gsub("[`*_]", ""), level = #hashes}
                 end
+            else
+                local explicit = line:match('^<a id="([^"]+)"></a>$')
+                if explicit then
+                    namedAnchor = explicit
+                elseif line:match("%S") then
+                    namedAnchor = nil
+                end
             end
+        else
+            namedAnchor = nil
         end
     end
 

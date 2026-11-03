@@ -1,7 +1,8 @@
 module nupp.mem.array
 
 --[[
-Owned contiguous arrays of one scalar or struct type.
+Managed contiguous arrays hold one scalar or struct type.
+Their shared and writable views use the checked [](binary.span) interface.
 
 ```nupp
 const array = nupp.mem.array
@@ -15,9 +16,11 @@ own.drop(writable)
 print(values:read()[1])
 ```
 
-The array owns its storage and releases it at the end of the scope that holds
-it. Reading and writing it are the [](binary.span) operations, so every index
-is checked against the count the array carries.
+The array retains its storage through the managed allocator. It is not an
+affine allocation and has no `close` operation; leaving a lexical scope does
+not promise immediate reclamation. Views retain their backing storage, and
+every index is checked against the count the view carries. For explicitly
+owned malloc-backed storage, see [](nupp.mem.heap).
 ]]
 const {type Span, type Writable, type ByteSpan} = require("binary.span")
 local array = {}

@@ -1,7 +1,8 @@
 module nupp.mem
 
 --[[
-C storage, and the checked views that make a raw pointer safe to index.
+`nupp.mem` groups storage allocators with different lifetime contracts.
+Checked views make their elements safe to index.
 
 Nothing is re-exported here: every member is a module of its own, reached by the
 name it has.
@@ -20,18 +21,17 @@ const points = span.fromcarray(storage, 4)
 print(points[1].x)
 ```
 
-- [](binary.span) -- borrowed views over storage rooted by another value.
-- [](nupp.mem.array) -- owned contiguous arrays, native and Wasm.
-- [](nupp.mem.heap) -- owned malloc-backed arrays.
-- [](nupp.mem.soa) -- structure-of-arrays storage.
-- [](binary.span) -- the one inclusive range they all validate against.
-- [](nupp.mem.arena) -- leases zero-filled struct rows from pages that never
-  move, so it hands storage out and takes it back rather than viewing it.
+[](binary.span) provides rooted shared and writable views used by arrays and
+structure-of-arrays storage. Element positions are one-based, and indexing and
+slicing check the view's element count.
 
-A view knows its element count, and every index and slice is checked against it
-before the only unsafe pointer arithmetic in the standard library. Record
-instances backed by a Lua table are [](table.Pool) instead, which needs no C
-storage and so lives with the general-purpose types.
+Managed arrays and arena pages remain live through references to their storage.
+Heap and SoA allocations return affine owners with lexical cleanup. Immutable
+shared-byte regions retain engine-owned blocks and require the Nupp engine
+host. See each module's API for its allocation and lifetime contract.
+
+Record-backed pooling is [](table.Pool). Struct rows use [](nupp.mem.arena),
+whose release ends a lease and whose reset rewinds the allocation cursor.
 
 See [c-interop.md](docs/learn/runtime/c-interop/index.md) for what crossing the
 C boundary costs, and
