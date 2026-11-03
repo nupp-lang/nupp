@@ -152,7 +152,7 @@ local function decoder(finishInput)
 end
 
 function M.compressionNamesUseCanonicalKeysOnly()
-    local contract = require("binary.compress.spi")
+    local contract = require("binary.compress.internal.contracts")
     assert(contract.needinput == NEED_INPUT and contract.needoutput == NEED_OUTPUT and contract.finished == FINISHED)
     assert(contract.NEED_INPUT == nil and contract.NEED_OUTPUT == nil and contract.FINISHED == nil)
     local load = state.family("compression", {})
@@ -333,47 +333,14 @@ function M.cleanupContinuesAfterProviderReleaseFailure()
     assert(released.decoder == 1 and released.source == 1)
 end
 
-function M.prioritySelectionIsOrderIndependent()
-    for _, providers in ipairs({
-        {
-            provider(
-                "low",
-                decoder(function()
-                    return 0, FINISHED
-                end),
-                1
-            ),
-            provider(
-                "high",
-                decoder(function()
-                    return 0, FINISHED
-                end),
-                2
-            ),
-        },
-        {
-            provider(
-                "high",
-                decoder(function()
-                    return 0, FINISHED
-                end),
-                2
-            ),
-            provider(
-                "low",
-                decoder(function()
-                    return 0, FINISHED
-                end),
-                1
-            ),
-        },
-    }) do
-        local compression = state.family("compression", providers)
-        local api = compression("binary.compress")
-        assert(api.format("high"))
-        assert(not pcall(api.format, "low"))
-        assert(api.format("gzip"), "selected catalogs retain native formats")
-    end
+function M.targetBindingRetainsCatalogWithoutDiscovery()
+    local load, counts = state.family("compression")
+    local api = load("binary.compress")
+    assert(api.format("gzip"))
+    assert(api.format("zlib"))
+    assert(api.format("deflate-raw"))
+    assert(load("binary.compress") == api)
+    assert(counts.resolutions == 1, "builtin implementation initializes once")
 end
 
 function M.nativeProviderMapsTheCompressionAbi()

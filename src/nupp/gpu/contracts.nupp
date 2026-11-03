@@ -1,7 +1,9 @@
---[[
-`io.gpu.spi` defines the shared interfaces for GPU providers.
+@!internal
 
-The [](io.gpu) module selects a device implementation during initialization.
+--[[
+`nupp.gpu.contracts` defines the shared interfaces for GPU providers.
+
+The build binds the device implementation used by [](io.gpu).
 `open` is a receiver-free function; it returns a closeable `KernelContext`.
 
 Implementations define private records satisfying the shared context, buffer,
@@ -15,12 +17,11 @@ cannot change the representation compiled into a kernel. Device and artifact
 failures must be reported before incompatible operations are published or run.
 The facade exports the retained open function directly.
 ]]
-module io.gpu.spi
+module nupp.gpu.contracts
 
 local types = require("nupp.gpu.api")
 
 export interface Provider
-    @readonly priority: integer?
 
     --- Reports whether `open` can return a device now, without raising.
     @readonly available: function(): boolean

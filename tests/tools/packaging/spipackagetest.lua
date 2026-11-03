@@ -360,7 +360,7 @@ io.write("direct")
     remove(dir)
 end
 
-function M.targetDependencyCanSupplyAMacImplementation()
+function M.targetDependencyCanSupplyAUserOwnedMacImplementation()
     local dir = tempProject({
         [
             "nupp.lua"
@@ -375,12 +375,37 @@ return {
         [
             "src/main.nupp"
         ] = [[
-local mac = require("binary.mac")
-local rolling = mac.newmac("hmac-sha256", "key")
-assert(rolling:digestsize() == 32)
-rolling:write("The quick brown fox ")
-rolling:write("jumps over the lazy dog")
-return rolling:hexdigest()
+local {type Provider} = require("acme.api")
+local provider = assert(package.providers(Provider)())
+local algorithm = assert(provider.algorithms["hmac-sha256"])
+assert(algorithm.digestsize == 32)
+local rolling = algorithm:create("key")
+local first, second = "The quick brown fox ", "jumps over the lazy dog"
+local firstbytes = binary.span.fromstring(first)
+local secondbytes = binary.span.fromstring(second)
+rolling:update(firstbytes)
+rolling:update(secondbytes)
+local result = binary.hexencode(rolling:finish())
+rolling:close()
+return result
+]],
+        [
+            "src/acme/api.nupp"
+        ] = [[module acme.api
+local {type ByteSpan} = require("binary.span")
+export interface State is own.Closeable
+    close: @nosuspend function(takes self: State): nil
+    update: function(exclusive self: State, borrows bytes: ByteSpan): nil
+    finish: function(exclusive self: State): string
+end
+export interface Algorithm
+    @readonly name: string
+    @readonly digestsize: integer
+    create: function(self: Algorithm, key: string): State
+end
+export interface Provider
+    @readonly algorithms: {[string]: Algorithm}
+end
 ]],
         [
             "vendor/crypto/acme-crypto-1.0-1.rockspec"
@@ -395,12 +420,12 @@ build = {type = "builtin", modules = {["acme.hmac_sha256"] = "provider.lua"},
    copy_directories = {"nupp"}}
 ]],
         ["vendor/crypto/nupp/spi.json"] = [[
-{"binary.mac.spi.Provider":["acme.hmac_sha256"]}
+{"acme.api.Provider":["acme.hmac_sha256"]}
 ]],
         [
             "vendor/crypto/nupp/acme/hmac_sha256.d.nupp"
         ] = [[
-local {type Provider} = require("binary.mac.spi")
+local {type Provider} = require("acme.api")
 local provider: Provider
 return provider
 ]],
@@ -418,17 +443,16 @@ return {algorithms = {["hmac-sha256"] = {name = "hmac-sha256", digestsize = 32, 
          local pointer, count = bytes:ref()
          parts[#parts + 1] = ffi.string(pointer, count)
       end,
-      finish = function(_, destination)
+      finish = function()
          assert(table.concat(parts) == "The quick brown fox jumps over the lazy dog")
-         local pointer = destination:ref()
-         ffi.copy(pointer, raw, #raw)
+         return raw
       end,
       close = function() parts = {} end,
    }
 end}}}
 ]],
     })
-    testAssert.eq(project.build(dir), 0, "a target dependency supplies an incremental MAC implementation")
+    testAssert.eq(project.build(dir), 0, "a target dependency supplies a user-owned incremental MAC implementation")
     local script = (
         "package.path=%q..package.path;io.write(require('main'))"
     ):format(dir .. "/out/?.lua;" .. dir .. "/.rocks/share/lua/5.1/?.lua;")

@@ -36,7 +36,7 @@ module os.host.pump
 
 local suspension = require("coroutine.sus")
 local suspensionHost = require("coroutine.sus.host")
-local suspensionContract = require("coroutine.sus.spi")
+local suspensionContract = require("nupp.suspension.contracts")
 local cancellation = require("coroutine.sus.cancellation")
 
 --- What a `start` or `poll` left the operation doing.

@@ -5,11 +5,15 @@ local HERE = require("helpers.paths").tests
 local environment = envMod.new(HERE .. "/..")
 local M = {}
 
-local function errors(source, selectedEnvironment)
+local function errors(source, selectedEnvironment, moduleName)
     local result = parser.parse(source, "typed-interface.nupp")
     assert(#result.errors == 0, result.errors[1] and result.errors[1].msg)
     local found = {}
-    for _, diagnostic in ipairs(check.check(result, "typed-interface.nupp", selectedEnvironment or environment)) do
+    for _, diagnostic in ipairs(
+        check.check(result, "typed-interface.nupp", selectedEnvironment or environment, {
+            moduleName = moduleName
+        })
+    ) do
         if diagnostic.severity == "error" then
             found[#found + 1] = diagnostic.code .. ": " .. diagnostic.msg
         end
@@ -65,7 +69,7 @@ end
 function M.httpResponseBodiesRetainOwnedIoSignatures()
     local found = errors(
         [[
-local contracts = require("io.http.spi")
+local contracts = require("io.http")
 local io = require("io")
 local function copy(borrows response: contracts.Response): nil
 local destination = io.newbuffer()
@@ -95,13 +99,15 @@ function M.bundledAliasesShareStagedNominalTypes()
     local declaration = assert(require("nupp.compiler.bundled").source("/nupp/text/internal/buffer.d.nupp"))
     local typePath = dir .. "/src/nupp/text/internal/buffer.d.nupp"
     assert(fs.writeFile(typePath, declaration))
-    local main = dir .. "/src/main.nupp"
+    assert(fs.mkdir(dir .. "/src/nupp/test"))
+    local main = dir .. "/src/nupp/test/aliases.nupp"
     assert(
         fs.writeFile(
             main,
             [[
+module nupp.test.aliases
 local {type Buffer} = require("nupp.text")
-local contracts = require("serde.json.spi")
+local contracts = require("serde.json.internal.contracts")
 local function writer(exclusive out: nupp.text.Buffer, nullValue: any?): any
     out:put("value")
     return nil
@@ -347,26 +353,47 @@ return m
     assert(rejected:find("NUPP2118", 1, true), rejected)
 end
 
-function M.runtimeImplementationInterfacesArePublic()
+function M.applicationImportsCannotReachBuiltinImplementationContracts()
+    for _, name in ipairs({
+        "nupp.runtime.contracts",
+        "binary.checksum.internal.contracts",
+        "binary.digest.internal.contracts",
+        "binary.mac.internal.contracts",
+        "binary.compress.internal.contracts",
+        "serde.json.internal.contracts",
+        "io.internal.contracts",
+        "io.files.internal.contracts",
+        "io.net.internal.contracts",
+        "nupp.io.net.contracts",
+        "nupp.io.http.contracts",
+        "nupp.suspension.contracts",
+        "nupp.workers.contracts",
+        "nupp.gpu.contracts",
+        "io.internal.process.contracts",
+    }) do
+        local found = errors(("module application\nlocal contract = require(%q)\nreturn contract"):format(name))
+        assert(found:find("NUPP2144", 1, true), name .. ": " .. found)
+    end
+end
+
+function M.runtimeImplementationContractsRemainTyped()
     local found = errors(
         [[
-module application
-local spi = package
-local contracts = require("package.nupp")
-local entropy = spi.providers(contracts.EntropyProvider)
-local system = spi.providers(contracts.SystemProvider)
-local clock = spi.providers(contracts.ClockProvider)
-local uuid = spi.providers(contracts.UuidProvider)
-local buffer = spi.providers(contracts.BufferProvider)
-local host = spi.providers(contracts.HostProvider)
-local storage = spi.providers(contracts.CstorageProvider)
-local structs = spi.providers(contracts.StructvalueProvider)
+module nupp.test.contracts
+local contracts = require("nupp.runtime.contracts")
+local function implementations(entropy: contracts.EntropyProvider,
+    system: contracts.SystemProvider, clock: contracts.ClockProvider,
+    uuid: contracts.UuidProvider, buffer: contracts.BufferProvider,
+    host: contracts.HostProvider, storage: contracts.CstorageProvider,
+    structs: contracts.StructvalueProvider): nil
+end
 local function helpers(late: contracts.Late, policy: contracts.Policy, cast: contracts.CastElements): nil
     late(policy, cast)
 end
-export = {entropy = entropy, system = system, clock = clock, uuid = uuid,
-    buffer = buffer, host = host, storage = storage, structs = structs, helpers = helpers}
-]]
+export = {implementations = implementations, helpers = helpers}
+]],
+        nil,
+        "nupp.test.contracts"
     )
     assert(found == "", found)
 end

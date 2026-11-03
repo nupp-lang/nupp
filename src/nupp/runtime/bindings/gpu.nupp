@@ -1,0 +1,13 @@
+@!internal
+module nupp.runtime.bindings.gpu
+
+local contracts = require("nupp.gpu.contracts")
+local target = require("nupp.runtime.target")
+local implementation: contracts.Provider = do
+    if target.host == "native" then
+        yield _G.require("nupp.runtime.provider.nativegpu") as contracts.Provider
+    end
+    yield _G.require("nupp.runtime.browser.webgpu.internal") as contracts.Provider
+end
+
+export = implementation

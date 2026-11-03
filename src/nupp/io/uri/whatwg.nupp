@@ -23,7 +23,7 @@ implements, so that the two agree byte for byte.
 ]]
 module nupp.io.uri.whatwg
 
-local contracts = require("io.spi")
+local contracts = require("io.internal.contracts")
 
 const DEFAULT_PORTS: {[string]: integer} = {http = 80, https = 443, ws = 80, wss = 443, ftp = 21,}
 

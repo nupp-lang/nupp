@@ -1,13 +1,13 @@
 @!internal
 
 --[[
-Native TLS session implementation used as a built-in module fallback.
+Native TLS session implementation bound to native targets.
 
 Sessions wrap stream handles from the native network implementation. The native
 runtime owns TLS state and certificate processing; this adapter supplies the
-receiver-based polling protocol in [](io.net.spi). It preserves
+receiver-based polling protocol in [](io.net.internal.contracts). It preserves
 hostname, certificate, authority, verification, and ALPN options when creating a
-session. A separately selected network provider must expose compatible handles.
+session. The network implementation supplies compatible handles.
 
 Handshake, read, write, flush, and close-notify operations report pending work to
 the caller. The public [](io.net) layer drives networking readiness and
@@ -16,11 +16,11 @@ session rather than the requested policy.
 
 Session destruction releases TLS state and closes the owned stream. The
 public session controls that lifecycle through `destroy`. Requiring the facade
-fixes the implementation; individual TLS operations never perform SPI lookups.
+imports this implementation; individual TLS operations use the retained session.
 ]]
 module nupp.runtime.provider.nativetls
 
-local contract = require("io.net.spi")
+local contract = require("io.net.internal.contracts")
 local ffi = require("ffi")
 local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any
 const READ_SIZE = 65536

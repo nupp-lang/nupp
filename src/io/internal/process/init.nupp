@@ -22,7 +22,6 @@ module io.internal.process
 
 const assert2 = require("assert")
 
-local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 
 const io = require("nupp.io")
@@ -35,12 +34,8 @@ local physical = require("nupp.runtime.storage")
 local span = require("binary.span")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
 
-const contract = require("io.internal.process.spi")
+const contract = require("io.internal.process.contracts")
 local provider: contract.Provider = do
-    const chosen = spi.select(spi.providers<contract.Provider>("io.Process.Provider"))
-    if chosen ~= nil then
-        yield chosen
-    end
     assert2(target.host == "native", "io.popen: no implementation is available")
     yield _G.require("nupp.runtime.provider.nativeprocess") as contract.Provider
 end

@@ -1,0 +1,13 @@
+@!internal
+module nupp.runtime.bindings.host
+
+local contracts = require("nupp.runtime.contracts")
+local target = require("nupp.runtime.target")
+local implementation: contracts.HostProvider = do
+    if target.host == "native" then
+        yield _G.require("nupp.runtime.provider.nativehost") as contracts.HostProvider
+    end
+    yield _G.require("nupp.runtime.browser.host") as contracts.HostProvider
+end
+
+export = implementation

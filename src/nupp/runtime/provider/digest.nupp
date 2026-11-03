@@ -9,7 +9,7 @@ Calls through retained descriptors perform no service resolution.
 ]]
 module nupp.runtime.provider.digest
 
-local contract = require("binary.digest.spi")
+local contract = require("binary.digest.internal.contracts")
 local builtin = require("nupp.digest.internal.builtin")
 local algorithms: {[string]: contract.Algorithm} = {}
 for _, name in ipairs(builtin.names()) do

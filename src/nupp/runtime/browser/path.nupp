@@ -14,7 +14,7 @@ filesystem access when loaded.
 ]]
 module nupp.runtime.browser.path
 
-local contracts = require("io.spi")
+local contracts = require("io.internal.contracts")
 local provider = {}
 
 function provider.sep(): string

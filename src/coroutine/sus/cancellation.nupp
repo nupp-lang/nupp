@@ -12,10 +12,9 @@ and worker adapters. `is` recognizes its metatable identity without relying on
 message text. The operation and optional reason remain available as fields, and
 string conversion produces a contextual cancellation message.
 
-This is an ordinary declaration/helper module, not a selectable service. It sits
-beside [](coroutine.sus) rather than inside it because the providers that
-mint these values are what the facade selects: a provider loads this module
-without loading the facade, exactly as it loads [](coroutine.sus.spi).
+Runtime implementations load this helper without initializing the
+[](coroutine.sus) facade. They share its cancellation identity throughout one
+Lua state.
 
 Worker states reconstruct cancellation values locally; no metatable or Lua
 object identity is transferred between states.

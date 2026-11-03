@@ -1,5 +1,5 @@
 @!internal
---[[Native implementation of [](package.nupp).
+--[[Native implementation of [](nupp.runtime.contracts).
 
 The native host fills a fresh temporary byte allocation from its secure random
 source. The result is copied into an owned Lua string; no pointer escapes. Counts

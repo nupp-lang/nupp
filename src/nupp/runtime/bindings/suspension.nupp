@@ -1,0 +1,13 @@
+@!internal
+module nupp.runtime.bindings.suspension
+
+local contracts = require("nupp.suspension.contracts")
+local target = require("nupp.runtime.target")
+local implementation: contracts.Provider = do
+    if target.host == "native" then
+        yield _G.require("nupp.runtime.provider.suspension") as contracts.Provider
+    end
+    yield _G.require("nupp.runtime.browser.suspension") as contracts.Provider
+end
+
+export = implementation

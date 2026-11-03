@@ -1,5 +1,5 @@
 @!internal
---[[Native implementation of [](package.nupp).
+--[[Native implementation of [](nupp.runtime.contracts).
 
 LuaJIT ABI queries supply platform, architecture, byte order, and pointer width.
 The native host estimates usable parallelism with process restrictions accounted

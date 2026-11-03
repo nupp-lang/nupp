@@ -40,7 +40,7 @@ local workerSurface: CompilerSurface = {effect = "runtime.workers", rotate = tru
 local COMPILER_SURFACES: {
     [string]: {[string]: {[string]: CompilerSurface}}
 } = {
-    ["nupp.workers.spi"] = {Scope = {spawn = {rotate = true, sendableLast = true,},},},
+    ["nupp.workers.contracts"] = {Scope = {spawn = {rotate = true, sendableLast = true,},},},
     [
         "nupp.tasks"
     ] = {

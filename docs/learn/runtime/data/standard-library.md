@@ -49,7 +49,7 @@ The standard surface is deliberately small. These pages cover both the
 intrinsic namespaces and the declared modules:
 
 - [](binary.digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512
-  with provider lookup, output-size metadata and consuming finalization.
+  with algorithm lookup, output-size metadata and consuming finalization.
 - [](binary.checksum) provides Adler-32 and explicitly named CRC variants
   as numeric values; protocols choose their serialization byte order.
 - [](binary.mac) provides keyed authentication, including HMAC-SHA256.
@@ -103,7 +103,8 @@ scheduler and sendable values.
 
 Compiler namespaces and builtin-table extensions use canonical declarations.
 Use builtin libraries through their qualified names. The compiler inserts the
-module loads those references need. Providers resolve while their facades load.
+module loads those references need. The build binds builtin implementations for
+the selected target.
 
 ### Selection follows use
 
@@ -124,21 +125,19 @@ first-line bootstrap. Native FFI declarations are split by that same set:
 selecting UUID does not declare the path, files, or process ABI. SHA-256
 declares none of its own: it is Nupp rather than a native provider.
 
-### Provider initialization
+### Target bindings
 
-A module selects its implementation while it is required and retains the actual
-functions. Generated module prologues bind those modules before the consumer body
-runs. Exported operations perform no SPI lookup.
+The build binds each builtin service to its native or browser implementation.
+Generated module prologues load those modules before the consumer body runs.
+Exported operations perform no provider discovery.
 
-Implementations satisfy interfaces in the library's `.spi` module or the shared
-[](package.nupp) contracts and are advertised in `nupp/spi.json`. Standard-library
-consumers choose the unique highest priority, or use their built-in fallback
-when discovery is empty. See
-[SPI](../../projects/spi.md) for ordinary selection code and package discovery.
+Packages can discover implementations of their own interfaces with
+`package.providers` and `package.select`. Those descriptors do not replace
+builtin services. See [SPI](../../projects/spi.md) for package discovery.
 
-Provider handles remain implementation details of each facade. Explicit C
-interop APIs, including native `string.buffer` pointer operations, retain their
-own target and lifetime requirements.
+Runtime implementation contracts are private. Explicit C interop APIs,
+including native `string.buffer` pointer operations, retain their own target
+and lifetime requirements.
 
 ### Forcing a native feature
 

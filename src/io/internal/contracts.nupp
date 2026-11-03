@@ -1,7 +1,9 @@
+@!internal
+
 --[[Implementation interfaces consumed during ordinary module initialization.
-Discover with package.providers; the consumer chooses the unique highest priority.
-Omitted priority is zero. Importing these declarations loads no implementation.]]
-module io.spi
+The build binds the implementation for the selected target. Importing these
+declarations loads no implementation.]]
+module io.internal.contracts
 
 --- Environmental path facts, independent of lexical path manipulation.
 ---
@@ -9,7 +11,6 @@ module io.spi
 --- return nil with an explanatory message when the host has no such facility or
 --- an operating-system operation fails. The public path type is `io.Path`.
 export interface PathProvider
-    @readonly priority: integer?
 
     --- Returns the host path separator.
     @readonly sep: function(): string
@@ -70,7 +71,6 @@ end
 --- must make text, authority, host, port, and path mutually consistent and preserve
 --- absent versus empty query and fragment values.
 export interface UriProvider
-    @readonly priority: integer?
 
     --- Parses an absolute URI into shared components or returns nil and a message.
     @readonly parse: function(text: string): (UriParts?, string?)

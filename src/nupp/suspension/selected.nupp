@@ -13,20 +13,8 @@ it. Requiring either reaches the same provider, and the same refusal.
 ]]
 module nupp.suspension.selected
 
-local spi = require("nupp.runtime.packages")
-local target = require("nupp.runtime.target")
-
-local contract = require("nupp.suspension.spi")
-local chosenProvider: contract.Provider = do
-    const chosen = spi.select(spi.providers<contract.Provider>("nupp.suspension.spi.Provider"))
-    if chosen ~= nil then
-        yield chosen
-    end
-    if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.suspension") as contract.Provider
-    end
-    yield _G.require("nupp.runtime.browser.suspension") as contract.Provider
-end
+local contract = require("nupp.suspension.contracts")
+local chosenProvider: contract.Provider = require("nupp.runtime.bindings.suspension")
 
 -- The driver seam. A driver cannot tell a host barrier from permission to park
 -- without these, and a task scope is a driver, so an implementation missing one is

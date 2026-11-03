@@ -22,24 +22,13 @@ the operations whose native semantics have no browser equivalent.
 ]]
 module io.files
 
-const spi = require("nupp.runtime.packages")
-const target = require("nupp.runtime.target")
 const io = require("nupp.io")
 const paths = require("io.internal.path")
-const contracts = require("io.files.spi")
+const contracts = require("io.files.internal.contracts")
 const messages = require("io.files.messages")
 const appPaths = require("io.files.internal.path")
 
-local provider: contracts.Provider = do
-    const chosen = spi.select(spi.providers<contracts.Provider>("io.files.spi.Provider"))
-    if chosen ~= nil then
-        yield chosen
-    end
-    if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativefiles") as contracts.Provider
-    end
-    yield _G.require("nupp.runtime.browser.files") as contracts.Provider
-end
+local provider: contracts.Provider = require("nupp.runtime.bindings.files")
 
 --- The kind of filesystem object described by metadata or a directory entry.
 export type Kind = messages.Kind

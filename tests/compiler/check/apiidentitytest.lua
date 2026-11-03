@@ -919,9 +919,9 @@ export function Identity(T: type): type return T end
 export function Answer(): integer return 37 end
 ]],
         [
-            "coroutine/workers/spi.nupp"
+            "coroutine/workers/contracts.nupp"
         ] = [[
-module coroutine.workers.spi
+module coroutine.workers.contracts
 const implementation = require("nupp.internal.typehelper")
 export const submitted = implementation.Parameters
 export const identity = implementation.Identity
@@ -931,7 +931,7 @@ export const answer = implementation.Answer
             "coroutine/workers/forward.nupp"
         ] = [[
 module coroutine.workers.forward
-const facade = require("coroutine.workers.spi")
+const facade = require("coroutine.workers.contracts")
 export const parameters = facade.submitted
 ]],
         [
@@ -972,7 +972,7 @@ function M.exportedComptimeAliasesRetainTheExactSealedHelper()
     withComptimeFacade(function(env)
         local code, errors = compile(
             [[
-local api = require("coroutine.workers.spi")
+local api = require("coroutine.workers.contracts")
 local forwarded = require("coroutine.workers.forward")
 local type Item = api.identity(integer)
 local function accept(...: unpackof forwarded.parameters(function(integer, string): nil)): nil end
@@ -986,13 +986,13 @@ return value
         local value = assert(loadstring(code))()
         test.eq(value, 11)
         local origin = env.resolveModuleExports(env, "nupp.internal.typehelper")
-        local facade = env.resolveModuleExports(env, "coroutine.workers.spi")
+        local facade = env.resolveModuleExports(env, "coroutine.workers.contracts")
         local forwarded = env.resolveModuleExports(env, "coroutine.workers.forward")
         test.eq(facade.comptimeFunctions.submitted, origin.comptimeFunctions.Parameters)
         test.eq(facade.comptimeFunctions.identity, origin.comptimeFunctions.Identity)
         test.eq(facade.comptimeFunctions.answer, origin.comptimeFunctions.Answer)
         test.eq(forwarded.comptimeFunctions.parameters, origin.comptimeFunctions.Parameters)
-        local path = env.rootDir .. "/src/coroutine/workers/spi.nupp"
+        local path = env.rootDir .. "/src/coroutine/workers/contracts.nupp"
         local parsed = env.loadedPaths[path].result
         local emitted = generator.generate(parsed, path)
         test.eq(emitted:find('"submitted"', 1, true), nil)
@@ -1002,7 +1002,7 @@ return value
             {
                 facade = {
                     path = path,
-                    interface = {type = env.resolveModule(env, "coroutine.workers.spi")},
+                    interface = {type = env.resolveModule(env, "coroutine.workers.contracts")},
                     exports = facade,
                 }
             },
@@ -1015,8 +1015,11 @@ return value
         test.eq(restored.exports.comptimeFunctions.submitted.identity, origin.comptimeFunctions.Parameters.identity)
         test.eq(restored.exports.valueDefs.answer.comptimeOnly, true)
         local fresh = finalEnv(env.rootDir)
-        fresh.loaded["coroutine.workers.spi"] = {type = restored.interface.type, exports = restored.exports}
-        local _, runtimeError = compile('local api = require("coroutine.workers.spi")\nreturn api.answer()', fresh)
+        fresh.loaded["coroutine.workers.contracts"] = {type = restored.interface.type, exports = restored.exports}
+        local _, runtimeError = compile(
+            'local api = require("coroutine.workers.contracts")\nreturn api.answer()',
+            fresh
+        )
         assert(runtimeError:find("NUPP2421", 1, true), runtimeError)
     end)
 end
@@ -1024,8 +1027,8 @@ end
 function M.exportedComptimeAliasesKeepRuntimeRefusalsAndOrdinaryShadows()
     withComptimeFacade(function(env)
         for _, source in ipairs({
-            'local api = require("coroutine.workers.spi")\nreturn api.submitted',
-            'local api = require("coroutine.workers.spi")\nreturn api.answer()',
+            'local api = require("coroutine.workers.contracts")\nreturn api.submitted',
+            'local api = require("coroutine.workers.contracts")\nreturn api.answer()',
         }) do
             local _, errors = compile(source, env)
             assert(errors:find("NUPP2421", 1, true), errors)
@@ -1033,7 +1036,7 @@ function M.exportedComptimeAliasesKeepRuntimeRefusalsAndOrdinaryShadows()
         local _, localLeak = compile(
             [[
 module coroutine.workers.leak
-const api = require("coroutine.workers.spi")
+const api = require("coroutine.workers.contracts")
 export const identity = api.identity
 export function leak(): any return identity end
 ]],
@@ -1042,7 +1045,7 @@ export function leak(): any return identity end
         assert(localLeak:find("NUPP2415", 1, true), localLeak)
         local _, invalid = compile(
             [[
-local api = require("coroutine.workers.spi")
+local api = require("coroutine.workers.contracts")
 local type Bad = api.identity(integer, string)
 ]],
             env

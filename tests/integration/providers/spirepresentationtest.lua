@@ -2,20 +2,10 @@ local fixtures = require("helpers.providerstate")
 local M = {}
 
 local function runtime(storage)
-    local advertised = {['package.nupp.CstorageProvider'] = storage and {'fixture.storage'} or {}}
 
     return fixtures.instance(
-        {
-            ['nupp.runtime.packages'] = true,
-            ['binary._representation'] = true,
-            ['nupp.runtime.storage'] = true,
-            ['nupp.runtime.structvalue'] = true,
-        },
-        {
-            ['package.nupp.index'] = advertised,
-            ['nupp.runtime.target'] = {dialect = 'luajit'},
-            ['fixture.storage'] = storage,
-        }
+        {['binary._representation'] = true, ['nupp.runtime.storage'] = true, ['nupp.runtime.structvalue'] = true,},
+        {['nupp.runtime.target'] = {dialect = 'luajit'}, ['nupp.runtime.provider.nativestorage'] = storage,}
     )
 end
 
@@ -28,7 +18,7 @@ function M.facadesRetainSelectedRepresentationMembers()
     local load = runtime(storage)
 
     assert(load('nupp.runtime.storage').allocateBytes == allocateBytes)
-    assert(storage.allocateBytes == nil, 'the SPI has no preceding public allocation key')
+    assert(storage.allocateBytes == nil, 'the implementation has no preceding public allocation key')
     assert(load('nupp.runtime.structvalue') == structs)
 end
 

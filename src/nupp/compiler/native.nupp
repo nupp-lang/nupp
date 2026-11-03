@@ -95,7 +95,7 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.files_spi"
     ] = {
         name = "files_spi",
-        runtimeModule = "io.files.spi",
+        runtimeModule = "io.files.internal.contracts",
         portableRuntime = true,
         requires = {"runtime.files_messages", "runtime.files_path", "stdlib.io"},
     },
@@ -216,7 +216,7 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.net_contract"
     ] = {
         name = "net_contract",
-        runtimeModule = "nupp.io.net.spi",
+        runtimeModule = "nupp.io.net.contracts",
         portableRuntime = true,
         requires = {"runtime.net_types"}
     },
@@ -228,7 +228,12 @@ local FEATURES: {[string]: native.Feature} = {
     ] = {name = "net_internal", runtimeModule = "nupp.io.net.internal", portableRuntime = true, requires = {}},
     [
         "runtime.tls_contract"
-    ] = {name = "tls_contract", runtimeModule = "io.net.spi", portableRuntime = true, requires = {"runtime.tls_types"}},
+    ] = {
+        name = "tls_contract",
+        runtimeModule = "io.net.internal.contracts",
+        portableRuntime = true,
+        requires = {"runtime.tls_types"}
+    },
     [
         "runtime.tls_types"
     ] = {name = "tls_types", runtimeModule = "io.net.internal.tlstypes", portableRuntime = true, requires = {}},
@@ -236,7 +241,7 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.process_contract"
     ] = {
         name = "process_contract",
-        runtimeModule = "io.internal.process.spi",
+        runtimeModule = "io.internal.process.contracts",
         portableRuntime = true,
         requires = {"runtime.process_types"}
     },

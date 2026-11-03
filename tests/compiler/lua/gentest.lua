@@ -1440,4 +1440,82 @@ function M.tooManyUserLocalsAreReportedByCheck()
     testAssert.eq(table.concat(codes, " "), "NUPP3005:203", "the 201st local is where the module stops fitting")
 end
 
+function M.builtinBindingsImportOnlyTheBuildTargetsImplementation()
+    local expected = {
+        files = {"nupp.runtime.provider.nativefiles", "nupp.runtime.browser.files"},
+        http = {"nupp.runtime.provider.nativehttp", "nupp.runtime.browser.http"},
+        gpu = {"nupp.runtime.provider.nativegpu", "nupp.runtime.browser.webgpu.internal"},
+        host = {"nupp.runtime.provider.nativehost", "nupp.runtime.browser.host"},
+        suspension = {"nupp.runtime.provider.suspension", "nupp.runtime.browser.suspension"},
+        system = {"nupp.runtime.provider.nativesystem", "nupp.runtime.browser.system"},
+        entropy = {"nupp.runtime.provider.nativecrypto", "nupp.runtime.browser.crypto"},
+        ["nupp.io.path.provider"] = {"nupp.runtime.provider.nativepath", "nupp.runtime.browser.path"},
+        ["nupp.io.uri.provider"] = {"nupp.runtime.provider.nativeuri", "nupp.runtime.browser.uri"},
+        ["nupp.runtime.uuidprovider"] = {"nupp.runtime.provider.nativeuuid", "nupp.runtime.browser.crypto"},
+    }
+    for name, implementations in pairs(expected) do
+        for index, host in ipairs({"native", "browser"}) do
+            local module = name:find(".", 1, true) and name or "nupp.runtime.bindings." .. name
+            local code, diagnostics = gen.generate({moduleName = module, host = host})
+            testAssert.eq(#diagnostics, 0)
+            local imported = gen.runtimeModules(code)
+            testAssert.eq(#imported, 1)
+            testAssert.eq(imported[1], implementations[index])
+            local marker, loads = {}, 0
+            local chunk = assert(loadstring(code))
+            setfenv(chunk, {
+                require = function(module)
+                    testAssert.eq(module, implementations[index])
+                    loads = loads + 1
+                    return marker
+                end
+            })
+            testAssert.eq(chunk(), marker, "the selected implementation keeps its identity")
+            testAssert.eq(loads, 1)
+            assert(not code:find("target.host", 1, true), "there is no runtime host selection")
+        end
+    end
+end
+
+function M.optionalBuiltinBindingsDoNotForceHostFacilitiesIntoArtifacts()
+    for _, name in ipairs({"clock", "workers"}) do
+        for _, host in ipairs({"native", "browser"}) do
+            local code = gen.generate({moduleName = "nupp.runtime.bindings." .. name, host = host})
+            local imported = gen.runtimeModules(code)
+            testAssert.eq(#imported, 1)
+            testAssert.eq(imported[1], "nupp.runtime.optional")
+            local marker, loads = {}, 0
+            local environment = {
+                package = {loaded = {}, preload = {}},
+                rawget = rawget,
+                _G = host == "browser" and {__nuppBrowser = {}} or {},
+                require = function(module)
+                    testAssert.eq(module, "nupp.runtime.optional")
+                    return {
+                        load = function(implementation)
+                            loads = loads + 1
+                            local expected = host == "browser" and "nupp.runtime.browser." or "nupp.runtime.provider."
+                            expected = expected .. (
+                                name == "clock" and (host == "browser" and "time" or "nativetime") or "workers"
+                            )
+                            testAssert.eq(implementation, expected)
+
+                            return marker
+                        end
+                    }
+                end,
+            }
+            if name == "workers" and host == "native" then
+                local absent = setfenv(assert(loadstring(code)), environment)()
+                testAssert.eq(absent.provider, nil)
+                testAssert.eq(loads, 0, "no worker implementation loads without a host bridge")
+                environment.package.preload["nupp.workers.native"] = function()
+                end
+            end
+            testAssert.eq(setfenv(assert(loadstring(code)), environment)().provider, marker)
+            testAssert.eq(loads, 1)
+        end
+    end
+end
+
 return M

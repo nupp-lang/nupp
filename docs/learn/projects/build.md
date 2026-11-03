@@ -225,8 +225,8 @@ Files and filesystem-backed path operations use the Rust-native
 provider; whole-file transfers and processes share its Tokio executor and use
 bounded queues. HTTP uses Reqwest over Tokio and Rustls, URI uses Rust's `url`
 parser, and UUID uses the Rust-native provider. Built-in message digests are
-written in Nupp and stage no native artifact. Installed digest implementations may
-bring their own declared native dependencies.
+written in Nupp and stage no native artifact. The build binds builtin services
+to the selected target implementation; package descriptors do not replace them.
 The Rust facilities share the versioned `build/lib/nupp_native` sidecar.
 Generated or external C interop builds its own declared native dependencies;
 there is no unversioned compatibility provider beside the Rust provider.

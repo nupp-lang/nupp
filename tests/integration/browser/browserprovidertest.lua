@@ -50,24 +50,17 @@ local function application(options)
     local load
     local replacements = {
         ["nupp.runtime.target"] = {host = "browser"},
-        ["nupp.runtime.packages"] = {
-            providers = function()
-                return function()
-                    return nil
-                end
-            end,
-            select = function()
-                return nil
-            end,
-        },
         ["nupp.runtime.browser.memory"] = options.memory or {},
-        ["nupp.runtime.timeprovider"] = setmetatable({}, {
-            __index = function(_, key)
-                if key == "provider" then
-                    return load("nupp.runtime.browser.time")
-                end
-            end,
-        }),
+        ["nupp.runtime.timeprovider"] = setmetatable(
+            {},
+            {
+                __index = function(_, key)
+                    if key == "provider" then
+                        return load("nupp.runtime.browser.time")
+                    end
+                end,
+            }
+        ),
         ["nupp.runtime.workersprovider"] = setmetatable({}, {
             __index = function(_, key)
                 if key == "provider" and options.workers then
@@ -76,7 +69,16 @@ local function application(options)
             end,
         }),
     }
-    load = providerstate.instance(owned, replacements, nil, {__nuppBrowser = browserHost})
+    load = providerstate.instance(
+        owned,
+        replacements,
+        {
+            ["nupp.runtime.bindings.suspension"] = function()
+                return load("nupp.runtime.browser.suspension")
+            end,
+        },
+        {__nuppBrowser = browserHost}
+    )
 
     local app = {
         load = load,

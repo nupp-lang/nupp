@@ -1931,8 +1931,10 @@ function M.standardJsonApiHasCompleteDocumentation()
     end
     assert(next(expected) == nil, "the JSON module is missing a documented API item")
     assert(writer, "the JSON module did not document serde.json.Writer")
-    local valuesPath = "src/serde/json/spi.nupp"
-    local values = assert(doc.extract(readFile(HERE .. "/../" .. valuesPath), valuesPath, "serde.json.spi"))
+    local valuesPath = "src/serde/json/internal/contracts.nupp"
+    local values = assert(
+        doc.extract(readFile(HERE .. "/../" .. valuesPath), valuesPath, "serde.json.internal.contracts")
+    )
     for _, item in ipairs(values.items) do
         if item.name == "Writer" then
             writer = item
@@ -3028,7 +3030,7 @@ function M.coroutineWorkerDocsRetainScopesAndTaskResultPacks()
         {
             sources = {
                 "src/nupp/tasks.nupp",
-                "src/nupp/workers/spi.nupp",
+                "src/nupp/workers/contracts.nupp",
                 "src/nupp/runtime/standardcoroutine.nupp",
                 "src/coroutine/workers/init.nupp",
             },
@@ -3061,7 +3063,7 @@ function M.coroutineWorkerDocsRetainScopesAndTaskResultPacks()
     assert(task.status.type:find('"cancelled"', 1, true), task.status.type)
     assert(modules["coroutine.workers"].text:find("coroutine.Scope.work", 1, true))
     assert(modules["coroutine.workers"].text:find("coroutine.Task", 1, true))
-    assert(not modules["nupp.tasks"] and not modules["nupp.workers.spi"], "implementation modules stay private")
+    assert(not modules["nupp.tasks"] and not modules["nupp.workers.contracts"], "implementation modules stay private")
     os.execute("rm -rf '" .. dir .. "'")
 end
 
@@ -6156,7 +6158,7 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
     assert(not text:find("implementation%.%w"), "public GPU signatures expose an implementation alias")
     -- Private implementations must not create a second application-facing Binding.
     for _, relative in ipairs({
-        "src/io/gpu/spi.nupp",
+        "src/nupp/gpu/contracts.nupp",
         "src/nupp/runtime/provider/nativegpu.nupp",
         "src/nupp/runtime/browser/webgpu/internal.nupp",
     }) do
@@ -6168,7 +6170,6 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
     end
     assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "json", output = "api.json"}) == 0)
     local model = require("testjson").decode(readFile(dir .. "/api.json"))
-    local providerBinding
     for _, module in ipairs(model.modules) do
         local paths = {}
         for _, item in ipairs(module.items) do
@@ -6178,12 +6179,12 @@ function M.gpuPublicPageExpandsItsExplicitAliases()
                 assert(item.kind == "interface", "a private implementation replaced the exported Buffer contract")
             end
             assert(item.path ~= "io.gpu.Binding", "a private provider record leaked onto the application API")
-            if item.path == "io.gpu.spi.Binding" then
-                providerBinding = item
-            end
+            assert(item.path ~= "nupp.gpu.contracts.Binding", "a private contract leaked onto the application API")
         end
     end
-    assert(providerBinding and #providerBinding.members > 0, "the real provider Binding contract disappeared")
+    for _, module in ipairs(model.modules) do
+        assert(module.name ~= "nupp.gpu.contracts", "private GPU contracts must not be a public module")
+    end
     os.execute("rm -rf '" .. dir .. "'")
 end
 

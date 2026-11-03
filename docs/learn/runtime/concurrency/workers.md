@@ -57,9 +57,9 @@ return {
 }
 ```
 
-A `lua51` bundle with a compatible `coroutine.workers.spi.Provider` provider runs them too.
-That is [the browser backend](#browser-lanes) today, where a lane is a Web
-Worker rather than a thread.
+Browser packages use [the browser backend](#browser-lanes), where a lane is a
+Web Worker rather than a thread. The build binds that implementation for a
+browser target.
 :::
 
 ## Structured scopes
@@ -552,10 +552,10 @@ across process failure, and jobs that outlive the caller belong to a broker or
 
 The [browser
 implementation](../../performance/ahead-of-time/wasm.md#browser-package)
-satisfies `coroutine.workers.spi.Provider`, so everything above is written the
-same way there. A lane is a module Web Worker holding its own LuaJIT guest,
-booted from the same verified application package the page loaded; the packaging
-step ships the lane entry point beside the content-addressed runtime. A lane
+uses the same worker API. A lane is a module Web Worker holding its own LuaJIT
+guest, booted from the same verified application package the page loaded. The
+packaging step ships the lane entry point beside the content-addressed runtime.
+A lane
 checks that the manifest it fetches has the digest of the one the page verified,
 so a deploy between page load and a lane's start fails that lane's tasks with
 "the application manifest changed after the page loaded it" rather than pairing

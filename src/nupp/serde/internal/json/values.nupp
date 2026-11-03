@@ -126,7 +126,7 @@ const {type Buffer} = require("nupp.text")
 
 const native = require("nupp.codec.json.provider")
 
-const contracts = require("serde.json.spi")
+const contracts = require("serde.json.internal.contracts")
 
 --- A complete JSON value whose immutable bytes have already been encoded or
 --- validated.

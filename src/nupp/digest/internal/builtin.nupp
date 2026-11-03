@@ -12,7 +12,7 @@ operations.
 ]]
 module nupp.digest.internal.builtin
 
-const provider = require("binary.digest.spi")
+const provider = require("binary.digest.internal.contracts")
 const streaming = require("nupp.digest.internal.streaming")
 const span = require("binary.span")
 const storage = require("nupp.runtime.storage")

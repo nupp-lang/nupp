@@ -32,7 +32,7 @@ contract and a worked frame handler.
 module coroutine.sus.host
 
 local selected = require("nupp.suspension.selected")
-local contract = require("nupp.suspension.spi")
+local contract = require("nupp.suspension.contracts")
 local source1 = require("nupp.suspension.host")
 export type Handler = source1.Handler
 export type Installed = source1.Installed

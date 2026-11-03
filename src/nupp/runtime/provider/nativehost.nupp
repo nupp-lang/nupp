@@ -18,7 +18,7 @@ module nupp.runtime.provider.nativehost
 
 local suspension = require("nupp.suspension")
 local suspensionHost = require("coroutine.sus.host")
-local suspensionContract = require("coroutine.sus.spi")
+local suspensionContract = require("nupp.suspension.contracts")
 local values = require("nupp.host.internal.values")
 local ffi = require("ffi")
 

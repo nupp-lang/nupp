@@ -3,7 +3,7 @@
 --[[
 Shared interfaces for structured worker implementations.
 
-The workers module selects an implementation during initialization.
+The build binds the worker implementation for the selected target.
 A provider owns its lane scheduler, but uses the canonical Scope, Task, Status,
 and submitted-signature types declared here. A scope is reached only through a
 task scope's `work`, which owns one privately. Generic spawn must
@@ -30,7 +30,7 @@ suspension implementation and must not discover implementations during settlemen
 Each lane uses the artifact's immutable SPI index and loads independent module
 instances. Provider objects and Lua closures are never transferred between lanes.
 ]]
-module nupp.workers.spi
+module nupp.workers.contracts
 
 const types = require("types")
 
@@ -282,7 +282,6 @@ end
 --- Complete worker implementation protocol, including structured-task integration.
 --- Implement generic spawn and ownership guarantees through the shared scope types.
 export interface Provider
-    @readonly priority: integer?
 
     --- Creates canonical scope state for task integration, with an optional
     --- monotonic deadline and observer.

@@ -5,7 +5,6 @@ module io.net.internal.tls
 
 const assert2 = require("assert")
 
-local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 
 const io = require("nupp.io")
@@ -21,12 +20,8 @@ local span = require("binary.span")
 local physical = require("nupp.runtime.storage")
 local spanStringValue: function(borrows source: const uint8[?], count: integer): string = physical.string as any
 
-const contract = require("io.net.spi")
+const contract = require("io.net.internal.contracts")
 local provider: contract.TlsProvider = do
-    const chosen = spi.select(spi.providers<contract.TlsProvider>("io.net.spi.TlsProvider"))
-    if chosen ~= nil then
-        yield chosen
-    end
     assert2(target.host == "native", "io.net: no implementation is available")
     yield _G.require("nupp.runtime.provider.nativetls") as contract.TlsProvider
 end

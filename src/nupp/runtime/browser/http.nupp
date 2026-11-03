@@ -1,14 +1,14 @@
 @!internal
 
 --[[
-Browser Fetch implementation used as a built-in module fallback.
+Browser Fetch implementation bound to browser targets.
 
 Requests cross the browser effect channel and suspend until Fetch completes.
 Request and response bodies are buffered, and browser policy controls proxies,
 certificates, connections, and protocol details. `capabilities` therefore reports
 all five optional transport guarantees as false.
 
-Client and Response records implement [](io.http.spi). Body bytes
+Client and Response records implement [](nupp.io.http.contracts). Body bytes
 are exposed through the shared owned-reader machinery, and affine teardown
 releases retained response storage and outstanding work. Request values are
 borrowed rather than consumed by send.
@@ -28,7 +28,7 @@ const {type Path} = require("io.internal.path")
 local io = require("io")
 local privateIo = require("nupp.io")
 local ownedReader = require("nupp.io.internal.ownedreader")
-local contracts = require("io.http.spi")
+local contracts = require("nupp.io.http.contracts")
 local memory = require("nupp.runtime.browser.memory") as any
 local http = {}
 local MAX_EXACT_INTEGER = 9007199254740991

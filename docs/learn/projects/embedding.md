@@ -84,7 +84,7 @@ for Nupp records or closures.
 
 The example entry also uses `log` and `serde.json`. Compiler-provided
 modules reached by a component are compiled into the component with their
-runtime dependency closure, including catalog-backed service providers;
+runtime dependency closure, including target-bound builtin implementations;
 the embedding host does not need a Nupp module tree on its Lua search path.
 
 Build the Rust-owned `libnupp` SDK from the repository root:

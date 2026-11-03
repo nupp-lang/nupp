@@ -43,7 +43,7 @@ time.
 `digest()` returns raw bytes, `digest(destination)` writes a writable byte span
 and returns the byte count, and `hexdigest()` returns lowercase hexadecimal.
 Every finalization consumes the digest; it neither snapshots nor resets it.
-Scope exit closes an unfinished provider context.
+Scope exit closes an unfinished digest context.
 
 ```nupp
 local rolling = binary.digest.newdigest("sha256")
@@ -59,7 +59,7 @@ assert(#readable == 32)
 
 A destination must contain at least `digestsize()` bytes. Only that prefix
 is written; pass a slice to choose an offset. A short destination raises before
-any output is written. The digest is consumed and the provider context is closed
+any output is written. The digest is consumed and the digest context is closed
 even when finalization fails. The destination remains owned by the caller.
 
 One-shot conveniences are `binary.digest.digest(name, bytes)` and
@@ -98,46 +98,15 @@ the same writer and consuming finalization as a digest. Its descriptor has
 trait defines no MAC algorithms. AWS KMS uses `HMAC_SHA_256` for this
 construction; SigV4's `AWS4-HMAC-SHA256` names the complete signing scheme.
 
-## Providers
+## Algorithm catalogs
 
-Each family declares its shared types beside the public module:
+Each family uses its builtin algorithm catalog. Package descriptors do not
+replace or extend these catalogs. Descriptors are retained during module
+initialization, so lookup, listing, context creation, writes, and finalization
+perform no provider discovery.
 
-| Facade | Interface module | Provider contents |
-| --- | --- | --- |
-| `binary.digest` | `binary.digest.spi` | `algorithms: {[string]: Algorithm}` |
-| `binary.checksum` | `binary.checksum.spi` | `algorithms: {[string]: Algorithm}` |
-| `binary.mac` | `binary.mac.spi` | `algorithms: {[string]: Algorithm}` |
-
-A package advertises its module in `nupp/spi.json`:
-
-```json
-{"binary.digest.spi.Provider":["acme.digests"]}
-```
-
-The implementation exports a `Provider` directly, with an optional integer
-`priority`. The facade chooses the unique highest priority, treating absence as
-zero, and reports a tie. It overlays that catalog's entries on the built-ins;
-unreplaced built-ins remain available. Empty discovery uses the built-in catalog.
-Dependency order does not decide which catalog wins.
-
-The compiler checks the export against `Provider`, including its owned state
-signatures. Lua providers need a `.d.nupp` declaration or typed adapter.
-Descriptors are retained during module initialization. Lookup, listing, context
-creation, writes, and finalization make no SPI calls.
-
-Descriptors must agree with their map keys and report a positive fixed output
-size, or a checksum width from 1 through 64. Built-in names retain their standard
-sizes and widths. Invalid descriptors fail the facade's require. Provider failures
-propagate without retrying another implementation.
-
-Each digest descriptor creates a fresh canonical `State`. Its `update` borrows
-input bytes, `finish` borrows the caller's writable destination exclusively, and
-`close` consumes ownership without suspension. The facade allocates final output,
-encodes hexadecimal, and closes state on both successful and failed finalization.
-Providers must not retain input or output views and must write exactly their
-advertised byte count. Checksums use their canonical `State` with a non-consuming
-`value(): uint64`; MAC factories additionally accept the raw-byte key and return
-the shared digest state. Reuse these interfaces rather than defining public
-nominal identities in a provider.
-
-See [SPI](../../projects/spi.md) for selection, metadata, and worker behavior.
+Every descriptor agrees with its map key and reports a positive fixed output
+size, or a checksum width from 1 through 64. Each digest or MAC creates fresh
+state. Writes borrow input bytes without retaining their views; finalization
+writes exactly the advertised number of bytes and closes the state on success
+or failure. A failure propagates without retrying another implementation.

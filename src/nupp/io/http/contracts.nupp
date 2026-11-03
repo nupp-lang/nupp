@@ -3,9 +3,9 @@
 --[[
 Shared interfaces for HTTP implementations.
 
-The HTTP module selects during initialization. Provider functions
-have no implicit receiver; Client and Response methods do. Request, Options,
-Version, and Capabilities come from [](nupp.io.http.messages), URI from
+The build binds the HTTP implementation for the selected target. Provider
+functions have no implicit receiver; Client and Response methods do. Request,
+Options, Version, and Capabilities come from [](nupp.io.http.messages), URI from
 [](io), and Body is the canonical [](io) Reader interface.
 
 A Client owns its transport and outstanding work. A successful send returns an
@@ -16,10 +16,10 @@ Implementers must not replace these affine contracts with unowned table aliases.
 
 Capabilities describe actual behavior, including streaming, policy control, and
 protocol observability. Unsupported options must follow the public HTTP API's
-error behavior. The facade selects the implementation at require-time; clients
+error behavior. The facade retains the target-bound implementation; clients
 and resource methods retain direct provider operations.
 ]]
-module nupp.io.http.spi
+module nupp.io.http.contracts
 
 local {type Version, type Request, type Options, type Capabilities} = require("nupp.io.http.messages")
 local {type URI} = require("io.internal.uri")
@@ -67,7 +67,6 @@ export interface Client is own.Closeable
 end
 
 export interface Provider
-    @readonly priority: integer?
 
     --- Constructs an owned client with the requested transport policy.
     @readonly newclient: function(options: Options?): Client

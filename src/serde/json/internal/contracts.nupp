@@ -1,10 +1,12 @@
-module serde.json.spi
+@!internal
+
+module serde.json.internal.contracts
 
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
 
 --[[Implementation interfaces consumed during ordinary module initialization.
-Discover with package.providers; the consumer chooses the unique highest priority.
-Omitted priority is zero. Importing these declarations loads no implementation.]]
+The build binds the implementation for the selected target. Importing these
+declarations loads no implementation.]]
 
 --- A complete JSON value whose immutable bytes have already been encoded or
 --- validated.
@@ -221,7 +223,6 @@ export type MarkContainer = function<T is table>(takes value: T): T preserves va
 --- unknown-member policy. All buffer operations use the canonical shared Buffer;
 --- they must preserve the declared exclusive access and ownership guarantees.
 export interface Provider
-    @readonly priority: integer?
 
     --- Builds an array projection shape with the supplied element shape.
     @readonly arrayof: function(shape: any?): any

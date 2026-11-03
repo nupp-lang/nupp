@@ -1,9 +1,10 @@
+@!internal
+
 --[[Implementation interfaces for keyed authentication algorithm catalogs.
 
-The facade chooses the unique highest priority during initialization. Its entries
-override matching built-ins and may add names; empty discovery uses the built-in
-catalog. Descriptors are retained once, so context operations perform no SPI
-resolution. Importing this declaration creates no keyed or storage state.
+The facade uses its builtin algorithm catalog. Descriptors are retained once,
+so context operations perform no discovery. Importing this declaration creates
+no keyed or storage state.
 
 Algorithm names match their map keys. `digestsize` is a positive fixed byte
 count; `hmac-sha256` always produces 32 bytes. `create` receives the retained
@@ -14,9 +15,9 @@ success and failure. Cleanup consumes ownership without suspension. Providers
 define private records satisfying the canonical `State` interface rather than
 substituting its identity.
 ]]
-module binary.mac.spi
+module binary.mac.internal.contracts
 
-local {type State} = require("binary.digest.spi")
+local {type State} = require("binary.digest.internal.contracts")
 
 --- Fixed-output authentication algorithm and a factory for keyed state.
 export interface Algorithm
@@ -32,7 +33,6 @@ end
 
 --- A selectable catalog of keyed algorithm descriptors.
 export interface Provider
-    @readonly priority: integer?
 
     --- Algorithms keyed by canonical name; additional descriptor fields are allowed.
     @readonly algorithms: {[string]: Algorithm}

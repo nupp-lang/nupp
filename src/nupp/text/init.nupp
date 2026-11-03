@@ -19,17 +19,9 @@ Use [](utf8) to validate text and walk codepoints.
 ]]
 module nupp.text
 
-local spi = require("nupp.runtime.packages")
-
 local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
-local contracts = package.nupp
-local provider: contracts.BufferProvider = do
-    const chosen = spi.select(spi.providers<contracts.BufferProvider>("package.nupp.BufferProvider"))
-    if chosen ~= nil then
-        yield chosen
-    end
-    yield _G.require("nupp.runtime.provider.nativebuffer") as contracts.BufferProvider
-end
+local contracts = require("nupp.runtime.contracts")
+local provider: contracts.BufferProvider = require("nupp.runtime.provider.nativebuffer") as contracts.BufferProvider
 
 --- A mutable FIFO byte sequence.
 export type Buffer = SharedBuffer

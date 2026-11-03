@@ -1,15 +1,10 @@
 @!internal
 module nupp.io.uri.provider
 
-local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
-local contracts = require("io.spi")
+local contracts = require("io.internal.contracts")
 
 local provider: contracts.UriProvider = do
-    const chosen = spi.select(spi.providers<contracts.UriProvider>("io.spi.UriProvider"))
-    if chosen ~= nil then
-        yield chosen
-    end
     if target.host == "native" then
         yield _G.require("nupp.runtime.provider.nativeuri") as contracts.UriProvider
     end

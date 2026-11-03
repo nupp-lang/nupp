@@ -1,7 +1,7 @@
 @!internal
 
 --[[
-Native HTTP transport implementation used as a built-in module fallback.
+Native HTTP transport implementation bound to native targets.
 
 This module assembles clients and responses over the native HTTP transport in
 [](io.http.internal.transport). It supports streaming request and response
@@ -9,7 +9,7 @@ bodies, transport and connection policy, and observable protocol versions; its
 `capabilities` result advertises those guarantees.
 
 Clients, responses, and body readers implement the shared contracts in
-[](io.http.spi). Pending transfers participate in
+[](nupp.io.http.contracts). Pending transfers participate in
 [](coroutine.sus), and source registrations are retained while a client has
 work. Closing resources releases transfers and source registrations; request
 bodies remain borrowed for the send operation and response bodies retain their
@@ -28,7 +28,7 @@ local privateIo = require("nupp.io")
 local span = require("binary.span")
 local uri = require("io.internal.uri")
 const messages = require("nupp.io.http.messages")
-local contracts = require("io.http.spi")
+local contracts = require("nupp.io.http.contracts")
 local http = {}
 local redirectState: any = setmetatable({}, {__mode = "k"})
 

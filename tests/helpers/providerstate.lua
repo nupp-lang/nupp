@@ -22,7 +22,14 @@ local function instance(owned, replacements, preloads, globals)
         environment[name] = value
     end
     environment._G = environment
-    environment.package = {loaded = loaded, preload = preloads or {}, path = package.path, cpath = package.cpath}
+    environment.package = {
+        loaded = loaded,
+        preload = preloads or {},
+        path = package.path,
+        cpath = package.cpath,
+        loaders = package.loaders,
+        searchers = package.searchers,
+    }
     environment.require = function(name)
         if loaded[name] ~= nil then
             return loaded[name]
@@ -63,11 +70,11 @@ function M.load(kind, provider)
         end
     })
 
-    return instance({["nupp.runtime.packages"] = true, [facade] = true, ["nupp.io.net.internal"] = true}, {
-        [
-            "package.nupp.index"
-        ] = {[kind == "process" and "io.Process.Provider" or facade .. ".spi.Provider"] = {"fixture.provider"}},
-        ["fixture.provider"] = provider,
+    local implementation = "nupp.runtime.provider.native" .. kind
+
+    return instance({[facade] = true, ["nupp.io.net.internal"] = true, ["nupp.runtime.bindings.files"] = true}, {
+        ["nupp.runtime.target"] = {dialect = "luajit", host = "native"},
+        [implementation] = provider,
     })(facade)
 end
 
@@ -89,9 +96,9 @@ function M.tls(provider)
         end
     })
 
-    return instance({["nupp.runtime.packages"] = true, ["io.net.internal.tls"] = true}, {
-        ["package.nupp.index"] = {["io.net.spi.TlsProvider"] = {"fixture.provider"}},
-        ["fixture.provider"] = provider,
+    return instance({["io.net.internal.tls"] = true}, {
+        ["nupp.runtime.target"] = {dialect = "luajit", host = "native"},
+        ["nupp.runtime.provider.nativetls"] = provider,
         ["nupp.io.net"] = {
             pump = function()
             end
@@ -172,29 +179,51 @@ function M.nativeGpu(native)
     })(name)
 end
 
--- Each fixture owns an ordinary immutable discovery index and module cache.
-function M.family(kind, providers)
+-- Each fixture owns the target implementation and a private module cache.
+function M.family(kind, implementations)
     local hash = kind == "checksum" or kind == "digest" or kind == "mac"
     local facade = kind == "compression" and "binary.compress" or (hash and "binary." or "nupp.") .. kind
-    local names, preloads = {}, {}
-    for index, provider in ipairs(providers or {}) do
-        local name = "fixture.provider" .. index
-        names[index] = name
-        preloads[name] = type(provider) == "function" and provider or function()
-            return provider
+    local implementation = "nupp.runtime.provider." .. (kind == "compression" and "nativecompression" or kind)
+    assert(not implementations or #implementations <= 1, "builtin fixtures bind one implementation")
+    local counts = {resolutions = 0}
+    local preloads = {}
+    if implementations and implementations[1] then
+        local value = implementations[1]
+        preloads[implementation] = function()
+            counts.resolutions = counts.resolutions + 1
+            local selected = type(value) == "function" and value() or value
+            local key = kind == "compression" and "formats" or "algorithms"
+            local catalog = {}
+            for name, descriptor in pairs(require(implementation)[key]) do
+                catalog[name] = descriptor
+            end
+            for name, descriptor in pairs(selected[key]) do
+                catalog[name] = descriptor
+            end
+
+            return {[key] = catalog}
+        end
+    else
+        preloads[implementation] = function()
+            counts.resolutions = counts.resolutions + 1
+            return require(implementation)
         end
     end
     local load = instance(
-        {["nupp.runtime.packages"] = true, [facade] = true, ["nupp.runtime.provider." .. kind] = true},
-        {["package.nupp.index"] = {[facade .. ".spi.Provider"] = names},},
+        {[facade] = true},
+        {
+            ["nupp.runtime.target"] = {dialect = "luajit", host = "native"},
+            ["nupp.runtime.packages"] = {
+                providers = function()
+                    error("builtin attempted provider discovery")
+                end,
+                select = function()
+                    error("builtin attempted provider selection")
+                end,
+            },
+        },
         preloads
     )
-    local spi, counts = load("nupp.runtime.packages"), {resolutions = 0}
-    local original = spi.providers
-    spi.providers = function(interface)
-        counts.resolutions = counts.resolutions + 1
-        return original(interface)
-    end
 
     return load, counts
 end

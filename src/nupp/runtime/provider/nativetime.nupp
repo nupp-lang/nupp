@@ -1,7 +1,7 @@
 @!internal
 
 --[[
-Native implementation of [](coroutine.spi).
+Native implementation of [](coroutine).
 
 `now` reports monotonic milliseconds and `walltime` reports Unix milliseconds.
 Relative sleeps and absolute deadlines must be finite and non-negative. Waiting

@@ -1,18 +1,18 @@
+@!internal
+
 --[[Implementation interfaces for compression stream catalogs.
 
 Providers expose retained format descriptors. A descriptor creates independent
 encoder and decoder state, and every state operation is span based. Input steps
 return input consumed, output written and one of the integer status constants
 below. Flush and finalization steps return output written and a status. A failed
-step returns nil numeric fields and a reason. Providers retain neither span and
-perform no SPI lookup from a state operation.
+step returns nil numeric fields and a reason. Implementations retain neither
+span and perform no discovery from a state operation.
 
-The facade chooses the unique highest-priority catalog during initialization.
-Each format name agrees with its catalog key. Selected formats replace native
-formats with the same names and may add others. Discovery order never selects a
-provider.
+The facade uses the target-bound format catalog. Each format name agrees with
+its catalog key.
 ]]
-module binary.compress.spi
+module binary.compress.internal.contracts
 
 local {type ByteSpan, type ByteWriteSpan} = require("binary.span")
 
@@ -82,7 +82,6 @@ end
 
 --- A selectable implementation catalog.
 export interface Provider
-    @readonly priority: integer?
 
     --- Canonical names mapped to checked, independent-state factories.
     @readonly formats: {[string]: Format}

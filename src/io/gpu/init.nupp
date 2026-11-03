@@ -39,22 +39,10 @@ Transfers remain dense; layout-aware kernels consume the explicit metadata.
 ]]
 module io.gpu
 
-local spi = require("nupp.runtime.packages")
-local target = require("nupp.runtime.target")
-
 local api = require("nupp.gpu.api")
 local implementation = require("nupp.gpu.types")
-local contract = require("io.gpu.spi")
-local provider: contract.Provider = do
-    const chosen = spi.select(spi.providers<contract.Provider>("io.gpu.spi.Provider"))
-    if chosen ~= nil then
-        yield chosen
-    end
-    if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativegpu") as contract.Provider
-    end
-    yield _G.require("nupp.runtime.browser.webgpu.internal") as contract.Provider
-end
+local contract = require("nupp.gpu.contracts")
+local provider: contract.Provider = require("nupp.runtime.bindings.gpu")
 local operations = require("nupp.gpu.operations")
 local tensorlayout = require("io.gpu.layout")
 

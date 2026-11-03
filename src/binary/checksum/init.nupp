@@ -37,18 +37,13 @@ which selects hardware acceleration when the CPU supports it.
 
 A snapshot is a number, so whatever writes one to the wire picks its byte order.
 
-A host may supply its own catalog through
-[](binary.checksum.spi), selected during setup before this module
-loads. Its entries override the built-ins of the same name and may add others,
-and the ones it does not name stay available. The catalog is read once, at load,
-so no lookup or update resolves a service.
+The builtin catalog is read once when this module loads. Lookup and incremental
+updates use retained descriptors without service discovery.
 ]]
 module binary.checksum
 
-local spi = require("nupp.runtime.packages")
-
 const span = require("binary.span")
-const provider = require("binary.checksum.spi")
+const provider = require("binary.checksum.internal.contracts")
 
 --- Owned incremental checksum state with non-consuming numeric reads.
 export interface Checksum is io.Writer
@@ -136,6 +131,8 @@ end
 
 local standard = require("nupp.runtime.provider.checksum")
 
+local EXPECTED: {[string]: integer} = {adler32 = 32, crc32 = 32, crc32c = 32, ["crc64-ecma"] = 64, crc64nvme = 64}
+
 local function validate(selected: provider.Provider): nil
     for name, implementation in pairs(selected.algorithms) do
         if type(name) ~= "string"
@@ -150,21 +147,16 @@ local function validate(selected: provider.Provider): nil
         then
             error("invalid checksum algorithm descriptor " .. tostring(name), 2)
         end
-        local expected = standard.algorithms[name]
-        if expected ~= nil and implementation.width ~= expected.width then
+        local expected = EXPECTED[name]
+        if expected ~= nil and implementation.width ~= expected then
             error("checksum provider has the wrong width for " .. name, 2)
         end
     end
 end
 
-local selected: provider.Provider = spi.select(
-    spi.providers<provider.Provider>("binary.checksum.spi.Provider")
-) ?? standard
+local selected: provider.Provider = standard
 validate(selected)
 local available: {[string]: Algorithm} = {}
-for name, implementation in pairs(standard.algorithms) do
-    available[name] = new Algorithm(name = name, width = implementation.width, implementation = implementation)
-end
 for name, implementation in pairs(selected.algorithms) do
     available[name] = new Algorithm(name = name, width = implementation.width, implementation = implementation)
 end

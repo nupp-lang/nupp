@@ -1,5 +1,5 @@
 @!internal
-module io.files.spi
+module io.files.internal.contracts
 
 local scalarAdapters = require("nupp.io.internal.scalars")
 
@@ -57,7 +57,6 @@ export interface TemporaryPath is own.Closeable
 end
 
 export interface Provider
-    @readonly priority: integer?
     @readonly capabilities: function(): messages.Capabilities
     @readonly info: function(path: any): (messages.Info?, string?)
     @readonly exists: function(path: any): boolean

@@ -1,20 +1,21 @@
 @!internal
 
 --[[
-Native structured-worker implementation used as a built-in module fallback.
+Native structured-worker implementation bound for native targets.
 
 A bounded native scheduler owns isolated LuaJIT states. Submitted sendable
 functions are identified by module/member metadata, and arguments and results
 cross lanes through the native buffer codec. Lua heap identity is not shared;
 engine-backed owners move only through the supported ownership protocol.
 
-Scopes implement the canonical types in [](coroutine.workers.spi).
+Scopes implement the canonical types in [](nupp.workers.contracts).
 Closing a scope settles every child, propagates unobserved failure after cleanup,
 and cooperates with [](coroutine.sus). Cancellation uses the shared cancellation
 identity, and scheduler operations retain their provider without SPI dispatch.
 
 Workers load the same immutable artifact and its SPI index in fresh Lua states.
-Each consumer chooses during initialization; provider state remains in its lane.
+Each consumer retains its target-bound operations; provider state stays in its
+lane.
 ]]
 module nupp.runtime.provider.workers
 
@@ -97,7 +98,7 @@ local type TransferState = {
     hasMoved: boolean?
 }
 
-local contracts = require("coroutine.workers.spi")
+local contracts = require("nupp.workers.contracts")
 local type Callable = function(...: any): any
 type workers.Submittable = contracts.Submittable
 type workers.Task<F is Callable> = contracts.Task<F>
@@ -1615,7 +1616,7 @@ end
 local spawnSurface: function<F is workers.Submittable>(
     borrows self: workers.Scope,
     F,
-    ...: unpackof contracts.submitted(F)
+    ...: unpackof contracts.Submitted(F)
 ): workers.Task<F>
 @unsafe do
     spawnSurface = spawnImpl as any

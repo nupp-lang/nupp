@@ -32,15 +32,13 @@ trait does not define MAC algorithms. AWS KMS uses
 for this construction, while `AWS4-HMAC-SHA256` identifies the complete SigV4
 signing scheme.
 
-A host may supply its own catalog through [](binary.mac.spi),
-chosen by priority when this module initializes. It is read once, at load.
+The builtin catalog is read once when this module loads. Context operations use
+retained descriptors without service discovery.
 ]]
 module binary.mac
 
-local spi = require("nupp.runtime.packages")
-
 const context = require("nupp.digest.internal.context")
-const provider = require("binary.mac.spi")
+const provider = require("binary.mac.internal.contracts")
 
 --- An owned keyed context with consuming digest finalization.
 export type Mac = context.Digest
@@ -65,6 +63,8 @@ end
 
 local standard = require("nupp.runtime.provider.mac")
 
+local EXPECTED: {[string]: integer} = {["hmac-sha256"] = 32}
+
 local function validate(selected: provider.Provider): nil
     for name, implementation in pairs(selected.algorithms) do
         if type(name) ~= "string"
@@ -78,21 +78,16 @@ local function validate(selected: provider.Provider): nil
         then
             error("invalid mac algorithm descriptor " .. tostring(name), 2)
         end
-        local expected = standard.algorithms[name]
-        if expected ~= nil and implementation.digestsize ~= expected.digestsize then
+        local expected = EXPECTED[name]
+        if expected ~= nil and implementation.digestsize ~= expected then
             error("mac provider has the wrong digestsize for " .. name, 2)
         end
     end
 end
 
-local selected: provider.Provider = spi.select(spi.providers<provider.Provider>("binary.mac.spi.Provider")) ?? standard
+local selected: provider.Provider = standard
 validate(selected)
 local available: {[string]: Algorithm} = {}
-for name, implementation in pairs(standard.algorithms) do
-    available[
-        name
-    ] = new Algorithm(name = name, digestsize = implementation.digestsize, implementation = implementation)
-end
 for name, implementation in pairs(selected.algorithms) do
     available[
         name

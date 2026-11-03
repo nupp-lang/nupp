@@ -68,7 +68,7 @@ assert(second.encode("x") == "second:x")
 assert(spi.providers(Codec)() == first)
 assert(package.providers(Codec)() == first)
 assert(package.providers == spi.providers and package.select == spi.select)
-local contracts: any = require("package.nupp")
+local contracts: any = require("example.api")
 assert(contracts.providers == nil and contracts.select == nil and contracts.load == nil)
 local api = require("example.api")
 assert(spi.providers(api.Codec)() == first)
@@ -332,11 +332,13 @@ function M.optionalFallbackInitializationErrorsCannotMasqueradeAsAbsence()
     local cases = {
         {
             module = "nupp.runtime.timeprovider",
+            binding = "nupp.runtime.bindings.clock",
             interface = "package.nupp.ClockProvider",
             fallback = "nupp.runtime.provider.nativetime",
         },
         {
             module = "nupp.runtime.workersprovider",
+            binding = "nupp.runtime.bindings.workers",
             interface = "nupp.workers.spi.Provider",
             fallback = "nupp.runtime.provider.workers",
             workers = true,
@@ -361,7 +363,7 @@ function M.optionalFallbackInitializationErrorsCannotMasqueradeAsAbsence()
         local load = require(
             "helpers.providerstate"
         ).instance(
-            {["nupp.runtime.packages"] = true, [case.module] = true},
+            {[case.module] = true, [case.binding] = true, ["nupp.runtime.optional"] = true},
             {
                 ["nupp.runtime.target"] = {dialect = "luajit", host = "native"},
                 ["package.nupp.index"] = {[case.interface] = {}},
@@ -372,6 +374,36 @@ function M.optionalFallbackInitializationErrorsCannotMasqueradeAsAbsence()
         assert(not ok, case.module .. " treated an initializing fallback as absent")
         assert(problem == marker, case.module .. " replaced the fallback's failure identity")
     end
+end
+
+function M.optionalImplementationAbsenceDoesNotHideInitializationFailures()
+    local marker = {}
+    local load = require("helpers.providerstate").instance({["nupp.runtime.optional"] = true}, nil, {
+        ["fixture.broken.optional"] = function()
+            error(marker, 0)
+        end,
+    })
+    local optional = load("nupp.runtime.optional")
+    assert(optional.load("fixture.missing.optional") == nil)
+    local ok, problem = pcall(optional.load, "fixture.broken.optional")
+    assert(not ok and problem == marker, "initialization failures retain their original identity")
+end
+
+function M.optionalFilesystemInitializationErrorsCannotMasqueradeAsAbsence()
+    local name = "spitest_optional_filesystem_failure"
+    local marker = "module '" .. name .. "' not found: initialization failed"
+    fixture({[name .. ".lua"] = ("error(%q, 0)"):format(marker)}, function(dir)
+        local previousPath, previousModule = package.path, package.loaded[name]
+        package.path = dir .. "/?.lua;" .. previousPath
+        package.loaded[name] = nil
+        local load = require("helpers.providerstate").instance({["nupp.runtime.optional"] = true})
+        local ok, problem = pcall(function()
+            return load("nupp.runtime.optional").load(name)
+        end)
+        package.path, package.loaded[name] = previousPath, previousModule
+        assert(not ok, "an initializing filesystem module was treated as absent")
+        assert(problem == marker, "the filesystem initialization failure was replaced")
+    end)
 end
 
 function M.typeReexportsResolveToTheDefiningInterface()
@@ -596,11 +628,13 @@ end
 
 local TARGET_PROFILES = {{host = "native"}, {host = "browser", marker = "__nuppBrowser"},}
 
-function M.hostAndVmFallbacksRetainSpiOverrides()
+function M.hostAndVmBindingsIgnoreAdvertisedOverrides()
     local instances = require("helpers.providerstate")
     local cases = {
         {
             module = "nupp.time",
+            binding = "nupp.runtime.bindings.clock",
+            optional = true,
             interface = "package.nupp.ClockProvider",
             native = "nupp.runtime.provider.nativetime",
             browser = "nupp.runtime.browser.time",
@@ -610,6 +644,8 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.workers",
+            binding = "nupp.runtime.bindings.workers",
+            optional = true,
             interface = "nupp.workers.spi.Provider",
             native = "nupp.runtime.provider.workers",
             browser = "nupp.runtime.browser.workers",
@@ -619,6 +655,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.runtime.system",
+            binding = "nupp.runtime.bindings.system",
             interface = "package.nupp.SystemProvider",
             native = "nupp.runtime.provider.nativesystem",
             browser = "nupp.runtime.browser.system",
@@ -627,18 +664,21 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.io.path.provider",
+            binding = "nupp.io.path.provider",
             interface = "io.spi.PathProvider",
             native = "nupp.runtime.provider.nativepath",
             browser = "nupp.runtime.browser.path"
         },
         {
             module = "nupp.io.uri.provider",
+            binding = "nupp.io.uri.provider",
             interface = "io.spi.UriProvider",
             native = "nupp.runtime.provider.nativeuri",
             browser = "nupp.runtime.browser.uri"
         },
         {
             module = "io.files",
+            binding = "nupp.runtime.bindings.files",
             interface = "io.files.spi.Provider",
             native = "nupp.runtime.provider.nativefiles",
             browser = "nupp.runtime.browser.files",
@@ -646,12 +686,14 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.runtime.uuidprovider",
+            binding = "nupp.runtime.uuidprovider",
             interface = "package.nupp.UuidProvider",
             native = "nupp.runtime.provider.nativeuuid",
             browser = "nupp.runtime.browser.crypto"
         },
         {
             module = "nupp.runtime.entropy",
+            binding = "nupp.runtime.bindings.entropy",
             interface = "package.nupp.EntropyProvider",
             native = "nupp.runtime.provider.nativecrypto",
             browser = "nupp.runtime.browser.crypto",
@@ -660,6 +702,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
         },
         {
             module = "nupp.suspension",
+            binding = "nupp.runtime.bindings.suspension",
             interface = "nupp.suspension.spi.Provider",
             native = "nupp.runtime.provider.suspension",
             browser = "nupp.runtime.browser.suspension",
@@ -753,8 +796,8 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                 provide(case.browser)
                 provide("fixture.lower", 1)
                 provide("fixture.chosen", 2)
-                -- Native workers require an installed host bridge before choosing
-                -- their fallback, but discovery must still win when it is present.
+                -- Native worker binding requires an installed host bridge. Its
+                -- presence must not execute it while loading the facade.
                 preloads["nupp.workers.native"] = function()
                     error("the fixture must not execute a host bridge")
                 end
@@ -771,7 +814,16 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                 if profile.marker then
                     globals[profile.marker] = {}
                 end
-                local load = instances.instance(
+                local usesNative = case.vm or profile.host == "native"
+                local selectedName = usesNative and case.native or case.browser
+                local load
+                if case.binding then
+                    preloads[case.binding] = function()
+                        local implementation = load(selectedName)
+                        return case.optional and {provider = implementation} or implementation
+                    end
+                end
+                load = instances.instance(
                     owned,
                     {
                         ["nupp.runtime.target"] = profile,
@@ -782,8 +834,6 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                     preloads,
                     globals
                 )
-                local usesNative = case.vm or profile.host == "native"
-                local selectedName = override and "fixture.chosen" or usesNative and case.native or case.browser
                 local expected = providers[selectedName]
                 local facade = load(case.module)
                 local label = profile.host .. ": " .. case.module
@@ -801,7 +851,7 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                         assert(type(turnAvailable) == "function", label .. ": missing turn availability")
                         assert(type(consumeTurn) == "function", label .. ": missing turn consumption")
                         assert(type(deferTurn) == "function", label .. ": missing turn deferral")
-                        assert(turnAvailable(), label .. ": an SPI override without budgeting must be unbounded")
+                        assert(turnAvailable(), label .. ": an implementation without budgeting must be unbounded")
                         consumeTurn()
                         assert(turnAvailable(), label .. ": an unbounded turn must stay available")
                         for _, member in ipairs({
@@ -846,12 +896,13 @@ function M.hostAndVmFallbacksRetainSpiOverrides()
                     assert(facade == expected, label)
                 end
                 assert(load(case.module) == facade, label .. ": facade identity changed")
-                assert(loaded[selectedName] == 1, label .. ": provider initialized more than once")
-                assert(loaded[case.native] == (not override and usesNative and 1 or nil), label .. ": native fallback")
+                assert(loaded[selectedName] == 1, label .. ": implementation initialized more than once")
                 assert(
-                    loaded[case.browser] == (not override and not usesNative and 1 or nil),
-                    label .. ": browser fallback"
+                    loaded["fixture.chosen"] == nil and loaded["fixture.lower"] == nil,
+                    label .. ": builtin initialized an advertised override"
                 )
+                assert(loaded[case.native] == (usesNative and 1 or nil), label .. ": native fallback")
+                assert(loaded[case.browser] == (not usesNative and 1 or nil), label .. ": browser fallback")
                 if case.cache then
                     assert(
                         load(case.cache).provider == expected,
@@ -888,13 +939,10 @@ end
 
 function M.suspensionProvidersPublishCompleteTurnBudgetsOrNone()
     local load = require("helpers.providerstate").instance(
-        {['nupp.runtime.packages'] = true, ['nupp.suspension'] = true, ['nupp.suspension.selected'] = true},
+        {['nupp.suspension'] = true, ['nupp.suspension.selected'] = true},
+        {['nupp.runtime.target'] = {dialect = "luajit", host = "native"},},
         {
-            ['nupp.runtime.target'] = {dialect = "luajit", host = "native"},
-            ['package.nupp.index'] = {['nupp.suspension.spi.Provider'] = {'fixture.suspension'},},
-        },
-        {
-            ['fixture.suspension'] = function()
+            ['nupp.runtime.bindings.suspension'] = function()
                 return {
                     priority = 1,
                     installdriver = function()
@@ -919,13 +967,10 @@ end
 
 function M.suspensionProvidersPublishTheirDriverSeam()
     local load = require("helpers.providerstate").instance(
-        {['nupp.runtime.packages'] = true, ['nupp.suspension'] = true, ['nupp.suspension.selected'] = true},
+        {['nupp.suspension'] = true, ['nupp.suspension.selected'] = true},
+        {['nupp.runtime.target'] = {dialect = "luajit", host = "native"},},
         {
-            ['nupp.runtime.target'] = {dialect = "luajit", host = "native"},
-            ['package.nupp.index'] = {['nupp.suspension.spi.Provider'] = {'fixture.suspension'},},
-        },
-        {
-            ['fixture.suspension'] = function()
+            ['nupp.runtime.bindings.suspension'] = function()
                 return {
                     priority = 1,
                     installdriver = function()
@@ -990,119 +1035,10 @@ function M.browserMemoryIsTheActiveGuestTransport()
     end
 end
 
--- Every facade that picks a provider applies the same rule through
--- `package.select`: the unique highest priority wins, and a tie for it is
--- refused rather than settled by discovery order. When each facade carried its
--- own copy, loosening one copy's comparison let the later provider win a tie
--- silently and no suite noticed, so every facade is held to the rule here. The
--- table is the consumer inventory; a new facade that selects a provider
--- belongs in it.
-local SELECTING_FACADES = {
-    {"binary.checksum", "binary.checksum.spi.Provider"},
-    {"nupp.codec.json.provider", "serde.json.spi.Provider"},
-    {"binary.compress", "binary.compress.spi.Provider"},
-    {"binary.digest", "binary.digest.spi.Provider"},
-    {"io.gpu", "io.gpu.spi.Provider"},
-    {"os.host", "package.nupp.HostProvider"},
-    {"io.files", "io.files.spi.Provider"},
-    {"nupp.io.http", "nupp.io.http.spi.Provider"},
-    {"nupp.io.net", "nupp.io.net.spi.Provider"},
-    {"nupp.io.path.provider", "io.spi.PathProvider"},
-    {"io.internal.process", "io.Process.Provider"},
-    {"io.net", "io.net.spi.TlsProvider"},
-    {"nupp.io.uri.provider", "io.spi.UriProvider"},
-    {"binary.mac", "binary.mac.spi.Provider"},
-    {"nupp.runtime.entropy", "package.nupp.EntropyProvider"},
-    {"binary._representation", "package.nupp.CstorageProvider"},
-    {"nupp.runtime.timeprovider", "package.nupp.ClockProvider"},
-    {"nupp.runtime.uuidprovider", "package.nupp.UuidProvider"},
-    {"nupp.runtime.workersprovider", "nupp.workers.spi.Provider"},
-    {"nupp.suspension.selected", "nupp.suspension.spi.Provider"},
-    {"nupp.runtime.system", "package.nupp.SystemProvider"},
-    {"nupp.text", "package.nupp.BufferProvider"},
-}
-
--- Loads `facade` afresh against a provider index holding `priorities`, one
--- fixture per entry, and puts every module table back afterwards so the rest
--- of the process never sees the fixtures.
-local function loadWithProviders(facade, interface, priorities)
-    local before = {}
-    for name, value in pairs(package.loaded) do
-        before[name] = value
-    end
-    local preloads = {}
-    local names = {}
-    for index, priority in ipairs(priorities) do
-        local name = "spitest.fixture" .. index
-        names[index] = name
-        preloads[name] = package.preload[name]
-        package.preload[name] = function()
-            -- `false` stands for a provider that states no priority, which
-            -- counts as 0.
-            return setmetatable({priority = priority or nil}, {
-                __index = function(_, member)
-                    if member == "priority" then
-                        return nil
-                    end
-                    return function()
-                        error("fixture does not implement " .. tostring(member))
-                    end
-                end
-            })
-        end
-    end
-    package.loaded["nupp.runtime.packages"] = nil
-    package.loaded[facade] = nil
-    package.loaded["package.nupp.index"] = {[interface] = names}
-    if interface == "io.net.spi.TlsProvider" then
-        package.loaded["io.net.internal.tls"] = nil
-    end
-    local ok, problem = pcall(function()
-        local api = require(facade)
-        if interface == "io.net.spi.TlsProvider" then
-            return api.tlsclient({}, {verify = false})
-        end
-
-        return api
-    end)
-    for name in pairs(package.loaded) do
-        if before[name] == nil then
-            package.loaded[name] = nil
-        end
-    end
-    for name, value in pairs(before) do
-        package.loaded[name] = value
-    end
-    for name, previous in pairs(preloads) do
-        package.preload[name] = previous
-    end
-
-    return ok, problem
-end
-
-function M.everySelectingFacadeRefusesATieForTheHighestPriority()
-    for _, row in ipairs(SELECTING_FACADES) do
-        local facade, interface = row[1], row[2]
-        for _, priorities in ipairs({{5, 5}, {1, 5, 5}, {5, 1, 5}, {false, 0}}) do
-            local ok, problem = loadWithProviders(facade, interface, priorities)
-            assert(
-                not ok and tostring(problem):find("multiple implementations have the highest priority", 1, true),
-                facade .. " with priorities " .. table.concat(
-                    (function()
-                        local shown = {}
-                        for index = 1, #priorities do
-                            shown[index] = tostring(priorities[index])
-                        end
-
-                        return shown
-                    end)(),
-                    ","
-                ) .. ": " .. (ok and "loaded" or tostring(problem))
-            )
-        end
-    end
-end
-
+-- Builtin implementations are selected by target, so their initialization must
+-- not inspect the user-package discovery index. The target matrix above checks
+-- identity, one-time initialization, and ignored advertised overrides; package
+-- priority and tie behavior remains covered by the user-package tests.
 function M.packageSelectionAliasesInstallWithoutDiscoveryCalls()
     fixture(
         files(

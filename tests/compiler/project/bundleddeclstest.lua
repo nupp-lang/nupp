@@ -44,7 +44,7 @@ local BUNDLED = {
     "nupp.util.internal.pool",
     "nupp.mem.arena",
     "events",
-    "package.nupp",
+    "nupp.runtime.contracts",
     "os.host",
     "os.host.pump",
     "math.random",
@@ -83,6 +83,19 @@ end
 function M.retiredNamespacesAreNotBundled()
     local env = strictEnv()
     for _, name in ipairs({
+        "package.nupp",
+        "binary.checksum.spi",
+        "binary.digest.spi",
+        "binary.mac.spi",
+        "binary.compress.spi",
+        "serde.json.spi",
+        "io.spi",
+        "io.files.spi",
+        "io.net.spi",
+        "io.http.spi",
+        "io.gpu.spi",
+        "coroutine.sus.spi",
+        "coroutine.workers.spi",
         "coroutine.suspension",
         "coroutine.suspension.host",
         "coroutine.suspension.spi",
@@ -149,7 +162,7 @@ end
 function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     local env = envMod.new("/private/tmp/nupp-bundled-layout-consumer", {config = {include = {"src"}}, cache = false})
     local sources = {
-        ["package.nupp"] = "/package/nupp/init.nupp",
+        ["nupp.runtime.contracts"] = "/nupp/runtime/contracts.nupp",
         ["debug.profile"] = "/debug/profile/init.nupp",
         ["debug.profile.trace"] = "/debug/profile/trace.nupp",
         ["debug.profile.zone"] = "/debug/profile/zone.nupp",
@@ -160,15 +173,15 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         ["coroutine.sus"] = "/coroutine/sus/init.nupp",
         ["coroutine.sus.cancellation"] = "/coroutine/sus/cancellation.nupp",
         ["coroutine.sus.host"] = "/coroutine/sus/host.nupp",
-        ["coroutine.sus.spi"] = "/coroutine/sus/spi.nupp",
+        ["nupp.suspension.contracts"] = "/nupp/suspension/contracts.nupp",
         ["coroutine.workers"] = "/coroutine/workers/init.nupp",
-        ["coroutine.workers.spi"] = "/coroutine/workers/spi.nupp",
+        ["nupp.workers.contracts"] = "/nupp/workers/contracts.nupp",
         ["io.files"] = "/io/files/init.nupp",
         ["io.files.messages"] = "/io/files/messages.nupp",
         ["io.http"] = "/io/http/init.nupp",
-        ["io.http.spi"] = "/io/http/spi.nupp",
+        ["nupp.io.http.contracts"] = "/nupp/io/http/contracts.nupp",
         ["io.net"] = "/io/net/init.nupp",
-        ["io.net.spi"] = "/io/net/spi.nupp",
+        ["io.net.internal.contracts"] = "/io/net/internal/contracts.nupp",
         ["io.cli"] = "/io/cli.nupp",
         ["io.net.internal.tls"] = "/io/net/internal/tls.nupp",
         ["nupp.runtime.standardcoroutine"] = "/nupp/runtime/standardcoroutine.nupp",
@@ -263,17 +276,22 @@ end
 function M.providerContractImportErasesWithoutLoadingAnImplementation()
     local parsed = parser.parse(
         [[
-local {type ClockProvider} = require("package.nupp")
+module nupp.test.providercontract
+local {type ClockProvider} = require("nupp.runtime.contracts")
 return function(clock: ClockProvider): number return clock.now() end
 ]],
         "provider-contract-import.nupp"
     )
     testAssert.eq(#parsed.errors, 0)
-    for _, diagnostic in ipairs(check.check(parsed, "provider-contract-import.nupp", strictEnv())) do
+    for _, diagnostic in ipairs(
+        check.check(parsed, "provider-contract-import.nupp", strictEnv(), {
+            moduleName = "nupp.test.providercontract"
+        })
+    ) do
         assert(diagnostic.severity ~= "error", diagnostic.msg)
     end
     local code = gen.generate(parsed, "provider_contract_import")
-    assert(not code:find('package.nupp', 1, true), code)
+    assert(not code:find('nupp.runtime.contracts', 1, true), code)
 end
 
 function M.profilingCollectorAndRegistryKeepDistinctQualifiedTypes()

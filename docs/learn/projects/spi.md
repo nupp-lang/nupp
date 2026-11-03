@@ -98,7 +98,7 @@ export const encode = impl.encode
 below it; a tie for the highest raises, naming the interface and the two
 modules, rather than letting discovery order decide. It returns nil when
 nothing is advertised, so the fallback after `??` is loaded only when it is
-used. Every standard library facade selects its provider this way.
+used.
 
 `priority` is a convention between an interface and `select`, and `providers`
 knows nothing about it. Another consumer can iterate `providers` itself to
@@ -149,42 +149,12 @@ and reports what it found:
 `dependency` is the package the descriptor came from, or `application` for the
 project's own. Editing a descriptor invalidates the generated index.
 
-## Standard-library providers
+## Builtin services
 
-A standard-library consumer chooses with `package.select`: the unique highest
-`priority`, an omitted one counting as zero, and initialization fails on equal
-highest priorities. Without an external implementation it chooses its built-in
-fallback under ordinary target and host conditions.
-
-[](package.nupp) contains declarations only. Its eight provider interfaces share
-one home; discovery remains on `package.providers` and `package.select`.
-Importing these contracts does not select or initialize an implementation.
-
-| Interface module | Implementation interface |
-| --- | --- |
-| `package.nupp` | `EntropyProvider`, `SystemProvider`, `ClockProvider`, `UuidProvider`, `BufferProvider`, `HostProvider`, `CstorageProvider`, `StructvalueProvider` |
-| `serde.json.spi` | `Provider` |
-| `io.spi` | `PathProvider`, `UriProvider` |
-| `binary.digest.spi`, `binary.checksum.spi`, `binary.mac.spi` | `Provider` |
-| `binary.compress.spi`, `io.gpu.spi` | `Provider` |
-| `io.files.spi`, `io.http.spi`, `io.net.spi` | `Provider` |
-| `io.net.spi` | `TlsProvider` |
-| `io` | `Process.Provider` |
-| `coroutine.sus.spi`, `coroutine.workers.spi` | `Provider` |
-
-The core interfaces name their concerns. A library-specific interface can keep
-`Provider` where its module identifies the concern. The UUID service uses
-`package.nupp.UuidProvider`, independently of the `os` namespace that exposes it.
-
-`package.nupp.Late` and `package.nupp.Policy` describe host callbacks and stream
-policy; `package.nupp.CastElements` describes a generic storage cast. These are
-helper types, not additional provider interfaces.
-
-An algorithm catalog overlays its entries on the built-in catalog, and each
-interface module declares the shared resource types and cleanup identities to
-reuse. Storage and its integer operations must use one coherent
-representation, because selection cannot change the layout compiled into the
-program.
+The build binds standard-library implementations for the selected native or
+browser target. Packages use SPI for their own interfaces; a descriptor does
+not replace builtin files, clocks, storage, codecs, or scheduler services.
+Builtin implementation contracts are private runtime interfaces.
 
 ## Workers
 
@@ -193,7 +163,7 @@ instances in its own Lua state. Provider objects and closures do not cross a
 worker boundary.
 
 ::: seealso
-- [standard-library.md](../runtime/data/standard-library.md) for how a
-  standard-library consumer picks its provider
+- [standard-library.md](../runtime/data/standard-library.md) for builtin
+  availability and initialization
 - [libraries.md](portability/libraries.md) for which operations vary by host
 :::

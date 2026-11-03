@@ -14,7 +14,7 @@ module nupp.digest.internal.context
 const span = require("binary.span")
 const storage = require("nupp.runtime.storage")
 const binary = require("binary")
-const provider = require("binary.digest.spi")
+const provider = require("binary.digest.internal.contracts")
 
 export interface Digest is io.Writer
     --- Consumes an unfinished context and releases provider state without suspension.

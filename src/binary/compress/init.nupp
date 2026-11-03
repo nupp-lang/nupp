@@ -37,20 +37,18 @@ All three take levels zero through nine. Gzip checks its CRC and size trailers
 and reads concatenated members by default, zlib checks its Adler-32 trailer, and
 raw DEFLATE has no checksum at all. Trailing bytes are rejected in every case.
 
-A provider-added format keys its options by its own canonical name;
-`deflateraw` above is the built-in ergonomic spelling of `deflate-raw`.
+The `deflateraw` options key configures the `deflate-raw` format.
 ]]
 module binary.compress
 
 const assert2 = require("assert")
 
-local spi = require("nupp.runtime.packages")
 local target = require("nupp.runtime.target")
 
 const io = require("io")
 const span = require("binary.span")
 const storage = require("nupp.runtime.storage")
-const provider = require("binary.compress.spi")
+const provider = require("binary.compress.internal.contracts")
 
 local DEFAULT_WORKSPACE: integer = 65536
 local DEFAULT_MAX_OUTPUT: integer = 67108864
@@ -802,25 +800,12 @@ local function validate(selected: provider.Provider): nil
 end
 
 local selected: provider.Provider = do
-    const chosen = spi.select(spi.providers<provider.Provider>("binary.compress.spi.Provider"))
-    if chosen ~= nil then
-        yield chosen
-    end
     assert2(target.host == "native", "binary.compress: no implementation is available")
     yield _G.require("nupp.runtime.provider.nativecompression") as provider.Provider
 end
 validate(selected)
-local standard: provider.Provider? = nil
-if target.host == "native" then
-    standard = _G.require("nupp.runtime.provider.nativecompression") as provider.Provider
-end
 local available: {[string]: Format} = {}
 local names: {string} = {}
-if standard ~= nil then
-    for name, implementation in pairs(standard.formats) do
-        available[name] = new Format(name = name, implementation = implementation)
-    end
-end
 for name, implementation in pairs(selected.formats) do
     available[name] = new Format(name = name, implementation = implementation)
 end

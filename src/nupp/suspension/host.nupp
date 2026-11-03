@@ -38,7 +38,7 @@ contract and a worked frame handler.
 ]]
 module nupp.suspension.host
 
-local contract = require("nupp.suspension.spi")
+local contract = require("nupp.suspension.contracts")
 local selected = require("nupp.suspension.selected")
 
 local provider = selected.provider

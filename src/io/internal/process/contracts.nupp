@@ -18,12 +18,11 @@ closed pipe. waitReady services the requested read/write interests and child
 completion for a bounded interval; now supplies its monotonic millisecond clock.
 Process cleanup must remain valid after cancellation, kill, and partial spawn.
 ]]
-module io.internal.process.spi
+module io.internal.process.contracts
 
 local {type Options, type Exit, type Interest} = require("io.internal.process.types")
 
 export interface Provider
-    @readonly priority: integer?
 
     --- Returns child, stdin, stdout, stderr, pid, and error in that order.
     --- Absent or inherited pipes have nil handles; failure has no child owner.

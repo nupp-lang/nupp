@@ -1,0 +1,13 @@
+@!internal
+module nupp.runtime.bindings.entropy
+
+local contracts = require("nupp.runtime.contracts")
+local target = require("nupp.runtime.target")
+local implementation: contracts.EntropyProvider = do
+    if target.host == "native" then
+        yield _G.require("nupp.runtime.provider.nativecrypto") as contracts.EntropyProvider
+    end
+    yield _G.require("nupp.runtime.browser.crypto") as contracts.EntropyProvider
+end
+
+export = implementation

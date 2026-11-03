@@ -1,6 +1,6 @@
 @!internal
 --[[
-Native resident-compute implementation used as a built-in module fallback.
+Native resident-compute implementation bound to native targets.
 
 `open` creates a device context through [](nupp.runtime.native). The artifact
 must carry the native GPU feature and a compatible host driver. Generated shader
@@ -13,8 +13,8 @@ the canonical public identities and context borrows. The context, its buffers,
 kernels and bindings are closeable; closing a child or the context must not leave
 a dependent handle usable.
 
-Applications use [](io.gpu), which resolves the provider once and exports
-its `open` function directly. Uploads, dispatches, synchronization, and readback
+Applications use [](io.gpu), which imports this implementation on native targets
+and exports its `open` function directly. Uploads, dispatches, synchronization, and readback
 operate on the retained context without further service resolution.
 ]]
 module nupp.runtime.provider.nativegpu

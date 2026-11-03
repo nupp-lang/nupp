@@ -1,0 +1,61 @@
+module nupp.compiler.targetbindings
+
+local IMPLEMENTATIONS: {
+    [string]: {[string]: string}
+} = {
+    [
+        "nupp.runtime.bindings.files"
+    ] = {native = "nupp.runtime.provider.nativefiles", browser = "nupp.runtime.browser.files"},
+    [
+        "nupp.runtime.bindings.http"
+    ] = {native = "nupp.runtime.provider.nativehttp", browser = "nupp.runtime.browser.http"},
+    [
+        "nupp.runtime.bindings.gpu"
+    ] = {native = "nupp.runtime.provider.nativegpu", browser = "nupp.runtime.browser.webgpu.internal"},
+    [
+        "nupp.runtime.bindings.host"
+    ] = {native = "nupp.runtime.provider.nativehost", browser = "nupp.runtime.browser.host"},
+    [
+        "nupp.runtime.bindings.suspension"
+    ] = {native = "nupp.runtime.provider.suspension", browser = "nupp.runtime.browser.suspension"},
+    [
+        "nupp.runtime.bindings.system"
+    ] = {native = "nupp.runtime.provider.nativesystem", browser = "nupp.runtime.browser.system"},
+    [
+        "nupp.runtime.bindings.entropy"
+    ] = {native = "nupp.runtime.provider.nativecrypto", browser = "nupp.runtime.browser.crypto"},
+    ["nupp.io.path.provider"] = {native = "nupp.runtime.provider.nativepath", browser = "nupp.runtime.browser.path"},
+    ["nupp.io.uri.provider"] = {native = "nupp.runtime.provider.nativeuri", browser = "nupp.runtime.browser.uri"},
+    [
+        "nupp.runtime.uuidprovider"
+    ] = {native = "nupp.runtime.provider.nativeuuid", browser = "nupp.runtime.browser.crypto"},
+    [
+        "nupp.runtime.bindings.clock"
+    ] = {native = "nupp.runtime.provider.nativetime", browser = "nupp.runtime.browser.time"},
+    [
+        "nupp.runtime.bindings.workers"
+    ] = {native = "nupp.runtime.provider.workers", browser = "nupp.runtime.browser.workers"},
+}
+
+export function implementation(moduleName: string?, host: string?): string?
+    local targets = moduleName and IMPLEMENTATIONS[moduleName]
+    return targets and targets[host or "native"] or nil
+end
+
+export function source(moduleName: string?, host: string?): string?
+    local selected = implementation(moduleName, host)
+    if selected == nil then
+        return nil
+    end
+    if moduleName == "nupp.runtime.bindings.clock" or moduleName == "nupp.runtime.bindings.workers" then
+        local gate = ""
+        if moduleName == "nupp.runtime.bindings.workers" and host ~= "browser" then
+            gate = "if package.loaded['nupp.workers.native']==nil and package.preload['nupp.workers.native']==nil then return {} end;"
+        elseif host == "browser" then
+            gate = "if rawget(_G,'__nuppBrowser')==nil then return {} end;"
+        end
+        return gate .. ("return {provider=require('nupp.runtime.optional').load(%q)}"):format(selected)
+    end
+
+    return ("return require(%q)"):format(selected)
+end

@@ -28,7 +28,7 @@ which returns for the handler in force. Cancellation values must come from
 worker providers. State belongs to one Lua state; registrations and handlers are
 not copied into worker lanes.
 ]]
-module nupp.suspension.spi
+module nupp.suspension.contracts
 
 --- Readiness registration shared with callers and handlers.
 --- release must be idempotent and non-suspending; provider state tracks its lifetime.
@@ -54,7 +54,7 @@ end
 --- A subscription may use an existing Source or create a scoped one.
 export record Context
     --- Registers a source associated with this subscription, as
-    --- [](coroutine.sus.spi.Provider.source) registers one outside any.
+    --- [](nupp.suspension.contracts.Provider.source) registers one outside any.
     source: function(
         self: Context,
         name: string,
@@ -119,7 +119,6 @@ export type Suspend = function<T>(operation: string, subscribe: function(functio
 export type Create = function<A..., R...>(body: function(A...): R...): thread
 
 export interface Provider
-    @readonly priority: integer?
 
     --- Registers a named poll source with a poll order and optional blocking waiter.
     --- The optional active predicate controls whether the source can make progress.

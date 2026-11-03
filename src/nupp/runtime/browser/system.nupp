@@ -1,5 +1,5 @@
 @!internal
---[[Browser implementation of [](package.nupp).
+--[[Browser implementation of [](nupp.runtime.contracts).
 
 The fixed facts describe the guest instruction set with 32-bit little-endian
 pointers. The parallelism query suspends through the browser response protocol

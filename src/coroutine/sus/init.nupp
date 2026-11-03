@@ -41,7 +41,7 @@ See [suspension.md](docs/learn/runtime/concurrency/suspension.md).
 ]]
 module coroutine.sus
 
-local contract = require("nupp.suspension.spi")
+local contract = require("nupp.suspension.contracts")
 local source1 = require("nupp.suspension")
 export type Context = source1.Context
 export type Source = source1.Source

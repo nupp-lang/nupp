@@ -1,6 +1,6 @@
 @!internal
 --[[
-LuaJIT FFI implementation used as a built-in module fallback.
+LuaJIT FFI implementation bound to native targets.
 
 Allocations, casts, scalar descriptors, and struct layouts use native pointers
 and the target ABI. The published representation is `native`; byte codecs use
@@ -27,8 +27,8 @@ export function allocbytes(count: integer): uint8[?]
     -- `ffi.new` rejects a negative or oversized extent itself, but turns a
     -- nonfinite one into a zero-byte allocation, and nothing bounds-checks cdata
     -- afterwards: every write through it is simply out of range. A checked caller
-    -- cannot reach that, since the count is an `integer`; the table is also an SPI
-    -- provider that plain Lua reads members from. Same floor as `allocateArray`.
+    -- cannot reach that, since the count is an `integer`; plain Lua can also
+    -- call this implementation directly. Same floor as `allocateArray`.
     assert(count >= 0 and count % 1 == 0, "nupp: storage byte extent must be a whole, finite count")
 
     return ffi.new<uint8[?]>(count)

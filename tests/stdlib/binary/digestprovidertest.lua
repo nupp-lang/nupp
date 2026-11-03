@@ -84,7 +84,7 @@ function M.providerSelectionAndCleanup()
         assert(#digest.algorithms() == 4)
     end
     assert(created == 20 and closed == 20)
-    assert(counts.resolutions == initialized, "operations must not resolve providers")
+    assert(counts.resolutions == initialized, "operations must not reload implementations")
     assert(load("binary.digest") == digest)
 end
 
@@ -221,7 +221,7 @@ end
 
 local FACTORIES = {digest = "newdigest", checksum = "newchecksum", mac = "newmac"}
 
-function M.emptyDiscoveryRetainsBuiltinsAndIndependentListings()
+function M.targetBindingsRetainBuiltinsAndIndependentListings()
     for _, kind in ipairs({"digest", "checksum", "mac"}) do
         local load = state.family(kind)
         local api = load("binary." .. kind)
@@ -284,50 +284,17 @@ function M.checksumAndMacRetainCatalogsDuringOperations()
                 assert(#api.digest("hmac-sha256", "key", "payload") == 32)
             end
         end
-        assert(counts.resolutions == initialized, kind .. " operations resolved SPI")
+        assert(counts.resolutions == initialized, kind .. " operations reloaded the implementation")
     end
 end
 
-local function catalog(kind, name, priority)
-    local descriptor = {
-        name = name,
-        create = function()
-            error("not used")
-        end,
-    }
-    descriptor[kind == "checksum" and "width" or "digestsize"] = 1
-
-    return {priority = priority, algorithms = {[name] = descriptor}}
-end
-
-function M.priorityWinsRegardlessOfDependencyOrder()
+function M.builtinBindingsDoNotConsultUserDiscovery()
     for _, kind in ipairs({"digest", "checksum", "mac"}) do
-        for _, providers in ipairs({
-            {catalog(kind, "low", 1), catalog(kind, "high", 5)},
-            {catalog(kind, "high", 5), catalog(kind, "low", 1)},
-            {catalog(kind, "negative", -1), catalog(kind, "default", nil)},
-        }) do
-            local load = state.family(kind, providers)
-            local api = load("binary." .. kind)
-            assert(api.lookup(providers[1].priority == -1 and "default" or "high"))
-            assert(api.lookup("low") == nil and api.lookup("negative") == nil)
-        end
-    end
-end
-
-function M.lowerTiesCanBeSupersededButHighestTiesFail()
-    for _, kind in ipairs({"digest", "checksum", "mac"}) do
-        local load = state.family(kind, {catalog(kind, "a", 0), catalog(kind, "b", 0), catalog(kind, "winner", 1),})
-        assert(load("binary." .. kind).lookup("winner"))
-        for _, providers in ipairs({
-            {catalog(kind, "a", 1), catalog(kind, "b", 1)},
-            {catalog(kind, "a", nil), catalog(kind, "b", 0)},
-            {catalog(kind, "high", 2), catalog(kind, "low", 0), catalog(kind, "alsoHigh", 2)},
-        }) do
-            local failed = state.family(kind, providers)
-            local ok, problem = pcall(failed, "binary." .. kind)
-            assert(not ok and tostring(problem):find("highest priority", 1, true), tostring(problem))
-        end
+        local load, counts = state.family(kind)
+        local api = load("binary." .. kind)
+        assert(#api.algorithms() > 0)
+        assert(load("binary." .. kind) == api)
+        assert(counts.resolutions == 1, "builtin implementation initializes once")
     end
 end
 

@@ -1,10 +1,10 @@
 @!internal
 
 --[[
-Native reactor implementation used as a built-in module fallback.
+Native reactor implementation bound to native targets.
 
 The table returned by this module implements the receiver-based protocol in
-[](io.net.spi). Listener, connection-request, stream, and datagram
+[](io.net.internal.contracts). Listener, connection-request, stream, and datagram
 handles belong to the native runtime. The implementation retains scratch buffers
 within the current Lua state, and sleeps on the process-wide readiness
 generation every native family shares.
@@ -23,7 +23,7 @@ must agree with their native representation.
 ]]
 module nupp.runtime.provider.nativenet
 
-local contract = require("io.net.spi")
+local contract = require("io.net.internal.contracts")
 local shared = require("nupp.io.net.types")
 local ffi = require("ffi")
 local ffiString: function(borrows source: const uint8[?], count: integer): string = ffi.string as any

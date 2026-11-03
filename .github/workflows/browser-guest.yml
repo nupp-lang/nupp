@@ -12,7 +12,7 @@ on:
       - 'src/os/host/**'
       - 'src/math/random.nupp'
       - 'src/math/internal/random.nupp'
-      - 'src/package/nupp/init.nupp'
+      - 'src/nupp/runtime/contracts.nupp'
       - 'src/nupp/runtime/browser/**'
       - 'tests/stdlib/os/host/fixtures/**'
       - 'bench/host-channel/**'

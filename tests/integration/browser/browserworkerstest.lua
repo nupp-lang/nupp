@@ -186,21 +186,27 @@ end
 function M.providersUseTheCanonicalScopeContract()
     local parser = require("nupp.compiler.syntax.parser")
     local fragment = require("helpers.fragment")
-    local env = require("nupp.compiler.project.env").new(os.tmpname(), {cache = false})
+    local env = require("nupp.compiler.project.env").new(require("helpers.paths").tests .. "/..", {
+        cache = false,
+        config = {include = {"src"}, _target = {host = "browser"}},
+    })
     local parsed = parser.parse(
         [[
-const spi = package
-const contracts = require("coroutine.workers.spi")
-const provider: contracts.Provider = assert(spi.providers(contracts.Provider)())
-local function open(): contracts.Scope
+module nupp.test.workercontract
+const contracts = require("nupp.workers.contracts")
+const provider: contracts.Provider = require("nupp.runtime.browser.workers")
+export function open(): contracts.Scope
     return provider.openscope()
 end
-return open
 ]],
         "worker-contract.nupp"
     )
     check.eq(#parsed.errors, 0)
-    for _, diagnostic in ipairs(fragment.check(parsed, "worker-contract.nupp", env)) do
+    for _, diagnostic in ipairs(
+        fragment.check(parsed, "worker-contract.nupp", env, {
+            moduleName = "nupp.test.workercontract"
+        })
+    ) do
         check(diagnostic.severity ~= "error", diagnostic.msg)
     end
 end

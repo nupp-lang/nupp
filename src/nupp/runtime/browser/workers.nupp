@@ -1,12 +1,12 @@
 @!internal
 
 --[[
-Browser structured-worker implementation used as a built-in module fallback.
+Browser structured-worker implementation bound to browser targets.
 
 Each lane is a module Web Worker with its own LuaJIT guest, initialized from
 the application's verified payload. The host pool exchanges copied messages;
 parallel work requires neither Wasm threads nor shared memory. Sendable function
-metadata, scopes, and task results follow [](coroutine.workers.spi).
+metadata, scopes, and task results follow [](nupp.workers.contracts).
 
 Replies become visible when the current state parks. `isdone` reflects the last
 received reply, queued cancellation settles at a park, and a running task observes
@@ -28,7 +28,7 @@ local suspension = require("nupp.suspension")
 local cancellation = require("coroutine.sus.cancellation")
 local workers = {}
 
-local contracts = require("coroutine.workers.spi")
+local contracts = require("nupp.workers.contracts")
 local type Callable = function(...: any): any
 type workers.Submittable = contracts.Submittable
 type workers.Task<F is Callable> = contracts.Task<F>
@@ -545,7 +545,7 @@ end
 local spawnSurface: function<F is workers.Submittable>(
     borrows self: workers.Scope,
     F,
-    ...: unpackof contracts.submitted(F)
+    ...: unpackof contracts.Submitted(F)
 ): workers.Task<F>
 @unsafe do
     spawnSurface = spawnImpl as any

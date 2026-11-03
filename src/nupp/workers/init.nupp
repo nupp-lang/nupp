@@ -42,7 +42,7 @@ sendable-callables` is the whole rule, and
 ]]
 module nupp.workers
 
-local contracts = require("nupp.workers.spi")
+local contracts = require("nupp.workers.contracts")
 local target = require("nupp.runtime.target")
 local provider: contracts.Provider = require("nupp.runtime.workersprovider").provider ?? do
     if target.host == "native" then

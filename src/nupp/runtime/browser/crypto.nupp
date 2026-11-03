@@ -13,13 +13,13 @@ accepts at most 1,048,576 bytes, and invalid counts fail before dispatch. Host
 crypto failures propagate through the shared browser response mechanism.
 
 The entropy and UUID services retain this module during initialization. Its
-values satisfy the interfaces in [](package.nupp) and [](package.nupp); no
-JavaScript function or provider instance is copied into a child Lua state.
+values satisfy the private runtime contracts; no JavaScript function or
+provider instance is copied into a child Lua state.
 ]]
 module nupp.runtime.browser.crypto
 
 local binary = require("binary")
-local contracts = package.nupp
+local contracts = require("nupp.runtime.contracts")
 local response = require("nupp.runtime.browser.response")
 local crypto = {}
 

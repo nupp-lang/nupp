@@ -16,7 +16,7 @@ and constructs its shared public URI values from the returned components.
 ]]
 module nupp.runtime.browser.uri
 
-local contracts = require("io.spi")
+local contracts = require("io.internal.contracts")
 const whatwg = require("nupp.io.uri.whatwg")
 local browserHost: any = rawget(_G, "__nuppBrowser")
 local provider = {}

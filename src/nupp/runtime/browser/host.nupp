@@ -26,7 +26,7 @@ module nupp.runtime.browser.host
 local effects = require("nupp.runtime.browser.effects")
 local suspension = require("nupp.suspension")
 local suspensionHost = require("coroutine.sus.host")
-local suspensionContract = require("coroutine.sus.spi")
+local suspensionContract = require("nupp.suspension.contracts")
 local values = require("nupp.host.internal.values")
 local wire = require("nupp.runtime.browser.hostwire")
 local json = require("nupp.runtime.provider.lunajson")

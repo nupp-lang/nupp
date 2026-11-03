@@ -48,6 +48,7 @@ local switchplan = require("nupp.compiler.lua.switchplan")
 local stdlib = require("nupp.compiler.stdlib")
 local native = require("nupp.compiler.native")
 local capabilities = require("nupp.compiler.capabilities")
+local targetbindings = require("nupp.compiler.targetbindings")
 local cabi = require("nupp.compiler.cinterop.cabi")
 local bit = require("nupp.compiler.bitops")
 
@@ -637,6 +638,10 @@ export function generate(
     -- discovery.
     if result.moduleName == "nupp.runtime.target" then
         return ("return {dialect=\"luajit\",host=%q}"):format(result.host or "native"), {}, nil, {}
+    end
+    local bound = targetbindings.source(result.moduleName, result.host)
+    if bound ~= nil then
+        return bound, {}, nil, {}
     end
     local out = {}
     local capabilityResolution = capabilities.resolve()

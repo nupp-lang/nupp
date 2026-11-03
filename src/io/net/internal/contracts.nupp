@@ -1,8 +1,10 @@
+@!internal
+
 --[[
-`io.net.spi` defines the network transport contract.
+`io.net.internal.contracts` defines the network transport contract.
 
 ```nupp
-local contract = io.net.spi
+local contract = io.net.internal.contracts
 local type Provider = contract.Provider
 ```
 
@@ -25,10 +27,10 @@ representation; selection cannot make unrelated transport handles interoperable.
 
 `TlsProvider` wraps network streams with TLS.
 
-The facade selects during initialization, retains the provider, and supplies its
-explicit receiver. The provider wraps an opaque
-network stream handle, so its transport representation must agree with the
-selected [](io.net.spi) implementation.
+The build binds the TLS implementation together with its network transport.
+The facade retains it and supplies its explicit receiver. The implementation
+wraps an opaque network stream handle, so both must use the same transport
+representation.
 
 Wrapping creates TLS state; handshake and I/O then report pending work to the
 facade, which drives readiness. Verification is a policy input and an observable
@@ -40,14 +42,13 @@ closenotify sends the TLS shutdown notification and may need further progress.
 destroy releases session state and the transport it owns. No method may resolve
 or switch providers.
 ]]
-module io.net.spi
+module io.net.internal.contracts
 
-local source1 = require("nupp.io.net.spi")
+local source1 = require("nupp.io.net.contracts")
 export type Provider = source1.Provider
 
 --- A TLS provider wrapping compatible network handles.
 export interface TlsProvider
-    @readonly priority: integer?
 
     --- Creates session state over a compatible network handle. The provider
     --- consumes the handle on success and failure.

@@ -20,7 +20,7 @@ handle even when a process is killed or a caller stops reading its output.
 ]]
 module nupp.runtime.provider.nativeprocess
 
-local contract = require("io.internal.process.spi")
+local contract = require("io.internal.process.contracts")
 local shared = require("io.internal.process.types")
 
 const native = require("nupp.runtime.native")
