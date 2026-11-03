@@ -65,7 +65,8 @@
         --nuppdoc-border: var(--nuppdoc-dark-border);
         --nuppdoc-code-background: var(--nuppdoc-dark-code-background);
         --nuppdoc-text: var(--nuppdoc-dark-text);
-        --nuppdoc-text-muted: var(--nuppdoc-dark-muted)
+        --nuppdoc-text-muted: var(--nuppdoc-dark-muted);
+        --nuppdoc-api-border-strength: 24%
     }
 }
 
@@ -97,7 +98,8 @@
     --nuppdoc-border: var(--nuppdoc-dark-border);
     --nuppdoc-code-background: var(--nuppdoc-dark-code-background);
     --nuppdoc-text: var(--nuppdoc-dark-text);
-    --nuppdoc-text-muted: var(--nuppdoc-dark-muted)
+    --nuppdoc-text-muted: var(--nuppdoc-dark-muted);
+    --nuppdoc-api-border-strength: 24%
 }
 
 :root[data-theme="dark"] {
@@ -126,7 +128,8 @@
     --nuppdoc-border: var(--nuppdoc-light-border);
     --nuppdoc-code-background: var(--nuppdoc-light-code-background);
     --nuppdoc-text: var(--nuppdoc-light-text);
-    --nuppdoc-text-muted: var(--nuppdoc-light-muted)
+    --nuppdoc-text-muted: var(--nuppdoc-light-muted);
+    --nuppdoc-api-border-strength: 30%
 }
 
 :root[data-theme="light"] {
@@ -2000,7 +2003,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-content > #globals ~ .nuppdoc-api-item:not(#types ~ .nuppdoc-api-item):not(#annotations ~ .nuppdoc-api-item),
 .nuppdoc-content > #annotations ~ .nuppdoc-api-item {
     --api-section-background: color-mix(in srgb, var(--nuppdoc-background) 97%, var(--nuppdoc-text));
-    --api-section-border: color-mix(in srgb, var(--api-section-background) 70%, var(--nuppdoc-text));
+    --api-section-border: color-mix(in srgb, var(--api-section-background), var(--nuppdoc-text) var(--nuppdoc-api-border-strength, 30%));
     margin: 1.35rem 0;
     padding: 0 1rem .7rem;
     border: 1px solid var(--api-section-border);
