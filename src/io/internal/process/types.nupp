@@ -13,6 +13,7 @@ export type ErrorMode = Error.Mode
 export type Options = {
     --- The program in `args[1]`, then its arguments. A program with no separator in
     --- it is resolved through `PATH` by the platform, not by this module.
+    --- Convert an `io.Path` argument with `path:tostring()`.
     args: {string},
 
     --- The child's working directory, as anything [](io.files) accepts, or nil

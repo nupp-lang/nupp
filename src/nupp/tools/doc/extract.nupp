@@ -622,10 +622,9 @@ end
 -- carry the same annotations and document the same way.
 --
 -- An overloaded binding writes an intersection of those nodes rather than one, and it
--- is still a function to whoever calls it. The widest overload speaks for the set: a
--- doc block names every parameter any overload takes, so choosing a narrower one would
--- leave some of them with nowhere to attach. The rendered signature still shows every
--- overload, because that comes from the whole written type.
+-- is still a function to whoever calls it. The widest overload supplies the
+-- established parameter order; callable bindings add the arguments and result
+-- alternatives from the other arms. The full written type supplies the signature.
 local function typeFunction(node)
     if not node then
         return nil
@@ -654,6 +653,20 @@ local function typeFunction(node)
     end
 
     return widest, overloads
+end
+
+-- An explicit annotation wins over an initializer cast. Parentheses around the
+-- initializer do not hide its public contract; an outer cast to any still does.
+local function bindingType(stat)
+    if stat.types and stat.types[1] then
+        return stat.types[1]
+    end
+    local value = stat.exprs and stat.exprs[1]
+    while value and value.kind == "paren" do
+        value = value.expr
+    end
+
+    return value and value.kind == "castExpr" and value.type or nil
 end
 
 --- Returns a callable metamethod's type without its implicit receiver.
@@ -803,6 +816,67 @@ local function typeFunctionDetails(node, info)
     end
     for index, value in ipairs(declaredResults(node)) do
         details.returns[#details.returns + 1] = {type = syntax(value), text = info.returns[index] or "",}
+    end
+
+    return details
+end
+
+-- A binding's overloads may have different parameter names and result types.
+-- Keep every named argument and result alternative beside the full signature.
+local function bindingFunctionDetails(node, info)
+    local widest, overloads = typeFunction(node)
+    if #overloads == 1 then
+        return typeFunctionDetails(widest, info)
+    end
+    local details = {params = {}, returns = {}}
+    local parameterTypes, parameters, arms = {}, {}, {}
+    for index, param in ipairs(typeFunctionDetails(widest, info).params) do
+        local key = (param.mode or "") .. ":" .. (param.name == "?" and tostring(index) or param.name)
+        parameters[key] = param
+        parameterTypes[key] = {}
+        details.params[#details.params + 1] = param
+    end
+    local resultCount = 0
+
+    local function joined(parts)
+        local seen, unique = {}, {}
+        for _, part in ipairs(parts) do
+            if not seen[part] then
+                seen[part] = true
+                unique[#unique + 1] = part
+            end
+        end
+        if #unique == 1 then
+            return unique[1]
+        end
+
+        return "(" .. table.concat(unique, ") | (") .. ")"
+    end
+
+    for _, overload in ipairs(overloads) do
+        local arm = typeFunctionDetails(overload, info)
+        arms[#arms + 1] = arm
+        resultCount = math.max(resultCount, #arm.returns)
+        for index, param in ipairs(arm.params) do
+            local key = (param.mode or "") .. ":" .. (param.name == "?" and tostring(index) or param.name)
+            if not parameters[key] then
+                parameters[key] = param
+                parameterTypes[key] = {}
+                details.params[#details.params + 1] = param
+            end
+            local types = parameterTypes[key]
+            types[#types + 1] = param.type
+        end
+    end
+    for key, param in pairs(parameters) do
+        param.type = joined(parameterTypes[key])
+    end
+    for index = 1, resultCount do
+        local alternatives = {}
+        for _, arm in ipairs(arms) do
+            alternatives[#alternatives + 1] = arm.returns[index] and arm.returns[index].type or "nil"
+        end
+        details.returns[index] = {type = joined(alternatives), text = info.returns[index] or ""}
     end
 
     return details
@@ -1461,14 +1535,15 @@ declarationItem = function(
         end
         name, kind = publishedAs or stat.names[1].text, "variable"
         signature = (stat.isConst and "const " or "local ") .. name
-        if stat.types[1] then
-            signature = signature .. ": " .. syntax(stat.types[1])
+        local declared = bindingType(stat)
+        if declared then
+            signature = signature .. ": " .. syntax(declared)
         end
-        if typeFunction(stat.types[1]) then
+        if typeFunction(declared) then
             kind = "function"
             public = public or (published or {})[stat.names[1].text] == true
         end
-        itemComptimeKind = comptimeKind(stat.types[1])
+        itemComptimeKind = comptimeKind(bindingType(stat))
     elseif stat.kind == "assignStmt" and stat.isConst and #stat.targets == 1 and #stat.exprs == 1 and moduleLocal then
         local owner, member = syntax(stat.targets[1]):match("^([%w_]+)%.([%w_]+)$")
         if owner ~= moduleLocal then
@@ -1559,7 +1634,7 @@ declarationItem = function(
         end
         item.annotation = {arguments = "typed", targets = targets}
     end
-    local declaredFunction = stat.kind == "localStmt" and typeFunction(stat.types and stat.types[1])
+    local declaredFunction = stat.kind == "localStmt" and typeFunction(bindingType(stat))
         or stat.kind == "typeAlias" and typeFunction(stat.value)
         or nil
     if stat.kind == "typeAlias" then
@@ -1575,7 +1650,8 @@ declarationItem = function(
         local details = functionDetails(stat, info)
         item.params, item.returns = details.params, details.returns
     elseif declaredFunction then
-        local details = typeFunctionDetails(declaredFunction, info)
+        local details = stat.kind == "localStmt" and bindingFunctionDetails(bindingType(stat), info)
+            or typeFunctionDetails(declaredFunction, info)
         item.params, item.returns = details.params, details.returns
     elseif stat.kind == "typeAlias" and stat.value and stat.value.kind == "tshape" then
         item.members = buildMembers(stat.value.fields, item.path, includePrivate, info.fields)
@@ -2177,7 +2253,7 @@ export function extract(source: string, path: string?, name: string, opts: Optio
                     and declaration.name.text
                     or declaration.kind == "localStmt"
                     and #declaration.names == 1
-                    and typeFunction(declaration.types[1])
+                    and typeFunction(bindingType(declaration))
                     and declaration.names[1].text
                     or nil
                 local aliases = localName and publicAliases[localName] or nil

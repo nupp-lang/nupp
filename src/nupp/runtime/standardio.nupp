@@ -460,7 +460,6 @@ export const newwriter = source1.newWriter
 export const readall = source1.readAll
 
 const {type Process as ChildProcess} = require("io.internal.process")
-local processTypes = require("io.internal.process.types")
 
 export type Process = ChildProcess
 
@@ -570,7 +569,14 @@ local function outputFile(file: any): any
 end
 
 --- Opens a file from a filename or path using Lua file modes.
---- @param path the file to open
+---
+--- ```nupp
+--- local path = io.newpath("README.md")
+--- local file = assert(io.open(path, "r"))
+--- print(file:read("*a"))
+--- ```
+---
+--- @param path the filename or `io.Path` to open
 --- @param mode the mode to open it in, "r" by default
 --- @return the owned file handle, or nil on failure
 --- @return a failure reason, when unsuccessful
@@ -618,10 +624,45 @@ end
 
 --- Starts a child from an argument vector or opens a Lua shell pipe.
 ---
---- A table supplies process options and returns an owned process. A command string
---- follows Lua's `io.popen` behavior and returns an owned file handle.
+--- A [](io.Process.Options) table starts the program in `args[1]` directly,
+--- without shell parsing, and returns an owned [](io.Process). Arguments are
+--- separate strings; `cwd` also accepts an [](io.Path). `communicate` feeds
+--- stdin and drains stdout and stderr together, then returns the exit and output.
+---
+--- ```nupp
+--- local child = assert(io.popen({
+---     args = {"git", "status", "--short"},
+---     cwd = assert(io.cwd()),
+---     timeoutms = 5000,
+--- }))
+--- local result = assert(child:communicate())
+--- print(result.output)
+--- if not result:succeeded() then
+---     print(result.erroroutput)
+--- end
+--- ```
+---
+--- A command string invokes the shell and returns an owned [](io.File), with
+--- one pipe selected by `mode`. The shell command must be a string.
+---
+--- ```nupp
+--- local pipe = assert(io.popen("git status --short", "r"))
+--- print(pipe:read("*a"))
+--- ```
+---
+--- Owners close at their lexical scope boundary. A process also exposes `pid`,
+--- `stdin`, `stdout`, `stderr`, `poll`, `wait`, and `kill` for direct control.
+--- See [](io.Process) for these operations and [](io.Process.Options) for
+--- environment, stream routing, and timeout options.
+---
+--- @param options the program, arguments and child process options
+--- @param cmd the shell command for the string form
+--- @param mode the shell pipe mode, "r" by default
+--- @return the owned Process for options, or owned File for a command string; nil on
+---     failure
+--- @return an `io.Error` for options, or a string for a command string, on failure
 export const popen = openProcess as(
-    function(options: processTypes.Options): (affine(Process)?, Error?)
+    function(options: Process.Options): (affine(Process)?, Error?)
     & function(cmd: string, mode: string?): (affine(io.File, __nuppCloseFile)?, string?)
 )
 

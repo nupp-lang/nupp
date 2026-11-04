@@ -610,6 +610,64 @@ function read(handle: any, mode: string?): any end
     assert(owned.items[1].lua or owned.items[2].lua, "builtin Lua provenance disappeared")
 end
 
+function M.castedFunctionBindingsKeepSourceContractsAndOverloadDetails()
+    local owned = assert(
+        doc.extract(
+            [[
+module io
+--- Opens a filename or path.
+--- @param path the filename
+export const open = implementation as function(path: string | Path): File
+--- Starts a child or opens a shell pipe.
+--- @param options the child options
+--- @param cmd the shell command
+--- @param mode the pipe mode
+--- @return the acquired owner
+--- @return the failure reason
+export const popen = (implementation as (function(options: Process.Options): (Process?, Error?)
+    & function(cmd: string, mode: string?): (File?, string?)))
+export const erased = (implementation as function(): string) as any
+export const annotated: function(value: integer): integer = implementation as any
+export const anonymous = implementation as ((function(string): integer) & (function(string, boolean): boolean))
+]],
+            "src/io.nupp",
+            "io"
+        )
+    )
+    local builtin = assert(
+        doc.extract(
+            [[
+local open: function(path: string): File
+local popen: function(cmd: string, mode: string?): File
+]],
+            "decls/io.d.nupp",
+            "io"
+        )
+    )
+    require("nupp.tools.doc.stdlib").merge({owned}, {
+        path = "api",
+        title = "API",
+        modules = {builtin},
+        globalItems = {},
+        typeItems = {},
+        annotationItems = {},
+        navigation = {globals = {}},
+    })
+    local items = {}
+    for _, item in ipairs(owned.items) do
+        items[item.name] = item
+    end
+    assert(items.open.kind == "function" and items.open.signature:find("string | Path", 1, true))
+    assert(items.popen.kind == "function" and items.popen.signature:find("Process.Options", 1, true))
+    assert(#items.popen.params == 3 and items.popen.params[3].name == "options")
+    assert(items.popen.params[3].text == "the child options")
+    assert(items.popen.returns[1].type == "(Process?) | (File?)")
+    assert(items.popen.returns[2].type == "(Error?) | (string?)")
+    assert(items.erased.kind == "variable" and not items.erased.signature:find("function", 1, true))
+    assert(items.annotated.kind == "function" and items.annotated.params[1].name == "value")
+    assert(#items.anonymous.params == 2, "unnamed parameters retain their separate positions")
+end
+
 function M.functionDocumentationKeepsCoroutineProtocolsBeforeResults()
     local source = [[
 --- Produces a value and receives its continuation flag.
@@ -761,7 +819,9 @@ end
     assert(items.invoke.kind == "function" and items.invoke.typeargs[1].name == "V")
     assert(items.choose.kind == "function" and #items.choose.params == 2)
     assert(items.choose.params[2].name == "label" and items.choose.params[2].text == "the optional label")
-    assert(items.choose.returns[1].type == "string" and items.choose.returns[1].text == "the selected value")
+    assert(
+        items.choose.returns[1].type == "(number) | (string)" and items.choose.returns[1].text == "the selected value"
+    )
     assert(items.choose.signature:find("&", 1, true), "overload signature was flattened")
     assert(items.build.comptimeKind == "function" and #items.build.params == 2)
     assert(items.mixed.kind == "function" and items.mixed.comptimeKind == nil)
