@@ -11,6 +11,59 @@ local STRING_CONSTANT = 0x7ffe000000000000
 -- offset; a negative NaN, which no checked float constant can be.
 local INTEGER_CONSTANT = 0xfffe000000000000
 
+-- The most bytes an artifact may hold.
+local ARTIFACT_BOUND: integer = 1073741824
+local ZERO_WORD = string.rep("\0", 8)
+-- Zero padding is joined from runs of this many bytes at most.
+local ZERO_RUN = string.rep("\0", 65536)
+
+-- A word's eight little-endian bytes.
+local function encode(value: int64): string
+    return string.char(
+        value & 255,
+        (value >> 8) & 255,
+        (value >> 16) & 255,
+        (value >> 24) & 255,
+        (value >> 32) & 255,
+        (value >> 40) & 255,
+        (value >> 48) & 255,
+        (value >> 56) & 255
+    )
+end
+
+-- The `bytes` an artifact holds: each piece at its offset, zeros between and
+-- after. Pieces never overlap; the parts joined are the pieces and bounded
+-- zero runs, so no part is a byte of its own.
+local function assemble(pieces: {[integer]: string}, bytes: integer): string
+    local offsets: {integer} = {}
+    for at in pairs(pieces) do
+        offsets[#offsets + 1] = at
+    end
+    table.sort(offsets)
+    local parts: {string} = {}
+    local cursor: integer = 0
+
+    local function zeros(count: integer): nil
+        while count > 0 do
+            local length = math.min(count, #ZERO_RUN) as integer
+            parts[#parts + 1] = length == #ZERO_RUN and ZERO_RUN or ZERO_RUN:sub(1, length)
+            count -= length
+        end
+    end
+
+    for _, at in ipairs(offsets) do
+        assert(at >= cursor, "overlapping guest artifact pieces")
+        zeros(at - cursor)
+        local piece = pieces[at] as string
+        parts[#parts + 1] = piece
+        cursor = at + #piece
+    end
+    assert(cursor <= bytes, "guest artifact piece past its end")
+    zeros(bytes - cursor)
+
+    return table.concat(parts)
+end
+
 -- True when an int64 constant's little-endian bytes do not fit the signed
 -- 48-bit immediate.
 local function wide(bytes: string): boolean
@@ -144,27 +197,47 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             end
         end
     end
-    assert(cursor <= 1073741824 and cursor % 8 == 0, "guest artifact byte budget")
-    local bytes = {}
-    for index = 1, cursor do
-        bytes[index] = 0
+    assert(cursor <= ARTIFACT_BOUND and cursor % 8 == 0, "guest artifact byte budget")
+    -- The artifact is written as pieces at their offsets, each a whole record,
+    -- word run or payload, and joined in offset order with zeros between.
+    local pieces: {[integer]: string} = {}
+
+    local function place(at: integer, piece: string): nil
+        assert(at >= 0 and at + #piece <= cursor and pieces[at] == nil, "guest artifact piece")
+        pieces[at] = piece
     end
 
     local function word(at: integer, value: int64): nil
-        assert(at >= 0 and at % 8 == 0 and at + 8 <= cursor)
-        for byte = 0, 7 do
-            bytes[at + byte + 1] = (value >> (byte * 8)) & 255
+        assert(at % 8 == 0)
+        place(at, encode(value))
+    end
+
+    -- The words a value per instruction, or per parameter, makes, at `at`.
+    local function run(at: integer, list: {any}, map: (function(any): int64)?): nil
+        local words: {string} = {}
+        for index, value in ipairs(list) do
+            words[index] = encode(map and map(value) or value as int64)
+        end
+        if #words > 0 then
+            assert(at % 8 == 0)
+            place(at, table.concat(words))
         end
     end
 
     local function fields(name: string, base: integer, values: any): nil
         local layout = layouts[name]
+        local words: {string} = {}
+        for index = 1, layout.size // 8 do
+            words[index] = ZERO_WORD
+        end
         for key, value in pairs(values) do
-            word((base + assert(layout.offsets[key], "catalog field")) as integer, value)
+            words[(assert(layout.offsets[key], "catalog field") as integer) // 8 + 1] = encode(value)
         end
         for _, field in ipairs(layout.fields) do
             assert(values[field.name] ~= nil, "missing catalog field " .. field.name)
         end
+        assert(base % 8 == 0)
+        place(base, table.concat(words))
     end
 
     local function kind(name: string): integer
@@ -255,18 +328,14 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             or 0
         })
         if lineOffsets[index] then
-            for pc, line in ipairs(fn.lines) do
-                word((lineOffsets[index] + (pc - 1) * 8) as integer, line)
-            end
+            run(lineOffsets[index], fn.lines)
         end
         nextCall += #fn.calls
         word((targetOffset + (index - 1) * 8) as integer, owner.id)
-        for ci, constant in ipairs(fn.constants) do
-            -- A static module name is checked in the graph and encoded as a
-            -- target owner in Require. It has no runtime value-pool payload.
-            word(
-                (constantOffsets[index] + (ci - 1) * 8) as integer,
-                constant.kind == "num" and version >= 3 and floatBits(constant.value)
+        -- A static module name is checked in the graph and encoded as a
+        -- target owner in Require. It has no runtime value-pool payload.
+        run(constantOffsets[index], fn.constants, function(constant: any): int64
+            return constant.kind == "num" and version >= 3 and floatBits(constant.value)
                 or constant.kind == "int64"
                 and version >= 8
                 and wide(constant.value)
@@ -274,10 +343,9 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
                 or constant.kind == "int64" and version >= 6 and integerBits(constant.value)
                 or constant.kind == "str" and version >= 8 and STRING_CONSTANT | assert(stringOffsets[constant.value])
                 or assert(constants[constant.kind] or constant.kind == "str" and constants["nil"])
-            )
-        end
-        for byte = 1, #fn.code do
-            bytes[codeOffsets[index] + byte] = fn.code:byte(byte)
+        end)
+        if #fn.code > 0 then
+            place(codeOffsets[index], fn.code)
         end
     end
     if version ~= 1 then
@@ -292,9 +360,9 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             resultKind = kind(signature.result),
             parameters = parameterOffsets[index]
         })
-        for pi, parameter in ipairs(signature.params) do
-            word((parameterOffsets[index] + (pi - 1) * 8) as integer, kind(parameter))
-        end
+        run(parameterOffsets[index], signature.params, function(parameter: any): int64
+            return kind(parameter)
+        end)
     end
     for index, entry in ipairs(calls) do
         local call = entry.call
@@ -312,43 +380,33 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             spread = call.spread and 1 or 0
         })
     end
-    for index, offset in ipairs(dispatch) do
+    for _, offset in ipairs(dispatch) do
         assert(
             codeBytes > 0 and codeBytes < 134217728 and offset >= 0 and offset % 4 == 0 and offset + 4 <= codeBytes,
             "selected handler offset"
         )
-        word((dispatchOffset + (index - 1) * 8) as integer, offset)
     end
+    run(dispatchOffset, dispatch)
     if version >= 8 then
-        word(raiseOffset, #raiseList)
-        for index, raising in ipairs(raiseList) do
-            local at = (raiseOffset + 8 + (index - 1) * 24) as integer
-            word(at, raising.id)
-            word(at + 8, raising.site)
-            word(at + 16, assert(stringOffsets[raising.literal]))
+        local raised: {int64} = {#raiseList}
+        for _, raising in ipairs(raiseList) do
+            raised[#raised + 1] = raising.id
+            raised[#raised + 1] = raising.site
+            raised[#raised + 1] = assert(stringOffsets[raising.literal])
         end
+        run(raiseOffset, raised)
     end
     for _, text in ipairs(stringOrder) do
-        local at = assert(stringOffsets[text])
-        word(at, #text)
-        for byte = 1, #text do
-            bytes[at + 8 + byte] = text:byte(byte)
-        end
+        place(assert(stringOffsets[text]), encode(#text) .. text)
     end
     for _, raw in ipairs(integerOrder) do
-        local at = assert(integerOffsets[raw])
-        for byte = 1, 8 do
-            bytes[at + byte] = raw:byte(byte)
-        end
-    end
-    local chunks = {}
-    for at = 1, cursor, 64 do
-        chunks[#chunks + 1] = string.char(unpack(bytes, at, math.min(at + 63, cursor)))
+        assert(#raw == 8, "checked integer constant width")
+        place(assert(integerOffsets[raw]), raw)
     end
     executable.validate(code)
 
     return {
-        bytes = table.concat(chunks),
+        bytes = assemble(pieces, cursor),
         layouts = layouts,
         dispatchOffset = dispatchOffset,
         codeOffsets = codeOffsets,
