@@ -359,7 +359,7 @@ function producer.selectUnits(
         audit(source, source.selected, output, scenario)
     end
     local linked = os.clock()
-    local packed = writer.encode(source.executable, source.scopes, output.dispatch, #output.words * 4)
+    local packed = writer.encode(source.executable, source.scopes, output.dispatch, #output.words * 4, source.raises)
     local encoded = os.clock()
     local result = publish(source, output, packed, mode, caseName, source.metrics, {})
     timings.shim = (timings.shim or 0) + linked - built

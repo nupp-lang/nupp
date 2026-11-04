@@ -158,6 +158,7 @@ local CASES = {
     {"tablesfrozen", 0x7FFF000000000FFF},
     {"serdejson", 0x7FFF000000000003},
     {"modulesretry", 0x7FFF00000000007F},
+    {"errorsruntime", 0x7FFF00000000001F},
     -- 600 functions, past the 256 owners the graph schema once admitted.
     {"functionsmany", 0x7FFF00000002C04C}
 }
@@ -206,7 +207,8 @@ local STRESS = {
     tablesfrozen = true,
     serdejson = true,
     functionsmany = true,
-    modulesretry = true
+    modulesretry = true,
+    errorsruntime = true
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
@@ -287,7 +289,8 @@ local NUMERIC = {
     modulesdynamic = "catalog-modules-dynamic",
     libraryvalues = "catalog-library-values",
     callsoverflow = "catalog-calls-overflow",
-    modulesretry = "catalog-modules-retry"
+    modulesretry = "catalog-modules-retry",
+    errorsruntime = "catalog-errors-runtime"
 }
 local FIXTURES = {
     "catalog-boolean",

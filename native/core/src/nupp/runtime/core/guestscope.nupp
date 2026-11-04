@@ -62,6 +62,9 @@ export struct Services
     libraryRaised: uint64
     -- 1 when the library call is in method form (`s:rep(n)`).
     libraryMethod: uint64
+    -- 1 from a library call's start until it returns: an error the runtime's
+    -- own code raises meanwhile is positioned at that call.
+    libraryActive: uint64
     -- The coroutine running (`threads`), as a value rooted for as long as it
     -- runs, or 0 on the main one; and the main one's thread, once
     -- coroutine.running has made one.
@@ -225,6 +228,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("libraryName"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("libraryCount"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("libraryRaised"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("libraryActive"), 0ULL)
     end
 
     return 1ULL
@@ -1246,6 +1250,18 @@ export function librarySite(ctx: voidptr, frame: voidptr, pc: voidptr, count: ui
             index = (address - code) // 16ULL
         end
         native.store64(services, native.fieldOffset<Services>("libraryPc"), index)
+        native.store64(services, native.fieldOffset<Services>("libraryActive"), 1ULL)
+    end
+end
+
+-- After a library call returns: what the runtime raises next is not its.
+export function libraryReturned(ctx: voidptr): nil
+    @unsafe do
+        native.store64(
+            native.loadPointer(ctx, context.SERVICE_SCOPE),
+            native.fieldOffset<Services>("libraryActive"),
+            0ULL
+        )
     end
 end
 
@@ -1801,6 +1817,54 @@ export function takeLanded(ctx: voidptr): uint64
     end
 end
 
+-- The text of the runtime's own `error("...")` that recorded `owner` and
+-- `site` in the scope, as a string, or 0: the program carries the runtime's
+-- raise texts after its dispatch table (`guestartifact`), from v8.
+local function raiseText(ctx: voidptr, owner: uint64, site: uint64): uint64
+    @unsafe do
+        local c = native.loadPointer(ctx, context.CATALOG)
+        local data = native.load64(c, native.fieldOffset<catalog.Catalog>("data"))
+        local bytes = native.load64(c, native.fieldOffset<catalog.Catalog>("dataBytes"))
+        local base = native.pointer(data)
+        if native.load64(base, native.fieldOffset<catalog.Descriptor>("version")) < 8ULL then
+            return 0ULL
+        end
+        local at = native.load64(
+            base,
+            native.fieldOffset<catalog.Descriptor>("dispatch")
+        ) + native.load64(base, native.fieldOffset<catalog.Descriptor>("handlerCount")) * 8ULL
+        if at > bytes or bytes - at < 8ULL then
+            return 0ULL
+        end
+        local count = native.load64(native.pointer(data + at), 0)
+        if count > (bytes - at - 8ULL) // 24ULL then
+            return 0ULL
+        end
+        local i: uint64 = 0ULL
+        while i < count do
+            local entry = native.pointer(data + at + 8ULL + i * 24ULL)
+            if native.load64(entry, 0) == owner and native.load64(entry, 8) == site then
+                local text = native.load64(entry, 16)
+                if text > bytes or bytes - text < 8ULL then
+                    return 0ULL
+                end
+                local length = native.load64(native.pointer(data + text), 0)
+                if length > bytes - text - 8ULL then
+                    return 0ULL
+                end
+                local made = makeString(ctx, data + text + 8ULL, length)
+                if made == 0ULL then
+                    return 0ULL
+                end
+                return values.TAG_OBJ | made
+            end
+            i = i + 1ULL
+        end
+
+        return 0ULL
+    end
+end
+
 -- The frame an error unwinds to the protected call of: the nearest protected
 -- frame, or 0 when there is none.
 local function protectedFrame(state: voidptr): uint64
@@ -1882,6 +1946,28 @@ export function recoverEntry(ctx: voidptr): uint64
             failedIndex = native.load64(services, native.fieldOffset<Services>("libraryPc"))
             located = true
         end
+        -- The runtime's own error("..."): its text, positioned at the library
+        -- call it raised in, as Lua positions a library's error.
+        local inLibrary = native.load64(services, native.fieldOffset<Services>("libraryActive")) == 1ULL
+        native.store64(services, native.fieldOffset<Services>("libraryActive"), 0ULL)
+        local literal = false
+        if value == 0ULL
+            and scopeError == 1ULL
+            and native.load64(services, native.fieldOffset<Services>("fault")) == 0ULL
+        then
+            local text = raiseText(ctx, scopeOwner, scopeSite)
+            if text ~= 0ULL then
+                value, level, literal = text, 0ULL, true
+                if inLibrary then
+                    level = 1ULL
+                    if not located then
+                        failedOwner = native.load64(services, native.fieldOffset<Services>("libraryOwner"))
+                        failedIndex = native.load64(services, native.fieldOffset<Services>("libraryPc"))
+                        located = true
+                    end
+                end
+            end
+        end
         if value == 0ULL then
             value = runtimeError(ctx)
             level = 1ULL
@@ -1896,7 +1982,7 @@ export function recoverEntry(ctx: voidptr): uint64
                 native.load64(ctx, context.ERROR_OWNER),
                 native.load64(ctx, context.ERROR_PC)
             )
-        elseif native.load64(services, native.fieldOffset<Services>("libraryRaised")) == 1ULL then
+        elseif native.load64(services, native.fieldOffset<Services>("libraryRaised")) == 1ULL or literal then
             value = positioned(
                 ctx,
                 value,
@@ -1990,6 +2076,7 @@ export function recovered(ctx: voidptr): nil
         native.store64(services, native.fieldOffset<Services>("raisedLevel"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("fault"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("libraryRaised"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("libraryActive"), 0ULL)
     end
 end
 

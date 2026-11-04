@@ -9,6 +9,7 @@ local arm = require("s0.arm64")
 local allocate = require("s0.allocate")
 local selector = require("s0.select")
 local service = require("nupp.compiler.vm.nativeservice")
+local nativeunit = require("nupp.compiler.vm.nativeunit")
 local lower = require("nupp.compiler.vm.lower")
 local base = require("nupp.compiler.vm.nativegraph")
 local cleanup = require("nupp.compiler.vm.nativecleanup")
@@ -129,6 +130,25 @@ local function selectCode(result: any, mode: string): any
     return code
 end
 
+-- The literal raises (`error("...")`) in an owner's body, by the site its
+-- failure records: the ordinal of the call among the owner's occurrences.
+local function literalRaises(owner: any): {any}
+    local found = {}
+    for ordinal, node in ipairs(nativeunit.occurrences(owner)) do
+        if type(node) == "table" and node.kind == "call" then
+            local raising = nativeunit.literalRaise(owner, node)
+            if raising then
+                found[#found + 1] = {site = ordinal, literal = raising.literal}
+            end
+        end
+    end
+    table.sort(found, function(a: any, b: any): boolean
+        return a.site < b.site
+    end)
+
+    return found
+end
+
 -- Lowers and selects every function of a unit build through the
 -- content-addressed code cache. `handlers` names the owners lowered with the
 -- handler ABI; every other owner is a leaf. Answers each function's code and
@@ -146,8 +166,17 @@ function runner.select(
     local resolved, owners = {}, service.owners(build.catalog)
     local byName = {}
     local paths = {}
-    for _, owner in ipairs(owners) do
+    -- A function that raises records its owner id (its place in the
+    -- catalog) in its code, so its key carries the id; `raises` lists every
+    -- raise by id and site, for the texts the guest reports.
+    local ids: {[string]: integer} = {}
+    local raises = {}
+    for id, owner in ipairs(owners) do
         local name = owner.scope.name .. "." .. owner.name
+        for _, raising in ipairs(literalRaises(owner)) do
+            ids[name] = id
+            raises[#raises + 1] = {id = id, site = raising.site, literal = raising.literal}
+        end
         byName[name] = owner
         paths[owner.scope.name] = owner.scope.path
         owner.nativeABI = handlers and handlers[name] and "handler" or "leaf"
@@ -168,7 +197,7 @@ function runner.select(
         ] = digestOf(
             "allocation\0" .. mode .. "\0" .. owner.nativeABI .. "\0" .. compiler .. "\0" .. (
                 modules[owner.scope.name] or ""
-            ) .. "\0" .. name
+            ) .. "\0" .. name .. (ids[name] and "\0owner " .. tostring(ids[name]) or "")
         )
         local cached = cacheDirectory and readFile(cacheDirectory .. "/" .. keys[name] .. ".json")
         if cached then
@@ -231,7 +260,7 @@ function runner.select(
     end
     phase("selection")
 
-    return {codes = codes, owners = byName, ownerCount = #owners, selected = #missing}
+    return {codes = codes, owners = byName, ownerCount = #owners, selected = #missing, raises = raises}
 end
 
 -- `fixtures` is a list of {moduleName, path, include}; `entries` lists the

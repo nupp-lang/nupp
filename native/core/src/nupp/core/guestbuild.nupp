@@ -151,6 +151,7 @@ local CASES: {[string]: {
         version = 8,
         modules = {"catalog-modules-tally", "catalog-modules-faulty"}
     },
+    errorsruntime = {fixture = "catalog-errors-runtime", version = 8},
     tablesfrozen = {fixture = "catalog-tables-frozen", version = 8}
 }
 
@@ -339,7 +340,14 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
             calls = #code.fixupName
         }
     end
-    held = {codes = chosen.codes, owners = chosen.owners, scopes = scopes, timings = timings, metrics = metrics}
+    held = {
+        codes = chosen.codes,
+        owners = chosen.owners,
+        scopes = scopes,
+        timings = timings,
+        metrics = metrics,
+        raises = chosen.raises
+    }
     runtimes[kind .. ":" .. mode] = held
 
     return held
@@ -641,7 +649,9 @@ function build.guest(caseName: string, mode: string, cacheDirectory: string?, au
         audited = audited == true,
         refusals = {},
         timings = held.timings,
-        metrics = held.metrics
+        metrics = held.metrics,
+        -- The runtime's literal raises, whose texts the guest's errors carry.
+        raises = held.raises
     }
 end
 

@@ -21,7 +21,9 @@ end
 -- This writes a trusted checked-source artifact, not a native loader token.
 -- The closed producer retains executable issuance and the exact checked layout
 -- owners through final publication; a structurally copied layout grants nothing.
-function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes: integer): any
+-- `raises` lists the runtime's literal raises ({id, site, literal}), whose
+-- texts a v8 program carries for the errors they raise.
+function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes: integer, raises: {any}?): any
     executable.validate(code)
     assert(#dispatch >= 1 and #dispatch <= 256, "guest dispatch extent")
     local scope = assert(scopes["nupp.runtime.core.guestcatalog"])
@@ -83,6 +85,13 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     end
     local dispatchOffset = cursor
     cursor += #dispatch * 8
+    -- From v8 the runtime's raise texts come first after the dispatch table:
+    -- a count, then the owner id, site and string payload offset of each.
+    local raiseList: {any} = raises or {}
+    local raiseOffset = cursor
+    if version >= 8 then
+        cursor += 8 + #raiseList * 24
+    end
     -- From v8 string constants are payloads after the dispatch table: a length
     -- word, the bytes and a NUL. Their constant word is STRING_CONSTANT over
     -- the payload's offset.
@@ -104,6 +113,16 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
                     integerOrder[#integerOrder + 1] = constant.value
                     cursor += 8
                 end
+            end
+        end
+    end
+    if version >= 8 then
+        for _, raising in ipairs(raiseList) do
+            local text = raising.literal as string
+            if stringOffsets[text] == nil then
+                stringOffsets[text] = cursor
+                stringOrder[#stringOrder + 1] = text
+                cursor += 8 + ((#text + 8) // 8) * 8
             end
         end
     end
@@ -298,6 +317,15 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             "selected handler offset"
         )
         word((dispatchOffset + (index - 1) * 8) as integer, offset)
+    end
+    if version >= 8 then
+        word(raiseOffset, #raiseList)
+        for index, raising in ipairs(raiseList) do
+            local at = (raiseOffset + 8 + (index - 1) * 24) as integer
+            word(at, raising.id)
+            word(at + 8, raising.site)
+            word(at + 16, assert(stringOffsets[raising.literal]))
+        end
     end
     for _, text in ipairs(stringOrder) do
         local at = assert(stringOffsets[text])
