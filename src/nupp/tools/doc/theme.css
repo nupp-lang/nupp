@@ -33,7 +33,7 @@
     --nuppdoc-code-background: var(--nuppdoc-light-code-background);
     --nuppdoc-text: var(--nuppdoc-light-text);
     --nuppdoc-text-muted: var(--nuppdoc-light-muted);
-    --nuppdoc-nav-guide: color-mix(in srgb, var(--nuppdoc-background) 80%, var(--nuppdoc-text));
+    --nuppdoc-subtle-border: color-mix(in srgb, var(--nuppdoc-background) 80%, var(--nuppdoc-text));
     --nuppdoc-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     --nuppdoc-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     --nuppdoc-header-height: 64px;
@@ -46,7 +46,6 @@
 }
 
 :root {
-    --nuppdoc-syntax-foreground: #3760bf;
     --nuppdoc-syntax-boolean: #b15c00;
     --nuppdoc-syntax-comment: #848cb5;
     --nuppdoc-syntax-function: #2e7de9;
@@ -80,7 +79,6 @@
 
 @media(prefers-color-scheme:dark) {
     :root {
-        --nuppdoc-syntax-foreground: #c0caf5;
         --nuppdoc-syntax-boolean: #ff9e64;
         --nuppdoc-syntax-comment: #565f89;
         --nuppdoc-syntax-function: #7aa2f7;
@@ -112,7 +110,6 @@
 }
 
 :root[data-theme="dark"] {
-    --nuppdoc-syntax-foreground: #c0caf5;
     --nuppdoc-syntax-boolean: #ff9e64;
     --nuppdoc-syntax-comment: #565f89;
     --nuppdoc-syntax-function: #7aa2f7;
@@ -143,7 +140,6 @@
 }
 
 :root[data-theme="light"] {
-    --nuppdoc-syntax-foreground: #3760bf;
     --nuppdoc-syntax-boolean: #b15c00;
     --nuppdoc-syntax-comment: #848cb5;
     --nuppdoc-syntax-function: #2e7de9;
@@ -381,7 +377,7 @@ input {
 
 .nuppdoc-outline ol {
     padding-left: 1rem;
-    border-left: 1px solid var(--nuppdoc-nav-guide)
+    border-left: 1px solid var(--nuppdoc-subtle-border)
 }
 
 .nuppdoc-outline a {
@@ -503,7 +499,7 @@ input {
 .nuppdoc-content pre {
     overflow: auto;
     padding: .8rem .9rem;
-    border: 1px solid var(--nuppdoc-border);
+    border: 1px solid var(--nuppdoc-subtle-border);
     border-radius: 8px;
     background: transparent;
     line-height: 1.65
@@ -753,7 +749,6 @@ input {
     --nuppdoc-hero-glow-blur: 24px;
     --nuppdoc-hero-glow-opacity: .68;
     --nuppdoc-code-block-radius: 8px;
-    --nuppdoc-playground-border: color-mix(in srgb, var(--nuppdoc-border) 70%, var(--nuppdoc-text));
     --nuppdoc-code-tab-text: var(--nuppdoc-text-muted);
     --nuppdoc-code-tab-hover-text: var(--nuppdoc-text);
     --nuppdoc-code-tab-active-text: var(--nuppdoc-text);
@@ -877,7 +872,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     display: block;
     overflow: hidden;
     margin: 1.25rem 0;
-    border: 1px solid var(--nuppdoc-border);
+    border: 1px solid var(--nuppdoc-subtle-border);
     border-radius: var(--nuppdoc-code-block-radius);
     background: transparent;
     box-shadow: none
@@ -1038,6 +1033,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 /* A Nupp or ```playground fence. The custom element owns its editor chrome and
  * sizes naturally in the page; long sources scroll inside CodeMirror. */
 .nuppdoc-playground {
+    --nuppdoc-border: var(--nuppdoc-subtle-border);
     display: block;
     width: 100%;
     margin: 3rem 0 1rem
@@ -1179,8 +1175,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-sidebar-section ul,
 .nuppdoc-sidebar-section .nuppdoc-module-tree,
 .nuppdoc-module-branch .nuppdoc-module-tree {
-    padding: 4px 0 0 var(--nuppdoc-sidebar-guide-indent);
-    border-left: 1px solid var(--nuppdoc-nav-guide)
+    padding: 4px 0 0 var(--nuppdoc-sidebar-guide-indent)
 }
 
 .nuppdoc-sidebar-section .nuppdoc-module-tree {
