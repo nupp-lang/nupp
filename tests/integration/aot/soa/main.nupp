@@ -1,7 +1,7 @@
 const assert2 = require("assert")
 
-local soa = require("nupp.mem.soa")
-local array = require("nupp.mem.array")
+local soa = require("nupp.soa")
+local array = require("nupp.array")
 local simd = require("simd")
 local ffi = require("ffi")
 

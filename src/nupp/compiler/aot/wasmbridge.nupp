@@ -81,7 +81,7 @@ export function binding(program: scalar.Program, units: {string}): string
         ) .. ", sourceType = " .. string.format(
             "%q",
             param.sourceType or ""
-        ) .. (layout and ", layout = layoutof(" .. layout .. ")" or "") .. "}"
+        ) .. (layout and ", layout = types.layoutof(" .. layout .. ")" or "") .. "}"
     end
     local results: {string} = {}
     for _, kind in ipairs(program.resultTypes or {}) do

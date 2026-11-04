@@ -40,10 +40,10 @@ const types = require("types")
 export type Submittable = @sendable function(...: any): any
 
 --- Whether a
---- copies: a [](nupp.mem.heap) array of a fixed-width element. The storage lives in
+--- copies: a [](nupp.heap) array of a fixed-width element. The storage lives in
 --- neither Lua heap, so handing its pointer to another lane is sound, and the affine
 --- layer consumes the sender's binding where the move is written. The element names
---- here must agree with the runtime tag map in `nupp.mem.heap`.
+--- here must agree with the runtime tag map in `nupp.heap`.
 @comptime
 local function movableOwner(T: type): boolean
     local described = types.describe(T) as {[string]: any}
@@ -51,7 +51,7 @@ local function movableOwner(T: type): boolean
         return false
     end
     local nominal = described.nominal as {[string]: any}
-    if nominal == nil or nominal.moduleName ~= "nupp.mem.heap" or nominal.name ~= "Array" then
+    if nominal == nil or nominal.moduleName ~= "nupp.heap" or nominal.name ~= "Array" then
         return false
     end
     local arguments = types.arguments(T)

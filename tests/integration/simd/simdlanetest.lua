@@ -15,7 +15,7 @@ local env = envMod.new(HERE .. "/..")
 local M = {}
 
 local PRELUDE = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local span = require("binary.span")
 local simd = require("simd")
 ]]
@@ -37,7 +37,7 @@ end
 
 function M.speciesPublishesCanonicalMemoryMethodNames()
     local simd = require("simd")
-    local array = require("nupp.mem.array")
+    local array = require("nupp.array")
     local species = simd.species(array.uint32, 4)
     for canonical, retired in pairs({
         loadpairs = "loadPairs",

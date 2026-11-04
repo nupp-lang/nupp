@@ -80,8 +80,8 @@ local FORMER_DROP_OWNERS = {
     "local owner = io.newreader('one'):lines()",
     "local owner = assert(io.files.open('input.bin'))",
     "local owner = assert(io.files.tmpfile())",
-    "local owner = nupp.mem.heap.alloc(ffi.typeof<int32>(), 4)",
-    "local struct Row\n    x: int32\nend\nlocal owner = nupp.mem.soa.alloc(ffi.typeof<Row>(), 4)",
+    "local owner = nupp.heap.alloc(ffi.typeof<int32>(), 4)",
+    "local struct Row\n    x: int32\nend\nlocal owner = nupp.soa.alloc(ffi.typeof<Row>(), 4)",
 }
 
 function M.everyStandardOwnerClosesThroughOwnDropAlone()
@@ -136,10 +136,10 @@ function M.memAndUtilRefusalsCarryTheLibraryPrefix()
     local spans = require("binary.span")
     for label, refused in pairs({
         heap = function()
-            require("nupp.mem.heap").alloc(ffi.typeof("int32_t"), -1)
+            require("nupp.heap").alloc(ffi.typeof("int32_t"), -1)
         end,
         bytes = function()
-            require("nupp.mem.array").bytes(-1)
+            require("nupp.array").bytes(-1)
         end,
         span = function()
             spans.fromcarray(ffi.new("int32_t[1]"), -1)
@@ -288,7 +288,7 @@ end
 function M.wasmViewsLowerThroughTheOpaqueCheckedSurface()
     local source = [[
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local struct Sample
    value: float
 end
@@ -994,7 +994,7 @@ function M.nativeGpuRejectsFractionalCountsBeforeTheAbi()
         end,
     })
     local context = provider.open()
-    local element = require("nupp.mem.array").uint32
+    local element = require("nupp.array").uint32
     for _, count in ipairs({1.5, math.huge, 0 / 0}) do
         local ok, problem = pcall(context.buffer, context, element, count)
         assert(not ok and tostring(problem):find("buffer count", 1, true), tostring(problem))
@@ -1320,7 +1320,7 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
     }
     local browser = require("helpers.providerstate").browserGpu(host)
     local context = browser.open()
-    local element = require("nupp.mem.array").uint32
+    local element = require("nupp.array").uint32
     for _, malformed in ipairs({false, {}, {buffer = 0}, {buffer = 1.5}, {buffer = 4294967296}}) do
         returned = malformed
         local ok, problem = pcall(context.buffer, context, element, 1)
@@ -1423,7 +1423,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     }
     local cancelledBrowser = require("helpers.providerstate").browserGpu(cancelledHost)
     local cancelledContext = cancelledBrowser.open()
-    local element = require("nupp.mem.array").uint32
+    local element = require("nupp.array").uint32
     local buffered, bufferProblem = pcall(cancelledContext.buffer, cancelledContext, element, 1)
     assert(not buffered and bufferProblem == "cancelled buffer", tostring(bufferProblem))
     local compiled, kernelProblem = pcall(
@@ -1477,7 +1477,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     local context = browser.open()
     local ffi = require("ffi")
     local spans = require("binary.span")
-    element = require("nupp.mem.array").uint32
+    element = require("nupp.array").uint32
     local input = context:buffer(element, 1)
     local output = context:buffer(element, 1)
     local source = ffi.new("uint32_t[1]", 7)

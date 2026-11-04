@@ -43,9 +43,9 @@ local type Type = T.Type
 local type Node = cst.Node
 
 --- The one question this pass answers, asked of every call before the ordinary path
---- takes it: the type an intrinsic has, or nil when the call is not one. It is handed
---- the names the callee was written with rather than the callee's type, because an
---- intrinsic is recognized by its spelling and its type argument.
+--- takes it: the type an intrinsic has, or nil when the call is not one. Source
+--- names identify FFI syntax; the resolved public identity identifies qualified
+--- queries without capturing a shadowed namespace.
 export type Intrinsic = function(
     node: Node,
     calleeName: string,
@@ -53,7 +53,8 @@ export type Intrinsic = function(
     memberName: string,
     typeArg: Node?,
     argExprs: {Node},
-    argStr: any
+    argStr: any,
+    identity: string?
 ): Type?
 
 --- Whether `t` is a cdef aggregate that declares no fields. That is how an incomplete
@@ -79,7 +80,7 @@ export function install(c: state.Checker): Intrinsic
 
     --- The type an intrinsic call has, or nil when this call is not one and the
     --- ordinary call path should carry on with it. The call site is described by the
-    --- names its callee was written with, which is what every test below asks about.
+    --- source names and resolved identity.
     return function(
         node: Node,
         calleeName: string,
@@ -87,11 +88,12 @@ export function install(c: state.Checker): Intrinsic
         memberName: string,
         typeArg: Node?,
         argExprs: {Node},
-        argStr: any
+        argStr: any,
+        identity: string?
     ): Type?
 
-        -- Every test below asks what the callee was written as rather than what it
-        -- resolves to, which is what lets `ffi.new` be recognized. That skips
+        -- FFI syntax uses the source name, which lets `ffi.new` be recognized.
+        -- Qualified layout queries use the resolved identity instead. FFI skips
         -- `lookupEntry`, the one place a read is recorded, so the `local ffi =
         -- require("ffi")` the call depends on looked unread and `unused-binding` said
         -- to delete it. Codegen emits that binding, so taking the advice left the
@@ -298,9 +300,9 @@ export function install(c: state.Checker): Intrinsic
                 or nil
             return T.carray(elemT, count as integer?)
 
-            -- layoutof(Struct) answers how one is laid out in C memory: the fields in
-            -- declaration order with their offsets, sizes and padding, the whole size,
-            -- and a fingerprint over all of it.
+            -- types.layoutof(Struct) answers how one is laid out in C memory: the
+            -- fields in declaration order with their offsets, sizes and padding, the
+            -- whole size, and a fingerprint over all of it.
             --
             -- Reifying is what makes a value unreachable to anything that walks a
             -- table, and this is what makes it reachable again without the language
@@ -309,15 +311,19 @@ export function install(c: state.Checker): Intrinsic
             -- Only the spec is built here, because only the checker knows the declared
             -- field order and types. Everything numeric is this platform's and is asked
             -- of the FFI at run time.
-        elseif calleeName == "layoutof" then
+        elseif identity == "types.layoutof" then
             capabilities.require(c, "structvalue", node)
             local args = argExprs
+            if #args ~= 1 then
+                c.diag("NUPP2402", node, "types.layoutof expects one struct type as its argument")
+                return T.any
+            end
             local subject = args[1] and c.infer(args[1]) or nil
             if subject and subject.tag == "typeobject" then
                 subject = subject.of
             end
             if not subject or subject.tag ~= "nominal" or subject.declKind ~= "struct" then
-                c.diag("NUPP2402", node, "layoutof needs a struct type as its argument", nil, {
+                c.diag("NUPP2402", node, "types.layoutof needs a struct type as its argument", nil, {
                     help = "a record is a table and has no C layout; only a " .. "struct is laid out in memory"
                 })
                 return T.any

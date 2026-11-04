@@ -2376,7 +2376,7 @@ end
 -- reads must be emitted as values rather than as frame slots.
 function M.foldedScalarLocalsAreNotCapturedByAnOwnershipFrame()
     local src = [[
-const array = require("nupp.mem.array")
+const array = require("nupp.array")
 local function report(name: string, bad: number): nil end
 local function run(): number
     local n: integer = 7

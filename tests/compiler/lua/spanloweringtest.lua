@@ -380,7 +380,7 @@ function M.heapRootsStayRootedThroughTheirOwners()
     local shared = compile(
         HEADER
         .. [[
-local heap = require("nupp.mem.heap")
+local heap = require("nupp.heap")
 local function work(borrows storage: heap.Array<Cell>): int32
     const values = storage:read()
     local total = 0 as int32
@@ -399,7 +399,7 @@ return work
     local writable = compile(
         HEADER
         .. [[
-local heap = require("nupp.mem.heap")
+local heap = require("nupp.heap")
 local function work(exclusive storage: heap.Array<Cell>): nil
     const values = storage:write()
     for index = 1, #values do
@@ -417,7 +417,7 @@ end
 function M.soaRootsComposeWithResolvedFieldProjection()
     local code = compile(
         [[
-local soa = require("nupp.mem.soa")
+local soa = require("nupp.soa")
 local struct Particle
     x: float
     y: float
@@ -574,7 +574,7 @@ end
 function M.soaWholeRowsGatherAndScatterWithoutAViewWrapper()
     local code = compile(
         [[
-local soa = require("nupp.mem.soa")
+local soa = require("nupp.soa")
 local struct Particle
     x: float
     y: float

@@ -890,7 +890,7 @@ local function soaElement(resolved: any?): (any?, boolean)
     local token = false
     for _, member in ipairs(members) do
         local view, origin = nominal(member)
-        if origin == nil or origin.moduleName ~= "nupp.mem.soa" then
+        if origin == nil or origin.moduleName ~= "nupp.soa" then
             return nil, false
         end
         if origin.name == "WriteToken" and not token then
@@ -1931,7 +1931,7 @@ const VECTOR_INTEGER_BINARY = {
 }
 
 --- The standard scalar witnesses `simd.species` accepts, by their field
---- name in `nupp.mem.array`.
+--- name in `nupp.array`.
 const SPECIES_WITNESSES: {
     [string]: boolean
 } = {
@@ -2012,8 +2012,8 @@ local function admitSpecies(node: cst.Call, kernel: lower.Kernel): nil
         -- A module alias, or the module's global path written out.
         owner = root ~= nil and (kernel.modules[root as string] or root) or nil
     end
-    if owner ~= "nupp.mem.array" or not SPECIES_WITNESSES[field as string] then
-        context.reject(site, "simd.species takes one of the scalar witnesses in nupp.mem.array, such as array.uint32")
+    if owner ~= "nupp.array" or not SPECIES_WITNESSES[field as string] then
+        context.reject(site, "simd.species takes one of the scalar witnesses in nupp.array, such as array.uint32")
     end
     if #arguments > 2 or #arguments == 2 and arguments[2].kind ~= "number" then
         context.reject(site, "simd.species takes a witness and, for a fixed shape, one literal lane count")
@@ -2784,7 +2784,7 @@ local function floatingWitness(argument: cst.Node?, kernel: lower.Kernel): strin
     end
     local root, field = (witness as string):match("^(.+)%.([^.]+)$")
     local owner = root ~= nil and (kernel.modules[root as string] or root) or nil
-    if owner ~= "nupp.mem.array" then
+    if owner ~= "nupp.array" then
         return nil
     end
 
@@ -8710,7 +8710,7 @@ function lower.parameters(
                     name = columnName,
                     type = field.type,
                     sourceType = field.sourceType,
-                    spanModule = "nupp.mem.soa",
+                    spanModule = "nupp.soa",
                     soa = new scalarIR.SoaColumn(
                         view = name as string,
                         sourceType = spelling,
@@ -8725,7 +8725,7 @@ function lower.parameters(
                         kind = "scalar",
                         type = field.type,
                         sourceType = field.sourceType,
-                        spanModule = "nupp.mem.soa"
+                        spanModule = "nupp.soa"
                     ),
                     source = lower.site(raw)
                 )
@@ -9754,7 +9754,7 @@ function lower.scan(chunk: cst.Chunk, checked: boolean): lower.Declarations
                         found.modules[names[1].text] = required
                     end
                 end
-                -- `local array = nupp.mem.array` names the module through its
+                -- `local array = nupp.array` names the module through its
                 -- global path, which the checker accepts as the required one.
                 if #names == 1 and #exprs == 1 and exprs[1].kind == "dotIndex" then
                     local path = lower.dottedName(exprs[1])

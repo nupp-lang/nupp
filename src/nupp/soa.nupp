@@ -5,7 +5,7 @@ Every top-level field of a reified struct gets its own contiguous column, so a
 loop that walks one field of many rows brings nothing else along.
 
 ```nupp
-local soa = nupp.mem.soa
+local soa = nupp.soa
 
 local struct Position
     x: float
@@ -37,7 +37,7 @@ allocated. An escape or an opaque call materializes the same checked view.
 See [structure-of-arrays.md](docs/learn/runtime/data/structure-of-arrays.md) for when this layout is the one to
 reach for.
 ]]
-module nupp.mem.soa
+module nupp.soa
 
 local ffi = require("ffi")
 local span = require("binary.span")

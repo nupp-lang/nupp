@@ -3,7 +3,7 @@ Managed contiguous arrays hold one scalar or struct type.
 Their shared and writable views use the checked [](binary.span) interface.
 
 ```nupp
-const array = nupp.mem.array
+const array = nupp.array
 
 const values = array.scalar(array.uint32, 4)
 const writable = values:write()
@@ -18,9 +18,9 @@ The array retains its storage through the managed allocator. It is not an
 affine allocation and has no `close` operation; leaving a lexical scope does
 not promise immediate reclamation. Views retain their backing storage, and
 every index is checked against the count the view carries. For explicitly
-owned malloc-backed storage, see [](nupp.mem.heap).
+owned malloc-backed storage, see [](nupp.heap).
 ]]
-module nupp.mem.array
+module nupp.array
 
 const {type Span, type Writable, type ByteSpan} = require("binary.span")
 

@@ -47,7 +47,7 @@ local function loopCases(types)
                 add(
                     ty,
                     code .. '_' .. op[1],
-                    'simd.reducer.' .. op[1]:lower() .. '(nupp.mem.array.' .. ty .. ', seed)',
+                    'simd.reducer.' .. op[1]:lower() .. '(nupp.array.' .. ty .. ', seed)',
                     op[2],
                     ty,
                     nil,
@@ -58,7 +58,7 @@ local function loopCases(types)
                 add(
                     ty,
                     code .. '_' .. extreme,
-                    'simd.reducer.integer' .. extreme:lower() .. '(nupp.mem.array.' .. ty .. ', seed)',
+                    'simd.reducer.integer' .. extreme:lower() .. '(nupp.array.' .. ty .. ', seed)',
                     'add',
                     ty,
                     nil,
@@ -67,7 +67,7 @@ local function loopCases(types)
                 add(
                     ty,
                     code .. '_arg' .. extreme,
-                    'simd.reducer.integerarg' .. extreme:lower() .. '(nupp.mem.array.' .. ty .. ')',
+                    'simd.reducer.integerarg' .. extreme:lower() .. '(nupp.array.' .. ty .. ')',
                     'add',
                     'integer',
                     nil,
@@ -82,7 +82,7 @@ local function loopCases(types)
     for _, ty in ipairs({'number', 'float'}) do
         if selected[ty] then
             local prefix = ty == 'float' and 'f32_' or ''
-            local witness = ty == 'float' and 'nupp.mem.array.float' or nil
+            local witness = ty == 'float' and 'nupp.array.float' or nil
 
             local function seeded(name)
                 return 'simd.reducer.' .. name:lower() .. '(' .. (witness and witness .. ', ' or '') .. 'seed)'
@@ -186,7 +186,7 @@ function M.generate(types, mode, width)
     end
     local source = {
         [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local span = require("binary.span")
 local simd = require("simd")
 ]]

@@ -145,7 +145,7 @@ return {corrected = corrected, Sample = Sample, Result = Result}
 local SIMD_KERNEL = [[
 local span = require("binary.span")
 local simd = require("simd")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 
 local function drain(bits: uint64): (uint32, uint32)
     return math.u32.wrap(math.u64.trailingzeros(bits)), math.u32.wrap(math.u64.popcount(bits & (bits - 1ULL)))
@@ -402,7 +402,7 @@ local function multipleBindings(value: number): {number}
     return {first, second, third, fourth}
 end
 
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 
 --- Every byte's high nibble, as a pure helper over vectors, so the emitted
 --- unit carries a helper whose scalar rendering a value-building entry never
@@ -1427,8 +1427,8 @@ end
 local function run(kernel, count, added)
     local values = ffi.new("uint32_t[?]", count)
     for index = 0, count - 1 do values[index] = index end
-    local input = context:buffer(require("nupp.mem.array").uint32, count)
-    local output = context:buffer(require("nupp.mem.array").uint32, count)
+    local input = context:buffer(require("nupp.array").uint32, count)
+    local output = context:buffer(require("nupp.array").uint32, count)
     context:upload(input, span.fromcarray(values, count))
     kernel:compile(context):bind(output, input):dispatch()
     context:synchronize()
@@ -1451,8 +1451,8 @@ do
     local time = require("coroutine")
     local count = 16776961
     local values = ffi.new("uint32_t[?]", count)
-    local input = context:buffer(require("nupp.mem.array").uint32, count)
-    local output = context:buffer(require("nupp.mem.array").uint32, count)
+    local input = context:buffer(require("nupp.array").uint32, count)
+    local output = context:buffer(require("nupp.array").uint32, count)
     context:upload(input, span.fromcarray(values, count))
     local binding = gpucheck.increment:compile(context):bind(output, input)
     local waiting, finished, ran = false, false, 0
@@ -1546,7 +1546,7 @@ export const tiledCpu = tiledCpu
 local ffi = require("ffi")
 local gpu = require("io.gpu")
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local gpucheck = require("gpucheck")
 local opened, context = pcall(gpu.open)
 if not opened then
@@ -2351,7 +2351,7 @@ end
 -- Windows worker has died on.
 local WIDE_SIMD = [[
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 
 @aot
@@ -3390,7 +3390,7 @@ function M.scalarLogicalOperatorsReturnValuesAndPreserveEffects()
             [[
 module logical
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 @aot
 local function logical(flag: boolean, a: number, b: number): (number, number, number, boolean)
@@ -3519,7 +3519,7 @@ function M.provenSimdCursorsKeepWrappedIndicesOnLargeSpans()
         [[
 local span = require("binary.span")
 local simd = require("simd")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local struct Pair
     x: uint32
     y: uint32
@@ -3919,7 +3919,7 @@ return {
         [[
 module pair
 
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 
 @aot
@@ -5023,7 +5023,7 @@ end
                 ty[1] .. "_" .. op[1]:lower(),
                 ty[2],
                 ty[3],
-                "local fold = simd.reducer." .. op[1]:lower() .. "(nupp.mem.array." .. ty[2] .. ", seed)",
+                "local fold = simd.reducer." .. op[1]:lower() .. "(nupp.array." .. ty[2] .. ", seed)",
                 op[2],
                 ty[2],
                 ty[3],
@@ -5035,7 +5035,7 @@ end
                 ty[1] .. "_" .. extreme:lower(),
                 ty[2],
                 ty[3],
-                "local fold = simd.reducer.integer" .. extreme:lower() .. "(nupp.mem.array." .. ty[2] .. ", seed)",
+                "local fold = simd.reducer.integer" .. extreme:lower() .. "(nupp.array." .. ty[2] .. ", seed)",
                 "add",
                 ty[2],
                 ty[3]
@@ -5044,7 +5044,7 @@ end
                 ty[1] .. "_arg" .. extreme:lower(),
                 ty[2],
                 ty[3],
-                "local fold = simd.reducer.integerarg" .. extreme:lower() .. "(nupp.mem.array." .. ty[2] .. ")",
+                "local fold = simd.reducer.integerarg" .. extreme:lower() .. "(nupp.array." .. ty[2] .. ")",
                 "add",
                 "integer",
                 "double",
@@ -5297,7 +5297,7 @@ function M.numericSimdConversionsMatchLuaJitAndIndependentScalarResults()
     for _, from in ipairs(types) do
         local source = {
             'local span = require("binary.span")',
-            'local array = require("nupp.mem.array")',
+            'local array = require("nupp.array")',
             'local simd = require("simd")',
         }
         local exports = {}
@@ -5434,7 +5434,7 @@ function M.indexedSimdMemoryMatchesAnIndependentScalarReference()
     handle:write(
         [[
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 @aot
 local function indexed(exclusive out: span.WriteSpan<float>, borrows input: span.Span<float>, borrows map: span.Span<int64>): nil
@@ -5515,7 +5515,7 @@ function M.speciesIsOneLaneUnderAotOffAndVectorsIsNil()
     -- one that asserts it raises, with the message it gave.
     local body = [[
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 
 @aot
@@ -5540,7 +5540,7 @@ end
 return {scan = scan}
 ]]
     local driver = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local kernel = require("kernel")
 
 local m = {}
@@ -6290,7 +6290,7 @@ function M.rearrangementsPreserveEveryLaneBitInNativeAndScalarCode()
     }) do
         local source = {
             'local span = require("binary.span")',
-            'local array = require("nupp.mem.array")',
+            'local array = require("nupp.array")',
             'local simd = require("simd")',
         }
         local exports = {}
@@ -6509,7 +6509,7 @@ end
 
 local GENERIC_VOCABULARY_KERNEL = [[
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 
 local struct Point
@@ -6756,7 +6756,7 @@ return {
 local STRIP_MINED_KERNEL = [[
 local span = require("binary.span")
 local simd = require("simd")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 
 --- The loop written once: every chunk but the last is unmasked under the
 --- iterator's own bound, the last takes the tail mask.
@@ -6864,7 +6864,7 @@ end
 --- without naming how many lanes the species has.
 local WIDTH_COUPLED_KERNEL = [[
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 
 --- Grey from packed RGB bytes, three per pixel of `out`. The weighted sum
@@ -7240,7 +7240,7 @@ function M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecution()
 
     -- The float witness: binary32 after every operation, which the Lua
     -- reducers over the same witness also are.
-    local array = require("nupp.mem.array")
+    local array = require("nupp.array")
     local floats = ffi.new("float[13]", {0.1, 1e8, -1e8, 3, 0.5, -2.25, 1e-3, 0.2, 1e8, -1e8, 11, 0.125, -4})
     for count = 0, 13 do
         for _, seed in ipairs({0, 0.1}) do
@@ -7330,7 +7330,7 @@ require("jit").off(M.genericVocabularyOperationsAgreeAcrossLuaScalarAndLaneExecu
 -- forced-scalar twin over one corpus, and both are held to Lua's answer.
 local LANE_VOCABULARY_KERNEL = [[
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 
 @aot
@@ -7618,7 +7618,7 @@ require("jit").off(M.laneArithmeticAgreesAcrossLuaScalarAndLaneExecution, true)
 -- references and both to Lua.
 local CROSS_LANE_KERNEL = [[
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 
 @aot
@@ -7869,7 +7869,7 @@ return {include={"src"},build={targets={native={kind="bundle",entries={"main"},
     write(
         "src/main.nupp",
         [[
-local soa = require("nupp.mem.soa")
+local soa = require("nupp.soa")
 local struct Particle
     x: float
 end
@@ -8004,7 +8004,7 @@ function M.explicitFieldLoadsReadTheirOwnElementAtEveryTail()
     }
     local source = {
         'local span = require("binary.span")',
-        'local array = require("nupp.mem.array")',
+        'local array = require("nupp.array")',
         'local simd = require("simd")',
     }
     local exports = {}

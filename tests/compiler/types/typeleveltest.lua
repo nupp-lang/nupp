@@ -2348,7 +2348,7 @@ function M.simdSpeciesIdentityIsInvariantAndComparisonsReturnMasks()
     clean(
         table.concat(
             {
-                'local array = require("nupp.mem.array")',
+                'local array = require("nupp.array")',
                 'local simd = require("simd")',
                 "local species = assert(simd.species(array.float))",
                 "local fixed = assert(simd.species(array.float, 8))",
@@ -2421,7 +2421,7 @@ function M.narrowStorageWidthsAreValidOnlyInsideCompilerOwnedSimdFamilies()
     clean(
         table.concat(
             {
-                'local array = require("nupp.mem.array")',
+                'local array = require("nupp.array")',
                 'local simd = require("simd")',
                 "local species = assert(simd.species(array.uint8))",
                 "local vector: simd.Vector<uint8, simd.Preferred> = nil as any",
@@ -2473,7 +2473,7 @@ function M.exactReducerLifecycleAndTypesAreChecked()
 local simd = require("simd")
 @aot
 local function total(seed: uint32): uint32
-    local fold = simd.reducer.wrappingsum(nupp.mem.array.uint32, seed)
+    local fold = simd.reducer.wrappingsum(nupp.array.uint32, seed)
     for i = 1, 4 do
         fold:add(seed)
     end
@@ -2488,7 +2488,7 @@ return total
     clean(
         [[
 local simd = require("simd")
-local minimum: simd.IntegerArgMin<uint64> = simd.reducer.integerargmin(nupp.mem.array.uint64)
+local minimum: simd.IntegerArgMin<uint64> = simd.reducer.integerargmin(nupp.array.uint64)
 local flag: boolean = simd.reducer.any():value()
 local count: uint64 = simd.reducer.count():value()
 return minimum, flag, count
@@ -2585,7 +2585,7 @@ end
 function M.integerReducersAreSelectedByTheirElementType()
     clean(
         [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 local sum: simd.WrappingSum<int32> = simd.reducer.wrappingsum<int32>(array.int32, 0)
 local product: simd.Reducer<uint64> = simd.reducer.wrappingproduct(array.uint64, 1ULL)
@@ -2598,7 +2598,7 @@ return sum, product, bits, least, position
     testAssert.eq(
         codes(
             [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 return simd.reducer.wrappingsum<uint32>(array.int32, 0)
 ]]
@@ -2609,7 +2609,7 @@ return simd.reducer.wrappingsum<uint32>(array.int32, 0)
     testAssert.eq(
         codes(
             [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 return simd.reducer.xorbits(array.float, 0)
 ]]

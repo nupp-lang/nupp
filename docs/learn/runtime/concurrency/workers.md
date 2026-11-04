@@ -415,7 +415,7 @@ running, and so do tasks whose values use records it already carries.
 ## Moving owned buffers
 
 One exception to the ownership refusal is deliberate. A worker parameter may
-take a [](nupp.mem.heap) array of a fixed-width element, and an affine result
+take a [](nupp.heap) array of a fixed-width element, and an affine result
 may return one; neither is a copy. The array's storage lives in neither Lua
 heap, so the message hands its pointer across and the receiving lane becomes
 the one owner. The submission consumes the sender's binding, so touching it
@@ -425,7 +425,7 @@ ownership back to whichever lane awaits the task.
 ```nupp
 module jobs
 
-const heap = nupp.mem.heap
+const heap = nupp.heap
 
 export function fill(takes frame: heap.Array<uint8>, seed: integer): affine(heap.Array<uint8>, heap.destroyarray)
     local writable = frame:write()

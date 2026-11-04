@@ -1,5 +1,5 @@
 --[[
-Runs one of the host channel's contract scenarios under `os.host.pump`, for
+Runs one of the host channel's contract scenarios under `os.host`, for
 the embedding application in `tests/stdlib/os/host/fixtures/driver.c` to drive.
 
 The scenarios are the plain Lua the browser half runs too, loaded at run time;
@@ -7,9 +7,8 @@ requiring what they use here is what puts it in the component.
 ]]
 module contract
 
-local pump = os.host.pump
+local host = os.host
 local json = require("serde.json")
-local _host = os.host
 local _span = require("binary.span")
 local _tasks = require("coroutine")
 local _time = require("coroutine")
@@ -18,7 +17,7 @@ local _hostevents = require("hostevents")
 local _clock = os.monotonic
 
 local scenarios: any = nil
-local session = pump.newpump()
+local session = host.newpump()
 local outcome: any = nil
 
 --- Loads the scenarios from `path`.
@@ -32,7 +31,7 @@ local function attempt(name: string): any
 end
 
 --- Starts scenario `name`, answering whether it finished or parked.
-export function start(name: string): string
+export function start(name: string): host.Pump.State
     outcome = nil
     return session:start(function(): boolean?
         outcome = attempt(name)
@@ -46,7 +45,7 @@ export function direct(name: string): string
 end
 
 --- Polls the runtime once on the parked scenario's behalf.
-export function poll(): string
+export function poll(): host.Pump.State
     return session:poll()
 end
 

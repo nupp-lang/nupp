@@ -6,13 +6,12 @@ export, the packet returned from an export, and a polling export for each queue
 whether it holds anything. N2 is the host channel answered at once: the host
 pushes input that a poll routes to a bus, and one frame export sends the packet
 on a stream. N3 is the channel answered later: the frame waits on a call the
-host answers from its loop, under `os.host.pump`.
+host answers from its loop, under `os.host`.
 ]]
 module framebench
 
 local host = os.host
 local events = require("events")
-local pump = os.host.pump
 local span = require("binary.span")
 local hostevents = require("hostevents")
 
@@ -21,7 +20,7 @@ local consumed: integer = 0
 local pending: {number} = {}
 local bus: events.MessageBus<integer> = events.newbus()
 local route: host.Route? = nil
-local session = pump.newpump()
+local session = host.newpump()
 
 local type Send = function(borrows packet: span.ByteSpan): nil
 local type Tick = function(): number

@@ -108,7 +108,7 @@ function M.scalarFusedDecodingAndSpeciesWitnessesDoNotLoadStorage()
         [[
         package.preload["nupp.mem.span"] = function() error("unexpected span import") end
         package.preload["nupp.runtime.storage"] = function() error("unexpected storage import") end
-        local array, simd = require("nupp.mem.array"), require("simd")
+        local array, simd = require("nupp.array"), require("simd")
         for _, name in ipairs({"uint8", "int8", "uint16", "int16", "uint32", "int32", "uint64", "int64", "float", "number"}) do
             assert(simd.vectors(array[name]) == nil)
         end

@@ -21,7 +21,7 @@ get their padding after that.
 module base64simd
 
 const io = require("io")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 local span = require("binary.span")
 

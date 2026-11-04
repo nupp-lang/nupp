@@ -8,7 +8,7 @@ debug.log.info("wrote %d bytes", #encoded)
 ```
 
 Host requests use `os.host`, and independent random generators use `math.random`.
-Typed array and SoA storage retain `nupp.mem`. Private implementation modules
+Typed storage uses `nupp.array`, `nupp.heap` and `nupp.soa`. Private implementation modules
 remain beneath `nupp`; application imports use the documented public names.
 
 See [standard-library.md](docs/learn/runtime/data/standard-library.md) for the

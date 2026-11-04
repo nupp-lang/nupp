@@ -17,8 +17,8 @@ print(#digest, math.lerp(10, 20, 0.25))
 
 Compiler intrinsics live in their subject namespaces, such as `types`, `simd`,
 and `own`. The compiler selects their implementations from the members checked
-source reaches. `nupp.mem` contains the remaining public storage modules;
-[](string.buffer) owns FIFO byte buffers.
+source reaches. Typed storage uses [](nupp.array), [](nupp.heap) and
+[](nupp.soa); [](string.buffer) owns FIFO byte buffers.
 
 Nupp-authored libraries outside that surface are ordinary declared modules on
 disk. A qualified module path loads one only when the source uses it:
@@ -70,7 +70,7 @@ intrinsic namespaces and the declared modules:
   [System services](../system.md) for their contracts.
 - [](os.host) asks whatever runs the program, a page or an embedding
   application, for something by kind, and carries streams between them.
-  [](os.host.pump) runs an embedded component's operations for a host-owned
+  [](os.host) runs an embedded component's operations for a host-owned
   loop. See [host.md](../host.md).
 - [](io) owns byte buffers, readers, writers, and typed scalar reads and writes
   over them. [](io.Bytes) shares immutable engine storage across workers and
@@ -81,7 +81,7 @@ intrinsic namespaces and the declared modules:
 - [](debug.log) owns leveled logging over a swappable destination.
 - [](math) owns scalar and two-dimensional vector helpers.
 - [](binary.span) owns rooted, bounds-checked shared and writable C array views.
-- [`nupp.mem.soa`](structure-of-arrays.md) stores every top-level field of a
+- [`nupp.soa`](structure-of-arrays.md) stores every top-level field of a
   reified struct in its own column.
 - [](io.gpu) owns resident buffers, generated kernel dispatches, and tensor views.
   [](io.gpu.layout) owns the checked layout algebra.
@@ -167,7 +167,7 @@ raise instead of returning a failure value.
 
 A result declared `affine(...)` has a cleanup obligation: its local scope drops
 it, and `own.drop` ends its lifetime early. Other values have different storage
-lifetimes. `nupp.mem.array` and struct pool pages use managed storage; shared-byte
+lifetimes. `nupp.array` and struct pool pages use managed storage; shared-byte
 regions retain engine references; `string.buffer.Buffer` provides `free` to
 discard retained capacity. None of those APIs promises automatic cleanup merely
 because a local leaves scope.

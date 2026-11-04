@@ -1,7 +1,7 @@
 const assert2 = require("assert")
 
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 
 local struct Sample

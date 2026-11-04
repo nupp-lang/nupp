@@ -103,7 +103,7 @@ build splices in is the same text minus the parts the source already has:
 
 ```nupp:fragment
 cdef function ks_scale_layout_Sample_size(): uint64 from"build/native/lib/libnative_aot.dylib"
-const ks_scale_SampleLayout = layoutof(Sample)
+const ks_scale_SampleLayout = types.layoutof(Sample)
 if ks_scale_SampleLayout.size ~= ks_scale_layout_Sample_size() then
     error("native struct layout size mismatch", 0)
 end

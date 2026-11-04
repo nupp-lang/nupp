@@ -274,10 +274,10 @@ local RESOURCES = {
         source = "src/nupp/serde/internal/valuebuilder.nupp",
         output = "nupp/compiler/nupp/serde/internal/valuebuilder.nupp"
     },
-    {source = "src/nupp/mem/heap.nupp", output = "nupp/compiler/nupp/mem/heap.nupp"},
+    {source = "src/nupp/heap.nupp", output = "nupp/compiler/nupp/heap.nupp"},
     {source = "src/io/internal/bytestypes.nupp", output = "nupp/compiler/io/internal/bytestypes.nupp"},
     {source = "src/io/internal/sharedbytes.nupp", output = "nupp/compiler/io/internal/sharedbytes.nupp"},
-    {source = "src/nupp/mem/soa.nupp", output = "nupp/compiler/nupp/mem/soa.nupp"},
+    {source = "src/nupp/soa.nupp", output = "nupp/compiler/nupp/soa.nupp"},
     {
         source = "src/nupp/serde/internal/json/values.nupp",
         output = "nupp/compiler/nupp/serde/internal/json/values.nupp"
@@ -400,7 +400,7 @@ local RESOURCES = {
         source = "src/nupp/runtime/provider/tablestruct.nupp",
         output = "nupp/compiler/nupp/runtime/provider/tablestruct.nupp",
     },
-    {source = "src/nupp/mem/array.nupp", output = "nupp/compiler/nupp/mem/array.nupp"},
+    {source = "src/nupp/array.nupp", output = "nupp/compiler/nupp/array.nupp"},
     {source = "src/nupp/util/internal/pool.nupp", output = "nupp/compiler/nupp/util/internal/pool.nupp"},
     {source = "src/events.nupp", output = "nupp/compiler/events.nupp"},
     {source = "src/utf8.nupp", output = "nupp/compiler/utf8.nupp"},
@@ -450,8 +450,7 @@ local RESOURCES = {
     {source = "src/nupp/util/internal/hash.nupp", output = "nupp/compiler/nupp/util/internal/hash.nupp"},
     {source = "src/nupp/util/internal/uuid.nupp", output = "nupp/compiler/nupp/util/internal/uuid.nupp"},
     {source = "src/nupp/runtime/system.nupp", output = "nupp/compiler/nupp/runtime/system.nupp"},
-    {source = "src/os/host/init.nupp", output = "nupp/compiler/os/host/init.nupp"},
-    {source = "src/os/host/pump.nupp", output = "nupp/compiler/os/host/pump.nupp"},
+    {source = "src/os/host.nupp", output = "nupp/compiler/os/host.nupp"},
     {
         source = "src/nupp/runtime/provider/nativehost.nupp",
         output = "nupp/compiler/nupp/runtime/provider/nativehost.nupp"
@@ -459,7 +458,6 @@ local RESOURCES = {
     {source = "src/nupp/runtime/browser/system.nupp", output = "nupp/compiler/nupp/runtime/browser/system.nupp"},
     {source = "src/nupp/util/internal/bitset.nupp", output = "nupp/compiler/nupp/util/internal/bitset.nupp"},
     {source = "src/nupp/util/internal/store.nupp", output = "nupp/compiler/nupp/util/internal/store.nupp"},
-    {source = "src/nupp/mem/init.nupp", output = "nupp/compiler/nupp/mem/init.nupp"},
     {source = "src/io/internal/path.nupp", output = "nupp/compiler/io/internal/path.nupp"},
     {source = "src/nupp/io/path/provider.nupp", output = "nupp/compiler/nupp/io/path/provider.nupp"},
     {source = "src/nupp/io/path/pathtext.nupp", output = "nupp/compiler/nupp/io/path/pathtext.nupp"},

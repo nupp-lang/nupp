@@ -1,5 +1,5 @@
 local testAssert = require("assert")
--- `layoutof(T)`, run rather than read.
+-- `types.layoutof(T)`, run rather than read.
 --
 -- Every number it reports is this platform's, so the assertions check against the
 -- FFI itself rather than against a number written down here: a test that hardcodes
@@ -56,7 +56,7 @@ const {type Layout} = require("types")
 const {type File} = require("io")
 const {type Assertion} = require("assert")
 const {type DateFields} = require("os")
-local layout: types.Layout = layoutof(NamespacedLayout)
+local layout: types.Layout = types.layoutof(NamespacedLayout)
 local imported: Layout = layout
 local importedField: Layout.Field = imported.fields[1]
 local field: types.Layout.Field = layout.fields[1]
@@ -107,6 +107,59 @@ function M.retiredGlobalDescriptorTypesAreRejected()
     end
 end
 
+function M.retiredGlobalLayoutQueryIsRejected()
+    local refused = false
+    for _, diagnostic in ipairs(diagnostics([[
+local struct Point
+    x: float
+end
+return layoutof(Point)
+]])) do
+        refused = refused or diagnostic.severity == "error" and diagnostic.msg:find("layoutof", 1, true) ~= nil
+    end
+    testAssert.eq(refused, true, "the bare layoutof global is removed")
+end
+
+function M.layoutQueryCannotBeStoredAsAFunctionValue()
+    for _, expression in ipairs({"types.layoutof", "types?.layoutof"}) do
+        local refused = false
+        for _, diagnostic in ipairs(diagnostics("local query = " .. expression .. "\nprint(query)\n")) do
+            refused = refused or diagnostic.code == "NUPP2402"
+        end
+        testAssert.eq(refused, true, "the intrinsic has no first-class runtime function: " .. expression)
+    end
+end
+
+function M.shadowedTypesNamespaceUsesTheLocalMethod()
+    local value = runs(
+        [[
+local types = {layoutof = function(value: integer): integer return value + 1 end}
+return types.layoutof(41)
+]]
+    )
+    testAssert.eq(value, 42)
+end
+
+function M.localLayoutFunctionIsAnOrdinaryFunction()
+    local value = runs([[
+local function layoutof(value: integer): integer
+    return value + 1
+end
+return layoutof(41)
+]])
+    testAssert.eq(value, 42)
+end
+
+function M.layoutQueryRequiresExactlyOneArgument()
+    for _, call in ipairs({"types.layoutof()", "types.layoutof(Point, Point)"}) do
+        local refused = false
+        for _, diagnostic in ipairs(diagnostics("local struct Point x: float end\nreturn " .. call .. "\n")) do
+            refused = refused or diagnostic.code == "NUPP2402"
+        end
+        testAssert.eq(refused, true, call)
+    end
+end
+
 function M.reportsFieldsInDeclarationOrder()
     local l = runs([[
 local struct Vec3
@@ -114,7 +167,7 @@ local struct Vec3
     y: float
     z: float
 end
-return layoutof(Vec3)
+return types.layoutof(Vec3)
 ]], "Vec3")
     testAssert.eq(l.name, "Vec3", "the declaration's name")
     testAssert.eq(#l.fields, 3, "three fields")
@@ -131,7 +184,7 @@ local struct Vec3
     y: float
     z: float
 end
-return layoutof(Vec3)
+return types.layoutof(Vec3)
 ]], "Vec3")
     local ct = ffi.typeof("struct { float x; float y; float z; }")
     testAssert.eq(l.size, ffi.sizeof(ct), "the struct's size")
@@ -144,14 +197,17 @@ end
 function M.sizeAndPaddingAreDifferentQuestions()
     -- An int8 before a double: size 1, padding 7. Deriving size from the next
     -- field's offset would report 8, which is the stride.
-    local l = runs([[
+    local l = runs(
+        [[
 local struct Mixed
     tag: int8
     value: number
     id: int32
 end
-return layoutof(Mixed)
-]], "Mixed")
+return types.layoutof(Mixed)
+]],
+        "Mixed"
+    )
     testAssert.eq(l.fields[1].size, 1, "an int8 is one byte")
     testAssert.eq(
         l.fields[1].padding,
@@ -176,7 +232,7 @@ local struct Outer
     inner: Inner
     w: float
 end
-return layoutof(Outer)
+return types.layoutof(Outer)
 ]],
         "Outer"
     )
@@ -200,7 +256,7 @@ local struct Pointy
     p: Inner*
     n: int32
 end
-return layoutof(Pointy)
+return types.layoutof(Pointy)
 ]],
         "Pointy"
     )
@@ -219,7 +275,7 @@ local struct Maybe
     p: Inner*?
     n: int32
 end
-return layoutof(Maybe)
+return types.layoutof(Maybe)
 ]],
         "Maybe"
     )
@@ -232,7 +288,7 @@ function M.theFingerprintDistinguishesLayouts()
 local struct S
 %s
 end
-return layoutof(S)
+return types.layoutof(S)
 ]]):format(fields), "S").fingerprint
     end
 
@@ -248,13 +304,16 @@ return layoutof(S)
 end
 
 function M.theSameCtypeAnswersFromTheSameTable()
-    local same = runs([[
+    local same = runs(
+        [[
 local struct Vec2
     x: float
     y: float
 end
-return layoutof(Vec2) == layoutof(Vec2)
-]], "cached")
+return types.layoutof(Vec2) == types.layoutof(Vec2)
+]],
+        "cached"
+    )
     testAssert.eq(same, true, "building it twice is one walk, not two")
 end
 
@@ -265,7 +324,7 @@ local record Point
     x: float
     y: float
 end
-return layoutof(Point)
+return types.layoutof(Point)
 ]])) do
         if d.code == "NUPP2402" then
             found = d
@@ -277,7 +336,7 @@ end
 
 function M.aNonStructArgumentIsRefused()
     local found = false
-    for _, d in ipairs(diagnostics("return layoutof(42)\n")) do
+    for _, d in ipairs(diagnostics("return types.layoutof(42)\n")) do
         if d.code == "NUPP2402" then
             found = true
         end
@@ -312,7 +371,7 @@ local struct Outer
     inner: Inner
     w: float
 end
-return layoutof(Outer)
+return types.layoutof(Outer)
 ]]
             ):format(innerFields),
             "Outer"
@@ -342,7 +401,7 @@ local struct Holder
     p: Inner*
     value: int32
 end
-return layoutof(Holder)
+return types.layoutof(Holder)
 ]],
         "Holder"
     )
@@ -367,7 +426,7 @@ end
 local head = new Node(nil, 1)
 local tail = new Node(nil, 2)
 head.next = tail
-return layoutof(Node).size
+return types.layoutof(Node).size
 ]],
         "Node"
     )
@@ -504,7 +563,7 @@ local struct Vertex
     uv: float[2]
     id: int32
 end
-return layoutof(Vertex)
+return types.layoutof(Vertex)
 ]],
         "Vertex"
     )
@@ -531,7 +590,7 @@ local struct Grid
     cells: Cell[4]
     n: int32
 end
-return layoutof(Grid)
+return types.layoutof(Grid)
 ]],
         "Grid"
     )
@@ -589,7 +648,7 @@ end
 function Vec:len(): float
     return self.x
 end
-return layoutof(Vec)
+return types.layoutof(Vec)
 ]]
     )
     testAssert.eq(#l.fields, 2, "field count")

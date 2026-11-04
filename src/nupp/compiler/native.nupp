@@ -669,7 +669,7 @@ local FEATURES: {[string]: native.Feature} = {
     ["runtime.indexed"] = {name = "indexed", runtimeModule = "nupp.mem.indexed", portableRuntime = true,},
     [
         "runtime.heap"
-    ] = {name = "heap", module = "nupp.mem.heap", runtimeModule = "nupp.mem.heap", requires = {"runtime.spanview"},},
+    ] = {name = "heap", module = "nupp.heap", runtimeModule = "nupp.heap", requires = {"runtime.spanview"},},
     ["native.http"] = {
         name = "http",
         module = "nupp.runtime.provider.nativehttp",

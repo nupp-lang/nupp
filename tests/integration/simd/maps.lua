@@ -77,7 +77,7 @@ add('fmaMethod', 'a:fma(b, c)', 'a, b, c', 'fmaReference(left, right, third, pat
 add('fmaMethod64', 'a:fma(b, c)', 'a, b, c', 'fmaReference64(left, right, third)', false, false, true, 'number')
 
 local common = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local span = require("binary.span")
 local simd = require("simd")
 local u32 = math.u32

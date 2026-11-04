@@ -2065,7 +2065,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
     assertClean(
         table.concat(
             {
-                "local heap = require('nupp.mem.heap')",
+                "local heap = require('nupp.heap')",
                 "local values = heap.alloc(ffi.typeof<int32>(), 1000000)",
                 "print(values.count)",
                 "do",
@@ -2086,7 +2086,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
         codes(
             table.concat(
                 {
-                    "local heap = require('nupp.mem.heap')",
+                    "local heap = require('nupp.heap')",
                     "local values = heap.alloc(ffi.typeof<int32>(), 4)",
                     "local readable = values:read()",
                     "local writable = values:write()",
@@ -2103,7 +2103,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
         codes(
             table.concat(
                 {
-                    "local heap = require('nupp.mem.heap')",
+                    "local heap = require('nupp.heap')",
                     "local values = heap.alloc(ffi.typeof<int32>(), 4)",
                     "local writable = values:write()",
                     "local readable = values:read()",
@@ -2120,7 +2120,7 @@ function M.heapArraysAreOwnedAndBecomeCheckedSpans()
         codes(
             table.concat(
                 {
-                    "local heap = require('nupp.mem.heap')",
+                    "local heap = require('nupp.heap')",
                     "local values = heap.alloc(ffi.typeof<int32>(), 4)",
                     "print(values.pointer)",
                 },
@@ -2135,7 +2135,7 @@ end
 function M.heapArraysPreserveCountsAndCleanUpAtRuntime()
     local source = table.concat(
         {
-            "local heap = require('nupp.mem.heap')",
+            "local heap = require('nupp.heap')",
             "local function exercise(count: integer): (integer, int32)",
             "   local values = heap.alloc(ffi.typeof<int32>(), count)",
             "   if count > 0 then",
@@ -2296,7 +2296,7 @@ end
 function M.writeSpanPartitionsKeepCountsOffsetsAndBoundsAtRuntime()
     local source = table.concat(
         {
-            "local heap = require('nupp.mem.heap')",
+            "local heap = require('nupp.heap')",
             "local function exercise(mid: integer): (integer, integer, int32, int32)",
             "   local values = heap.alloc(ffi.typeof<int32>(), 4)",
             "   local leftCount: integer = -1 as integer",
@@ -2354,7 +2354,7 @@ function M.tecsShapedColumnsPartitionIntoCheckedNativeKernelInputs()
     assertClean(
         table.concat(
             {
-                "local heap = require('nupp.mem.heap')",
+                "local heap = require('nupp.heap')",
                 "cdef struct Transform2D",
                 "   x: float",
                 "   y: float",
@@ -8485,7 +8485,7 @@ end
 
 function M.columnPointerReborrowsKeepTheirAncestorsAndRejectSiblings()
     local prelude = [[
-local soa = require("nupp.mem.soa")
+local soa = require("nupp.soa")
 local struct Particle
     x: float
     y: float

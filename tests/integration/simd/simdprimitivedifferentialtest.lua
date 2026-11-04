@@ -386,7 +386,7 @@ function M.unsupportedPrimitiveDomainsHavePositionedRefusals()
         local filename = "simd-domain-" .. case[1] .. ".nupp"
         local source = [[
 local simd = require("simd")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local span = require("binary.span")
 @aot
 local function refused(borrows input: span.Span<float>): number

@@ -1,5 +1,5 @@
 local ffi = require("ffi")
-local soa = require("nupp.mem.soa")
+local soa = require("nupp.soa")
 local span = require("binary.span")
 local kernel = require("kernel")
 

@@ -62,7 +62,7 @@ export function countText(value: string): integer
     return count
 end
 
-const heap = require("nupp.mem.heap")
+const heap = require("nupp.heap")
 
 export function bounce(takes frame: heap.Array<uint8>): affine(heap.Array<uint8>, heap.destroyarray)
     return frame

@@ -22,7 +22,7 @@ vector, which is also how the tail after the last whole vector is finished.
 ]]
 module utf8simd
 
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 local span = require("binary.span")
 

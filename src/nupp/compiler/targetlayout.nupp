@@ -1,7 +1,7 @@
 --[[
 Compiler-owned C layouts for declared build targets.
 
-The runtime `layoutof` helper asks LuaJIT's FFI about the machine running the
+The runtime `types.layoutof` helper asks LuaJIT's FFI about the machine running the
 generated program. This module deliberately does not: it implements the subset of C
 layout nupp's reified type vocabulary can express, keyed by an explicit target triple.
 That makes a folded size a property of the build target rather than the compiler host.

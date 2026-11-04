@@ -68,7 +68,7 @@ function M.namedManifestTargetsCarryTheSelectedHostAndVm()
     local source = [[
 local text = require("string.buffer")
 local time = require("coroutine")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 return {newBuffer = text.new, now = os.monotonic, bytes = array.bytes}
 ]]
     local dir = tempProject({

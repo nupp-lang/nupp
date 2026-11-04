@@ -974,7 +974,7 @@ changes the layout and nothing else.
 A struct may point at itself, which is how a linked structure is written. By
 value it cannot: that would have no size.
 
-`layoutof(T)` returns its memory layout: the fields in declaration order with
+`types.layoutof(T)` returns its memory layout: the fields in declaration order with
 their C types, offsets, sizes and padding, the struct's size, and a fingerprint
 over all of it. Reifying puts a value where nothing that walks a table reaches
 it, and this reaches it again without the language choosing a serialization
@@ -1002,7 +1002,7 @@ local type Fixed = m.Vec3[16]
 local vertex = new m.Vertex()
 vertex.pos[0] = 1.5
 
-local layout = layoutof(m.Vertex)
+local layout = types.layoutof(m.Vertex)
 print(layout.size, layout.fingerprint)
 for _, field in ipairs(layout.fields) do
     print(field.name, field.ctype, field.offset, field.size, field.padding)
@@ -1590,7 +1590,7 @@ managed cell. The unique `managed(T)` value owns the cell; copyable `alias(T)`
 values provide checked callback borrows, exclusive callback borrows, one-time
 ownership recovery, and closure. Closed and taken cells remain tombstones, so
 an old alias can never select a later resource.
-`nupp.mem.heap.Array<T>` is the typed homogeneous owning container.
+`nupp.heap.Array<T>` is the typed homogeneous owning container.
 
 See [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete contract
 reference, and [affine-types.md](docs/learn/runtime/ownership/affine-types.md) for the

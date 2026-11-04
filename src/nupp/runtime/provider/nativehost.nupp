@@ -12,7 +12,7 @@ host: `nupp run` installs none, so every request is refused by name.
 Without a suspension handler a park blocks inside the very call the host made,
 so the host could never answer a request it did not answer at once. Such a
 request is refused rather than left to hang; run it under a handler, such as a
-[](os.host.pump), and drive it with `nupp_runtime_poll`.
+[](os.host), and drive it with `nupp_runtime_poll`.
 ]]
 module nupp.runtime.provider.nativehost
 
@@ -288,7 +288,7 @@ function provider.call(kind: string, late: any, ...: any): ...any
                 "nupp: host "
                 .. kind
                 .. " was not answered during the call, and nothing can wait for it here;"
-                .. " run it under a suspension handler such as os.host.pump",
+                .. " run it under a suspension handler such as os.host",
                 0
             )
         end

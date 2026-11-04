@@ -55,7 +55,7 @@ int32_t nuppNativeGpuDownloadRead(
 local shared = require("nupp.gpu.types")
 local api = require("nupp.gpu.api")
 local operations = require("nupp.gpu.operations")
-local {type Scalar} = require("nupp.mem.array")
+local {type Scalar} = require("nupp.array")
 local gpu = {}
 type gpu.Buffer<T> = shared.Buffer<T>
 gpu.Buffer = shared.Buffer

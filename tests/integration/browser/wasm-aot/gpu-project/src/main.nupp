@@ -1,7 +1,7 @@
 const assert2 = require("assert")
 
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 
 @aot(target = "gpu")
 local function addMask(exclusive output: span.WriteSpan<uint32>, borrows input: span.Span<uint32>, mask: uint32): nil

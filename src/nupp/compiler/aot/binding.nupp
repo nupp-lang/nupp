@@ -9,9 +9,9 @@ drift apart.
 Three things happen here that are worth stating outright.
 
 A struct crossing the boundary is checked, not trusted. The wrapper asks
-`layoutof` for the size and offset of every field and compares them against what
-the compiled object reports, at load, before anything is callable. A code
-generator that laid the struct out differently is a load error rather than a
+`types.layoutof` for the size and offset of every field and compares them
+against what the compiled object reports, at load, before anything is callable.
+A code generator that laid the struct out differently is a load error rather than a
 silent misread of memory.
 
 The unsafe call and immediate unpacking are one block wide. Everything around it -- the range check,
@@ -94,7 +94,7 @@ function binding.resultStruct(program: scalarIR.Program): {string}
     return lines
 end
 
---- A reified struct, declared in Nupp so `layoutof` has something to measure.
+--- A reified struct, declared in Nupp so `types.layoutof` has something to measure.
 function binding.struct(layout: scalarIR.Layout): {string}
     local lines: {string} = {"local struct " .. layout.name}
     for _, field in ipairs(layout.fields) do
@@ -157,7 +157,7 @@ function binding.layoutChecks(symbol: string, layout: scalarIR.Layout): {string}
     end
 
     local aligned = scalarIR.holdsStoredVector(layout)
-    local lines: {string} = {"const " .. name .. " = layoutof(" .. layout.name .. ")"}
+    local lines: {string} = {"const " .. name .. " = types.layoutof(" .. layout.name .. ")"}
     lines[#lines + 1] = agrees(name .. ".size", reporter .. "_size()", "layout size")
     if aligned then
         lines[#lines + 1] = agrees(name .. ".alignment", reporter .. "_align()", "layout alignment")

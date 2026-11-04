@@ -182,7 +182,7 @@ program run on its own with `nupp run` has no host, and `host.attached()` says
 so.
 
 Natively a park blocks inside the call the application made, so a request the
-application answers later must run under a suspension handler. [](os.host.pump)
+application answers later must run under a suspension handler. [](os.host)
 is one: it runs an operation until it finishes or parks, and the application
 polls it from its loop.
 

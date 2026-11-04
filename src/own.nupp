@@ -7,7 +7,7 @@ local record Resource is own.Closeable
     function close(takes self): nil end
 end
 local cell = own.manage(new Resource())
-cell:close()
+own.drop(cell)
 ```
 
 See [ownership](docs/learn/runtime/ownership/index.md) for moves and cleanup.

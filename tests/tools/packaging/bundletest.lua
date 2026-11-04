@@ -631,7 +631,7 @@ export function firstByte(region: io.Bytes): integer
     return region:view(0, 1)[1]
 end
 
-const heap = require("nupp.mem.heap")
+const heap = require("nupp.heap")
 
 export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(heap.Array<uint8>, heap.destroyarray)
     local writable = frame:write()
@@ -783,7 +783,7 @@ end)
 print(copied, tostring(copyProblem):find("has a metatable", 1, true) ~= nil)
 
 const ffi = require("ffi")
-const heap = require("nupp.mem.heap")
+const heap = require("nupp.heap")
 
 local frame = heap.alloc(ffi.typeof<uint8>(), 64)
 do local scope = tasks.scope() ;
@@ -1235,7 +1235,7 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         ] = [[
 module jobs
 
-const heap = require("nupp.mem.heap")
+const heap = require("nupp.heap")
 const sharedbytes = io.Bytes
 
 export function inspect(takes frame: heap.Array<uint8>, region: io.Bytes): integer
@@ -1248,7 +1248,7 @@ end
             "src/main.nupp"
         ] = [[
 const jobs = require("jobs")
-const heap = require("nupp.mem.heap")
+const heap = require("nupp.heap")
 const sharedbytes = io.Bytes
 const tasks = require("coroutine")
 
@@ -1351,7 +1351,7 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         ] = [[
 module jobs
 
-const heap = require("nupp.mem.heap")
+const heap = require("nupp.heap")
 
 export function square(value: integer): integer
     return value * value
@@ -1371,7 +1371,7 @@ end
 module nupp.internal.scopeobserver
 
 const ffi = require("ffi")
-const heap = require("nupp.mem.heap")
+const heap = require("nupp.heap")
 const jobs = require("jobs")
 const tasks = require("coroutine")
 

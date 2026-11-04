@@ -22,7 +22,7 @@ function M.generate(options)
             local module = 'simd_masks_' .. from .. '_' .. at
             local source = {
                 [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local span = require("binary.span")
 local simd = require("simd")
 local u32 = math.u32

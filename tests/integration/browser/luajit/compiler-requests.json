@@ -69,7 +69,7 @@
   {
     "kind": "compile",
     "filename": "layout.nupp",
-    "source": "local struct Point\n x: int32\n y: int32\nend\nlocal value = new Point(x = 2, y = 3)\nprint(value.x + value.y)\nreturn layoutof(Point)",
+    "source": "local struct Point\n x: int32\n y: int32\nend\nlocal value = new Point(x = 2, y = 3)\nprint(value.x + value.y)\nreturn types.layoutof(Point)",
     "options": {
       "strict": true
     }

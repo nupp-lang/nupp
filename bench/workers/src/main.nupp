@@ -318,7 +318,7 @@ rows[
     note = "worker counts newlines in a copied string"
 }
 
-const heap = require("nupp.mem.heap")
+const heap = require("nupp.heap")
 
 local small = heap.alloc(ffi.typeof<uint8>(), 4096)
 do

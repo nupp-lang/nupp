@@ -1,5 +1,5 @@
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 
 local scanner = {}

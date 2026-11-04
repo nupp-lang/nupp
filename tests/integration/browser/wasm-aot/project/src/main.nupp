@@ -3,7 +3,7 @@ const assert2 = require("assert")
 const io2 = require("io")
 
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local valuebuilder = require("serde.valuebuilder")
 
 local function u32(value: integer): uint32

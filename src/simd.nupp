@@ -7,7 +7,7 @@ once and `species:over` runs it a chunk at a time, the last chunk under its tail
 mask:
 
 ```nupp
-local array = nupp.mem.array
+local array = nupp.array
 local span = binary.span
 
 @aot
@@ -50,9 +50,9 @@ const {
     type ReadView as SoaReadView,
     type WriteSpan as SoaWriteSpan,
     type WriteToken as SoaWriteToken
-} = require("nupp.mem.soa")
-const storageWitnesses = require("nupp.mem.array")
-const {type Scalar as StorageWitness} = require("nupp.mem.array")
+} = require("nupp.soa")
+const storageWitnesses = require("nupp.array")
+const {type Scalar as StorageWitness} = require("nupp.array")
 
 local simd = {}
 
@@ -3425,7 +3425,7 @@ local speciesCache: {[string]: LuaSpecies} = {}
 scalarSpecies = function(element: any, lanes: any): any
     local name = ELEMENT_OF[element]
     if name == nil then
-        error("simd.species takes one of the scalar witnesses in nupp.mem.array, such as array.uint32", 3)
+        error("simd.species takes one of the scalar witnesses in nupp.array, such as array.uint32", 3)
     end
     if lanes ~= nil and (type(lanes) ~= "number" or lanes < 2 or lanes > 64 or lanes % 1 ~= 0) then
         error("simd.species takes a witness and, for a fixed shape, one literal lane count", 3)

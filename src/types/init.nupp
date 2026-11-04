@@ -12,7 +12,8 @@ assert(store:get(theme) == "dark")
 
 `types.admit` validates a value against its constrained destination type.
 `types.sizeof`, `types.alignof`, and `types.offsetof` run inside a `comptime do`
-block against the selected build's `layoutTarget`.
+block against the selected build's `layoutTarget`. `types.layoutof` returns a
+struct's C layout on the running platform from ordinary code.
 
 See [derives.md](docs/reference/derives.md) for [](Debug),
 [](types.derive) for recipes, and [](types.reflect) for reflection.

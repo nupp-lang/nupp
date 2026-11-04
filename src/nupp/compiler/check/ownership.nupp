@@ -320,7 +320,7 @@ export function install(c: state.Checker): Ops
         if direct then
             -- A member of the module's own export namespace registers under the
             -- name importers can reconstruct: the export member. `heap.destroyArray`
-            -- inside nupp.mem.heap and `heap.destroyArray` through a require of it
+            -- inside nupp.heap and `heap.destroyArray` through a require of it
             -- must mint one key, or the declaring module registers a terminal no
             -- other module's drop can find.
             local ownName, ownMember = name:match("^(.*)%.([^.]*)$")

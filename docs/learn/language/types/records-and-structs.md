@@ -495,7 +495,7 @@ Both are nominal. Two records with identical fields are different types, and
 neither is assignable to the other. A record is assignable to a structural shape
 with the same fields, so width subtyping works in that direction only.
 
-`layoutof(T)` reports how a declaration is laid out, which is what lets a codec,
+`types.layoutof(T)` reports how a declaration is laid out, which is what lets a codec,
 a snapshot writer, or a GPU vertex-attribute descriptor be derived from the
 declaration rather than maintained beside it. See
 [c-interop.md](../../runtime/c-interop/index.md#read-a-structs-layout) for what it

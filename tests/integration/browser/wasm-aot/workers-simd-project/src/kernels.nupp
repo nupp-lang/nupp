@@ -9,7 +9,7 @@ module kernels
 -- `simd-project` next door.
 
 const span = require("binary.span")
-const array = require("nupp.mem.array")
+const array = require("nupp.array")
 
 local struct Sample
     value: float

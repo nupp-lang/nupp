@@ -113,6 +113,41 @@ such as `tecs.image.decode`. Names under `nupp.` are reserved for the runtime.
   does under a handler
 - [embedding.md](docs/learn/projects/embedding.md) for answering requests from C
 :::
+
+## Host-owned loops
+
+`newpump` creates a driver that runs one operation at a time for an application that embeds
+the runtime and owns its own loop. Reach for it from the exports such an
+application calls, so that an operation which waits -- on a [](os.host)
+request, a timer, the network -- parks instead of blocking the call that
+started it.
+
+`start` runs an operation until it finishes or parks, and says which; the
+application keeps calling `poll` from its loop, after answering whatever it was
+asked, until the operation finishes. Each poll is one non-blocking pass over the
+runtime's readiness sources, and an operation they make ready resumes inside
+that pass.
+
+```nupp:fragment
+local host = os.host
+
+local session = host.newpump()
+
+export function frame(dt: number): host.Pump.State
+    if session:parked() then
+        return session:poll()
+    end
+    return session:start(function(): boolean
+        return update(dt)
+    end)
+end
+```
+
+An operation returns whether the application should keep running: `false`
+reports `"stopped"`, anything else `"continue"`. A failure is raised from the
+`start` or `poll` that observes it. `cancel` unwinds a parked operation, raising
+a [cancellation](docs/learn/runtime/concurrency/suspension.md) inside it, so its
+cleanup runs before the application shuts down.
 ]]
 module os.host
 
@@ -120,27 +155,29 @@ local events = require("events")
 local contracts = require("nupp.runtime.contracts")
 
 local provider: contracts.HostProvider = require("nupp.runtime.bindings.host")
-
-local host = {}
+local suspension = require("coroutine.sus")
+local suspensionHost = require("coroutine.sus.host")
+local suspensionContract = require("nupp.suspension.contracts")
+local cancellation = require("coroutine.sus.cancellation")
 
 --- Called with the results of a call whose caller stopped waiting.
-type host.Late = contracts.Late
+export type Late = contracts.Late
 
 --- What a full stream does with one more message.
-type host.Policy = contracts.Policy
+export type Policy = contracts.Policy
 
 --- An inbound stream's delivery to a bus; close it to stop.
-record host.Route
+export record Route
     @private stop: function(): nil
     @private droppedCount: function(): integer
 
     --- Stops delivering; messages already on their way are discarded.
-    function close(self: host.Route): nil
+    function close(self: Route): nil
         self.stop()
     end
 
     --- How many inbound messages this route has dropped under its policy.
-    function dropped(self: host.Route): integer
+    function dropped(self: Route): integer
         return self.droppedCount()
     end
 end
@@ -183,7 +220,7 @@ end
 --- no host. In a browser the page is always attached, though it may answer a
 --- kind it does not know with a failure.
 --- @export
-function host.attached(): boolean
+export function attached(): boolean
     return provider.attached()
 end
 
@@ -194,7 +231,7 @@ end
 --- @raises string when a value cannot cross, no host answers the kind, or the
 ---     host fails the request
 --- @export
-function host.call(kind: string, ...: any): ...any
+export function call(kind: string, ...: any): ...any
     return provider.call(checkedKind(kind), nil, ...)
 end
 
@@ -209,11 +246,11 @@ end
 ---     cancelled; it must not suspend
 --- @return a function calling `kind` with its arguments
 --- @export
-function host.bind<F>(kind: string, late: contracts.Late?): F
+export function bind<F>(kind: string, late: contracts.Late?): F
     local checked = checkedKind(kind)
-    local call = provider.call
+    local callop = provider.call
     local bound = function(...: any): ...any
-        return call(checked, late, ...)
+        return callop(checked, late, ...)
     end
 
     return bound as F
@@ -224,7 +261,7 @@ end
 --- @param kind the dotted name the host answers
 --- @raises string when a value cannot cross or too many posts are pending
 --- @export
-function host.post(kind: string, ...: any): nil
+export function post(kind: string, ...: any): nil
     provider.post(checkedKind(kind), ...)
 end
 
@@ -233,11 +270,11 @@ end
 --- @param kind the dotted name the host answers
 --- @return a function posting `kind` with its arguments
 --- @export
-function host.bindpost<F>(kind: string): F
+export function bindpost<F>(kind: string): F
     local checked = checkedKind(kind)
-    local post = provider.post
+    local postop = provider.post
     local bound = function(...: any): nil
-        post(checked, ...)
+        postop(checked, ...)
     end
 
     return bound as F
@@ -248,7 +285,7 @@ end
 --- @param kind the dotted name the host answers
 --- @raises string when a value cannot cross
 --- @export
-function host.send(kind: string, ...: any): nil
+export function send(kind: string, ...: any): nil
     provider.send(checkedKind(kind), "block", DEFAULT_LIMIT, ...)
 end
 
@@ -259,14 +296,14 @@ end
 --- @param limit how many unshipped messages make the stream full, 1024 unless named
 --- @return a function sending on `kind` with its arguments
 --- @export
-function host.bindsend<F>(kind: string, policy: contracts.Policy?, limit: integer?): F
+export function bindsend<F>(kind: string, policy: contracts.Policy?, limit: integer?): F
     local checked = checkedKind(kind)
     local selected = policy or "block"
     local bound = checkedLimit(limit)
-    local send = provider.send
+    local sendop = provider.send
 
     local function sender(...: any): nil
-        send(checked, selected, bound, ...)
+        sendop(checked, selected, bound, ...)
     end
 
     return sender as F
@@ -283,14 +320,14 @@ end
 --- @return the route, which stops when closed
 --- @raises string when `policy` is `block`, which an inbound stream cannot do
 --- @export
-function host.route<E is events.Emittable>(
+export function route<E is events.Emittable>(
     kind: string,
     event: Type<E>,
     bus: events.MessageBus<integer>,
     address: integer,
     policy: contracts.Policy?,
     limit: integer?
-): host.Route
+): Route
     local checked = checkedKind(kind)
     local selected = policy or "dropoldest"
     if selected ~= "latest" and selected ~= "dropoldest" then
@@ -304,7 +341,144 @@ function host.route<E is events.Emittable>(
 
     local stop, dropped = provider.route(checked, selected, checkedLimit(limit), deliver)
 
-    return new host.Route(stop = stop, droppedCount = dropped)
+    return new Route(stop = stop, droppedCount = dropped)
 end
 
-export = host
+local type PumpState = "parked" | "continue" | "stopped"
+
+local function resumeTask(pump: any, task: thread, keepRunning: boolean?): nil
+    if coroutine.status(task) ~= "suspended" then
+        return
+    end
+    local succeeded, failure = coroutine.resume(task, keepRunning)
+    if not succeeded and pump.failure == nil then
+        pump.failure = failure
+    end
+end
+
+local function settled(pump: any): PumpState
+    local failure = pump.failure
+    if failure ~= nil then
+        pump.failure = nil
+        pump.active = nil
+        error(failure, 0)
+    end
+    local task = pump.active
+    if task ~= nil and coroutine.status(task) ~= "dead" then
+        return "parked"
+    end
+    pump.active = nil
+    if pump.result == false then
+        pump.result = nil
+        return "stopped"
+    end
+    pump.result = nil
+
+    return "continue"
+end
+
+--- Runs one parked operation at a time for a host-owned loop.
+export record Pump
+    --- What a `start` or `poll` left the operation doing.
+    type State = "parked" | "continue" | "stopped"
+
+    @private handler: suspensionContract.Handler
+    @private active: thread?
+    @private result: boolean?
+    @private failure: any?
+
+    --- Runs `body` until it finishes or parks.
+    --- @raises string when another operation is still parked, or what `body` raised
+    function start(self: Pump, body: function(): boolean?): "parked" | "continue" | "stopped"
+        if self.active ~= nil then
+            error("os.host.Pump: an operation is already parked", 2)
+        end
+        self.result = nil
+        self.failure = nil
+        local pump = self
+        local task = coroutine.create(function(): nil
+            local succeeded, result = pcall(function(): boolean?
+                do
+                    local installation = suspensionHost.install(pump.handler)
+                    return body()
+                end
+            end)
+            if succeeded then
+                pump.result = result
+            else
+                pump.failure = result
+            end
+        end)
+        self.active = task
+        resumeTask(self, task)
+
+        return settled(self)
+    end
+
+    --- Makes one non-blocking pass over the readiness sources, resuming the
+    --- parked operation if they make it ready.
+    --- @raises string when nothing is parked, or what the operation raised
+    function poll(self: Pump): "parked" | "continue" | "stopped"
+        if self.active == nil then
+            error("os.host.Pump: no operation is parked", 2)
+        end
+        suspension.poll()
+
+        return settled(self)
+    end
+
+    --- Whether an operation is parked between the host's turns.
+    function parked(self: Pump): boolean
+        return self.active ~= nil
+    end
+
+    --- Unwinds a parked operation, raising a cancellation inside it.
+    --- @raises string when the operation does not unwind
+    function cancel(self: Pump): nil
+        local task = self.active
+        if task == nil then
+            return
+        end
+        resumeTask(self, task, false)
+        if coroutine.status(task) ~= "dead" then
+            error("os.host.Pump: the parked operation did not unwind", 2)
+        end
+        self.active = nil
+        self.result = nil
+        self.failure = nil
+    end
+end
+
+--- Creates an idle pump.
+export function newpump(): Pump
+    local pump = new Pump(handler = nil as any, active = nil, result = nil, failure = nil)
+    pump.handler = new suspensionContract.Handler(
+        park = function(_: suspensionContract.Handler, waiting: suspensionContract.Waiting, _: function(): nil): nil
+            local task = assert(coroutine.running())
+
+            local function wake(): nil
+                -- Another driver may poll the same sources. Resume now, inside
+                -- the pass that settled the wait, so a one-shot source is
+                -- released before anything can poll it a second time.
+                resumeTask(pump, task)
+            end
+
+            while not waiting:ready() do
+                waiting:onresume(wake)
+                if not waiting:ready() then
+                    local keepRunning = coroutine.yield()
+                    if keepRunning == false then
+                        error(cancellation.create("os.host.Pump", "the host stopped while it was parked"), 0)
+                    end
+                end
+            end
+        end,
+        canpark = function(_: suspensionContract.Handler): boolean
+            return true
+        end,
+        shutdown = function(_: suspensionContract.Handler): nil
+        end
+    )
+
+    return pump
+end

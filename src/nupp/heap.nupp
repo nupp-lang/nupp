@@ -6,7 +6,7 @@ logical element count moves with the allocation and its pointer is available
 only through checked span views.
 
 ```nupp
-local heap = nupp.mem.heap
+local heap = nupp.heap
 
 local values = heap.alloc(ffi.typeof<int32>(), 4)
 local writable = values:write()
@@ -30,7 +30,7 @@ See [c-interop.md](docs/learn/runtime/c-interop/index.md#c-arrays) for how this 
 `carray`, and [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the borrow rules
 the views are written against.
 ]]
-module nupp.mem.heap
+module nupp.heap
 
 local heap = {}
 local ffi = require("ffi")

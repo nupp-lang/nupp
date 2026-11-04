@@ -53,9 +53,9 @@ local rules = {
     {"^src/simd/", {"library", "aot", "browser", "simd"}},
     -- The generated conformance programs allocate and view their lanes through
     -- these modules on both native and Wasm routes.
-    {"^src/nupp/mem/array%.nupp$", {"library", "simd"}},
+    {"^src/nupp/array%.nupp$", {"library", "simd"}},
     {"^src/nupp/mem/span%.nupp$", {"library", "simd"}},
-    {"^src/nupp/mem/soa%.nupp$", {"library", "simd"}},
+    {"^src/nupp/soa%.nupp$", {"library", "simd"}},
     {"^src/binary/_representation%.nupp$", {"library", "browser", "native", "simd"}},
     {"^src/nupp/runtime/storage%.nupp$", {"library", "browser", "native", "simd"}},
     {"^src/nupp/runtime/provider/nativestorage%.nupp$", {"library", "browser", "native", "simd"}},
@@ -82,8 +82,7 @@ local rules = {
     {"^src/nupp/runtime/", {"library", "browser", "native"}},
     {"^src/nupp/io/", {"library", "native"}},
     -- The host facility's browser and native providers both implement it.
-    {"^src/nupp/host/", {"library", "browser", "native"}},
-    {"^src/os/host/", {"library", "browser", "native"}},
+    {"^src/os/host%.nupp$", {"library", "browser", "native"}},
     {"^src/math/random%.nupp$", {"library", "browser"}},
     {"^src/math/internal/random%.nupp$", {"library", "browser"}},
     {"^src/package/nupp/", {"compiler", "library", "browser", "native"}},

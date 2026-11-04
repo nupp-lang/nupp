@@ -47,7 +47,7 @@ return {first = first, Pair = Pair}
     [
         "vectorfieldload.nupp"
     ] = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local span = require("binary.span")
 local simd = require("simd")
 
@@ -69,7 +69,7 @@ return {first = first, Particle = Particle}
     [
         "vectorsoa.nupp"
     ] = [[
-local soa = require("nupp.mem.soa")
+local soa = require("nupp.soa")
 local simd = require("simd")
 
 local struct Particle
@@ -92,7 +92,7 @@ return {masses = masses, Particle = Particle}
     [
         "speciesresult.nupp"
     ] = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 
 @aot
@@ -149,7 +149,7 @@ return {shifted = shifted}
     [
         "lane.nupp"
     ] = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local span = require("binary.span")
 local simd = require("simd")
 
@@ -285,7 +285,7 @@ return {damp = damp, Particle = Particle}
     [
         "vectorentry.nupp"
     ] = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local span = require("binary.span")
 local simd = require("simd")
 
@@ -344,7 +344,7 @@ return {halve = halve}
     [
         "aggregate.nupp"
     ] = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local span = require("binary.span")
 local simd = require("simd")
 
@@ -390,11 +390,11 @@ end
 -- Not returned: an `any` result is not an interface a module can export.
 local _ = pair
 ]],
-    -- A species witness named through the global `nupp.mem.array` path.
+    -- A species witness named through the global `nupp.array` path.
     [
         "globalwitness.nupp"
     ] = [[
-local array = nupp.mem.array
+local array = nupp.array
 local span = require("binary.span")
 local simd = require("simd")
 
@@ -408,7 +408,7 @@ local function countQuotes(borrows source: span.Span<uint8>): uint32
             cursor = cursor + species.lanes
         end
     end
-    if lanes = simd.vectors(nupp.mem.array.uint8) then
+    if lanes = simd.vectors(nupp.array.uint8) then
         found = found + lanes.lanes - lanes.lanes
     end
     while cursor < #source do
@@ -847,7 +847,7 @@ return {twice = twice}
             [
                 "uses.nupp"
             ] = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 local vec = require("vec")
 local twice = vec.twice
@@ -902,7 +902,7 @@ return {
             [
                 "pair.nupp"
             ] = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 
 local struct Pair

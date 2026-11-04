@@ -4,12 +4,12 @@ order: 170
 
 # Structure-of-arrays storage
 
-`nupp.mem.soa` stores every top-level field of a reified struct in its own
+`nupp.soa` stores every top-level field of a reified struct in its own
 contiguous column. Reach for it when a loop walks one or two fields of many
 rows and the ordinary array-of-structures layout brings the rest along.
 
 ```nupp:playground
-local soa = nupp.mem.soa
+local soa = nupp.soa
 
 local struct Position
     x: float
@@ -45,7 +45,7 @@ Position[3]                 soa.Array<Position>(3)
 
 The container splits top-level fields only. A nested struct or fixed array is
 one column whose element keeps that field's declared C layout, which is what
-holds struct identity, construction, `layoutof(T)`, and FFI calls independent
+holds struct identity, construction, `types.layoutof(T)`, and FFI calls independent
 of the storage choice.
 
 ```nupp:fragment
@@ -266,7 +266,7 @@ The private native call receives column pointers and a row count; entry and
 exit copy no row payloads.
 
 ```nupp:fragment
-local array = nupp.mem.array
+local array = nupp.array
 
 @aot
 local function advance(exclusive rows: soa.WriteToken & soa.WriteSpan<Particle>, dt: float): nil
@@ -313,7 +313,7 @@ the same checked view instead.
 
 ## Snapshots and ECS storage
 
-`nupp.mem.soa` supplies storage mechanics, not a general storage interface or a
+`nupp.soa` supplies storage mechanics, not a general storage interface or a
 snapshot format. An ECS remains responsible for capacity, archetype movement,
 dirty state, component policy, and schema migration.
 

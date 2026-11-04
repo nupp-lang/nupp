@@ -391,6 +391,15 @@ export function install(c: state.Checker): state.ExprHandlers
         local memberName = member.text
         node.fixedWidthUntrusted = nil
         local identity = apiidentity.expression(c, node)
+        if not node.writeContext
+            and (
+                identity == "types.layoutof"
+                or memberName == "layoutof" and apiidentity.expression(c, target) == "types"
+            )
+        then
+            c.diag("NUPP2402", node, "types.layoutof must be called directly with a struct type")
+            return T.any
+        end
         local namespace, intrinsicMember = nil, nil
         if identity then
             namespace, intrinsicMember = identity:match("^(types%.derive)%.([%w_]+)$")

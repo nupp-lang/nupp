@@ -256,7 +256,7 @@ local function recordAddress(metatable: any): string?
     return type(address) == "string" and address or nil
 end
 
-local heapModule = require("nupp.mem.heap") as any
+local heapModule = require("nupp.heap") as any
 local heapArrayMovable = rawget(heapModule as table, "__heapArrayMovable")
 local heapArrayParts = rawget(heapModule as table, "__heapArrayParts")
 local heapArrayFromParts = rawget(heapModule as table, "__heapArrayFromParts")

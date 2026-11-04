@@ -9,7 +9,7 @@ local testAssert = require("assert")
 -- cannot otherwise notice, since the bytes are the right length and mean
 -- something else.
 --
--- This is the acceptance question for `layoutof`: can that be written against the
+-- This is the acceptance question for `types.layoutof`: can that be written against the
 -- language instead of against hand-maintained constants.
 local parser = require("nupp.compiler.syntax.parser")
 local optimize = require("nupp.compiler.lua.optimize")
@@ -58,7 +58,7 @@ local struct Particle
 end
 
 local function writeColumn(cells: any, count: integer, out: any): nil
-    const layout = layoutof(Particle)
+    const layout = types.layoutof(Particle)
     out:encode(layout.fingerprint)
     out:encode(count)
     -- One copy for the whole column: not one call per element, not one per field.
@@ -66,7 +66,7 @@ local function writeColumn(cells: any, count: integer, out: any): nil
 end
 
 local function readColumn(inp: any, cells: any): integer
-    const layout = layoutof(Particle)
+    const layout = types.layoutof(Particle)
     const saved = inp:decode() as string
     if saved ~= layout.fingerprint then
         error("column was written by a different layout: " .. saved)
@@ -115,7 +115,7 @@ return sum
 end
 
 function M.theStrideIsTheOnlyThingTheFastPathNeeds()
-    local size = runs(COLUMN:format("return layoutof(Particle).size"))
+    local size = runs(COLUMN:format("return types.layoutof(Particle).size"))
     testAssert.eq(
         size,
         ffi.sizeof(ffi.typeof("struct { float x; float y; float vx; float vy; }")),

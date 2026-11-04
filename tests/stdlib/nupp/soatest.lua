@@ -52,8 +52,8 @@ local function codes(source)
 end
 
 local PRELUDE = [[
-local soa = require("nupp.mem.soa")
-local array = require("nupp.mem.array")
+local soa = require("nupp.soa")
+local array = require("nupp.array")
 local simd = require("simd")
 local ffi = require("ffi")
 
@@ -268,7 +268,7 @@ function M.aStructKeepsItsAoSLayoutBesideSoAStorage()
     local value = runs(
         PRELUDE
         .. [[
-local heap = require("nupp.mem.heap")
+local heap = require("nupp.heap")
 local aos = heap.alloc(ffi.typeof<Particle>(), 1)
 local columns = soa.alloc(ffi.typeof<Particle>(), 1)
 do
@@ -281,7 +281,7 @@ do
     rows[1] = new Particle(5, 6, 7, 8)
     own.drop(rows)
 end
-local ordinary = layoutof(Particle)
+local ordinary = types.layoutof(Particle)
 local split = soa.layoutof(ffi.typeof<Particle>())
 return aos:read()[1].x == 1
     and columns:read()[1].x == 5
@@ -296,7 +296,7 @@ end
 function M.nestedStructsAndFixedArraysRemainSingleColumns()
     local facts = runs(
         [[
-local soa = require("nupp.mem.soa")
+local soa = require("nupp.soa")
 local ffi = require("ffi")
 local struct Position
     x: float
@@ -394,7 +394,7 @@ end
 function M.literalBracketsReachColumnsThatCollideWithViewMembers()
     local value = runs(
         [[
-local soa = require("nupp.mem.soa")
+local soa = require("nupp.soa")
 local ffi = require("ffi")
 local struct Collision
     slice: float
@@ -760,7 +760,7 @@ function M.nonStructElementsAreRejectedAtTheCall()
     testAssert.eq(
         codes(
             [[
-local soa = require("nupp.mem.soa")
+local soa = require("nupp.soa")
 local ffi = require("ffi")
 local rows = soa.alloc(ffi.typeof<int32>(), 4)
 ]]
@@ -818,7 +818,7 @@ function M.nativeColumnsKeepSourceMappingAndUseExplicitVectors()
         testAssert.eq(param.soa.ordinal, ordinal, "ordered columns")
         testAssert.eq(param.soa.view, "rows", "source view")
         testAssert.eq(param.soa.field, ({"x", "y", "dx", "dy"})[ordinal], "field identity")
-        testAssert.eq(param.spanModule, "nupp.mem.soa", "sealed column origin")
+        testAssert.eq(param.spanModule, "nupp.soa", "sealed column origin")
     end
     for _, fact in ipairs(program.aliasFacts) do
         testAssert.eq(fact.proof, "soa_columns", "sibling layout proof")
