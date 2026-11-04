@@ -160,7 +160,12 @@ local CASES = {
     {"modulesretry", 0x7FFF00000000007F},
     {"errorsruntime", 0x7FFF00000000001F},
     -- 600 functions, past the 256 owners the graph schema once admitted.
-    {"functionsmany", 0x7FFF00000002C04C}
+    {"functionsmany", 0x7FFF00000002C04C},
+    -- Recursion to 150,000 frames and an overflow at 200,000 (7 * 10^6 +
+    -- the deepest call, 199,999).
+    {"callsdeep", 0x7FFF0000006DDCFF},
+    -- 260 modules whose chunk depths sum to 4,421 frames: every one ran.
+    {"modulesmany", 0x7FFB000000000000}
 }
 -- What the cases that print write to the host's output, as Lua 5.5 writes it
 -- but for floats, which print the shorter exact text (Decision 13).
@@ -207,6 +212,7 @@ local STRESS = {
     tablesfrozen = true,
     serdejson = true,
     functionsmany = true,
+    callsdeep = true,
     modulesretry = true,
     errorsruntime = true
 }
@@ -725,6 +731,46 @@ local function functionsmany()
     write(OUT .. "/generated/functionsmany.nupp", table.concat(lines, "\n") .. "\n")
 end
 
+-- The generated modules case: main requires 260 modules, each a chain of
+-- sixteen functions its chunk calls into, so the chunks' depths sum to
+-- 4,421 frames while no stack is deeper than 18 (main, a chunk and its
+-- chain). Nothing in it calls back or recurses, so its catalog's frame
+-- depth is that bound. Each source is staged where the guest project reads
+-- it as well.
+local MANY_DEPTH = 18
+local function modulesmany()
+    local staged = ROOT .. "/build/core-guest-programs/source/nupp/core"
+    os.execute("mkdir -p " .. quote(OUT .. "/generated") .. " " .. quote(staged))
+    local main = {"module nupp.core.catalogmodulesmany", "", "-- Every generated module, required as main starts."}
+    local names = guestbuild.modules("modulesmany")
+    for index, name in ipairs(names) do
+        local lines = {
+            "module nupp.core.catalog" .. name,
+            "",
+            ("-- Generated module %d of %d, a chain of sixteen calls."):format(index, #names),
+            "local function f1(): boolean",
+            "    return true",
+            "end"
+        }
+        for k = 2, 16 do
+            lines[#lines + 1] = ("local function f%d(): boolean\n    return f%d()\nend"):format(k, k - 1)
+        end
+        lines[#lines + 1] = "export = f16()"
+        local text = table.concat(lines, "\n") .. "\n"
+        write(OUT .. "/generated/" .. name .. ".nupp", text)
+        write(staged .. "/catalog" .. name .. ".nupp", text)
+    end
+    -- More modules than a chunk may have locals, so none is kept in one.
+    main[#main + 1] = "local all = true"
+    for _, name in ipairs(names) do
+        main[#main + 1] = ("if not require(\"nupp.core.catalog%s\") then\n    all = false\nend"):format(name)
+    end
+    main[#main + 1] = "export = all"
+    local text = table.concat(main, "\n") .. "\n"
+    write(OUT .. "/generated/modulesmany.nupp", text)
+    write(staged .. "/catalogmodulesmany.nupp", text)
+end
+
 -- Runs the cases in NUPP_GUEST_SHARDS processes at once (default 4), each
 -- selecting and running its share: selection is one process's work, so
 -- shards are what spread it. Cases are dealt by what they cost last run; the
@@ -836,6 +882,7 @@ local function main()
     -- Its parent wrote the generated case a shard reads.
     if not os.getenv("NUPP_GUEST_SHARD") then
         functionsmany()
+        modulesmany()
     end
     -- The cases named, in the order named, or every case.
     local selectedCases = {}
@@ -1081,6 +1128,20 @@ local function main()
                     local count = OUT .. "/" .. label .. "-count.bundle"
                     write(count, prefix .. put(data, 14 * 8, u64(3)))
                     guarded(label .. " module count", count, empty, highWater, nil, 1)
+                end
+                if name == "modulesmany" then
+                    -- Its frame depth is its deepest stack, not the chunks'
+                    -- depths summed; the catalog admits a depth up to the
+                    -- recursion bound, 200,000, and refuses one past it.
+                    local depth = 11 * 8
+                    check(get64(data, depth) == MANY_DEPTH, label .. " frame depth is the deepest stack")
+                    local prefix = bundleBytes:sub(1, 72 + codeBytes)
+                    local bound = OUT .. "/" .. label .. "-depth-bound.bundle"
+                    write(bound, prefix .. put(data, depth, u64(200000)))
+                    guarded(label .. " depth at the bound", bound, empty, highWater, expected)
+                    local past = OUT .. "/" .. label .. "-depth-past.bundle"
+                    write(past, prefix .. put(data, depth, u64(200001)))
+                    guarded(label .. " depth past the bound", past, empty, highWater, nil, 1)
                 end
                 if name == "numberAdd" or name == "numberBranch" then
                     local op = name == "numberAdd" and "Add" or "Lt"

@@ -34,7 +34,8 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
         signaturebound = bounds.signatures,
         modulebound = bounds.modules,
         callbound = bounds.calls,
-        instructionbound = bounds.instructions
+        instructionbound = bounds.instructions,
+        depthbound = executable.depthbound
     }) do
         local text = assert(scope.exportedConstants[name], "guest catalog bound " .. name)
         assert(literal.integer(text) == expected, "guest catalog bound " .. name .. " differs from the schema")

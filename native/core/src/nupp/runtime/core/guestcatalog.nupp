@@ -130,6 +130,11 @@ export const signaturebound: uint64 = 65536ULL
 export const modulebound: uint64 = 65536ULL
 export const callbound: uint64 = 16777216ULL
 export const instructionbound: uint64 = 16777216ULL
+-- The frames a recursive program may nest (coregraphexecutable.depthbound),
+-- past which a call raises "stack overflow". A program that does not recurse
+-- holds each function on its stack at most once, so its depth is at most its
+-- owner count.
+export const depthbound: uint64 = 200000ULL
 
 local function range(base: uint64, bytes: uint64): uint64
     if base == 0ULL or bytes == 0ULL or (base & 7ULL) ~= 0ULL or bytes > 0xffffffffffffffffULL - base then
@@ -215,7 +220,7 @@ local function valid(data: voidptr, bytes: uint64): uint64
         or nm > modulebound
         or nm > count
         or depth == 0ULL
-        or depth > count and (version < 7ULL or depth > 4096ULL)
+        or depth > count and (version < 7ULL or depth > depthbound)
         or native.load64(data, native.fieldOffset<Descriptor>("instanceBound")) > 1048576ULL
     then
         return 0ULL

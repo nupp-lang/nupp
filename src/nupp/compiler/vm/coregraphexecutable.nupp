@@ -55,6 +55,9 @@ end
 -- of K, Require and GetUpval, and the target or library id that Closure and
 -- LibCall carry before their value operands.
 local immediateOperands: {[string]: integer} = {K = 1, Require = 1, GetUpval = 1, Closure = 1, LibCall = 1}
+-- The library id of `require` (taggedprofile), which with a computed name
+-- starts whichever module the name finds.
+local LIBRARY_REQUIRE: integer = 85
 
 -- Closed blocks keep every non-parameter value inside one block, so a slot is
 -- reused across blocks and, within a block, after the value's last use.
@@ -154,6 +157,8 @@ local function derive(g: any, catalog: any): any
     local metaCalls = false
     -- A function that destroys owners lands errors from its calls.
     local lands = false
+    -- From v8, whether a `require` of a computed name may start any module.
+    local anyModule = false
     for _, block in ipairs(g.blocks) do
         -- A capturing closure stages its captures in the call window too.
         for at, op in ipairs(block.op) do
@@ -166,6 +171,14 @@ local function derive(g: any, catalog: any): any
                 local id = block.args[at][1]
                 if catalog.schema.version >= 8 and (id == 1 or id == 5 or id == 6 or id == 7 or id == 33) then
                     maximumArguments = math.max(maximumArguments, 3) as integer
+                    metaCalls = true
+                end
+                if catalog.schema.version >= 8 and id == LIBRARY_REQUIRE then
+                    anyModule = true
+                elseif catalog.schema.version >= 8 then
+                    -- Any other library function may call a function value
+                    -- back: sort's comparator, gsub's replacement, a
+                    -- metamethod print or format reaches.
                     metaCalls = true
                 end
             elseif op == "Destroy" then
@@ -234,6 +247,8 @@ local function derive(g: any, catalog: any): any
     local highest = callBase + math.max(maximumArguments, 1)
     need(highest < 250, "physical slots including call/copy scratch exceed capacity")
     local instructions, positions, starts, patches, calls = {}, {}, {}, {}, {}
+    -- The module chunks this function's static requires name.
+    local requires: {integer} = {}
     local closureCount: integer = 0
     -- A block that can reach itself runs repeatedly. Instance creation there is
     -- unbounded until closures live on the collected heap.
@@ -321,6 +336,7 @@ local function derive(g: any, catalog: any): any
                         and (target < g.programOwner or catalog.schema.version >= 8 and target ~= g.programOwner),
                         "forward or cyclic require is unsupported"
                     )
+                    requires[#requires + 1] = target as integer
                     emit({"Require", physical(dst), target}, position)
                     yield nil
                 end
@@ -530,14 +546,86 @@ local function derive(g: any, catalog: any): any
         constants = copy(g.constants),
         calls = calls,
         metaCalls = metaCalls,
+        requires = requires,
+        anyModule = anyModule,
         lands = lands,
         closureCount = closureCount
     }
 end
 
--- Frames a recursive v7 program may nest; deeper recursion is refused at run
--- time when the frame pool is exhausted.
-local RECURSION_DEPTH: integer = 128
+-- Frames a recursive program may nest: a call past them raises Lua's "stack
+-- overflow". The guest catalog admits this bound (guestcatalog.depthbound),
+-- and the entry's frame pool is sized for it.
+executable.depthbound = 200000
+
+-- The deepest stack of frames `successors` admits when no function is on it
+-- twice: the longest path through its strongly connected components, each
+-- weighing the functions in it (the nodes up to `functions`; a later node is
+-- a junction that holds no frame). A stack within a component holds each of
+-- its functions once at most, so this bounds every non-recursive stack.
+local function deepest(functions: integer, successors: {{integer}}): integer
+    local order, low, held, component, longest = {}, {}, {}, {}, {}
+    local stack: {integer} = {}
+    local visited: integer, components: integer, result: integer = 0, 0, 0
+    for root = 1, #successors do
+        if order[root] == nil then
+            visited += 1
+            order[root], low[root], held[root] = visited, visited, true
+            stack[#stack + 1] = root
+            local work: {{integer}} = {{root, 1}}
+            while #work > 0 do
+                local top = work[#work]
+                local node, at = top[1], top[2]
+                local edges = successors[node]
+                if at <= #edges then
+                    top[2] = at + 1
+                    local next = edges[at]
+                    if order[next] == nil then
+                        visited += 1
+                        order[next], low[next], held[next] = visited, visited, true
+                        stack[#stack + 1] = next
+                        work[#work + 1] = {next, 1}
+                    elseif held[next] then
+                        low[node] = math.min(low[node], order[next])
+                    end
+                else
+                    work[#work] = nil
+                    if #work > 0 then
+                        local parent = work[#work][1]
+                        low[parent] = math.min(low[parent], low[node])
+                    end
+                    if low[node] == order[node] then
+                        -- Every component it reaches outside itself is done.
+                        components += 1
+                        local members: {integer} = {}
+                        repeat
+                            local member = stack[#stack]
+                            stack[#stack] = nil
+                            held[member] = nil
+                            component[member] = components
+                            members[#members + 1] = member
+                        until member == node
+                        local weight: integer, below: integer = 0, 0
+                        for _, member in ipairs(members) do
+                            if member <= functions then
+                                weight += 1
+                            end
+                            for _, next in ipairs(successors[member]) do
+                                if component[next] ~= components then
+                                    below = math.max(below, longest[component[next]])
+                                end
+                            end
+                        end
+                        longest[components] = weight + below
+                        result = math.max(result, weight + below)
+                    end
+                end
+            end
+        end
+    end
+
+    return result
+end
 
 local function deriveCatalog(normalized: any): any
     semantic.semantic(normalized)
@@ -551,7 +639,7 @@ local function deriveCatalog(normalized: any): any
     local recursive = false
 
     -- v7 creates no instances (its closures are heap objects), so a cycle only
-    -- deepens frames, which the entry bounds with RECURSION_DEPTH.
+    -- deepens frames, which the entry bounds with depthbound.
     local function bound(index: integer): any
         if bounds[index] then
             return bounds[index]
@@ -589,25 +677,47 @@ local function deriveCatalog(normalized: any): any
     for index = 1, #functions do
         bound(index)
     end
-    local initializers, capacity, creations, depth = {}, 1, 0, 1
-    -- From v8 a module's chunk runs as a call from its first requirer, so
-    -- chunks nest: their depths add up.
-    local nested = 0
+    local initializers, capacity, creations = {}, 1, 0
     for index, module in ipairs(normalized.modules) do
         local owner = module.chunk
         local extent = bounds[owner + 1]
         initializers[index] = owner
         capacity = math.max(capacity, extent.instances)
         creations += extent.instances
-        depth = math.max(depth, extent.depth)
-        nested += extent.depth
         need(creations <= 1048576, "module instance budget exceeded")
     end
-    if normalized.schema.version >= 8 then
-        depth = math.max(depth, nested)
+    -- Frames nest through static calls and, from v8, through requires: a
+    -- module's chunk runs as a call from its first requirer, and a `require`
+    -- of a computed name may start any module (through the junction past the
+    -- functions). A chunk runs once, so a require cycle nests no further than
+    -- its members; before v8 each chunk is its own entry.
+    local successors: {{integer}} = {}
+    local junction = #functions + 1
+    local chunks: {integer} = {}
+    for _, module in ipairs(normalized.modules) do
+        chunks[#chunks + 1] = (module.chunk as integer) + 1
     end
+    for index, fn in ipairs(functions) do
+        local edges: {integer} = {}
+        for _, call in ipairs(fn.calls) do
+            if call.target ~= normalized.schema.absent then
+                edges[#edges + 1] = (call.target as integer) + 1
+            end
+        end
+        if normalized.schema.version >= 8 then
+            for _, target in ipairs(fn.requires) do
+                edges[#edges + 1] = (target as integer) + 1
+            end
+            if fn.anyModule then
+                edges[#edges + 1] = junction
+            end
+        end
+        successors[index] = edges
+    end
+    successors[junction] = chunks
+    local depth = math.max(deepest(#functions, successors), 1)
     if recursive then
-        depth = math.max(depth, RECURSION_DEPTH)
+        depth = math.max(depth, executable.depthbound)
     end
 
     return {
