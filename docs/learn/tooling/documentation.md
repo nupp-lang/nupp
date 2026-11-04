@@ -117,6 +117,8 @@ documentation.
 | `@export`, `@public` | Force a declaration public |
 | `@local` | Keep a declaration out; `--include-private` brings it back |
 | `@namespace [prefix]` | Document a shape's own fields as modules |
+| `@form <title>` | Name one callable overload form |
+| `@lua` | Mark a form that matches a Lua function |
 
 A tag's description continues onto any following indented line. Any other
 `@name` is kept as a tag with its value.
@@ -131,6 +133,36 @@ An out-of-line method that spells an explicit `self` receiver with a dot still
 renders its final name segment with `:`. The source may need
 `function Buffer.write(exclusive self: Buffer, ...)` to state the receiver's
 ownership, but its documentation signature names the method as `Buffer:write`.
+
+### Callable forms
+
+A callable intersection renders as one API entry with a separate signature,
+Arguments, and Returns for each form. Put a `---` comment immediately before
+an arm to give it its own descriptions and examples:
+
+```nupp:fragment
+--- Parses text or bytes.
+export const parse = implementation as(
+    --- Parses a text document.
+    --- @form Text
+    --- @param source the document text
+    --- @return the parsed document
+    function(source: string): (Document)
+    &
+    --- Parses a byte sequence.
+    --- @form Bytes
+    --- @param source the encoded document
+    --- @return the parsed document
+    function(source: {integer}): (Document)
+)
+```
+
+Forms are derived from the type without tags. An optional `@form` supplies a
+title; otherwise the heading shows the function name and parameter names.
+Shared `@param`, `@return`, `@typearg`, and `@raises` descriptions remain defaults.
+A form's own named tags override those names; its `@return` or `@raises` tags
+replace the corresponding shared list. `@lua` marks a form with the Lua badge.
+The JSON model exposes the same groups in `forms`.
 
 ### Raised errors
 

@@ -100,7 +100,7 @@ local function headingBadge(heading: string): string, string?, boolean?
     end
     local name, _, kind = heading:match("^(.-`[^`]+`)%s+([_*])([%l][%l ]*)%2$")
     if not name then
-        return heading, nil
+        return heading, nil, lua
     end
 
     return name, kind, lua
@@ -559,7 +559,7 @@ local function headingSlugs(text, headingScope: string?)
             slugs[
                 #slugs + 1
             ] = {id = id, base = base, anchor = explicit, text = name:gsub("[`*_]", ""), badge = badge, lua = lua}
-            out[#out + 1] = badge and hashes .. " " .. name or line
+            out[#out + 1] = (badge or lua) and hashes .. " " .. name or line
         else
             out[#out + 1] = line
             local explicit = line:match('^<a id="([^"]+)"></a>$')

@@ -67,6 +67,10 @@ local function omitNilResult(signature, returns): string
     return signature
 end
 
+export function formSignature(form: extractMod.Form): string
+    return omitNilResult(form.signature, form.returns)
+end
+
 export function displaySignature(item: extractMod.Item): string
     if item.kind == "function" then
         local signature = item.signature

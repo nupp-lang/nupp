@@ -668,6 +668,125 @@ local popen: function(cmd: string, mode: string?): File
     assert(#items.anonymous.params == 2, "unnamed parameters retain their separate positions")
 end
 
+function M.callableFormsKeepArgumentsResultsAndExamplesTogether()
+    local module = assert(
+        doc.extract(
+            [[
+module io
+--- Starts a child or opens a shell pipe.
+export const popen = implementation as(
+    --- Starts the program directly.
+    ---
+    --- ```nupp
+    --- local child = io.popen({args = {"git", "status"}})
+    --- ```
+    --- @form Argument vector
+    --- @param options the child options
+    --- @return the owned child
+    --- @return the process error
+    function(options: Process.Options): (Process?, Error?)
+    &
+    --- Opens a shell pipe.
+    --- @form Shell command
+    --- @lua
+    --- @param cmd the shell command
+    --- @param mode the pipe direction
+    --- @return the owned pipe
+    --- @return the error string
+    function(cmd: string, mode: string?): (File?, string?)
+)
+]],
+            "src/io.nupp",
+            "io"
+        )
+    )
+    local item = module.items[1]
+    item.lua = true
+    assert(#module.items == 1 and #item.forms == 2)
+    local vector, shell = item.forms[1], item.forms[2]
+    assert(vector.title == "Argument vector" and not vector.lua)
+    assert(#vector.params == 1 and vector.params[1].name == "options")
+    assert(vector.params[1].text == "the child options")
+    assert(vector.returns[1].type == "Process?" and vector.returns[2].type == "Error?")
+    assert(vector.returns[1].text == "the owned child" and vector.returns[2].text == "the process error")
+    assert(shell.title == "Shell command" and shell.lua)
+    assert(#shell.params == 2 and shell.params[1].name == "cmd")
+    assert(shell.returns[1].type == "File?" and shell.returns[2].type == "string?")
+    assert(not vector.signature:find("---", 1, true), vector.signature)
+    local markdown = doc.markdown({module})
+    local first = assert(markdown:find("#### Argument vector", 1, true))
+    local second = assert(markdown:find("#### Shell command _Lua_", first, true))
+    local vectorText, shellText = markdown:sub(first, second - 1), markdown:sub(second)
+    assert(vectorText:find("##### Arguments", 1, true) and vectorText:find("##### Returns", 1, true))
+    assert(vectorText:find("the owned child", 1, true) and vectorText:find("local child", 1, true))
+    assert(not vectorText:find("the owned pipe", 1, true) and not vectorText:find("_Lua_", 1, true))
+    assert(shellText:find("the owned pipe", 1, true) and not shellText:find("the owned child", 1, true))
+    assert(not markdown:find("(Process?) | (File?)", 1, true), "result correlation was lost")
+    local _, entries = markdown:gsub("::: api%-item io%.popen\n", "")
+    assert(entries == 1, "forms became separate API entries")
+    local html = require("nupp.tools.doc.html").markdownHtml(markdown)
+    assert(html:find('id="io.popen.form-1"', 1, true), html)
+    assert(html:find('id="io.popen.form-2"', 1, true), html)
+    local _, luaBadges = html:gsub('class="nuppdoc%-kind%-badge nuppdoc%-kind%-Lua"', "")
+    assert(luaBadges == 1 and not html:find("<em>Lua</em>", 1, true), html)
+    local ids = {}
+    for id in html:gmatch('id="([^"]+)"') do
+        assert(not ids[id], "duplicate form anchor " .. id)
+        ids[id] = true
+    end
+    local model = require("testjson").decode(doc.json({module}))
+    local forms = model.modules[1].items[1].forms
+    assert(#forms == 2 and forms[1].returns[2].type == "Error?" and forms[2].returns[2].type == "string?")
+end
+
+function M.callableFormsNeedNoTagsAndKeepSharedDefaults()
+    local module = assert(
+        doc.extract(
+            [[
+module codec
+--- Decodes a value.
+--- @param source the encoded value
+--- @return the decoded value
+--- @raises string when invalid
+export const decode: ((function<T>(source: string): T) & (function(source: {integer}): boolean))
+export record Decoder
+    --- Decodes an input.
+    --- @param source the input
+    --- @return the decoded input
+    decode: ((function(source: string): string) & (function(source: boolean): nil))
+end
+]],
+            "src/codec.nupp",
+            "codec"
+        )
+    )
+    local items = {}
+    for _, item in ipairs(module.items) do
+        items[item.name] = item
+    end
+    local forms = items.decode.forms
+    assert(#forms == 2 and forms[1].title == nil)
+    assert(forms[1].typeargs[1].name == "T" and #forms[2].typeargs == 0)
+    assert(forms[1].returns[1].type == "T" and forms[2].returns[1].type == "boolean")
+    assert(forms[1].params[1].text == "the encoded value" and forms[2].returns[1].text == "the decoded value")
+    assert(forms[1].raises[1].type == "string" and forms[2].raises[1].text == "when invalid")
+    local member = items.Decoder.members[1]
+    assert(#member.forms == 2 and member.forms[2].returns[1].type == "nil")
+    local markdown = doc.markdown({module})
+    assert(markdown:find("#### `decode(source)`", 1, true), markdown)
+    assert(markdown:find("##### Type parameters", 1, true), markdown)
+    local lastForm = assert(markdown:find('id="codec.Decoder.decode.form-2"', 1, true))
+    assert(not markdown:sub(lastForm):find("###### Returns", 1, true), "nil-only form acquired a Returns section")
+    local model = require("testjson").decode(doc.json({module}))
+    local record
+    for _, item in ipairs(model.modules[1].items) do
+        if item.name == "Decoder" then
+            record = item
+        end
+    end
+    assert(#record.members[1].forms == 2)
+end
+
 function M.functionDocumentationKeepsCoroutineProtocolsBeforeResults()
     local source = [[
 --- Produces a value and receives its continuation flag.

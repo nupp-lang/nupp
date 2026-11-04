@@ -622,49 +622,49 @@ local function openProcess(command: any, ...: any): ...any
     return luaPopen(command, ...)
 end
 
---- Starts a child from an argument vector or opens a Lua shell pipe.
+--- Starts a child from an argument vector or opens a shell pipe.
 ---
---- A [](io.Process.Options) table starts the program in `args[1]` directly,
---- without shell parsing, and returns an owned [](io.Process). Arguments are
---- separate strings; `cwd` also accepts an [](io.Path). `communicate` feeds
---- stdin and drains stdout and stderr together, then returns the exit and output.
----
---- ```nupp
---- local child = assert(io.popen({
----     args = {"git", "status", "--short"},
----     cwd = assert(io.cwd()),
----     timeoutms = 5000,
---- }))
---- local result = assert(child:communicate())
---- print(result.output)
---- if not result:succeeded() then
----     print(result.erroroutput)
---- end
---- ```
----
---- A command string invokes the shell and returns an owned [](io.File), with
---- one pipe selected by `mode`. The shell command must be a string.
----
---- ```nupp
---- local pipe = assert(io.popen("git status --short", "r"))
---- print(pipe:read("*a"))
---- ```
----
---- Owners close at their lexical scope boundary. A process also exposes `pid`,
---- `stdin`, `stdout`, `stderr`, `poll`, `wait`, and `kill` for direct control.
---- See [](io.Process) for these operations and [](io.Process.Options) for
---- environment, stream routing, and timeout options.
----
---- @param options the program, arguments and child process options
---- @param cmd the shell command for the string form
---- @param mode the shell pipe mode, "r" by default
---- @return the owned Process for options, or owned File for a command string; nil on
----     failure
---- @return an `io.Error` for options, or a string for a command string, on failure
+--- Owners close at their lexical scope boundary. See [](io.Process) for child
+--- operations and [](io.Process.Options) for environment, stream, and timeout options.
 export const popen = openProcess as(
-    function(options: Process.Options): (affine(Process)?, Error?)
-    & function(cmd: string, mode: string?): (affine(io.File, __nuppCloseFile)?, string?)
-)
+    --- Starts the program in `args[1]` directly, without shell parsing.
+    --- Arguments are separate strings; `cwd` also accepts an [](io.Path).
+    --- `communicate` feeds stdin and drains stdout and stderr together.
+    ---
+    --- ```nupp
+    --- local child = assert(io.popen({
+    ---     args = {"git", "status", "--short"},
+    ---     cwd = assert(io.cwd()),
+    ---     timeoutms = 5000,
+    --- }))
+    --- local result = assert(child:communicate())
+    --- print(result.output)
+    --- if not result:succeeded() then
+    ---     print(result.erroroutput)
+    --- end
+    --- ```
+    ---
+    --- @form Argument vector
+    --- @param options the program, arguments, and child process options
+    --- @return the owned process on success
+    --- @return the process error on failure
+    function(options: Process.Options): (affine(Process)?, Error?) &
+
+    --- Invokes the shell and opens one pipe selected by `mode`.
+    --- The shell command must be a string.
+    ---
+    --- ```nupp
+    --- local pipe = assert(io.popen("git status --short", "r"))
+    --- print(pipe:read("*a"))
+    --- ```
+    ---
+    --- @form Shell command
+    --- @lua
+    --- @param cmd the shell command
+    --- @param mode "r" to read or "w" to write; defaults to "r"
+    --- @return the owned pipe on success
+    --- @return the error string on failure
+    function(cmd: string, mode: string?): (affine(io.File, __nuppCloseFile)?, string?))
 
 --- @internal
 export const value: table = do

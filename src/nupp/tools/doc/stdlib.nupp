@@ -571,6 +571,7 @@ export function page(settings: Settings?): Page?
                 end
             end
             item.returns = call.returns
+            item.forms = extractMod.callForms(call.forms)
             item.typeargs = call.typeargs or {}
             for _, entry in ipairs(navigation.globals) do
                 if entry.name == item.name then

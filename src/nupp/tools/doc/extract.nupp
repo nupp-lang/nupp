@@ -44,6 +44,18 @@ export type TypeArg = {
     text: string
 }
 
+--- One callable form, with its own argument and result contract.
+export type Form = {
+    signature: string,
+    title: string?,
+    text: string,
+    lua: boolean?,
+    params: {Param},
+    returns: {Result},
+    raises: {docblock.Raise},
+    typeargs: {TypeArg}
+}
+
 --- A field, method, nested type, or metamethod of a record, interface, or struct. A
 --- function-typed one carries its own arguments and results, which is what tells a
 --- method apart from a field; a nested type carries its own members recursively,
@@ -56,6 +68,7 @@ export record Member
     path: string
     params: {Param}
     returns: {Result}
+    forms: {Form}?
     raises: {docblock.Raise}
     lua: boolean?
     isFunction: boolean?
@@ -99,6 +112,7 @@ export type Item = {
     supertypes: {string}?,
     params: {Param},
     returns: {Result},
+    forms: {Form}?,
     raises: {docblock.Raise},
     typeargs: {TypeArg},
     annotations: {string}?,
@@ -821,8 +835,86 @@ local function typeFunctionDetails(node, info)
     return details
 end
 
--- A binding's overloads may have different parameter names and result types.
--- Keep every named argument and result alternative beside the full signature.
+-- An intersection supplies its forms without any documentation tags. A comment
+-- directly on an arm can refine its prose, parameters and results; shared tags
+-- remain defaults for arms that do not override them.
+local function functionForms(node, info): {Form}?
+    local _, overloads = typeFunction(node)
+    if not overloads or #overloads < 2 then
+        return nil
+    end
+    local forms: {Form} = {}
+    for _, fn in ipairs(overloads) do
+        local own = entryDoc(fn)
+        local params = {}
+        for name, text in pairs(info.params) do
+            params[name] = text
+        end
+        for name, text in pairs(own.params) do
+            params[name] = text
+        end
+        local details = typeFunctionDetails(fn, {
+            params = params,
+            returns = #own.returns > 0 and own.returns or info.returns
+        })
+        local typeargs = {}
+        for _, generic in ipairs(fn.generics and fn.generics.names or {}) do
+            typeargs[
+                #typeargs + 1
+            ] = {name = generic.text, text = own.typeargs[generic.text] or info.typeargs[generic.text] or ""}
+        end
+        local leading = 0
+        local token = firstToken(fn)
+        for index = 1, token and token.triviaCount or 0 do
+            leading = leading + #lexer.triviaText(token, index)
+        end
+        forms[
+            #forms + 1
+        ] = {
+            signature = withoutHiddenTerminals(dedent(trim(cst.textOf(fn):sub(leading + 1)))),
+            title = type(own.tags.form) == "string" and own.tags.form or nil,
+            text = own.text,
+            lua = own.tags.lua and true or nil,
+            params = details.params,
+            returns = details.returns,
+            raises = #own.raises > 0 and own.raises or info.raises,
+            typeargs = typeargs
+        }
+    end
+
+    return forms
+end
+
+--- Removes the implicit receiver from every form of a callable namespace.
+export function callForms(forms: {Form}?): {Form}?
+    if not forms then
+        return nil
+    end
+    local result = {}
+    for _, form in ipairs(forms) do
+        local params = {}
+        for index = 2, #form.params do
+            params[#params + 1] = form.params[index]
+        end
+        result[
+            #result + 1
+        ] = {
+            signature = callSignature(form.signature) or form.signature,
+            title = form.title,
+            text = form.text,
+            lua = form.lua,
+            params = params,
+            returns = form.returns,
+            raises = form.raises,
+            typeargs = form.typeargs
+        }
+    end
+
+    return result
+end
+
+-- Keep aggregate details for consumers of the earlier documentation model. The
+-- renderer uses forms so it never combines unrelated argument and result packs.
 local function bindingFunctionDetails(node, info)
     local widest, overloads = typeFunction(node)
     if #overloads == 1 then
@@ -918,6 +1010,7 @@ local function fieldItem(field, childModuleName, includePrivate)
         item.kind = "function"
         local details = typeFunctionDetails(fn, info)
         item.params, item.returns = details.params, details.returns
+        item.forms = functionForms(field.type, info)
         for _, generic in ipairs(fn.generics and fn.generics.names or {}) do
             item.typeargs[#item.typeargs + 1] = {name = generic.text, text = info.typeargs[generic.text] or "",}
         end
@@ -1101,6 +1194,7 @@ local function shapeModule(name, entries, text, path, blocks, includePrivate, ex
                                 params[#params + 1] = item.params[index]
                             end
                             item.params = params
+                            item.forms = callForms(item.forms)
                         end
                     end
                     items[#items + 1] = item
@@ -1241,6 +1335,7 @@ local function buildMembers(
             if fieldFunction then
                 local details = typeFunctionDetails(fieldFunction, fieldInfo)
                 member.params, member.returns = details.params, details.returns
+                member.forms = functionForms(entry.type, fieldInfo)
                 member.isFunction = true
                 member.typeargs = {}
                 for _, generic in ipairs(fieldFunction.generics and fieldFunction.generics.names or {}) do
@@ -1252,6 +1347,11 @@ local function buildMembers(
                 if ownerModule and surfaces.rotates(ownerModule, nominal, entry.name.text) then
                     member.type = rotatedTypeText(entry.type)
                     member.params = rotatedParams(member.params)
+                    local _, overloads = typeFunction(entry.type)
+                    for index, form in ipairs(member.forms or {}) do
+                        form.signature = withoutHiddenTerminals(rotatedFunctionText(overloads[index]))
+                        form.params = rotatedParams(form.params)
+                    end
                 end
             end
             if entry.kind == "metamethodDecl" then
@@ -1653,6 +1753,7 @@ declarationItem = function(
         local details = stat.kind == "localStmt" and bindingFunctionDetails(bindingType(stat), info)
             or typeFunctionDetails(declaredFunction, info)
         item.params, item.returns = details.params, details.returns
+        item.forms = functionForms(stat.kind == "localStmt" and bindingType(stat) or stat.value, info)
     elseif stat.kind == "typeAlias" and stat.value and stat.value.kind == "tshape" then
         item.members = buildMembers(stat.value.fields, item.path, includePrivate, info.fields)
     elseif stat.kind == "recordDecl" or stat.kind == "cdefStruct" then
@@ -1786,6 +1887,7 @@ local function foldMethods(
                     path = owner.path .. "." .. name,
                     params = item.params,
                     returns = item.returns,
+                    forms = item.forms,
                     raises = item.raises,
                     isFunction = true,
                     annotations = item.annotations,
@@ -2432,6 +2534,14 @@ export function extract(source: string, path: string?, name: string, opts: Optio
                 for _, returned in ipairs(value.returns) do
                     returned.type = publicName(returned.type)
                 end
+                for _, form in ipairs(value.forms or {}) do
+                    form.signature = publicName(form.signature)
+                    for _, parts in ipairs({form.params, form.returns, form.raises}) do
+                        for _, part in ipairs(parts) do
+                            part.type = publicName(part.type)
+                        end
+                    end
+                end
                 members(value.members or {})
             end
         end
@@ -2451,6 +2561,14 @@ export function extract(source: string, path: string?, name: string, opts: Optio
             end
             for _, returned in ipairs(item.returns) do
                 returned.type = publicName(returned.type)
+            end
+            for _, form in ipairs(item.forms or {}) do
+                form.signature = publicName(form.signature)
+                for _, parts in ipairs({form.params, form.returns, form.raises}) do
+                    for _, part in ipairs(parts) do
+                        part.type = publicName(part.type)
+                    end
+                end
             end
             members(item.members)
         end
@@ -2487,6 +2605,14 @@ export function extract(source: string, path: string?, name: string, opts: Optio
                     for _, returned in ipairs(value.returns or {}) do
                         returned.type = publicName(returned.type)
                     end
+                    for _, form in ipairs(value.forms or {}) do
+                        form.signature = publicName(form.signature)
+                        for _, parts in ipairs({form.params, form.returns, form.raises}) do
+                            for _, part in ipairs(parts) do
+                                part.type = publicName(part.type)
+                            end
+                        end
+                    end
                     members(value.members or {})
                 end
             end
@@ -2506,6 +2632,14 @@ export function extract(source: string, path: string?, name: string, opts: Optio
                 end
                 for _, returned in ipairs(item.returns) do
                     returned.type = publicName(returned.type)
+                end
+                for _, form in ipairs(item.forms or {}) do
+                    form.signature = publicName(form.signature)
+                    for _, parts in ipairs({form.params, form.returns, form.raises}) do
+                        for _, part in ipairs(parts) do
+                            part.type = publicName(part.type)
+                        end
+                    end
                 end
                 members(item.members)
             end
