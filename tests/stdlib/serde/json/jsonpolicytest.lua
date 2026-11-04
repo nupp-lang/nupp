@@ -34,7 +34,7 @@ end
 
 function M.abortingWritersDiscardsOnlyUnpublishedBytes()
     for _, provider in ipairs({json, require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
-        local output = require("nupp.text").newbuffer()
+        local output = require("string.buffer").new()
         output:put("prefix")
         local writer = (provider == json and provider.newwriter or provider.newwriter)(output)
         writer:startarray():write(1)
@@ -87,7 +87,7 @@ function M.exactNumberFragmentsPreserveTokensAcrossProviders()
             local fragment = (provider == json and provider.numbertoken or provider.numbertoken)(token)
             local encode = provider == json and provider.encodevalue or provider.encode
             assert(encode(fragment) == token)
-            local output = require("nupp.text").newbuffer()
+            local output = require("string.buffer").new()
             local writer = (provider == json and provider.newwriter or provider.newwriter)(output)
             writer:startarray():write(fragment):endarray()
             writer:close()
@@ -170,7 +170,7 @@ end
 
 function M.failedWritesLeaveTheWriterAtItsPriorPosition()
     for _, provider in ipairs({require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot"),}) do
-        local output = require("nupp.text").newbuffer()
+        local output = require("string.buffer").new()
         local writer = provider.newwriter(output)
         writer:startarray():write(1)
         assert(
@@ -190,7 +190,7 @@ function M.portableEncodingRejectsInvalidUtf8Everywhere()
         assert(not pcall(json.encodevalue, {[value] = 1}), "the encoder accepted an invalid UTF-8 key")
         assert(not pcall(json.encodedstring, value), "encodedstring accepted invalid UTF-8")
     end
-    local output = require("nupp.text").newbuffer()
+    local output = require("string.buffer").new()
     local writer = json.newwriter(output)
     writer:startobject()
     assert(not pcall(writer.key, writer, "\255"), "the writer accepted an invalid UTF-8 key")

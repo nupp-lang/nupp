@@ -80,7 +80,7 @@ building a Lua table or a complete result string. `endarray()` and
 leaving the document open, and consuming `close()` requires one complete root:
 
 ```nupp
-local out = nupp.text.newbuffer()
+local out = string.buffer.new()
 local writer = serde.json.newwriter(out)
 writer:startobject():key("items"):startarray():write(1):write(2):endarray():endobject()
 writer:close()
@@ -122,7 +122,7 @@ external models.
 ]==]
 module nupp.serde.internal.json.values
 
-const {type Buffer} = require("nupp.text")
+const {type Buffer} = require("string.buffer")
 
 const native = require("nupp.codec.json.provider")
 
@@ -163,7 +163,7 @@ export type JSONEncodable = contracts.JSONEncodable
 --- A checked incremental JSON writer, which `newwriter` returns.
 ---
 --- ```nupp
---- local out = nupp.text.newbuffer()
+--- local out = string.buffer.new()
 --- local writer = serde.json.newwriter(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
@@ -462,7 +462,7 @@ end
 --- Creates an incremental JSON writer over caller-owned storage.
 ---
 --- ```nupp
---- local out = nupp.text.newbuffer()
+--- local out = string.buffer.new()
 --- local writer = serde.json.newwriter(out)
 --- writer:startobject():key("id"):write(41):endobject()
 --- writer:close()

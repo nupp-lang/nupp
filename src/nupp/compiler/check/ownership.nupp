@@ -322,7 +322,7 @@ export function install(c: state.Checker): Ops
         if direct then
             -- A member of the module's own export namespace registers under the
             -- name importers can reconstruct: the export member. `heap.destroyArray`
-            -- inside nupp.mem.heap and `heap.destroyArray` through a require of it
+            -- inside nupp.heap and `heap.destroyArray` through a require of it
             -- must mint one key, or the declaring module registers a terminal no
             -- other module's drop can find.
             local ownName, ownMember = name:match("^(.*)%.([^.]*)$")
@@ -620,7 +620,12 @@ export function install(c: state.Checker): Ops
     ---------------------------------------------------------------------
 
     function own.ownershipEntry(expr)
-        while expr and (expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "orExitExpr") do
+        while expr
+            and (
+                expr.kind == "paren"
+                or expr.kind == "castExpr"
+                or (expr.kind == "orExitExpr" and not expr.orExitProtected)
+            ) do
             expr = expr.kind == "orExitExpr" and expr.operand or expr.expr
         end
         if expr and expr.kind == "name" then
@@ -634,7 +639,7 @@ export function install(c: state.Checker): Ops
         while expr do
             if expr.kind == "paren" or expr.kind == "castExpr" then
                 expr = expr.expr
-            elseif expr.kind == "orExitExpr" then
+            elseif expr.kind == "orExitExpr" and not expr.orExitProtected then
                 expr = expr.operand
             elseif expr.kind == "dotIndex"
                 or expr.kind == "safeIndex"
@@ -780,7 +785,12 @@ export function install(c: state.Checker): Ops
     end
 
     function own.regionOf(expr)
-        while expr and (expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "orExitExpr") do
+        while expr
+            and (
+                expr.kind == "paren"
+                or expr.kind == "castExpr"
+                or (expr.kind == "orExitExpr" and not expr.orExitProtected)
+            ) do
             expr = expr.kind == "orExitExpr" and expr.operand or expr.expr
         end
         if not expr then
@@ -877,7 +887,12 @@ export function install(c: state.Checker): Ops
         if t and own.ownershipKind(t) == "borrowed" then
             return true
         end
-        while expr and (expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "orExitExpr") do
+        while expr
+            and (
+                expr.kind == "paren"
+                or expr.kind == "castExpr"
+                or (expr.kind == "orExitExpr" and not expr.orExitProtected)
+            ) do
             expr = expr.kind == "orExitExpr" and expr.operand or expr.expr
         end
         local roots = expr and own.capabilityFacts(expr, nil, false).roots or nil
@@ -888,9 +903,14 @@ export function install(c: state.Checker): Ops
     function own.rootsOf(expr)
         while expr
             and (
-                expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "newExpr" or expr.kind == "orExitExpr"
+                expr.kind == "paren"
+                or expr.kind == "castExpr"
+                or expr.kind == "newExpr"
+                or (expr.kind == "orExitExpr" and not expr.orExitProtected)
             ) do
-            expr = expr.kind == "newExpr" and expr.call or expr.kind == "orExitExpr" and expr.operand or expr.expr
+            expr = expr.kind == "newExpr" and expr.call
+                or (expr.kind == "orExitExpr" and not expr.orExitProtected) and expr.operand
+                or expr.expr
         end
         local out, seen = {}, {}
         if not expr or cst.isToken(expr) then
@@ -958,9 +978,14 @@ export function install(c: state.Checker): Ops
         -- exactly as it reads through a paren or a cast.
         while expr
             and (
-                expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "newExpr" or expr.kind == "orExitExpr"
+                expr.kind == "paren"
+                or expr.kind == "castExpr"
+                or expr.kind == "newExpr"
+                or (expr.kind == "orExitExpr" and not expr.orExitProtected)
             ) do
-            expr = expr.kind == "newExpr" and expr.call or expr.kind == "orExitExpr" and expr.operand or expr.expr
+            expr = expr.kind == "newExpr" and expr.call
+                or (expr.kind == "orExitExpr" and not expr.orExitProtected) and expr.operand
+                or expr.expr
         end
         if not expr then
             return nil
@@ -1139,9 +1164,14 @@ export function install(c: state.Checker): Ops
     local function temporaryNode(node)
         while node
             and (
-                node.kind == "paren" or node.kind == "castExpr" or node.kind == "newExpr" or node.kind == "orExitExpr"
+                node.kind == "paren"
+                or node.kind == "castExpr"
+                or node.kind == "newExpr"
+                or (node.kind == "orExitExpr" and not node.orExitProtected)
             ) do
-            node = node.kind == "newExpr" and node.call or node.kind == "orExitExpr" and node.operand or node.expr
+            node = node.kind == "newExpr" and node.call
+                or (node.kind == "orExitExpr" and not node.orExitProtected) and node.operand
+                or node.expr
         end
 
         return node

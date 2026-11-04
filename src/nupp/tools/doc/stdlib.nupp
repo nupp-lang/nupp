@@ -418,7 +418,7 @@ export function indexParts(document: Page): {IndexPart}
         for _, item in ipairs(sorted) do
             local target = owners[item.name] and prefix .. urlsMod.moduleFile(owners[item.name]) .. "#" .. item.path
                 or "#" .. item.path
-            entries[#entries + 1] = "[`" .. item.name .. "`](" .. target .. ")" .. markdownMod.overviewBadge(item.kind)
+            entries[#entries + 1] = "[`" .. item.name .. "`](" .. target .. ")"
         end
         overview[#overview + 1] = {title = title, entries = entries}
     end

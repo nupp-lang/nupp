@@ -56,11 +56,11 @@ return length, distance, magnitude, x, y, z, w
 end
 
 function M.soaAllocKeepsTheExistingAllocationOperation()
-    local env = futureModule("nupp.mem.soa", "src/nupp/mem/soa.nupp", function(source)
+    local env = futureModule("nupp.soa", "src/nupp/soa.nupp", function(source)
         return (source:gsub("soa%.allocate", "soa.alloc"))
     end)
     local source = [[
-local soa = require("nupp.mem.soa")
+local soa = require("nupp.soa")
 local struct Row
     x: int32
 end

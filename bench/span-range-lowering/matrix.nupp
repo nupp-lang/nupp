@@ -2,8 +2,8 @@
 -- representative comparison remains in kernel.nupp/main.lua.
 local span = require("binary.span")
 local indexed = require("binary.span")
-local heap = require("nupp.mem.heap")
-local soa = require("nupp.mem.soa")
+local heap = require("nupp.heap")
+local soa = require("nupp.soa")
 
 local matrix = {}
 

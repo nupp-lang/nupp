@@ -39,6 +39,9 @@ type native.Feature = {
 
 local FEATURES: {[string]: native.Feature} = {
     [
+        "runtime.structpool"
+    ] = {name = "structpool", runtimeModule = "nupp.util.internal.structpool", portableRuntime = true, requires = {}},
+    [
         "runtime.crypto"
     ] = {
         name = "crypto_runtime",
@@ -203,6 +206,7 @@ local FEATURES: {[string]: native.Feature} = {
         module = "nupp.runtime.storage",
         runtimeModule = "nupp.runtime.storage",
         portableRuntime = true,
+        requires = {"runtime.structpool"},
     },
     [
         "runtime.net_contract"
@@ -364,15 +368,7 @@ local FEATURES: {[string]: native.Feature} = {
         portableRuntime = true,
         requires = {"runtime.io_internal_bytes", "runtime.io_internal_scalars"},
     },
-    [
-        "runtime.text_buffer"
-    ] = {
-        name = "text_buffer",
-        module = "nupp.text",
-        runtimeModule = "nupp.text",
-        portableRuntime = true,
-        requires = {}
-    },
+    ["runtime.text_buffer"] = {name = "text_buffer", module = "string.buffer", requires = {}},
     -- `portableRuntime` because the run-time half of `math` names nothing
     -- LuaJIT alone has: its bit operations come from whatever answers
     -- `numeric.bitops` on the target, and its `binary32` conversions are
@@ -614,10 +610,10 @@ local FEATURES: {[string]: native.Feature} = {
         "native.sharedbytes"
     ] = {
         name = "sharedbytes",
-        module = "nupp.mem.sharedbytes",
+        globals = {"io.Bytes.copy", "io.Bytes.readfile", "io.Bytes.newbuilder"},
         host = "workers",
         binary = true,
-        runtimeModule = "nupp.mem.sharedbytes",
+        runtimeModule = "io.internal.sharedbytes",
         requires = {"runtime.spanview"},
     },
     -- Span views lower their checked element access through nupp.mem.indexed,
@@ -629,7 +625,7 @@ local FEATURES: {[string]: native.Feature} = {
     ["runtime.indexed"] = {name = "indexed", runtimeModule = "nupp.mem.indexed", portableRuntime = true,},
     [
         "runtime.heap"
-    ] = {name = "heap", module = "nupp.mem.heap", runtimeModule = "nupp.mem.heap", requires = {"runtime.spanview"},},
+    ] = {name = "heap", module = "nupp.heap", runtimeModule = "nupp.heap", requires = {"runtime.spanview"},},
     ["native.http"] = {
         name = "http",
         module = "nupp.runtime.provider.nativehttp",

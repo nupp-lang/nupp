@@ -94,10 +94,10 @@ function M.bundledAliasesShareStagedNominalTypes()
     local incremental = require("nupp.compiler.project.incremental")
     local dir = os.tmpname()
     os.remove(dir)
-    assert(fs.mkdir(dir .. "/src/nupp/text/internal"))
+    assert(fs.mkdir(dir .. "/src/string"))
     assert(fs.writeFile(dir .. "/nupp.lua", 'return {include = {"src"}}'))
-    local declaration = assert(require("nupp.compiler.bundled").source("/nupp/text/internal/buffer.d.nupp"))
-    local typePath = dir .. "/src/nupp/text/internal/buffer.d.nupp"
+    local declaration = assert(require("nupp.compiler.bundled").source("/decls/stringbuffer.d.nupp"))
+    local typePath = dir .. "/src/string/buffer.d.nupp"
     assert(fs.writeFile(typePath, declaration))
     assert(fs.mkdir(dir .. "/src/nupp/test"))
     local main = dir .. "/src/nupp/test/aliases.nupp"
@@ -106,9 +106,9 @@ function M.bundledAliasesShareStagedNominalTypes()
             main,
             [[
 module nupp.test.aliases
-local {type Buffer} = require("nupp.text")
+local {type Buffer} = require("string.buffer")
 local contracts = require("serde.json.internal.contracts")
-local function writer(exclusive out: nupp.text.Buffer, nullValue: any?): any
+local function writer(exclusive out: string.buffer.Buffer, nullValue: any?): any
     out:put("value")
     return nil
 end
@@ -374,7 +374,7 @@ module nupp.test.contracts
 local contracts = require("nupp.runtime.contracts")
 local function implementations(entropy: contracts.EntropyProvider,
     system: contracts.SystemProvider, clock: contracts.ClockProvider,
-    uuid: contracts.UuidProvider, buffer: contracts.BufferProvider,
+    uuid: contracts.UuidProvider,
     host: contracts.HostProvider, storage: contracts.CstorageProvider,
     structs: contracts.StructvalueProvider): nil
 end

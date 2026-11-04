@@ -28,9 +28,9 @@ forward to the module functions below; the equivalent direct call is
 
 Observer state belongs to a source: `MessageBus<A>` is one, and any record with
 an `observers` field implements [](events.Source) and dispatches through
-the same functions. Record events draw from a [](table.Pool) and struct
-events from a [](nupp.mem.arena), each created the first time an event type is
-emitted through a source; `setallocator` installs one the caller owns instead.
+the same functions. Record and struct events draw from a [](table.Pool), created
+the first time an event type is emitted through a source. `setallocator` installs
+one the caller owns instead.
 ]]
 module events
 
@@ -39,7 +39,6 @@ const types2 = require("types")
 
 local derive = require("nupp.derive")
 local pool = require("nupp.util.internal.pool")
-local arena = require("nupp.mem.arena")
 
 local events = {}
 
@@ -67,7 +66,7 @@ type events.Observer<E> = function(borrows event: E): nil
 ---
 --- `acquire` hands out reusable storage of the event's own representation,
 --- which the emitting source initializes; `release` ends that lease when
---- delivery is over. [](table.Pool) and [](nupp.mem.arena) implement it.
+--- delivery is over. [](table.Pool) implements it.
 --- @export
 interface events.Allocator<E>
     acquire: function(exclusive self: Allocator<E>): E
@@ -694,7 +693,7 @@ function events.setallocator<A, S is events.Source<A>, E is events.Emittable>(
 end
 
 --- Storage a source creates for an event type it was never given one for: a
---- pool for a record, an arena the source rewinds at quiescence for a struct.
+--- pool for a record, or a struct pool reset at quiescence.
 local function allocatorFor(observers: any, info: Info): any
     local existing = observers.allocators[info.id]
     if existing ~= nil then
@@ -702,7 +701,7 @@ local function allocatorFor(observers: any, info: Info): any
     end
     local made: any
     if info.representation == "struct" then
-        made = arena.newarena(info.witness, 256)
+        made = pool.new(info.witness, 256)
         local owned = observers.ownedArenas
         owned[#owned + 1] = made
     else

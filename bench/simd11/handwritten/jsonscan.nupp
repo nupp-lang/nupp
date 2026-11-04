@@ -17,7 +17,7 @@ it is the span's.
 Keep it in step with the decoder when the scan changes there.
 ]]
 
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 local span = require("binary.span")
 

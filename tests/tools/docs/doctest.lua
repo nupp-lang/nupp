@@ -113,21 +113,17 @@ function M.moduleDocumentationDoesNotConsumeFollowingComments()
     assert(module.text == "Empty module.", module.text)
 end
 
-function M.apiOverviewUsesBalancedColumnsAndKindBadges()
+function M.apiOverviewUsesBalancedColumns()
     local markdown = require("nupp.tools.doc.markdown")
     local html = require("nupp.tools.doc.html")
     local entries = {}
     for index = 1, 25 do
         entries[index] = "[`item" .. index .. "`](#item" .. index .. ")"
     end
-    entries[1] = entries[1] .. markdown.overviewBadge("record")
-    entries[2] = entries[2] .. markdown.overviewBadge("type")
     local source = markdown.overview({{title = "Types", entries = entries}})
     assert(source:find("**types**", 1, true), source)
     local rendered = html.markdownHtml(source, nil, 0)
     assert(rendered:find('class="nuppdoc-overview nuppdoc-overview-3"', 1, true), rendered)
-    assert(rendered:find('nuppdoc-kind-record nuppdoc-overview-badge" title="Record">R</abbr>', 1, true), rendered)
-    assert(rendered:find('nuppdoc-kind-type nuppdoc-overview-badge" title="Type alias">T</abbr>', 1, true), rendered)
     for index = 25, 9, -1 do
         entries[index] = nil
     end
@@ -190,10 +186,10 @@ end
         "methods must be alphabetized"
     )
     assert(overview:find("[`alpha`]", 1, true) < overview:find("[`zeta`]", 1, true), "fields must be alphabetized")
-    assert(overview:find("[`Entry`](#catalog.Catalog.Entry)", 1, true), overview)
+    assert(overview:find("- [`Entry`](#catalog.Catalog.Entry)\n", 1, true), overview)
+    assert(overview:find("- [`Mode`](#catalog.Catalog.Mode)\n", 1, true), overview)
     assert(overview:find("[`__call`](#catalog.Catalog.__call)", 1, true), overview)
-    assert(overview:find('title="Record">R</abbr>', 1, true), overview)
-    assert(overview:find('title="Type alias">T</abbr>', 1, true), overview)
+    assert(not overview:find("<abbr", 1, true), "type member overview still includes kind badges")
     assert(not markdown:find("| Name | Kind | Description |", 1, true), "member overview still uses a table")
     local rendered = require("nupp.tools.doc.html").markdownHtml(markdown)
     assert(not rendered:find("<hr%s*/?>"), "type overviews must not add horizontal rules")
@@ -3281,6 +3277,7 @@ function M.markdownLinksNestedModulesAndReferences()
     -- one document holds every module, so every reference in it resolves
     assert(api:find('<a id="engine"></a>', 1, true), api)
     assert(api:find("**submodules**", 1, true), api)
+    assert(not api:find("<abbr", 1, true), "module overview still includes kind badges")
     assert(
         assert(api:find("**functions**", 1, true)) < assert(api:find("**submodules**", 1, true)),
         "functions must precede submodules in the module overview"
@@ -4988,6 +4985,7 @@ function M.stdlibIndexHoldsTheLibrariesTheCompilerDeclares()
         assert(page.markdown:find("\n## " .. section .. "\n", 1, true), "no section for " .. section)
     end
     assert(page.markdown:find("**modules**", 1, true), "no modules overview")
+    assert(not page.markdown:find("<abbr", 1, true), "main API overview still includes kind badges")
     assert(
         assert(page.markdown:find("**functions**", 1, true)) < assert(page.markdown:find("**modules**", 1, true)),
         "functions must precede modules in the main API overview"

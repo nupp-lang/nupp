@@ -1264,7 +1264,7 @@ local package: {
 -- Layouts and file handles
 ----------------------------------------------------------------------------
 
---- How a reified `struct` is laid out, as `layoutof` returns it.
+--- How a reified `struct` is laid out, as `types.layoutof` returns it.
 ---
 --- Every number here is this platform's: sizes and offsets come from the FFI at load
 --- rather than being baked in, because padding depends on the target. The fingerprint

@@ -34,6 +34,7 @@ local TEMPLATE_FILES = {
 -- want in full. One list because they have never differed and a second copy is
 -- how they would start to.
 local RESOURCES = {
+    {source = "src/nupp/util/internal/structpool.nupp", output = "nupp/compiler/nupp/util/internal/structpool.nupp"},
     {source = "src/warn.nupp", output = "nupp/compiler/warn.nupp"},
     {source = "src/types/init.nupp", output = "nupp/compiler/types/init.nupp"},
     {source = "src/types/derive.nupp", output = "nupp/compiler/types/derive.nupp"},
@@ -58,8 +59,6 @@ local RESOURCES = {
     {source = "src/nupp/runtime/bindings/clock.nupp", output = "nupp/compiler/nupp/runtime/bindings/clock.nupp"},
     {source = "src/nupp/runtime/bindings/workers.nupp", output = "nupp/compiler/nupp/runtime/bindings/workers.nupp"},
     {source = "src/nupp/runtime/target.nupp", output = "nupp/compiler/nupp/runtime/target.nupp"},
-    {source = "src/nupp/text/internal/buffer.d.nupp", output = "nupp/compiler/nupp/text/internal/buffer.d.nupp"},
-    {source = "src/nupp/text/init.nupp", output = "nupp/compiler/nupp/text/init.nupp"},
     {source = "src/io/cli.nupp", output = "nupp/compiler/io/cli.nupp"},
     {source = "src/assert.nupp", output = "nupp/compiler/assert.nupp"},
     {source = "src/nupp/runtime/standardio.nupp", output = "nupp/compiler/nupp/runtime/standardio.nupp"},
@@ -173,9 +172,10 @@ local RESOURCES = {
         source = "src/nupp/serde/internal/valuebuilder.nupp",
         output = "nupp/compiler/nupp/serde/internal/valuebuilder.nupp"
     },
-    {source = "src/nupp/mem/heap.nupp", output = "nupp/compiler/nupp/mem/heap.nupp"},
-    {source = "src/nupp/mem/sharedbytes.nupp", output = "nupp/compiler/nupp/mem/sharedbytes.nupp"},
-    {source = "src/nupp/mem/soa.nupp", output = "nupp/compiler/nupp/mem/soa.nupp"},
+    {source = "src/nupp/heap.nupp", output = "nupp/compiler/nupp/heap.nupp"},
+    {source = "src/io/internal/bytestypes.nupp", output = "nupp/compiler/io/internal/bytestypes.nupp"},
+    {source = "src/io/internal/sharedbytes.nupp", output = "nupp/compiler/io/internal/sharedbytes.nupp"},
+    {source = "src/nupp/soa.nupp", output = "nupp/compiler/nupp/soa.nupp"},
     {
         source = "src/nupp/serde/internal/json/values.nupp",
         output = "nupp/compiler/nupp/serde/internal/json/values.nupp"
@@ -299,9 +299,8 @@ local RESOURCES = {
         source = "src/nupp/runtime/provider/tablestruct.nupp",
         output = "nupp/compiler/nupp/runtime/provider/tablestruct.nupp",
     },
-    {source = "src/nupp/mem/array.nupp", output = "nupp/compiler/nupp/mem/array.nupp"},
+    {source = "src/nupp/array.nupp", output = "nupp/compiler/nupp/array.nupp"},
     {source = "src/nupp/util/internal/pool.nupp", output = "nupp/compiler/nupp/util/internal/pool.nupp"},
-    {source = "src/nupp/mem/arena.nupp", output = "nupp/compiler/nupp/mem/arena.nupp"},
     {source = "src/events.nupp", output = "nupp/compiler/events.nupp"},
     {source = "src/utf8.nupp", output = "nupp/compiler/utf8.nupp"},
     {source = "src/nupp/text/regex.nupp", output = "nupp/compiler/nupp/text/regex.nupp"},
@@ -352,8 +351,7 @@ local RESOURCES = {
     {source = "src/nupp/util/internal/hash.nupp", output = "nupp/compiler/nupp/util/internal/hash.nupp"},
     {source = "src/nupp/util/internal/uuid.nupp", output = "nupp/compiler/nupp/util/internal/uuid.nupp"},
     {source = "src/nupp/runtime/system.nupp", output = "nupp/compiler/nupp/runtime/system.nupp"},
-    {source = "src/os/host/init.nupp", output = "nupp/compiler/os/host/init.nupp"},
-    {source = "src/os/host/pump.nupp", output = "nupp/compiler/os/host/pump.nupp"},
+    {source = "src/os/host.nupp", output = "nupp/compiler/os/host.nupp"},
     {
         source = "src/nupp/runtime/provider/nativehost.nupp",
         output = "nupp/compiler/nupp/runtime/provider/nativehost.nupp"
@@ -361,7 +359,6 @@ local RESOURCES = {
     {source = "src/nupp/runtime/browser/system.nupp", output = "nupp/compiler/nupp/runtime/browser/system.nupp"},
     {source = "src/nupp/util/internal/bitset.nupp", output = "nupp/compiler/nupp/util/internal/bitset.nupp"},
     {source = "src/nupp/util/internal/store.nupp", output = "nupp/compiler/nupp/util/internal/store.nupp"},
-    {source = "src/nupp/mem/init.nupp", output = "nupp/compiler/nupp/mem/init.nupp"},
     {source = "src/io/internal/path.nupp", output = "nupp/compiler/io/internal/path.nupp"},
     {source = "src/nupp/io/path/provider.nupp", output = "nupp/compiler/nupp/io/path/provider.nupp"},
     {source = "src/nupp/io/path/pathtext.nupp", output = "nupp/compiler/nupp/io/path/pathtext.nupp"},

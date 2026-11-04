@@ -39,14 +39,14 @@ local BUNDLED = {
     "jit.zone",
     "jit.vmdef",
     "nupp.mem.span",
-    "nupp.mem.heap",
-    "nupp.mem.array",
+    "nupp.heap",
+    "nupp.array",
     "nupp.util.internal.pool",
-    "nupp.mem.arena",
+    "nupp.util.internal.structpool",
+    "io.internal.sharedbytes",
     "events",
     "nupp.runtime.contracts",
     "os.host",
-    "os.host.pump",
     "math.random",
 }
 
@@ -80,6 +80,14 @@ end
 function M.retiredNamespacesAreNotBundled()
     local env = strictEnv()
     for _, name in ipairs({
+        "nupp.text",
+        "nupp.text.internal.buffer",
+        "nupp.mem.arena",
+        "nupp.mem",
+        "nupp.mem.array",
+        "nupp.mem.heap",
+        "nupp.mem.soa",
+        "nupp.mem.sharedbytes",
         "binary.checksum.spi",
         "binary.digest.spi",
         "binary.mac.spi",
@@ -108,6 +116,7 @@ function M.retiredNamespacesAreNotBundled()
         "binary.hash.mac",
         "nupp.host",
         "nupp.host.pump",
+        "os.host.pump",
         "nupp.random",
         "nupp.spi"
     }) do

@@ -39,6 +39,11 @@ function M.nativeBuffersPreserveFifoAndBinaryValues()
     verify("textbuffer", "nupp.runtime.provider.nativebuffer")
 end
 
+function M.nativeBufferConstructorRetainsLuaJitIdentity()
+    local native = require("nupp.runtime.provider.nativebuffer")
+    assert(native.new == require("string.buffer").new, "native buffers must use LuaJIT's constructor directly")
+end
+
 -- A seeded differential over random operation sequences. It found the two
 -- providers disagreeing on how much a failing multi-count `get` consumed, which
 -- the fixed contract above cannot enumerate, so the sequences stay as a check.

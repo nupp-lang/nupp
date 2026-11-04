@@ -1,8 +1,9 @@
 @!internal
 
 --[[
-`table` provides sequence operations and reusable pools of record instances. Use
-`newpool` when a hot path repeatedly acquires and clears the same record type.
+`table` provides sequence operations and reusable pools of record and struct
+instances. Use `newpool` when a hot path repeatedly acquires instances of the
+same declared type.
 
 ```nupp
 local record Damage
@@ -16,9 +17,11 @@ damage:release(hit)
 assert(damage:free() == 64)
 ```
 
-A [](Pool) retains cleared table-backed records, not C-storage struct rows.
-Its capacity bounds the free list, not the number of instances live at once.
-See [](nupp.mem.arena) for pooled struct storage.
+A [](Pool) retains cleared records or zero-filled struct rows. Its initial size
+sets the allocation batch; capacity grows when more instances are needed.
+Releasing an instance makes it reusable immediately, and resetting an idle pool
+keeps every allocation. Struct pages never move and require C storage;
+record pools remain available on every backend.
 ]]
 
 --- @namespace table
@@ -26,12 +29,12 @@ module nupp.runtime.standardtable
 
 local pool = require("nupp.util.internal.pool")
 
---- A pool of instances stamped with a record declaration.
-export type Pool<T is table> = pool.Pool<T>
+--- A pool of instances of a record or struct declaration.
+export type Pool<T> = pool.Pool<T>
 
 export const Pool = pool.Pool
 
---- Creates a pool of instances of a record type.
+--- Creates a pool of instances of a record or struct declaration.
 export const newpool = pool.new
 
 local function index(value: any, position: integer): integer

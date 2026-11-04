@@ -22,9 +22,9 @@ and layout arithmetic remain ordinary modules.
 
 Storage and struct operations use private runtime contracts. Their layouts and
 scalar codecs agree with the representation compiled into the program.
-`nupp.text` owns the portable buffer surface and one shared `Buffer` type.
-Its native adapter uses `string.buffer`. Explicitly native pointer and
-serialization facilities remain on the native `string.buffer` surface.
+[](string.buffer) owns the canonical FIFO `Buffer` type on native and browser
+hosts. Its pointer and serialization operations retain their native
+representation and lifetime requirements.
 
 Each GPU context retains its device methods. CPU workgroups and tensor layout
 operations are ordinary code. HTTP clients are created with

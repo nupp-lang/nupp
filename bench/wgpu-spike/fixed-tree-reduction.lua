@@ -89,9 +89,9 @@ local expectedPartials = tree(values, count, f32.exp)
 local expected = tree(expectedPartials, workgroupSize)[0]
 
 local context = gpu.open()
-local input = context:buffer(require("nupp.mem.array").float32, count)
-local partials = context:buffer(require("nupp.mem.array").float32, workgroupSize)
-local result = context:buffer(require("nupp.mem.array").float32, 1)
+local input = context:buffer(require("nupp.array").float32, count)
+local partials = context:buffer(require("nupp.array").float32, workgroupSize)
+local result = context:buffer(require("nupp.array").float32, 1)
 context:upload(input, span.fromcarray(values, count))
 context:synchronize()
 

@@ -14,7 +14,7 @@ local env = envMod.new(HERE .. "/..")
 local M = {}
 
 local PRELUDE = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local span = require("binary.span")
 local simd = require("simd")
 ]]
@@ -577,7 +577,7 @@ return function(): ({number}, {number})
     answers[#answers + 1] = r[2].mass
     answers[#answers + 1] = simd.horizontal.orderedsum(r[2].pos)
     answers[#answers + 1] = (r[1].pos + r[2].pos):extract(1)
-    local layout = layoutof(Particle)
+    local layout = types.layoutof(Particle)
     local measured: {number} = {layout.size, layout.alignment}
     for _, field in ipairs(layout.fields) do
         measured[#measured + 1] = field.offset

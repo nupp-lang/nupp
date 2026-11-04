@@ -207,7 +207,7 @@ rows[
     note = "record with an absent optional field"
 }
 
-const sharedbytes = require("nupp.mem.sharedbytes")
+const sharedbytes = io.Bytes
 
 local lined = ("abcdefg\n"):rep(131072)
 local corpus = sharedbytes.copy(lined)
@@ -320,7 +320,7 @@ rows[
     note = "worker counts newlines in a copied string"
 }
 
-const heap = require("nupp.mem.heap")
+const heap = require("nupp.heap")
 
 local small = heap.alloc(ffi.typeof<uint8>(), 4096)
 do

@@ -1,5 +1,4 @@
 -- events: addressed synchronous delivery over pooled and arena-backed storage.
-local arena = require("nupp.mem.arena")
 local events = require("events")
 const {type Pool, newpool as newPool} = require("table")
 local test = require("assert")
@@ -83,7 +82,7 @@ end
 
 --- An arena-backed allocator that records what a row held when it was leased.
 local record Rows is events.Allocator<Contact>
-    inner: arena.Arena<Contact>
+    inner: Pool<Contact>
     acquires: integer
     seenA: {number}
     seenB: {number}
@@ -994,7 +993,7 @@ end
 
 function M.structRowsReadAsZeroWhenLeasedAndAreDeliveredAsStructReferences(): nil
     local bus = newBus()
-    local rows = new Rows(inner = arena.newarena(Contact, 4), acquires = 0, seenA = {}, seenB = {}, seenImpulse = {})
+    local rows = new Rows(inner = newPool(Contact, 4), acquires = 0, seenA = {}, seenB = {}, seenImpulse = {})
     bus:setallocator(Contact, rows)
     local seen: {string} = {}
     bus:observe(0, Contact, |event| -> do
@@ -1005,9 +1004,8 @@ function M.structRowsReadAsZeroWhenLeasedAndAreDeliveredAsStructReferences(): ni
     test.eq(seen[1], "5.0 6.0 0.25")
     test.eq(rows.seenA[1], 0, "a fresh row reads as zero")
 
-    -- An explicit arena rewinds only when its owner says so, so the next
-    -- lease is the next row; after a rewind, the first row again, and it
-    -- reads as zero even though the first emission wrote into it.
+    -- Released rows can be reused immediately. Each lease reads as zero;
+    -- only the owner resets the epoch's acquire count.
     bus:emit(0, Contact, 7, 8, 0.5)
     test.eq(rows.inner:used(), 2, "the bus did not rewind the caller's arena")
     rows.inner:reset()

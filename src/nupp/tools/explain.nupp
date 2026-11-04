@@ -138,8 +138,8 @@ local ENTRIES: {any} = {
         rule = "A private field is representation available only while checking the "
         .. "canonical module that declares its record. Expose a public method when "
         .. "another module needs an operation without revealing that representation.",
-        wrong = "local h = require('nupp.mem.heap')\nlocal a = h.alloc(ffi.typeof<int32>(), 1)\nreturn a.pointer\n",
-        right = "local h = require('nupp.mem.heap')\nlocal a = h.alloc(ffi.typeof<int32>(), 1)\nreturn a:read()[1]\n",
+        wrong = "local h = require('nupp.heap')\nlocal a = h.alloc(ffi.typeof<int32>(), 1)\nreturn a.pointer\n",
+        right = "local h = require('nupp.heap')\nlocal a = h.alloc(ffi.typeof<int32>(), 1)\nreturn a:read()[1]\n",
         related = {"NUPP2004", "NUPP2202"},
         docs = "docs/learn/language/types/records-and-structs.md#private-fields",
     },
@@ -803,13 +803,11 @@ local ENTRIES: {any} = {
     {
         code = "NUPP2149",
         summary = "An operand's results cannot be read by an exit suffix",
-        rule = "`or return`, `or break` and `or continue` read the operand's first "
-        .. "result as both the discriminator and the value. That needs a fixed "
+        rule = "Ordinary operands of `or return`, `or break` and `or continue` need a fixed "
         .. "result count, results that are not a correlated pack union, and a first "
-        .. "result that can be nil or false and can also be a value. `pcall` and "
-        .. "`xpcall` are refused by the union rule, because they lead with the "
-        .. "discriminator rather than with a result. Bind their results and test "
-        .. "the boolean in an explicit conditional.",
+        .. "result that can be nil or false and can also be a value. Direct builtin "
+        .. "`pcall` and `xpcall` operands instead test the status, yield the protected "
+        .. "function's first result on success, and forward `nil, error` on failure.",
         wrong = "local function name(): string\n    return \"x\"\nend\n"
         .. "local function first(): string?\n    local value = name() or return\n"
         .. "    return value\nend\nreturn first()\n",
@@ -1632,13 +1630,13 @@ ENTRIES[
     .. "are admitted, because the native call resolves through them without reading "
     .. "a Lua value. Move the call into an `@aot` function, or give the entry a "
     .. "span and scalar signature.",
-    wrong = "local array = require(\"nupp.mem.array\")\nlocal simd = require(\"simd\")\n\n@aot\n"
+    wrong = "local array = require(\"nupp.array\")\nlocal simd = require(\"simd\")\n\n@aot\n"
     .. "local function twice(value: simd.Vector<float32, simd.Preferred>): simd.Vector<float32, simd.Preferred>\n"
     .. "    return value + value\nend\n\n"
     .. "local function fromLua(): simd.Vector<float32, simd.Preferred>\n"
     .. "    local species = simd.species(array.float32)\n    return twice(species:splat(1.0))\nend\n\n"
     .. "return {twice = twice, fromLua = fromLua}\n",
-    right = "local array = require(\"nupp.mem.array\")\nlocal span = require(\"binary.span\")\n"
+    right = "local array = require(\"nupp.array\")\nlocal span = require(\"binary.span\")\n"
     .. "local simd = require(\"simd\")\n\n@aot\n"
     .. "local function twice(value: simd.Vector<float32, simd.Preferred>): simd.Vector<float32, simd.Preferred>\n"
     .. "    return value + value\nend\n\n@aot\n"
@@ -2068,10 +2066,10 @@ ENTRIES[
     #ENTRIES + 1
 ] = {
     code = "NUPP2402",
-    summary = "layoutof was asked about something with no C layout",
-    rule = "layoutof(T) answers how a reified struct sits in memory: its fields in declaration order with their offsets, sizes and padding, the whole size, and a fingerprint over all of it. Only a struct has one -- a record is a table, not C memory -- and a struct with no fields has nothing to lay out.",
-    wrong = "local record Point\n    x: number\n    y: number\nend\n\nreturn layoutof(Point)\n",
-    right = "local struct Point\n    x: float\n    y: float\nend\n\nreturn layoutof(Point)\n",
+    summary = "types.layoutof was asked about something with no C layout",
+    rule = "types.layoutof(T) answers how a reified struct sits in memory: its fields in declaration order with their offsets, sizes and padding, the whole size, and a fingerprint over all of it. Only a struct has one -- a record is a table, not C memory -- and a struct with no fields has nothing to lay out.",
+    wrong = "local record Point\n    x: number\n    y: number\nend\n\nreturn types.layoutof(Point)\n",
+    right = "local struct Point\n    x: float\n    y: float\nend\n\nreturn types.layoutof(Point)\n",
     related = {"NUPP2401", "NUPP2201"},
     docs = "docs/learn/runtime/c-interop/index.md#read-a-structs-layout",
 }
@@ -2082,8 +2080,8 @@ ENTRIES[
     code = "NUPP2403",
     summary = "An SoA allocation or column projection has no resolved stored field",
     rule = "Structure-of-arrays storage accepts only a reified struct whose top-level fields have fixed C storage; a record, union, interface, GC-managed field, owned field, borrowed field, or variable-size field is not SoA-eligible. A row view's dot or literal bracket projection must likewise name one such stored field of that struct, not a dynamic name or an unknown one.",
-    wrong = "local soa = require(\"nupp.mem.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal rows = soa.alloc(ffi.typeof<int32>(), 4)\nreturn rows\n",
-    right = "local soa = require(\"nupp.mem.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal struct Point\n    x: float\n    y: float\nend\n\nlocal rows = soa.alloc(ffi.typeof<Point>(), 4)\nrows:close()\n",
+    wrong = "local soa = require(\"nupp.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal rows = soa.alloc(ffi.typeof<int32>(), 4)\nreturn rows\n",
+    right = "local soa = require(\"nupp.soa\")\nlocal ffi = require(\"ffi\")\n\nlocal struct Point\n    x: float\n    y: float\nend\n\nlocal rows = soa.alloc(ffi.typeof<Point>(), 4)\nrows:close()\n",
     related = {"NUPP2402", "NUPP2009"},
     docs = "docs/reference/diagnostics.md#nupp2403",
 }

@@ -27,7 +27,7 @@ for index = 0, count - 1 do
 end
 
 local context = gpu.open()
-local element = require("nupp.mem.array").uint32
+local element = require("nupp.array").uint32
 local inputBuffer = context:buffer(element, count)
 local selectedBuffer = context:buffer(element, count)
 local blockedBuffer = context:buffer(element, count)

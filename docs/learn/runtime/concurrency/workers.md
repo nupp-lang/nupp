@@ -394,7 +394,7 @@ running, and so do tasks whose values use records it already carries.
 ## Moving owned buffers
 
 One exception to the ownership refusal is deliberate. A worker parameter may
-take a [](nupp.mem.heap) array of a fixed-width element, and an affine result
+take a [](nupp.heap) array of a fixed-width element, and an affine result
 may return one; neither is a copy. The array's storage lives in neither VM's
 heap, so the message hands its pointer across and the receiving lane becomes
 the one owner. The submission consumes the sender's binding, so touching it
@@ -404,7 +404,7 @@ ownership back to whichever lane awaits the task.
 ```nupp
 module jobs
 
-const heap = nupp.mem.heap
+const heap = nupp.heap
 
 export function fill(takes frame: heap.Array<uint8>, seed: integer): affine(heap.Array<uint8>, heap.destroyarray)
     local writable = frame:write()
@@ -443,11 +443,10 @@ instead of returning it consumes it like any affine owner, with
 before rebuilding its owner, and primitive elements move; every other
 ownership mode and element shape keeps the refusal above.
 
-A move complements a region rather than replacing it: a
-`sharedbytes.Region` shares immutable bytes with any number of readers,
-while a move hands exclusive mutable storage to exactly one. Filling a
-moved buffer and freezing the content into a region when it stops changing
-is the intended composition, and there is no path back.
+[](io.Bytes) shares immutable engine storage with any number of readers; a move
+hands exclusive mutable storage to one lane. `io.Bytes.newbuilder()` constructs
+shared bytes incrementally, and consuming `Builder:freeze()` transfers its
+allocation into immutable bytes without copying.
 
 ## Failure and termination
 

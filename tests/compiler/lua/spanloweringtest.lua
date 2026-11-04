@@ -61,7 +61,7 @@ end
 -- NaN and a fraction, and leave the storage as it was.
 function M.nanAndFractionalIndexesAreRefused()
     local source = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local Probe = {}
 function Probe.storage(): array.Array<int32>
     const owned = array.scalar(array.int32, 4)

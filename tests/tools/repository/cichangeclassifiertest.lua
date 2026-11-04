@@ -99,10 +99,22 @@ function M.utilityRootsRetainTheirExistingLibrarySurfaces()
 end
 
 function M.finalApiRootsPreserveTheirExistingCorrectnessObligations()
-    for _, path in ipairs({"src/assert.nupp", "src/io/cli.nupp", "src/types/init.nupp", "src/own.nupp"}) do
+    for _, path in ipairs({
+        "src/assert.nupp",
+        "src/io/cli.nupp",
+        "src/types/init.nupp",
+        "src/own.nupp",
+        "src/os/host.nupp"
+    }) do
         local selection = classifier().classify({path})
         test(selection.surfaces.library, path .. " is a library")
         test(not selection.surfaces.unclassified, path .. " has an explicit classification")
+        if path == "src/os/host.nupp" then
+            test(
+                selection.surfaces.browser and selection.surfaces.native,
+                "the folded host module retains both provider obligations"
+            )
+        end
         if path:match("^src/types/") or path == "src/own.nupp" then
             test(selection.surfaces.compiler, path .. " retains its declaration coverage")
             test(selection.jobs.fixpoint, path .. " requires a compiler fixpoint")

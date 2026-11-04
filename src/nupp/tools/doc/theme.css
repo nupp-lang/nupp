@@ -33,6 +33,7 @@
     --nuppdoc-code-background: var(--nuppdoc-light-code-background);
     --nuppdoc-text: var(--nuppdoc-light-text);
     --nuppdoc-text-muted: var(--nuppdoc-light-muted);
+    --nuppdoc-subtle-border: color-mix(in srgb, var(--nuppdoc-background) 80%, var(--nuppdoc-text));
     --nuppdoc-font: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
     --nuppdoc-font-mono: "JetBrains Mono", ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
     --nuppdoc-header-height: 64px;
@@ -45,7 +46,6 @@
 }
 
 :root {
-    --nuppdoc-syntax-foreground: #3760bf;
     --nuppdoc-syntax-boolean: #b15c00;
     --nuppdoc-syntax-comment: #848cb5;
     --nuppdoc-syntax-function: #2e7de9;
@@ -79,7 +79,6 @@
 
 @media(prefers-color-scheme:dark) {
     :root {
-        --nuppdoc-syntax-foreground: #c0caf5;
         --nuppdoc-syntax-boolean: #ff9e64;
         --nuppdoc-syntax-comment: #565f89;
         --nuppdoc-syntax-function: #7aa2f7;
@@ -111,7 +110,6 @@
 }
 
 :root[data-theme="dark"] {
-    --nuppdoc-syntax-foreground: #c0caf5;
     --nuppdoc-syntax-boolean: #ff9e64;
     --nuppdoc-syntax-comment: #565f89;
     --nuppdoc-syntax-function: #7aa2f7;
@@ -142,7 +140,6 @@
 }
 
 :root[data-theme="light"] {
-    --nuppdoc-syntax-foreground: #3760bf;
     --nuppdoc-syntax-boolean: #b15c00;
     --nuppdoc-syntax-comment: #848cb5;
     --nuppdoc-syntax-function: #2e7de9;
@@ -380,7 +377,7 @@ input {
 
 .nuppdoc-outline ol {
     padding-left: 1rem;
-    border-left: 1px solid var(--nuppdoc-border)
+    border-left: 1px solid var(--nuppdoc-subtle-border)
 }
 
 .nuppdoc-outline a {
@@ -409,8 +406,8 @@ input {
 }
 
 .nuppdoc-content h2 {
-    margin-top: 2.5rem;
-    padding-top: 2.5rem;
+    margin-top: 3rem;
+    padding-top: 3rem;
     border-top: 1px solid var(--nuppdoc-border);
     font-size: 1.575rem
 }
@@ -502,7 +499,7 @@ input {
 .nuppdoc-content pre {
     overflow: auto;
     padding: .8rem .9rem;
-    border: 1px solid var(--nuppdoc-border);
+    border: 1px solid var(--nuppdoc-subtle-border);
     border-radius: 8px;
     background: transparent;
     line-height: 1.65
@@ -795,7 +792,6 @@ input {
     margin: 1.25rem 0;
     padding: .85rem 1rem;
     border: 1px solid color-mix(in srgb, var(--nuppdoc-admonition-color) 45%, var(--nuppdoc-border));
-    border-left: 4px solid var(--nuppdoc-admonition-color);
     border-radius: 8px;
     background: color-mix(in srgb, var(--nuppdoc-admonition-color) 9%, var(--nuppdoc-background))
 }
@@ -822,8 +818,7 @@ input {
 
 .nuppdoc-admonition-deepdive {
     --nuppdoc-admonition-color: var(--nuppdoc-admonition-deepdive);
-    padding: 0;
-    border-left-width: 1px
+    padding: 0
 }
 
 details.nuppdoc-admonition>summary {
@@ -877,7 +872,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     display: block;
     overflow: hidden;
     margin: 1.25rem 0;
-    border: 1px solid var(--nuppdoc-border);
+    border: 1px solid var(--nuppdoc-subtle-border);
     border-radius: var(--nuppdoc-code-block-radius);
     background: transparent;
     box-shadow: none
@@ -1166,8 +1161,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-sidebar-section ul,
 .nuppdoc-sidebar-section .nuppdoc-module-tree,
 .nuppdoc-module-branch .nuppdoc-module-tree {
-    padding: 4px 0 0 var(--nuppdoc-sidebar-guide-indent);
-    border-left: 1px solid var(--nuppdoc-border)
+    padding: 4px 0 0 var(--nuppdoc-sidebar-guide-indent)
 }
 
 .nuppdoc-sidebar-section .nuppdoc-module-tree {
@@ -1701,8 +1695,7 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     grid-template-columns: repeat(2, minmax(0, 1fr));
     gap: 1rem;
     margin-top: 4rem;
-    padding-top: 1.5rem;
-    border-top: 1px solid var(--nuppdoc-border)
+    padding-top: 1.5rem
 }
 
 .nuppdoc-page-nav a {
@@ -1994,10 +1987,9 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 .nuppdoc-overview-3 { column-count: 3; }
 .nuppdoc-overview p { margin: 0 0 .25rem; break-after: avoid; }
 .nuppdoc-overview ul { margin: 0 0 .85rem; padding: 0; list-style: none; }
-.nuppdoc-overview li { break-inside: avoid; }
-.nuppdoc-overview li:has(.nuppdoc-overview-badge) { overflow-wrap: anywhere; }
 /* Long qualified names stop at their column edge; short labels keep their color. */
-.nuppdoc-overview li:not(:has(.nuppdoc-overview-badge)) {
+.nuppdoc-overview li {
+    break-inside: avoid;
     overflow: hidden;
     white-space: nowrap;
     -webkit-mask-image: linear-gradient(to right, #000 calc(100% - .8rem), transparent);
@@ -2005,4 +1997,3 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 }
 .nuppdoc-overview a { text-decoration: none; }
 .nuppdoc-overview a:hover { text-decoration: underline; }
-.nuppdoc-overview-badge { margin-left: .25rem; padding: .12rem .3rem; cursor: help; }

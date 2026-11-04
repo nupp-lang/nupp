@@ -9,7 +9,7 @@ operation to several values at once. In Nupp, an [`@aot`](index.md) function
 uses `simd` to multiply a sequence of values in groups:
 
 ```nupp
-local array = nupp.mem.array
+local array = nupp.array
 local span = binary.span
 
 @aot
@@ -102,7 +102,7 @@ their running time. The useful group size depends on the work and the target.
 The VM runs explicit SIMD operations as vector instructions. The kernel uses
 these modules to connect its data to those instructions:
 
-- [](nupp.mem.array) allocates owned, contiguous storage of
+- [](nupp.array) allocates owned, contiguous storage of
   one element type. Contiguous means the elements sit next to each other in
   memory. A *type witness*, such as `array.float32`, names the element type
   when passed to an allocation or species constructor.
@@ -117,7 +117,7 @@ illustrate parts of a kernel. The opening
 kernel becomes a runnable program when supplied with arrays:
 
 ```nupp
-local array = nupp.mem.array
+local array = nupp.array
 local span = binary.span
 
 @aot
@@ -297,7 +297,7 @@ such as a four-by-four matrix transpose.
 
 Species exist for every storage element: `uint8` through `uint64`, their
 signed forms, `float32`, and `float64`. The element is named by the witness
-`nupp.mem.array` allocates with, so a kernel over `array.uint8` storage loads
+`nupp.array` allocates with, so a kernel over `array.uint8` storage loads
 it with the `array.uint8` species.
 
 Vector arithmetic requires compatible species. A two-lane vector cannot be
@@ -397,7 +397,7 @@ it is false.
 with that bound, and values above the upper bound with the upper bound:
 
 ```nupp
-local array = nupp.mem.array
+local array = nupp.array
 local span = binary.span
 
 @aot
@@ -467,7 +467,7 @@ This is a *divergent loop*: its lanes need different numbers of iterations.
 The mask named `live` tracks the lanes that still have work:
 
 ```nupp
-local array = nupp.mem.array
+local array = nupp.array
 local span = binary.span
 
 @aot
@@ -641,7 +641,7 @@ The loop has the same structure as the earlier kernels. Passing its mask to
 `add` keeps the tail's empty lanes from contributing:
 
 ```nupp
-local array = nupp.mem.array
+local array = nupp.array
 local span = binary.span
 
 @aot
@@ -675,7 +675,7 @@ A *dot product* multiplies corresponding elements of two sequences and sums
 the products. A dot reducer takes both values for each contribution:
 
 ```nupp
-local array = nupp.mem.array
+local array = nupp.array
 local span = binary.span
 
 @aot
@@ -810,7 +810,7 @@ to find the first byte equal to `needle`, the byte being sought, and returns
 its one-based position or zero when no byte matches:
 
 ```nupp
-local array = nupp.mem.array
+local array = nupp.array
 local span = binary.span
 
 @aot
@@ -857,7 +857,7 @@ A *filter* keeps elements that pass a test, preserving their order. Vector
 number kept, and a mask limits the store to those lanes:
 
 ```nupp
-local array = nupp.mem.array
+local array = nupp.array
 local span = binary.span
 
 @aot
@@ -1020,7 +1020,7 @@ A prefix sum needs the last lane of each chunk to carry into the next one.
 The index can depend on the species' lane count:
 
 ```nupp
-local array = nupp.mem.array
+local array = nupp.array
 local span = binary.span
 
 @aot

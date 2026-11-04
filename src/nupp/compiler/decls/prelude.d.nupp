@@ -111,6 +111,29 @@ local types: {
     --- Evaluates inside a comptime block with an explicit layoutTarget.
     offsetof: function(typename: any, fieldname: string): integer,
 
+    --- Returns the running platform's C memory layout of a reified struct.
+    ---
+    --- Sizes, alignment, field offsets, padding and the fingerprint are measured
+    --- through the runtime FFI and cached per struct type. This query runs in ordinary
+    --- code; compile-time target queries use [](types.sizeof), [](types.alignof) and
+    --- [](types.offsetof) with an explicit layoutTarget.
+    ---
+    --- ```nupp
+    --- local struct Point
+    ---     x: float
+    ---     y: float
+    --- end
+    ---
+    --- const layout = types.layoutof(Point)
+    --- assert(layout.size == 8 and layout.fields[2].offset == 4)
+    --- ```
+    ---
+    --- See [c-interop.md](docs/learn/runtime/c-interop/index.md#read-a-structs-layout)
+    --- for field layouts and fingerprints.
+    --- @param typename the reified struct declaration
+    --- @return its platform-specific layout, with fields in declaration order
+    layoutof: function(typename: any): types.Layout,
+
     --- The dynamic type; compatible with everything, checked at neither end.
     @readonly any: @comptime type,
 
@@ -541,6 +564,85 @@ local types: {
 --- Checked ownership operations and managed cells.
 --- @namespace own
 local own: {
+    --- Consumes an owner and runs its statically selected cleanup immediately.
+    ---
+    --- The owner cannot be used afterward. Its type must declare a terminal;
+    --- the terminal may raise or suspend under its ordinary effect contract.
+    --- @param owner the live owner to destroy
+    --- @see
+    ---     docs/learn/runtime/ownership/borrowing.md#consumption-and-lexical-destruction
+    drop: function<T>(takes owner: T): nil,
+
+    --- Borrows a live owner without transferring its cleanup obligation.
+    --- @param owner the owner that keeps the result alive
+    --- @return a view rooted in the owner
+    borrow: function<T>(borrows owner: T): T borrows (owner),
+
+    --- Roots an unmanaged pointer in a named source.
+    ---
+    --- Requires `@unsafe` on the call: the caller proves the pointer derives
+    --- from the source and remains valid while that source is alive.
+    --- @param pointer the unmanaged pointer
+    --- @param source the named lifetime source
+    --- @return a borrowed pointer rooted in the source
+    borrowfrom: function<T>(borrows pointer: T, borrows source: any): T borrows (source),
+
+    --- Declares two disjoint writable children of a named parent.
+    ---
+    --- Requires `@unsafe` on the call. The caller proves that the children
+    --- share the parent's storage and do not overlap; both have the same type.
+    --- @param parent the named writable parent
+    --- @param left the first child
+    --- @param right the second child
+    --- @return the two exclusive borrows rooted in the parent
+    partition: function<T>(borrows parent: any, borrows left: T, borrows right: T): (T, T),
+
+    --- Roots a writable child in an inclusive range of a named parent.
+    ---
+    --- Requires `@unsafe` after runtime bounds validation. The call returns
+    --- the child unchanged; the checker records its root and exclusive range.
+    --- @param parent the named parent
+    --- @param child the unmanaged child view
+    --- @param first the first index in the parent's coordinate system
+    --- @param last the last index, or `first - 1` for an empty range
+    --- @return an exclusive borrow rooted in the parent
+    region: function<T>(borrows parent: any, borrows child: T, first: integer, last: integer): T borrows (parent),
+
+    --- Keeps a managed anchor alive while a foreign pointer is retained.
+    ---
+    --- The checker proves that a borrowed pointer derives from its anchor.
+    --- An opaque derivation requires `@unsafe` on the call instead.
+    --- @param pointer the pointer to retain
+    --- @param anchor the managed value that keeps the pointer alive
+    --- @return the pointer with its retention anchor
+    pin: function(borrows pointer: any, anchor: any): any,
+
+    --- Attempts every named operation in order, preserving the first failure.
+    ---
+    --- Later failures are attached as suppressed errors. Each operation must
+    --- accept the value; only the final operation may consume it. At least one
+    --- operation is required. This operation authors a composite terminal.
+    --- @param owner the value passed to each operation
+    --- @param ... the statically named operations to attempt
+    attemptall: function<T>(takes owner: T, ...: any): nil,
+
+    --- Introduces an affine obligation over an unmanaged representation.
+    ---
+    --- Requires `@unsafe` and an explicit affine target, as in
+    --- `own.adopt<affine(voidptr, free)>(pointer)`. The caller proves sole
+    --- ownership and the target's cleanup contract.
+    --- @param value the unmanaged representation
+    --- @return the owner of the explicitly supplied type
+    adopt: function<T>(value: any): T,
+
+    --- Consumes an affine obligation without running its cleanup.
+    ---
+    --- Requires `@unsafe` on the call. The caller takes responsibility for
+    --- the returned unmanaged representation and its eventual cleanup.
+    --- @param owner the live owner to release
+    --- @return the owner's unmanaged representation
+    release: function<T>(takes owner: affine(T)): T,
+
     --- Moves an exact affine obligation into an independently allocated cell.
     manage: function<T>(takes owner: T): managed(T),
 
@@ -1327,7 +1429,7 @@ record types.reflect
     ---
     --- This says whether the declaration can be split into columns and identifies
     --- those columns. It deliberately does not contain target sizes or offsets; use
-    --- `nupp.mem.soa.layoutof` for those.
+    --- `nupp.soa.layoutof` for those.
     ---
     --- ```nupp
     --- local struct Particle

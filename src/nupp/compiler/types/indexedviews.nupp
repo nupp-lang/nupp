@@ -57,7 +57,7 @@ export function describe(t: Type): Descriptor?
             fixedCount = (name == "FixedSpan" or name == "FixedWriteSpan") and args[2] or nil,
             nominal = nominal
         )
-    elseif moduleName == "nupp.mem.soa" and (name == "Span" or name == "WriteSpan") then
+    elseif moduleName == "nupp.soa" and (name == "Span" or name == "WriteSpan") then
         return new Descriptor(adapter = "soa", element = element, writable = name == "WriteSpan", nominal = nominal)
     end
 
@@ -137,9 +137,9 @@ export function methodProducer(receiver: Type, member: string, result: Type): Pr
         return nil
     end
     local kind: 'carray' | 'fixed-carray' | 'string' | 'heap' | 'soa'
-    if moduleName == "nupp.mem.heap" then
+    if moduleName == "nupp.heap" then
         kind = "heap"
-    elseif moduleName == "nupp.mem.soa" then
+    elseif moduleName == "nupp.soa" then
         kind = "soa"
     else
         return nil

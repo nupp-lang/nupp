@@ -4,7 +4,7 @@
 
 local bench = require("debug.bench")
 const {type Invocation} = require("debug.bench")
-local soa = require("nupp.mem.soa")
+local soa = require("nupp.soa")
 local ffi = require("ffi")
 
 local struct Particle

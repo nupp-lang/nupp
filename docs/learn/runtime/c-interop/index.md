@@ -631,7 +631,7 @@ For a larger or explicitly native-owned array, use the malloc-backed standard
 library allocation and give it bounds immediately:
 
 ```nupp
-local heap = nupp.mem.heap
+local heap = nupp.heap
 
 local values = heap.alloc(ffi.typeof<int32>(), 1000000)
 local writable = values:write()
@@ -661,7 +661,7 @@ end
 
 ## Read a struct's layout
 
-`layoutof(T)` returns the memory layout of a reified `struct`:
+`types.layoutof(T)` returns the memory layout of a reified `struct`:
 
 ```nupp
 local struct Vertex
@@ -670,7 +670,7 @@ local struct Vertex
     z: float
 end
 
-const layout = layoutof(Vertex)
+const layout = types.layoutof(Vertex)
 print(layout.size) -- 12
 print(layout.fingerprint)
 for _, f in ipairs(layout.fields) do
@@ -699,14 +699,14 @@ local struct Vertex
 end
 ```
 
-`layoutof` reports `pos` as `float[3]`, twelve bytes wide at offset zero, which
+`types.layoutof` reports `pos` as `float[3]`, twelve bytes wide at offset zero, which
 is what makes a vertex attribute descriptor derivable rather than
 hand-maintained. `T[?]` is not a field: a struct whose size depends on a count
 nobody wrote has no size, so asking for its layout stays an error.
 
-Only a `struct` has a layout. A `record` is a table, so `layoutof` on one is
+Only a `struct` has a layout. A `record` is a table, so `types.layoutof` on one is
 reported. Nothing is emitted for a struct nothing asks about, because the
-lowering happens at the call site: a program that never calls `layoutof`
+lowering happens at the call site: a program that never calls `types.layoutof`
 carries none of this.
 
 ## Describe lifetime behavior

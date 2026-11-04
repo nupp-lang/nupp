@@ -70,7 +70,7 @@ function M.callAliasesKeepSemanticIdentityAndShadowing()
 end
 
 local SCALE = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local span = require("binary.span")
 local lanes = require(%q)
 @aot
@@ -244,7 +244,7 @@ local function checkedSimd(source, env)
 end
 
 local CASE_KERNEL = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 @aot
 local function fold(): number
@@ -302,7 +302,7 @@ end
 
 function M.lowercaseSimdContractsKeepRefusalsAndMethodCase()
     local source = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 @aot
 local function invalid(): number

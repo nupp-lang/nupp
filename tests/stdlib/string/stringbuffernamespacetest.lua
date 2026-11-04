@@ -89,6 +89,17 @@ function M.bareBufferIsNotACompilerGlobal()
     testAssert.eq(found, true, "strict source rejects the removed buffer global")
 end
 
+function M.theRetiredTextFacadeIsUnavailable()
+    local result = parser.parse("return nupp.text.newbuffer()\n", "test.nupp")
+    testAssert.eq(#result.errors, 0, "syntax errors")
+    local diags = check.check(result, "test.nupp", env)
+    local found = false
+    for _, diag in ipairs(diags or {}) do
+        found = found or diag.severity == "error"
+    end
+    testAssert.eq(found, true, "the retired text facade is not a public namespace")
+end
+
 function M.decodingRoundTrips()
     -- The module is the whole module, not a hand-picked `new`.
     local value = runs([[
@@ -100,11 +111,11 @@ return #out
     testAssert.eq(value, 3, "encode and decode are reachable too")
 end
 
-function M.compilerFactoryAliasRetainsTheBufferImplementation()
-    local text = require("nupp.text")
-    testAssert.eq(type(text.newbuffer), "function")
-    testAssert.eq(text.newbuffer, text.newbuffer)
-    local buffer = text.newbuffer()
+function M.compilerFactoryRetainsTheBufferImplementation()
+    local buffers = require("string.buffer")
+    testAssert.eq(type(buffers.new), "function")
+    testAssert.eq(buffers.new, buffers.new)
+    local buffer = buffers.new()
     buffer:put("native", " buffer")
     testAssert.eq(buffer:tostring(), "native buffer")
 end

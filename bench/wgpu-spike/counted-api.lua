@@ -10,8 +10,8 @@ local output = ffi.new("uint32_t[?]", size)
 for index = 0, size - 1 do
     input[index] = index * 17 + 3
 end
-local read = context:buffer(require("nupp.mem.array").uint32, size)
-local write = context:buffer(require("nupp.mem.array").uint32, size)
+local read = context:buffer(require("nupp.array").uint32, size)
+local write = context:buffer(require("nupp.array").uint32, size)
 context:upload(read, span.fromcarray(input, size))
 local cases = {{1, 4}, {0, 0}, {3, 2}, {-2, 1}, {2147483645, 2147483647}, {-2147483648, -2147483646}}
 local checked = 0

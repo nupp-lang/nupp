@@ -48,7 +48,7 @@ binds buffers in parameter order, and dispatches scalar uniforms separately:
 
 ```nupp:fragment
 local kernels = require("kernels")
-local array = nupp.mem.array
+local array = nupp.array
 
 local source = array.scalar(array.float32, 1024)
 local result = array.scalar(array.float32, 1024)

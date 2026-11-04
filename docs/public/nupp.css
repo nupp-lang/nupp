@@ -1,36 +1,20 @@
 :root {
   /* Follow the browser's default text size. */
   font-size: 100%;
-  /* A palette surveyed across woodblock prints — thirty-eight colors: paper
-   * through ink black, the earth/moss/indigo tones between, and (since the
-   * survey ran short of both) three near-whites and three near-blacks, each
-   * an existing surveyed hue pushed to its extreme rather than invented from
-   * scratch. The variables below assign each to a role rather than picking
-   * arbitrarily — small text that needs more contrast than any surveyed
-   * color gives is a color-mix of one of them toward black or white, used
-   * only where the set truly has no direct color for the job. */
-  --nupp-woodblock-vermilion: #b1594f;
-  --nupp-woodblock-vermilion-hover: #843d2f;
-  /* Links run the amber-orange that headings wore last pass — direct on the
-   * dark ground, darkened for the light one, same as before. Headings move
-   * to cinnabar, a redder orange, so the two don't collide: cinnabar red was
-   * an actual woodblock pigment, which makes the rename more than
-   * decoration. */
-  --nupp-woodblock-ember: #c7913d;
-  --nupp-woodblock-ember-deep: color-mix(in srgb, var(--nupp-woodblock-ember) 60%, black);
-  --nupp-woodblock-cinnabar: #d64a3b;
-  --nupp-woodblock-cinnabar-deep: color-mix(in srgb, var(--nupp-woodblock-cinnabar) 65%, black);
-  --nuppdoc-light-accent: #768d93;
-  --nuppdoc-light-accent-hover: color-mix(in srgb, #768d93 80%, black);
-  --nuppdoc-light-accent-soft: #f1e1df;
-  --nuppdoc-light-background: #fcfbfb;
-  --nuppdoc-light-background-alt: #f0ebe7;
-  --nuppdoc-light-border: color-mix(in srgb, #50676c 70%, white);
-  --nuppdoc-light-code-background: #e6eaec;
-  --nuppdoc-light-text: #2e2f2a;
-  --nuppdoc-light-muted: #594a4f;
+  /* Light mode uses parchment and rust; dark mode keeps the woodblock palette.
+   * Shared roles keep page surfaces, links, controls, and code in sync. */
+  --nuppdoc-light-accent: #a36048;
+  --nuppdoc-light-accent-hover: color-mix(in srgb, var(--nuppdoc-light-accent) 80%, black);
+  --nuppdoc-light-accent-soft: color-mix(in srgb, var(--nuppdoc-light-background) 88%, var(--nuppdoc-light-accent));
+  --nuppdoc-light-background: #f6eddc;
+  --nuppdoc-light-background-alt: color-mix(in srgb, var(--nuppdoc-light-background) 96%, var(--nuppdoc-light-text));
+  --nuppdoc-light-border: #ccc;
+  --nuppdoc-light-api-border: var(--nuppdoc-light-border);
+  --nuppdoc-light-code-background: color-mix(in srgb, var(--nuppdoc-light-background) 95%, var(--nuppdoc-light-accent));
+  --nuppdoc-light-text: #362d25;
+  --nuppdoc-light-muted: #6f6051;
   --nuppdoc-dark-accent: #d64a3b;
-  --nuppdoc-dark-accent-hover: color-mix(in srgb, #d64a3b 85%, white);
+  --nuppdoc-dark-accent-hover: color-mix(in srgb, var(--nuppdoc-dark-accent) 85%, white);
   --nuppdoc-dark-accent-soft: #161214;
   /* The sidebar and header use a teal-black panel; active and soft panel
    * states use a different near-black. */
@@ -42,60 +26,43 @@
   --nuppdoc-dark-code-background: #1a1d1d;
   --nuppdoc-dark-text: #d4c2b6;
   --nuppdoc-dark-muted: #bda892;
-  --nuppdoc-dark-admonition-seealso: var(--nuppdoc-syntax-string);
-  --nuppdoc-accent-contrast: #ffffff;
-  --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
-  --nuppdoc-nav-heading: var(--nuppdoc-text-muted);
+  --nuppdoc-dark-admonition-seealso: color-mix(in srgb, var(--nuppdoc-syntax-string) 75%, var(--nuppdoc-dark-background));
   /* Drop the sidebar onto the same paper the content sits on, rather than
    * the base theme's separate panel tone, so the left nav reads as part of
    * the page instead of a distinct surface. */
   --nuppdoc-sidebar-background: var(--nuppdoc-background);
   --nuppdoc-code-block-radius: 4px;
-  --nuppdoc-hero-glow-color: var(--nupp-woodblock-vermilion);
-  --nuppdoc-syntax-boolean: #836620;
-  --nuppdoc-syntax-comment: #474c44;
-  --nuppdoc-syntax-function: #376076;
-  --nuppdoc-syntax-keyword: #9a1600;
-  --nuppdoc-syntax-meta: #2e595c;
-  --nuppdoc-syntax-number: #836620;
-  --nuppdoc-syntax-operator: #2e595c;
+  --nuppdoc-hero-glow-color: #b1594f;
+  --nuppdoc-section-rule: linear-gradient(to right, transparent, var(--nuppdoc-border) 25%, var(--nuppdoc-border) 75%, transparent);
+  --nuppdoc-code-gutter: light-dark(
+    color-mix(in srgb, var(--nuppdoc-text-muted) 90%, transparent),
+    color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent)
+  );
+}
+
+/* color-scheme already follows the automatic or selected theme. Keep each
+ * syntax color in one place, with shared token roles referring to each other.
+ * Match the base theme's explicit-theme specificity as well as its :root. */
+:root,
+:root[data-theme] {
+  --nuppdoc-accent-contrast: light-dark(#fff, #000);
+  --nuppdoc-syntax-boolean: var(--nuppdoc-syntax-number);
+  --nuppdoc-syntax-comment: light-dark(#76664f, #747673);
+  --nuppdoc-syntax-function: light-dark(var(--nuppdoc-light-accent), #93aab7);
+  --nuppdoc-syntax-keyword: light-dark(#a1442d, #fa745c);
+  --nuppdoc-syntax-meta: light-dark(#4e6767, #718e90);
+  --nuppdoc-syntax-number: light-dark(#8b631e, #c7913d);
+  --nuppdoc-syntax-operator: var(--nuppdoc-syntax-meta);
   --nuppdoc-syntax-property: var(--nuppdoc-syntax-variable);
-  --nuppdoc-syntax-punctuation: #3c5156;
-  --nuppdoc-syntax-string: #364c31;
-  --nuppdoc-syntax-type: #2e595c;
-  --nuppdoc-syntax-variable: #6e5032;
+  --nuppdoc-syntax-punctuation: light-dark(var(--nuppdoc-syntax-meta), #84a2aa);
+  --nuppdoc-syntax-string: light-dark(#53693e, #9eb798);
+  --nuppdoc-syntax-type: var(--nuppdoc-syntax-meta);
+  --nuppdoc-syntax-variable: light-dark(#7b573a, #d3a87c);
 }
 
-/* Darken just the line-number gutters, not every use of --nuppdoc-text-faint
- * (breadcrumbs, sidebar-section chevrons, page-nav labels) — those looked
- * too dark once a global --nuppdoc-text-faint override was reached for
- * line numbers specifically. */
+/* Static line numbers use the shared code gutter. */
 .nuppdoc-line-numbers {
-  color: color-mix(in srgb, var(--nuppdoc-text-muted) 90%, transparent);
-}
-
-@media (prefers-color-scheme: dark) {
-  .nuppdoc-line-numbers {
-    color: color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent);
-  }
-}
-
-:root[data-theme="dark"] .nuppdoc-line-numbers {
-  color: color-mix(in srgb, var(--nuppdoc-text-muted) 45%, transparent);
-}
-
-:root[data-theme="light"] .nuppdoc-line-numbers {
-  color: color-mix(in srgb, var(--nuppdoc-text-muted) 90%, transparent);
-}
-
-/* The base theme sets nav links to the muted text color; pull them up to
- * the same color the header nav links use instead, rather than something
- * that reads as dimmed-out. --nuppdoc-nav-heading used to hardcode the dark
- * value here, which happened to equal --nuppdoc-dark-muted and so matched
- * the header only in dark mode, leaving light mode mismatched. */
-.nuppdoc-sidebar a,
-.nuppdoc-outline a {
-  color: var(--nuppdoc-nav-heading);
+  color: var(--nuppdoc-code-gutter);
 }
 
 /* Selected is a filled background — the same tint the base theme used for
@@ -130,26 +97,12 @@
 
 .nuppdoc-hero-action.brand,
 .nuppdoc-hero-action.brand:hover {
-  color: #ffffff;
+  color: var(--nuppdoc-accent-contrast);
   background: var(--nuppdoc-accent);
 }
 
 .nuppdoc-hero-action.brand:hover {
   background: var(--nuppdoc-accent-hover);
-}
-
-/* White on the accent red is unreadable in dark mode; black holds contrast
- * there without touching the light theme's white-on-red button. */
-@media (prefers-color-scheme: dark) {
-  .nuppdoc-hero-action.brand,
-  .nuppdoc-hero-action.brand:hover {
-    color: #000000;
-  }
-}
-
-:root[data-theme="dark"] .nuppdoc-hero-action.brand,
-:root[data-theme="dark"] .nuppdoc-hero-action.brand:hover {
-  color: #000000;
 }
 
 .nuppdoc-hero-action {
@@ -310,18 +263,15 @@
   }
 }
 
-/* Headings are the text face throughout; the heading color is what marks
- * them out. */
-.nuppdoc-content h1,
-.nuppdoc-content h2,
-.nuppdoc-content h3 {
-  color: var(--nuppdoc-feature-heading);
+/* Prose headings use black ink on paper and the normal text color at night. */
+.nuppdoc-content :is(h1, h2, h3, h4, h5, h6, h7, h8) {
+  color: light-dark(#000, var(--nuppdoc-text));
 }
 
 .nuppdoc-content h2 {
-  --heading-rule-color: var(--nuppdoc-border);
-  border-top-color: var(--heading-rule-color);
-  border-image: linear-gradient(to right, transparent, var(--heading-rule-color) 25%, var(--heading-rule-color) 75%, transparent) 1;
+  border-top-width: 3px;
+  border-top-color: var(--nuppdoc-border);
+  border-image: var(--nuppdoc-section-rule) 1;
 }
 
 .nuppdoc-content h3:not(:first-child),
@@ -329,7 +279,7 @@
   margin-top: 2.5rem;
   padding-top: 2.5rem;
   border-top: 1px solid var(--nuppdoc-border);
-  border-image: linear-gradient(to right, transparent, var(--nuppdoc-border) 25%, var(--nuppdoc-border) 75%, transparent) 1;
+  border-image: var(--nuppdoc-section-rule) 1;
 }
 
 
@@ -348,7 +298,7 @@
 }
 
 .nuppdoc-home-content .nuppdoc-columns {
-  border-image: linear-gradient(to right, transparent, var(--nuppdoc-border) 25%, var(--nuppdoc-border) 75%, transparent) 1;
+  border-image: var(--nuppdoc-section-rule) 1;
 }
 
 .nuppdoc-column {
@@ -360,27 +310,6 @@
   margin-top: 0;
   padding-top: 0;
   border-top: 0;
-}
-
-@media (prefers-color-scheme: dark) {
-  .nuppdoc-content h2 {
-    --heading-rule-color: #c7913d;
-  }
-  .nuppdoc-content hr {
-    border-top-color: #c7913d;
-  }
-}
-
-:root[data-theme="dark"] .nuppdoc-content h2 {
-  --heading-rule-color: #c7913d;
-}
-
-:root[data-theme="light"] .nuppdoc-content h2 {
-  --heading-rule-color: var(--nuppdoc-border);
-}
-
-:root[data-theme="dark"] .nuppdoc-content hr {
-  border-top-color: #c7913d;
 }
 
 /* The hero title lives inside .nuppdoc-content too, but it is a brand mark
@@ -452,7 +381,6 @@
   margin: 0 0 0.8rem;
   padding: 0;
   border: 0;
-  color: var(--nuppdoc-feature-heading);
   font-size: clamp(1.7rem, 3vw, 2.35rem);
   line-height: 1.08;
 }
@@ -502,51 +430,11 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root {
-    --nuppdoc-feature-heading: var(--nuppdoc-dark-text);
-    --nuppdoc-syntax-boolean: #f9cd5f;
-    --nuppdoc-syntax-comment: #747673;
-    --nuppdoc-syntax-function: #93aab7;
-    --nuppdoc-syntax-keyword: #fa745c;
-    --nuppdoc-syntax-meta: #718e90;
-    --nuppdoc-syntax-number: #f9cd5f;
-    --nuppdoc-syntax-operator: #718e90;
-    --nuppdoc-syntax-property: var(--nuppdoc-syntax-variable);
-    --nuppdoc-syntax-punctuation: #84a2aa;
-    --nuppdoc-syntax-string: #9eb798;
-    --nuppdoc-syntax-type: #718e90;
-    --nuppdoc-syntax-variable: #d3a87c;
+  :root:not([data-theme="light"]) .nuppdoc-admonition-seealso .nuppdoc-admonition-title {
+    font-weight: 600;
   }
 }
 
-:root[data-theme="dark"] {
-  --nuppdoc-feature-heading: var(--nuppdoc-dark-text);
-  --nuppdoc-syntax-boolean: #f9cd5f;
-  --nuppdoc-syntax-comment: #747673;
-  --nuppdoc-syntax-function: #93aab7;
-  --nuppdoc-syntax-keyword: #fa745c;
-  --nuppdoc-syntax-meta: #718e90;
-  --nuppdoc-syntax-number: #f9cd5f;
-  --nuppdoc-syntax-operator: #718e90;
-  --nuppdoc-syntax-property: var(--nuppdoc-syntax-variable);
-  --nuppdoc-syntax-punctuation: #84a2aa;
-  --nuppdoc-syntax-string: #9eb798;
-  --nuppdoc-syntax-type: #718e90;
-  --nuppdoc-syntax-variable: #d3a87c;
-}
-
-:root[data-theme="light"] {
-  --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
-  --nuppdoc-syntax-boolean: #836620;
-  --nuppdoc-syntax-comment: #474c44;
-  --nuppdoc-syntax-function: #376076;
-  --nuppdoc-syntax-keyword: #9a1600;
-  --nuppdoc-syntax-meta: #2e595c;
-  --nuppdoc-syntax-number: #836620;
-  --nuppdoc-syntax-operator: #2e595c;
-  --nuppdoc-syntax-property: var(--nuppdoc-syntax-variable);
-  --nuppdoc-syntax-punctuation: #3c5156;
-  --nuppdoc-syntax-string: #364c31;
-  --nuppdoc-syntax-type: #2e595c;
-  --nuppdoc-syntax-variable: #6e5032;
+:root[data-theme="dark"] .nuppdoc-admonition-seealso .nuppdoc-admonition-title {
+  font-weight: 600;
 }

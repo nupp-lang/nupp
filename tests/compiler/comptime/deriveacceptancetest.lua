@@ -93,7 +93,7 @@ local corpora = {
 }
 local bytes = {}
 local accepted = true
-local out = require("nupp.text").newbuffer()
+local out = require("string.buffer").new()
 for index, value in ipairs(corpora) do
     local writer = typedJSON.newwriter(out)
     typedJSON.writevalue(serde.binding(ModuleCache), value, writer)
@@ -157,7 +157,7 @@ local corpus = {
 }
 local bytes, debugged = {}, {}
 local accepted = true
-local out = require("nupp.text").newbuffer()
+local out = require("string.buffer").new()
 for index, request in ipairs(corpus) do
     local writer = typedJSON.newwriter(out)
     typedJSON.writevalue(serde.binding(TecsMCPRequest), request, writer)

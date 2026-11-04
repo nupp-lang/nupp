@@ -22,12 +22,12 @@ pair and honor their unknown-member policy.
 and generic ownership signatures come from the canonical service declaration,
 and hot parser and writer calls do not select an implementation again.
 ]]
-const {type Buffer} = require("nupp.text")
+const {type Buffer} = require("string.buffer")
 
 local eagerDecoder = require("nupp.codec.json.internal.decoder.eager")
 local pullDecoder = require("nupp.codec.json.internal.decode")
 local serdeDecoder = require("nupp.codec.json.internal.decoder.serde")
-local newBuffer = require("nupp.text").newbuffer
+local newBuffer = require("string.buffer").new
 local bit = require("bit")
 local contracts = require("serde.json.internal.contracts")
 

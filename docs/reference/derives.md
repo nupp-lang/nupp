@@ -121,7 +121,7 @@ local struct Vec2
     y: float
 end
 local binding = serde.binding(Vec2)
-local output = nupp.text.newbuffer()
+local output = string.buffer.new()
 debug.write(binding, new Vec2(1.25, 2.5), output)
 assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
 ```

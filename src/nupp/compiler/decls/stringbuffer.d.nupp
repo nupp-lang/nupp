@@ -1,13 +1,22 @@
 --[[
-Declarations for LuaJIT's string.buffer module, loaded for
-`require("string.buffer")`.
+Mutable FIFO byte buffers backed by LuaJIT's `string.buffer` module.
+
+```nupp
+local out = string.buffer.new()
+out:put("hello", ", ", "world")
+print(out:get())
+```
 
 A buffer is a FIFO: the `put*` and `encode` methods append to the end, and the
 `get*` and `decode` methods consume from the front. Methods chain;
 `putcdata`, `ref`, and `reserve` sit at the FFI boundary.
 
-Length with `#buf`, concatenation with `..`, and `tostring` are metamethods, so
-they are not members of the record below; use `buf:tostring()`.
+`string.buffer.Buffer` is the canonical buffer type for both FIFO text and
+native operations. Constructing a buffer returns LuaJIT's object directly;
+there is no adapter object or intermediate string.
+
+Length with `#buf`, concatenation with `..`, and `tostring` use the buffer's
+metamethods. `buf:tostring()` returns unread bytes without consuming them.
 ]]
 
 --- A mutable, binary-transparent byte sequence. Methods with nothing else to return

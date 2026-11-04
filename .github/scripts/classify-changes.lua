@@ -64,8 +64,7 @@ local rules = {
     {"^src/nupp/runtime/", {"library", "browser", "native"}},
     {"^src/nupp/io/", {"library", "native"}},
     -- The host facility's browser and native providers both implement it.
-    {"^src/nupp/host/", {"library", "browser", "native"}},
-    {"^src/os/host/", {"library", "browser", "native"}},
+    {"^src/os/host%.nupp$", {"library", "browser", "native"}},
     {"^src/math/random%.nupp$", {"library", "browser"}},
     {"^src/math/internal/random%.nupp$", {"library", "browser"}},
     {"^src/package/nupp/", {"compiler", "library", "browser", "native"}},

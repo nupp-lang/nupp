@@ -234,12 +234,9 @@ local type Node = cst.Node
 --- A token, as the lexer produced it.
 local type Token = lexer.Token
 
---- Builds the same declared-field specification as `layoutof`, but marks it for the
---- SoA runtime rather than exposing an AoS byte stride. Kept here because an aliased
---- `soa.alloc` has no syntactic relationship to the global layout intrinsic.
---- Whether every argument is positional. A named or plucked argument is
---- positional only after the adjustment the ordinary call path performs, so an
---- intrinsic that goes around that path keeps its call when one is present.
+--- Whether every argument is positional. A named or plucked argument is positional only
+--- after the adjustment the ordinary call path performs, so an intrinsic that goes
+--- around that path keeps its call when one is present.
 local function positionalOnly(exprs: {Node}): boolean
     for _, argument in ipairs(exprs) do
         if argument.kind == "namedArg" or argument.kind == "pluckArg" then
@@ -250,6 +247,8 @@ local function positionalOnly(exprs: {Node}): boolean
     return true
 end
 
+--- Builds the declared-field specification for SoA columns.
+--- An aliased `soa.alloc` carries the same intrinsic identity.
 local function soaLayoutSpec(c: state.Checker, subject: Type, at: Node): any?
     if subject.tag ~= "nominal" or subject.declKind ~= "struct" then
         c.diag("NUPP2403", at, "SoA storage requires a reified struct type", nil, {
@@ -1121,7 +1120,16 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         -- constant type string is read by the compiler, so existing FFI code gets types
         -- without being rewritten. A string built at run time yields cdata rather than
         -- any, which keeps leaving the typed path visible.
-        local intrinsic = inferFfiIntrinsic(node, calleeName, baseName, memberName, typeArg, argExprs, argStr)
+        local intrinsic = inferFfiIntrinsic(
+            node,
+            calleeName,
+            baseName,
+            memberName,
+            typeArg,
+            argExprs,
+            argStr,
+            calleeIdentity
+        )
         if intrinsic then
             return intrinsic
         end
@@ -1884,7 +1892,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         end
         local soaExport = node.kind == "call" and callee and callee.exactCallExport or nil
         if soaExport
-            and soaExport.module == "nupp.mem.soa"
+            and soaExport.module == "nupp.soa"
             and (soaExport.member == "allocate" or soaExport.member == "alloc" or soaExport.member == "layoutof")
         then
             local witness = argExprs[1] and rawType(c.infer(argExprs[1])) or nil
@@ -2079,7 +2087,7 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
                         local candidateOrigin = (candidateNominal.origin or candidateNominal) as T.Nominal
                         if (
                             candidateOrigin.moduleName or candidateNominal.moduleName or candidateOrigin.sealedModule
-                        ) == "nupp.mem.soa"
+                        ) == "nupp.soa"
                             and candidateOrigin.name == "WriteSpan"
                         then
                             nominal = candidateNominal

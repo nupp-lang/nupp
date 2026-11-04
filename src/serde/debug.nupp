@@ -27,7 +27,7 @@ const reflect = require("types.reflect")
 
 local core = require("nupp.serde.internal.value")
 local declarations = require("nupp.serde.internal.declaration")
-local text = require("nupp.text")
+local text = require("string.buffer")
 local memos = require("nupp.serde.internal.memo")
 local identity = require("nupp.serde.internal.identity") as function(borrows value: unknown): integer?
 
@@ -538,7 +538,7 @@ end
 ---     x: float
 ---     y: float
 --- end
---- local output = nupp.text.newbuffer()
+--- local output = string.buffer.new()
 --- debug.write(serde.binding(Vec2), new Vec2(1.25, 2.5), output)
 --- assert(output:tostring() == "Vec2 { x = 1.25, y = 2.5 }")
 --- ```

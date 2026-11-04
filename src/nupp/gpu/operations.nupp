@@ -6,7 +6,7 @@ local types = require("nupp.gpu.types")
 local tensorlayout = require("io.gpu.layout")
 local layoutFacts = require("nupp.gpu.layoutfacts").layoutFacts
 local {type Layout as TensorLayout} = require("io.gpu.layout")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local gpu = {}
 
 --- The storage kind each scalar array witness names.

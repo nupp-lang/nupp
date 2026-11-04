@@ -654,17 +654,18 @@ function expr.install(c: state.Checker): nil
         return T.union(parts)
     end
 
-    --- Which protected built-in a call names directly, when it names one.
-    ---
-    --- Only consulted to word the pack-union refusal, so a project's own
-    --- `pcall` never reaches it: that one returns an ordinary pack and is never
-    --- refused.
+    --- Which protected built-in a direct call resolves to. A local of the same
+    --- name keeps its ordinary result-pack semantics.
     local function protectedBuiltin(operand: Node): string?
         local callee = operand.kind == "call" and (operand as cst.Call).obj or nil
         local token = callee and callee.kind == "name" and (callee as cst.NameExpr).token or nil
         local text = token and token.text or nil
         if text == "pcall" or text == "xpcall" then
-            return text
+            local entry = c.lookupEntry(text)
+            local builtin = c.env and c.env.globals and c.env.globals[text]
+            if entry and builtin and entry.definition == builtin.definition then
+                return text
+            end
         end
 
         return nil
@@ -705,6 +706,23 @@ function expr.install(c: state.Checker): nil
         local observed = c.observedReturnStack[#c.observedReturnStack]
         if observed and not annotated then
             observed[#observed + 1] = forwarded
+        end
+        if node.orExitProtected then
+            for index, value in ipairs(forwarded.head) do
+                local kind = c.ownershipKind(value)
+                local expected = annotated and T.packAt(annotated, index) or nil
+                if kind == "borrowed" then
+                    c.diag("NUPP2608", at, "a borrowed failure needs an explicit return with its source contract")
+                elseif kind == "affine" or kind == "pinned" then
+                    if not expected or c.ownershipKind(expected) ~= kind then
+                        c.diag(
+                            expected == T.any and "NUPP2611" or "NUPP2603",
+                            at,
+                            kind .. " forwarded result needs a matching ownership annotation"
+                        )
+                    end
+                end
+            end
         end
         if not annotated then
             return
@@ -754,16 +772,18 @@ function expr.install(c: state.Checker): nil
 
     --- `e or return`, `e or break`, `e or continue`.
     ---
-    --- The operand runs once and its first result both decides and is the value: falsy
-    --- takes the exit, anything else is what the expression yields, narrowed by the
-    --- same truthiness that selected it. Every other slot is read only by `or return`,
-    --- which forwards the whole pack, and is discarded on the successful path.
+    --- Evaluates the operand once. Ordinary operands test and yield result one,
+    --- forwarding the falsy pack on return. Direct protected calls test status,
+    --- yield result two unchanged on success, and forward nil plus the error on
+    --- failure. Later successful results are discarded in both cases.
     local function inferOrExit(node: cst.OrExitExpr): Type
         local operand = node.operand
         local exitKind = node.exitKind
         if not operand then
             return T.any
         end
+        local dynamic: any = node
+        dynamic.orExitProtected = nil
         local first = c.infer(operand)
         local dynamicOperand: any = operand
         local pack = dynamicOperand.valuePack or T.pack({first})
@@ -772,8 +792,52 @@ function expr.install(c: state.Checker): nil
         if exitKind == "break" or exitKind == "continue" then
             c.recordLoopExit(exitKind, at)
         end
-        local dynamic: any = node
         dynamic.orExitPack = pack
+        if protectedBuiltin(operand) and pack.alternatives then
+            local succeeded, failed
+            for _, arm in ipairs(pack.alternatives) do
+                if arm.head[1] == T.literal(true, T.boolean) then
+                    succeeded = arm
+                elseif arm.head[1] == FALSE_T then
+                    failed = arm
+                end
+            end
+            if succeeded and failed then
+                dynamic.orExitProtected = true
+                local value = T.packAt(succeeded, 2) or T.nil_
+                local problem = T.packAt(failed, 2) or T.nil_
+                -- Status is slot one; the expression retains slot two. Every later
+                -- successful result is discarded, including a variadic tail.
+                c.checkPackDiscard(succeeded, 3, operand)
+                if exitKind == "return" then
+                    checkExitReturn(node, T.pack({T.nil_, problem}), T.nil_)
+                else
+                    c.checkPackDiscard(failed, 2, operand)
+                end
+                dynamic.orExitSuccess = value
+                dynamic.orExitFailure = T.nil_
+                dynamic.orExitWidth = 2
+                local facts = c.own.capabilityFacts(operand, 2, false)
+                dynamic.capabilityFacts = new T.CapabilityFacts(
+                    origin = facts.origin,
+                    loans = facts.loans,
+                    roots = facts.roots,
+                    capturedBorrowRoots = facts.capturedBorrowRoots,
+                    exclusive = facts.exclusive,
+                    regionRoot = facts.regionRoot,
+                    regionPath = facts.regionPath,
+                    component = facts.component,
+                    anchors = facts.anchors,
+                    anchor = facts.anchor,
+                    retentions = facts.retentions,
+                    retention = facts.retention
+                )
+                if c.ownershipKind(value) == "affine" then
+                    c.own.temporaryProduced(node)
+                end
+                return value
+            end
+        end
 
         -- A layout the policy cannot read. Each of these would otherwise have to guess
         -- which slot discriminates, and guessing is what the explicit conditional is
@@ -801,20 +865,12 @@ function expr.install(c: state.Checker): nil
             end
         end
         if pack.alternatives then
-            local builtin = protectedBuiltin(operand)
             c.diag(
                 "NUPP2149",
                 at,
                 "this operand's results are a correlated pack union, which the suffix cannot read",
                 nil,
-                {
-                    help = builtin
-                    and (
-                        "`%s` leads with a discriminator rather than a result; bind its results "
-                        .. "and test `ok` in an explicit conditional"
-                    ):format(builtin)
-                    or explicitForm(exitKind),
-                }
+                {help = explicitForm(exitKind)}
             )
             return T.any
         end

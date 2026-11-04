@@ -107,8 +107,8 @@ local FORMER_DROP_OWNERS = {
     "local owner = io.newreader('one'):lines()",
     "local owner = assert(io.files.open('input.bin'))",
     "local owner = assert(io.files.tmpfile())",
-    "local owner = nupp.mem.heap.alloc(ffi.typeof<int32>(), 4)",
-    "local struct Row\n    x: int32\nend\nlocal owner = nupp.mem.soa.alloc(ffi.typeof<Row>(), 4)",
+    "local owner = nupp.heap.alloc(ffi.typeof<int32>(), 4)",
+    "local struct Row\n    x: int32\nend\nlocal owner = nupp.soa.alloc(ffi.typeof<Row>(), 4)",
 }
 
 function M.everyStandardOwnerClosesThroughOwnDropAlone()
@@ -159,15 +159,15 @@ end
 
 -- An invalid argument raises with the prefix every other standard module uses.
 function M.memAndUtilRefusalsCarryTheLibraryPrefix()
-    local array = require("nupp.mem.array")
+    local array = require("nupp.array")
     local spans = require("binary.span")
     for label, refused in pairs({
         heap = function()
             -- The count is refused before the element type is read.
-            require("nupp.mem.heap").alloc(nil, -1)
+            require("nupp.heap").alloc(nil, -1)
         end,
         bytes = function()
-            require("nupp.mem.array").bytes(-1)
+            require("nupp.array").bytes(-1)
         end,
         span = function()
             spans.fromcarray(array.scalar(array.int32, 1).pointer, -1)
@@ -229,7 +229,7 @@ end
 function M.wasmViewsLowerThroughTheOpaqueCheckedSurface()
     local source = [[
 local span = require("binary.span")
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local struct Sample
    value: float
 end
@@ -271,11 +271,11 @@ end
 function M.arenaLowersThroughTheStorageContract()
     local source = table.concat(
         {
-            "local arena = require('nupp.mem.arena')",
+            "local arena = table",
             "local struct Sample",
             "   value: float",
             "end",
-            "local samples = arena.newarena(Sample, 8)",
+            "local samples = arena.newpool(Sample, 8)",
             "local sample = samples:acquire()",
             "sample.value = 3",
             "samples:release(sample)",
@@ -1008,7 +1008,7 @@ function M.browserGpuValidatesHostHandlesAndReleasesContextResources()
     }
     local browser = require("helpers.providerstate").browserGpu(host)
     local context = browser.open()
-    local element = require("nupp.mem.array").uint32
+    local element = require("nupp.array").uint32
     for _, malformed in ipairs({false, {}, {buffer = 0}, {buffer = 1.5}, {buffer = 4294967296}}) do
         returned = malformed
         local ok, problem = pcall(context.buffer, context, element, 1)
@@ -1119,7 +1119,7 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     }
     local cancelledBrowser = require("helpers.providerstate").browserGpu(cancelledHost)
     local cancelledContext = cancelledBrowser.open()
-    local element = require("nupp.mem.array").uint32
+    local element = require("nupp.array").uint32
     local buffered, bufferProblem = pcall(cancelledContext.buffer, cancelledContext, element, 1)
     assert(not buffered and bufferProblem == "cancelled buffer", tostring(bufferProblem))
     local compiled, kernelProblem = pcall(
@@ -1171,13 +1171,13 @@ function M.browserGpuProtectsCancelledResourcesAndTransferLeases()
     }
     local browser = require("helpers.providerstate").browserGpu(host, memory)
     local context = browser.open()
-    element = require("nupp.mem.array").uint32
+    element = require("nupp.array").uint32
     local input = context:buffer(element, 1)
     local output = context:buffer(element, 1)
-    local source = require("nupp.mem.array").scalar(element, 1)
+    local source = require("nupp.array").scalar(element, 1)
     local seed = source:write()
     seed:set(1, 7)
-    local destination = require("nupp.mem.array").scalar(element, 1)
+    local destination = require("nupp.array").scalar(element, 1)
 
     failure = "runtime-upload"
     local uploaded, uploadProblem = pcall(context.upload, context, input, source:read())
@@ -1992,7 +1992,7 @@ function M.bitsetsReachTheCheckedModule()
     assert(set:count() == 12)
     assert(set:nextSetBit(0) == 5)
 
-    local array = require("nupp.mem.array")
+    local array = require("nupp.array")
     local target = array.scalar(array.int32, 4)
     local written, resume = set:positionsInto(target.pointer, 4, 0)
     assert(written == 4, "positionsInto filled the destination")

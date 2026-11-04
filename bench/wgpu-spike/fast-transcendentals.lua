@@ -12,9 +12,9 @@ for index = 0, count - 1 do
 end
 
 local context = gpu.open()
-local inputBuffer = context:buffer(require("nupp.mem.array").float32, count)
-local exactBuffer = context:buffer(require("nupp.mem.array").float32, count)
-local nativeBuffer = context:buffer(require("nupp.mem.array").float32, count)
+local inputBuffer = context:buffer(require("nupp.array").float32, count)
+local exactBuffer = context:buffer(require("nupp.array").float32, count)
+local nativeBuffer = context:buffer(require("nupp.array").float32, count)
 context:upload(inputBuffer, span.fromcarray(input, count))
 local exact = generated.exact:compile(context):bind(exactBuffer, inputBuffer)
 local native = generated.native:compile(context):bind(nativeBuffer, inputBuffer)

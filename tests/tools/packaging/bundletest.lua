@@ -307,13 +307,13 @@ export function echoSparse(value: Sparse): Sparse
     return value
 end
 
-const sharedbytes = require("nupp.mem.sharedbytes")
+const sharedbytes = io.Bytes
 
-export function firstByte(region: sharedbytes.Region): integer
+export function firstByte(region: io.Bytes): integer
     return region:view(0, 1)[1]
 end
 
-const heap = require("nupp.mem.heap")
+const heap = require("nupp.heap")
 
 export function stamp(takes frame: heap.Array<uint8>, value: integer): affine(heap.Array<uint8>, heap.destroyarray)
     local writable = frame:write()
@@ -353,7 +353,7 @@ end
 const capture = require("capture")
 const jobs = require("jobs")
 const tasks = require("coroutine")
-const sharedbytes = require("nupp.mem.sharedbytes")
+const sharedbytes = io.Bytes
 
 local counter = require("counter")
 for index = 1, 100 do assert(counter.next() == index) end
@@ -477,7 +477,7 @@ local copied, copyProblem = pcall(function(): nil
 end)
 print(copied, tostring(copyProblem):find("has a metatable", 1, true) ~= nil)
 
-const heap = require("nupp.mem.heap")
+const heap = require("nupp.heap")
 
 local frame = heap.alloc(ffi.typeof<uint8>(), 64)
 do local scope = tasks.scope() ;
@@ -503,6 +503,7 @@ end
 
 local dynamicShared = sharedbytes as any
 assert(dynamicShared.newBuilder == nil and dynamicShared.readFile == nil)
+assert(dynamicShared.__regionParts == nil and dynamicShared.__regionFromParts == nil)
 local loaded, readProblem = sharedbytes.readfile("shared-bytes.bin")
 if loaded == nil then error(readProblem or "shared byte file failed") end
 assert(loaded:len() == 13 and loaded:tostring() == "engine\0bytes\255")
@@ -800,7 +801,7 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
         ] = [[
 module jobs
 
-const heap = require("nupp.mem.heap")
+const heap = require("nupp.heap")
 
 export function square(value: integer): integer
     return value * value
@@ -817,7 +818,7 @@ end
         [
             "src/nupp/internal/scopeobserver.nupp"
         ] = [[
-const heap = require("nupp.mem.heap")
+const heap = require("nupp.heap")
 const jobs = require("jobs")
 const tasks = require("coroutine")
 

@@ -209,7 +209,7 @@ interface cst.Hints
     --- assume the operands are strings and numbers.
     plainConcat: boolean?
 
-    --- A string accumulator lowered to a `nupp.text` buffer by `OPT-5`.
+    --- A string accumulator lowered to a `string.buffer` buffer by `OPT-5`.
     concatBuffer: any
 
     --- An immediate return of a completed concatenation buffer.
@@ -246,8 +246,8 @@ interface cst.Hints
     --- it. The generated code writes nil where the field was.
     fieldTake: boolean?
 
-    --- A `layoutof(T)` call, carrying the declaration's name, the field-to-C-type spec,
-    --- and the nested struct ctypes the spec's `$` placeholders consume.
+    --- A `types.layoutof(T)` call, carrying the declaration's name, the field-to-C-type
+    --- spec, and the nested struct ctypes the spec's `$` placeholders consume.
     layoutOf: any
 
     --- Compiler-owned SoA layout and lowering facts.
@@ -625,6 +625,9 @@ interface cst.Hints
 
     --- Canonical capability facts for each returned value slot.
     resultCapabilityFacts: any
+
+    --- Whether an exit suffix tests protected-call status and yields result two.
+    orExitProtected: boolean?
 
     --- Aggregate field partitions transported by returned values.
     returnPartitionFields: any
@@ -2173,16 +2176,15 @@ record cst.IsExpr is cst.Hints
 end
 
 --- `e or return`, `e or break`, `e or continue`: a contextual suffix at the `or`
---- tier that leaves when `e`'s first result is falsy and yields that result
---- otherwise.
+--- tier. Ordinary operands test and yield result one. Direct protected calls
+--- test the status and yield the protected function's first result.
 record cst.OrExitExpr is cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
     kind: 'orExitExpr'
 
-    --- The expression whose first result decides, and whose first result the
-    --- whole expression yields when it is truthy.
+    --- The expression evaluated once before selecting success or the exit.
     operand: cst.Node?
 
     --- The `or`, whichever of the two spellings was written.

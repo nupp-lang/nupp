@@ -350,13 +350,13 @@ buffer or a string reader returns through the same contract.
 
 ## Byte queues
 
-A [`nupp.text`](nupp.text) buffer is a byte queue: `put` appends to the back
+A [](string.buffer) FIFO is a byte queue: `put` appends to the back
 and `get` consumes from the front. `io.newreader(queue):scalar()` adapts one, so
 bytes assembled there are read without copying everything in it first, and the
 queue's own `get` stays usable over the same bytes.
 
 ```nupp
-local queue = nupp.text.newbuffer()
+local queue = string.buffer.new()
 queue:put("header:")
 queue:put("!")
 
@@ -373,7 +373,7 @@ contract already covers.
 
 ```nupp
 local destination = io.newbuffer()
-local queue = nupp.text.newbuffer()
+local queue = string.buffer.new()
 queue:put("payload")
 do
     local reader = io.newreader(queue)
@@ -396,6 +396,20 @@ empty leaves an empty queue rather than a released one.
 
 --- @namespace io
 module nupp.runtime.standardio
+
+local immutable = require("io.internal.bytestypes")
+
+--- Immutable engine-owned bytes, shared across worker lanes without copying.
+---
+--- Slices retain the same allocation. Positions are zero-based byte offsets;
+--- `view` and `viewas` borrow storage, while `tostring` copies it into a Lua string.
+--- `copy` creates bytes from a string and `readfile` reads directly into storage.
+--- `newbuilder` creates an owned `Bytes.Builder`; `freeze` consumes it and transfers
+--- its allocation without copying. These operations require the engine host
+--- supplied by a stamped binary.
+export type Bytes = immutable.Bytes
+
+export const Bytes = immutable.Bytes
 
 local source1 = require("nupp.io")
 const {type Path as NativePath} = require("io.internal.path")
@@ -613,6 +627,7 @@ export const popen = openProcess as(
 
 --- @internal
 export const value: table = do
+    original.Bytes = Bytes
     original.URI = URI
     original.newuri = newuri
     original.isuri = isuri

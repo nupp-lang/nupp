@@ -93,7 +93,7 @@ building a Lua table or a complete result string. `endarray()` and
 leaving the document open, and consuming `close()` requires one complete root:
 
 ```nupp
-local out = nupp.text.newbuffer()
+local out = string.buffer.new()
 local writer = serde.json.newwriter(out)
 writer:startobject():key("items"):startarray():write(1):write(2):endarray():endobject()
 writer:close()
@@ -125,7 +125,7 @@ local writers = require("nupp.serde.internal.json.writer")
 local documents = require("nupp.serde.internal.json.document")
 local syntax = require("nupp.serde.internal.json.syntax")
 local json = require("nupp.serde.internal.json.values")
-const {type Buffer} = require("nupp.text")
+const {type Buffer} = require("string.buffer")
 local contexts = require("nupp.serde.internal.context")
 local errors = require("nupp.serde.internal.errors")
 local extensions = require("nupp.serde.internal.json.extensions")
@@ -177,7 +177,7 @@ local record Write<T, M is core.Member> is WriteOperation<T>
     end
 
     function encode(self, borrows value: T): string
-        local buffer = require("nupp.text").newbuffer()
+        local buffer = require("string.buffer").new()
         self:append(value, buffer)
         return buffer:tostring()
     end
@@ -571,7 +571,7 @@ end
 --- local record Tag
 ---     name: string
 --- end
---- local buffer = nupp.text.newbuffer()
+--- local buffer = string.buffer.new()
 --- local writer = json.newwriter(buffer)
 --- writer:startarray()
 --- json.writevalue(serde.binding(Tag), new Tag(name = "x"), writer)
@@ -645,7 +645,7 @@ export type JSONEncodable = json.JSONEncodable
 --- A checked incremental JSON writer, which `newwriter` returns.
 ---
 --- ```nupp
---- local out = nupp.text.newbuffer()
+--- local out = string.buffer.new()
 --- local writer = serde.json.newwriter(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
@@ -825,7 +825,7 @@ export const verifiedstring = json.verifiedString
 --- Creates an incremental JSON writer over caller-owned storage.
 ---
 --- ```nupp
---- local out = nupp.text.newbuffer()
+--- local out = string.buffer.new()
 --- local writer = serde.json.newwriter(out)
 --- writer:startobject():key("id"):write(41):endobject()
 --- writer:close()
