@@ -49,7 +49,43 @@ end
 -- an owned reference: a thread's frame word, which may be raw or stale.
 export function candidate(o: heap.Header*, cursor: Cursor*): boolean
     @unsafe do
-        return o.kind as uint64 == heap.KIND_THREAD and cursor.phase == 1ULL
+        return o.kind as uint64 == heap.KIND_THREAD and cursor.phase >= 1ULL
+    end
+end
+
+-- A thread's values, then its frame words chunk by chunk, which are root
+-- candidates (see `candidate`), as a frame word may be raw or stale: phase
+-- 1 + k walks the stack's chunk k (see heap.STACK_CHUNK) from its base to
+-- its cursor. A stack has few chunks, each twice its predecessor or more.
+local function threadNext(body: voidptr, cursor: Cursor*): uint64
+    @unsafe do
+        local first = native.load64(body, native.fieldOffset<heap.ThreadBody>("segment"))
+        if cursor.phase == 0ULL then
+            if childRun(native.address(body), 3ULL, cursor) ~= 0ULL then
+                return 1ULL
+            end
+            cursor.phase = 1ULL
+            cursor.index = 0ULL
+        end
+        while first ~= 0ULL do
+            local chunk = first
+            local k: uint64 = 1ULL
+            while chunk ~= 0ULL and k < cursor.phase do
+                chunk = heap.chunkAbove(chunk)
+                k = k + 1ULL
+            end
+            if chunk == 0ULL then
+                return 0ULL
+            end
+            local base = native.load64(native.pointer(chunk), 0)
+            local top = native.load64(native.pointer(chunk), 16)
+            if base ~= 0ULL and top > base and childRun(base, (top - base) // 8ULL, cursor) ~= 0ULL then
+                return 1ULL
+            end
+            cursor.phase = cursor.phase + 1ULL
+            cursor.index = 0ULL
+        end
+        return 0ULL
     end
 end
 
@@ -59,6 +95,9 @@ export function childNext(o: heap.Header*, cursor: Cursor*): uint64
     @unsafe do
         local body = native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES)
         local kind = o.kind as uint64
+        if kind == heap.KIND_THREAD then
+            return threadNext(body, cursor)
+        end
         while cursor.phase < 4ULL do
             local phase = cursor.phase
             if kind == heap.KIND_CLOSURE or kind == heap.KIND_CELL then
@@ -109,21 +148,6 @@ export function childNext(o: heap.Header*, cursor: Cursor*): uint64
                     cursor.phase = 4ULL
                     cursor.value = native.load64(body, 0)
                     return 1ULL
-                end
-            elseif kind == heap.KIND_THREAD then
-                -- Its values, then its frame words: those are candidates
-                -- (see `candidate`), as a frame word may be raw or stale.
-                local thread = body as heap.ThreadBody*
-                if phase == 0ULL then
-                    if childRun(native.address(body), 3ULL, cursor) ~= 0ULL then
-                        return 1ULL
-                    end
-                elseif phase == 1ULL and thread.segment ~= 0ULL then
-                    local base = native.load64(native.pointer(thread.segment), 0)
-                    local top = native.load64(native.pointer(thread.segment), 16)
-                    if childRun(base, (top - base) // 8ULL, cursor) ~= 0ULL then
-                        return 1ULL
-                    end
                 end
             elseif kind == heap.KIND_ITER or kind == heap.KIND_USERDATA then
                 if phase < 2ULL then

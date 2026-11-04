@@ -11,9 +11,13 @@ local function align(value: integer): integer
     return (value + 15) & -16
 end
 
--- The most bytes of frames an entry maps: its catalog's frame depth (at
--- most coregraphexecutable.depthbound) times its largest frame.
+-- The most bytes of frames an entry's stack may reach: its catalog's frame
+-- depth (at most coregraphexecutable.depthbound) times its largest frame.
 local POOL_BOUND: integer = 536870912
+-- The most bytes of a mapped pool, the first chunk of an initializer's
+-- stack, unless its largest frame needs more: a stack that recurses deeper
+-- grows in chunks of its own (`stacks`).
+local FIRST_POOL: integer = 262144
 
 -- Entries already built in this process, by everything an entry is made
 -- from (`build`): programs alike in those share one, which callers copy.
@@ -115,12 +119,14 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
         )
     end
     -- The frames as deep as the catalog lets calls nest. A mapped pool is
-    -- touched only as deep as the program's calls reach.
+    -- that much or FIRST_POOL, whichever is less, and its stack grows past
+    -- it only as deep as the program's calls reach.
     local poolBytes = raw and 4096 or (executable.frameDepth as integer) * maximumFrame
     assert(
         poolBytes > 0 and poolBytes <= (raw and 4096 or mappedPool and POOL_BOUND or 1048576),
         "guest frame pool bound"
     )
+    local firstBytes = math.min(poolBytes, math.max(FIRST_POOL, maximumFrame))
     -- The entry depends on the program only through the numbers above and
     -- its handlers; the selected runtime and its scopes are held per mode.
     local key: string? = nil
@@ -358,7 +364,7 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
         end
         immediate(2, storageBytes as integer)
         immediate(3, slots)
-        immediate(4, mappedPool and poolBytes as integer or 0)
+        immediate(4, mappedPool and firstBytes as integer or 0)
         offset(5, 27, worldOffset)
         -- A third input word asks for collect-at-every-allocation.
         emit(arm.ldr(8, 17, 31, 168))
@@ -443,7 +449,7 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
             {"context", "contextBytes", contextOffset, context.SIZE},
             {"world", "worldBytes", worldOffset, layouts.World.size},
             {"storage", "storageBytes", moduleStorageOffset, storageBytes, mappedStorage},
-            {"pool", "poolBytes", poolOffset, poolBytes, mappedPool},
+            {"pool", "poolBytes", poolOffset, poolBytes, mappedPool, "poolbytes"},
             {"helper", "helperBytes", spillOffset, extent}
         }) do
             if field[5] then
@@ -454,7 +460,13 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
                 offset(16, 27, field[3]);
             end
             emit(arm.str(8, 16, 14, binding[field[1]]))
-            immediate(16, field[4]);
+            if field[5] and field[6] then
+                -- And its extent: the pool's first chunk, as mapped.
+                emit(arm.ldr(8, 16, 31, 192))
+                emit(arm.ldr(8, 16, 16, layouts.Services.offsets[field[6]]))
+            else
+                immediate(16, field[4]);
+            end
             emit(arm.str(8, 16, 14, binding[field[2]]))
         end
         emit(arm.mov_reg(64, 0, 14));

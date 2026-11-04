@@ -106,6 +106,17 @@ export function registerSegment(h: heap.Heap*, segment: uint64): nil
     register(h, segment, SEGMENT)
 end
 
+--- The word count that marks a registered range as a frame stack in chunks
+--- (`heap.STACK_CHUNK`): its base is the stack's first chunk, and each
+--- chunk's words from its base to its cursor are roots.
+export const CHAIN: uint64 = 0xfffffffffffffffeULL
+
+--- Registers the frame stack whose first chunk is `chunk` as roots, until
+--- `unregister`.
+export function registerChain(h: heap.Heap*, chunk: uint64): nil
+    register(h, chunk, CHAIN)
+end
+
 export function unregister(takes h: heap.Heap*): nil
     @unsafe do
         heap.wordsPop(h.ranges)
@@ -262,6 +273,35 @@ local function rootRun(h: heap.Heap*, base: uint64, count: uint64, stack: heap.W
     end
 end
 
+--- The live words of a frame stack in chunks, from its first chunk `first`.
+--- The chunk above the one holding the top frame is kept for the next call;
+--- those past it, which a deeper recursion left, are given back.
+local function rootChain(h: heap.Heap*, first: uint64, stack: heap.Words*?): nil
+    @unsafe do
+        local current = first
+        local chunk = first
+        while chunk ~= 0ULL do
+            local base = native.load64(native.pointer(chunk), 0)
+            local cursor = native.load64(native.pointer(chunk), 16)
+            if base ~= 0ULL and cursor > base then
+                rootRun(h, base, (cursor - base) // 8ULL, stack)
+            elseif chunk ~= first then
+                break
+            end
+            current = chunk
+            chunk = heap.chunkAbove(chunk)
+        end
+        local spare = heap.chunkAbove(current)
+        if spare ~= 0ULL then
+            local past = heap.chunkAbove(spare)
+            if past ~= 0ULL then
+                native.store64(native.pointer(spare), heap.STACK_ABOVE, 0ULL)
+                heap.releaseChunks(past)
+            end
+        end
+    end
+end
+
 --- Each (base, words) pair of a range vector; a frame stack's live words.
 local function rootRanges(h: heap.Heap*, ranges: heap.Words*, stack: heap.Words*?): nil
     @unsafe do
@@ -275,6 +315,8 @@ local function rootRanges(h: heap.Heap*, ranges: heap.Words*, stack: heap.Words*
                 if first ~= 0 and cursor > first then
                     rootRun(h, first, (cursor - first) // 8, stack)
                 end
+            elseif words == CHAIN then
+                rootChain(h, base, stack)
             else
                 rootRun(h, base, words, stack)
             end

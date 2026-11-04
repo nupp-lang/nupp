@@ -137,13 +137,52 @@ export struct CellBody
     value: uint64
 end
 
+--- A frame stack that grows in chunks (the core's `frames.Chunk`): each
+--- chunk's descriptor holds a segment's words (base, limit, cursor, issued,
+--- top), then STACK_CHUNK, the chunk below, the chunk above and the bytes
+--- the chunk maps, its descriptor first (0 for a first chunk its owner
+--- mapped). Frames fill the chunks from the first up, so those above the one
+--- holding the top frame are empty: one is kept for the next call, and any
+--- past it are given back at the next collection.
+export const STACK_CHUNK: uint64 = 0x4b4e554843ULL
+
+export const STACK_TAG: int64 = 40
+export const STACK_ABOVE: int64 = 56
+export const STACK_BYTES: int64 = 64
+
+--- The chunk above `chunk` in its stack, or 0: also for a descriptor that
+--- is not a chunk's.
+export function chunkAbove(chunk: uint64): uint64
+    @unsafe do
+        if native.load64(native.pointer(chunk), STACK_TAG) ~= STACK_CHUNK then
+            return 0ULL
+        end
+        return native.load64(native.pointer(chunk), STACK_ABOVE)
+    end
+end
+
+--- Unmaps the chunk `chunk` and every chunk above it.
+export function releaseChunks(chunk: uint64): nil
+    @unsafe do
+        local at = chunk
+        while at ~= 0ULL do
+            local above = chunkAbove(at)
+            local bytes = native.load64(native.pointer(at), STACK_BYTES)
+            if bytes ~= 0ULL then
+                os.unmapPages(native.pointer(at), bytes)
+            end
+            at = above
+        end
+    end
+end
+
 --- A coroutine's inline payload begins with these words; the runtime that
 --- runs it (`nupp.runtime.core.threads`) keeps its control after them. The
---- first three are traced values, and `segment` addresses the descriptor of
---- its frame segment, whose first and third words are the base and cursor
---- bounding the frame words the walk reads as root candidates, or is zero.
---- `pages` and `pagebytes` are the mapping that segment lives in, which a
---- released thread gives back.
+--- first three are traced values, and `segment` addresses the first chunk
+--- of its frame stack (see STACK_CHUNK), each chunk's first and third words
+--- the base and cursor bounding the frame words the walk reads as root
+--- candidates, or is zero. `pages` is that first chunk while the thread
+--- holds its stack, which a released thread gives back.
 export struct ThreadBody
     body: uint64
     resumer: uint64
