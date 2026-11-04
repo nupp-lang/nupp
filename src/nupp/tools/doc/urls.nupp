@@ -144,11 +144,18 @@ export function symbolLinkIndex(modules: {Module}, target: Target?, extra: Links
             addSymbolLink(links, ambiguous, item.name, url)
             local tail = item.name:match("([^.]+)$")
             addSymbolLink(links, ambiguous, tail, url)
-            for _, member in ipairs(item.members) do
-                local memberUrl = target(module.name, member.path)
-                addSymbolLink(links, ambiguous, member.path, memberUrl)
-                addSymbolLink(links, ambiguous, item.name .. "." .. member.name, memberUrl)
+
+            local function members(entries, owner)
+                for _, member in ipairs(entries or {}) do
+                    local memberUrl = target(module.name, member.path)
+                    local name = owner .. "." .. member.name
+                    addSymbolLink(links, ambiguous, member.path, memberUrl)
+                    addSymbolLink(links, ambiguous, name, memberUrl)
+                    members(member.members, name)
+                end
             end
+
+            members(item.members, item.name)
         end
     end
     -- Modules are indexed after the declarations and never over one, so a name a

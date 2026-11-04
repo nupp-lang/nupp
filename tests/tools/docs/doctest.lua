@@ -1109,6 +1109,85 @@ export function identity(value: string): string return value end
     assert(markdown:find("`string`\n:   The value again.", 1, true), markdown)
 end
 
+function M.argumentAndReturnTypesLinkOnlyDocumentedTypeReferences()
+    local module = assert(
+        doc.extract(
+            [[
+export record Widget end
+export record Box<T>
+    record Nested
+        record Leaf end
+    end
+    function keep(self, value: T): T end
+    function choose(self, value: Widget): Widget end
+    function choose(self, value: Box<Widget>): Widget end
+end
+export type T = string
+export function convert(value: Widget | Box<Widget> | nil): Widget? end
+export function shape(value: {Widget: number, item: Widget, label: 'Widget'}): Missing end
+export function callback(value: function<Widget>(Widget: Widget): Widget): nil end
+export function generic<T>(value: T): T end
+export function deep(value: Box.Nested.Leaf): Box.Nested.Leaf end
+]],
+            "src/model.nupp",
+            "model"
+        )
+    )
+    local markdown = doc.markdown({module})
+    assert(markdown:find("[`Box`](#model.Box)", 1, true), markdown)
+    assert(markdown:find("[`Widget`](#model.Widget)", 1, true), markdown)
+    assert(markdown:find("[`Box.Nested.Leaf`](#model.Box.Nested.Leaf)", 1, true), markdown)
+    local html = require("nupp.tools.doc.html").markdownHtml(markdown)
+    local convert = assert(html:match('id="model.convert"(.-)</section>'), html)
+    local args = assert(convert:match("<dt>(.-)</dt>"), convert)
+    local _, links = convert:gsub('href="#model%.Widget"', "")
+    assert(links == 3, convert)
+    local text = args:gsub("<[^>]+>", ""):gsub("&lt;", "<"):gsub("&gt;", ">")
+    assert(text == "value - Widget | Box<Widget> | nil", text)
+    for _, anchor in ipairs({"model.Box.choose", "model.Box.choose-overload-2"}) do
+        local overload = assert(html:match('id="' .. anchor:gsub("(%W)", "%%%1") .. '"(.-)</section>'), html)
+        local _, overloadLinks = overload:gsub('href="#model%.Widget"', "")
+        assert(overloadLinks == 2, overload)
+    end
+    assert(args:find('href="#model.Box"', 1, true), args)
+    local shape = assert(html:match('id="model.shape"(.-)</section>'), html)
+    local shapeArgs = assert(shape:match("<dt>(.-)</dt>"), shape)
+    local shapeText = shapeArgs:gsub("<[^>]+>", ""):gsub("&#39;", "'")
+    assert(shapeText == "value - {Widget: number, item: Widget, label: 'Widget'}", shapeText)
+    local _, count = shape:gsub('href="#model%.Widget"', "")
+    assert(count == 1, "field names and quoted literals must not link: " .. shape)
+    for _, name in ipairs({"generic", "callback", "Box.keep"}) do
+        local body = assert(html:match('id="model.' .. name:gsub("%.", "%%.") .. '"(.-)</section>'), html)
+        assert(not body:find('href="#model.T"', 1, true), body)
+        assert(not body:find('href="#model.Widget"', 1, true), body)
+    end
+    for code in convert:gmatch("<pre>(.-)</pre>") do
+        assert(not code:find("<a ", 1, true), code)
+    end
+end
+
+function M.argumentTypesResolveImportedAliasesAndPageDepth()
+    local dir = tempProject({
+        ["src/models.nupp"] = "module models\nexport record Widget end\n",
+        [
+            "src/use.nupp"
+        ] = [[
+module use
+local other = require("models")
+local {type Widget as Imported} = require("models")
+export function first(value: other.Widget): Imported end
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "site", output = "site"}) == 0)
+    local page = readFile(dir .. "/site/modules/use/index.html")
+    local markdown = readFile(dir .. "/site/modules/use/llms.txt")
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(markdown:find("[`other.Widget`](../../modules/models/index.html#models.Widget)", 1, true), markdown)
+    assert(markdown:find("[`Imported`](../../modules/models/index.html#models.Widget)", 1, true), markdown)
+    local _, count = page:gsub('href="../../modules/models/index.html#models.Widget"', "")
+    assert(count >= 2, page)
+end
+
 function M.rendersQuotedTypesWithoutDoubleEscaping()
     local module = assert(
         doc.extract(
@@ -1165,7 +1244,7 @@ export function callback(): function(): nil end
     assert(not api.memberSpelling(members.clear):find(": nil", 1, true))
     assert(api.memberSpelling(members.pair):find(": nil, string", 1, true))
     local markdown = doc.markdown({module})
-    assert(markdown:find('`self` - `example.Box<T>`', 1, true), markdown)
+    assert(markdown:find('`self` - [`example.Box`](#example.Box)`<T>`', 1, true), markdown)
     local free = markdown:match("<a id=\"example.free\"></a>(.-)\n## ")
         or assert(markdown:match("<a id=\"example.free\"></a>(.*)"))
     assert(not free:find("Returns", 1, true), free)
@@ -1333,7 +1412,7 @@ function M.documentsAnnotationsAndParameterModes()
 
     local markdown = doc.markdown({module})
     assert(markdown:find("`@deprecated", 1, true), "the annotation is not rendered")
-    assert(markdown:find("`takes self` - `", 1, true), "the parameter mode is not rendered")
+    assert(markdown:find("`takes self` - [", 1, true), "the parameter mode is not rendered")
     local rendered = {}
     renderMarkdownItem(rendered, handle)
     assert(table.concat(rendered):find('class="nuppdoc-annotation">@deprecated', 1, true))

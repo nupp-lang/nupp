@@ -461,11 +461,23 @@ export function indexParts(document: Page): {IndexPart}
 end
 
 local function indexMarkdown(document: Page): string
+    local prefix = urlsMod.relativePrefix(urlsMod.routeFile(document.path))
+    local extra = {}
+    for name, anchor in pairs(document.symbols or {}) do
+        extra[name] = "#" .. anchor
+    end
+    local links = urlsMod.symbolLinkIndex(
+        document.modules,
+        function(module: string, path: string?): string
+            return prefix .. urlsMod.moduleFile(module) .. (path and "#" .. path or "")
+        end,
+        extra
+    )
     local out = {}
     for _, part in ipairs(indexParts(document)) do
         out[#out + 1] = part.markdown
         if part.items then
-            out[#out + 1] = markdownMod.items(part.items, nil, nil, true)
+            out[#out + 1] = markdownMod.items(part.items, nil, nil, true, links)
         end
     end
 

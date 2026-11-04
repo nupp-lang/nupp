@@ -600,11 +600,11 @@ local function lunamarkParser(): any
         if apiDefinitions then
             for _, item in ipairs(items) do
                 local term = lunamark.util.rope_to_string(item.term)
-                local _, count = term:gsub("<code>.-</code>", "")
+                local named = term:match("^<code>.-</code> %- ") ~= nil
                 local index = 0
                 item.term = term:gsub("<code>(.-)</code>", function(value)
                     index = index + 1
-                    if index ~= count then
+                    if named and index == 1 then
                         return "<code>" .. value .. "</code>"
                     end
                     -- Decode the writer's escapes once before highlighting. Ampersands

@@ -14,6 +14,8 @@ local stringsMod = require("nupp.tools.doc.strings")
 local extractMod = require("nupp.tools.doc.extract")
 local urlsMod = require("nupp.tools.doc.urls")
 local apiMod = require("nupp.tools.doc.api")
+local parser = require("nupp.compiler.syntax.parser")
+local cst = require("nupp.compiler.syntax.cst")
 
 local markdownEscape, markdownCell = stringsMod.markdownEscape, stringsMod.markdownCell
 local childModules = extractMod.children
@@ -33,6 +35,31 @@ local markdown = {}
 -- apart from one nothing documents at all.
 local anchors: Links? = nil
 local known: Links? = nil
+local typeModule: Module? = nil
+local typeOwner = ""
+local typeParameters: {[string]: boolean} = {}
+local primitiveTypes: {[string]: boolean} = {}
+for name in (
+    "any unknown never nil boolean string number integer table thread userdata cdata cstring voidptr "
+    .. "float int8 int16 int32 int64 uint8 uint16 uint32 uint64 type typepack"
+):gmatch("%S+") do
+    primitiveTypes[name] = true
+end
+
+local function typeContext(path, parameters)
+    local previousOwner, previousParameters = typeOwner, typeParameters
+    typeOwner, typeParameters = path, {}
+    for name in pairs(previousParameters) do
+        typeParameters[name] = true
+    end
+    for _, parameter in ipairs(parameters or {}) do
+        typeParameters[parameter.name:match("^[%w_]+") or parameter.name] = true
+    end
+
+    return function()
+        typeOwner, typeParameters = previousOwner, previousParameters
+    end
+end
 
 -- Prose an author wrote, as opposed to a signature the parser produced. Only prose is
 -- searched for references: a signature is code, and `handlers[name](value)` in one is
@@ -76,6 +103,116 @@ local function codeSpan(value: string): string
     return delimiter .. value .. delimiter
 end
 
+-- Type details are parsed separately from code examples. Only names in type positions
+-- become explicit Markdown links; labels, literals and generic binders do not.
+local function typeSpan(source: string): string
+    if not anchors and not known then
+        return codeSpan(source)
+    end
+    local prefix = "local value: "
+    local parsed = parser.parse(prefix .. source, "documentation-type-reference.nupp")
+    if #parsed.errors > 0 then
+        return codeSpan(source)
+    end
+
+    local function resolve(name)
+        local owner = typeOwner
+        while owner ~= "" do
+            local target = owner .. "." .. name
+            local url = anchors and anchors[target] or known and known[target]
+            if url then
+                return url ~= "" and url or nil
+            end
+            owner = owner:match("^(.*)%.[^.]+$") or ""
+        end
+        local context = typeModule
+        if context then
+            local first, rest = name:match("^([%w_]+)%.(.*)$")
+            first = first or name
+            local imported = context.imports and context.imports[first]
+            local canonical
+            if imported then
+                local member = context.importedMembers and context.importedMembers[first]
+                local selected = member and (member .. (rest and "." .. rest or "")) or rest or ""
+                canonical = imported .. "." .. selected
+            elseif rest and (first == context.moduleLocal or first == context.name:match("([^.]+)$")) then
+                canonical = context.name .. "." .. rest
+            end
+            if canonical then
+                local url = anchors and anchors[canonical] or known and known[canonical]
+                return url and url ~= "" and url or nil
+            end
+        end
+        local url = anchors and anchors[name] or known and known[name]
+
+        return url and url ~= "" and url or nil
+    end
+
+    local references = {}
+
+    local function visit(node, parameters)
+        if cst.isToken(node) then
+            return
+        end
+        if node.generics then
+            local nested = {}
+            for name in pairs(parameters) do
+                nested[name] = true
+            end
+            for _, token in ipairs(node.generics.names) do
+                nested[token.text] = true
+            end
+            parameters = nested
+        end
+        if node.kind == "tname" and not parameters[node.base.text] and not primitiveTypes[node.base.text] then
+            local first, last, started = node.base, node.base, false
+            for _, child in ipairs(node) do
+                if child == first then
+                    started = true
+                elseif started then
+                    if not cst.isToken(child) or child.kind ~= "name" and child.kind ~= "." then
+                        break
+                    end
+                    last = child
+                end
+            end
+            local start, finish = first.offset - #prefix, last.offset + #last.text - #prefix - 1
+            local name = source:sub(start, finish)
+            local url = resolve(name)
+            if url then
+                references[#references + 1] = {start = start, finish = finish, name = name, url = url}
+            end
+        end
+        for _, child in ipairs(node) do
+            visit(child, parameters)
+        end
+    end
+
+    visit(parsed.root, typeParameters)
+    table.sort(references, function(left, right)
+        return left.start < right.start
+    end)
+
+    local function fragment(value)
+        local leading, body, trailing = value:match("^(%s*)(.-)(%s*)$")
+        return leading .. (body ~= "" and codeSpan(body) or "") .. trailing
+    end
+
+    local out, position = {}, 1
+    for _, reference in ipairs(references) do
+        if reference.start > position then
+            out[#out + 1] = fragment(source:sub(position, reference.start - 1))
+        end
+        out[#out + 1] = "[" .. codeSpan(reference.name) .. "](" .. reference.url .. ")"
+        position = reference.finish + 1
+    end
+    if position <= #source then
+        out[#out + 1] = fragment(source:sub(position))
+    end
+
+    return table.concat(out)
+end
+
 -- What a declaration was annotated with, on its own line under the heading.
 local function markdownAnnotations(out, annotations)
     if not annotations or #annotations == 0 then
@@ -107,7 +244,7 @@ local function markdownArguments(out, params, heading)
     out[#out + 1] = ""
     for _, param in ipairs(params) do
         local spelled = (param.mode and (param.mode .. " ") or "") .. param.name
-        definition(out, codeSpan(spelled) .. " - " .. codeSpan(param.type), param.text)
+        definition(out, codeSpan(spelled) .. " - " .. typeSpan(param.type), param.text)
     end
     out[#out + 1] = ""
 end
@@ -119,7 +256,7 @@ local function markdownReturns(out, returns, heading)
     out[#out + 1] = heading .. " Returns"
     out[#out + 1] = ""
     for _, value in ipairs(returns) do
-        definition(out, codeSpan(value.type), value.text)
+        definition(out, typeSpan(value.type), value.text)
     end
     out[#out + 1] = ""
 end
@@ -161,6 +298,7 @@ local function markdownForms(out, forms, name, path, level, lua)
         explicitLua = explicitLua or form.lua or false
     end
     for index, form in ipairs(forms) do
+        local restore = typeContext(path, form.typeargs)
         local names = {}
         for _, param in ipairs(form.params) do
             names[#names + 1] = param.name
@@ -182,6 +320,7 @@ local function markdownForms(out, forms, name, path, level, lua)
         markdownArguments(out, form.params, hSub)
         markdownReturns(out, form.returns, hSub)
         markdownRaises(out, form.raises, hSub)
+        restore()
     end
 end
 
@@ -272,6 +411,7 @@ local function renderMarkdownMembers(out, members, level)
     local hName, hSub = heading(level), heading(level + 1)
     local seen = {}
     for _, member in ipairs(members or {}) do
+        local restore = typeContext(member.path, member.typeargs)
         local path = overloadAnchor(member.path, seen)
         out[#out + 1] = "::: api-item " .. path
         out[#out + 1] = '<a id="' .. path .. '"></a>'
@@ -307,10 +447,12 @@ local function renderMarkdownMembers(out, members, level)
         end
         out[#out + 1] = ":::"
         out[#out + 1] = ""
+        restore()
     end
 end
 
 local function renderMarkdownItem(out, item, level, bodyOnly, path)
+    local restore = typeContext(item.path, item.typeargs)
     level = level or 3
     local h, hSub = heading(level), heading(level + 1)
     if not bodyOnly then
@@ -359,6 +501,7 @@ local function renderMarkdownItem(out, item, level, bodyOnly, path)
         out[#out + 1] = ":::"
         out[#out + 1] = ""
     end
+    restore()
 end
 
 --- Renders declarations as sections, for a page that writes its own headings around
@@ -372,7 +515,15 @@ end
 --- @param items the declarations to render, in the order they should be read
 --- @param level the heading depth of an item's name, 3 by default
 --- @return the markdown, or the empty string when there is nothing to render
-function markdown.items(items: {Item}, level: integer?, seen: {[string]: integer}?, legacy: boolean?): string
+function markdown.items(
+    items: {Item},
+    level: integer?,
+    seen: {[string]: integer}?,
+    legacy: boolean?,
+    links: Links?
+): string
+    local previous = anchors
+    anchors = links or anchors
     local out = {}
     local seen = seen or {}
     for _, item in ipairs(items) do
@@ -385,6 +536,8 @@ function markdown.items(items: {Item}, level: integer?, seen: {[string]: integer
         end
         renderMarkdownItem(out, item, level or 3, false, overloadAnchor(item.path, seen))
     end
+
+    anchors = previous
 
     return table.concat(out, "\n")
 end
@@ -501,6 +654,7 @@ function markdown.render(
     end
     local seen = {}
     for moduleIndex, module in ipairs(modules) do
+        typeModule = module
         local rootDeclaration = false
         for _, item in ipairs(module.items) do
             rootDeclaration = rootDeclaration or item.path == module.name
@@ -545,7 +699,7 @@ function markdown.render(
             out[#out + 1] = ""
         end
     end
-    anchors, known = nil, nil
+    anchors, known, typeModule = nil, nil, nil
 
     return table.concat(out, "\n") .. "\n"
 end
