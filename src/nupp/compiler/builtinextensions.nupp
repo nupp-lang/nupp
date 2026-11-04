@@ -73,6 +73,19 @@ function extensions.member(root: string, name: string): boolean
     return specification ~= nil and (specification.direct == true or specification.members[name] == true)
 end
 
+--- The module whose loading adds `root.name` to the host table, for code no
+--- checker saw. A nil name stands for any other read of the root, which may
+--- reach every member. A direct root is its module rather than a table one
+--- extends, so loading it adds nothing.
+function extensions.installer(root: string, name: string?): string?
+    local specification = ROOTS[root]
+    if specification == nil or specification.direct or name ~= nil and not specification.members[name] then
+        return nil
+    end
+
+    return specification.module
+end
+
 local function firstUse(c: any, root: string): boolean
     local observed = c.builtinExtensionUses
     if not observed then

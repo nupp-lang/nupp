@@ -311,6 +311,39 @@ print(type(os.monotonic()))
     )
 end
 
+-- A plain module a program requires sees the same additions its entry would,
+-- though the program itself names none of them.
+function M.cliRunLoadsStdlibFromARequiredLuaModule()
+    withProject(
+        {
+            ["nupp.lua"] = "return { include = { 'src' } }\n",
+            ["main.nupp"] = [[
+local clock = require("runtimeluaclock")
+print(clock.kinds())
+]],
+            [
+                "src/runtimeluaclock.lua"
+            ] = [[
+local M = {}
+function M.kinds()
+   return type(os.monotonic()) .. " " .. type(coroutine.scope)
+end
+return M
+]],
+        },
+        function(dir)
+            local output = dir .. "/output.txt"
+            local errors = dir .. "/errors.txt"
+            local command = (
+                "cd '%s' && '%s/bin/nupp' run main.nupp " .. "> '%s' 2> '%s'"
+            ):format(dir, ROOT, output, errors)
+            local status = os.execute(command)
+            testAssert.eq(status, 0, "nupp run required stdlib exit status: " .. readFile(errors))
+            testAssert.eq(readFile(output), "number function\n", "nupp run required stdlib output")
+        end
+    )
+end
+
 -- tostring of a function once recursed in the VM until its stack overflowed.
 function M.cliRunPrintsFunctionsAsTheirIdentity()
     withProject(
