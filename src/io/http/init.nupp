@@ -93,7 +93,12 @@ module io.http
 local source1 = require("nupp.io.http")
 export type Body = source1.Body
 export type Capabilities = source1.Capabilities
-export type Client = source1.Client
+export interface Client is source1.Client
+    --- Opens an owned client using the selected HTTP provider.
+    function create(options: source1.Options?): Client
+        return source1.newClient(options)
+    end
+end
 export type FileBody = source1.FileBody
 export type Options = source1.Options
 export type Reader = source1.Reader

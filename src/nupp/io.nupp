@@ -198,6 +198,8 @@ export type BufferWriteLease = bytes.BufferWriteLease
 --- @export
 export type Buffer = bytes.Buffer
 
+export const Buffer = bytes.Buffer
+
 --- Why an io operation failed: a kind to branch on and a message to show.
 ---
 --- It prints as its message, and joins text as its message does, so code that

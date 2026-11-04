@@ -1,0 +1,135 @@
+@!internal
+module nupp.digest.digest
+
+const provider = require("binary.digest.internal.contracts")
+
+const contexts = require("nupp.digest.internal.context")
+
+local lookupDescriptor: function(string): any
+local requireDescriptor: function(string): any
+local descriptorNames: function(): {string}
+
+export interface Digest is contexts.Digest
+
+    record Algorithm
+        --- Canonical algorithm name.
+        @readonly name: string
+
+        --- Number of output bytes, available before creating mutable state.
+        @readonly digestsize: integer
+
+        @private implementation: provider.Algorithm
+
+        --- Creates independent owned state for this algorithm.
+        --- @return the unfinished digest context
+        --- @raises string when provider initialization fails
+        function digest(self): Digest
+            local state = self.implementation:create()
+            return contexts.wrap(state, self.name, self.digestsize)
+        end
+
+        --- Finds a descriptor without constructing mutable state.
+        function lookup(name: string): Algorithm?
+            return lookupDescriptor(name) as Algorithm?
+        end
+
+        --- Requires an available descriptor.
+        function of(name: string): Algorithm
+            return requireDescriptor(name) as Algorithm
+        end
+
+        --- Returns canonical names in ascending order.
+        function names(): {string}
+            return descriptorNames()
+        end
+    end
+
+    --- Creates independent owned context state.
+    function create(name: string): Digest
+        return requireDescriptor(name):digest()
+    end
+
+    --- Computes a complete value and closes its context.
+    function compute(name: string, bytes: string): string
+        local value = requireDescriptor(name):digest()
+        value:write(bytes)
+        return value:digest()
+    end
+
+    --- Computes lowercase hexadecimal and consumes its context.
+    function computehex(name: string, bytes: string): string
+        local value = requireDescriptor(name):digest()
+        value:write(bytes)
+        return value:hexdigest()
+    end
+end
+
+local type Algorithm = Digest.Algorithm
+local Algorithm = Digest.Algorithm
+
+local EXPECTED: {[string]: integer} = {md5 = 16, sha1 = 20, sha256 = 32, sha512 = 64}
+
+local function validate(selected: provider.Provider): nil
+    for name, implementation in pairs(selected.algorithms) do
+        if type(name) ~= "string"
+            or name == ""
+            or type(implementation) ~= "table"
+            or implementation.name ~= name
+            or type(implementation.digestsize) ~= "number"
+            or implementation.digestsize <= 0
+            or implementation.digestsize % 1 ~= 0
+            or type(implementation.create) ~= "function"
+        then
+            error("invalid digest algorithm descriptor " .. tostring(name), 2)
+        end
+        local expected = EXPECTED[name]
+        if expected ~= nil and implementation.digestsize ~= expected then
+            error("digest provider has the wrong digestsize for " .. name, 2)
+        end
+    end
+end
+
+local available: {[string]: Algorithm} = {}
+local names: {string} = {}
+local initialized = false
+
+local function initialize(): nil
+    if initialized then
+        return
+    end
+    local selected: provider.Provider = require("nupp.runtime.provider.digest")
+    validate(selected)
+    for name, implementation in pairs(selected.algorithms) do
+        available[
+            name
+        ] = new Algorithm(name = name, digestsize = implementation.digestsize, implementation = implementation)
+    end
+    for name in pairs(available) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    initialized = true
+end
+
+lookupDescriptor = function(name: string): any
+    initialize()
+    return available[name]
+end
+requireDescriptor = function(name: string): any
+    initialize()
+    local found = available[name]
+    if found == nil then
+        error("unknown digest algorithm " .. name, 2)
+    end
+
+    return found
+end
+descriptorNames = function(): {string}
+    initialize()
+    local result: {string} = {}
+    for index, name in ipairs(names) do
+        result[index] = name
+    end
+
+    return result
+end

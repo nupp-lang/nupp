@@ -652,7 +652,12 @@ export type JSONEncodable = json.JSONEncodable
 --- assert(out:tostring() == [[{"ok":true}]])
 --- ```
 --- @export
-export type Writer = json.Writer
+export interface Writer is json.Writer
+    --- Adapts caller-owned output storage for incremental JSON writing.
+    function of(exclusive out: Buffer, nullvalue: any?): Writer
+        return json.newWriter(out, nullvalue)
+    end
+end
 
 --- Decodes a complete JSON document.
 ---

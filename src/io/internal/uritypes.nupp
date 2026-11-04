@@ -29,6 +29,11 @@ end
 --- An immutable absolute URI. Equality compares normalized text.
 --- @export
 export record URI
+    --- Parses or normalizes a URI, retaining the existing cache and error result.
+    function of(value: string | URI.Components): (URI?, string?)
+        return newuri(value)
+    end
+
     --- The parts a URI is built from when it is not written out as text.
     record Components
         --- The scheme, which is required and may not be empty.

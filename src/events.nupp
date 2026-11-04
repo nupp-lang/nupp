@@ -240,6 +240,19 @@ end
 --- pays for the observers it has and not for the entities it could have.
 --- @export
 record events.Observers<A>
+    constructor(self)
+        self.byAddress = {} as {[A]: {[integer]: any}}
+        self.count = 0
+        self.depth = 0
+        self.pending = false
+        self.dirty = {}
+        self.detached = {}
+        self.freeLists = {}
+        self.freeMaps = {}
+        self.allocators = {}
+        self.ownedArenas = {}
+    end
+
     @private byAddress: {[A]: {[integer]: any}}
 
     --- How many registrations are live across every address.
@@ -258,18 +271,7 @@ end
 --- Empty observer state for a new source.
 --- @return the state, with nothing registered
 function events.newobservers<A>(): events.Observers<A>
-    return new events.Observers(
-        byAddress = {} as {[A]: {[integer]: any}},
-        count = 0,
-        depth = 0,
-        pending = false,
-        dirty = {},
-        detached = {},
-        freeLists = {},
-        freeMaps = {},
-        allocators = {},
-        ownedArenas = {}
-    )
+    return new events.Observers<A>()
 end
 
 --- Something that owns observer state.
@@ -861,6 +863,10 @@ end
 --- the source that owns observer state.
 --- @export
 record events.MessageBus<A> is events.Source<A>
+    constructor(self)
+        self.observers = new events.Observers<A>()
+    end
+
     observers: events.Observers<A>
 
     --- Registers an observer; see [](events.observe).
@@ -1002,8 +1008,7 @@ end
 --- `local bus: events.MessageBus<integer> = events.newbus()`.
 --- @return the bus
 function events.newbus<A>(): events.MessageBus<A>
-    local observers: events.Observers<A> = events.newobservers()
-    return new events.MessageBus(observers = observers)
+    return new events.MessageBus<A>()
 end
 
 export = events

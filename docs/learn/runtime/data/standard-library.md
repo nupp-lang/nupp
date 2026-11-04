@@ -86,7 +86,7 @@ intrinsic namespaces and the declared modules:
 - [](io.gpu) owns resident buffers, generated kernel dispatches, and tensor views.
   [](io.gpu.layout) owns the checked layout algebra.
 - [](os.randombytes) provides cryptographically secure random bytes.
-  [](math.random) owns deterministic pseudo-random sequences with explicit,
+  [](math.Xoshiro128) owns deterministic pseudo-random sequences with explicit,
   serializable state.
 - [](coroutine.suspend) waits for a callback result. [](coroutine) owns
   application task scopes, and [](coroutine.Scope.work) provides isolated worker

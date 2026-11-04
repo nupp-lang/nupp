@@ -47,7 +47,6 @@ local BUNDLED = {
     "events",
     "nupp.runtime.contracts",
     "os.host",
-    "math.random",
     "debug.profile.trace",
     "debug.profile.zone",
     "debug.profile",

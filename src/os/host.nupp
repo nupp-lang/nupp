@@ -372,6 +372,40 @@ end
 
 --- Runs one parked operation at a time for a host-owned loop.
 export record Pump
+    constructor(self)
+        self.active = nil
+        self.result = nil
+        self.failure = nil
+        local pump = self
+        self.handler = new suspensionContract.Handler(
+            park = function(_: suspensionContract.Handler, waiting: suspensionContract.Waiting, _: function(): nil): nil
+                local task = assert(coroutine.running())
+
+                local function wake(): nil
+                    -- Another driver may poll the same sources. Resume now, inside
+                    -- the pass that settled the wait, so a one-shot source is
+                    -- released before anything can poll it a second time.
+                    resumeTask(pump, task)
+                end
+
+                while not waiting:ready() do
+                    waiting:onresume(wake)
+                    if not waiting:ready() then
+                        local keepRunning = coroutine.yield()
+                        if keepRunning == false then
+                            error(suspension.newcancellation("os.host.Pump", "the host stopped while it was parked"), 0)
+                        end
+                    end
+                end
+            end,
+            canpark = function(_: suspensionContract.Handler): boolean
+                return true
+            end,
+            shutdown = function(_: suspensionContract.Handler): nil
+            end
+        )
+    end
+
     --- What a `start` or `poll` left the operation doing.
     type State = "parked" | "continue" | "stopped"
 
@@ -444,34 +478,5 @@ end
 
 --- Creates an idle pump.
 export function newpump(): Pump
-    local pump = new Pump(handler = nil as any, active = nil, result = nil, failure = nil)
-    pump.handler = new suspensionContract.Handler(
-        park = function(_: suspensionContract.Handler, waiting: suspensionContract.Waiting, _: function(): nil): nil
-            local task = assert(coroutine.running())
-
-            local function wake(): nil
-                -- Another driver may poll the same sources. Resume now, inside
-                -- the pass that settled the wait, so a one-shot source is
-                -- released before anything can poll it a second time.
-                resumeTask(pump, task)
-            end
-
-            while not waiting:ready() do
-                waiting:onresume(wake)
-                if not waiting:ready() then
-                    local keepRunning = coroutine.yield()
-                    if keepRunning == false then
-                        error(suspension.newcancellation("os.host.Pump", "the host stopped while it was parked"), 0)
-                    end
-                end
-            end
-        end,
-        canpark = function(_: suspensionContract.Handler): boolean
-            return true
-        end,
-        shutdown = function(_: suspensionContract.Handler): nil
-        end
-    )
-
-    return pump
+    return new Pump()
 end

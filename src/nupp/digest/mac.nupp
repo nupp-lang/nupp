@@ -1,0 +1,133 @@
+@!internal
+module nupp.digest.mac
+
+const context = require("nupp.digest.internal.context")
+const provider = require("binary.mac.internal.contracts")
+
+local lookupDescriptor: function(string): any
+local requireDescriptor: function(string): any
+local descriptorNames: function(): {string}
+
+export interface Mac is context.Digest
+
+    record Algorithm
+        --- Canonical authentication algorithm name.
+        @readonly name: string
+
+        --- Fixed authentication output size in bytes.
+        @readonly digestsize: integer
+
+        @private implementation: provider.Algorithm
+
+        --- Creates independent owned state initialized with the raw-byte key.
+        --- @return the unfinished keyed context
+        --- @raises string when provider initialization fails
+        function mac(self, key: string): Mac
+            return context.wrap(self.implementation:create(key), self.name, self.digestsize)
+        end
+
+        --- Finds a descriptor without constructing mutable state.
+        function lookup(name: string): Algorithm?
+            return lookupDescriptor(name) as Algorithm?
+        end
+
+        --- Requires an available descriptor.
+        function of(name: string): Algorithm
+            return requireDescriptor(name) as Algorithm
+        end
+
+        --- Returns canonical names in ascending order.
+        function names(): {string}
+            return descriptorNames()
+        end
+    end
+
+    --- Creates independent owned context state.
+    function create(name: string, key: string): Mac
+        return requireDescriptor(name):mac(key)
+    end
+
+    --- Computes a complete value and closes its context.
+    function compute(name: string, key: string, bytes: string): string
+        local value = requireDescriptor(name):mac(key)
+        value:write(bytes)
+        return value:digest()
+    end
+
+    --- Computes lowercase hexadecimal and consumes its context.
+    function computehex(name: string, key: string, bytes: string): string
+        local value = requireDescriptor(name):mac(key)
+        value:write(bytes)
+        return value:hexdigest()
+    end
+end
+
+local type Algorithm = Mac.Algorithm
+local Algorithm = Mac.Algorithm
+
+local EXPECTED: {[string]: integer} = {["hmac-sha256"] = 32}
+
+local function validate(selected: provider.Provider): nil
+    for name, implementation in pairs(selected.algorithms) do
+        if type(name) ~= "string"
+            or name == ""
+            or type(implementation) ~= "table"
+            or implementation.name ~= name
+            or type(implementation.digestsize) ~= "number"
+            or implementation.digestsize <= 0
+            or implementation.digestsize % 1 ~= 0
+            or type(implementation.create) ~= "function"
+        then
+            error("invalid mac algorithm descriptor " .. tostring(name), 2)
+        end
+        local expected = EXPECTED[name]
+        if expected ~= nil and implementation.digestsize ~= expected then
+            error("mac provider has the wrong digestsize for " .. name, 2)
+        end
+    end
+end
+
+local available: {[string]: Algorithm} = {}
+local names: {string} = {}
+local initialized = false
+
+local function initialize(): nil
+    if initialized then
+        return
+    end
+    local selected: provider.Provider = require("nupp.runtime.provider.mac")
+    validate(selected)
+    for name, implementation in pairs(selected.algorithms) do
+        available[
+            name
+        ] = new Algorithm(name = name, digestsize = implementation.digestsize, implementation = implementation)
+    end
+    for name in pairs(available) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    initialized = true
+end
+
+lookupDescriptor = function(name: string): any
+    initialize()
+    return available[name]
+end
+requireDescriptor = function(name: string): any
+    initialize()
+    local found = available[name]
+    if found == nil then
+        error("unknown mac algorithm " .. name, 2)
+    end
+
+    return found
+end
+descriptorNames = function(): {string}
+    initialize()
+    local result: {string} = {}
+    for index, name in ipairs(names) do
+        result[index] = name
+    end
+
+    return result
+end

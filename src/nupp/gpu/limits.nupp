@@ -1,0 +1,5 @@
+@!internal
+module nupp.gpu.limits
+
+export const PORTABLE_WORKGROUP_THREADS = 256
+export const PORTABLE_SCRATCH_BYTES = 16384

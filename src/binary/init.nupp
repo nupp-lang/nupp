@@ -18,6 +18,18 @@ and [](binary.compress) for compression streams.
 ]]
 module binary
 
+local checksum = require("nupp.digest.checksum")
+export type Checksum = checksum.Checksum
+export const Checksum = checksum.Checksum
+
+local digest = require("nupp.digest.digest")
+export type Digest = digest.Digest
+export const Digest = digest.Digest
+
+local mac = require("nupp.digest.mac")
+export type Mac = mac.Mac
+export const Mac = mac.Mac
+
 local bitset = require("nupp.util.internal.bitset")
 
 --- A growable set of bit positions counting from 0.
@@ -35,14 +47,7 @@ export const fnv1a64 = hash.fnv1a64
 --- ```nupp
 --- assert(binary.hexencode("Nu") == "4e75")
 --- ```
-export function hexencode(bytes: string): string
-    local parts: {string} = {}
-    for index = 1, #bytes do
-        parts[index] = string.format("%02x", bytes:byte(index))
-    end
-
-    return table.concat(parts)
-end
+export const hexencode = require("nupp.util.internal.encoding").hexencode
 
 --- Decodes either case of hexadecimal without whitespace or a prefix.
 ---

@@ -38,6 +38,8 @@ const api.Key = store.Key
 --- An independent typed bag indexed by keys.
 type api.Store = store.Store
 
+const api.Store = store.Store
+
 --- Registers a new key, optionally under a name.
 const api.newkey = store.newKey
 

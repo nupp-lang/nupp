@@ -165,8 +165,6 @@ function Bytes.readfile(path: string): (Bytes?, string?)
     return wrap(handle, 1, native.length(handle) as integer), nil
 end
 
-local BuilderMT: metatable<Bytes.Builder> = {__index = Bytes.Builder}
-
 --- @raises string when a reservation is open or the engine cannot grow the storage
 function Bytes.Builder:append(chunk: string): nil
     local accepted, problem = native.builderAppend(handle(self), chunk)
@@ -238,14 +236,18 @@ end
 
 --- Opens an empty builder.
 --- @raises string when the engine cannot allocate the builder
-function Bytes.newbuilder(): affine(Bytes.Builder)
+export function builderhandle(): any
     initialize()
     local handle = native.builderNew()
     if handle == nil then
         error("nupp: cannot allocate a region builder", 2)
     end
 
-    return setmetatable({_handle = handle}, BuilderMT) as affine(Bytes.Builder)
+    return handle
+end
+
+function Bytes.newbuilder(): affine(Bytes.Builder)
+    return new Bytes.Builder()
 end
 
 -- Private hooks for the worker transport: recognizing a region as a transfer

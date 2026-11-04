@@ -2471,10 +2471,8 @@ return {
    build = {outDir = "out", entries = {"main"}},
 }
 ]],
-        [
-            "src/main.nupp"
-        ] = [[
-local random = require("math.random")
+        ["src/main.nupp"] = [[
+local random = math.Xoshiro128
 local time = require("coroutine")
 return random, time
 ]],

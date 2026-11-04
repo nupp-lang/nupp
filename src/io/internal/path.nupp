@@ -26,6 +26,11 @@ local pathCacheOldest: any = nil
 --- A filesystem path.
 --- @export
 export record Path
+    --- Joins components and reuses the bounded immutable path cache.
+    function of(first: string | Path, ...: string | Path): Path
+        return raw(joined(first, select("#", ...), ...))
+    end
+
     --- The native UTF-8 path text.
     @private _text: string
 

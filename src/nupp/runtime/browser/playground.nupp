@@ -73,7 +73,7 @@ local platformLibraries = {
         return require("coroutine")
     end,
     function()
-        return require("math.random")
+        return require("nupp.runtime.standardmath")
     end,
     function()
         return require("binary.mac")

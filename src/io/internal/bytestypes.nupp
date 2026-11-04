@@ -64,6 +64,10 @@ end
 export record Bytes
     --- A growable engine allocation that becomes a region when frozen.
     record Builder is BuilderToken
+        constructor(self): affine(Bytes.Builder)
+            self._handle = implementation("io.internal.sharedbytes").builderhandle()
+        end
+
         @private _handle: any
 
         --- Appends the chunk's bytes to the builder's storage.

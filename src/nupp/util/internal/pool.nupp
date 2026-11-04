@@ -29,6 +29,33 @@ module nupp.util.internal.pool
 --- Reusable instances of one record or struct declaration.
 --- @export
 export record Pool<T>
+    constructor(self, witness: Type<T>, size: integer?)
+        local initial = size ?? 32
+        if type(initial) ~= "number" or initial < 0 or initial % 1 ~= 0 then
+            error("nupp: pool size must be a nonnegative integer", 2)
+        end
+        local backend: any = nil
+        if type(witness) ~= "table" or rawget(witness as any, "__index") ~= witness then
+            if type(witness) ~= "cdata" or not tostring(witness):find("^ctype<struct ") then
+                error("nupp: pool expects a record or struct declaration", 2)
+            end
+            local implementation = "nupp.util.internal.structpool"
+            backend = _G.require(implementation).new(witness)
+        end
+        self.witness = witness
+        self.growth = math.max(1, initial)
+        self.backend = backend
+        self.capacity = 0
+        self.available = {}
+        self.values = {}
+        self.freecount = 0
+        self.livecount = 0
+        self.usedcount = 0
+        self.pagecount = 0
+        self.leases = {}
+        self:reserve(initial)
+    end
+
     @private @readonly witness: any
     @private @readonly growth: integer
     @private @readonly backend: any
@@ -220,32 +247,5 @@ end
 ---     record or struct declaration
 --- @export
 export function new<T>(witness: Type<T>, size: integer?): Pool<T>
-    local initial = size ?? 32
-    if type(initial) ~= "number" or initial < 0 or initial % 1 ~= 0 then
-        error("nupp: pool size must be a nonnegative integer", 2)
-    end
-    local backend: any = nil
-    if type(witness) ~= "table" or rawget(witness as any, "__index") ~= witness then
-        if type(witness) ~= "cdata" or not tostring(witness):find("^ctype<struct ") then
-            error("nupp: pool expects a record or struct declaration", 2)
-        end
-        local implementation = "nupp.util.internal.structpool"
-        backend = _G.require(implementation).new(witness)
-    end
-    local created = new Pool(
-        witness = witness,
-        growth = math.max(1, initial),
-        backend = backend,
-        capacity = 0,
-        available = {} as {T},
-        values = {} as {T},
-        freecount = 0,
-        livecount = 0,
-        usedcount = 0,
-        pagecount = 0,
-        leases = {}
-    ) as Pool<T>
-    created:reserve(initial)
-
-    return created
+    return new Pool<T>(witness, size)
 end

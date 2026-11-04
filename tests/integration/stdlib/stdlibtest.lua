@@ -394,7 +394,7 @@ function M.randomUsesPortableBitops()
     assertClean(
         table.concat(
             {
-                "local random = require('math.random')",
+                "local random = math",
                 "local generator = new random.Xoshiro128(12345)",
                 "return generator:next(), generator:integer(1, 100)",
             },
@@ -2360,11 +2360,7 @@ end
 function M.randomSurfaceIsBundledOutsideThisCheckout()
     local isolated = envMod.new(os.tmpname() .. "-nupp-random-surface")
     local source = table.concat(
-        {
-            "local random = require('math.random')",
-            "local generator = new random.Xoshiro128(12345)",
-            "assert(generator:next() >= 0)",
-        },
+        {"local random = math", "local generator = new random.Xoshiro128(12345)", "assert(generator:next() >= 0)",},
         "\n"
     )
     local result = parser.parse(source, "outside.nupp")

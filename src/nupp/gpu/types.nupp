@@ -4,6 +4,7 @@ module nupp.gpu.types
 local {type Layout as TensorLayout} = require("io.gpu.layout")
 local api = require("nupp.gpu.api")
 local {type Span} = require("binary.span")
+local limits = require("nupp.gpu.limits")
 local gpu = {}
 
 --- The provider's release of a root allocation or a compiled kernel's
@@ -17,12 +18,12 @@ type gpu.Layout = TensorLayout
 --- The portable floor reserved for a generated workgroup. Backends may
 --- support more, but generated kernels deliberately do not depend on it.
 --- @export
-const gpu.PORTABLE_WORKGROUP_THREADS = 256
+const gpu.PORTABLE_WORKGROUP_THREADS = limits.PORTABLE_WORKGROUP_THREADS
 
 --- The portable workgroup-scratch floor in bytes. Generated kernels are
 --- refused at compile time when their statically sized scratch exceeds it.
 --- @export
-const gpu.PORTABLE_SCRATCH_BYTES = 16384
+const gpu.PORTABLE_SCRATCH_BYTES = limits.PORTABLE_SCRATCH_BYTES
 
 --- A typed resident device range. A root buffer owns an allocation; a
 --- subview shares it with a checked element offset. Storage is not

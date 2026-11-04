@@ -175,6 +175,8 @@ export const isuri = uriTypes.isuri
 --- working directories also accept paths.
 export type Path = NativePath
 
+export const Path = require("io.internal.path").Path
+
 --- A file handle with Lua methods and borrowed byte-stream views.
 ---
 --- `reader` and `writer` share its cursor and must close before the file. Native
@@ -201,6 +203,7 @@ export interface FileMethods
 end
 
 export type Buffer = source1.Buffer
+export const Buffer = source1.Buffer
 export type BufferWriteLease = source1.BufferWriteLease
 export type ByteQueue = source1.ByteQueue
 export type ByteView = source1.ByteView
@@ -606,6 +609,8 @@ export const value: table = do
     original.input = input
     original.output = output
     original.Error = Error
+    original.Path = Path
+    original.Buffer = Buffer
     original.newbuffer = newbuffer
     original.Reader = Reader
     original.Writer = Writer

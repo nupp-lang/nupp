@@ -12,7 +12,7 @@ module nupp.digest.internal.words
 
 const bit = require("nupp.runtime.bitops")
 const span = require("binary.span")
-const binary = require("binary")
+const binary = require("nupp.util.internal.encoding")
 const streaming = require("nupp.digest.internal.streaming")
 const constants = require("nupp.digest.internal.constants")
 
