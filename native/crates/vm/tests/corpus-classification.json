@@ -1280,6 +1280,12 @@
       "reason": "deleted with the LuaJIT-era tooling it tested (2026-10-15)"
     },
     {
+      "suite": "simdruntimeidentitytest",
+      "class": "retired",
+      "facilities": "load,lua-generator",
+      "reason": "tests which module instance the Lua generator's one-lane SIMD helpers reach for a vector constructor; the VM lowers vectors without those helpers, and the file went with the generator"
+    },
+    {
       "suite": "simdwasmalgorithmdifferentialtest",
       "class": "retired",
       "facilities": "-",

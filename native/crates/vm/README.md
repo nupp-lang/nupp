@@ -2811,8 +2811,9 @@ The suites found these gaps in the VM, now closed:
 Retired, with what they tested: the Lua optimizer (`optimizetest`,
 `passpermutationtest`, `concatbuffertest`), the generator's own invariants
 (`loweringinvarianttest`), LuaJIT cdata (`bulkcolumntest`, `sharedbytestest`),
-the generator's one-lane SIMD routing (`simdlanetest`), the LuaJIT native
-process provider's C ABI (`processprovidertest`), and the LuaJIT embedding
+the generator's one-lane SIMD routing (`simdlanetest`) and the module
+instance its SIMD helpers reached (`simdruntimeidentitytest`), the LuaJIT
+native process provider's C ABI (`processprovidertest`), and the LuaJIT embedding
 (`hostembeddingtest`, `hostbinarytest`, `hostchanneltest`). Their files stay
 until what they test is deleted, since the LuaJIT runner still runs them; the
 VM runner defers them. Hot reload (`hotreloadtest`, `hotreloadguaranteetest`)
