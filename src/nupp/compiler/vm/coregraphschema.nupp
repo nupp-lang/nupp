@@ -54,6 +54,13 @@ function schema.limits(): schema.Limits
     }
 end
 
+-- The most bytes a guest artifact holds: the native bridge's region limits
+-- are held to it (native/core/bridge reads this function's literal). Apart
+-- from `limits`, which a raw image's schema describes.
+function schema.artifactBytes(): integer
+    return 1073741824
+end
+
 -- IDs and admission policy are versioned here. Operand definitions are copied
 -- from the canonical graph tables; these rows do not define execution behavior.
 local operations = {

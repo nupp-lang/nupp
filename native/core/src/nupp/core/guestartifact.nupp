@@ -11,8 +11,8 @@ local STRING_CONSTANT = 0x7ffe000000000000
 -- offset; a negative NaN, which no checked float constant can be.
 local INTEGER_CONSTANT = 0xfffe000000000000
 
--- The most bytes an artifact may hold.
-local ARTIFACT_BOUND: integer = 1073741824
+-- The most bytes an artifact may hold, which the bridge's regions admit.
+local ARTIFACT_BOUND: integer = schema.artifactBytes()
 local ZERO_WORD = string.rep("\0", 8)
 -- Zero padding is joined from runs of this many bytes at most.
 local ZERO_RUN = string.rep("\0", 65536)
