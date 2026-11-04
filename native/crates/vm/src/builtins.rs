@@ -636,6 +636,19 @@ pub fn tostring_value(it: &mut Interp, v: Value) -> Value {
         let text = format!("{}: {:#x}", type_name(it, v), v.0);
         return it.string_of(text.as_bytes());
     }
+    // Numbers, nil, Booleans and strings have text of their own; anything
+    // else (functions, threads, userdata) is its type and identity, as
+    // Lua writes it. Asking `tostring` for those would ask back here.
+    let plain = v.is_num()
+        || crate::numeric::integer(v).is_some()
+        || v == Value::NIL
+        || v == Value::TRUE
+        || v == Value::FALSE
+        || it.is_stringish(v);
+    if !plain {
+        let text = format!("{}: {:#x}", type_name(it, v), v.0);
+        return it.string_of(text.as_bytes());
+    }
     let text = tostring(it, v);
     it.string_of(&text)
 }
