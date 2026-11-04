@@ -167,7 +167,7 @@ own.drop(borrowed)
                     function()
                         program.functionGraph(p, f, tagged)
                     end,
-                    "qualified captures require ownership cleanup and lifetime lowering"
+                    "taking captures require ownership cleanup and lifetime lowering"
                 )
             end
         end
