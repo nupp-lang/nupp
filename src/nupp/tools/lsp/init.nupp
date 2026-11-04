@@ -1166,7 +1166,11 @@ export function newSession(rootDir: string?, emit: function(any), host: Host?): 
             respond(id, json.NULL);
             return
         end
-        local ft = call.signatureType
+        local ft = require("nupp.compiler.constructors").signatureAt(call)
+        if not ft or ft.tag ~= "func" then
+            respond(id, json.NULL)
+            return
+        end
         local candidates = call.overloadCandidates or {ft}
         local name = "call"
         if call.kind == "methodCall" and call.name then

@@ -57,4 +57,34 @@ return h()
     assert(plan.output == source:gsub("new Handler", "Handler"))
 end
 
+function M.auditPreservesResolvedConstructors()
+    local env = require("nupp.compiler.project.env").new(paths.tests .. "/..")
+    local source = [[local record Box<T>
+    value: T
+    constructor(self, value: T) self.value = value end
+end
+local Make = Box
+local a = new Box<integer>(1)
+local b = new Make<string>("hello")
+return a, b
+]]
+    local plan = assert(migrate.plan(source, "audit.nupp"))
+    local ok, problem = migrate.audit(plan, "audit.nupp", env)
+    assert(ok, problem and problem.msg)
+end
+
+function M.auditRejectsAChangedCallTarget()
+    local env = require("nupp.compiler.project.env").new(paths.tests .. "/..")
+    local source = [[local record Point x: integer end
+return new Point(1)
+]]
+    local plan = assert(migrate.plan(source, "audit.nupp"))
+    plan.output = [[local record Point x: integer end
+local function make(x: integer): Point return Point(x) end
+return make(1)
+]]
+    local ok, problem = migrate.audit(plan, "audit.nupp", env)
+    assert(not ok and problem.msg, "a changed target must not pass the audit")
+end
+
 return M

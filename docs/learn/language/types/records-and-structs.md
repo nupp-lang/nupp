@@ -35,14 +35,13 @@ local record Point
     end
 end
 
-local p = new Point(x = 3, y = 4)
+local p = Point(x = 3, y = 4)
 print(p:length())
 ```
 
-```lua [Generated Lua]
-const Point = {} Point.__index = Point
-local p = setmetatable({ x = 3, y = 4 }, Point)
-```
+The declaration is callable at runtime, including from Lua. A checked direct
+call can still lower to `setmetatable({x = 3, y = 4}, Point)` without a runtime
+overload lookup.
 
 Named construction is preferred because a record's table field order is not
 meaningful. Positional construction in declaration order is also accepted for
@@ -65,7 +64,7 @@ declaration's visible `Type<Point>` witness.
 
 ```nupp:fragment
 local witness: Type<Point> = Point
-local p: Point = new Point(x = 3, y = 4)
+local p: Point = Point(x = 3, y = 4)
 ```
 
 Neither stands where the other is wanted. `Point` may be written to when a
@@ -83,6 +82,34 @@ function that takes a declaration's table rather than an instance says so:
 ```nupp:fragment
 local function register<P is Shape>(shape: Type<P>)
 ```
+
+### Constructor references
+
+A declaration can be retained and called through another binding:
+
+```nupp
+local record Point
+    x: integer
+end
+
+local make = Point
+local point = make(x = 3)
+
+local function build(factory: Type<Point>): Point
+    return factory(4)
+end
+
+assert(build(Point).x == 4)
+```
+
+A constructor reference retains its `Type<Point>` witness. A generic `Type<T>`
+needs a known construction signature; an instance `__call` contract on `T` does
+not provide one. To pass construction to an API taking a function, use a lambda
+such as `|x: integer| -> Point(x = x)`. Callable declarations remain tables or
+ctypes at runtime, so they do not claim to be Lua functions.
+
+Interfaces have no generated constructors. They can declare static factories
+that return an implementation, including an error result pack.
 
 ### Constructors and result policies
 
@@ -106,11 +133,11 @@ local record File
     end
 end
 
-local file = new File("scratch.txt")
+local file = File("scratch.txt")
 print(file:read())
 ```
 
-With no result annotation, `new File(...)` has the ordinary `File` type. An
+With no result annotation, `File(...)` has the ordinary `File` type. An
 explicit result states a policy introduced by successful construction. It must
 be one value that erases to `File`; `affine(File, File.destroy)` is valid
 because it changes the obligation, not the runtime representation. A different
@@ -123,7 +150,9 @@ at run time and exposes `File`'s methods directly, with no wrapper record or
 shared interface.
 
 Constructor overload selection includes the complete result policy. Overloads
-still differ by parameter pack, never by result alone; after argument selection,
+must also be distinguishable by runtime argument count, primitive type, literal,
+or nominal identity. Generic arguments and callback signatures are erased and
+cannot distinguish bodies. Overloads never differ by result alone; after argument selection,
 the winning overload determines whether the value is ordinary, affine with a
 cleanup, or transfer-only. See [affine
 types](../../runtime/ownership/affine-types.md#constructors-can-introduce-the-policy) for the complete
@@ -140,7 +169,7 @@ local record Settings
     tags: {string} = {}
 end
 
-local settings = new Settings(port = 9000)
+local settings = Settings(port = 9000)
 ```
 
 Omitted fields use their declarations; written arguments still win. Defaults are
@@ -255,8 +284,8 @@ local record Node<T>
     next: Node?
 end
 
-local tail: Node<integer> = new Node(value = 2)
-local head: Node<integer> = new Node(value = 1, next = tail)
+local tail: Node<integer> = Node(value = 2)
+local head: Node<integer> = Node(value = 1, next = tail)
 ```
 
 `next: Node<T>?` says the same thing. Everywhere else the parameters are
@@ -277,7 +306,7 @@ record m.Shapes
     type Id = uint32
 end
 
-local p: m.Shapes.Point = new m.Shapes.Point(x = 1)
+local p: m.Shapes.Point = m.Shapes.Point(x = 1)
 ```
 
 ## Structs
@@ -305,7 +334,7 @@ Struct construction is positional in declaration order. A struct binding is
 never nil and a bare declaration is complete on its own:
 
 ```nupp:fragment
-local a = new Vec2(1.0, 2.0) -- positional, in field order
+local a = Vec2(1.0, 2.0) -- positional, in field order
 local b: Vec2 -- zero-initialized
 ```
 
@@ -326,7 +355,7 @@ local struct Scaled
     end
 end
 
-local s = new Scaled(1.5)
+local s = Scaled(1.5)
 print(s.x, s.y) -- 3 2
 ```
 
@@ -357,7 +386,7 @@ local struct Vertex
     id: int32
 end
 
-local v = new Vertex()
+local v = Vertex()
 v.pos[0] = 1.5
 v.pos[2] = 3.5
 print(v.pos[0] + v.pos[2])
@@ -379,7 +408,7 @@ local struct Grid
     n: int32
 end
 
-local g = new Grid()
+local g = Grid()
 g.cells[0].a = 1
 g.cells[3].b = 9
 ```
@@ -399,8 +428,8 @@ local struct Node
     value: int32
 end
 
-local head = new Node(nil, 1)
-local tail = new Node(nil, 2)
+local head = Node(nil, 1)
+local tail = Node(nil, 2)
 head.next = tail
 @unsafe do
     print(head.next.value)
@@ -429,7 +458,7 @@ local function move(v: Vec2)
     v.x = v.x + 1
 end
 
-local origin = new Vec2(0.0, 0.0)
+local origin = Vec2(0.0, 0.0)
 move(origin)
 print(origin.x) -- 1
 ```
@@ -458,7 +487,7 @@ local function grab(o: Outer): Inner
     return o.inner -- NUPP2608: the reference would outlive o
 end
 
-local o = new Outer(new Inner(1))
+local o = Outer(Inner(1))
 local view = o.inner -- a live view of o's bytes, rooted in o
 view.v = 6
 print(o.inner.v) -- 6
@@ -476,7 +505,7 @@ values, or a hot field access you want to be an offset instead of a hash lookup.
 | Runtime | Lua table plus metatable | FFI cdata |
 | Field access | Hash lookup | Offset |
 | Field types | Anything | C-representable only |
-| Construction | `new R(x = 1)` (preferred) or `new R(1)` | `new S(1, 2)` |
+| Construction | `R(x = 1)` (preferred) or `R(1)` | `S(1, 2)` |
 | Binding with no initializer | Rejected | Zero-initialized |
 | Memory | Garbage collected | Managed by the FFI |
 | Array field `{T}` | Allowed | Rejected |

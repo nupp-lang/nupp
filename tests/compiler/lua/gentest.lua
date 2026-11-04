@@ -56,9 +56,10 @@ local function withFreshCoverage(run)
 end
 
 local function generateChecked(src)
-    local result = parser.parse(src, "prepared_worker.nupp")
+    local filename = (src:match("module%s+([%w_.]+)") or "prepared_worker"):gsub("%.", "/") .. ".nupp"
+    local result = parser.parse(src, filename)
     testAssert.eq(#result.errors, 0, "syntax errors in checked generator source")
-    local diagnostics = check.check(result, "prepared_worker.nupp", env)
+    local diagnostics = check.check(result, filename, env)
     testAssert.eq(#diagnostics, 0, "check diagnostics for " .. src)
     local code, generated = gen.generate(result, "prepared_worker")
     testAssert.eq(#generated, 0, "generation diagnostics for " .. src)
@@ -710,23 +711,22 @@ function M.tecsStyleLateEventRegistrationRuns()
                     "local record events",
                     "   record OnSpawn is Event",
                     "      entity: integer",
-                    "      metamethod __call: function(self, entity: integer): self",
                     "   end",
                     "end",
                     "events.OnSpawn.init = function(instance: events.OnSpawn, entity: integer)",
                     "   instance.entity = entity",
                     "end",
-                    "local function newEvent<E is Event>(event: Type<E>)",
+                    "local function newEvent<E is Event>(event: Type<E>): function(...: any): E",
                     "   local id = 7",
                     "   local instanceMt = {__index = event}",
-                    "   setmetatable(event, {__call = function(_self: E, ...: any): E",
+                    "   return function(...: any): E",
                     "      local instance = setmetatable({eventId = id}, instanceMt) as E",
                     "      event.init(instance, ...)",
                     "      return instance",
-                    "   end})",
+                    "   end",
                     "end",
-                    "newEvent(events.OnSpawn)",
-                    "local spawned = events.OnSpawn(42)",
+                    "local make = newEvent(events.OnSpawn)",
+                    "local spawned = make(42)",
                     "return spawned.eventId + spawned.entity",
                 },
                 "\n"

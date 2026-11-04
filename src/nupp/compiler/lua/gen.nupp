@@ -3176,7 +3176,7 @@ export function generate(
             expr = expr.expr
         end
 
-        return expr ~= nil and expr.kind == "newExpr"
+        return expr ~= nil and (expr.kind == "newExpr" or expr.construction == true)
     end
 
     local function switchOperands(node): {cst.Node}?
@@ -6507,6 +6507,50 @@ export function generate(
                     emit(entry)
                 end
             end
+            local handler
+            if nominal and #(nominal.constructors or {}) > 0 then
+                handler = require("nupp.compiler.constructors").dispatch(nominal, runtimeName, nominal.moduleName)
+            else
+                local fields, defaults, parameters = {}, {}, {}
+                for index, name in ipairs(nominal and nominal.fieldOrder or {}) do
+                    local key = cst.identifier(name) and name or ("[%q]"):format(name)
+                    local parameter = "f" .. tostring(index)
+                    parameters[#parameters + 1] = parameter
+                    fields[#fields + 1] = key .. "=" .. parameter
+                    local default = nominal.fieldDefaults and nominal.fieldDefaults[name]
+                    if default then
+                        defaults[
+                            #defaults + 1
+                        ] = ("if n<%d then v[%q]=%s end;"):format(index, name, pluck.renderData(default.value))
+                    end
+                end
+                if #parameters > 180 then
+                    -- A declaration may have more fields than Lua permits locals.
+                    for index, name in ipairs(nominal.fieldOrder) do
+                        fields[index] = ("[%q]=(_G.select(%d,...))"):format(name, index)
+                    end
+                    handler = "function(r,...) local n=_G.select(\"#\",...);local v={" .. table.concat(
+                        fields,
+                        ","
+                    ) .. "};" .. table.concat(defaults) .. "return _G.setmetatable(v,r) end"
+                elseif #defaults == 0 then
+                    handler = "function(r" .. (
+                        #parameters > 0 and "," or ""
+                    ) .. table.concat(
+                        parameters,
+                        ","
+                    ) .. ")return _G.setmetatable({" .. table.concat(fields, ",") .. "},r)end"
+                else
+                    handler = "function(r,...) local n=_G.select(\"#\",...);local " .. table.concat(
+                        parameters,
+                        ","
+                    ) .. "=...;local v={" .. table.concat(
+                        fields,
+                        ","
+                    ) .. "};" .. table.concat(defaults) .. "return _G.setmetatable(v,r)end"
+                end
+            end
+            e(" _G.setmetatable(" .. runtimeName .. ",{__call=" .. handler .. ",__metatable=false}) ")
             emitInheritedDefaults(x, runtimeName)
             pluck.emitDerivedMembers(x, runtimeName)
             pluck.emitWitnessTargets(x, runtimeName)
@@ -6519,9 +6563,12 @@ export function generate(
             -- interface's own table is the only place that travels; an interface that
             -- declares only signatures still emits nothing at all.
             local defaults: {cst.InlineMethod} = {}
+            local nested: {any} = {}
             for _, entry in ipairs(x.entries or {}) do
                 if entry.kind == "inlineMethod" then
                     defaults[#defaults + 1] = entry
+                elseif entry.kind == "recordDecl" then
+                    nested[#nested + 1] = entry
                 end
             end
             local inherits = false
@@ -6532,7 +6579,7 @@ export function generate(
             end
             local nominal = x.resolvedType
             local hasStatics = nominal and nominal.staticByname and next(nominal.staticByname) ~= nil
-            if #defaults == 0 and not inherits and not hasStatics then
+            if #defaults == 0 and #nested == 0 and not inherits and not hasStatics then
                 return
             end
             local line = sourceLine(x)
@@ -6545,6 +6592,10 @@ export function generate(
             end
             local storage = (attached or spilled) and "" or x.visibility == "global" and "" or "local "
             e(("%s%s = {}"):format(storage, runtimeName), line)
+            for _, entry in ipairs(nested) do
+                entry.recordRuntimeName = runtimeName .. "." .. entry.name.text
+                emit(entry)
+            end
             for _, entry in ipairs(defaults) do
                 entry.inlineRuntimeOwner = runtimeName
                 entry.inlineDotted = true
@@ -6578,17 +6629,28 @@ export function generate(
                     fields[#fields + 1] = fname .. " = " .. names[#names]
                 end
             end
+            local nominal = x.resolvedType
+            local handler = (
+                "function(_, %s) return setmetatable({%s}, %s) end"
+            ):format(table.concat(names, ", "), table.concat(fields, ", "), mt)
+            if nominal and #(nominal.constructors or {}) > 0 then
+                handler = require("nupp.compiler.constructors").dispatch(nominal, mt .. ".__index", nominal.moduleName)
+            end
             e(
                 mtStorage .. mt .. " = {__index = {}} " .. storage .. (
                     path or x.name.text
                 ) .. (
-                    " = setmetatable({}, {__call = function(_, %s) return setmetatable({%s}, %s) end})"
-                ):format(table.concat(names, ", "), table.concat(fields, ", "), mt),
+                    " = setmetatable({}, {__call = %s,__index=%s.__index,__metatable=\"Nupp declaration\"})"
+                ):format(handler, mt),
                 line
             )
             for _, entry in ipairs(x.entries or {}) do
                 if entry.kind == "inlineMethod" then
                     entry.inlineRuntimeOwner = mt .. ".__index"
+                    emit(entry)
+                elseif entry.kind == "constructorDecl" then
+                    entry.inlineRuntimeOwner = mt .. ".__index"
+                    entry.structAllocator = "_G.setmetatable({}," .. mt .. ")"
                     emit(entry)
                 end
             end
@@ -6697,6 +6759,30 @@ export function generate(
                 emitDepth.spill.name(mt)
             end
             local tag = structTag[x.name.text]
+            local nominal = x.resolvedType
+            local hook = ""
+            if nominal and #(nominal.constructors or {}) > 0 then
+                hook = " " .. mt .. ".__new=" .. require(
+                    "nupp.compiler.constructors"
+                ).dispatch(nominal, mt .. ".__index", nominal.moduleName) .. "; "
+            elseif nominal and nominal.fieldDefaults and next(nominal.fieldDefaults) then
+                local defaults = {}
+                for index, name in ipairs(nominal.fieldOrder or {}) do
+                    local default = nominal.fieldDefaults[name]
+                    if default then
+                        defaults[
+                            #defaults + 1
+                        ] = ("if n<%d then value[%q]=%s end;"):format(index, name, pluck.renderData(default.value))
+                    end
+                end
+                hook = " "
+                    .. mt
+                    .. ".__new=function(ct,...) local n=_G.select(\"#\",...);"
+                    .. "local value=__nuppFfi.new(ct,...);"
+                    .. table.concat(
+                        defaults
+                    ) .. "return value end; "
+            end
             local expr
             if tag then
                 -- Named, so the body may refer to the tag it is defining. pcall because
@@ -6707,11 +6793,11 @@ export function generate(
                 ):format(
                     tag,
                     table.concat(cdecl, " ")
-                ) .. mtStorage .. mt .. " = {__index = {}} " .. storage .. (
+                ) .. mtStorage .. mt .. " = {__index = {}} " .. hook .. storage .. (
                     path or x.name.text
                 ) .. (" = %s(__nuppFfi.typeof(\"struct %s\"), %s)"):format(metatypeHelper(), tag, mt)
             else
-                expr = mtStorage .. mt .. " = {__index = {}} " .. storage .. (
+                expr = mtStorage .. mt .. " = {__index = {}} " .. hook .. storage .. (
                     path or x.name.text
                 ) .. " = __nuppFfi.metatype(__nuppFfi.typeof(\"struct { " .. table.concat(cdecl, " ") .. " }\""
                 if #params > 0 then
@@ -6730,7 +6816,7 @@ export function generate(
                     -- constructor lives beside the methods and is reached through the
                     -- declaration itself.
                     entry.inlineRuntimeOwner = mt .. ".__index"
-                    entry.structAllocator = path or x.name.text
+                    entry.structAllocator = "__nuppFfi.new(" .. (path or x.name.text) .. ")"
                     emit(entry)
                 end
             end
@@ -7669,6 +7755,12 @@ export function generate(
             return
 
         elseif kind == "newExpr" then
+            if x.call then
+                emit(x.call)
+            end
+            return
+
+        elseif x.construction and x.constructionOwnerMoves and not x.emittingConstruction then
             -- `new` is a compile-time word: it decides which lowering the call
             -- underneath gets and then leaves, so a construction emits exactly the
             -- stamp or the ctype call it always did.
@@ -7677,7 +7769,7 @@ export function generate(
             -- once the construction has its value, so a raise while building still
             -- leaves the owner to this region and nothing after it closes it twice.
             local flags: {string} = {}
-            for _, move in ipairs(x.call and x.call.constructionOwnerMoves or {}) do
+            for _, move in ipairs(x.constructionOwnerMoves or {}) do
                 local flag = activeFlag(move)
                 if flag then
                     flags[#flags + 1] = flag .. "=false; "
@@ -7690,13 +7782,15 @@ export function generate(
                     sourceLine(x),
                     pluck.reasons.move
                 )
-                emit(x.call)
+                x.emittingConstruction = true
+                emit(x)
+                x.emittingConstruction = nil
                 e(")")
                 return
             end
-            if x.call then
-                emit(x.call)
-            end
+            x.emittingConstruction = true
+            emit(x)
+            x.emittingConstruction = nil
             return
 
         elseif kind == "call" and x.managedCleanups then
@@ -7898,7 +7992,8 @@ export function generate(
 
         elseif (kind == "call" or kind == "safeCall") and x.structConstruct then
             local line = sourceLine(x)
-            e(x.structConstruct .. "(", line)
+            emit(x.obj)
+            e("(", line)
             for index, binding in ipairs(x.recordFields or {}) do
                 if index > 1 then
                     e(", ")
@@ -7921,7 +8016,19 @@ export function generate(
             -- named them or left them to the declaration's order, because that is
             -- where the source put the evaluation of their values.
             local line = sourceLine(x)
-            e("_G.setmetatable({", line)
+            local captureCallee = x.obj and not x.obj.immutablePath
+            if captureCallee then
+                local construct = pluck.declareHelper(
+                    "__nuppRecord",
+                    "declaration,fields",
+                    "return _G.setmetatable(fields,declaration)"
+                )
+                e(construct .. "(", line)
+                emit(x.obj)
+                e(",{")
+            else
+                e("_G.setmetatable({", line)
+            end
             for index, binding in ipairs(x.recordFields or {}) do
                 if index > 1 then
                     e(", ")
@@ -7936,7 +8043,9 @@ export function generate(
             -- A record reached through a module path is that module's export, bound
             -- the way the same path is anywhere else; the path itself names no
             -- runtime table.
-            if x.obj and x.obj.qualifiedModule then
+            if captureCallee then
+                e("})")
+            elseif x.obj and x.obj.qualifiedModule then
                 e("}, ")
                 emit(x.obj)
                 e(")")
@@ -7999,7 +8108,7 @@ export function generate(
                 -- like the ones the body makes, in declaration order ahead of it.
                 e(
                     (
-                        "function %s.%s(%s) local self = %s()%s"
+                        "function %s.%s(%s) local self = %s%s"
                     ):format(
                         owner,
                         constructorMember(x.constructorIndex),
@@ -8040,8 +8149,7 @@ export function generate(
             emitDepth.constructorReturnName = priorConstructorReturnName
             local endTok = pluck.endToken(body)
             if split then
-                local allocation = x.structAllocator and (x.structAllocator .. "()")
-                    or ("_G.setmetatable({}, " .. owner .. ")")
+                local allocation = x.structAllocator and x.structAllocator or ("_G.setmetatable({}, " .. owner .. ")")
                 e(
                     (
                         "return %s end function %s.%s(%s) return %s.%s(%s%s) end"

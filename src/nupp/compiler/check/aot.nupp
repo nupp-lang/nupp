@@ -336,11 +336,11 @@ export function install(c: state.Checker): Ops
                     return
                 end
             end
-            if kind == "newExpr" then
+            if kind == "newExpr" or current.construction then
                 -- A native-only aggregate is a value a register file holds, so
                 -- constructing one allocates nothing; any other construction
                 -- is the owner or table the body may not create.
-                local call = (current as any).call
+                local call = kind == "newExpr" and (current as any).call or current
                 local constructed = call ~= nil and call.inferredType or (current as any).inferredType
                 local raw = constructed ~= nil and T.unwrapOwnership(constructed) or nil
                 local origin = raw ~= nil and raw.tag == "nominal" and ((raw as any).origin or raw) or nil
@@ -350,6 +350,8 @@ export function install(c: state.Checker): Ops
                     end
                     return
                 end
+                decline(current as Node, "newExpr")
+                return
             end
             if kind and DECLINED[kind] then
                 decline(current as Node, kind)

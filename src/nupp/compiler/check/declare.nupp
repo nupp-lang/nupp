@@ -1568,6 +1568,14 @@ export function install(
             end
         end
 
+        for _, prior in ipairs(n.constructorEntries or {}) do
+            if not require("nupp.compiler.constructors").distinguishable(prior.signature, ft) then
+                c.diag("NUPP2208", e, "constructor overloads cannot be distinguished at runtime", nil, {
+                    help = "use distinct argument counts, runtime types, literal tags, or named factories"
+                })
+            end
+        end
+
         -- Every declared field that cannot hold nil has to be filled, or the value the
         -- constructor hands back does not match its own declaration.
         local assigned, returnsInstance = assignedFields(e.body)
@@ -1959,8 +1967,13 @@ export function install(
                         -- owner's own name would, so a nested record is its table here
                         -- too rather than an instance of itself.
                         local held = T.typeObject(nested)
-                        n.byname[e.name.text] = held
-                        n.writeByname[e.name.text] = held
+                        if stat.declKind == "interface" then
+                            n.staticByname[e.name.text] = held
+                            n.staticWriteByname[e.name.text] = held
+                        else
+                            n.byname[e.name.text] = held
+                            n.writeByname[e.name.text] = held
+                        end
                     end
                 end
             end
@@ -2711,10 +2724,17 @@ export function install(
                                 and (nested.declKind == "record" or nested.declKind == "struct")
                             then
                                 local held = T.typeObject(nested)
-                                n.byname[e.name.text] = held
-                                n.writeByname[e.name.text] = held
-                                n.fieldDefs[e.name.text] = c.definition(e.name, "property")
-                                n.writeFieldDefs[e.name.text] = n.fieldDefs[e.name.text]
+                                if stat.declKind == "interface" then
+                                    n.staticByname[e.name.text] = held
+                                    n.staticWriteByname[e.name.text] = held
+                                    n.staticFieldDefs[e.name.text] = c.definition(e.name, "property")
+                                    n.staticWriteFieldDefs[e.name.text] = n.staticFieldDefs[e.name.text]
+                                else
+                                    n.byname[e.name.text] = held
+                                    n.writeByname[e.name.text] = held
+                                    n.fieldDefs[e.name.text] = c.definition(e.name, "property")
+                                    n.writeFieldDefs[e.name.text] = n.fieldDefs[e.name.text]
+                                end
                             end
                         end
                     end

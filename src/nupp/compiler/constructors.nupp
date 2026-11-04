@@ -1,0 +1,217 @@
+module nupp.compiler.constructors
+
+local T = require("nupp.compiler.types")
+local relations = require("nupp.compiler.types.relations")
+
+local api = {}
+
+-- Runtime domains deliberately erase generic arguments and function signatures.
+-- Two overloads need a disjoint domain or arity; static differences alone cannot
+-- select the same body when a declaration is called from Lua.
+local function domains(value: any): {any}
+    local t = T.unwrapOwnership(value)
+    if t.tag == "const" then
+        return domains(t.inner)
+    end
+    if t.tag == "constrained" then
+        return domains(t.base)
+    end
+    if t.tag == "union" then
+        local out = {}
+        for _, member in ipairs(t.members) do
+            for _, item in ipairs(domains(member)) do
+                out[#out + 1] = item
+            end
+        end
+        return out
+    end
+    if t.tag == "literal" then
+        return {{kind = type(t.constant), literal = true, value = t.constant}}
+    end
+    if t.tag == "nominal" and (t.declKind == "record" or t.declKind == "struct") then
+        return {{kind = t.declKind == "record" and "table" or "cdata", nominal = t.origin or t}}
+    end
+    if t.tag == "func" then
+        return {{kind = "function"}}
+    end
+    if t.tag == "array" or t.tag == "map" or t.tag == "shape" or t.tag == "tuple" then
+        return {{kind = "table"}}
+    end
+    if t.tag == "integer" or t.tag == "float" or t.tag:match("^u?int%d+$") then
+        return {{kind = (t.tag == "int64" or t.tag == "uint64") and "cdata" or "number"}}
+    end
+    if t.tag == "nil"
+        or t.tag == "string"
+        or t.tag == "number"
+        or t.tag == "boolean"
+        or t.tag == "table"
+        or t.tag == "thread"
+        or t.tag == "userdata"
+        or t.tag == "cdata"
+    then
+        return {{kind = t.tag}}
+    end
+
+    return {{kind = "any"}}
+end
+
+local function disjoint(left: any, right: any): boolean
+    for _, a in ipairs(domains(left)) do
+        for _, b in ipairs(domains(right)) do
+            local separate = a.kind ~= "any" and b.kind ~= "any" and a.kind ~= b.kind
+            separate = separate or a.literal and b.literal and a.value ~= b.value
+            separate = separate or a.nominal and b.nominal and a.nominal ~= b.nominal
+            if not separate then
+                return false
+            end
+        end
+    end
+
+    return true
+end
+
+local function arity(signature: any): (integer, integer)
+    local minimum: integer = 0
+    for index, param in ipairs(signature.params) do
+        if not relations.isA(T.nil_, param) then
+            minimum = index
+        end
+    end
+
+    return minimum, signature.paramPack.tail and 2147483647 or #signature.params
+end
+
+function api.distinguishable(left: any, right: any): boolean
+    local lmin, lmax = arity(left)
+    local rmin, rmax = arity(right)
+    if lmax < rmin or rmax < lmin then
+        return true
+    end
+    for index = 1, math.min(#left.params, #right.params) do
+        if disjoint(left.params[index], right.params[index]) then
+            return true
+        end
+    end
+
+    return false
+end
+
+-- Public callable signatures keep the same constructor policy and generic
+-- binders as a direct construction. A generic interface is not a signature.
+function api.signatures(nominal: any): {any}
+    local generic = require("nupp.compiler.types.generics")
+    local instance = generic.ownInstance(nominal)
+    local signatures = {}
+    for index, signature in ipairs(nominal.constructors or {}) do
+        local entry = nominal.constructorEntries and nominal.constructorEntries[index]
+        local policy = entry and entry.result
+        local result = policy
+            and policy.tag == "affine"
+            and T.affine(instance, policy.cleanups, policy.transferOnly, policy.obligation)
+            or instance
+        local params, bounds, bounded = {}, {}, false
+        for j, variable in ipairs(nominal.typeParams or {}) do
+            params[#params + 1] = variable
+            bounds[#params] = nominal.typeBounds and nominal.typeBounds[j]
+            bounded = bounded or bounds[#params] ~= nil
+        end
+        for j, variable in ipairs(signature.typeParams or {}) do
+            params[#params + 1] = variable
+            bounds[#params] = signature.typeBounds and signature.typeBounds[j]
+            bounded = bounded or bounds[#params] ~= nil
+        end
+        signatures[#signatures + 1] = T.funcWith(signature as T.Func, {
+            rets = {result},
+            retPack = T.pack({
+                result
+            }),
+            typeParams = #params > 0 and params or false,
+            typeBounds = bounded and bounds or false,
+        })
+    end
+
+    return signatures
+end
+
+-- Signature help is requested far less often than a source file is checked.
+-- Build field signatures on demand rather than allocating one at every call.
+function api.signatureAt(call: any): any
+    if not call.construction or call.constructorCall then
+        return call.signatureType
+    end
+    local nominal = call.inferredType and T.unwrapOwnership(call.inferredType)
+    if not nominal or nominal.tag ~= "nominal" then
+        return call.signatureType
+    end
+    local params, names, modes = {}, {}, {}
+    for _, name in ipairs(nominal.fieldOrder or {}) do
+        local field = nominal.byname[name]
+        params[#params + 1] = field
+        names[#names + 1] = name
+        local raw = field
+        modes[#modes + 1] = raw.tag == "affine" and "takes" or "plain"
+    end
+
+    return T.funcWith(T.func(params, {call.inferredType}, false, modes) as T.Func, {paramNames = names})
+end
+
+local function identity(nominal: any, moduleName: string?): string
+    local path = nominal.runtimePath or nominal.name:match("([^.]+)$")
+    if nominal.moduleName and nominal.moduleName ~= moduleName then
+        return ("require(%q).%s"):format(nominal.moduleName, path)
+    end
+
+    return path
+end
+
+local function predicate(t: any, expression: string, moduleName: string?): string
+    local tests = {}
+    for _, domain in ipairs(domains(t)) do
+        local test = "true"
+        if domain.literal then
+            local literal = type(domain.value) == "string" and string.format("%q", domain.value)
+                or tostring(domain.value)
+            test = expression .. "==" .. literal
+        elseif domain.nominal then
+            local name = identity(domain.nominal, moduleName)
+            if domain.nominal.declKind == "struct" then
+                test = ("require(\"ffi\").istype(%s,%s)"):format(name, expression)
+            else
+                test = (
+                    "_G.type(%s)==\"table\" and _G.getmetatable(%s) and _G.getmetatable(%s).__index==%s"
+                ):format(expression, expression, expression, name)
+            end
+        elseif domain.kind ~= "any" then
+            test = ("_G.type(%s)==%q"):format(expression, domain.kind)
+        end
+        tests[#tests + 1] = "(" .. test .. ")"
+    end
+
+    return "(" .. table.concat(tests, " or ") .. ")"
+end
+
+function api.dispatch(nominal: any, owner: string, moduleName: string?): string
+    local signatures = nominal.constructors or {}
+    if #signatures == 1 then
+        return "function(_,...) return " .. owner .. ".__nuppCtor1(...) end"
+    end
+    local out = {"function(_,...) local n=_G.select(\"#\",...);"}
+    for index, signature in ipairs(signatures) do
+        local minimum, maximum = arity(signature)
+        local conditions = {("n>=%d and n<=%d"):format(minimum, maximum)}
+        for j, param in ipairs(signature.params) do
+            conditions[#conditions + 1] = predicate(param, ("(_G.select(%d,...))"):format(j), moduleName)
+        end
+        out[
+            #out + 1
+        ] = "if " .. table.concat(
+            conditions,
+            " and "
+        ) .. " then return " .. owner .. ".__nuppCtor" .. tostring(index) .. "(...) end;"
+    end
+    out[#out + 1] = "_G.error(\"no constructor accepts these arguments\",2) end"
+
+    return table.concat(out)
+end
+
+export = api

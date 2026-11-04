@@ -1,7 +1,7 @@
 -- Temporary source migration helper. Run from a built Nupp checkout:
 -- ./bin/nupp run scripts/migrate-construction.lua --tracked
 -- Default: report only. --stdout prints one converted file; --write applies edits.
--- This prepares syntax edits, not a proof of equivalent call resolution.
+-- Add --audit with a support compiler to compare resolved construction facts.
 package.path = "build/?.lua;" .. package.path
 local parser = require("nupp.compiler.syntax.parser")
 local cst = require("nupp.compiler.syntax.cst")
@@ -87,12 +87,141 @@ function M.plan(source, filename)
     }
 end
 
+-- Compare checked construction facts, not token positions or per-check type IDs.
+-- The two checks use independent trees; local nominal identities are represented
+-- by their module/name and generic application rather than pointer equality.
+function M.audit(plan, filename, env)
+    local checker = require("nupp.compiler.check")
+    local T = require("nupp.compiler.types")
+    local externalOrigins, externalCount = {}, 0
+
+    local function inspect(source)
+        local parsed = parser.parse(source, filename)
+        local diagnostics = checker.check(parsed, filename, env, {
+            lints = {["unused-binding"] = "off", ["discarded-result"] = "off"}
+        })
+        for _, diagnostic in ipairs(diagnostics) do
+            if diagnostic.severity ~= "warning" then
+                return nil, diagnostic
+            end
+        end
+        local localOrigins = {}
+
+        local function declarations(node, path)
+            if cst.isToken(node) then
+                return
+            end
+            if node.kind == "newExpr" then
+                declarations(node.call, path)
+                return
+            end
+            if node.kind == "recordDecl" and node.resolvedType then
+                local nominal = node.resolvedType
+                localOrigins[nominal.origin or nominal] = path
+            end
+            for index, child in ipairs(node) do
+                declarations(child, path .. "/" .. index)
+            end
+        end
+
+        declarations(parsed.root, "root")
+        local facts = {}
+
+        local function visit(node, path)
+            if cst.isToken(node) then
+                return
+            end
+            if node.kind == "newExpr" then
+                visit(node.call, path)
+                return
+            end
+            if node.kind == "call" and node.construction then
+                local result = node.inferredType
+                local nominal = result and T.unwrapOwnership(result)
+                local origin = nominal and (nominal.origin or nominal)
+                local declaration = localOrigins[origin]
+                if origin and not declaration then
+                    if not externalOrigins[origin] then
+                        externalCount = externalCount + 1
+                        externalOrigins[origin] = "external:" .. externalCount
+                    end
+                    declaration = externalOrigins[origin]
+                end
+                local identity = nominal
+                    and ((nominal.moduleName or "") .. ":" .. T.tostring(nominal) .. ":" .. (declaration or "?"))
+                    or "?"
+                local fields = {}
+                for _, field in ipairs(node.recordFields or {}) do
+                    fields[
+                        #fields + 1
+                    ] = field.name .. ":" .. tostring(
+                        field.isDefault == true
+                    ) .. ":" .. (
+                        field.node and field.node.inferredType and T.tostring(field.node.inferredType) or "default"
+                    )
+                end
+                local bindings = {}
+                for variable, value in pairs(node.genericBindings or {}) do
+                    bindings[#bindings + 1] = (variable.name or tostring(variable)) .. "=" .. T.tostring(value)
+                end
+                table.sort(bindings)
+                local moves = {}
+                for _, move in ipairs(node.constructionOwnerMoves or {}) do
+                    moves[#moves + 1] = tostring(move.name or move.root or move.kind or "owner")
+                end
+                facts[
+                    #facts + 1
+                ] = table.concat(
+                    {
+                        path,
+                        identity,
+                        tostring(node.constructorIndex or 0),
+                        result and T.tostring(result) or "?",
+                        node.signatureType and T.tostring(node.signatureType) or "?",
+                        table.concat(fields, ","),
+                        table.concat(bindings, ","),
+                        table.concat(moves, ",")
+                    },
+                    "|"
+                )
+            end
+            for index, child in ipairs(node) do
+                visit(child, path .. "/" .. index)
+            end
+        end
+
+        visit(parsed.root, "root")
+
+        return facts
+    end
+
+    local before, problem = inspect(plan.source)
+    if not before then
+        return nil, {msg = "baseline check failed: " .. problem.code .. ": " .. problem.msg, line = problem.line}
+    end
+    local after
+    after, problem = inspect(plan.output)
+    if not after then
+        return nil, {msg = "migrated check failed: " .. problem.code .. ": " .. problem.msg, line = problem.line}
+    end
+    if #before ~= #after then
+        return nil, {msg = "construction count changed after value lookup; qualify the shadowed declaration"}
+    end
+    for index, fact in ipairs(before) do
+        if fact ~= after[index] then
+            return nil, {msg = "construction resolution changed: " .. fact .. " => " .. after[index]}
+        end
+    end
+
+    return true
+end
+
 if ... == "library" then
     return M
 end
 
 local function main()
-    local write, check, stdout, tracked = false, false, false, false
+    local write, check, stdout, tracked, audit = false, false, false, false, false
     local paths, exclusions = {}, {}
     local positional = false
     for _, value in ipairs(arg) do
@@ -104,6 +233,8 @@ local function main()
             check = true
         elseif not positional and value == "--stdout" then
             stdout = true
+        elseif not positional and value == "--audit" then
+            audit = true
         elseif not positional and value == "--tracked" then
             tracked = true
         elseif not positional and value:match("^%-%-exclude=.+$") then
@@ -113,6 +244,7 @@ local function main()
                 [=[Usage: ./bin/nupp run scripts/migrate-construction.lua [OPTIONS] [--] FILE.nupp...
   --tracked  Include tracked .nupp files in the current Git checkout.
   --exclude=PATH  Skip this exact file (repeat for known invalid fixtures).
+  --audit    Compare checked constructor identity, signatures, results, and moves.
   --stdout   Print converted source for exactly one file; do not write.
   --write    Apply edits after every input passes parsing and grouping checks.
   --check    Do not write; exit 1 if construction keywords remain.
@@ -122,8 +254,8 @@ Default: inventory only. Exit 2 on invalid input; no files are written if any
 input fails preflight. Strings, comments, .lua fixtures, and Markdown are not
 migrated. __call locations are review candidates, not diagnosed conflicts.
 Run --write only after the compiler supports callable construction and the
-bootstrap pin permits the new source. Recheck names, overloads, and behavior
-afterward: this tool proves syntax preservation, not semantic equivalence.
+bootstrap pin permits the new source. Use --audit on checked sources to compare
+constructor resolution before writing; syntax-only mode proves grouping only.
 ]=]
             )
             return 0
@@ -159,6 +291,7 @@ afterward: this tool proves syntax preservation, not semantic equivalence.
     for _, path in ipairs(exclusions) do
         excluded[fs.canonical(path)] = true
     end
+    local env = audit and require("nupp.compiler.project.env").new(".") or nil
     local seen, plans, failed = {}, {}, false
     local total, changed, reviews = 0, 0, 0
     for _, path in ipairs(paths) do
@@ -172,6 +305,13 @@ afterward: this tool proves syntax preservation, not semantic equivalence.
             local plan
             if source then
                 plan, problem = M.plan(source, path)
+                if plan and audit and #plan.edits > 0 then
+                    local ok
+                    ok, problem = M.audit(plan, path, env)
+                    if not ok then
+                        plan = nil
+                    end
+                end
             end
             if not plan then
                 failed = true

@@ -374,7 +374,10 @@ end
 
 function M.structConstructorAttachesToTheMetatypeIndex()
     local code = compile(SCALED .. "\nreturn new S(1)")
-    assert(code:find("function __nuppMt_S.__index.__nuppCtor1(x) local self = S() self.y = 2", 1, true), code)
+    assert(
+        code:find("function __nuppMt_S.__index.__nuppCtor1(x) local self = __nuppFfi.new(S) self.y = 2", 1, true),
+        code
+    )
     assert(code:find("S .__nuppCtor1 ( 1 )", 1, true), code)
     assert(not code:find("setmetatable", 1, true), "a struct constructor allocates no table")
 end

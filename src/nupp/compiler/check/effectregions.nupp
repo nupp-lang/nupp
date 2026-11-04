@@ -228,7 +228,7 @@ export function install(c: state.Checker): Ops
                 return effect ~= "allocates"
             elseif (
                 kind == "tableExpr"
-                or kind == "newExpr"
+                or node.construction == true
                 or kind == "istring"
                 or kind == "binop" and node.op and node.op.kind == ".."
             )
@@ -288,7 +288,7 @@ export function install(c: state.Checker): Ops
                 return
             elseif (
                 kind == "tableExpr"
-                or kind == "newExpr"
+                or node.construction == true
                 or kind == "istring"
                 or kind == "binop" and node.op and node.op.kind == ".."
             )

@@ -328,10 +328,10 @@ local record Position is Component
 end
 ```
 
-The declaration is a static contract. It emits no `__call` field, builds no
-metatable, and decides nothing about what the call constructs. Ordinary Lua code
-installs the function with `setmetatable`, a registrar, or a foreign runtime.
-Inheriting the contract rebinds `self`, so `Position(...)` has type `Position`.
+The metamethod declaration is a static contract. It emits no function; install
+`Position.__call` before calling a `Position` instance. Inheriting the contract
+rebinds `self`, so that instance call returns `Position`. Calling the
+`Position` declaration uses its constructor independently of this contract.
 
 `__eq` and `__tostring` participate in conformance but do not change a result
 type: `==` is always `boolean` and `tostring` is always `string`. When the left

@@ -577,6 +577,9 @@ interface cst.Hints
     --- an ordinary call reaching `__call` or a ctype.
     isNew: boolean?
 
+    -- Resolved construction, independent of the compatibility keyword.
+    construction: boolean?
+
     --- The runtime path of a record whose declared constructor this call runs.
     constructorCall: string?
 

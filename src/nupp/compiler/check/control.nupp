@@ -1296,10 +1296,7 @@ export function install(c: state.Checker): state.StatHandlers
                     constructed = constructed.expr
                 end
                 local freshConstruction = constructed
-                    and (
-                        constructed.kind == "newExpr"
-                        or constructed.kind == "call" and constructed.recordConstruct ~= nil
-                    )
+                    and (constructed.kind == "newExpr" or constructed.construction == true)
                 if ownReturns and ownReturns[j] and (not ownershipKind(got) or freshConstruction) then
                     expected = ownReturns[j]
                     got = rawType(got)

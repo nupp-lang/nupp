@@ -5780,16 +5780,16 @@ local function expressionRaw(
             end
         end
         return binary(operator, left, right, kernel)
-    elseif kind == "call" then
+    elseif kind == "call" and not (node as any).construction then
         return call(node as cst.Call, environment, activeIndex, kernel)
     end
 
-    if kind == "newExpr" then
+    if kind == "newExpr" or (node as any).construction then
         -- `new P(...)` of a native-only aggregate: one value per field in layout
         -- order, each brought to the field's type. Any other construction is
         -- the owner or table an AOT body does not create, which the checker's
         -- structural walk has already refused.
-        local call = (node as cst.NewExpr).call as any
+        local call: any = kind == "newExpr" and (node as cst.NewExpr).call or node
         local constructed = call ~= nil and call.inferredType or (node as any).inferredType
         local layout = lower.aggregate(constructed, node, kernel.layouts, context)
         local bindings = call ~= nil and call.recordFields or {}

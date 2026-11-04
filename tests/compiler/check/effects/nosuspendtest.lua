@@ -111,14 +111,14 @@ function M.constructsARecordWithoutSuspending()
     -- is a table and a metatable; with one, the constructor's body answers.
     local plain = "local record P\n    x: integer\nend\n"
     testAssert.eq(
-        #diagnose(plain .. "@nosuspend do\n    local p = new P(x = 1)\nend"),
+        #diagnose(plain .. "@nosuspend do\n    local p = P(x = 1)\nend"),
         0,
         "a record with no constructor cannot suspend"
     )
     testAssert.eq(
         #diagnose(
             plain
-            .. "local function make(): P\n    return new P(x = 1)\nend\n"
+            .. "local function make(): P\n    return P(x = 1)\nend\n"
             .. "@nosuspend do\n    local p = make()\nend"
         ),
         0,
@@ -127,13 +127,13 @@ function M.constructsARecordWithoutSuspending()
     local quiet = "local record Q\n    x: integer\n    constructor(self, x: integer)\n"
         .. "        self.x = x\n    end\nend\n"
     testAssert.eq(
-        #diagnose(quiet .. "@nosuspend do\n    local q = new Q(1)\nend"),
+        #diagnose(quiet .. "@nosuspend do\n    local q = Q(1)\nend"),
         0,
         "a constructor that cannot suspend is silent"
     )
     local noisy = "local record R\n    x: integer\n    constructor(self, x: integer)\n"
         .. "        coroutine.yield()\n        self.x = x\n    end\nend\n"
-    local refusals = diagnose(noisy .. "@nosuspend do\n    local r = new R(1)\nend")
+    local refusals = diagnose(noisy .. "@nosuspend do\n    local r = R(1)\nend")
     testAssert.eq(#refusals, 1, "a constructor that suspends is refused")
     assert(refusals[1].msg:find("R", 1, true) ~= nil, "it names the record: " .. refusals[1].msg)
 end
