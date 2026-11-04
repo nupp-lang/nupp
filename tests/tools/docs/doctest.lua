@@ -284,6 +284,113 @@ end
     end
 end
 
+function M.recordAndInterfaceSignaturesShowOnlyPublicDeclarations()
+    local module, errors = doc.extract(
+        [[
+export record Box<T is Value> is Named where true
+    @private _hidden: T
+    --- The stored value.
+    @readonly value: T
+    type Shape<U> = {first: U, second: boolean}
+    sealed interface View<U is T> is Parent<U>
+        read: function(self): U
+    end
+    constructor(self, value: T)
+        self.value = value
+    end
+    function clear(self): nil
+        error("implementation detail")
+    end
+    function borrow(borrows self): T
+        return self.value
+    end
+    function pair(self): T, boolean
+        return self.value, true
+    end
+    metamethod __tostring: function(self): string
+end
+export sealed interface Reader<T> is Parent<T>
+    read: function(self): T
+    close: @nosuspend function(takes self: Reader<T>): nil
+end
+export record Empty end
+]],
+        "src/records.nupp",
+        "records"
+    )
+    assert(module, errors and errors[1] and errors[1].msg)
+    assert(#errors == 0)
+    local api = require("nupp.tools.doc.api")
+    local items = {}
+    for _, item in ipairs(module.items) do
+        items[item.name] = item
+    end
+    local box, reader, empty = items.Box, items.Reader, items.Empty
+    local signature = api.displaySignature(box)
+    assert(signature:find("record Box<T is Value> is Named where true\n", 1, true), signature)
+    assert(signature:find("    @readonly value: T\n", 1, true), signature)
+    assert(
+        signature:find("    type Shape<U> = {\n        first: U,\n        second: boolean\n    }", 1, true),
+        signature
+    )
+    assert(
+        signature:find(
+            "    sealed interface View<U is T> is Parent<U>\n        read: function(self): U\n    end",
+            1,
+            true
+        ),
+        signature
+    )
+    assert(signature:find("    constructor: function(self, value: T)\n", 1, true), signature)
+    assert(signature:find("    clear: function(self)\n", 1, true), signature)
+    assert(signature:find("    borrow: function(borrows self: records.Box<T>): T\n", 1, true), signature)
+    assert(signature:find("    pair: function(self): (T, boolean)\n", 1, true), signature)
+    assert(signature:find("    metamethod __tostring: function(self): string\n", 1, true), signature)
+    assert(not signature:find("_hidden", 1, true), signature)
+    assert(not signature:find("stored value", 1, true), signature)
+    assert(not signature:find("implementation detail", 1, true), signature)
+    assert(not signature:find(": nil", 1, true), signature)
+    local nested = api.memberSpelling(box.members[3])
+    assert(nested == [[sealed interface View<U is T> is Parent<U>
+    read: function(self): U
+end]], nested)
+    local interface = api.displaySignature(reader)
+    assert(
+        interface == [[sealed interface Reader<T> is Parent<T>
+    read: function(self): T
+    close: @nosuspend function(takes self: Reader<T>)
+end]],
+        interface
+    )
+    assert(api.displaySignature(empty) == "record Empty\nend")
+    for _, declaration in ipairs({signature, nested, interface, api.displaySignature(empty)}) do
+        local parsed = require("nupp.compiler.syntax.parser").parse(declaration)
+        assert(#parsed.errors == 0, declaration)
+    end
+    local markdown = doc.markdown({module})
+    assert(markdown:find("```nupp\n" .. nested .. "\n```", 1, true), markdown)
+    assert(markdown:find("The stored value.", 1, true), markdown)
+end
+
+function M.callbackLastPackSignaturesKeepRecordIndentation()
+    local signature = require("nupp.tools.doc.api").displaySignature({
+        kind = "record",
+        signature = "record Scope",
+        members = {
+            {
+                name = "work",
+                isFunction = true,
+                type = "function<F>(...: unpackof Arguments(F), F): Task<F>",
+                params = {},
+                returns = {},
+            }
+        },
+    })
+    assert(signature == [[record Scope
+    work: function<F>(...: unpackof Arguments(F), F): Task<F>
+end]], signature)
+end
+
 function M.callableModulesDocumentHelpersAndPublishedSuiteMembers()
     local source = [[
 module assert

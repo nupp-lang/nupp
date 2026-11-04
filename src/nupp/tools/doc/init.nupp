@@ -323,6 +323,7 @@ function doc.json(modules: {extractMod.Module}, annotationItems: {extractMod.Ite
             isFunction = value.isFunction,
             isMetamethod = value.isMetamethod,
             isType = value.isType,
+            signature = value.signature,
             supertypes = value.supertypes and array(value.supertypes) or nil,
             comptimeKind = value.comptimeKind,
             lua = value.lua,
@@ -575,7 +576,8 @@ local function loadModules(root, config, settings, requested)
                     line = owner.line,
                     kind = member.isAlias and "type" or member.type,
                     aliasSource = member.isAlias and member.type or nil,
-                    signature = member.isAlias and ("type " .. name .. " = " .. member.type)
+                    signature = member.signature
+                    or member.isAlias and ("type " .. name .. " = " .. member.type)
                     or (member.type .. " " .. name),
                     doc = {
                         text = member.text,
@@ -1028,6 +1030,10 @@ local function loadModules(root, config, settings, requested)
                 binders[generic.name] = true
             end
             value.type = value.type and references(value.type, sourceContext, module, binders, nil) or nil
+            if value.isType and value.signature then
+                local _, offset = renamed(value.signature, value.name, value.name)
+                value.signature = references(value.signature, sourceContext, module, binders, offset)
+            end
             for index, supertype in ipairs(value.supertypes or {}) do
                 value.supertypes[index] = references(supertype, sourceContext, module, binders, nil)
             end
@@ -1062,6 +1068,7 @@ local function loadModules(root, config, settings, requested)
                     if #(target.members or {}) > 0 or #(target.supertypes or {}) > 0 then
                         field.isAlias, field.isType = nil, true
                         field.type = target.kind
+                        field.signature = renamed(target.signature, target.name:match("([%w_]+)$"), field.name)
                         field.members = copy(target.members)
                         field.typeargs = copy(target.typeargs)
                         field.supertypes = copy(target.supertypes)

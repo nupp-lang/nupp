@@ -421,9 +421,7 @@ local function renderMarkdownMembers(out, members, level)
             member
         ) .. "_" .. (member.lua and not member.forms and " _Lua_" or "")
         out[#out + 1] = ""
-        -- A nested type's kind already spells its declaration, and what it holds is its
-        -- own members below; only a field or a method has a type to show here.
-        if not member.isType and not member.forms then
+        if not member.forms and (not member.isType or member.type == "record" or member.type == "interface") then
             out[#out + 1] = "```nupp"
             out[#out + 1] = memberSpelling(member)
             out[#out + 1] = "```"

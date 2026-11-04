@@ -74,6 +74,7 @@ export record Member
     isFunction: boolean?
     isMetamethod: boolean?
     isType: boolean?
+    signature: string?
 
     --- This member is a nested `type` alias, so `type` above holds what it names
     --- rather than what a value of it is, and `generics` holds its parameters.
@@ -477,12 +478,8 @@ local function structureSupertypes(stat): {string}?
     return #names > 0 and names or nil
 end
 
--- A structure's signature is its opening line and nothing below it: the modifiers, the
--- name, its generic parameters, the contracts written after `is`, and a `where`
--- refinement. Rendering the whole declaration instead said everything twice, since the
--- page documents every entry under its own heading beneath the block, and it buried
--- the one line naming the type under a screen of reformatted source. The renderers
--- write `...` after this where members follow, so the elision reads as an elision.
+-- Keep the declaration header separate from its documented members. The renderer
+-- combines them without private entries, comments, or method implementations.
 local function structureHeader(stat): string
     local parts: {string} = {}
     if stat.modifier then
@@ -1412,6 +1409,7 @@ local function buildMembers(
                 returns = {},
                 raises = {},
                 isType = true,
+                signature = structureHeader(entry),
                 supertypes = structureSupertypes(entry),
                 typeargs = typeargs,
                 members = buildMembers(
