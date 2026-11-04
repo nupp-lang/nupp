@@ -82,7 +82,7 @@ local CASES = {
     {"integersWide", 0x7FFF00064B7743CB},
     {"numbersText", 0x7FFF000004A6983A},
     {"environmentRead", 0x7FFF000011E63D2B},
-    {"numbersFloat", 0x7FFF0001D94A7C23},
+    {"numbersFloat", 0x7FFF0001C768D923},
     {"callsResults", 0x7FFF000000259D74},
     {"tablesFloatKeys", 0x7FFF0000065C2564},
     {"stringsLibrary", 0x7FFF0000547F9CA7},

@@ -1,14 +1,15 @@
 module nupp.core.catalognumbersfloat
 
--- Float text: tostring writes C's "%.15g", or "%.17g" when that loses the
--- value, with ".0" on integral values; tonumber reads float numerals by
--- strtod but refuses inf and nan text.
+-- Float text: tostring writes the shorter of the decimal and exponent texts
+-- that read back exactly, the decimal on a tie (Decision 13; Lua writes
+-- "%.15g" or "%.17g"); tonumber reads float numerals by strtod but refuses
+-- inf and nan text.
 local zero = 0.0
 local s = tostring(1.5) .. "," .. tostring(10 / 4) .. "," .. tostring(3.0) .. "," .. tostring(-zero)
 s = s .. "," .. tostring(1e100) .. "," .. tostring(0.1) .. "," .. tostring(1 / 3)
 s = s .. "," .. tostring(123456789012345678.0) .. "," .. tostring(1 / zero) .. "," .. tostring(-1 / zero)
 local result = #s * 100000000
-if s == "1.5,2.5,3.0,-0.0,1e+100,0.1,0.33333333333333331,1.2345678901234568e+17,inf,-inf" then
+if s == "1.5,2.5,3.0,-0.0,1e100,0.1,0.3333333333333333,1.2345678901234568e17,inf,-inf" then
     result = result + 1
 end
 local total = 0.0
