@@ -343,6 +343,7 @@ end
 
 function M.canonicalSerdeKeysKeepKindsAndAccessMetadata()
     local result = run(
+        "serdetest.canonicalSerdeKeysKeepKindsAndAccessMetadata",
         [=[
 local serde = require("serde")
 local document = require("serde.document")
