@@ -1654,6 +1654,7 @@ export function LibCall(
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
             return native.fail()
         end
+        guestscope.libraryReturned(ctx)
         if switched then
             local s = native.pointer(ops.state(ctx))
             local current = native.pointer(access.active(s))
@@ -1685,6 +1686,7 @@ export function LibCall(
         end
         local target = found - 1ULL
         local loaded = modules.cached(ctx, target)
+        guestscope.libraryReturned(ctx)
         if loaded == 0ULL then
             ops.checkpoint(ctx, frame, pc)
             if modules.begin(ctx, frame, pc, target, native.word(dst)) ~= 1ULL then
@@ -1772,6 +1774,7 @@ export function LibCall(
             guestlib.copystate(ctx, libraryId, guestscope.replaysaved(ctx), a)
         end
         local result = guestlib.call(ctx, libraryId, native.word(count), a, b, c, d)
+        guestscope.libraryReturned(ctx)
         local kind: uint64 = 0ULL
         if replay ~= 0ULL then
             kind = guestscope.replayend(ctx)
@@ -1802,6 +1805,7 @@ export function LibCall(
         end
         slots.writeValue(frame, regs, dst, result)
     end
+    guestscope.libraryReturned(ctx)
     local nextPC = ops.branch(ctx, frame, pc, 0)
     if nextPC == 0ULL then
         ops.fail(ctx, frame, pc, ops.INVALID)

@@ -1,0 +1,44 @@
+-- Lua twin of catalog-errors-runtime.nupp.
+
+-- Errors the core's own runtime code raises (here its pattern matcher's)
+-- carry their texts, after the position of the line that called the
+-- library function, as Lua's do. The patterns are values, past the checker.
+local function says(ok, message, line, text)
+    local at = ":" .. tostring(line) .. ": "
+    return not ok and string.find(message, at .. text, 1, true) ~= nil and string.sub(message, -#text) == text
+end
+
+local subject = "a"
+local patterns = {"%", "[a", "%f", "%b", "a%"}
+local score = 0
+local ok1, e1 = pcall(function()
+    return (string.find(subject, patterns[1]))
+end)
+if says(ok1, tostring(e1), 15, "malformed pattern (ends with '%')") then
+    score = score + 1
+end
+local ok2, e2 = pcall(function()
+    return (string.find(subject, patterns[2]))
+end)
+if says(ok2, tostring(e2), 21, "malformed pattern (missing ']')") then
+    score = score + 2
+end
+local ok3, e3 = pcall(function()
+    return string.match(subject, patterns[3])
+end)
+if says(ok3, tostring(e3), 27, "missing '[' after '%f' in pattern") then
+    score = score + 4
+end
+local ok4, e4 = pcall(function()
+    return (string.find(subject, patterns[4]))
+end)
+if says(ok4, tostring(e4), 33, "malformed pattern (missing arguments to '%b')") then
+    score = score + 8
+end
+local ok5, e5 = pcall(function()
+    return subject:match(patterns[5])
+end)
+if says(ok5, tostring(e5), 39, "malformed pattern (ends with '%')") then
+    score = score + 16
+end
+return score

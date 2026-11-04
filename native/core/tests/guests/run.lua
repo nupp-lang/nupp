@@ -1,12 +1,18 @@
 -- Checked-source guest programs on the standalone core: every case is built
--- in one process through the shared guest unit, run through the bridge and
--- the ABI/scratch guard, and checked against independent expectations.
+-- through the shared guest unit, run through the bridge and the ABI/scratch
+-- guard, and checked against independent expectations.
 --
 --   cd native/core/tests/guests && NUPP_COMPILER_ROOT=$PWD/../../../.. ../../../../bin/nupp run run.lua [CASE...]
 --
 -- NUPP_LUA_REFERENCE names a reference Lua 5.5 interpreter; when set, the
 -- numeric expectations are recomputed with it. Bundles and outputs go under
 -- build/core-guests.
+--
+-- The cases run in NUPP_GUEST_SHARDS processes (default 4), which share
+-- about NUPP_GUEST_JOBS (default 8) bridge and guard processes, each shard
+-- running its own while it selects the next case; NUPP_GUEST_SHARDS=1 runs
+-- them all here. A whole run is bounded by its longest process,
+-- workloadLoops in spill mode.
 local producer = require("nupp.core.guestprogramproducer")
 local guestbuild = require("nupp.core.guestbuild")
 local json = require("serde.json")
@@ -151,6 +157,8 @@ local CASES = {
     {"callsoverflow", 0x7FFF000000000003},
     {"tablesfrozen", 0x7FFF000000000FFF},
     {"serdejson", 0x7FFF000000000003},
+    {"modulesretry", 0x7FFF00000000007F},
+    {"errorsruntime", 0x7FFF00000000001F},
     -- 600 functions, past the 256 owners the graph schema once admitted.
     {"functionsmany", 0x7FFF00000002C04C}
 }
@@ -198,7 +206,9 @@ local STRESS = {
     coreforms = true,
     tablesfrozen = true,
     serdejson = true,
-    functionsmany = true
+    functionsmany = true,
+    modulesretry = true,
+    errorsruntime = true
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
@@ -278,7 +288,9 @@ local NUMERIC = {
     modulescycle = "catalog-modules-cycle",
     modulesdynamic = "catalog-modules-dynamic",
     libraryvalues = "catalog-library-values",
-    callsoverflow = "catalog-calls-overflow"
+    callsoverflow = "catalog-calls-overflow",
+    modulesretry = "catalog-modules-retry",
+    errorsruntime = "catalog-errors-runtime"
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -331,10 +343,20 @@ local function quote(value)
     return "'" .. tostring(value):gsub("'", "'\\''") .. "'"
 end
 
+-- Wall seconds by phase and by case, for the summary the run ends with.
+local timing = {phase = "setup", case = "setup", phases = {}, cases = {}}
+
+local function account(seconds)
+    timing.phases[timing.phase] = (timing.phases[timing.phase] or 0) + seconds
+    timing.cases[timing.case] = (timing.cases[timing.case] or 0) + seconds
+end
+
 local function shell(command)
+    local began = os.time()
     local pipe = assert(io.popen(command .. " 2>&1; echo __exit__:$?"))
     local output = pipe:read("*a")
     pipe:close()
+    account(os.time() - began)
     return tonumber(output:match("__exit__:(%d+)%s*$")), (output:gsub("__exit__:%d+%s*$", ""))
 end
 
@@ -353,6 +375,67 @@ local function write(path, bytes)
     local file = assert(io.open(path, "wb"))
     file:write(bytes)
     file:close()
+end
+
+-- The bridge and guard runs are independent processes: each is queued with
+-- what checks its result and starts at once in a pool of NUPP_GUEST_JOBS,
+-- while the next case is selected; `drain` waits for the pool and checks
+-- each result in queue order.
+local JOBS = math.tointeger(tonumber(os.getenv("NUPP_GUEST_JOBS") or "")) or 8
+local queue = {}
+local pool = nil
+
+local function defer(phase, command, done)
+    local directory = timing.jobs
+    if pool == nil then
+        os.execute("rm -rf " .. quote(directory) .. " && mkdir -p " .. quote(directory))
+        os.execute("mkfifo " .. quote(directory .. "/queue"))
+        os.execute(
+            ("(xargs -P %d -n 1 sh < %s > %s 2>&1; echo $? > %s) < /dev/null > /dev/null 2>&1 &"):format(
+                JOBS,
+                quote(directory .. "/queue"),
+                quote(directory .. "/pool.log"),
+                quote(directory .. "/pool.status")
+            )
+        )
+        pool = {directory = directory, writer = assert(io.open(directory .. "/queue", "w"))}
+    end
+    queue[#queue + 1] = {phase = phase, case = timing.case, done = done}
+    local base = directory .. "/" .. #queue
+    local file = assert(io.open(base .. ".sh", "wb"))
+    file:write(
+        "began=$(date +%s)\n{ "
+        .. command
+        .. "\n} > "
+        .. quote(base .. ".out")
+        .. " 2>&1\n"
+        .. "echo $? $began $(date +%s) > " .. quote(base .. ".status") .. "\n"
+    )
+    file:close()
+    pool.writer:write(base .. ".sh\n")
+    pool.writer:flush()
+end
+
+local function drain()
+    if pool == nil then
+        return
+    end
+    local directory = pool.directory
+    pool.writer:close()
+    pool = nil
+    timing.phase, timing.case = "jobs wait", "jobs"
+    local done = quote(directory .. "/pool.status")
+    shell("while [ ! -f " .. done .. " ]; do sleep 0.2; done")
+    assert(read(directory .. "/pool.status") == "0\n", "job runner failed: " .. (read(directory .. "/pool.log") or ""))
+    local jobs = queue
+    queue = {}
+    for index, job in ipairs(jobs) do
+        local base = directory .. "/" .. index
+        local code, began, ended = (assert(read(base .. ".status"), "job status missing")):match("^(%d+) (%d+) (%d+)")
+        timing.phase, timing.case = job.phase, job.case
+        account(tonumber(ended) - tonumber(began))
+        job.done(tonumber(code), read(base .. ".out") or "")
+    end
 end
 
 local function u64(value)
@@ -501,6 +584,9 @@ local function stage()
             "catalog-modules-cycle",
             "catalog-modules-qualified",
             "catalog-modules-dynamic",
+            "catalog-modules-tally",
+            "catalog-modules-faulty",
+            "catalog-modules-retry",
             "catalog-library-values",
             "catalog-text-buffer",
             "catalog-string-buffer",
@@ -590,12 +676,20 @@ local function oracle(lua, fixture)
     return bits
 end
 
+-- Code bytes by the words they encode: programs alike share an entry.
+local codes = {}
+
 local function bundleOf(selected, scratch)
-    local words = {}
-    for index, word in ipairs(selected.words) do
-        words[index] = u32(word)
+    local code = codes[selected.words]
+    if code == nil then
+        local words = {}
+        for index, word in ipairs(selected.words) do
+            words[index] = u32(word)
+        end
+        code = table.concat(words)
+        codes[selected.words] = code
     end
-    local code, data = table.concat(words), fromHex(selected.dataHex)
+    local data = fromHex(selected.dataHex)
     assert(#data == selected.dataBytes, "data extent")
 
     return "NUPPCORE" .. u64(
@@ -631,21 +725,138 @@ local function functionsmany()
     write(OUT .. "/generated/functionsmany.nupp", table.concat(lines, "\n") .. "\n")
 end
 
+-- Runs the cases in NUPP_GUEST_SHARDS processes at once (default 4), each
+-- selecting and running its share: selection is one process's work, so
+-- shards are what spread it. Cases are dealt by what they cost last run; the
+-- audited cases go to the first shard, which alone runs the audits. Answers
+-- false when the cases are run here instead.
+local function shards(selectedCases, bridge, guard)
+    local count = math.tointeger(tonumber(os.getenv("NUPP_GUEST_SHARDS") or "")) or 4
+    count = math.min(count, #selectedCases // 4)
+    if count < 2 then
+        return false
+    end
+    local cost = {}
+    local listing = io.popen("cat " .. quote(OUT) .. "/costs/* 2>/dev/null")
+    if listing then
+        for line in listing:lines() do
+            local name, seconds = line:match("^([^\t]+)\t([%d%.]+)$")
+            if name then
+                cost[name] = (cost[name] or 0) + tonumber(seconds)
+            end
+        end
+        listing:close()
+    end
+    local audited = {}
+    for _, item in ipairs(AUDITS) do
+        audited[item[1]] = true
+    end
+    local order = {}
+    for index, case in ipairs(selectedCases) do
+        order[index] = case[1]
+    end
+    table.sort(order, function(a, b)
+        local ca, cb = cost[a] or 1, cost[b] or 1
+        if ca ~= cb then
+            return ca > cb
+        end
+        return a < b
+    end)
+    local load, members = {}, {}
+    for index = 1, count do
+        load[index], members[index] = 0, {}
+    end
+    -- The audits' runtime and programs, which the first shard alone builds.
+    for name in pairs(audited) do
+        load[1] = load[1] + (cost["audit " .. name] or 10)
+    end
+    local function place(index, name)
+        members[index][#members[index] + 1] = name
+        load[index] = load[index] + (cost[name] or 1)
+    end
+    for _, name in ipairs(order) do
+        if audited[name] then
+            place(1, name)
+        end
+    end
+    for _, name in ipairs(order) do
+        if not audited[name] then
+            local least = 1
+            for index = 2, count do
+                if load[index] < load[least] then
+                    least = index
+                end
+            end
+            place(least, name)
+        end
+    end
+    os.execute("rm -f " .. quote(OUT) .. "/costs/*")
+    local commands = {}
+    for index = 1, count do
+        local log = ("%s/shard-%d.log"):format(OUT, index)
+        commands[index] = (
+            "NUPP_GUEST_SHARD=%d/%d NUPP_GUEST_AUDITS=%s NUPP_GUEST_BRIDGE=%s NUPP_GUEST_GUARD=%s NUPP_GUEST_JOBS=%d %s run run.lua %s > %s 2>&1 &"
+        ):format(
+            index,
+            count,
+            index == 1 and "1" or "0",
+            quote(bridge),
+            quote(guard),
+            JOBS // count + 1,
+            quote(ROOT .. "/bin/nupp"),
+            table.concat(members[index], " "),
+            quote(log)
+        )
+    end
+    local started = os.time()
+    shell("cd " .. quote(HERE) .. " && " .. table.concat(commands, "\n") .. "\nwait")
+    local total, failed = checks, #failures
+    for index = 1, count do
+        local log = read(("%s/shard-%d.log"):format(OUT, index)) or ""
+        local done, bad = log:match("shard result (%d+) (%d+)")
+        for line in log:gmatch("[^\n]+") do
+            if line:match("^FAIL ") then
+                print(line)
+            end
+        end
+        if done then
+            total, failed = total + tonumber(done), failed + tonumber(bad)
+            print(("shard %d: %d cases, %s checks, %s failed"):format(index, #members[index], done, bad))
+        else
+            failed = failed + 1
+            print(("FAIL shard %d stopped before its result:\n%s"):format(index, log))
+        end
+    end
+    print(("%d checks, %d failed, %ds in %d shards"):format(total, failed, os.time() - started, count))
+    os.exit(failed == 0 and 0 or 1)
+end
+
 local function main()
     os.execute("mkdir -p " .. quote(OUT))
-    functionsmany()
-    local selectedCases = {}
-    local wanted = {}
-    for _, name in ipairs(arg) do
-        wanted[name] = true
+    -- Its parent wrote the generated case a shard reads.
+    if not os.getenv("NUPP_GUEST_SHARD") then
+        functionsmany()
     end
-    for _, case in ipairs(CASES) do
-        if next(wanted) == nil or wanted[case[1]] then
+    -- The cases named, in the order named, or every case.
+    local selectedCases = {}
+    if #arg == 0 then
+        for _, case in ipairs(CASES) do
             selectedCases[#selectedCases + 1] = case
         end
     end
+    for _, name in ipairs(arg) do
+        for _, case in ipairs(CASES) do
+            if case[1] == name then
+                selectedCases[#selectedCases + 1] = case
+            end
+        end
+    end
+    -- A shard runs the cases it is given with the tools and sources its
+    -- parent prepared (see `shards`).
+    local shard = os.getenv("NUPP_GUEST_SHARD")
     local lua = os.getenv("NUPP_LUA_REFERENCE")
-    if lua then
+    if lua and not shard then
+        timing.phase = "oracle"
         for name, fixture in pairs(NUMERIC) do
             local observed = oracle(lua, fixture)
             local expected
@@ -666,23 +877,30 @@ local function main()
     -- Library names and texts share one id space in guesttexts: an id two
     -- of them claim prints the one in place of the other.
     local claimed = {}
-    for name, id in read(ROOT .. "/native/core/src/nupp/runtime/core/guesttexts.nupp"):gmatch(
+    for name, id in (shard and "" or read(ROOT .. "/native/core/src/nupp/runtime/core/guesttexts.nupp")):gmatch(
         "export const ([%u_]+): uint64 = (%d+)ULL"
     ) do
         check(claimed[id] == nil, ("text id %s is both %s and %s"):format(id, tostring(claimed[id]), name))
         claimed[id] = name
     end
-    local bridge, guard = tools()
-    stage()
-    local started = os.time()
-    local list = {}
-    for _, case in ipairs(selectedCases) do
-        list[#list + 1] = case[1] .. ":normal"
-        list[#list + 1] = case[1] .. ":spill"
+    local bridge, guard = os.getenv("NUPP_GUEST_BRIDGE"), os.getenv("NUPP_GUEST_GUARD")
+    if not shard then
+        timing.phase = "tools"
+        bridge, guard = tools()
+        stage()
+        if shards(selectedCases, bridge, guard) then
+            return
+        end
     end
+    local started = os.time()
+    timing.jobs = OUT .. "/jobs" .. (shard and "-" .. shard:match("^(%d+)") or "")
+    -- Each case is selected as its turn comes, while the runs queued for
+    -- the cases before it go on.
     local selections = {}
-    for _, item in ipairs(list) do
-        local name, mode = item:match("^(%w+):(%w+)$")
+    local selectedSeconds = 0
+    local function selection(name, mode)
+        local began = os.time()
+        timing.phase, timing.case = "select", name
         if UNITS then
             selections[
                 name .. "-" .. mode
@@ -690,21 +908,28 @@ local function main()
         else
             selections[name .. "-" .. mode] = producer.select(name, mode, "131072")
         end
+        account(os.time() - began)
+        selectedSeconds = selectedSeconds + os.time() - began
+        return selections[name .. "-" .. mode]
     end
-    print(("selected %d programs in %ds"):format(#list, os.time() - started))
     local empty = OUT .. "/empty.bin"
     write(empty, "")
 
-    -- Answers what the bridge wrote, its output and errors together.
-    local function bridgeRun(label, bundle, input, output, expectedStatus, environment)
-        local status, printed = shell(
-            (
-                environment or GUEST_ENV
-            ) .. ("%s %s %s %s"):format(quote(bridge), quote(bundle), quote(input), quote(output))
+    -- Queues a bridge run; `after` gets what it printed, its output and
+    -- errors together.
+    local function bridgeRun(label, bundle, input, output, expectedStatus, environment, after)
+        local kind = label:match(" (%a+)") or "bridge"
+        local phase = label:match("^audit") and "audit bridge" or ("bridge " .. kind)
+        defer(
+            phase,
+            (environment or GUEST_ENV) .. ("%s %s %s %s"):format(quote(bridge), quote(bundle), quote(input), quote(output)),
+            function(status, printed)
+                check((status == 0) == (expectedStatus == 0), label .. " bridge status")
+                if after then
+                    after(printed)
+                end
+            end
         )
-        check((status == 0) == (expectedStatus == 0), label .. " bridge status")
-
-        return printed
     end
 
     local function guarded(label, bundle, input, highWater, expectedPath, status)
@@ -721,8 +946,10 @@ local function main()
         else
             env = env .. "CORE_TEST_EXPECTED=" .. quote(expectedPath) .. " "
         end
-        local _, output = shell(env .. quote(guard) .. " --ignored --exact " .. test .. " --test-threads=1")
-        check(output:find("1 passed; 0 failed; 0 ignored;", 1, true) ~= nil, label .. " guard")
+        local phase = label:match("^audit") and "audit guard" or "guard"
+        defer(phase, env .. quote(guard) .. " --ignored --exact " .. test .. " --test-threads=1", function(_, output)
+            check(output:find("1 passed; 0 failed; 0 ignored;", 1, true) ~= nil, label .. " guard")
+        end)
     end
 
     local sentinel = "refused guest operation left output unchanged"
@@ -733,15 +960,17 @@ local function main()
         end
         local output = OUT .. "/" .. label .. ".out"
         write(output, sentinel)
-        bridgeRun(label, bundle, input, output, 1)
-        check(read(output) == sentinel, label .. " published nothing")
+        bridgeRun(label, bundle, input, output, 1, nil, function()
+            check(read(output) == sentinel, label .. " published nothing")
+        end)
     end
 
     for _, case in ipairs(selectedCases) do
         local name, expectedWord = case[1], case[2]
         for _, mode in ipairs({"normal", "spill"}) do
             local label = name .. "-" .. mode
-            local selected = selections[label]
+            timing.case = name
+            local selected = selection(name, mode)
             check(selected.caseName == name and selected.mode == mode, label .. " identity")
             if mode == "spill" then
                 local normal = selections[name .. "-normal"]
@@ -768,9 +997,10 @@ local function main()
                 write(expected, u64(expectedWord))
                 local output = OUT .. "/" .. label .. ".out"
                 os.remove(output)
-                local printed = bridgeRun(label, bundle, empty, output, 0)
-                check(read(output) == u64(expectedWord), ("%s result %016x"):format(label, expectedWord))
-                check(printed == (OUTPUT[name] or ""), label .. " printed output")
+                bridgeRun(label, bundle, empty, output, 0, nil, function(printed)
+                    check(read(output) == u64(expectedWord), ("%s result %016x"):format(label, expectedWord))
+                    check(printed == (OUTPUT[name] or ""), label .. " printed output")
+                end)
                 guarded(label, bundle, empty, highWater, expected)
                 -- The same result with a whole collection at every allocation.
                 if STRESS[name] and UNITS then
@@ -778,33 +1008,45 @@ local function main()
                     write(input, u64(-1) .. u64(0) .. u64(1))
                     local stressed = OUT .. "/" .. label .. "-stress.out"
                     os.remove(stressed)
-                    local again = bridgeRun(label .. " stress", bundle, input, stressed, 0)
-                    check(again == (OUTPUT[name] or ""), label .. " printed output under collect-at-every-allocation")
-                    check(read(stressed) == u64(expectedWord), label .. " result under collect-at-every-allocation")
+                    bridgeRun(label .. " stress", bundle, input, stressed, 0, nil, function(again)
+                        check(
+                            again == (OUTPUT[name] or ""),
+                            label .. " printed output under collect-at-every-allocation"
+                        )
+                        check(read(stressed) == u64(expectedWord), label .. " result under collect-at-every-allocation")
+                    end)
                     -- And with interleaved incremental collection, the
                     -- oracle checking every cycle (a failure is status 1001).
                     local stepped = OUT .. "/" .. label .. "-interleaved.bin"
                     write(stepped, u64(-1) .. u64(0) .. u64(2))
                     local steppedOut = OUT .. "/" .. label .. "-interleaved.out"
                     os.remove(steppedOut)
-                    local printedStepped = bridgeRun(label .. " interleaved", bundle, stepped, steppedOut, 0)
-                    check(printedStepped == (OUTPUT[name] or ""), label .. " printed output under interleaved collection")
-                    check(read(steppedOut) == u64(expectedWord), label .. " result under interleaved collection")
+                    bridgeRun(label .. " interleaved", bundle, stepped, steppedOut, 0, nil, function(printedStepped)
+                        check(
+                            printedStepped == (OUTPUT[name] or ""),
+                            label .. " printed output under interleaved collection"
+                        )
+                        check(read(steppedOut) == u64(expectedWord), label .. " result under interleaved collection")
+                    end)
                 end
                 -- The workloads read BENCH_SCALE at run time; scale 2 has its own
                 -- checksums (bench/vm/workloads.bench.nupp).
                 if SCALED[name] and label:match("%-normal$") then
                     local scaled = OUT .. "/" .. label .. "-scale2.out"
                     os.remove(scaled)
-                    bridgeRun(label .. " scale 2", bundle, empty, scaled, 0, GUEST_ENV .. "BENCH_SCALE=2 ")
-                    check(read(scaled) == u64(SCALED[name]), label .. " result at BENCH_SCALE=2")
+                    bridgeRun(label .. " scale 2", bundle, empty, scaled, 0, GUEST_ENV .. "BENCH_SCALE=2 ", function()
+                        check(read(scaled) == u64(SCALED[name]), label .. " result at BENCH_SCALE=2")
+                    end)
                 end
-                local _, short = shell(
+                defer(
+                    "guard short",
                     (
                         "CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_HIGH_WATER=0 %s --ignored --exact abi::generated_entry_refuses_short_regions --test-threads=1"
-                    ):format(quote(bundle), quote(empty), quote(guard))
+                    ):format(quote(bundle), quote(empty), quote(guard)),
+                    function(_, short)
+                        check(short:find("1 passed; 0 failed; 0 ignored;", 1, true) ~= nil, label .. " short regions refused")
+                    end
                 )
-                check(short:find("1 passed; 0 failed; 0 ignored;", 1, true) ~= nil, label .. " short regions refused")
                 local body = selected.programs[#selected.programs]
                 if name:match("^numeric") then
                     local seen, backward = {}, false
@@ -894,10 +1136,12 @@ local function main()
         end
     end
 
+    print(("selected %d programs in %ds"):format(#selectedCases * 2, selectedSeconds))
+    drain()
     print(("primary checks done at %ds"):format(os.time() - started))
     -- Supplemental lifecycle audits wrap selected primary programs.
     for _, mode in ipairs({"normal", "spill"}) do
-        if QUICK then
+        if QUICK or os.getenv("NUPP_GUEST_AUDITS") == "0" then
             break
         end
         for _, item in ipairs(AUDITS) do
@@ -908,9 +1152,12 @@ local function main()
             end
             if present then
                 local label = ("audit-%s-%s-%s"):format(name, mode, scenario)
+                timing.case, timing.phase = "audit " .. name, "audit select"
+                local began = os.time()
                 local selected = UNITS
                     and producer.selectUnits(name, mode, tostring(SCRATCH), ROOT .. "/build/core-unit-cache", scenario)
                     or producer.select(name, mode, "131072", scenario)
+                account(os.time() - began)
                 local primary = selections[name .. "-" .. mode]
                 check(same(selected.programs, primary.programs), label .. " stream unchanged")
                 check(same(selected.dispatch, primary.dispatch), label .. " dispatch unchanged")
@@ -929,8 +1176,9 @@ local function main()
                     write(expected, u64(expectedWord))
                     local output = OUT .. "/" .. label .. ".out"
                     os.remove(output)
-                    bridgeRun(label, bundle, empty, output, 0)
-                    check(read(output) == u64(expectedWord), label .. " result")
+                    bridgeRun(label, bundle, empty, output, 0, nil, function()
+                        check(read(output) == u64(expectedWord), label .. " result")
+                    end)
                     guarded(label, bundle, empty, highWater, expected)
                 else
                     local budgets = {
@@ -949,7 +1197,36 @@ local function main()
             end
         end
     end
+    drain()
+    -- What each case cost, which the next run's shards are balanced by.
+    if shard then
+        local costs = {}
+        for name, seconds in pairs(timing.cases) do
+            costs[#costs + 1] = name .. "\t" .. tostring(seconds)
+        end
+        os.execute("mkdir -p " .. quote(OUT .. "/costs"))
+        write(OUT .. "/costs/" .. shard:match("^(%d+)"), table.concat(costs, "\n") .. "\n")
+    end
+    local function summary(title, map, limit)
+        local names = {}
+        for key in pairs(map) do
+            names[#names + 1] = key
+        end
+        table.sort(names, function(a, b)
+            return map[a] > map[b]
+        end)
+        print(title)
+        for index = 1, math.min(limit, #names) do
+            print(("  %8.1fs  %s"):format(map[names[index]], names[index]))
+        end
+    end
+    summary("seconds by phase", timing.phases, 100)
+    summary("slowest cases", timing.cases, 12)
+    summary("processor seconds in selection", guestbuild.timings, 100)
     print(("%d checks, %d failed, %ds"):format(checks, #failures, os.time() - started))
+    if shard then
+        print(("shard result %d %d"):format(checks, #failures))
+    end
     os.exit(#failures == 0 and 0 or 1)
 end
 

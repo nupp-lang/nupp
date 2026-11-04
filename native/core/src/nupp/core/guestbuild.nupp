@@ -16,6 +16,9 @@ local tagged = require("nupp.compiler.vm.taggedprofile")
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 require("nupp.compiler.hostservices")
 local build = {}
+-- Processor seconds by phase across this process's builds, for the runner's
+-- summary: the runtime's selection, and each program's compile.
+build.timings = {} as {[string]: number}
 
 -- Each case's fixture and graph profile version.
 local CASES: {[string]: {
@@ -143,6 +146,12 @@ local CASES: {[string]: {
         modules = {"catalog-modules-ping", "catalog-modules-pong"},
     },
     callsoverflow = {fixture = "catalog-calls-overflow", version = 8},
+    modulesretry = {
+        fixture = "catalog-modules-retry",
+        version = 8,
+        modules = {"catalog-modules-tally", "catalog-modules-faulty"}
+    },
+    errorsruntime = {fixture = "catalog-errors-runtime", version = 8},
     tablesfrozen = {fixture = "catalog-tables-frozen", version = 8}
 }
 
@@ -242,6 +251,9 @@ local RUNTIME = {
 -- lifecycle audit leaves, which primary programs must not link.
 local runtimes: {[string]: any} = {}
 local sessions: {[string]: any} = {}
+-- Each case's program, compiled once for the process: the program does not
+-- depend on the mode or the audit, and nothing downstream changes it.
+local programs: {[string]: any} = {}
 
 local function runtime(mode: string, cacheDirectory: string?, audited: boolean): any
     local kind = audited and "audited" or "primary"
@@ -328,7 +340,14 @@ local function runtime(mode: string, cacheDirectory: string?, audited: boolean):
             calls = #code.fixupName
         }
     end
-    held = {codes = chosen.codes, owners = chosen.owners, scopes = scopes, timings = timings, metrics = metrics}
+    held = {
+        codes = chosen.codes,
+        owners = chosen.owners,
+        scopes = scopes,
+        timings = timings,
+        metrics = metrics,
+        raises = chosen.raises
+    }
     runtimes[kind .. ":" .. mode] = held
 
     return held
@@ -422,6 +441,32 @@ local function modulePath(root: string, name: string): string
     return root .. "/native/core/tests/" .. name .. ".nupp"
 end
 
+-- One project for the process's multi-module programs: the library modules
+-- they carry are checked once, not once per case. Its staged fixtures are
+-- written before the first case and not changed after.
+local sharedProject: any = nil
+
+local function checkedProject(root: string): any
+    if sharedProject == nil then
+        local incremental: any = require("nupp.compiler.project.incremental")
+        require("nupp.compiler.project.projectconfig")
+        require("nupp.compiler.hash")
+        sharedProject = incremental.new(root, {
+            cache = false,
+            nativeCompilerServices = false,
+            -- Its output is not the build directory the staged sources sit
+            -- in, which the project index would leave out, and a qualified
+            -- path resolves only modules the index declares.
+            config = {
+                include = {"src", "build/core-guest-programs/source"},
+                build = {outDir = "build/core-guest-programs/out"},
+            }
+        })
+    end
+
+    return sharedProject
+end
+
 -- The checked program for a case, compiled to the core executable.
 local function compileProgram(caseName: string, fixture: string, version: integer): any
     local root = assert(os.getenv("NUPP_COMPILER_ROOT"))
@@ -454,20 +499,7 @@ local function compileProgram(caseName: string, fixture: string, version: intege
     local staged = root .. "/build/core-guest-programs/source"
     local project: any = nil
     if #names > 1 or declared ~= nil and declared.follow == true then
-        local incremental: any = require("nupp.compiler.project.incremental")
-        require("nupp.compiler.project.projectconfig")
-        require("nupp.compiler.hash")
-        project = incremental.new(root, {
-            cache = false,
-            nativeCompilerServices = false,
-            -- Its output is not the build directory the staged sources sit
-            -- in, which the project index would leave out, and a qualified
-            -- path resolves only modules the index declares.
-            config = {
-                include = {"src", "build/core-guest-programs/source"},
-                build = {outDir = "build/core-guest-programs/out"},
-            }
-        })
+        project = checkedProject(root)
     end
     local modules = {}
     local moduleName = ""
@@ -588,8 +620,20 @@ function build.guest(caseName: string, mode: string, cacheDirectory: string?, au
         }
     end
     case = assert(case, "unknown guest case: " .. caseName)
+    local began = os.clock()
     local held = runtime(mode, cacheDirectory, audited == true)
-    local program = compileProgram(caseName, case.fixture, case.version)
+    local selected = os.clock()
+    -- Keyed by the entry's text too: a generated case may be rewritten.
+    local fixturePath = (case.fixture as string):sub(1, 1) == "/" and case.fixture .. ".nupp"
+        or assert(os.getenv("NUPP_COMPILER_ROOT")) .. "/native/core/tests/" .. case.fixture .. ".nupp"
+    local key = caseName .. "\0" .. read(fixturePath)
+    local program = programs[key]
+    if program == nil then
+        program = compileProgram(caseName, case.fixture, case.version)
+        programs[key] = program
+    end
+    build.timings.runtime = (build.timings.runtime or 0) + selected - began
+    build.timings.compile = (build.timings.compile or 0) + os.clock() - selected
     local resolved = {}
     for name, owner in pairs(held.owners) do
         resolved[name] = {owner = owner}
@@ -605,7 +649,9 @@ function build.guest(caseName: string, mode: string, cacheDirectory: string?, au
         audited = audited == true,
         refusals = {},
         timings = held.timings,
-        metrics = held.metrics
+        metrics = held.metrics,
+        -- The runtime's literal raises, whose texts the guest's errors carry.
+        raises = held.raises
     }
 end
 

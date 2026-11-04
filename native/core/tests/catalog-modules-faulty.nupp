@@ -1,0 +1,14 @@
+module nupp.core.catalogmodulesfaulty
+
+-- A module whose body raises the first time it runs, after its exports are
+-- published and its function defined.
+const tally = require("nupp.core.catalogmodulestally")
+
+export function answer(): integer
+    return 42
+end
+
+tally.runs.loads = tally.runs.loads + 1
+if tally.runs.loads == 1 then
+    error("faulty module failed to load")
+end
