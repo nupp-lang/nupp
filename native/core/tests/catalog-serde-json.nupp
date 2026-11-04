@@ -5,6 +5,7 @@ local json = require("serde.json")
 local score = 0
 local text = json.encodevalue({1, 2, 3})
 if text == "[1,2,3]" then score = score + 1 end
+-- Decoding drops JSON null, from inside an array too.
 local back: any = json.decodevalue('{"a":[true,null,"x"]}')
-if back.a[1] == true and back.a[3] == "x" then score = score + 2 end
+if back.a[1] == true and back.a[2] == "x" and back.a[3] == nil then score = score + 2 end
 export = score

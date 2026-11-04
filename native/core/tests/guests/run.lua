@@ -149,7 +149,10 @@ local CASES = {
     {"storageprovider", 0x7FFF00000000003F},
     {"modulesqualified", 0x7FFF0000000000E6},
     {"callsoverflow", 0x7FFF000000000003},
-    {"tablesfrozen", 0x7FFF000000000FFF}
+    {"tablesfrozen", 0x7FFF000000000FFF},
+    {"serdejson", 0x7FFF000000000003},
+    -- 600 functions, past the 256 owners the graph schema once admitted.
+    {"functionsmany", 0x7FFF00000002C04C}
 }
 -- What the cases that print write to the host's output, as Lua 5.5 writes it
 -- but for floats, which print the shorter exact text (Decision 13).
@@ -193,7 +196,9 @@ local STRESS = {
     methodcleanups = true,
     ownerreinit = true,
     coreforms = true,
-    tablesfrozen = true
+    tablesfrozen = true,
+    serdejson = true,
+    functionsmany = true
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
@@ -602,8 +607,33 @@ local function bundleOf(selected, scratch)
     ) .. u64(#code) .. u64(#data) .. u64(scratch) .. u64(1) .. u64(0) .. code .. data, #code, data
 end
 
+-- The generated case: six blocks of a hundred local functions, each
+-- calling the one before it and adding its own number, so the program has
+-- six hundred functions and the sum of 1 to 600 (180300) for its result.
+local function functionsmany()
+    local lines = {"module nupp.core.catalogfunctionsmany", "", "local total = 0"}
+    for block = 0, 5 do
+        lines[#lines + 1] = "do"
+        for k = 1, 100 do
+            local number = block * 100 + k
+            local inner = k == 1 and "x" or ("f" .. (k - 1) .. "(x)")
+            lines[#lines + 1] = ("    local function f%d(x: integer): integer\n        return %s + %d\n    end"):format(
+                k,
+                inner,
+                number
+            )
+        end
+        lines[#lines + 1] = "    total = total + f100(0)"
+        lines[#lines + 1] = "end"
+    end
+    lines[#lines + 1] = "export = total"
+    os.execute("mkdir -p " .. quote(OUT .. "/generated"))
+    write(OUT .. "/generated/functionsmany.nupp", table.concat(lines, "\n") .. "\n")
+end
+
 local function main()
     os.execute("mkdir -p " .. quote(OUT))
+    functionsmany()
     local selectedCases = {}
     local wanted = {}
     for _, name in ipairs(arg) do
