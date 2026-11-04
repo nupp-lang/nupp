@@ -193,14 +193,9 @@ local function markdownMemberSummary(out, members, heading, title, path, superty
         elseif member.isFunction then
             group = groups[1]
         end
-        local kind = member.isAlias and "type" or member.isType and member.type or ""
         group.entries[
             #group.entries + 1
-        ] = {
-            name = member.name,
-            order = index,
-            text = "[" .. codeSpan(member.name) .. "](#" .. path .. ")" .. markdown.overviewBadge(kind),
-        }
+        ] = {name = member.name, order = index, text = "[" .. codeSpan(member.name) .. "](#" .. path .. ")",}
     end
     local overview = {}
     local implemented = {}
@@ -355,8 +350,8 @@ function markdown.itemBody(item: Item): string
     return table.concat(out, "\n")
 end
 
--- A compact index is ordinary Markdown inside a layout directive. The links and
--- kind labels remain readable in the downloadable Markdown as well as on the site.
+-- A compact index is ordinary Markdown inside a layout directive. Its links
+-- remain readable in the downloadable Markdown as well as on the site.
 function markdown.overview(groups: {{
     title: string,
     entries: {string}
@@ -387,22 +382,6 @@ function markdown.overview(groups: {{
     return table.concat(out, "\n")
 end
 
-function markdown.overviewBadge(kind: string): string
-    local letter = kind == "record" and "R" or kind == "type" and "T" or nil
-    if not letter then
-        return ""
-    end
-    local label = kind == "record" and "Record" or "Type alias"
-
-    return ' <abbr class="nuppdoc-kind-badge nuppdoc-kind-'
-        .. kind
-        .. ' nuppdoc-overview-badge" title="'
-        .. label
-        .. '">'
-        .. letter
-        .. '</abbr>'
-end
-
 function markdown.moduleOverview(module: Module, all: {Module}, prefix: string?): string
     local groups: {{
         title: string,
@@ -430,9 +409,7 @@ function markdown.moduleOverview(module: Module, all: {Module}, prefix: string?)
                 if name:sub(1, #tail + 1) == tail .. "." then
                     name = name:sub(#tail + 2)
                 end
-                entries[
-                    #entries + 1
-                ] = "[" .. codeSpan(name) .. "](#" .. item.path .. ")" .. markdown.overviewBadge(item.kind)
+                entries[#entries + 1] = "[" .. codeSpan(name) .. "](#" .. item.path .. ")"
             end
         end
         groups[#groups + 1] = {title = group.title, entries = entries}
