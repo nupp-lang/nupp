@@ -1260,6 +1260,9 @@ function metadata.expand(root, moduleName: string?)
         for index, namespace in ipairs(qualifiedOrder) do
             local statement: any = node("callStmt", {expr = required(namespace)})
             table.insert(block.stats as {any}, index, statement)
+            -- Among the block's children too, where the emitter looks for the
+            -- modules an image carries.
+            block[#block + 1] = statement
         end
         root.vmQualifiedRequires = true
     end
