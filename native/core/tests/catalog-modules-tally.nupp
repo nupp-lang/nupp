@@ -1,0 +1,5 @@
+module nupp.core.catalogmodulestally
+
+-- How many times the failing module's body has run, kept where a second run
+-- of that body sees the first one's count.
+export const runs: {loads: integer} = {loads = 0}

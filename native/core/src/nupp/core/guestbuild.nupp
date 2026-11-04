@@ -146,6 +146,11 @@ local CASES: {[string]: {
         modules = {"catalog-modules-ping", "catalog-modules-pong"},
     },
     callsoverflow = {fixture = "catalog-calls-overflow", version = 8},
+    modulesretry = {
+        fixture = "catalog-modules-retry",
+        version = 8,
+        modules = {"catalog-modules-tally", "catalog-modules-faulty"}
+    },
     tablesfrozen = {fixture = "catalog-tables-frozen", version = 8}
 }
 

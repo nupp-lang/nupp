@@ -1801,6 +1801,52 @@ export function takeLanded(ctx: voidptr): uint64
     end
 end
 
+-- The frame an error unwinds to the protected call of: the nearest protected
+-- frame, or 0 when there is none.
+local function protectedFrame(state: voidptr): uint64
+    @unsafe do
+        local at = native.load64(state, native.fieldOffset<frames.State>("active"))
+        while at ~= 0ULL do
+            if native.load64(
+                native.pointer(at),
+                native.fieldOffset<frames.Frame>("resultKind")
+            ) == frames.PROTECTED_DESTINATION then
+                return at
+            end
+            at = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
+        end
+        return 0ULL
+    end
+end
+
+-- An error unwinding the frames above `stop` leaves every module whose chunk
+-- one of them runs unloaded, as Lua's require does: the next require of it
+-- runs its chunk again, where a module with named exports had published its
+-- table as it started.
+local function forgetModules(ctx: voidptr, state: voidptr, stop: uint64): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local loaded = native.load64(services, native.fieldOffset<Services>("loaded"))
+        if loaded == 0ULL then
+            return
+        end
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        local at = native.load64(state, native.fieldOffset<frames.State>("active"))
+        while at ~= 0ULL and at ~= stop do
+            local frame = native.pointer(at)
+            if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.MODULE_DESTINATION then
+                local key = values.TAG_INTEGER | native.load64(frame, native.fieldOffset<frames.Frame>("functionId"))
+                -- Clearing a present key allocates nothing.
+                if tables.get(loaded & values.PAYLOAD, key) ~= values.NIL then
+                    tables.set(h, loaded & values.PAYLOAD, key, values.NIL)
+                end
+            end
+            at = native.load64(frame, native.fieldOffset<frames.Frame>("previous"))
+        end
+        tables.drain(h)
+    end
+end
+
 -- After a guest error stops the handlers: unwinds it to the nearest protected
 -- call (frames.recover) and answers the pc to resume at, or 0 when the stop
 -- was not a guest error (a refusal, budget or cancellation is not one) or no
@@ -1876,6 +1922,13 @@ export function recoverEntry(ctx: voidptr): uint64
         local landing: uint64 = 0ULL
         if own == 0ULL then
             landing = landingFrame(ctx, state)
+        end
+        -- The frames the error unwinds: those above the landing frame, or up
+        -- to the protected call (all of them when none takes it).
+        if own == 0ULL and landing ~= 0ULL then
+            forgetModules(ctx, state, landing)
+        elseif own == 0ULL and not closing then
+            forgetModules(ctx, state, protectedFrame(state))
         end
         local parent: uint64 = 0ULL
         if own ~= 0ULL then

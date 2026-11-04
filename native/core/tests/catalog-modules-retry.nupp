@@ -1,0 +1,36 @@
+module nupp.core.catalogmodulesretry
+
+-- A module whose body raised is not loaded, as Lua 5.5 leaves it: the next
+-- require runs its body again, and only a body that finished is kept.
+const tally = require("nupp.core.catalogmodulestally")
+
+local score = 0
+local ok1, e1 = pcall(function(): any
+    return require("nupp.core.catalogmodulesfaulty")
+end)
+if not ok1 then
+    score = score + 1
+end
+if string.find(tostring(e1), "faulty module failed to load", 1, true) ~= nil then
+    score = score + 2
+end
+local ok2, m2 = pcall(function(): any
+    return require("nupp.core.catalogmodulesfaulty")
+end)
+if ok2 then
+    score = score + 4
+end
+if tally.runs.loads == 2 then
+    score = score + 8
+end
+const faulty = require("nupp.core.catalogmodulesfaulty")
+if tally.runs.loads == 2 then
+    score = score + 16
+end
+if faulty == m2 then
+    score = score + 32
+end
+if faulty.answer() == 42 then
+    score = score + 64
+end
+export = score
