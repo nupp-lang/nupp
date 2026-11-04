@@ -216,11 +216,6 @@ local OPERATION_SCHEMAS: {
             },
         },
     },
-    implementation = {
-        type = "object",
-        properties = {implementations = {type = "array", items = reportMod.LOCATION}},
-        required = {"implementations"},
-    },
     references = {
         type = "object",
         properties = {
@@ -641,15 +636,12 @@ local function runInspect(client, opts)
     return true
 end
 
-local function runDefinition(client, opts, implementation: boolean?)
+local function runDefinition(client, opts)
     local path, _, position, err = target(client, opts)
     if not path then
         return nil, err
     end
-    local result, requestErr = client.request(
-        implementation and "textDocument/implementation" or "textDocument/definition",
-        positionParams(path, position)
-    )
+    local result, requestErr = client.request("textDocument/definition", positionParams(path, position))
     if requestErr then
         return nil, requestErr
     end
@@ -671,9 +663,7 @@ local function runDefinition(client, opts, implementation: boolean?)
         end
     end
     if opts.format == "json" then
-        if implementation then
-            jsonOutput({implementations = jsonArray(values)})
-        elseif #values > 1 then
+        if #values > 1 then
             jsonOutput({definition = values[1], definitions = jsonArray(values)})
         else
             jsonOutput({definition = values[1] or json.NULL})
@@ -1101,9 +1091,6 @@ end
 local OPERATIONS = {
     inspect = runInspect,
     definition = runDefinition,
-    implementation = function(client, opts)
-        return runDefinition(client, opts, true)
-    end,
     references = runReferences,
     symbols = runSymbols,
     rename = runRename,
@@ -1167,8 +1154,8 @@ end
 ---
 --- `nupp lsp serve [root]` runs the language server over stdio. Semantic
 --- operations are `nupp lsp inspect`, `nupp lsp definition`,
---- `nupp lsp implementation`, `nupp lsp references`, `nupp lsp symbols`,
---- `nupp lsp rename`, and `nupp lsp actions`.
+--- `nupp lsp references`, `nupp lsp symbols`, `nupp lsp rename`, and
+--- `nupp lsp actions`.
 --- Artifact operations are `nupp lsp artifacts` and `nupp lsp artifact`.
 ---
 --- Operation-only options: references only: `--include-declaration`;
@@ -1278,43 +1265,6 @@ local record Definition
 
     function run(self): integer
         return typedOperation("definition", self, {self.file, self.line, self.column})
-    end
-end
-
---- Find registered implementations of a service member.
----
---- Examples:
----
----     nupp lsp implementation src/services.nupp 24 18
----     nupp lsp implementation --json src/services.nupp 24 18
-@cli("implementation")
-@derive(cliModule.command)
-local record Implementation
-    --- Project root.
-    @cli(value = "DIR")
-    root: string?
-
-    --- Select the report representation.
-    @cli(value = "FORMAT", choices = {"text", "json"}, constantaliases = {json = "json", text = "text"})
-    format: string?
-
-    --- Print the JSON Schema of JSON output and exit.
-    schema: boolean = false
-
-    --- Source file.
-    @cli(positional = "FILE")
-    file: string
-
-    --- One-based source line.
-    @cli(positional = "LINE")
-    line: string
-
-    --- One-based byte column.
-    @cli(positional = "COLUMN")
-    column: string
-
-    function run(self): integer
-        return typedOperation("implementation", self, {self.file, self.line, self.column})
     end
 end
 
@@ -1549,7 +1499,7 @@ local record Artifact
 end
 
 function Lsp.subcommands(): {cliModule.CommandType}
-    return {Serve, Inspect, Definition, Implementation, References, Symbols, Rename, Actions, Artifacts, Artifact,}
+    return {Serve, Inspect, Definition, References, Symbols, Rename, Actions, Artifacts, Artifact,}
 end
 
 function Inspect.reportSchema(): any
@@ -1558,10 +1508,6 @@ end
 
 function Definition.reportSchema(): any
     return OPERATION_SCHEMAS.definition
-end
-
-function Implementation.reportSchema(): any
-    return OPERATION_SCHEMAS.implementation
 end
 
 function References.reportSchema(): any

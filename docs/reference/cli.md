@@ -1859,8 +1859,8 @@ Language-server and semantic source operations.
 
 `nupp lsp serve [root]` runs the language server over stdio. Semantic
 operations are `nupp lsp inspect`, `nupp lsp definition`,
-`nupp lsp implementation`, `nupp lsp references`, `nupp lsp symbols`,
-`nupp lsp rename`, and `nupp lsp actions`.
+`nupp lsp references`, `nupp lsp symbols`, `nupp lsp rename`, and
+`nupp lsp actions`.
 Artifact operations are `nupp lsp artifacts` and `nupp lsp artifact`.
 
 Operation-only options: references only: `--include-declaration`;
@@ -1884,7 +1884,6 @@ Commands:
   serve           Run the language server over stdio.
   inspect         Describe the symbol at a position.
   definition      Find where the symbol at a position is defined.
-  implementation  Find registered implementations of a service member.
   references      Find semantic references to the symbol at a position.
   symbols         Search workspace or document symbols.
   rename          Rename a symbol and every semantic reference to it.

@@ -368,7 +368,6 @@ function M.everyCommandReportsAMissingFileAsACodedFailure()
         "ownership-audit nosuch.nupp",
         "lsp inspect nosuch.nupp 1 1",
         "lsp definition nosuch.nupp 1 1",
-        "lsp implementation nosuch.nupp 1 1",
         "lsp references nosuch.nupp 1 1",
         "lsp rename nosuch.nupp 1 1 other",
         "lsp actions nosuch.nupp 1 1",

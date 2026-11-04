@@ -11,10 +11,6 @@
       "originalSha256": "6f27157632d599cc9b0aae8b360afca6dbe6bafc5f2858e14c24cf6b6755aec5"
     },
     {
-      "path": "src/nupp/spi/index.nupp",
-      "adaptedSha256": "8405216ab8b177278eb9a1e4ee7135f9b8f24392e8a419ff4ca55c66313e7d9a"
-    },
-    {
       "path": "src/tecs/internal/archetype.nupp",
       "adaptedSha256": "a69d2cd9bd63860f48fe2f644eaa431fa9e20eec9f428ceba429c83194026167",
       "originalSha256": "952a42ae27a0e6caf6c66b3ec047a502121d09bd0f1f1cd7568e9a78303a4a18"

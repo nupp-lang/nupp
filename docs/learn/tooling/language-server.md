@@ -36,10 +36,10 @@ it.
 | Formatting | Whole document and range |
 | Code actions | Quick fixes and direct module exports |
 | Code lenses | One `Inspect` lens over every checked function, for a client that asked |
-| Go to implementation | Registered service members |
 
-Document sync is full text. Inlay hints, call hierarchy and type hierarchy have
-no handler, and an unknown request is answered `method not found` (-32601).
+Document sync is full text. Inlay hints, go to implementation, call hierarchy
+and type hierarchy have no handler, and an unknown request is answered
+`method not found` (-32601).
 
 ## Direct module exports
 

@@ -849,16 +849,6 @@ local function fieldItem(field, childModuleName, includePrivate)
         end
     end
 
-    -- SPI takes a declaration in source. Its string parameter exists only after
-    -- lowering, so the API reference must show the call that users can write.
-    if item.path == "package.providers" and #item.params == 1 and #item.returns == 1 then
-        item.signature = "providers(Interface): function(): Interface?"
-        item.typeargs = {}
-        item.params[1].name = "Interface"
-        item.params[1].type = "interface declaration"
-        item.returns[1].type = "function(): Interface?"
-    end
-
     return item
 end
 

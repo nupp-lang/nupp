@@ -39,14 +39,6 @@ type native.Feature = {
 
 local FEATURES: {[string]: native.Feature} = {
     [
-        "stdlib.packages"
-    ] = {
-        name = "packages",
-        globals = {"package.providers", "package.select"},
-        runtimeModule = "nupp.runtime.packages",
-        portableRuntime = true,
-    },
-    [
         "runtime.crypto"
     ] = {
         name = "crypto_runtime",

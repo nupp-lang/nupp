@@ -6,7 +6,7 @@ so SHA-512 arithmetic does not require native uint64 support. Each factory creat
 independent bounded state containing chaining words, a partial block, and byte
 counts. Finalization applies the algorithm's padding and writes the fixed-size
 result into the supplied byte span. This module uses the retained bit operations
-and performs no SPI resolution itself. MD5 and SHA-1 serve interoperability uses.
+and selects no implementation itself. MD5 and SHA-1 serve interoperability uses.
 ]]
 module nupp.digest.internal.words
 

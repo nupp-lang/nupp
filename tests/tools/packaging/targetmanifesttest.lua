@@ -1,15 +1,10 @@
 local testAssert = require("assert")
 local project = require("nupp.tools.build.project")
-local process = require("nupp.compiler.process")
 local fs = require("nupp.compiler.fs")
 local M = {}
 
 local function write(path, text)
     assert(fs.writeFile(path, text))
-end
-
-local function read(path)
-    return assert(fs.readFile(path))
 end
 
 local function tempProject(files)
@@ -93,56 +88,6 @@ return {newBuffer = text.newbuffer, now = os.monotonic, bytes = array.bytes}
     end)
     remove(dir)
     assert(ok, why)
-end
-
-local function checkDocumentedSpi(page)
-    local files = {
-        [
-            "nupp.lua"
-        ] = [[return {include = {"src"}, build = {
-            kind = "binary", stub = "nupp", outDir = "out", entries = {"main"}
-        }}]],
-        [
-            "src/main.nupp"
-        ] = [[local codec = require("example.codec")
-assert(codec.encode("hello") == "hello")
-io.write(codec.encode == require("example.fastcodec").encode and "provider" or "fallback")
-]],
-    }
-    local moduleCount = 0
-    -- A fence carries the file it is, as `json [nupp/spi.json]`, so the page can
-    -- show other JSON without it becoming the descriptor this project builds.
-    for language, caption, source in page:gmatch("```([%w]+)([^\r\n]*)\r?\n(.-)\r?\n```") do
-        if language == "nupp" then
-            local name = assert(source:match("^module ([%w.]+)"), "the guide example needs a module name")
-            local suffix = name == "example.codec" and "/init.nupp" or ".nupp"
-            files["src/" .. name:gsub("%.", "/") .. suffix] = source .. "\n"
-            moduleCount = moduleCount + 1
-        elseif language == "json" and caption:find("nupp/spi.json", 1, true) then
-            files["nupp/spi.json"] = source .. "\n"
-        end
-    end
-    testAssert.eq(moduleCount, 4, "the guide's interface, implementations, and consumer")
-    assert(files["nupp/spi.json"], "the guide includes a discovery descriptor")
-    local dir = tempProject(files)
-    local executable = dir .. "/out/binary" .. (package.config:sub(1, 1) == "\\" and ".exe" or "")
-    for _, expected in ipairs({"provider", "fallback"}) do
-        testAssert.eq(project.build(dir), 0, "the documented SPI example builds")
-        local status, output = process.capture({executable}, {cwd = dir})
-        testAssert.eq(status, 0, output)
-        testAssert.eq(output, expected, "the documented consumer chooses its implementation")
-        write(dir .. "/nupp/spi.json", "{}\n")
-    end
-    remove(dir)
-end
-
-function M.documentedSpiModulesSelectAnImplementationAndFallBack()
-    checkDocumentedSpi(read("docs/learn/projects/spi.md"))
-end
-
-function M.documentedSpiModulesAcceptWindowsLineEndings()
-    local page = read("docs/learn/projects/spi.md"):gsub("\r\n", "\n"):gsub("\n", "\r\n")
-    checkDocumentedSpi(page)
 end
 
 return M

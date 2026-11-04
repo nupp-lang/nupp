@@ -138,9 +138,8 @@ dependencies](#rust-dependencies), [rock dependencies](#rock-dependencies),
 and [type dependencies](#type-dependencies). Dependency acquisition and usage are
 separate: target dependencies ship with the target, `compileDependencies` are visible
 only while compiling, and a dependency selected by `generators.*.using` is a host
-tool. See [SPI](spi.md) for runtime implementation discovery and
-[code generators](code-generators.md) for build-time generation. `nupp test`
-uses the default target and bundled runner. The optional `test` action names a
+tool. See [code generators](code-generators.md) for build-time generation.
+`nupp test` uses the default target and bundled runner. The optional `test` action names a
 different target to build first, and `argv` replaces the runner:
 
 ```lua

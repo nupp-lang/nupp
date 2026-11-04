@@ -4,7 +4,7 @@
 Private implementation contracts for target-bound host facilities.
 
 The build binds native or browser implementations. Consumers retain their
-operations during module initialization, and calls perform no package discovery.
+operations during module initialization.
 Importing these declarations initializes no host service.
 ]]
 module nupp.runtime.contracts

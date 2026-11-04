@@ -39,7 +39,6 @@ local RESOURCES = {
     {source = "src/types/derive.nupp", output = "nupp/compiler/types/derive.nupp"},
     {source = "src/types/reflect.nupp", output = "nupp/compiler/types/reflect.nupp"},
     {source = "src/own.nupp", output = "nupp/compiler/own.nupp"},
-    {source = "src/nupp/runtime/packages.nupp", output = "nupp/compiler/nupp/runtime/packages.nupp"},
     {source = "src/nupp/runtime/contracts.nupp", output = "nupp/compiler/nupp/runtime/contracts.nupp"},
     {source = "src/serde/json/internal/contracts.nupp", output = "nupp/compiler/serde/json/internal/contracts.nupp"},
     {source = "src/nupp/codec/json/number.nupp", output = "nupp/compiler/nupp/codec/json/number.nupp"},

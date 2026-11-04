@@ -17,9 +17,8 @@ print(bit.tohex(bit.bswap(0x11223344))) -- 44332211
 ## Target implementations
 
 The build binds builtin implementations for the selected native or browser
-host. Standard-library calls use those bindings; package descriptors do not
-replace them. Fixed hashing, scalar SIMD, and layout arithmetic remain ordinary
-modules.
+host, and standard-library calls use those bindings. Fixed hashing, scalar SIMD,
+and layout arithmetic remain ordinary modules.
 
 Storage and struct operations use private runtime contracts. Their layouts and
 scalar codecs agree with the representation compiled into the program.
@@ -36,23 +35,12 @@ Host code pumps network events with `io.net.pump(milliseconds)`. Processes
 return plain `io.Process.Exit` data containing `exitcode`, `killed`, and
 `timedout`.
 
-## Dependency providers
-
-A runtime dependency lists its own qualified interface names and implementation
-modules in `nupp/spi.json`. The build checks ordinary assignment compatibility,
-including generic signatures, ownership, and suspension. Lua implementations
-need a matching `.d.nupp` declaration or typed adapter. Discovery never executes
-provider code.
-
-Only target runtime dependencies contribute implementations. The selected host
-determines which builtin adapters the build includes. See [SPI](../spi.md) for
-metadata and examples.
-
 ## Workers
 
-Worker lanes each run their own VM with the artifact's immutable provider index.
-They load and cache their own module instances. Provider objects and closures do
-not cross lane boundaries; each consumer chooses during its own initialization.
+Worker lanes each run their own VM over the same immutable artifact. They load
+and cache their own module instances. Provider objects and closures do not cross
+lane boundaries; each consumer binds its implementation during its own
+initialization.
 
 ## Validation
 

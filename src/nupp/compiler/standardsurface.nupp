@@ -19,7 +19,6 @@ local MODULES: {[string]: {
     ["nupp.runtime.system"] = facility("host", "runtime.system"),
     ["nupp.runtime.clocks"] = facility("host", "runtime.clocks"),
     ["nupp.runtime.standardos"] = {kind = "common"},
-    ["nupp.runtime.packages"] = {kind = "common"},
     ["nupp.runtime.contracts"] = {kind = "common"},
     ["types"] = {kind = "common"},
     ["types.derive"] = {kind = "common"},

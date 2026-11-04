@@ -1229,31 +1229,12 @@ local os: {
     tmpname: function(): string
 }
 
---- Lua's module-loader configuration.
-
 ----------------------------------------------------------------------------
 -- package
 ----------------------------------------------------------------------------
 
---- Discovers package implementations in dependency order.
----
---- See [spi.md](docs/learn/projects/spi.md) for advertising and selecting providers.
+--- Lua's module-loader configuration.
 local package: {
-    --- Iterates implementations of a concrete exported interface lazily.
-    --- Each iterator advance loads one module; require caching retains its identity.
-    --- @param interface the exported interface whose implementations to discover
-    --- @return a lazy iterator, returning nil at exhaustion
-    --- @raises any when an implementation fails to initialize; the next call retries it
-    @readonly providers: function<I>(interface: string): function(): I?,
-
-    --- Chooses the implementation with the unique highest priority.
-    --- An omitted priority is zero. Returns nil when no implementation is advertised.
-    --- @param candidates the implementations to choose among
-    --- @return the implementation with the highest priority, or nil
-    --- @raises string when implementations tie for the highest priority
-    --- @raises any when an implementation fails to initialize
-    @readonly select: function<I>(candidates: function(): I?): I?,
-
     --- Platform path separators and template markers.
     config: string,
 

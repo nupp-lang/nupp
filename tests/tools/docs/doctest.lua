@@ -1825,47 +1825,6 @@ function M.standardTypesPageCombinesBuildersAndRuntimeExports()
     os.execute("rm -rf '" .. dir .. "'")
 end
 
-function M.spiReferenceShowsTheInterfaceArgumentRatherThanItsLowering()
-    local path = "src/nupp/compiler/decls/lua.d.nupp"
-    local source = readFile(HERE .. "/../" .. path)
-    local _, errors, modules = doc.extract(source, path, "lua", {shapesAsModules = true})
-    assert(not errors or #errors == 0, errors and errors[1] and errors[1].msg)
-    local packageModule
-    for _, module in ipairs(modules or {}) do
-        if module.name == "package" then
-            packageModule = module
-        end
-    end
-    assert(packageModule, "the prelude must document package discovery")
-    assert(packageModule.text:find("dependency order", 1, true))
-    local providers
-    for _, item in ipairs(packageModule.items) do
-        if item.name == "providers" then
-            providers = item
-        end
-    end
-    assert(providers, "the package reference has no providers operation")
-    assert(providers.signature == "providers(Interface): function(): Interface?")
-    assert(#providers.typeargs == 0, "discovery infers the implementation type from its interface argument")
-    assert(providers.params[1].name == "Interface" and providers.params[1].type == "interface declaration")
-    assert(providers.params[1].text ~= "" and providers.returns[1].text ~= "")
-    assert(providers.returns[1].type == "function(): Interface?")
-
-    local ordinary = assert(
-        doc.extract(
-            [[
-module custom
-export function providers<I>(interface: string): function(): I?
-    return function(): I? return nil end
-end
-]],
-            "src/custom.nupp",
-            "custom"
-        )
-    )
-    assert(ordinary.items[1].params[1].type == "string", "unrelated functions keep their declared signature")
-end
-
 -- The public JSON module documents its own complete surface; the host declaration is
 -- only an implementation boundary.
 function M.standardJsonApiHasCompleteDocumentation()

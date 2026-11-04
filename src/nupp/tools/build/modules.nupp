@@ -887,13 +887,6 @@ local function runtimeImports(name: string, code: string, config: Config, target
     if config._reload then
         required[#required + 1] = "nupp.runtime.hotreload"
     end
-    if name == "nupp.runtime.packages" then
-        required[#required + 1] = "package.nupp.index"
-    elseif name == "package.nupp.index" then
-        for _, provider in ipairs(config._spiEntries or {}) do
-            required[#required + 1] = provider.implementation
-        end
-    end
     local unique, seen = {}, {}
     for _, dependency in ipairs(required) do
         if not seen[dependency] and moduleTargets.supports(dependency, target.host) then
@@ -1354,8 +1347,7 @@ local function buildModules(root: string, outDir: string, config: Config, target
 
     local function linkSelectedDependencies(name: string, names: any, effects: any): nil
         linkFeatureRuntime(effects)
-        local selected = name == "nupp.runtime.packages"
-            or (linkedModules[name] == true and not packagedRuntimeModules[name])
+        local selected = linkedModules[name] == true and not packagedRuntimeModules[name]
         if not selected then
             return
         end
@@ -1681,14 +1673,6 @@ local function buildModules(root: string, outDir: string, config: Config, target
         configuredEffects[#configuredEffects + 1] = effect
     end
     linkFeatureRuntime(configuredEffects)
-
-    if #(config._spiEntries or {}) > 0 then
-        linkRuntimeSource("nupp.runtime.packages")
-        linkRuntimeSource("package.nupp.index")
-        for _, provider in ipairs(config._spiEntries) do
-            linkRuntimeSource(provider.implementation)
-        end
-    end
 
     -- A note or a warning is said and stepped over. Only an error stops the build, and
     -- only an error withholds the file's generated Lua: advice about a program is not a
@@ -2203,15 +2187,6 @@ local function targetScope(root: string, target: Target, session: modules.Sessio
     end
     for _, path in ipairs(selected or {}) do
         seed(path)
-    end
-    -- Discovery adds runtime roots that no literal require in the consumer names.
-    -- Their ordinary import closure needs the same AOT policy as the entry's.
-    for _, implementation in ipairs(inc.env.config._spiEntries or {}) do
-        local path = inc.modulePath(implementation.implementation)
-            or session.stageBundled(implementation.implementation)
-        if path ~= nil then
-            seed(path)
-        end
     end
     local cursor: integer = 1
     while cursor <= #queue do

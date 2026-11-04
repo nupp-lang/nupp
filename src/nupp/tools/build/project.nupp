@@ -18,7 +18,6 @@ local manifest = require("nupp.tools.build.manifest")
 local tasks = require("nupp.tools.build.tasks")
 local deps = require("nupp.tools.build.deps")
 local generators = require("nupp.tools.build.generators")
-local spi = require("nupp.tools.build.spi")
 local modules = require("nupp.tools.build.modules")
 local buildPlatform = require("nupp.tools.build.platform")
 local storeMod = require("nupp.compiler.project.store")
@@ -437,29 +436,7 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         return 1
     end
     newState.generators = generated
-    local spiEntries, spiError = spi.read(root, config, target, dependencies)
-    if spiEntries == nil then
-        say(opts, "NUPP0002", "nupp: " .. tostring(spiError) .. "\n")
-        return 1
-    end
-    local wroteSpi, writeSpiError = spi.write(root, outDir, spiEntries)
-    if not wroteSpi then
-        say(opts, "NUPP0001", "nupp: " .. tostring(writeSpiError) .. "\n")
-        return 1
-    end
-    config._spiEntries = spiEntries
     local session = modules.session(root, outDir, config, target, dependencies, report)
-    local validSpi, invalidSpi = spi.check(session, spiEntries, root, outDir)
-    if not validSpi then
-        say(opts, "NUPP0002", "nupp: " .. tostring(invalidSpi) .. "\n")
-        return 1
-    end
-    local writtenSpi, publishSpiError = spi.write(root, outDir, spiEntries)
-    if not writtenSpi then
-        say(opts, "NUPP0001", "nupp: " .. tostring(publishSpiError) .. "\n")
-        return 1
-    end
-    session.inc.diskChanged(join(root, join(outDir, "generated/package/nupp/index.nupp")), 2)
 
     if checkOnly and target.aot == "require" and checkedTargetNeedsGpu(root, config, opts.paths) then
         session.stageGpuRuntime()
@@ -658,7 +635,6 @@ local function buildOne(root: string?, opts: project.BuildOptions?): integer
         opts.produced.outputs = mine
         opts.produced.materializations = materializeObserve.public(result.materializations)
         opts.produced.derives = result.derives
-        opts.produced.spi = spiEntries
     end
     report:at("write")
     local ok, stateErr = saveState(statePath, newState)

@@ -66,9 +66,6 @@ export function bootstrap(effects: {[string]: any}?, watch: boolean?, installing
     if effects["runtime.warn"] then
         out[#out + 1] = 'if not package.loaded["debug.log"] then require("debug.log") end;'
     end
-    if effects["stdlib.packages"] then
-        out[#out + 1] = 'require("nupp.runtime.packages");'
-    end
     if effects["stdlib.math"] then
         out[#out + 1] = MATH
     end

@@ -201,13 +201,6 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
    kind = "binary", stub = "nupp", entries = {"main"}, outDir = "build",
 }}}}
 ]],
-        ["nupp/spi.json"] = [[{"counter.spi.Counter":["counter.provider"]}]],
-        [
-            "src/counter/spi.nupp"
-        ] = [[module counter.spi
-export interface Counter
-    @readonly next: function(): integer
-end]],
         [
             "src/counter/provider.nupp"
         ] = [[module counter.provider
@@ -219,9 +212,7 @@ end]],
         [
             "src/counter/init.nupp"
         ] = [[module counter
-local spi = package
-local {type Counter} = require("counter.spi")
-local implementation = assert(spi.providers(Counter)())
+const implementation = require("counter.provider")
 export const next = implementation.next]],
         [
             "src/jobs.nupp"
@@ -372,7 +363,7 @@ do local scope = tasks.scope() ;
     -- provider starts over; a VM worker runs none of its modules' bodies and
     -- receives the provider state its function reaches as a copy.
     const fresh = rawget(_G, "__nupp_load_image") == nil and 1 or 101
-    assert(independent:await() == fresh, "the worker has the same SPI index and its own provider state")
+    assert(independent:await() == fresh, "the worker has its own provider state")
     assert(counter.next() == 101, "worker initialization does not mutate the caller's provider")
     const left = scope:work(6, jobs.square)
     const right = scope:work(7, jobs.square)

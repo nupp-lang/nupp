@@ -37,8 +37,6 @@ local type Type = T.Type
 -- Compiler-only namespaces
 ----------------------------------------------------------------------------
 
--- Compiler-owned package intrinsics take precedence over disk module lookup.
-local INTRINSIC_NAMESPACE: {[string]: boolean} = {["package.providers"] = true, ["package.select"] = true,}
 local TYPE_INTRINSICS: {[string]: boolean} = {admit = true, sizeof = true, alignof = true, offsetof = true}
 
 -- Modules projected through builtin namespaces. The source path deliberately lives
@@ -119,11 +117,6 @@ export function install(c: state.Checker): state.ExprHandlers
         local written, root, nameTokens = dottedPath(node)
         if not written or not root then
             return nil
-        end
-        for intrinsic in pairs(INTRINSIC_NAMESPACE) do
-            if written == intrinsic or written:sub(1, #intrinsic + 1) == intrinsic .. "." then
-                return nil
-            end
         end
         local lexical = c.lookupEntry(root)
         local builtin = c.env.globals and c.env.globals[root]
@@ -570,11 +563,6 @@ export function install(c: state.Checker): state.ExprHandlers
             if canonical then
                 (node as any).namespacePath = canonical
                 node.scalarIntrinsic = scalarIntrinsics.forPath(canonical)
-                if not node.writeContext and (canonical == "package.providers" or canonical == "package.select") then
-                    node.exactCallExport = {module = "package", member = memberName, identity = canonical,}
-                    node.qualifiedModule = "nupp.runtime.packages"
-                    node.qualifiedMembers = {memberName}
-                end
             end
         end
         -- Keep the exact value identity beside the projection. Function types are

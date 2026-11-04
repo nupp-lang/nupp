@@ -2693,8 +2693,7 @@ local PROCESS_ISOLATED = {
     -- absolute checkout path on hosts where debug information is relative.
     hotreloadguaranteetest = true,
     projectlinktest = true,
-    spipackagetest = true,
-    spitest = true,
+    targetmanifesttest = true,
     runnertest = true,
     -- These execute generated ownership cleanups. Their providers are registered
     -- in process-global runtime tables, so a reused worker state is not their

@@ -27,7 +27,7 @@ heard of it, and keeps its outcome for whoever holds it. Cancellation uses
 [](coroutine.sus.cancellation). Blocking waits cooperate with the selected
 suspension implementation and must not discover implementations during settlement.
 
-Each lane uses the artifact's immutable SPI index and loads independent module
+Each lane uses the same immutable artifact and loads independent module
 instances. Provider objects and Lua closures are never transferred between lanes.
 ]]
 module nupp.workers.contracts

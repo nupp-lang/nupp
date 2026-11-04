@@ -124,11 +124,7 @@ SHA-256 needs none: it is Nupp rather than a native provider.
 ### Target bindings
 
 The build binds each builtin service to the implementation for the target's
-host, native or browser. Exported operations perform no provider discovery.
-
-Packages can discover implementations of their own interfaces with
-`package.providers` and `package.select`. Those descriptors do not replace
-builtin services. See [SPI](../../projects/spi.md) for package discovery.
+host, native or browser.
 
 Runtime implementation contracts are private. The public surface does not expose
 the JSON provider module, a provider's own handles, or native pointers. Those are

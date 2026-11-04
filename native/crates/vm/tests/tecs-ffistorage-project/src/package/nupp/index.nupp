@@ -1,3 +1,0 @@
-module package.nupp.index
-
-export = {["package.nupp.BufferProvider"] = {"nupp.runtime.provider.tablebuffer"}}

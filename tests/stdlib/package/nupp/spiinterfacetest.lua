@@ -219,8 +219,7 @@ const label: string = assembled.label
 const call: @nosuspend function(): string = assembled.call
 const contract = require("contract")
 const provider = require("provider")
-local spi = package
-const selected: contract.Provider = assert(spi.providers(contract.Provider)())
+const selected: contract.Provider = provider
 const token: contract.Token = selected.make()
 const marked: {text: string} = selected.mark({text = token.text})
 return marked.text

@@ -276,21 +276,7 @@ function M.family(kind, implementations)
             return require(implementation)
         end
     end
-    local load = instance(
-        {[facade] = true},
-        {
-            ["nupp.runtime.target"] = {dialect = "luajit", host = "native"},
-            ["nupp.runtime.packages"] = {
-                providers = function()
-                    error("builtin attempted provider discovery")
-                end,
-                select = function()
-                    error("builtin attempted provider selection")
-                end,
-            },
-        },
-        preloads
-    )
+    local load = instance({[facade] = true}, {["nupp.runtime.target"] = {dialect = "luajit", host = "native"}}, preloads)
 
     return load, counts
 end

@@ -80,7 +80,6 @@ end
 function M.retiredNamespacesAreNotBundled()
     local env = strictEnv()
     for _, name in ipairs({
-        "package.nupp",
         "binary.checksum.spi",
         "binary.digest.spi",
         "binary.mac.spi",

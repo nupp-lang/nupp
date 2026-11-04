@@ -580,7 +580,6 @@ function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
         local env = projectEnv(dir)
         for _, consumer in ipairs({"nupp.tools.consumer", "serde.json", "binary.digest", "coroutine.workers"}) do
             for _, implementation in ipairs({
-                "nupp.runtime.packages",
                 "nupp.serde.internal.value",
                 "serde.internal.codec",
                 "binary.internal.hash"
@@ -593,7 +592,6 @@ function M.standardLibraryRootsSharePrivateImplementationOnlyWithEachOther()
             end
         end
         for _, implementation in ipairs({
-            "nupp.runtime.packages",
             "nupp.serde.internal.value",
             "serde.internal.codec",
             "binary.internal.hash"

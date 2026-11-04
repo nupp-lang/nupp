@@ -180,7 +180,7 @@ local function emitProject(
     -- the project index is made before they join: indexing them read the whole
     -- compiler checkout, eleven seconds of a hello world's build.
     envMod.ensureProjectIndex(env)
-    -- A module a build generated (a C binding, the SPI index) lives under the
+    -- A module a build generated (a C binding) lives under the
     -- build's output rather than an include root; its root joins the project's.
     for name, path in pairs(sources or {}) do
         local stem = (path:match("^(.*)%.[^./]+$") or path):gsub("/init$", "")

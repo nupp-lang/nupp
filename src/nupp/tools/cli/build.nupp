@@ -47,20 +47,6 @@ local REPORT_SCHEMA = {
             type = "string",
             description = "The transportable artifact written by a bundle, binary, or component target."
         },
-        spi = {
-            type = "array",
-            description = "Discovered SPI implementations in dependency order; selection belongs to the use site.",
-            items = {
-                type = "object",
-                properties = {
-                    interface = {type = "string"},
-                    implementation = {type = "string"},
-                    dependency = {type = "string"},
-                },
-                required = {"interface", "implementation", "dependency"},
-            },
-        },
-
         materializations = {
             type = "array",
             description = "Materialized expressions and their versioned provider and backend facts.",
@@ -222,7 +208,6 @@ local function run(options: any): integer
                 artifact = produced.artifact,
                 materializations = produced.materializations or materializations,
                 derives = produced.derives or derives,
-                spi = produced.spi or {},
                 timing = code == 0 and produced.timing or nil,
             })
         end

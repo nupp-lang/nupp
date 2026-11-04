@@ -100,10 +100,9 @@ construction; SigV4's `AWS4-HMAC-SHA256` names the complete signing scheme.
 
 ## Algorithm catalogs
 
-Each family uses its builtin algorithm catalog. Package descriptors do not
-replace or extend these catalogs. Descriptors are retained during module
-initialization, so lookup, listing, context creation, writes, and finalization
-perform no provider discovery.
+Each family uses its builtin algorithm catalog. Descriptors are retained during
+module initialization, so lookup, listing, context creation, writes, and
+finalization resolve no implementation again.
 
 Every descriptor agrees with its map key and reports a positive fixed output
 size, or a checksum width from 1 through 64. Each digest or MAC creates fresh

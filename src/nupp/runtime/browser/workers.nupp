@@ -13,8 +13,9 @@ received reply, queued cancellation settles at a park, and a running task observ
 cancellation at a checkpoint that gives its event loop a turn. Scope cleanup
 settles every child and preserves the shared cancellation identity.
 
-Workers load the same immutable artifact and its SPI index in fresh Lua states.
-Each consumer chooses during initialization; provider state remains in its lane.
+Workers load the same immutable artifact in fresh Lua states. Each consumer
+binds its implementation during initialization; provider state remains in its
+lane.
 ]]
 module nupp.runtime.browser.workers
 

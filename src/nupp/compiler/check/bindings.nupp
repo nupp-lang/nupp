@@ -178,26 +178,6 @@ export function install(c: state.Checker): state.StatHandlers
                                 boundEntry.definition.exactCallExport = boundEntry.exactCallExport
                             end
                         end
-                        local sourceDefinition = source.kind == "name" and source.token and source.token.definition
-                        local namespacePath = (source as any).namespacePath
-                            or sourceDefinition and sourceDefinition.namespacePath
-                        if not source.requiredModule
-                            and namespacePath == "package"
-                            and (fieldName == "providers" or fieldName == "select")
-                        then
-                            -- Existing backends already lower a private namespace
-                            -- projection, including a pattern selecting other fields.
-                            (source as any).qualifiedModule = "nupp.runtime.packages"
-                            (source as any).qualifiedMembers = {"namespace"}
-                            boundEntry.exactCallExport = {
-                                module = "package",
-                                member = fieldName,
-                                identity = "package." .. fieldName,
-                            }
-                            if boundEntry.definition then
-                                boundEntry.definition.exactCallExport = boundEntry.exactCallExport
-                            end
-                        end
                         c.unused.declared(nameTok, boundEntry, boundEntry.requiredModule and "require" or "variable")
                     end
                 end

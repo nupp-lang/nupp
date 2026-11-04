@@ -633,9 +633,13 @@ export function newSession(rootDir: string?, emit: function(any), host: Host?): 
             capabilities = {
                 textDocumentSync = 1, -- full-document sync
                 definitionProvider = true,
-                implementationProvider = true,
                 hoverProvider = true,
-                completionProvider = {triggerCharacters = wire.array({".", ":"}),},
+                completionProvider = {
+                    triggerCharacters = wire.array({
+                        ".",
+                        ":"
+                    }),
+                },
                 signatureHelpProvider = {triggerCharacters = wire.array({"(", ","}),},
                 referencesProvider = true,
                 renameProvider = {prepareProvider = true},
@@ -765,12 +769,6 @@ export function newSession(rootDir: string?, emit: function(any), host: Host?): 
             end)
             refreshOpenDocuments(uri)
         end
-    end
-
-    handlers["textDocument/implementation"] = function(id, params)
-        local _, doc, token, offset = nav.symbolAt(params)
-        local member = doc and offset and require("nupp.tools.lsp.tree").moduleMemberAt(doc.result, offset)
-        respond(id, require("nupp.tools.lsp.spi").implementations(s.inc, member, token))
     end
 
     handlers["textDocument/definition"] = function(id, params)

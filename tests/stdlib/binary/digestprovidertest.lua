@@ -17,7 +17,6 @@ function M.binaryRootDoesNotInitializeStorageOrAlgorithmFamilies()
         "nupp.runtime.provider.checksum",
         "nupp.runtime.provider.digest",
         "nupp.runtime.provider.mac",
-        "nupp.runtime.packages",
         "nupp.runtime.storage",
     }) do
         preloads[name] = function()
@@ -288,7 +287,7 @@ function M.checksumAndMacRetainCatalogsDuringOperations()
     end
 end
 
-function M.builtinBindingsDoNotConsultUserDiscovery()
+function M.builtinBindingsInitializeOnce()
     for _, kind in ipairs({"digest", "checksum", "mac"}) do
         local load, counts = state.family(kind)
         local api = load("binary." .. kind)

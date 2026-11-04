@@ -118,7 +118,6 @@ local CASES: {[string]: {
     modulesrecords = {fixture = "catalog-modules-records", version = 8, modules = {"catalog-modules-boxes"}},
     modulesqualified = {fixture = "catalog-modules-qualified", version = 8, modules = {"catalog-atlas-geometry"},},
     libraryvalues = {fixture = "catalog-library-values", version = 8},
-    libraryproviders = {fixture = "catalog-library-providers", version = 8, modules = {"src/nupp/runtime/packages"},},
     librarybasics = {fixture = "catalog-library-basics", version = 8, follow = true},
     storagebasics = {fixture = "catalog-storage-basics", version = 8},
     storageprovider = {fixture = "catalog-storage-provider", version = 8, follow = true},

@@ -1217,16 +1217,6 @@ function lower.emit(
     callInto = function(f: Fn, node, dst, extraSelf)
         local base = dst
         local nargs = 0
-        if node.spiInterface then
-            -- An interface has no runtime witness. The checker resolves the
-            -- exported declaration to the provider index's canonical key.
-            assert(not extraSelf, "SPI loading has no implicit receiver")
-            while f.nregs < base + 2 do
-                f:reg()
-            end
-            f:op("K", base + 1, f:const("str", node.spiInterface))
-            return base, 1
-        end
         local args = node.args and node.args.exprs or {}
         if node.args and node.args.loweredArgs then
             local lowered = node.args.loweredArgs
@@ -6176,20 +6166,12 @@ function lower.emit(
             -- A module required again while it loads, by itself or through a
             -- cycle, gets the exports it is still filling, as the Lua backend's
             -- early publication gave it. A body that raises unpublishes them.
-            -- One that loads SPI providers publishes nothing early, as there: a
-            -- provider must not see a facade it has not finished initializing.
-            local loadsSpi = false
-            walkSyntax(rootNode.blocks[1], {}, function(n)
-                loadsSpi = loadsSpi or n.spiInterface ~= nil
-            end)
-            if not loadsSpi then
-                local package, loaded, key = chunk:reg(), chunk:reg(), chunk:reg()
-                chunk:op("Require", package, chunk:const("str", "package"))
-                chunk:op("GetField", loaded, package, chunk:const("str", "loaded"))
-                chunk:op("K", key, chunk:const("str", name))
-                chunk:op("SetIdx", loaded, key, chunk.exportsReg)
-                chunk.nregs = chunk.nregs - 3
-            end
+            local package, loaded, key = chunk:reg(), chunk:reg(), chunk:reg()
+            chunk:op("Require", package, chunk:const("str", "package"))
+            chunk:op("GetField", loaded, package, chunk:const("str", "loaded"))
+            chunk:op("K", key, chunk:const("str", name))
+            chunk:op("SetIdx", loaded, key, chunk.exportsReg)
+            chunk.nregs = chunk.nregs - 3
             for _, fname in ipairs(exportedFns) do
                 local r, cell = chunk:declare(fname, "v")
                 if cell then
