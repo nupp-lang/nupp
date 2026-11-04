@@ -178,4 +178,7 @@ for name, value in pairs(functions) do
     end
 end
 globals._G = globals
+-- `nupp`: the runtime's namespace, which reflection and derive install
+-- into, as the VM's globals carry it.
+globals.nupp = {}
 functions._G = globals
