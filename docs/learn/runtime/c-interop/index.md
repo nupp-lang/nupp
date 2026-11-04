@@ -832,34 +832,6 @@ depend on it, so headers, generated bindings, native libraries, and Nupp
 modules share one cache key and one build graph. See [C
 dependencies](../../projects/build.md#c-dependencies) for the provider configuration.
 
-## FAQ
-
-### Does checked C interop replace LuaJIT FFI?
-
-Nupp does not replace LuaJIT FFI or insert a foreign-call runtime. A checked
-[`cdef` binding](#hand-write-a-small-binding) lowers to `ffi.cdef`, a namespace
-lookup, and the same native call. The [typed FFI
-operations](#typed-ffi-operations) likewise keep their LuaJIT representation
-while the checker validates their type arguments.
-
-### Does importing a header capture ownership?
-
-A C declaration says that a value is a pointer, but not whether the caller must
-free it, whether the callee retains it, or how long a derived pointer stays
-valid. Add those facts under [lifetime
-behavior](#describe-lifetime-behavior) after importing a header. See [the
-ownership reference](../ownership/borrowing.md#borrowing-and-pinning) for the
-borrowing, pinning, retention, and cleanup contracts they name.
-
-### Do ownership contracts change the native ABI?
-
-`affine(T, cleanup)`, `borrows`, `exclusive`, and `countedBy` describe checked
-relationships around a call; they add no field and change no C signature. See
-[the ownership reference](../ownership/borrowing.md#c-interop) for the affine
-pointer's ABI representation, and [counted pointer
-adapters](#counted-pointer-adapters) for the span a checked caller sees instead
-of the pointer and count.
-
 ::: seealso
 - [ownership.md](../ownership/index.md) for the resource workflow a C boundary joins
 - [](binary.span) for the views a counted pointer projects

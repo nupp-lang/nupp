@@ -367,29 +367,8 @@ on a registered namespace lists child modules and exports. Definition on an
 export reaches its declaration, and an exact module segment reaches the module
 declaration.
 
-## FAQ
-
-### Does a declared module load with plain `require`?
-
-Yes. The compiler returns a stable export table under the module's canonical
-name, so Lua code and other Nupp files load it the same way. See [Explicit
-imports](#explicit-imports) for the checked form.
-
-### Can two modules require each other?
-
-Yes, as long as neither reads the other's exports while its own top level is
-still running. See [Grouped checking and cycles](#grouped-checking-and-cycles)
-for what the checker publishes early and what stays eager at runtime.
-
-### Does a qualified path load its module on first field access?
-
-No. Each selected module becomes one hidden import that loads when the
-containing chunk initializes. See [Qualified module
-paths](#qualified-module-paths) for the code that generates.
-
 ::: seealso
 - [build.md](../projects/build.md) for include roots, targets, and the manifest
-- [file-types.md](file-types.md#do-file-extensions-change-module-identity) for
-  why moving a file between `.lua` and `.nupp` leaves its name alone
+- [file-types.md](file-types.md) for how extensions select the checked layer
 - [lsp.md](../tooling/language-server.md) for the editor features listed above
 :::

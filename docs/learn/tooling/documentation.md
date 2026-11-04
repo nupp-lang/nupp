@@ -753,34 +753,6 @@ Then `nupp build --target docs`, and `nupp check --target docs` parses and
 validates every source without writing output. See [documentation
 targets](../projects/build.md#documentation-targets) for every key one takes.
 
-## FAQ
-
-### Why is a declaration missing from the reference?
-
-It is private by default: a name starting with `_`, a file or module under
-`internal`, or a file marked `@!internal`. Render with `--include-private`, or
-set `includePrivate = true` on the target, to see them. See [Public
-surface](#public-surface) for the whole rule.
-
-### Does `nupp doc` type-check the sources it reads?
-
-No. It renders from the parser's CST, so a project whose check fails still
-documents, and a signature on a page is the one that was written rather than
-one the checker confirmed. Run `nupp check --target docs` to parse and validate
-a docs target without writing output.
-
-### How does a page get published without being listed in the manifest?
-
-A page entry names a `glob` instead of a `path` and a `source`, and every
-Markdown file it matches is published at the route its own path gives. What the
-path cannot say -- where the page sits in the navigation, what navigation calls
-it -- the page says in frontmatter. See [page trees](../projects/build.md#page-trees).
-
-A `directory` entry does the same for a collection, publishing every document
-under it beneath one generated index. See [page
-directories](../projects/build.md#page-directories) for numbering and how the index is
-built.
-
 ::: seealso
 - [cli.md](../../reference/cli.md#doc) for the command's flags and JSON report
 - [`@!internal`](../../api.md#annotation-file-internal) for generated

@@ -501,32 +501,6 @@ declaration rather than maintained beside it. See
 [c-interop.md](../../runtime/c-interop/index.md#read-a-structs-layout) for what it
 returns.
 
-## FAQ
-
-### Are records classes or ordinary Lua tables?
-
-A record declaration creates the table and metatable pattern ordinary Lua code
-already uses. It adds a nominal type to checking but no class runtime or hidden
-instance wrapper. See [records](#records) for the lowering, and [metamethod
-contracts](../metamethods.md#declaring-a-contract) for the explicit
-declaration an API needs when it wants operator behavior.
-
-### Do methods require a shared interface?
-
-An instance reaches its inline methods through the record table, so a concrete
-record API does not need an interface merely to call `file:read()`. See
-[satisfaction is structural](interfaces.md#satisfaction-is-structural) for when
-an interface earns its place: several unrelated types satisfying one contract,
-not plumbing between a record and an ownership view of that record.
-
-### Does an affine constructor wrap the record instance?
-
-No. An affine constructor result adds a checker obligation to the record it
-already builds, so the value keeps the record's methods and runtime identity.
-See [consumption and lexical
-destruction](../../runtime/ownership/borrowing.md#consumption-and-lexical-destruction) for where the
-cleanup is discharged.
-
 ::: seealso
 - [affine-types.md](../../runtime/ownership/affine-types.md#constructors-can-introduce-the-policy) for
   the result policies a constructor may state

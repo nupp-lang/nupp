@@ -176,28 +176,6 @@ A writer that buffers output reports delivery failures through `flush`. Check
 that result before closing when delivery matters. See
 [ownership.md](../ownership/index.md) for affine ownership and borrowing.
 
-## FAQ
-
-### Does an intrinsic need a `require`?
-
-No. Use builtin APIs directly, such as `types.sizeof`, `debug.log.info`, or
-`binary.span.fromstring`. The compiler resolves the qualified name and inserts
-any required module load. See [Intrinsics and declared
-modules](#intrinsics-and-declared-modules) for the distinction.
-
-### Does an unused facility cost anything in the built program?
-
-No adapter and no native artifact are emitted for a member no checked source
-resolves. Selection is recomputed after constant folding at `-O1` and above, so
-a facility whose only use was eliminated drops out with it. See [Selection
-follows use](#selection-follows-use) for what counts as a use.
-
-### Can a buffer offset be passed to a Lua string function?
-
-Not directly. A buffer offset counts from zero and a Lua string position counts
-from one, so the two differ by one on every call. Convert at the boundary, and
-see [Byte positions](#byte-positions) for which convention an API uses.
-
 ::: seealso
 - [](io) for buffers, readers, writers, and byte views
 - [ownership.md](../ownership/index.md) for the affine results these modules return

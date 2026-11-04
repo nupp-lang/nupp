@@ -471,29 +471,6 @@ and formatting never separates contextual `yield` from the first token of its
 operand. See [fmt.md](../tooling/formatter.md#formatting-rules) for the rest of the
 formatter's rules.
 
-## FAQ
-
-### Can a case carry a guard condition?
-
-Yes, written `case V where predicate`. The pattern itself stays a static scalar
-or a type test, and the guard is the condition that pattern cannot state. A
-guarded arm proves nothing about coverage, so the switch still needs whatever
-`else` it needed without the guard. See [Guarded cases](#guarded-cases).
-
-### Does an arm allocate a closure?
-
-No. The arrow is shared vocabulary with short functions, and a switch lowers to
-branches, generated locals, and merge labels. See
-[performance.md](../performance/index.md#switch-dispatch) for what that buys in
-a hot loop.
-
-### When does a switch beat an `if` chain?
-
-When one subject is tested the same way by every branch and every path produces
-one value. A switch states the facts an `if` chain leaves both the reader and
-the compiler to recover, which is also what lets the backend replace the ordered
-chain with a table read.
-
 ::: seealso
 - [performance.md](../performance/index.md#switch-dispatch) for the table-read
   plans and the conditions that keep ordered branches

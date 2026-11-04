@@ -524,28 +524,6 @@ pinned stage zero can still build the tree. See
 [distribution.md](../../reference/distribution.md) for the packaged variant,
 `nupp fixpoint --binary`.
 
-## FAQ
-
-### Why did `nupp test --json` print no JSON?
-
-`--json` is appended to `test.argv` rather than interpreted, so a harness that
-ignores it prints what it always prints. The bundled runner answers it, and
-`nupp test --schema` prints the shape that runner writes.
-
-### Why is the first parallel run slower than the next one?
-
-Packing needs per-suite times, and nothing about a suite says in advance how
-long it takes. A run with no `build/.nupp-test-times.json` guesses evenly and
-writes the real times for the run after it. See [parallel
-runs](#parallel-runs) for what it does with them.
-
-### Does `nupp test --coverage` replace an ordinary test run?
-
-No. It builds a separate instrumented artifact under `build/coverage`, and the
-probes cost runtime, so it answers what ran rather than how fast. Run
-`nupp test` for the ordinary run, and see [profiling.md](../performance/profiling.md) for
-timing one.
-
 ::: seealso
 - [cli.md](../../reference/cli.md#test) for every option `nupp test`,
   `nupp test --coverage`, and `nupp fixpoint` take

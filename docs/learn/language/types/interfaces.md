@@ -349,28 +349,6 @@ the LuaJIT 2.1 backport does not dispatch them. `__gc` and `__close` are not
 contracts either, since deterministic cleanup is
 [ownership](../../runtime/ownership/borrowing.md).
 
-## FAQ
-
-### When is an interface better than a record?
-
-When several unrelated types must answer the same contract, or when a module
-wants to publish a shape without publishing its representation. A concrete
-record API needs no interface merely to call its own methods. See [records and
-structs](records-and-structs.md#choosing) for which representation a type wants.
-
-### Why does `is` against an interface usually compile to nothing?
-
-Because the subject's declared type has already answered it. An interface has no
-runtime table, so the checker elides the test wherever the type proves it, and
-falls back to a literal-field tag or a `satisfies` refinement where it does not.
-
-### Can an interface add fields to the types that satisfy it?
-
-No. An interface declares members and, optionally, default implementations for
-its own methods, but satisfaction is a fact about the implementor's own members.
-A default implementation is one shared function referenced from the implementor,
-not a field copied into it.
-
 ::: seealso
 - [refinements.md](refinements.md) for the `satisfies` test an interface may
   carry

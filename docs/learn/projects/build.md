@@ -1205,28 +1205,6 @@ owning orchestration. What it shares with the compiler stays in
 `nupp.compiler`: `hash` owns cache digests, `fingerprint` the stamps they are
 kept under, and `process` argv-based subprocess execution.
 
-## FAQ
-
-### Why does the build compile a module nothing requires?
-
-Because the source set is what a project is written in, and a module left out
-of the build is a module nothing checked. See [Source sets](#source-sets) for
-what the alternative costs.
-
-### Why did one edit rebuild the whole project?
-
-An edit to an exported type declaration invalidates the project index, where an
-edit to a function body invalidates one module. `nupp check --json` reports
-`timing.compiledModules` and `timing.slowest`, so a run says how much it redid
-rather than leaving that to be inferred from how long it took.
-
-### Can a one-file bundle carry a native library?
-
-No. A bundle contains Lua chunks. It can require a host-supplied module such as
-LPeg, but cannot embed a shared library. A binary that uses native providers
-ships their sidecars or links them into its host. See
-[distribution.md](../../reference/distribution.md#limits) for the whole boundary.
-
 ::: seealso
 - [cli.md](../../reference/cli.md#build) for every flag `nupp build` takes
 - [tasks.md](project-tasks.md) for named tasks and the environment they run in

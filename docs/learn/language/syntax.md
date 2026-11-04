@@ -520,25 +520,3 @@ Generated code does not run on stock Lua 5.1 in general. Three things stop it:
 
 A file that uses none of those, and whose typed layer erases cleanly, does
 generate plain 5.1 Lua. There is no flag that guarantees it.
-
-## FAQ
-
-### Does running generated code need LuaJIT 3.0?
-
-No. The syntax is LuaJIT 3.0's, but the output targets 2.1.1784535649 or newer,
-which backported the extensions. See
-[Required LuaJIT build](#required-luajit-build) for what the toolchain checks.
-
-### Can a variable be named `record` or `switch`?
-
-Yes. Every level-1 introducer is contextual, so `local record = 5` and
-`switch(value)` keep their Lua meaning. The one exception is
-`local type Alias = 5`, which needs a newline or a semicolon after `type` to
-read as Lua.
-
-### Does the typed layer change what a traceback points at?
-
-No. Generated code never changes the line count, so a runtime error names the
-line you wrote. See [Lowered syntax](#lowered-syntax) for the constructs that
-still produce code, and [constructs that aren't erased](file-types.md#constructs-that-arent-erased)
-for the two that leave a runtime trace.

@@ -385,24 +385,3 @@ a visible translation residue.
 - [records.md](types/records-and-structs.md#names-hold-their-table) for the
   namespace table a contract is installed on
 :::
-
-## FAQ
-
-### Does a metamethod contract emit any code?
-
-No. The declaration is checked and erased, so the generated Lua for a record
-with contracts is the generated Lua for the same record without them. The
-runtime behavior comes entirely from whatever installs the function.
-
-### Must a record declare `is` to satisfy a contract?
-
-No. A type that declares no `is` edge may still satisfy an interface
-structurally, metamethod contracts included. `is` adds the parent's fields and
-metamethods to the declaring type, which structural satisfaction does not.
-
-### Why does a declared `__eq` not change how equality is checked?
-
-Equality is always a valid Lua operation returning `boolean`, so nothing about
-the expression's type depends on a contract. Lua also requires both operands to
-share one `__eq` handler identity, which a function type cannot express, so
-`__eq` is declarable as protocol surface and no more.

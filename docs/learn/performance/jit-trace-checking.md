@@ -611,27 +611,6 @@ Static checking removes the catalogued, attributable causes. It does not replace
 profiling for cold code, input-dependent types and shapes, side exits, recorder
 limits, or deciding whether a reported site matters to the workload.
 
-## FAQ
-
-### Does a clean `@jit` result mean the function is compiled?
-
-No. It means no catalogued unconditional blocker is reachable in the checked
-scope for that trace profile. Whether the function runs at all, becomes hot, and
-stays compiled is a runtime question, answered by
-[profiling.md](profiling.md#trace-aborts).
-
-### Why is a variadic FFI call a risk rather than a blocker?
-
-The answer depends on the exact argument types and the target ABI, so no static
-rule covers every form. Under `@jit` the conservative boundary is still an
-error, because the contract covers every checked path.
-
-### When is `@aot` the answer instead of a trace contract?
-
-When the loop is numeric, maps over spans, and the measured gap is codegen
-rather than an aborted trace. See [ahead-of-time.md](ahead-of-time/index.md) for the
-subset `@aot` admits and what it costs.
-
 ::: seealso
 - [performance.md](index.md) for the rewrites the compiler applies before
   LuaJIT sees the code

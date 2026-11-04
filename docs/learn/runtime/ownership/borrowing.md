@@ -625,31 +625,6 @@ still participates in normal move, borrow, and lexical-destruction checks, and
 `@unsafe own.release` consumes an obligation without running its terminal, which
 makes the caller responsible for the resource from that line on.
 
-## FAQ
-
-### How broad is ownership analysis?
-
-Relationships name ordinary values, so there are no named lifetimes, lifetime
-parameters, or read-only shared references. Everything not carrying a
-capability stays freely aliased and garbage collected.
-
-### Can an owner be held across a suspension?
-
-Yes. Affine fields have path-sensitive state, so a field is tracked apart from
-the record holding it and a suspension cannot strand an obligation. A terminal
-itself may suspend too: a settling terminal waits for the resource's own work,
-and discharging one parks the coroutine as any wait does. What that costs is
-the places a suspension cannot happen, so such a terminal is refused inside a
-`@nosuspend` region, and one that must also work there is declared `@nosuspend`.
-See [suspension.md](../concurrency/suspension.md) for those boundaries.
-
-### Does an owner have to name its cleanup at every call site?
-
-No. The terminal is part of the type, so `drop` selects it statically and
-lexical destruction calls it without being written. What a call site does state
-is the mode a parameter uses, and only when the parameter may carry a
-capability.
-
 ::: seealso
 - [ownership.md](index.md) for the annotations a caller writes
 - [affine-types.md](affine-types.md) for constructing the types this page moves

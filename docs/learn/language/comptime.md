@@ -173,28 +173,6 @@ never a declaration. See [Comptime
 types](types/comptime-types.md) for the builders, the finite
 operators, and the rules for a call left open inside a generic signature.
 
-## FAQ
-
-### Can a comptime block read a file or an environment variable?
-
-No. Nothing that reaches the outside world is in the allowlist, so a result
-depends on the block's own source and on nothing that could differ between two
-machines. See [Compile-time environment](#compile-time-environment) for the
-members a block does get.
-
-### Can a comptime block declare a record?
-
-No. A block produces data and a type function produces a structural type. A
-nominal declaration needs a source-owned name, visibility, a tooling location,
-and an initialization order, none of which a generated result has. See [Type
-functions](#type-functions) for what a call in type position may build.
-
-### Is a comptime function generic?
-
-Not yet. A `@comptime function` is neither generic nor variadic, so an algorithm
-that has to cover several shapes takes a `type` handle and inspects it with
-`types`.
-
 ::: seealso
 - [reflection.md](reflection.md#comptime-reflection) for the descriptors a block
   inspects and the codecs it materializes

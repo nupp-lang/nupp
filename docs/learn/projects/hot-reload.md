@@ -250,28 +250,6 @@ and standalone-command cases in `tests/integration/reload/hotreloadguaranteetest
 standalone cases edit a required module, a header, and a temporary native
 library inside `nupp run --watch` processes.
 
-## FAQ
-
-### Does watch mode change what an ordinary build produces?
-
-No. The reload machinery exists only in the watch generation, so an ordinary
-build is byte-identical to one made without it. Watch mode is also always `-O0`,
-so measure and ship the optimized build instead. See
-[performance.md](../performance/index.md) for what the optimization levels change.
-
-### Why did an edit to one function body still require a restart?
-
-Nupp rechecks every loaded module before staging, so an edit that also changed
-an exported type, a C declaration, or a capture set reaches further than the
-body it was written in. The restart result names the semantic dependency that
-changed and the module that requires it.
-
-### Can a callback registered with a library be reloaded?
-
-Only when it was registered by name. An anonymous closure has no patch identity,
-so declare the function and pass the name, as
-[Named callbacks](#named-callbacks) shows.
-
 ::: seealso
 - [profiling.md](../performance/profiling.md) for finding where a running program spends time
 - [build.md](build.md) for the ordinary optimized build that ships

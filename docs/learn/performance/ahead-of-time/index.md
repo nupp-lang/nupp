@@ -99,30 +99,6 @@ See these pages for each part of the AOT pipeline.
 - [GPU compute](gpu.md) for native resident buffers, workgroup kernels, and
   browser WebGPU.
 
-## FAQ
-
-<a id="does-aot-change-what-a-function-answers"></a>
-
-### Does `@aot` change what a function returns?
-
-Only through `@relax`. Removing `@aot`, or building the same source under
-`aot = "off"`, changes performance and artifacts and never the result, which is
-what the differentials in
-[Verification](numeric-semantics.md#verification) check. `@relax` is the one
-annotation that changes the answer, and it says so per function.
-
-### How does a loop run in vector lanes?
-
-By saying so with `simd`: a species, its vector loads and stores, masks,
-and a tail. A loop without those operations is scalar. See
-[simd-programming.md](simd-programming.md) for the model and vector operations.
-
-### Does a project need a C compiler?
-
-No. `nupp` compiles AOT code itself, native and Wasm, for any target, with the
-LLVM it carries. See [the code generator](build-and-artifacts.md#the-code-generator)
-and [Wasm AOT applications](wasm.md).
-
 ::: seealso
 - [jit-trace-checking.md](../jit-trace-checking.md) for deciding whether LuaJIT
   can compile the loop you were about to annotate
