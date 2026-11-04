@@ -307,4 +307,31 @@ function suite.largeGeneratedConstructorsStayWithinLuaLocalLimit()
     assert(Large(unpack(args)).f220 == 220)
 end
 
+function suite.constructorsInitializeReadonlyFieldsOnlyThroughTheirReceiver()
+    assert(
+        run(
+            [[
+local record Value
+    @readonly x: integer
+    constructor(self, x: integer) self.x = x end
+end
+return Value(7).x
+]]
+        ) == 7
+    )
+    for _, source in ipairs({
+        [[local record V @readonly x: integer constructor(self) self.x = 1 end end
+local v = V() v.x = 2]],
+        [[local record V @readonly x: integer
+constructor(self, other: V) self.x = 1 other.x = 2 end end]],
+        [[local record V @readonly x: integer
+constructor(self) self.x = 1 local later = function(): nil self.x = 2 end later() end end]],
+        [[local record V @readonly x: integer
+constructor(self) self.x = 1 local self = V() self.x = 2 end end]],
+    }) do
+        local _, errors = compile(source)
+        assert(table.concat(errors, " "):find("read-only", 1, true), table.concat(errors, "\n"))
+    end
+end
+
 return suite

@@ -6550,7 +6550,7 @@ export function generate(
                     ) .. "};" .. table.concat(defaults) .. "return _G.setmetatable(v,r)end"
                 end
             end
-            e(" _G.setmetatable(" .. runtimeName .. ",{__call=" .. handler .. ",__metatable=false}) ")
+            e(" _G.setmetatable(" .. runtimeName .. ",{__call=" .. handler .. ",__metatable=\"record\"}) ")
             emitInheritedDefaults(x, runtimeName)
             pluck.emitDerivedMembers(x, runtimeName)
             pluck.emitWitnessTargets(x, runtimeName)

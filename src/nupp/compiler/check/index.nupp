@@ -673,6 +673,20 @@ export function install(c: state.Checker): state.ExprHandlers
         local ft, fieldDef, fieldDefs, instanceModule
         if writing then
             ft, fieldDef, fieldDefs = c.fieldWriteType(base, memberName)
+            local constructor = c.constructorFieldStack[#c.constructorFieldStack]
+            local body = constructor and c.functionBodies[#c.functionBodies]
+            local receiver = body and body.params and body.params[1] and body.params[1].name
+            if not ft
+                and receiver
+                and target.kind == "name"
+                and target.token
+                and target.token.definition == receiver.definition
+            then
+                -- Readonly describes the initialized instance. Only the actual
+                -- constructor receiver may initialize it; aliases, other objects,
+                -- and nested functions retain the normal write restrictions.
+                ft, fieldDef, fieldDefs = c.fieldType(base, memberName)
+            end
             local physicalOwner = base
             while physicalOwner.tag == "ptr" do
                 physicalOwner = rawType(physicalOwner.elem)
