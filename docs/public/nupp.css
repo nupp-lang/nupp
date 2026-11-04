@@ -143,7 +143,7 @@
 .nuppdoc-content hr {
   margin: 4rem 0;
   border: 0;
-  border-top: 1px solid light-dark(var(--nuppdoc-border), var(--nuppdoc-syntax-number));
+  border-top: 1px solid var(--nuppdoc-border);
 }
 
 .nuppdoc-home-content hr {
