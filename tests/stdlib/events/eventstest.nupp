@@ -1009,12 +1009,12 @@ function M.structRowsReadAsZeroWhenLeasedAndAreDeliveredAsStructReferences(): ni
     bus:emit(0, Contact, 7, 8, 0.5)
     test.eq(rows.inner:used(), 2, "the bus did not rewind the caller's arena")
     rows.inner:reset()
-    bus:emit(0, Contact, 9, 10, 0.75)
+    bus:emit(0, Contact, 9, 12, 0.75)
     test.eq(rows.acquires, 3)
     test.eq(rows.seenA[3], 0)
     test.eq(rows.seenB[3], 0)
     test.eq(rows.seenImpulse[3], 0)
-    test.eq(seen[3], "9.0 10.0 0.75")
+    test.eq(seen[3], "9.0 12.0 0.75")
     test.eq(rows.inner:live(), 0)
 end
 
