@@ -116,7 +116,7 @@ local CASES = {
     {"callsAny", 0x7FFF00000001B05A},
     {"recordsMetamethods", 0x7FFF0000043EE3C6},
     {"callsPacks", 0x7FFF0000002F5D00},
-    {"callsOpen", 0x7FFF000000000461},
+    {"callsOpen", 0x7FFF000000002B71},
     {"callsExpand", 0x7FFF00000E655693},
     {"errorsMethods", 0x7FFF00000000000F},
     {"recordsAffineReturns", 0x7FFF001A27644F86},

@@ -2580,13 +2580,15 @@ function tagged.forVersion(version: integer): any
                 or last.kind == "methodCall" and lastSite ~= nil and lastSite.method
                 or (last.kind == "call" or last.kind == "methodCall") and packSpec(graph.coreLibraryCall(last)) ~= nil
             -- A function with open results (`R...`) returns every result of a
-            -- call last in its return, as a pack the return spreads.
+            -- call last in its return, as a pack the return spreads: a library
+            -- call with several results (`string.byte`) too.
             local openReturn = ctx.fn.signature
                 and ctx.fn.signature.retPack
                 and ctx.fn.signature.retPack.tail ~= nil
-                and last.kind == "call"
-                and last.runtimeLoader ~= "require"
-                and graph.coreLibraryCall(last) == nil
+                and (
+                    last.kind == "call" and last.runtimeLoader ~= "require" and graph.coreLibraryCall(last) == nil
+                    or graph.packedcall(last)
+                )
             if openReturn then
                 local fixed, kinds = {}, {}
                 for index = 1, #stat.exprs - 1 do
