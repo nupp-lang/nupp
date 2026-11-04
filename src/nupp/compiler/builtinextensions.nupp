@@ -9,6 +9,9 @@ local extensions = {}
 
 local ROOTS = {
     math = {module = "nupp.runtime.standardmath", replace = {random = true}, members = {random = true}},
+    -- The global is the module: no generated prologue installs `debug.log`
+    -- at startup on the VM, so a read of `warn` loads it.
+    warn = {module = "warn", direct = true},
     assert = {module = "assert", direct = true},
     table = {module = "nupp.runtime.standardtable", members = {move = true, Pool = true, newpool = true}},
     io = {

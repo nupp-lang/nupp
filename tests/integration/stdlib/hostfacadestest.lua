@@ -144,7 +144,7 @@ function M.hostAndVmBindingsSelectTheTargetImplementationOnce()
         {
             module = "nupp.runtime.system",
             binding = "nupp.runtime.bindings.system",
-            native = "nupp.runtime.provider.nativesystem",
+            native = "nupp.vm.systembinding",
             browser = "nupp.runtime.browser.system",
             member = "availableparallelism",
             exported = "availableParallelism"
@@ -177,7 +177,7 @@ function M.hostAndVmBindingsSelectTheTargetImplementationOnce()
         {
             module = "nupp.runtime.entropy",
             binding = "nupp.runtime.bindings.entropy",
-            native = "nupp.runtime.provider.nativecrypto",
+            native = "nupp.vm.cryptobinding",
             browser = "nupp.runtime.browser.crypto",
             member = "randombytes",
             exported = "randombytes"
@@ -201,7 +201,7 @@ function M.hostAndVmBindingsSelectTheTargetImplementationOnce()
         },
         {
             module = "binary._representation",
-            native = "nupp.runtime.provider.nativestorage",
+            native = "nupp.vm.storagebinding",
             -- No other storage ships: a LuaJIT VM takes native storage on either host.
             browser = "fixture.otherstorage",
             storage = true,

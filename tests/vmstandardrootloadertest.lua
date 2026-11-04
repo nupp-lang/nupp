@@ -161,7 +161,7 @@ end
 
 local function checkedCoroutine(source, env)
     local parser = require("nupp.compiler.syntax.parser")
-    local checker = require("fragment")
+    local checker = require("helpers.fragment")
     local parsed = parser.parse(source, "native-coroutine-contract.nupp")
     test.eq(#parsed.errors, 0)
     local codes, messages = {}, {}

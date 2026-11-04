@@ -1,7 +1,7 @@
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 local parser = require("nupp.compiler.syntax.parser")
-local checker = require("fragment")
+local checker = require("helpers.fragment")
 local environment = require("nupp.compiler.project.env")
 local program = require("program")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

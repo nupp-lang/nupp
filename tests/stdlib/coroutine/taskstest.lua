@@ -1506,7 +1506,7 @@ end
 
 function M.canonicalWorkRunsTheExistingWorkerSubmission()
     local parser = require("nupp.compiler.syntax.parser")
-    local checker = require("fragment")
+    local checker = require("helpers.fragment")
     local program = require("program")
     local environment = require("nupp.compiler.project.env").new(".")
     local source = [[

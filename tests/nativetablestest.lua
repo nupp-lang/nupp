@@ -5,7 +5,7 @@
 -- answers the same programs, which is what makes the suite differential.
 local testAssert = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
-local check = require("fragment")
+local check = require("helpers.fragment")
 local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 

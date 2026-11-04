@@ -1,6 +1,6 @@
 local test = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
-local checker = require("fragment")
+local checker = require("helpers.fragment")
 local environment = require("nupp.compiler.project.env")
 local program = require("program")
 

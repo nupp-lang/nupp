@@ -18,12 +18,8 @@ local IMPLEMENTATIONS: {
     [
         "nupp.runtime.bindings.suspension"
     ] = {native = "nupp.runtime.provider.suspension", browser = "nupp.runtime.browser.suspension"},
-    [
-        "nupp.runtime.bindings.system"
-    ] = {native = "nupp.runtime.provider.nativesystem", browser = "nupp.runtime.browser.system"},
-    [
-        "nupp.runtime.bindings.entropy"
-    ] = {native = "nupp.runtime.provider.nativecrypto", browser = "nupp.runtime.browser.crypto"},
+    ["nupp.runtime.bindings.system"] = {native = "nupp.vm.systembinding", browser = "nupp.runtime.browser.system"},
+    ["nupp.runtime.bindings.entropy"] = {native = "nupp.vm.cryptobinding", browser = "nupp.runtime.browser.crypto"},
     ["nupp.io.path.provider"] = {native = "nupp.runtime.provider.nativepath", browser = "nupp.runtime.browser.path"},
     ["nupp.io.uri.provider"] = {native = "nupp.runtime.provider.nativeuri", browser = "nupp.runtime.browser.uri"},
     [

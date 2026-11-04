@@ -2,7 +2,7 @@
 -- contract tests additionally exercise wide slots and exact error paths.
 local test = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
-local check = require("fragment")
+local check = require("helpers.fragment")
 local program = require("program")
 local envMod = require("nupp.compiler.project.env")
 local HERE = assert(debug.getinfo(1, "S").source:match("^@(.*)[/\\]"))

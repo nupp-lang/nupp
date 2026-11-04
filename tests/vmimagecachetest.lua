@@ -311,7 +311,7 @@ end
 local function onTheVm(identity, describe, ask)
     if rawget(_G, "__nupp_load_image") ~= nil then
         local name = "nupp.compiler.project.fingerprint"
-        local fresh = require("providerstate").instance({[name] = true}, nil, nil, {
+        local fresh = require("helpers.providerstate").instance({[name] = true}, nil, nil, {
             __nupp_load_image = rawget(_G, "__nupp_load_image"),
             __nupp_image_identity = identity and function()
                 return identity

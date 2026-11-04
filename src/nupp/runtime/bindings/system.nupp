@@ -3,9 +3,11 @@ module nupp.runtime.bindings.system
 
 local contracts = require("nupp.runtime.contracts")
 local target = require("nupp.runtime.target")
+-- Native is the VM's adapter, required by name so every image carries it.
+local native: contracts.SystemProvider = require("nupp.vm.systembinding")
 local implementation: contracts.SystemProvider = do
     if target.host == "native" then
-        yield _G.require("nupp.runtime.provider.nativesystem") as contracts.SystemProvider
+        yield native
     end
     yield _G.require("nupp.runtime.browser.system") as contracts.SystemProvider
 end

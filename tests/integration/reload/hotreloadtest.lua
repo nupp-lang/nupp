@@ -14,7 +14,7 @@ local M = {}
 
 function M.thePublicReloadNamespaceKeepsItsCanonicalTypedPollResult()
     local parser = require("nupp.compiler.syntax.parser")
-    local checker = require("fragment")
+    local checker = require("helpers.fragment")
     local environment = require("nupp.compiler.project.env").new(".")
     local parsed = parser.parse(
         [[
