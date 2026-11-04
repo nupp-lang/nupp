@@ -1815,10 +1815,13 @@ local function writable(ctx: voidptr, t: uint64): nil
     end
 end
 
--- table.freeze(t): t, frozen shallowly and for good; a frozen t is answered
--- as it is. A table whose metatable is protected raises, as Luau's does.
+-- table.freeze(t): t, frozen shallowly and for good. A frozen t, or one whose
+-- metatable is protected, raises, as Luau's does.
 local function tableFreeze(ctx: voidptr, list: uint64): uint64
     local t = tableArgument(ctx, list, 1ULL)
+    if tables.frozen(t) then
+        texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_ALREADY_FROZEN, list)
+    end
     if guestscope.metaField(ctx, t, guestscope.META_METATABLE) ~= values.NIL then
         texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_PROTECTED_TABLE, list)
     end

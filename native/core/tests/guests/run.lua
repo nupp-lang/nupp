@@ -633,6 +633,15 @@ local function main()
             end
         end
     end
+    -- Library names and texts share one id space in guesttexts: an id two
+    -- of them claim prints the one in place of the other.
+    local claimed = {}
+    for name, id in read(ROOT .. "/native/core/src/nupp/runtime/core/guesttexts.nupp"):gmatch(
+        "export const ([%u_]+): uint64 = (%d+)ULL"
+    ) do
+        check(claimed[id] == nil, ("text id %s is both %s and %s"):format(id, tostring(claimed[id]), name))
+        claimed[id] = name
+    end
     local bridge, guard = tools()
     stage()
     local started = os.time()

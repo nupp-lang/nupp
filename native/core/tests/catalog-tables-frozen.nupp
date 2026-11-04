@@ -14,6 +14,14 @@ local function refused(f: function(): nil): boolean
     return not ok and tostring(problem):find(readonly, 1, true) ~= nil
 end
 
+-- Freezing a frozen table raises, as Luau's table.freeze does.
+local function frozenAgain(t: table): boolean
+    local ok, problem = pcall(function(): any
+        return table.freeze(t)
+    end)
+    return not ok and tostring(problem):find("table is already frozen", 1, true) ~= nil
+end
+
 local score = 0
 
 local list: {integer} = {3, 1, 2}
@@ -21,7 +29,7 @@ local shape: {[string]: integer} = {x = 1}
 if table.freeze(list) == list
     and table.isfrozen(list)
     and not table.isfrozen(shape)
-    and table.freeze(list) == list
+    and frozenAgain(list)
     and table.isfrozen(table.freeze(shape))
 then
     score = score + 1
