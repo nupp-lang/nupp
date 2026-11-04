@@ -39,6 +39,10 @@ export const WEAK_KEYS: uint64 = 1
 export const WEAK_VALUES: uint64 = 2
 export const WEAK_MODES: uint64 = 3
 
+--- Beside a scanned table's mode: the scan is a minor collection's, so an
+--- old referent holds (Decision 20; `weakentries` reads the same bit).
+export const WEAK_MINOR: uint64 = 4
+
 --- Grays a white object, answering whether it did.
 local function grayIfWhite(h: heap.Heap*, value: uint64): boolean
     return marking.shadeValue(h, value)
@@ -69,7 +73,7 @@ end
 export function weakCycleRemember(h: heap.Heap*, o: heap.Header*, mode: uint64): nil
     @unsafe do
         heap.wordsPush(h.weak, native.address(o as voidptr))
-        heap.wordsPush(h.weak, mode & WEAK_MODES)
+        heap.wordsPush(h.weak, mode & (WEAK_MODES | WEAK_MINOR))
     end
 end
 

@@ -17,6 +17,10 @@ export function shadeValue(h: heap.Heap*, value: uint64): boolean
         if o.color as uint64 ~= heap.COLOR_WHITE then
             return false
         end
+        -- A minor collection takes an old object as marked (Decision 20).
+        if h.minor ~= 0ULL and (o.flags as uint64) & heap.F_OLD ~= 0ULL then
+            return false
+        end
         -- A refused queue growth must leave no unqueued gray object.
         heap.grayPush(h, o)
         o.color = heap.COLOR_GRAY
