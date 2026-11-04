@@ -11,20 +11,16 @@
    * only where the set truly has no direct color for the job. */
   --nupp-woodblock-vermilion: #b1594f;
   --nupp-woodblock-vermilion-hover: #843d2f;
-  /* Links run the amber-orange that headings wore last pass — direct on the
-   * dark ground, darkened for the light one, same as before. Headings move
-   * to cinnabar, a redder orange, so the two don't collide: cinnabar red was
-   * an actual woodblock pigment, which makes the rename more than
-   * decoration. */
+  /* Warm highlights complement the paper and ink palette. */
   --nupp-woodblock-ember: #c7913d;
   --nupp-woodblock-ember-deep: color-mix(in srgb, var(--nupp-woodblock-ember) 60%, black);
   --nupp-woodblock-cinnabar: #d64a3b;
   --nupp-woodblock-cinnabar-deep: color-mix(in srgb, var(--nupp-woodblock-cinnabar) 65%, black);
-  --nuppdoc-light-accent: #768d93;
-  --nuppdoc-light-accent-hover: color-mix(in srgb, #768d93 80%, black);
+  --nuppdoc-light-accent: #50676c;
+  --nuppdoc-light-accent-hover: color-mix(in srgb, var(--nuppdoc-light-accent) 80%, black);
   --nuppdoc-light-accent-soft: #f1e1df;
-  --nuppdoc-light-background: #fcfbfb;
-  --nuppdoc-light-background-alt: #f0ebe7;
+  --nuppdoc-light-background: #f6f2e9;
+  --nuppdoc-light-background-alt: color-mix(in srgb, var(--nuppdoc-light-background) 96%, var(--nuppdoc-light-text));
   --nuppdoc-light-border: #ccc;
   --nuppdoc-light-api-border: var(--nuppdoc-light-border);
   --nuppdoc-light-code-background: #e6eaec;
