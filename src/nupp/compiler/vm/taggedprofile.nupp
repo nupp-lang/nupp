@@ -76,9 +76,8 @@ function tagged.initialize(fn: any, options: any): any
         or fn.node.kind == "constructorDecl",
         "unsupported function declaration form"
     )
-    local body = fn.body
-    -- Plain type parameters erase; packs and const parameters do not.
-    need(not body.generics or next(fn.signature.constParams or {}) == nil, "const generic parameters are unsupported")
+    -- Plain type parameters erase, and so do const ones (`const N: integer`):
+    -- a const parameter is a type, never a value the body reads.
     need(
         -- A constructor's results are dropped: its construction is the instance.
         -- Open results (`R...`) return as many as there are.
@@ -86,7 +85,7 @@ function tagged.initialize(fn: any, options: any): any
         "correlated result alternatives are unsupported"
     )
     ordinaryCaptures(fn)
-    local params = graph.parameters(body)
+    local params = graph.parameters(fn.body)
     for index, parameter in ipairs(params) do
         -- A `...` last is the hidden pack parameter, named or not.
         local pack = parameter.vararg and index == #params
@@ -175,6 +174,21 @@ local stringLibrary: {[string]: {integer}} = {
     ["coroutine.create"] = {75, 1, 1},
     ["coroutine.status"] = {78, 1, 1},
     ["coroutine.wrap"] = {79, 1, 1}
+}
+
+-- What `type` answers for the values of a primitive type a test names.
+local typeNames: {
+    [string]: string
+} = {
+    string = "string",
+    number = "number",
+    boolean = "boolean",
+    table = "table",
+    thread = "thread",
+    userdata = "userdata",
+    float32 = "number",
+    float64 = "number",
+    ["function"] = "function"
 }
 
 local function stringSpec(library: string?): {integer}?
@@ -412,7 +426,21 @@ local function numberType(t: any): boolean
     return kind == "number" or kind == "float64" or kind == "float32"
 end
 
-local function integerType(t: any): boolean
+local integerType: function(any): boolean
+integerType = function(t: any): boolean
+    while t and (t.tag == "literal" or t.tag == "const") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    -- A union of integers (`1 | 2`, a choice between two) is an integer.
+    if t and t.tag == "union" and #(t.members or {}) > 0 then
+        for _, member in ipairs(t.members) do
+            if not integerType(member) then
+                return false
+            end
+        end
+        return true
+    end
+
     return narrowIntegers[typeKind(t)] == true
 end
 
@@ -1249,6 +1277,20 @@ local function invokeMethod(ctx: any, node: any, keepResult: boolean, count: int
             return nil
         end
     end
+    -- Parameters the call leaves off are nil, as Lua passes them; the
+    -- method's function type leaves out its receiver. A dynamic call's
+    -- signature is made from its own arguments.
+    local called = contract.callSignature
+    if not site.dynamic
+        and not spreads
+        and type(called) == "table"
+        and called.params
+        and graph.omits(called, #args - 1)
+    then
+        while #args - 1 < #called.params do
+            args[#args + 1] = ctx.emit(node, "Nil", {}, "tagged")
+        end
+    end
     local pack = spreads and ctx.varargPack() or nil
     -- In a function that owns affine values a method call moves what it
     -- takes, and an error lands at it, as at any call.
@@ -1803,13 +1845,14 @@ function tagged.forVersion(version: integer): any
     -- with affine values live; the statement runs as it would without it.
     -- `@aot` asks for ahead-of-time code, which the core has no backend
     -- for, and `@allow` quiets a lint: either way the statement runs as
-    -- written.
-    local pragmas: {[string]: boolean} = {unsafe = true, aot = true, allow = true}
+    -- written. `@nosuspend` is the checker's proof that nothing in it
+    -- suspends, which it holds without the core's help.
+    local pragmas: {[string]: boolean} = {unsafe = true, aot = true, allow = true, nosuspend = true}
     profile.checkedPragma = function(ctx: any, node: any): nil
         local name = node.name and node.name.text
         need(
             pragmas[name or ""] == true and node.annotationDefinition and node.annotationDefinition.name == name,
-            "only a checked @unsafe, @aot or @allow scope is admitted, not @" .. tostring(name)
+            "only a checked @unsafe, @aot, @allow or @nosuspend scope is admitted, not @" .. tostring(name)
         )
     end
     profile.binary = function(ctx: any, node: any, expected: string?): integer
@@ -2200,10 +2243,67 @@ function tagged.forVersion(version: integer): any
         profile.kind = function(t: any): string
             return "tagged"
         end
+        -- A block nothing reaches (after a loop body that always leaves) is
+        -- dropped rather than verified.
+        profile.dropUnreachable = true
         -- `e as T` is a static cast: the value is the operand's.
         profile.cast = function(ctx: any, node: any, expected: string?): integer
             need(expected == nil or expected == "tagged", "cast requires tagged destination")
             return ctx.expression(node.expr, "tagged") as integer
+        end
+        -- `v is T`: settled by the checker, a nil test, an integer's subtype,
+        -- or `type(v)` against a primitive's name.
+        profile.typeTest = function(ctx: any, node: any, expected: string?): integer
+            need(expected == nil or expected == "tagged", "a type test requires tagged destination")
+            if node.refutedStatically or node.provenStatically and not node.provenNeedsNil then
+                local answer = node.refutedStatically and "false" or "true"
+                return ctx.emit(node, "K", {pool(ctx, answer, "")}, "tagged") as integer
+            end
+            local t = need(node.type, "a type test lacks its type")
+            if node.provenNeedsNil or t.kind == "tname" and t.base and t.base.kind == "nil" then
+                local value = ctx.expression(need(node.expr, "a type test lacks its value"), "tagged")
+                if value == nil then
+                    return nil as any
+                end
+                local none = ctx.emit(node, "Nil", {}, "tagged")
+                local absent = ctx.emit(node, "Eq", {value, none}, "tagged")
+                if node.provenNeedsNil then
+                    return ctx.emit(node, "Not", {absent}, "tagged") as integer
+                end
+                return absent as integer
+            end
+            local target = node.typeTestTarget
+            while target and target.tag == "literal" do
+                target = target.base
+            end
+            local tag = target and target.tag
+            -- int64 is the integer: its test is the number's subtype.
+            local id: integer = 32
+            local answer: string? = nil
+            if tag == "int64" or tag == "uint64" or tag == "integer" then
+                id, answer = 43, "integer"
+            elseif t.kind == "tname" and #t == 1 and t.base and typeNames[t.base.text] then
+                answer = typeNames[t.base.text]
+            elseif t.primitiveTest then
+                answer = t.primitiveTest
+            elseif t.kind == "tfunc" then
+                answer = "function"
+            end
+            if answer == nil then
+                error(
+                    "tagged graph: a type test against " .. tostring(
+                        t.recordName or t.kind
+                    ) .. " is unsupported (records, unions and refinements)",
+                    0
+                )
+            end
+            local found = libraryCall(ctx, node, id, {node.expr})
+            if found == nil or ctx.block == nil then
+                return nil as any
+            end
+            local name = ctx.emit(node, "K", {pool(ctx, "str", answer)}, "tagged")
+
+            return ctx.emit(node, "Eq", {found, name}, "tagged") as integer
         end
         -- `...` in a single-value context: the pack's first value.
         profile.vararg = function(ctx: any, node: any, expected: string?): integer
@@ -2695,6 +2795,53 @@ function tagged.forVersion(version: integer): any
                 need(#(node.args.exprs or {}) == 0, "coroutine.isyieldable takes no arguments")
                 local none = ctx.emit(node, "Nil", {}, "tagged")
                 return ctx.emit(node, "LibCall", {81, none}, "tagged") as integer
+            elseif library == "string.char" and #(node.args.exprs or {}) > 1 then
+                -- Several bytes: each one's string, joined in order. An
+                -- out-of-range byte is reported as the first argument.
+                local args = node.args.exprs
+                local last = args[#args]
+                need(
+                    last.kind ~= "vararg" and not graph.expandsResults(last),
+                    "string.char cannot spread its last argument yet"
+                )
+                local kinds = {}
+                for index = 1, #args do
+                    kinds[index] = "tagged"
+                end
+                local operands = ctx.operands(args, kinds)
+                if operands == nil then
+                    return nil as any
+                end
+                local held = {}
+                for index, value in ipairs(operands) do
+                    held[index] = ctx.hold(value)
+                end
+                local text: any = nil
+                for index = 1, #held do
+                    local byte = landed(ctx, node, ctx.emit(node, "LibCall", {13, ctx.readHeld(held[index])}, "tagged"))
+                    if byte ~= nil and ctx.block ~= nil and text ~= nil then
+                        local before = text
+                        byte = landed(ctx, node, ctx.emit(node, "LibCall", {5, ctx.readHeld(before), byte}, "tagged"))
+                        ctx.release(before)
+                        text = nil
+                    end
+                    if byte == nil or ctx.block == nil then
+                        if text ~= nil then
+                            ctx.release(text)
+                        end
+                        for previous = #held, 1, -1 do
+                            ctx.release(held[previous])
+                        end
+                        return nil as any
+                    end
+                    text = ctx.hold(byte)
+                end
+                local result = ctx.readHeld(text)
+                ctx.release(text)
+                for index = #held, 1, -1 do
+                    ctx.release(held[index])
+                end
+                return result as integer
             elseif stringSpec(library) then
                 local spec: {integer} = need(stringSpec(library), "string library call")
                 local count = #(node.args.exprs or {})

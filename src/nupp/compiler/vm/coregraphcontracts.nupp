@@ -12,6 +12,19 @@ local function need(ok: any, message: string): any
     return ok
 end
 
+-- `action()`, its refusal naming the source at `node` in `path`.
+local function located(path: any, node: any, action: function(): any): any
+    local ok, result = pcall(action)
+    if ok then
+        return result
+    end
+    local token = type(node) == "table" and cst.firstToken(node) or nil
+    if type(result) == "string" and token then
+        result = result .. " at " .. tostring(path) .. ":" .. tostring(token.line) .. ":" .. tostring(token.col)
+    end
+    error(result, 0)
+end
+
 local function plain(value: any): nil
     need(type(value) == "table" and getmetatable(value) == nil, "plain semantic table required")
 end
@@ -29,7 +42,9 @@ local function fields(value: any, allowed: string): nil
 end
 
 local function integer(value: any, maximum: integer): integer
-    need(type(value) == "number" and value >= 0 and value <= maximum and value % 1 == 0, "invalid bounded integer")
+    if not (type(value) == "number" and value >= 0 and value <= maximum and value % 1 == 0) then
+        need(false, "invalid bounded integer " .. tostring(value) .. " (at most " .. tostring(maximum) .. ")")
+    end
     return value as integer
 end
 
@@ -56,9 +71,18 @@ local function empty(value: any, description: string): nil
 end
 
 local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
-    -- An owned value passes as the value it owns.
-    while dynamic and value and (value.tag == "affine" or value.tag == "borrowed" or value.tag == "pinned") do
-        value = value.inner
+    -- An owned value passes as the value it owns, and a literal or const
+    -- one as its base type's.
+    while dynamic
+        and value
+        and (
+            value.tag == "affine"
+            or value.tag == "borrowed"
+            or value.tag == "pinned"
+            or value.tag == "literal"
+            or value.tag == "const"
+        ) do
+        value = value.tag == "literal" and value.base or value.inner
     end
     need(value and value.tag ~= "literal" and value.tag ~= "const", "qualified scalar signatures are unsupported")
     -- v8 passes strings, tables and functions as dynamic values, checked where
@@ -74,8 +98,9 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
         or value.tag == "uint32"
         or value.tag == "uint64"
         or value.tag == "float32"
-        or value.tag == "any"
-        or value.tag == "unknown") then
+        -- A metatable is a table; a type a generic computes (a const
+        -- parameter's `N`) erases as a type parameter does.
+        or value.tag == "metatable" or value.tag == "neutral" or value.tag == "any" or value.tag == "unknown") then
         return "value"
     end
     -- An optional or other union is dynamic too, each member admissible.
@@ -108,16 +133,23 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
     -- From v8 a typed `...` passes its values in a pack, the last parameter.
     local tail = signature.paramPack and signature.paramPack.tail
     local variadic = signature.vararg == true
-    -- A generic tail (`...: A...`) erases to values, as plain generics do.
-    local erasedTail = tail and (tail.kind == "generic" or tail.kind == "unknown")
+    -- A generic tail (`...: A...`) erases to values, as plain generics do,
+    -- and so does one a type computes (`...: unpackof F(T)`).
+    local erasedTail = tail and (tail.kind == "generic" or tail.kind == "unknown" or tail.kind == "computed")
+    -- A borrowed `...` (`borrows ...: any`) stays its caller's: a static fact.
     need(
-        (not variadic or dynamic and tail and (tail.kind == "homogeneous" or erasedTail) and tail.mode == nil)
-        and not signature.foreign
-        and not signature.comptimeOnly,
-        "unsupported callable signature"
+        not variadic
+        or dynamic
+        and tail
+        and (tail.kind == "homogeneous" or erasedTail)
+        and (tail.mode == nil or tail.mode == "borrows"),
+        "unsupported callable signature: a `...` of kind " .. tostring(tail and tail.kind)
     )
-    -- From v8 plain type parameters erase to dynamic values, and what a
-    -- result preserves of its parameters is a static ownership fact.
+    need(not signature.foreign, "unsupported callable signature: foreign")
+    need(not signature.comptimeOnly, "unsupported callable signature: compile-time only")
+    -- From v8 plain and const type parameters erase to dynamic values, and
+    -- what a result preserves of, borrows from or partitions out of its
+    -- parameters is a static ownership fact.
     for _, key in ipairs({
         "typeParams",
         "packParams",
@@ -128,7 +160,15 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
         "preservesPaths"
     }) do
         local erased = dynamic
-            and (key == "typeParams" or key == "packParams" or key == "preservesResults" or key == "preservesPaths")
+            and (
+                key == "typeParams"
+                or key == "packParams"
+                or key == "constParams"
+                or key == "borrowsParams"
+                or key == "partitionResults"
+                or key == "preservesResults"
+                or key == "preservesPaths"
+            )
         if not erased then
             empty(signature[key], "callable " .. key)
         end
@@ -385,7 +425,17 @@ function contracts.normalize(compiled: any, version: integer?): any
         need(record.id == index - 1, "owner order differs")
         if owner.kind == "function" then
             record.parent = integer(owner.parent, 255)
-            record.signature = intern(output.signatures, signatureIndex, checkedSignature(owner, numeric, v >= 8))
+            record.signature = intern(
+                output.signatures,
+                signatureIndex,
+                located(
+                    owner.scope and owner.scope.path,
+                    owner.node,
+                    function(): any
+                        return checkedSignature(owner, numeric, v >= 8)
+                    end
+                )
+            )
         else
             need(
                 owner.kind == "module" and modulesByOwner[owner.id] ~= nil and owner.parent == nil,
@@ -449,7 +499,13 @@ function contracts.normalize(compiled: any, version: integer?): any
                     target.signature = intern(
                         output.signatures,
                         signatureIndex,
-                        typeSignature(source.callSignature, numeric, true)
+                        located(
+                            graphs[index].source and graphs[index].source.path,
+                            source.call,
+                            function(): any
+                                return typeSignature(source.callSignature, numeric, true)
+                            end
+                        )
                     )
                 else
                     need(

@@ -123,6 +123,8 @@ local CASES: {[string]: {
     serdejson = {fixture = "catalog-serde-json", version = 8, follow = true},
     coreoperators = {fixture = "catalog-core-operators", version = 8},
     methodcleanups = {fixture = "catalog-method-cleanups", version = 8, follow = true},
+    ownerreinit = {fixture = "catalog-owner-reinit", version = 8, follow = true},
+    coreforms = {fixture = "catalog-core-forms", version = 8, follow = true},
     storagebasics = {fixture = "catalog-storage-basics", version = 8},
     storageprovider = {fixture = "catalog-storage-provider", version = 8, follow = true},
     stringbuffer = {

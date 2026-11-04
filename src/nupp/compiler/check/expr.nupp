@@ -2340,6 +2340,12 @@ function expr.install(c: state.Checker): nil
         node.fixedWidthResultEstablished = nil
         node.fixedWidthResultTrusted = nil
         node.fixedWidthUntrustedResult = nil
+        -- The owners a call moves are appended as it is inferred; an earlier
+        -- inference of the same call (a literal argument's first pass) names
+        -- owners that later one replaced.
+        if node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" then
+            node.automaticOwnerMoves = nil
+        end
         local first = inferExpr(node)
         if node.kind == "call" or node.kind == "methodCall" or node.kind == "safeCall" or node.kind == "newExpr" then
             markCallMutation(node)

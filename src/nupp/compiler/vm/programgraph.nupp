@@ -686,7 +686,11 @@ function program.describe(modules: {any}, entryModule: string): any
                 if super.interfaceName and definition and definition.filename ~= owner.scope.path and foreign then
                     -- Another module's interface: that module, required, and its
                     -- export by the interface's name.
-                    local site: any = {kind = "dotIndex", qualifiedModule = origin.moduleName, inheritFrom = declaration.name.text}
+                    local site: any = {
+                        kind = "dotIndex",
+                        qualifiedModule = origin.moduleName,
+                        inheritFrom = declaration.name.text
+                    }
                     local item = {
                         id = #p.requires,
                         owner = owner.id,
@@ -721,6 +725,15 @@ function program.describe(modules: {any}, entryModule: string): any
                     cleanupToken(node, automatic.type, anchor)
                 end
             end
+        end
+        -- `drop(v)` of a value no local owner holds (a taken parameter, a
+        -- fresh result) runs v's cleanups itself, from this site.
+        if node.kind == "call"
+            and node.ownershipIntrinsic == "drop"
+            and next(node.ownerCleanups or {}) ~= nil
+            and cst.firstToken(node)
+        then
+            cleanupToken(node, node.ownerType, cst.firstToken(node))
         end
         -- `new R(...)` of a plain record builds its value in place, so the
         -- record's name is a type use there, not a read of its runtime value.

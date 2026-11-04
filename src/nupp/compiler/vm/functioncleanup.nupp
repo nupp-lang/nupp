@@ -38,7 +38,7 @@ function cleanup.localOwner(stat: any, index: integer): any
     need(
         owner.stat == stat
         and owner.index == index
-        and owner.expr == stat.exprs[index]
+        and owner.expr == (stat.exprs or {})[index]
         and owner.token == token
         and owner.entry
         and owner.entry.definition == token.definition

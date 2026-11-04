@@ -1,0 +1,95 @@
+module nupp.core.catalogownerreinit
+
+local own = require("own")
+
+local released = 0
+
+local record Token
+    n: integer
+end
+
+local function release(takes token: Token): nil
+    released = released + token.n
+end
+
+local type Held = affine(Token, release)
+
+local function hold(n: integer): Held
+    return @unsafe own.adopt<Held>(new Token(n = n))
+end
+
+local function consume(takes h: Held): nil
+    own.drop(h)
+end
+
+local function consumeall(takes hs: {Token}): nil
+    for _, h in ipairs(hs) do
+        released = released + 1000 * h.n
+    end
+end
+
+local score = 0
+-- A moved owner takes a fresh value, which its scope's end destroys.
+do
+    local a = hold(1)
+    consume(a)
+    if released == 1 then
+        score = score + 1
+    end
+    a = hold(10)
+end
+if released == 11 then
+    score = score + 2
+end
+-- A table built for a taking call moves its owners, fresh or named, into it.
+do
+    local b = hold(2)
+    consumeall({b, hold(3)})
+    if released == 5011 then
+        score = score + 4
+    end
+end
+if released == 5011 then
+    score = score + 8
+end
+-- A table literal given to setmetatable in a function owning values.
+local mt = {
+    __index = function(t: any, k: any): any
+        return k
+    end
+}
+
+local function meta(): any
+    local h = hold(7)
+    local t = setmetatable({}, mt)
+    return t.x
+end
+
+if meta() == "x" and released == 5018 then
+    score = score + 16
+end
+-- An owner declared empty is destroyed only once filled; one moved out each
+-- time round a loop is refilled each time, and its last value destroyed.
+do
+    local c: Held
+    c = hold(20)
+    local d = hold(100)
+    for i = 1, 3 do
+        consume(d)
+        d = hold(100 * (i + 1))
+    end
+end
+if released == 5018 + 20 + 100 + 200 + 300 + 400 then
+    score = score + 32
+end
+-- A failure after the refill destroys the new value, not the moved one.
+local ok = pcall(function(): nil
+    local e = hold(1)
+    consume(e)
+    e = hold(50000)
+    error("boom")
+end)
+if not ok and released == 5018 + 1020 + 50001 then
+    score = score + 64
+end
+export = score

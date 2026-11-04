@@ -141,9 +141,10 @@ local CASES = {
     {"stringbuffer", 0x7FFF000000000003},
     {"librarybasics", 0x7FFF00000000007F},
     {"cleanupfunctions", 0x7FFF000000000003},
-    {"serdejson", 0x7FFF000000000003},
     {"coreoperators", 0x7FFF0000000003FF},
     {"methodcleanups", 0x7FFF00000000001F},
+    {"ownerreinit", 0x7FFF00000000007F},
+    {"coreforms", 0x7FFF0000000003FF},
     {"storagebasics", 0x7FFF000000001FFF},
     {"storageprovider", 0x7FFF00000000003F},
     {"modulesqualified", 0x7FFF0000000000E6},
@@ -188,7 +189,9 @@ local STRESS = {
     storageprovider = true,
     cleanupfunctions = true,
     coreoperators = true,
-    methodcleanups = true
+    methodcleanups = true,
+    ownerreinit = true,
+    coreforms = true
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
@@ -273,6 +276,8 @@ local NUMERIC = {
     serdejson = "catalog-serde-json",
     coreoperators = "catalog-core-operators",
     methodcleanups = "catalog-method-cleanups",
+    ownerreinit = "catalog-owner-reinit",
+    coreforms = "catalog-core-forms",
     storagebasics = "catalog-storage-basics",
     storageprovider = "catalog-storage-provider",
     modulesqualified = "catalog-modules-qualified",
@@ -507,6 +512,8 @@ local function stage()
             "catalog-serde-json",
             "catalog-core-operators",
             "catalog-method-cleanups",
+            "catalog-owner-reinit",
+            "catalog-core-forms",
             "catalog-storage-basics",
             "catalog-storage-provider"
         }) do

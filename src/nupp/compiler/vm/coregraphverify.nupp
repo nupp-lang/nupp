@@ -28,7 +28,9 @@ local function fields(value: any, allowed: string): nil
 end
 
 local function integer(value: any, maximum: integer): integer
-    need(type(value) == "number" and value >= 0 and value <= maximum and value % 1 == 0, "invalid bounded integer")
+    if not (type(value) == "number" and value >= 0 and value <= maximum and value % 1 == 0) then
+        need(false, "invalid bounded integer " .. tostring(value) .. " (at most " .. tostring(maximum) .. ")")
+    end
     return value as integer
 end
 
@@ -101,7 +103,13 @@ function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
         local constant = g.constants[index]
         fields(constant, "kind value")
         local value = constant.value
-        if constant.kind == "int64" and integers and fromSource then
+        -- From v8 a uint64 literal is the integer of the same 64 bits, as
+        -- the VM holds it: `18446744073709551615ULL` is -1.
+        local kind = constant.kind
+        if kind == "uint64" and integers and fromSource and (version or 2) >= 8 then
+            kind = "int64"
+        end
+        if kind == "int64" and integers and fromSource then
             need(
                 type(value) == "string" and (value:match("^%-?%d+$") or value:match("^%-?0[xX]%x+$")),
                 "invalid integer constant text"
@@ -116,7 +124,7 @@ function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
             or constant.kind == "nil"
             or constant.kind == "str"
             or numeric and constant.kind == "num"
-            or integers and constant.kind == "int64",
+            or integers and kind == "int64",
             "unsupported scalar constant"
         )
         need(
@@ -124,8 +132,8 @@ function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
             and type(value) == "string"
             and #value <= ((version or 2) >= 8 and 65536 or 256)
             and (#value > 0 or (version or 2) >= 8)
-            or (constant.kind == "num" or constant.kind == "int64") and type(value) == "string" and #value == 8
-            or constant.kind ~= "str" and constant.kind ~= "num" and constant.kind ~= "int64" and value == "",
+            or (constant.kind == "num" or kind == "int64") and type(value) == "string" and #value == 8
+            or constant.kind ~= "str" and constant.kind ~= "num" and kind ~= "int64" and value == "",
             "invalid scalar constant payload"
         )
         if constant.kind == "num" then
@@ -144,7 +152,7 @@ function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
                 "integer constant exceeds the immediate range"
             )
         end
-        copy.constants[index] = {kind = constant.kind, value = value}
+        copy.constants[index] = {kind = kind, value = value}
     end
     for index = 1, dense(g.positions, 1048576) do
         local position = g.positions[index]
@@ -318,12 +326,25 @@ function verify.resultKind(g: any, signature: any, output: any): string
             assign(rule.dst, "boolean")
             return
         end
-        need(fits(first, "number") and fits(second, "number"), "numeric operation needs numeric operands")
+        -- A v8 operand's kind may still widen to a value as the worklist
+        -- runs (a nil before a loop assigns it a number), and its handler
+        -- checks it when it runs, as Lua does: only earlier profiles refuse.
+        if not dynamic and not (fits(first, "number") and fits(second, "number")) then
+            local at = rule.pos and g.positions[rule.pos]
+            need(
+                false,
+                "numeric operation needs numeric operands: " .. rule.op .. " of " .. tostring(
+                    first
+                ) .. " and " .. tostring(
+                    second
+                ) .. " at " .. tostring(g.path) .. ":" .. tostring(at and at.line) .. ":" .. tostring(at and at.column)
+            )
+        end
         assign(rule.dst, (rule.op == "Lt" or rule.op == "Le") and "boolean" or "number")
     end
 
-    local function propagate(op: string, args: any, dst: integer): nil
-        local rule = {op = op, args = args, dst = dst}
+    local function propagate(op: string, args: any, dst: integer, pos: integer?): nil
+        local rule = {op = op, args = args, dst = dst, pos = pos}
         for _, id in ipairs(args) do
             if users[id] == nil then
                 users[id] = {}
@@ -352,7 +373,8 @@ function verify.resultKind(g: any, signature: any, output: any): string
                         dst,
                         constant.kind == "str" and "value"
                         or constant.kind == "nil" and "nil"
-                        or (constant.kind == "num" or constant.kind == "int64") and "number"
+                        or (constant.kind == "num" or constant.kind == "int64" or constant.kind == "uint64")
+                        and "number"
                         or "boolean"
                     )
                     yield nil
@@ -386,7 +408,7 @@ function verify.resultKind(g: any, signature: any, output: any): string
                     yield nil
                 end
                 case "Add", "Sub", "Mul", "Mod", "Lt", "Le", "Eq", "Move" -> do
-                    propagate(op, args, dst)
+                    propagate(op, args, dst, block.pos[at])
                     yield nil
                 end
                 case "Nil" -> do
@@ -487,7 +509,24 @@ function verify.resultKind(g: any, signature: any, output: any): string
             end
             nextBlock += 1
         end
-        need(#ready == #g.blocks, "unreachable graph is unsupported")
+        if #ready ~= #g.blocks then
+            local unreached = 0
+            for index = 1, #g.blocks do
+                if not reached[index] then
+                    unreached = index
+                    break
+                end
+            end
+            local at = g.blocks[unreached] and g.blocks[unreached].term and g.positions[g.blocks[unreached].term.pos]
+            need(
+                false,
+                "unreachable graph is unsupported: " .. tostring(
+                    g.name
+                ) .. " block " .. tostring(
+                    unreached
+                ) .. " at " .. tostring(g.path) .. ":" .. tostring(at and at.line) .. ":" .. tostring(at and at.column)
+            )
+        end
     end
 
     local returned
@@ -577,7 +616,19 @@ function verify.resultKind(g: any, signature: any, output: any): string
             local fixed = target.variadic and #target.params - 1 or #target.params
             -- xpcall's handler rides last among the term's arguments.
             local given = contract.handled and #term.args - 1 or #term.args
-            need(given == fixed or target.variadic and given > fixed or term.spread ~= nil, "call arity differs")
+            if not (given == fixed or target.variadic and given > fixed or term.spread ~= nil) then
+                local at = g.positions[term.pos]
+                need(
+                    false,
+                    "call arity differs: " .. tostring(
+                        given
+                    ) .. " given, " .. tostring(
+                        fixed
+                    ) .. " taken at " .. tostring(
+                        g.path
+                    ) .. ":" .. tostring(at and at.line) .. ":" .. tostring(at and at.column)
+                )
+            end
             need(term.spread == nil or kinds[term.spread] ~= nil, "unresolved spread pack")
             for at, id in ipairs(term.args) do
                 need(at > fixed or fits(kinds[id], target.params[at]), "call scalar argument differs")

@@ -1422,16 +1422,14 @@ invokeScalar = function(t: any): nil
         -- Fixed-width numbers are integers and floats at run time.
         or fixedwidths[t.tag] == true
         -- Storage and views of it are values on the core's heap.
-        or t.tag == "carray"
-        or t.tag == "ptr"
-        or t.tag == "ctype"
-        or t.tag == "intersection"
-        or t.tag == "typeobject"
-        or t.tag == "nominal" and t.declKind == "interface"
+        or t.tag == "carray" or t.tag == "ptr" or t.tag == "ctype" or t.tag == "intersection" or t.tag == "typeobject"
+        -- A metatable (what `setmetatable` answers its table as) is a table.
+        or t.tag == "metatable" or t.tag == "nominal" and t.declKind == "interface"
         -- A function that never returns gives no value to check.
         or t.tag == "never"
-        -- A plain type parameter erases to a value, and a record is a table.
-        or t.tag == "typevar" or t.tag == "nominal" and t.declKind == "record"
+        -- A plain type parameter erases to a value, as does a type a
+        -- generic computes (a const parameter's `N`), and a record is a table.
+        or t.tag == "typevar" or t.tag == "neutral" or t.tag == "nominal" and t.declKind == "record"
         -- `any` and `unknown` are values checked where they are used.
         or t.tag == "any" or t.tag == "unknown"),
         "invoke requires a checked scalar type, got " .. tostring(t and t.tag) .. checkingat()
@@ -1452,16 +1450,25 @@ local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
     -- packs, which the core does not check against it.
     -- A function that never returns (`noreturn`) is called as any is: its
     -- error unwinds past the call.
-    assert(not signature.foreign and not signature.comptimeOnly, "invoke signature is outside the scalar guest subset")
+    assert(
+        not signature.foreign and not signature.comptimeOnly,
+        "invoke of a foreign or compile-time signature is outside the guest subset"
+    )
     -- A typed `...` is a homogeneous tail; its values pass in a pack. A
-    -- generic one (`...: A...`) erases to values, as plain generics do.
+    -- generic one (`...: A...`) erases to values, as plain generics do, and
+    -- so does one a type computes (`...: unpackof F(T)`, string.format's).
     local tail = signature.paramPack and signature.paramPack.tail
     if signature.vararg then
         assert(
             tail
-            and (tail.kind == "homogeneous" or tail.kind == "generic" or tail.kind == "unknown")
-            and tail.mode == nil
-            and not signature.paramPack.alternatives,
+            and (
+                tail.kind == "homogeneous"
+                or tail.kind == "generic"
+                or tail.kind == "unknown"
+                or tail.kind == "computed"
+            )
+            -- A borrowed `...` stays its caller's: a static fact.
+            and (tail.mode == nil or tail.mode == "borrows") and not signature.paramPack.alternatives,
             "invoke signature is outside the scalar guest subset"
         )
         if tail.kind == "homogeneous" then
@@ -1469,14 +1476,10 @@ local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
         end
     end
     -- Plain type parameters and packs erase: their values pass as dynamic
-    -- values. What a result preserves of its parameters is a static ownership
-    -- fact the collected guest heap has no use for.
-    for _, field in ipairs({"constParams", "borrowsParams", "partitionResults"}) do
-        assert(
-            signature[field] == nil or next(signature[field]) == nil,
-            "invoke generic or ownership contract is unsupported: " .. field
-        )
-    end
+    -- values, as const parameters do: they are types the body cannot read.
+    -- What a result preserves of, borrows from or partitions out of its
+    -- parameters is a static ownership fact the collected guest heap has no
+    -- use for.
     -- A borrowed result is what its source keeps alive, a static fact: at
     -- run time it is a value, which the collector keeps alive itself.
     -- Open results (`R...`) are as many as the caller keeps.
@@ -3031,14 +3034,17 @@ function graph.verify(g: any): nil
         if term.contract.protected then
             count -= 1
         end
-        -- Parameters a call leaves off are passed as nil.
-        if term.contract.call.kind == "call"
+        -- Parameters a call leaves off are passed as nil. A declared
+        -- method's function type leaves out its receiver; a dynamic one's
+        -- signature is the call's own.
+        local method = term.contract.call.kind == "methodCall"
+        if (term.contract.call.kind == "call" or method and not term.contract.dynamic)
             and not term.spread
             and not term.contract.protected
             and not term.contract.construct
-            and graph.omits(term.contract.callSignature, count)
+            and graph.omits(term.contract.callSignature, method and count - 1 or count)
         then
-            count = #term.contract.callSignature.params
+            count = #term.contract.callSignature.params + (method and 1 or 0)
         end
 
         return count
@@ -3262,6 +3268,131 @@ function graph.prune(g: any): nil
         g.map.count = assert(remap[g.map.count])
     end
     g.types, g.slots = types, slots
+    if g.exactTypes ~= nil then
+        g.exactTypes = exactTypes
+    end
+    if g.nativePhysical then
+        g.nativePhysical.values = physicalTypes
+    end
+end
+
+--- Drops the blocks no path from the entry reaches, as after a loop whose
+--- body always leaves (`for _ in pairs(t) do return true end`), and the values
+--- only they defined. Blocks and values are renumbered densely in order, so
+--- the function parameters keep their ids; nothing reachable changes.
+function graph.dropUnreachable(g: any): nil
+    local blocks = g.blocks
+    local reached: {[integer]: boolean} = {[1] = true}
+    local order: {integer} = {1}
+    local at: integer = 1
+    while at <= #order do
+        local b = blocks[order[at]]
+        at += 1
+        for _, edge in ipairs(b.term and b.term.edges or {}) do
+            if not reached[edge.target] then
+                reached[edge.target] = true
+                order[#order + 1] = edge.target
+            end
+        end
+    end
+    if #order == #blocks then
+        return
+    end
+    local blockRemap: {[integer]: integer} = {}
+    local kept = {}
+    for index, b in ipairs(blocks) do
+        if reached[index] then
+            kept[#kept + 1] = b
+            blockRemap[index] = #kept
+        end
+    end
+    -- What the kept blocks define: their parameters and results.
+    local defined: {[integer]: boolean} = {}
+    for v = 1, g.nparams do
+        defined[v] = true
+    end
+    for _, b in ipairs(kept) do
+        for _, v in ipairs(b.params) do
+            defined[v] = true
+        end
+        for _, v in ipairs(b.dst) do
+            if v ~= 0 then
+                defined[v] = true
+            end
+        end
+    end
+    local remap: {[integer]: integer} = {}
+    local types, slots, exactTypes, physicalTypes = {}, {}, {}, {}
+    local count: integer = 0
+    for v = 1, #g.types do
+        if defined[v] then
+            count += 1
+            remap[v], types[count], slots[count] = count, g.types[v], g.slots[v]
+            if g.exactTypes ~= nil then
+                exactTypes[count] = g.exactTypes[v]
+            end
+            if g.nativePhysical then
+                physicalTypes[count] = g.nativePhysical.values[v]
+            end
+        end
+    end
+
+    local function value(v: integer): integer
+        local renumbered = remap[v]
+        assert(renumbered ~= nil, "a reachable block uses a value only an unreachable one defines")
+        return renumbered as integer
+    end
+
+    for index, b in ipairs(kept) do
+        b.id = index
+        for i, v in ipairs(b.params) do
+            b.params[i] = value(v)
+        end
+        for i, v in ipairs(b.dst) do
+            if v ~= 0 then
+                b.dst[i] = value(v)
+            end
+        end
+        for i, op in ipairs(b.op) do
+            local sig, args = parsed[op], b.args[i]
+            for j = 1, #args do
+                if classes[operandClass(sig, j)] or operandClass(sig, j) == "a" then
+                    args[j] = value(args[j])
+                end
+            end
+        end
+        local t = b.term
+        t.value = t.value and value(t.value) or nil
+        for i, v in ipairs(t.values or {}) do
+            t.values[i] = value(v)
+        end
+        t.spread = t.spread and value(t.spread) or nil
+        if t.kind == "invoke" then
+            t.callee = value(t.callee)
+            t.result = t.result and value(t.result) or nil
+            for i, v in ipairs(t.results or {}) do
+                t.results[i] = value(v)
+            end
+        end
+        if t.kind == "dispatch" or t.kind == "nativeTail" or t.kind == "invoke" then
+            for i, v in ipairs(t.args) do
+                t.args[i] = value(v)
+            end
+        end
+        for _, edge in ipairs(t.edges) do
+            edge.target = assert(blockRemap[edge.target])
+            for i, v in ipairs(edge.args) do
+                edge.args[i] = value(v)
+            end
+        end
+    end
+    for _, c in ipairs(g.certificates) do
+        c.guard, c.cursor, c.span = value(c.guard), value(c.cursor), value(c.span)
+    end
+    if g.map then
+        g.map.index, g.map.count = value(g.map.index), value(g.map.count)
+    end
+    g.blocks, g.types, g.slots = kept, types, slots
     if g.exactTypes ~= nil then
         g.exactTypes = exactTypes
     end

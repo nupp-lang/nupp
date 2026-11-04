@@ -1,0 +1,133 @@
+module nupp.core.catalogcoreforms
+
+local own = require("own")
+
+local released = 0
+
+local record Token
+    n: integer
+end
+
+local function release(takes token: Token): nil
+    released = released + token.n
+end
+
+local type Held = affine(Token, release)
+
+local function hold(n: integer): Held
+    return @unsafe own.adopt<Held>(new Token(n = n))
+end
+
+-- A const parameter is a type: the function takes its value as any other.
+local function width<const N: integer>(count: N): integer
+    return (count as integer) + 1
+end
+
+local function kinds(value: any): integer
+    local bits: integer = 0
+    if value is int64 then
+        bits = bits + 1
+    end
+    if value is string then
+        bits = bits + 2
+    end
+    if value is nil then
+        bits = bits + 4
+    end
+    if value is function(): nil then
+        bits = bits + 8
+    end
+    if value is table then
+        bits = bits + 16
+    end
+    if value is number then
+        bits = bits + 32
+    end
+
+    return bits
+end
+
+local score = 0
+if kinds(3) == 33 and kinds(1.5) == 32 and kinds("x") == 2 and kinds(nil) == 4 then
+    score = score + 1
+end
+if kinds(kinds) == 8 and kinds({}) == 16 then
+    score = score + 2
+end
+if string.char(72, 105, 33) == "Hi!" and string.char(65) == "A" then
+    score = score + 4
+end
+-- Library functions as values keep their checked signatures.
+local format = string.format
+local attach = setmetatable
+local fallback = attach({}, {
+    __index = function(t: any, k: any): any
+        return k
+    end
+})
+if format("%d-%s", 7, "z") == "7-z" and fallback.key == "key" then
+    score = score + 8
+end
+local first = 0
+for i = score > 0 and 2 or 1, 3 do
+    first = first * 10 + i
+end
+if first == 23 and width(4) == 5 then
+    score = score + 16
+end
+
+-- A taken owner dropped by its cleanups' own names, inside a @nosuspend region.
+local function finish(takes h: Held): nil
+    @nosuspend do
+        own.drop(h)
+    end
+end
+
+finish(hold(5))
+if released == 5 then
+    score = score + 32
+end
+-- A method call leaving its last parameters off passes them nil.
+local record Adder
+    base: integer
+    function add(self, a: integer, b: integer?): integer
+        return self.base + a + (b or 0)
+    end
+end
+local adder = new Adder(base = 100)
+if adder:add(1) == 101 and adder:add(1, 2) == 103 then
+    score = score + 64
+end
+
+-- A loop whose body always leaves has no continuation to run.
+local function nonempty(t: {[any]: any}): boolean
+    for _ in pairs(t) do
+        return true
+    end
+    return false
+end
+
+if nonempty({x = 1}) and not nonempty({}) then
+    score = score + 128
+end
+-- A nil a loop may replace with a number is compared as a number.
+local best: integer? = nil
+for _, v in ipairs({3, 1, 2}) do
+    if best == nil or v < best then
+        best = v
+    end
+end
+if best ~= nil and best > 0 and best == 1 then
+    score = score + 256
+end
+
+-- Literal parameter types, a borrowed `...` and uint64 literals pass as values.
+local function sign(kind: "up" | "down", borrows ...: any): integer
+    return (kind == "up" and 1 or -1) * select("#", ...)
+end
+
+local wide: uint64 = 40ULL
+if sign("up", 1, 2) == 2 and sign("down", 1) == -1 and wide + 2ULL == 42ULL then
+    score = score + 512
+end
+export = score

@@ -12,7 +12,8 @@ end
 
 -- Profiles select operations and contracts. This module alone traverses
 -- checked syntax, resolves lexical bindings and constructs closed CFG blocks.
-function frontend.compile(fn: any, options: any, profile: any): any
+-- `site` records the syntax being lowered, so a refusal can name it.
+local function compileOwner(fn: any, options: any, profile: any, site: any): any
     need(fn and fn.body and fn.scope and fn.node, "checked function owner required")
     local moduleOwner = fn.kind == "module"
     need(
@@ -86,6 +87,13 @@ function frontend.compile(fn: any, options: any, profile: any): any
 
     local function context(): nil
         ctx.block, ctx.scope = block, scope
+    end
+
+    -- The syntax being lowered now, which a refusal names.
+    local function lowering(node: any): any
+        local previous = site.node
+        site.node, site.path = node, scope.path
+        return previous
     end
 
     local function position(node: any): integer
@@ -206,9 +214,12 @@ function frontend.compile(fn: any, options: any, profile: any): any
         return profile.initializeBinding and profile.initializeBinding(ctx, node, key, value) or value
     end
 
-    local function writeBinding(node: any, key: any, value: integer): nil
+    local function writeBinding(node: any, key: any, value: integer, reinitialized: boolean?): nil
         if cleanupEnabled then
-            need(not cleanup.type(key.type), "assignment to an owning local requires reinitialization support")
+            need(
+                reinitialized or not cleanup.type(key.type),
+                "assignment to an owning local requires reinitialization support"
+            )
         end
         context()
         bindings[key] = profile.writeBinding and profile.writeBinding(ctx, node, key, bindings[key], value) or value
@@ -232,7 +243,8 @@ function frontend.compile(fn: any, options: any, profile: any): any
     local expression: function(any, string?): integer?
     local statements: function(any): nil
     local unwind: function(integer, any, string, any?): nil
-    local registerCleanup: function(any, any, any, integer): nil
+    local registerCleanup: function(any, any, any, integer, boolean?): nil
+    local reinitialize: function(any): nil
 
     -- Whether a function statement names a bare name, not a table's field.
     -- Whether an interface declares default methods: then, as a record's,
@@ -293,6 +305,8 @@ function frontend.compile(fn: any, options: any, profile: any): any
             return invoke("construction", node, expected)
         elseif node.kind == "castExpr" then
             return invoke("cast", node, expected)
+        elseif node.kind == "isExpr" and profile.typeTest then
+            return invoke("typeTest", node, expected)
         elseif node.kind == "dotIndex" then
             return invoke(profile.fieldRead and "fieldRead" or "constant", node, expected)
         elseif node.kind == "vararg" then
@@ -501,14 +515,10 @@ function frontend.compile(fn: any, options: any, profile: any): any
         error("function graph: unsupported checked expression " .. tostring(node.kind), 0)
     end
     expression = function(node: any, expected: string?): integer?
-        if cleanupEnabled then
-            need(
-                not node.automaticOwnerReinit and not node.automaticOwnerReinitializations and not node.affineAggregate,
-                "owner reinitialization or aggregate cleanup is unsupported"
-            )
-        end
+        local outer = lowering(node)
         local value = expressionBody(node, expected)
         if not block then
+            site.node = outer
             return nil
         end
         assert(value ~= nil, "function graph: continued expression requires a value")
@@ -521,6 +531,13 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 registerCleanup(node, node.statementOwner or node, t, value)
             end
         end
+        -- The value written into a moved (or never filled) owner takes over
+        -- that owner's cleanup from here: a later failure destroys it.
+        if cleanupEnabled and node.automaticOwnerReinit then
+            reinitialize(node)
+            bindings[cleanupOwners[node.automaticOwnerReinit.owner].value] = value
+        end
+        site.node = outer
 
         return value
     end
@@ -666,7 +683,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
         need(block == nil, "missing cleanup binding")
     end
 
-    registerCleanup = function(site: any, owner: any, t: any, value: integer): nil
+    registerCleanup = function(site: any, owner: any, t: any, value: integer, empty: boolean?): nil
         need(cleanupEnabled and block, "cleanup acquisition requires an active cleanup profile")
         need(cleanupOwners[owner] == nil, "cleanup owner registered twice")
         context()
@@ -676,7 +693,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
         checkHeldScope(active)
         local entry = {owner = owner, site = site, plan = plan, value = {}, live = {}, temporary = site.kind == "call"}
         ctx.bind(entry.value, value)
-        ctx.bind(entry.live, flag(site, true))
+        ctx.bind(entry.live, flag(site, not empty))
         cleanups[#cleanups + 1], cleanupOwners[owner] = entry, entry
     end
 
@@ -704,6 +721,17 @@ function frontend.compile(fn: any, options: any, profile: any): any
         if owner then
             transfer(node, owner)
         end
+    end
+
+    -- `x = v` where x's owner was moved out (or never filled): v's own
+    -- obligation, a fresh result's or a moved owner's, passes to x's, which
+    -- is live again. The caller binds the cleanup to v.
+    reinitialize = function(node: any): nil
+        local reinit = node.automaticOwnerReinit
+        need(not reinit.field, "reinitializing an owned field is unsupported")
+        local entry = need(cleanupOwners[reinit.owner], "reinitialization lacks a registered checked owner")
+        transferExpression(node)
+        bindings[entry.live] = flag(node, true)
     end
 
     -- A profile calls this only after resolving the checked callee and
@@ -736,6 +764,16 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 if modes[index] == "takes" then
                     transfer(source, source.statementOwner or source)
                 end
+            elseif source and source.kind == "tableExpr" and source.affineAggregate then
+                -- A table built to be taken holds its owners: the callee
+                -- takes the fresh ones with it, as it takes the moved ones.
+                need(modes ~= nil and modes[index] == "takes", "an affine aggregate must be taken")
+                for _, field in ipairs(source.fields) do
+                    local value = cleanup.source(field.value)
+                    if value and value.kind == "call" and cleanup.type(value.inferredType) then
+                        transfer(value, value.statementOwner or value)
+                    end
+                end
             end
         end
         context()
@@ -761,8 +799,33 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 return true
             end
         end
+        if not cleanupEnabled or not argument or node.ownerType == nil then
+            return false
+        end
+        -- Any other owner (a taken parameter, a moved value, a fresh result)
+        -- is destroyed here by the cleanups its checked type names, and
+        -- whatever obligation it carried passes to this drop.
+        need(not node.ownerCleanupGuards, "a drop of a partly moved owner is unsupported")
+        local t = need(cleanup.type(node.ownerType), "drop requires an affine type")
+        local value = expression(node.args.exprs[1], nil)
+        if not block then
+            return true
+        end
+        transferExpression(node.args.exprs[1])
+        local held = ctx.hold(value as integer)
+        context()
+        local plan = need(profile.cleanupPlan(ctx, node, t, node.ownerCleanups, node), "checked cleanup plan required")
+        need(ctx.block == block, "cleanup planning must not change control flow")
+        context()
+        local active = heldScope()
+        profile.cleanupRun(ctx, node, plan, ctx.readHeld(held), "drop")
+        block = ctx.block
+        need(block ~= nil, "cleanup must continue to remaining obligations")
+        checkHeldScope(active)
+        ctx.release(held)
+        context()
 
-        return false
+        return true
     end
 
     runCleanup = function(entry: any, node: any, reason: string): nil
@@ -1163,6 +1226,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
             if cleanupEnabled and not block then
                 return
             end
+            lowering(stat)
             need(block ~= nil or stat.kind == "emptyStmt", "statement after dispatch")
             context()
             if cleanupEnabled then
@@ -1232,7 +1296,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
                             local owner = cleanup.localOwner(stat, index)
                             if owner then
                                 transferExpression(exprs[index])
-                                registerCleanup(stat, owner, owner.type, value)
+                                registerCleanup(stat, owner, owner.type, value, exprs[index] == nil and not spread)
                             end
                         end
                         ctx.bind(key, initializeBinding(stat, key, value))
@@ -1328,7 +1392,14 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     end
                     local target = targets[index]
                     if target.key then
-                        writeBinding(stat, target.key, ctx.readHeld(values[index]))
+                        local written = stat.exprs[index]
+                        writeBinding(
+                            stat,
+                            target.key,
+                            ctx.readHeld(values[index]),
+                            -- An emptied owner may be set back to nil.
+                            written ~= nil and (written.automaticOwnerReinit ~= nil or written.kind == "nilExpr")
+                        )
                     else
                         context()
                         profile.assignTarget(
@@ -1849,12 +1920,34 @@ function frontend.compile(fn: any, options: any, profile: any): any
     end
     need(next(heldScope()) == nil, "function leaked a held-value handle")
     need(block == nil, "function falls through without a return or transfer")
+    if profile.dropUnreachable then
+        graph.dropUnreachable(g)
+    end
     graph.verify(g)
     if profile.finish then
         profile.finish(ctx)
     end
 
     return g
+end
+
+local located = " at [^ ]+:%d+:%d+$"
+
+function frontend.compile(fn: any, options: any, profile: any): any
+    -- Until a statement is lowered, a refusal names the function itself.
+    local site = {
+        node = type(fn) == "table" and fn.node or nil,
+        path = type(fn) == "table" and fn.scope and fn.scope.path
+    }
+    local ok, result = pcall(compileOwner, fn, options, profile, site)
+    if ok then
+        return result
+    end
+    local token = site.node and cst.firstToken(site.node)
+    if type(result) == "string" and token and not result:find(located) then
+        result = result .. " at " .. tostring(site.path) .. ":" .. tostring(token.line) .. ":" .. tostring(token.col)
+    end
+    error(result, 0)
 end
 
 export = frontend
