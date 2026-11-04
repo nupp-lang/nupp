@@ -54,7 +54,9 @@ local osNames = {
     writeOutput = true,
     mathFunction = true,
     randomSeed = true,
-    readInput = true
+    readInput = true,
+    monotonicNanos = true,
+    argument = true
 }
 
 local function need(ok: any, message: string): any

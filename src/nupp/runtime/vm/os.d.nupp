@@ -69,5 +69,12 @@ local record Os
     --- time with addresses.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     randomSeed: function(): uint64
+
+    --- Copies the program argument at `index`, 0 the program and then its
+    --- arguments in order, into `out`, at most `room` bytes: its whole
+    --- length, or -1 past the last. The core's bridge answers it; the VM
+    --- builds its `arg` table itself.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    argument: function(index: uint64, out: voidptr, room: uint64): int64
 end
 return Os

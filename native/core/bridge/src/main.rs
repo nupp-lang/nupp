@@ -105,6 +105,8 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
     code.copy(&payload[..spec.code]);
     data.copy(&payload[spec.code..]);
     code.executable()?;
+    // The guest's `arg[0]`, when no command line set its arguments.
+    let _ = platform::ARGUMENTS.set(vec![bundle.as_os_str().to_owned()]);
     let imports = [
         platform::map_pages as *const () as u64,
         platform::unmap_pages as *const () as u64,
@@ -116,6 +118,8 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
         platform::math_function as *const () as u64,
         platform::random_seed as *const () as u64,
         platform::read_input as *const () as u64,
+        platform::monotonic_nanos as *const () as u64,
+        platform::argument as *const () as u64,
     ];
     let packet = [
         1,
@@ -151,9 +155,13 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
 
 fn run() -> Result<(), String> {
     let args: Vec<_> = std::env::args_os().skip(1).collect();
-    if args.len() != 3 {
-        return Err("usage: nupp-core BUNDLE INPUT OUTPUT".into());
+    if args.len() < 3 {
+        return Err("usage: nupp-core BUNDLE INPUT OUTPUT [ARGUMENT...]".into());
     }
+    // The guest's `arg`: the bundle as its program, then what follows OUTPUT.
+    let mut program = vec![args[0].clone()];
+    program.extend(args[3..].iter().cloned());
+    let _ = platform::ARGUMENTS.set(program);
     let words = input(Path::new(&args[1]))?;
     let output = execute(Path::new(&args[0]), &words)?;
     let bytes: Vec<_> = output.into_iter().flat_map(u64::to_le_bytes).collect();

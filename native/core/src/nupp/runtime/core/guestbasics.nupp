@@ -58,12 +58,17 @@ export function rawnext(ctx: voidptr, subject: uint64, after: uint64, all: boole
         if t == 0ULL then
             texts.argumentError(ctx, 1ULL, texts.TEXT_TABLE, 0ULL, subject)
         end
-        local key = tables.nextKey(t, after)
+        -- A record instance's fields go by name (guestscope.slotname).
+        local key = tables.nextKey(t, guestscope.slotkey(ctx, t, after))
         if key == values.TRUE then
             texts.libraryError(ctx, texts.TEXT_NEXT_KEY)
         end
+        local name = key
+        if key ~= values.NIL then
+            name = guestscope.slotname(ctx, t, key)
+        end
         if not all then
-            return key
+            return name
         end
         local pack = guestscope.newTable(ctx)
         if key == values.NIL then
@@ -71,7 +76,7 @@ export function rawnext(ctx: voidptr, subject: uint64, after: uint64, all: boole
             tables.set(h, pack, values.TAG_INTEGER | 1ULL, values.NIL)
         else
             tables.set(h, pack, values.TAG_INTEGER, values.TAG_INTEGER | 2ULL)
-            tables.set(h, pack, values.TAG_INTEGER | 1ULL, key)
+            tables.set(h, pack, values.TAG_INTEGER | 1ULL, name)
             tables.set(h, pack, values.TAG_INTEGER | 2ULL, tables.get(t, key))
         end
         tables.drain(h)

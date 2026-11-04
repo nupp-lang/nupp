@@ -401,8 +401,11 @@ function tagged.unary(ctx: any, node: any, expected: string?): integer
     return tagged.literal(ctx, node, expected)
 end
 
+-- Ownership qualifiers (affine, borrowed, pinned) wrap the type a value
+-- has at run time, as `const` does.
 local function typeKind(t: any): string
-    while t and (t.tag == "literal" or t.tag == "const") do
+    while t
+        and (t.tag == "literal" or t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
         t = t.tag == "literal" and t.base or t.inner
     end
     return t and t.tag or "missing"
@@ -411,7 +414,8 @@ end
 -- Whether a value of type `t` is an interface's: a table its fields are
 -- read from by name.
 local function interfacetype(t: any): boolean
-    while t and (t.tag == "literal" or t.tag == "const") do
+    while t
+        and (t.tag == "literal" or t.tag == "const" or t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned") do
         t = t.tag == "literal" and t.base or t.inner
     end
     return t ~= nil and t.tag == "nominal" and t.declKind == "interface"
@@ -861,6 +865,14 @@ local function invokeProtected(ctx: any, node: any, keepResult: boolean, count: 
         for index = 2, #operands do
             args[#args + 1] = operands[index]
         end
+    end
+    -- Parameters the call leaves off are nil, as Lua passes them.
+    if graph.omits(contract.callSignature, #args) then
+        while #args < #contract.callSignature.params do
+            args[#args + 1] = ctx.emit(node, "Nil", {}, "tagged")
+        end
+    end
+    if handled then
         args[#args + 1] = operands[1]
     end
     -- A protected call takes errors, but not a closing coroutine's
@@ -2328,10 +2340,33 @@ function tagged.forVersion(version: integer): any
         -- declares stored by name, as `function R:m` stores one. It is its
         -- instances' metatable, its own __index, so metamethods written on it
         -- apply to them.
+        local recordTable: function(any, any): integer?
         profile.recordValue = function(ctx: any, stat: any): integer?
             if catalog(ctx).byDefinition[stat.name.definition] == nil then
                 return nil
             end
+            return recordTable(ctx, stat)
+        end
+        -- `record t.R`: the record's table, stored in the table `t` names
+        -- under R, where `new t.R` and `function t.R:m()` find it.
+        profile.qualifiedRecord = function(ctx: any, stat: any): nil
+            local qualifier = stat.qualifiers[1]
+            need(#stat.qualifiers == 1 and qualifier.definition ~= nil, "a qualified record names one table")
+            local value = recordTable(ctx, stat)
+            if value == nil or ctx.block == nil then
+                return
+            end
+            local held = ctx.hold(value)
+            local owner = ctx.expression({kind = "name", token = qualifier, qualifier}, "tagged")
+            if owner == nil or ctx.block == nil then
+                ctx.release(held)
+                return
+            end
+            local key = ctx.emit(stat, "K", {pool(ctx, "str", stat.name.text)}, "tagged")
+            ctx.emit(stat, "SetIdx", {owner, key, ctx.readHeld(held)}, nil)
+            ctx.release(held)
+        end
+        recordTable = function(ctx: any, stat: any): integer?
             local held = ctx.hold(ctx.emit(stat, "NewTable", {}, "tagged"))
             local indexKey = ctx.emit(stat, "K", {pool(ctx, "str", "__index")}, "tagged")
             ctx.emit(stat, "SetIdx", {ctx.readHeld(held), indexKey, ctx.readHeld(held)}, nil)
@@ -2787,6 +2822,20 @@ function tagged.forVersion(version: integer): any
             elseif library == "os.getenv" then
                 need(#(node.args.exprs or {}) == 1, "os.getenv takes one name")
                 return libraryCall(ctx, node, 10, node.args.exprs)
+            elseif library == "os.monotonic" or library == "hostcalls.arguments" then
+                -- No arguments: a placeholder nil is the call's one value.
+                need(#(node.args.exprs or {}) == 0, tostring(library) .. " takes no arguments")
+                local none = ctx.emit(node, "Nil", {}, "tagged")
+                return ctx.emit(node, "LibCall", {library == "os.monotonic" and 117 or 119, none}, "tagged") as integer
+            elseif library == "collectgarbage" then
+                -- collectgarbage(opt, arg): without an option, "collect".
+                local args = node.args.exprs or {}
+                need(#args <= 2, "collectgarbage takes an option and its argument")
+                if #args == 0 then
+                    local none = ctx.emit(node, "Nil", {}, "tagged")
+                    return landed(ctx, node, ctx.emit(node, "LibCall", {118, none}, "tagged")) as integer
+                end
+                return libraryCall(ctx, node, 118, args)
             elseif coroutinepacked[library or ""] then
                 -- Kept as one value: its pack's first.
                 local pack = coroutinepack(ctx, node)

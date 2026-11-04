@@ -1226,6 +1226,9 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
             if cleanupEnabled and not block then
                 return
             end
+            if graph.erased(stat) then
+                continue
+            end
             lowering(stat)
             need(block ~= nil or stat.kind == "emptyStmt", "statement after dispatch")
             context()
@@ -1793,6 +1796,14 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 else
                     invoke("exportStatement", stat, nil)
                 end
+            elseif stat.kind == "recordDecl"
+                and stat.qualifiers
+                and (stat.declKind ~= "interface" or defaultMethods(stat))
+                and profile.qualifiedRecord
+            then
+                -- `record t.R`: its table is stored in the table `t` names.
+                invoke("erasedStatement", stat, nil)
+                invoke("qualifiedRecord", stat, nil)
             elseif stat.kind == "recordDecl"
                 and (stat.declKind ~= "interface" or defaultMethods(stat))
                 and profile.recordValue

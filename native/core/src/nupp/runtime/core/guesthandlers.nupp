@@ -1716,6 +1716,12 @@ export function LibCall(
     end
     if libraryId == guestio.LIB_WRITE then
         slots.writeValue(frame, regs, dst, guestio.write(ctx, a))
+    elseif libraryId == guestio.LIB_MONOTONIC then
+        slots.writeValue(frame, regs, dst, guestio.monotonic())
+    elseif libraryId == guestio.LIB_COLLECTGARBAGE then
+        slots.writeValue(frame, regs, dst, guestio.collectgarbage(ctx, a))
+    elseif libraryId == guestio.LIB_ARGUMENTS then
+        slots.writeValue(frame, regs, dst, guestio.arguments(ctx))
     elseif libraryId >= widths.LIB_NARROW and libraryId <= widths.LIB_I32WRAP then
         slots.writeValue(frame, regs, dst, widths.call(ctx, libraryId, a))
     elseif libraryId >= bitops.LIB_BAND and libraryId <= bitops.LIB_BNOT then

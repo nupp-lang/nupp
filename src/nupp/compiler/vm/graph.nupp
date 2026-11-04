@@ -1659,7 +1659,7 @@ local function invokeContract(contract: any): nil
             given == #called.params
             or called.vararg and given > #called.params
             or given > 0 and graph.spreadsLast(call)
-            or not protected and graph.omits(called, given),
+            or graph.omits(called, given),
             "invoke checked call arity differs"
         )
         for index, argument in ipairs(call.args.exprs) do
@@ -1829,6 +1829,9 @@ local coreLibrary: {[string]: boolean} = {
     tonumber = true,
     select = true,
     ["os.getenv"] = true,
+    ["os.monotonic"] = true,
+    collectgarbage = true,
+    ["hostcalls.arguments"] = true,
     pcall = true,
     xpcall = true,
     error = true,
@@ -1999,10 +2002,28 @@ end
 -- The declaration modules whose functions the core implements as library
 -- calls: a call of one is that call, and requiring the module loads
 -- nothing.
-local corecallmodules: {[string]: string} = {["nupp.runtime.storagecalls"] = "storagecalls"}
+local corecallmodules: {
+    [string]: string
+} = {["nupp.runtime.storagecalls"] = "storagecalls", ["nupp.runtime.hostcalls"] = "hostcalls"}
 
 function graph.corecallmodule(name: string?): boolean
     return name ~= nil and corecallmodules[name] ~= nil
+end
+
+-- Whether a statement is a comptime helper the checker ran while compiling,
+-- or the `@comptime` pragma before one: the program never sees it, as the
+-- VM's lowering leaves it out.
+function graph.erased(node: any): boolean
+    local kind = node.kind
+    if kind == "pragmaStmt" and node.name and node.name.text == "comptime" and node.stat then
+        local target = node.stat
+        while target.kind == "exportStmt" and target.stat do
+            target = target.stat
+        end
+        return graph.erased(target)
+    end
+    return (kind == "localStmt" or kind == "localFuncStmt" or kind == "funcStmt")
+        and (node.comptimeFunction ~= nil or node.comptimeTok ~= nil)
 end
 
 -- The image module the core answers a host module's `require` with: the
@@ -3038,15 +3059,16 @@ function graph.verify(g: any): nil
         end
         -- Parameters a call leaves off are passed as nil. A declared
         -- method's function type leaves out its receiver; a dynamic one's
-        -- signature is the call's own.
+        -- signature is the call's own. xpcall's handler follows the callee's
+        -- arguments.
         local method = term.contract.call.kind == "methodCall"
+        local handler: integer = term.contract.protected and term.contract.handled == true and 1 or 0
         if (term.contract.call.kind == "call" or method and not term.contract.dynamic)
             and not term.spread
-            and not term.contract.protected
             and not term.contract.construct
-            and graph.omits(term.contract.callSignature, method and count - 1 or count)
+            and graph.omits(term.contract.callSignature, (method and count - 1 or count) - handler)
         then
-            count = #term.contract.callSignature.params + (method and 1 or 0)
+            count = #term.contract.callSignature.params + (method and 1 or 0) + handler
         end
 
         return count

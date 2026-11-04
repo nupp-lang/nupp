@@ -159,6 +159,11 @@ local CASES = {
     {"serdejson", 0x7FFF000000000003},
     {"modulesretry", 0x7FFF00000000007F},
     {"errorsruntime", 0x7FFF00000000001F},
+    {"hostlibrary", 0x7FFF0000000000FF},
+    {"benchforms", 0x7FFF00000000003F},
+    -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
+    -- debug.bench): refused, see REFUSED.
+    {"benchworkloads", false},
     -- 600 functions, past the 256 owners the graph schema once admitted.
     {"functionsmany", 0x7FFF00000002C04C}
 }
@@ -211,8 +216,16 @@ local STRESS = {
     serdejson = true,
     functionsmany = true,
     modulesretry = true,
-    errorsruntime = true
+    errorsruntime = true,
+    hostlibrary = true,
+    benchforms = true
 }
+-- The program arguments a case is run with, after the bridge's own.
+local ARGUMENTS = {hostlibrary = "alpha beta"}
+-- Cases whose program the core refuses to compile, and what it says. The
+-- bench harness's entry needs Lua's files (io.open, io.stdout and the rest),
+-- which the core does not have yet; everything else it reaches compiles.
+local REFUSED = {benchworkloads = "external execution bindings are not established: io %(io at [^)]*/src/debug/bench%.nupp:448%)$"}
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
 local STATUS = {numericModZero = 6, numericOverflow = 5}
@@ -602,7 +615,8 @@ local function stage()
             "catalog-core-forms",
             "catalog-storage-basics",
             "catalog-storage-provider",
-            "catalog-tables-frozen"
+            "catalog-tables-frozen",
+            "catalog-host-library"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",
@@ -923,9 +937,12 @@ local function main()
     local function bridgeRun(label, bundle, input, output, expectedStatus, environment, after)
         local kind = label:match(" (%a+)") or "bridge"
         local phase = label:match("^audit") and "audit bridge" or ("bridge " .. kind)
+        local arguments = ARGUMENTS[label:match("^(%w+)")]
         defer(
             phase,
-            (environment or GUEST_ENV) .. ("%s %s %s %s"):format(quote(bridge), quote(bundle), quote(input), quote(output)),
+            (environment or GUEST_ENV)
+            .. ("%s %s %s %s"):format(quote(bridge), quote(bundle), quote(input), quote(output))
+            .. (arguments and " " .. arguments or ""),
             function(status, printed)
                 check((status == 0) == (expectedStatus == 0), label .. " bridge status")
                 if after then
@@ -942,6 +959,10 @@ local function main()
         local env = GUEST_ENV .. (
             "CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_HIGH_WATER=%d "
         ):format(quote(bundle), quote(input), highWater)
+        local arguments = ARGUMENTS[label:match("^(%w+)")]
+        if arguments then
+            env = env .. "CORE_TEST_ARGUMENTS=" .. quote(arguments) .. " "
+        end
         local test = "abi::generated_entry_preserves_c_abi_and_output"
         if status then
             env = env .. "CORE_TEST_STATUS=" .. status .. " "
@@ -970,7 +991,17 @@ local function main()
 
     for _, case in ipairs(selectedCases) do
         local name, expectedWord = case[1], case[2]
-        for _, mode in ipairs({"normal", "spill"}) do
+        if REFUSED[name] then
+            timing.case, timing.phase = name, "select"
+            local began = os.time()
+            local compiled, problem = pcall(guestbuild.program, name)
+            account(os.time() - began)
+            check(
+                not compiled and tostring(problem):find(REFUSED[name]) ~= nil,
+                name .. " refusal: " .. tostring(problem)
+            )
+        end
+        for _, mode in ipairs(REFUSED[name] and {} or {"normal", "spill"}) do
             local label = name .. "-" .. mode
             timing.case = name
             local selected = selection(name, mode)

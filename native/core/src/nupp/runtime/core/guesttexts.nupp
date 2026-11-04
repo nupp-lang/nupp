@@ -127,6 +127,8 @@ export const TEXT_PROTECTED_TABLE: uint64 = 113ULL
 export const TEXT_ALREADY_FROZEN: uint64 = 116ULL
 export const NAME_FREEZE: uint64 = 114ULL
 export const NAME_ISFROZEN: uint64 = 115ULL
+export const TEXT_INVALID_OPTION: uint64 = 117ULL
+export const NAME_COLLECTGARBAGE: uint64 = 118ULL
 
 export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
     if id == TEXT_BAD then
@@ -522,6 +524,14 @@ export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64
             | strings.appendWord(h, b, 0x7369206874676e65ULL, 8ULL)
             | strings.appendWord(h, b, 0x206e6120746f6e20ULL, 8ULL)
             | strings.appendWord(h, b, 0x72656765746e69ULL, 7ULL)
+    elseif id == TEXT_INVALID_OPTION then
+        -- "invalid option '"
+        return strings.appendWord(h, b, 0x2064696c61766e69ULL, 8ULL)
+            | strings.appendWord(h, b, 0x27206e6f6974706fULL, 8ULL)
+    elseif id == NAME_COLLECTGARBAGE then
+        -- "collectgarbage"
+        return strings.appendWord(h, b, 0x677463656c6c6f63ULL, 8ULL)
+            | strings.appendWord(h, b, 0x656761627261ULL, 6ULL)
     elseif id == TEXT_ALREADY_FROZEN then
         -- "table is already frozen"
         return strings.appendWord(h, b, 0x736920656c626174ULL, 8ULL)
@@ -706,6 +716,25 @@ export function argumentError(ctx: voidptr, position: uint64, expected: uint64, 
             refused = refused | appendLibraryText(h, builder, detail)
         end
         raiseText(ctx, h, builder, refused | appendLibraryText(h, builder, TEXT_CLOSE))
+    end
+end
+
+-- Raises "bad argument #n to 'name' (invalid option 'X')", X the text of
+-- the string `value`, as Lua's luaL_checkoption does.
+export function optionError(ctx: voidptr, position: uint64, value: uint64): nil
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestHeap(ctx)
+        local builder = state as strings.Builder*
+        local refused = appendLibraryText(h, builder, TEXT_BAD)
+            | strings.appendInteger(h, builder, native.index(position))
+            | appendLibraryText(h, builder, TEXT_TO)
+            | appendLibraryText(h, builder, guestscope.libraryNameOf(ctx))
+            | appendLibraryText(h, builder, TEXT_OPEN)
+            | appendLibraryText(h, builder, TEXT_INVALID_OPTION)
+            | strings.appendString(h, builder, strings.header(value))
+            | strings.appendWord(h, builder, 0x2927ULL, 2ULL)
+        raiseText(ctx, h, builder, refused)
     end
 end
 
