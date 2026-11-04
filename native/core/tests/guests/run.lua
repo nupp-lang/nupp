@@ -173,15 +173,18 @@ local OUTPUT = {
     libraryspread = "1\t2\t3\n3\t3\n97\t98\t99\n2\t3\ntrue\t1\t2\n",
     moduleslazy = "main start\nshapes loading\ncounter loading\nmain required\n"
 }
--- Heap-using cases that also run with a whole collection at every
--- allocation. records and strings allocate per iteration, which makes their
--- full-scale workloads quadratic there; stringsBasic and tablesBasic stand in.
+-- Heap-using cases that also run with a collection at every allocation, and
+-- with interleaved incremental collection. Full cycles under stress are
+-- spaced by a share of what lives, so the full-scale workloads stay linear;
+-- records and strings, at seconds a run there, run so in normal mode alone.
 local STRESS = {
     callsNumeric = true,
     workloadFib = true,
     tablesBasic = true,
     workloadClosures = true,
     workloadTables = true,
+    workloadRecords = "normal",
+    workloadStrings = "normal",
     stringsBasic = true,
     integersWide = true,
     threadsbasic = true,
@@ -1002,8 +1005,8 @@ local function main()
                     check(printed == (OUTPUT[name] or ""), label .. " printed output")
                 end)
                 guarded(label, bundle, empty, highWater, expected)
-                -- The same result with a whole collection at every allocation.
-                if STRESS[name] and UNITS then
+                -- The same result with a collection at every allocation.
+                if UNITS and (STRESS[name] == true or STRESS[name] == mode) then
                     local input = OUT .. "/" .. label .. "-stress.bin"
                     write(input, u64(-1) .. u64(0) .. u64(1))
                     local stressed = OUT .. "/" .. label .. "-stress.out"
