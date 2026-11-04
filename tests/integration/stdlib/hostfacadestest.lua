@@ -192,14 +192,6 @@ function M.hostAndVmBindingsSelectTheTargetImplementationOnce()
             siblings = {"nupp.suspension.host"}
         },
         {
-            module = "nupp.text",
-            native = "nupp.runtime.provider.nativebuffer",
-            browser = "nupp.runtime.provider.tablebuffer",
-            member = "new",
-            exported = "newbuffer",
-            vm = true
-        },
-        {
             module = "binary._representation",
             native = "nupp.vm.storagebinding",
             -- No other storage ships: a LuaJIT VM takes native storage on either host.

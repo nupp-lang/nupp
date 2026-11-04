@@ -56,6 +56,24 @@ end
 
 local setfield: function(exclusive destination: table, key: string, value: integer): nil = rawset as any
 
+-- Whether a caller's count is a nonnegative integer. The value is read
+-- untyped: integer-typed arithmetic refuses a fractional or non-finite
+-- operand with its own error before this check could name the argument.
+local function iscount(value: any): boolean
+    return type(value) == "number" and value >= 0 and value % 1 == 0
+end
+
+-- Whether a witness is a struct declaration. Its physical type is reachable
+-- from the declaration and from every value, and only a value is one.
+local function isstruct(witness: any): boolean
+    if type(witness) ~= "cdata" then
+        return false
+    end
+    local physical: any = witness["\0nupp:structType"]
+
+    return physical ~= nil and not physical:isa(witness)
+end
+
 local function addpage<T>(exclusive self: Pool<T>): nil
     local count = self.growth
     local created: {T}
@@ -145,7 +163,7 @@ end
 --- @raises string when count is not a nonnegative integer
 --- @export
 function Pool.reserve<T>(exclusive self: Pool<T>, count: integer): nil
-    if type(count) ~= "number" or count < 0 or count % 1 ~= 0 then
+    if not iscount(count) then
         error("nupp: pool reserve count must be a nonnegative integer", 2)
     end
     while self.freecount < count do
@@ -221,12 +239,12 @@ end
 --- @export
 export function new<T>(witness: Type<T>, size: integer?): Pool<T>
     local initial = size ?? 32
-    if type(initial) ~= "number" or initial < 0 or initial % 1 ~= 0 then
+    if not iscount(initial) then
         error("nupp: pool size must be a nonnegative integer", 2)
     end
     local backend: any = nil
     if type(witness) ~= "table" or rawget(witness as any, "__index") ~= witness then
-        if type(witness) ~= "cdata" or not tostring(witness):find("^ctype<struct ") then
+        if not isstruct(witness) then
             error("nupp: pool expects a record or struct declaration", 2)
         end
         local implementation = "nupp.util.internal.structpool"
