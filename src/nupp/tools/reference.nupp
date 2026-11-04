@@ -1138,10 +1138,19 @@ a caller wanting the other results writes the explicit conditional.
 
 The operand's result count must be fixed and must not be a pack union, and its
 first result must admit both a falsy and a successful value. The checker refuses
-any other operand. A direct `pcall` or `xpcall` is refused by that rule: they lead
-with a discriminator rather than a result. Bind their results and test the
-boolean explicitly. No slot after the first may be ownership-bearing, since the
-successful path discards every one of them.
+other ordinary operands. No slot after the first may be ownership-bearing,
+since the successful path discards every one of them.
+
+A direct builtin `pcall` or `xpcall` operand tests the protected call's status
+instead. A raise takes the exit, forwarding `nil, error` for `or return`;
+otherwise the expression yields the protected function's first result, including
+nil or false. `xpcall` forwards its handler's first result with its declared
+type. Later successful results cannot carry owners. A local function of the
+same name follows the ordinary rules.
+
+```nupp:fragment
+local config = pcall(decode, text) or return
+```
 
 A safe call is admitted: the alternative it adds is the single nil an absent
 receiver returns, so that arm takes the exit and the rest is the pack the

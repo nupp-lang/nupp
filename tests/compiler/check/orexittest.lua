@@ -495,23 +495,316 @@ function M.unreadableOperandsReport()
     )
 end
 
---- Direct protected calls are refused by the pack-union rule, with an explicit
---- conditional as the alternative.
-function M.protectedBuiltinsAreRefusedByName()
+--- Status selects the protected-call branch; the expression yields the payload.
+function M.protectedCallsUseStatusAndPreserveFalsySuccesses()
     for _, builtin in ipairs({"pcall", "xpcall"}) do
-        local call = builtin == "pcall" and "pcall(work)" or "xpcall(work, tostring)"
-        local diagnostic = assertReports(
-            (
-                "local function work(): integer\n    return 1\nend\n"
-                .. "local function f(): (integer?, unknown)\n    local value = %s or return\n"
-                .. "    return value, nil\nend\n"
-                .. "return f()\n"
-            ):format(call),
-            "NUPP2149",
-            builtin
-        )
-        assert(diagnostic.help and diagnostic.help:find("explicit conditional", 1, true), diagnostic.help)
+        for _, level in ipairs({0, 1, 2}) do
+            local source = (
+                [=[
+local entered = 0
+local function work(n: integer): (false | integer | nil, string)
+    if n < 0 then
+        error("raised", 0)
+    elseif n == 0 then
+        return nil, "discarded"
+    elseif n == 1 then
+        return false, "discarded"
     end
+    return n, "discarded"
+end
+local function handler(problem: any): string
+    return tostring(problem)
+end
+local function wrapped(n: integer): (false | integer | nil, unknown)
+    local value = %s or return
+    entered = entered + 1
+    return value, nil
+end
+local missing, missingReason = wrapped(0)
+local falsy, falseReason = wrapped(1)
+local value, reason = wrapped(7)
+local failed, problem = wrapped(-1)
+local continued, broken = 0, 0
+for _, n in ipairs({0, 1, -1, 7}) do
+    local _value = %s or continue
+    continued = continued + 1
+end
+for _, n in ipairs({0, 1, -1, 7}) do
+    local _value = %s or break
+    broken = broken + 1
+end
+return missing == nil and missingReason == nil and falsy == false and falseReason == nil
+    and value == 7 and reason == nil and failed == nil and problem == "raised" and entered == 3 and continued == 3 and broken == 2
+]=]
+            ):format(
+                builtin == "pcall" and "pcall(work, n)" or "xpcall(work, handler, n)",
+                builtin == "pcall" and "pcall(work, n)" or "xpcall(work, handler, n)",
+                builtin == "pcall" and "pcall(work, n)" or "xpcall(work, handler, n)"
+            )
+            local answer, code = run(source, level)
+            assert(answer, builtin .. " at O" .. level .. "\n" .. code)
+            assert(not code:find("__nuppBlockPack", 1, true), "protected suffix allocates no pack")
+        end
+    end
+end
+
+function M.protectedFailurePreservesRaisedIdentityAndNil()
+    runsGenerated(
+        [=[
+local raised = {code = 7}
+local entered = 0
+local function work(n: integer): integer
+    if n == 0 then error(nil) end
+    error(raised)
+end
+local function wrapped(n: integer): (integer?, unknown)
+    local value = pcall(work, n) or return
+    entered = entered + 1
+    return value, nil
+end
+local first, why = wrapped(1)
+local second, empty = wrapped(0)
+return first == nil and rawequal(why, raised) and second == nil and empty == nil and entered == 0
+]=]
+    )
+end
+
+function M.protectedCallsPreserveExactHandlerErrorTypes()
+    for _, shape in ipairs({"string", "integer", "Problem"}) do
+        local source = (
+            [=[
+local record Problem message: string end
+local type Reason = %s
+local function work(): integer
+    error("raised", 0)
+end
+local handled = 0
+local function handler(problem: any): Reason
+    handled = handled + 1
+    return %s
+end
+local function wrapped(): (integer?, Reason?)
+    local value = xpcall(work, handler) or return
+    return value, nil
+end
+local value, problem = wrapped()
+return value == nil and handled == 1 and %s
+]=]
+        ):format(
+            shape,
+            shape == "string" and "tostring(problem)"
+            or shape == "integer" and "7"
+            or "new Problem(message = tostring(problem))",
+            shape == "string" and 'problem == "raised"'
+            or shape == "integer" and "problem == 7"
+            or 'problem ~= nil and problem.message == "raised"'
+        )
+        runsGenerated(source)
+    end
+    assertReports(
+        [=[
+local function work(): integer return 1 end
+local function wrapped(): (integer?, string?)
+    local value = pcall(work) or return
+    return value, nil
+end
+]=],
+        "NUPP2002",
+        "unknown failure cannot be implicitly narrowed"
+    )
+    assertReports(
+        [=[
+local function work(): integer? return nil end
+local function wrapped(): (integer?, unknown)
+    local value = pcall(work) or return
+    local exact: integer = value
+    return exact, nil
+end
+]=],
+        "NUPP2001",
+        "a successful optional result is still optional"
+    )
+end
+
+function M.protectedCallsRunOperandAndArgumentsOnce()
+    runsGenerated(
+        [=[
+local chosen, supplied, called = 0, 0, 0
+local function work(n: integer): integer
+    called = called + 1
+    if n == 0 then error("zero", 0) end
+    return n
+end
+local function choose(): function(integer): integer
+    chosen = chosen + 1
+    return work
+end
+local function argument(n: integer): integer
+    supplied = supplied + 1
+    return n
+end
+local function wrapped(n: integer): (integer?, unknown)
+    local value = pcall(choose(), argument(n)) or return
+    return value, nil
+end
+local good = wrapped(4)
+local bad = wrapped(0)
+return good == 4 and bad == nil and chosen == 2 and supplied == 2 and called == 2
+]=]
+    )
+end
+
+function M.protectedLoopExitsAndCleanupUseStatus()
+    for _, builtin in ipairs({"pcall", "xpcall"}) do
+        local source = (
+            [=[
+local closed = 0
+local record Resource is own.Closeable
+    function close(takes self): nil closed = closed + 1 end
+end
+local function work(n: integer): integer
+    local resource = new Resource()
+    if n == 0 then error("zero", 0) end
+    return n
+end
+local function handler(problem: any): string return tostring(problem) end
+local function wrapped(n: integer): (integer?, unknown)
+    local resource = new Resource()
+    local value = %s or return
+    return value, nil
+end
+local good = wrapped(2)
+local bad = wrapped(0)
+local continued = 0
+for _, n in ipairs({1, 0, 2}) do
+    local resource = new Resource()
+    local value = %s or continue
+    continued = continued + value
+end
+local broken = 0
+for _, n in ipairs({1, 0, 2}) do
+    local resource = new Resource()
+    local value = %s or break
+    broken = broken + value
+end
+return good == 2 and bad == nil and continued == 3 and broken == 1 and closed == 14
+]=]
+        ):format(
+            builtin == "pcall" and "pcall(work, n)" or "xpcall(work, handler, n)",
+            builtin == "pcall" and "pcall(work, n)" or "xpcall(work, handler, n)",
+            builtin == "pcall" and "pcall(work, n)" or "xpcall(work, handler, n)"
+        )
+        runsGenerated(source)
+    end
+end
+
+function M.protectedCallsKeepAnOwnedFirstResultAndRejectDiscardedOwners()
+    runsGenerated(
+        [=[
+local closed = 0
+local record Resource is own.Closeable
+    id: integer
+    function close(takes self): nil closed = closed + 1 end
+end
+local function open(n: integer): Resource
+    if n == 0 then error("zero", 0) end
+    return new Resource(id = n)
+end
+local function wrapped(n: integer): (integer?, unknown)
+    local resource = pcall(open, n) or return
+    return resource.id, nil
+end
+local good = wrapped(4)
+local bad = wrapped(0)
+return good == 4 and bad == nil and closed == 1
+]=]
+    )
+    assertReports(
+        [=[
+local record Resource is own.Closeable
+    function close(takes self): nil end
+end
+local function paired(): (integer, Resource) return 1, new Resource() end
+local function wrapped(): (integer?, unknown)
+    local value = pcall(paired) or return
+    return value, nil
+end
+]=],
+        "NUPP2605",
+        "protected success cannot abandon an extra owner"
+    )
+end
+
+function M.protectedHandlerOwnersMustBeForwardedOrConsumed()
+    local setup = [=[
+local closed = 0
+local record Problem is own.Closeable
+    function close(takes self): nil closed = closed + 1 end
+end
+local function work(): integer error("raised", 0) end
+local function handler(problem: any): Problem return new Problem() end
+]=]
+    runsGenerated(
+        setup
+        .. [=[
+local function wrapped(): (integer?, Problem?)
+    local value = xpcall(work, handler) or return
+    return value, nil
+end
+local value, problem = wrapped()
+if problem ~= nil then own.drop(problem) end
+return value == nil and closed == 1
+]=]
+    )
+    for _, exit in ipairs({"break", "continue"}) do
+        assertReports(
+            setup .. "for _ = 1, 2 do\nlocal value = xpcall(work, handler) or " .. exit .. "\nprint(value)\nend\n",
+            "NUPP2605",
+            "a handler's owner cannot be discarded by " .. exit
+        )
+    end
+    for _, destination in ipairs({"any", "unknown"}) do
+        assertReports(
+            setup
+            .. "local function wrapped(): (integer?, "
+            .. destination
+            .. ")\n"
+            .. "local value = xpcall(work, handler) or return\nreturn value, nil\nend\n",
+            destination == "any" and "NUPP2611" or "NUPP2603",
+            "a handler's owner cannot be erased into " .. destination
+        )
+    end
+end
+
+function M.protectedCallsAdmitNoResultsAndVariadicPlainResults()
+    runsGenerated(
+        [=[
+local visited = 0
+local function nothing(): nil end
+local function spread(...: integer): (integer, ...integer) return 7, ... end
+local function wrapped(): (integer?, unknown)
+    local empty = pcall(nothing) or return
+    visited = visited + 1
+    local first = pcall(spread, 1, 2, 3) or return
+    return first, nil
+end
+return wrapped() == 7 and visited == 1
+]=]
+    )
+end
+
+function M.shadowedProtectedCallsCannotSelectTheBuiltinPolicy()
+    assertReports(
+        [=[
+local function pcall(): ((true, integer) | (false, string)) return true, 7 end
+local function wrapped(): (integer?, unknown)
+    local value = pcall() or return
+    return value, nil
+end
+]=],
+        "NUPP2149",
+        "a user function with a correlated pack is not builtin pcall"
+    )
 end
 
 --- A project's own `pcall` is an ordinary operand: it answers an ordinary pack,

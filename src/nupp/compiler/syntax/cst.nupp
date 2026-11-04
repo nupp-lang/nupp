@@ -635,6 +635,9 @@ interface cst.Hints
     --- Canonical capability facts for each returned value slot.
     resultCapabilityFacts: any
 
+    --- Whether an exit suffix tests protected-call status and yields result two.
+    orExitProtected: boolean?
+
     --- Aggregate field partitions transported by returned values.
     returnPartitionFields: any
 
@@ -2177,16 +2180,15 @@ record cst.IsExpr is cst.Hints
 end
 
 --- `e or return`, `e or break`, `e or continue`: a contextual suffix at the `or`
---- tier that leaves when `e`'s first result is falsy and yields that result
---- otherwise.
+--- tier. Ordinary operands test and yield result one. Direct protected calls
+--- test the status and yield the protected function's first result.
 record cst.OrExitExpr is cst.Hints
     {cst.Node | lexer.Token}
 
     --- Names the production this node stands for.
     kind: 'orExitExpr'
 
-    --- The expression whose first result decides, and whose first result the
-    --- whole expression yields when it is truthy.
+    --- The expression evaluated once before selecting success or the exit.
     operand: cst.Node?
 
     --- The `or`, whichever of the two spellings was written.

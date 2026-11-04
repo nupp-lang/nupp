@@ -4084,18 +4084,20 @@ export function generate(
     end
 
     --- Lowers `e or return`, `e or break` and `e or continue` to straight-line
-    --- statements: the operand runs once into fixed temporaries, the first decides,
-    --- and the expression's value is that first temporary.
+    --- statements: the operand runs once into fixed temporaries. Result one decides;
+    --- the value is result two for protected calls and result one otherwise.
     ---
-    --- No pack table is built. The operand's result count is fixed -- the checker
-    --- refuses it otherwise -- so one temporary per slot forwards the failure pack
-    --- without the allocation `__nuppBlockPack` would make on every evaluation. Only
-    --- `or return` reads past the first slot, so the loop exits capture just the one.
+    --- Builds no pack table. Ordinary operands have a fixed result count and loop
+    --- exits capture only result one. Protected calls capture status and result two
+    --- for every exit kind, discard later values, and forward nil plus the error on
+    --- return. A successful nil or false remains the expression's value.
     function emitDepth.lowerOrExit(node)
         local operand = node.operand
         local line = sourceLine(node)
         lowerSwitches(operand)
-        local width = node.exitKind == "return" and math.max(node.orExitWidth or 1, 1) or 1
+        local width = node.orExitProtected and 2
+            or node.exitKind == "return" and math.max(node.orExitWidth or 1, 1)
+            or 1
         local temps = {}
         for index = 1, width do
             temps[index] = nextTemp()
@@ -4113,12 +4115,12 @@ export function generate(
         end
         e(" then ")
         if node.exitKind == "return" then
-            emit(emitDepth.orExitReturn(node, temps))
+            emit(emitDepth.orExitReturn(node, node.orExitProtected and {"nil", temps[2]} or temps))
         else
             emitDepth.valueControl(node.exitKind, line)
         end
         e(" end;")
-        emitDepth.switchTemps[node] = temps[1]
+        emitDepth.switchTemps[node] = temps[node.orExitProtected and 2 or 1]
     end
 
     function emitDepth.lowerDo(node)
@@ -4939,9 +4941,15 @@ export function generate(
     end
 
     ownershipMoveOf = function(expr)
-        while expr and (expr.kind == "paren" or expr.kind == "castExpr" or expr.kind == "orExitExpr") do
+        while expr
+            and (
+                expr.kind == "paren"
+                or expr.kind == "castExpr"
+                or (expr.kind == "orExitExpr" and not expr.orExitProtected)
+            ) do
             expr = expr.kind == "orExitExpr" and expr.operand or expr.expr
         end
+
         return expr and expr.automaticOwnerMove or nil
     end
 

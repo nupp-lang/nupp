@@ -4,9 +4,9 @@ order: 80
 
 # Exit suffixes
 
-`or return`, `or break` and `or continue` are contextual suffixes that leave
-when an expression's first result is falsy, and yield that result when it is
-not:
+`or return`, `or break` and `or continue` leave on failure and yield a value
+on success. Ordinary operands fail when their first result is nil or false;
+direct [protected calls](#protected-calls) fail when they raise:
 
 ```nupp:fragment
 local text = files.read(path) or return
@@ -27,16 +27,15 @@ There are three exits and no more. `or else` is not one of them, because `??`
 already supplies a fallback for nil and ordinary `or` already handles Lua
 truthiness.
 
-## What the operand must look like
+## Operands
 
 The operand runs once. Its first result both decides and is the value: `nil` or
 `false` takes the exit, anything else continues. The value is narrowed by the
 same truthiness that selected it, so `string?` becomes `string` and `boolean`
 becomes `true` — no second test is needed to use it.
 
-The checker admits an operand whose result count is fixed, whose results are
-not a correlated pack union, and whose first result can be both falsy and a
-value. Anything else is refused and keeps the explicit conditional:
+An ordinary operand needs a fixed result count, results that are not a
+correlated pack union, and a first result that can be both falsy and a value. Anything else is refused and keeps the explicit conditional:
 
 ```nupp:fragment
 local always = nonOptional() or return  -- NUPP2149: never nil or false
@@ -61,10 +60,10 @@ local left, right = readPair() or return  -- right is always nil
 
 A caller that wants the other results writes the conditional out.
 
-## What `or return` forwards
+## Failure forwarding
 
-`or return` returns the operand's whole pack, with its first slot narrowed to
-the falsy part. That is what makes a wrapper type-check without inventing
+For an ordinary operand, `or return` returns the whole pack with its first
+slot narrowed to the falsy part. That is what makes a wrapper type-check without inventing
 values:
 
 ```nupp:fragment
@@ -87,28 +86,42 @@ reporting `NUPP2002` when it does not fit.
 
 ## Protected calls
 
-`pcall` and `xpcall` return a boolean before the protected function's results.
-A direct call to either is refused as an exit-suffix operand; test the boolean
-in an explicit conditional:
+A direct `pcall` or `xpcall` operand tests the protected call's status and
+produces the protected function's first result. A raise takes the exit;
+`or return` forwards `nil, error`:
 
 ```nupp:fragment
 function parsed(text: string): (Config?, unknown)
-    local ok, value = pcall(decode, text)
-    if not ok then
-        return nil, value
-    end
-
-    return value, nil
+    local config = pcall(decode, text) or return
+    return config, nil
 end
 ```
 
-A raised value passes through unchanged, including a table or nil. The boolean
-keeps a successful nil distinct from a failure that raised nil. `xpcall` takes
-a handler that runs before the stack unwinds, so it can collect a traceback;
-its result becomes the failure value. Narrow an `unknown` failure explicitly
-before returning it as a more specific type.
+A successful `nil` or `false` continues and remains the expression's value.
+The status narrows the success/error alternatives, but does not remove nil or
+false from the protected function's declared result type. Later successful
+results are discarded and cannot carry owners. The protected function and its
+arguments run once.
 
-## Loops, precedence and spelling
+A raised value passes through unchanged, including a table or nil. `xpcall`
+runs its handler before the stack unwinds; the handler's first result becomes
+the failure value, with its declared type:
+
+```nupp:fragment
+function parsed(text: string): (Config?, string?)
+    local config = xpcall(decode, tostring, text) or return
+    return config, nil
+end
+```
+
+`or break` and `or continue` likewise leave only when the protected call fails.
+If an `xpcall` handler returns an owner, a loop exit cannot discard it;
+`or return` needs a matching ownership annotation on the error result.
+An explicit conditional is still needed to retain additional results, handle
+failure locally, or narrow an `unknown` error to a more specific type. A local
+function named `pcall` or `xpcall` follows the ordinary suffix rules.
+
+## Loops and precedence
 
 `or break` and `or continue` target the nearest enclosing loop and never cross a
 function boundary; outside one they report the same way a written `break` or
