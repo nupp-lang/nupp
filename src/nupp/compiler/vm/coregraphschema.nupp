@@ -4,6 +4,56 @@ local graph = require("nupp.compiler.vm.graph")
 local opcodes = require("nupp.compiler.vm.opcodes")
 local schema = {}
 
+-- Program-size bounds: the one source the contracts, codec, verifier, budget,
+-- executable and the generated native policies read. Each stays finite and
+-- checked, since a raw image is a trust boundary. Per program: owners (module
+-- initializers and functions), signatures, modules, call sites (`calls`),
+-- executable instructions, and the semantic tree's items and text bytes
+-- (`treeitems`, `treetext`). Per function: blocks, values and items
+-- (operations, operands, positions). Sized for the compiler on the core:
+-- about 400 modules and tens of thousands of functions.
+type schema.Limits = {
+    owners: integer,
+    signatures: integer,
+    modules: integer,
+    calls: integer,
+    instructions: integer,
+    treeitems: integer,
+    treetext: integer,
+    blocks: integer,
+    values: integer,
+    items: integer
+}
+
+local bounds: schema.Limits = {
+    owners = 65536,
+    signatures = 65536,
+    modules = 65536,
+    calls = 16777216,
+    instructions = 16777216,
+    treeitems = 268435456,
+    treetext = 1073741824,
+    blocks = 4096,
+    values = 65536,
+    items = 1048576
+}
+
+-- A fresh copy of the program-size bounds.
+function schema.limits(): schema.Limits
+    return {
+        owners = bounds.owners,
+        signatures = bounds.signatures,
+        modules = bounds.modules,
+        calls = bounds.calls,
+        instructions = bounds.instructions,
+        treeitems = bounds.treeitems,
+        treetext = bounds.treetext,
+        blocks = bounds.blocks,
+        values = bounds.values,
+        items = bounds.items
+    }
+end
+
 -- IDs and admission policy are versioned here. Operand definitions are copied
 -- from the canonical graph tables; these rows do not define execution behavior.
 local operations = {
@@ -102,7 +152,7 @@ function schema.describe(version: integer?): any
         byteOrder = "little",
         alignment = 8,
         absent = 4294967295,
-        limits = {owners = 256, blocks = 4096, values = 65536, items = 1048576},
+        limits = schema.limits(),
         scalarKinds = scalarKinds,
         effects = {
             {id = 0, mayCollect = false, mayRaise = false, mayPark = false, pure = true},
@@ -258,17 +308,17 @@ local wireShapes: {
     {"schema", 1, ""},
     {
         "catalog",
-        256,
+        bounds.owners,
         "id:ref:catalog kind:enum:ownerKinds parent:optionalRef:catalog signature:ref:signatures graph:ref:graphs effect:enum:effects"
     },
     {
         "signatures",
-        256,
+        bounds.signatures,
         "id:ref:signatures kind:enum:signatureKinds result:enum:scalarKinds paramsFirst:span:words:paramsCount:239"
     },
     {
         "graphs",
-        256,
+        bounds.owners,
         "owner:ref:catalog valuesFirst:span:values:valuesCount:65536 constantsFirst:span:constants:constantsCount:65536 blocksFirst:span:blocks:blocksCount:4096 positionsFirst:span:positions:positionsCount:1048576 name:string module:string path:string source:optionalOwned:sourceBindings"
     },
     {
@@ -283,13 +333,13 @@ local wireShapes: {
     },
     {
         "contracts",
-        1048576,
+        bounds.calls,
         "id:ref:contracts owner:ref:catalog target:ref:catalog signature:ref:signatures effect:enum:effects"
     },
     {"positions", nil, "source:optionalOwned:positionSources"},
     {"sourceBindings", nil, "name:string module:string path:string"},
     {"positionSources", nil, "moduleName:string path:string"},
-    {"modules", 256, "name:string path:string chunk:ref:catalog"},
+    {"modules", bounds.modules, "name:string path:string chunk:ref:catalog"},
     {"constants", nil, "kind:enum:constantKinds payload:string"},
     {"operations", nil, "opcode:enum:operations argsFirst:span:words:argsCount:1048576"},
     {"edges", nil, "argsFirst:span:words:argsCount:65536"}

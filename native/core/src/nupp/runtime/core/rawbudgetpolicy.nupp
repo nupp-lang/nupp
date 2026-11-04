@@ -5,15 +5,15 @@ module nupp.runtime.core.rawbudgetpolicy
 -- These tables confer no SSA or executable-byte authority.
 
 export const version = 1ULL
-export const itemLimit = 1048576ULL
-export const textLimit = 16777216ULL
+export const itemLimit = 268435456ULL
+export const textLimit = 1073741824ULL
 export const textItemLimit = 1048576ULL
 export const depthLimit = 32ULL
 export const integerLimit = 4294967295ULL
 export const maxDepthBound = 9ULL
 
-export const B_root_items = 481ULL
-export const B_root_bytes = 1526ULL
+export const B_root_items = 493ULL
+export const B_root_bytes = 1577ULL
 export const B_catalog_items = 12ULL
 export const B_catalog_bytes = 26ULL
 export const B_parent_items = 2ULL

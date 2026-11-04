@@ -348,17 +348,21 @@ function M.treeMeasurementRetainsPlainUniqueBoundedContract()
 end
 
 function M.treeLimitsCountEveryOccurrenceAndEveryKey()
+    -- The schema's tree bounds are far larger than a test should build, so
+    -- the counting is checked at the old 1,048,576-item, 16 MiB cap given
+    -- explicitly; the defaults are checked to be the schema's below.
+    local cap = {items = 1048576, text = 16777216}
     local values = {}
     -- Trees have an odd item total (root plus two items per table edge), so
     -- 1,048,575 is the largest reachable total below the 1,048,576 cap.
     for index = 1, 524287 do
         values[index] = 0
     end
-    test.eq(budget.measure(values).items, 1048575)
+    test.eq(budget.measure(values, cap).items, 1048575)
     values[524288] = 0
     refuses(
         function()
-            budget.measure(values)
+            budget.measure(values, cap)
         end,
         "semantic expansion limit exceeded"
     )
@@ -367,14 +371,20 @@ function M.treeLimitsCountEveryOccurrenceAndEveryKey()
     for index = 1, 16 do
         strings[index] = text
     end
-    test.eq(budget.measure(strings).bytes, 16777216)
+    test.eq(budget.measure(strings, cap).bytes, 16777216)
     strings[17] = "x"
     refuses(
         function()
-            budget.measure(strings)
+            budget.measure(strings, cap)
         end,
         "semantic string expansion limit exceeded"
     )
+    -- Without a cap the same trees fit: the defaults are the schema's.
+    test.eq(budget.measure(values).items, 1048577)
+    test.eq(budget.measure(strings).bytes, 16777217)
+    local bounds, policy = schema.limits(), budget.policy()
+    test.eq(policy.itemLimit, bounds.treeitems)
+    test.eq(policy.textLimit, bounds.treetext)
     refuses(
         function()
             budget.measure(text .. "x")

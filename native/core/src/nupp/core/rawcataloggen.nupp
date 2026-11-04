@@ -17,7 +17,7 @@ function generator.source(): string
         lines[#lines + 1] = "export const " .. name .. " = " .. tostring(value) .. "ULL"
     end
 
-    for _, name in ipairs({"owners", "blocks", "values", "items"}) do
+    for _, name in ipairs({"owners", "signatures", "modules", "calls", "blocks", "values", "items"}) do
         constant(name, semantic.limits[name])
     end
     for _, section in ipairs(wire.sections) do

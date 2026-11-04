@@ -6,6 +6,7 @@ local schema = require("nupp.compiler.vm.coregraphschema")
 local semantic = require("nupp.compiler.vm.coregraphverify")
 local cst = require("nupp.compiler.syntax.cst")
 local contracts = {}
+local bounds = schema.limits()
 
 local function need(ok: any, message: string): any
     assert(ok, "core graph contracts: " .. message)
@@ -288,11 +289,11 @@ function contracts.normalize(compiled: any, version: integer?): any
     fields(compiled, "graphs header catalog")
     local p, graphs = compiled.catalog, compiled.graphs
     need(type(p) == "table", "authentic checked catalog required")
-    dense(graphs, 256)
+    dense(graphs, bounds.owners)
     fields(compiled.header, "shapes modules entry")
     need(dense(compiled.header.shapes, 1048576) == 0, "shape-free graph catalog required")
-    local moduleCount = dense(compiled.header.modules, 256)
-    need(moduleCount > 0 and dense(p.modules, 256) == moduleCount, "complete module table required")
+    local moduleCount = dense(compiled.header.modules, bounds.modules)
+    need(moduleCount > 0 and dense(p.modules, bounds.modules) == moduleCount, "complete module table required")
     -- From v8 a program's modules run as their requirers call them.
     need(not loops or moduleCount == 1 or v >= 8, "loop profile requires one scalar initializer")
     need(#p.owners == #graphs, "complete graph table required")
@@ -391,7 +392,7 @@ function contracts.normalize(compiled: any, version: integer?): any
     local definition = schema.describe(v)
     local output: any = {
         schema = definition,
-        entry = integer(compiled.header.entry, 255),
+        entry = integer(compiled.header.entry, bounds.owners - 1),
         modules = {},
         catalog = {},
         signatures = {},
@@ -414,17 +415,17 @@ function contracts.normalize(compiled: any, version: integer?): any
             and need(p.owners[module.chunk + 1], "module initializer is missing").kind == "module",
             "module initializer binding differs"
         )
-        local record = {name = text(module.name), path = text(module.path), chunk = integer(module.chunk, 255)}
+        local record = {name = text(module.name), path = text(module.path), chunk = integer(module.chunk, bounds.owners - 1)}
         output.modules[index], modulesByOwner[module.chunk] = record, record
     end
     need(modulesByOwner[output.entry] ~= nil, "entry initializer is not cataloged")
-    for index = 1, dense(p.owners, 256) do
+    for index = 1, dense(p.owners, bounds.owners) do
         local owner = p.owners[index]
         need(v >= 7 or dense(owner.captures, 256) == 0, "captures are unsupported")
-        local record: any = {id = integer(owner.id, 255), kind = owner.kind, graph = index - 1, effect = 0}
+        local record: any = {id = integer(owner.id, bounds.owners - 1), kind = owner.kind, graph = index - 1, effect = 0}
         need(record.id == index - 1, "owner order differs")
         if owner.kind == "function" then
-            record.parent = integer(owner.parent, 255)
+            record.parent = integer(owner.parent, bounds.owners - 1)
             record.signature = intern(
                 output.signatures,
                 signatureIndex,
@@ -521,7 +522,7 @@ function contracts.normalize(compiled: any, version: integer?): any
                     id = id,
                     owner = record.id,
                     block = block.id,
-                    callsite = integer(site.id, 1048576),
+                    callsite = integer(site.id, bounds.calls - 1),
                     target = target.id,
                     signature = target.signature,
                     effect = 1,

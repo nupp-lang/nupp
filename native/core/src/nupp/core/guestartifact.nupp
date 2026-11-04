@@ -3,6 +3,7 @@ module nupp.core.guestartifact
 local executable = require("nupp.compiler.vm.coregraphexecutable")
 local targetLayout = require("nupp.compiler.targetlayout")
 local literal = require("s0.literal")
+local schema = require("nupp.compiler.vm.coregraphschema")
 local artifact = {}
 -- The constant-word tag of a v8 string constant; the payload is its offset.
 local STRING_CONSTANT = 0x7ffe000000000000
@@ -24,6 +25,18 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     executable.validate(code)
     assert(#dispatch >= 1 and #dispatch <= 256, "guest dispatch extent")
     local scope = assert(scopes["nupp.runtime.core.guestcatalog"])
+    -- The loader's program-size bounds are the schema's.
+    local bounds = schema.limits()
+    for name, expected in pairs({
+        ownerbound = bounds.owners,
+        signaturebound = bounds.signatures,
+        modulebound = bounds.modules,
+        callbound = bounds.calls,
+        instructionbound = bounds.instructions
+    }) do
+        local text = assert(scope.exportedConstants[name], "guest catalog bound " .. name)
+        assert(literal.integer(text) == expected, "guest catalog bound " .. name .. " differs from the schema")
+    end
     local layouts = {}
     for _, name in ipairs({"DescriptorV1", "Descriptor", "Function", "Signature", "Callsite"}) do
         local checked = assert(scope.checkedExports.types[name], "checked catalog layout")
@@ -111,7 +124,7 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             end
         end
     end
-    assert(cursor <= 67108864 and cursor % 8 == 0, "guest artifact byte budget")
+    assert(cursor <= 1073741824 and cursor % 8 == 0, "guest artifact byte budget")
     local bytes = {}
     for index = 1, cursor do
         bytes[index] = 0

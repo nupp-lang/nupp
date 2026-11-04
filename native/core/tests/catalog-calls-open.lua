@@ -19,6 +19,11 @@ local function prefix(f)
     return "p", f()
 end
 
+-- A library call with several results, last in such a return, gives them all.
+local function bytes(s)
+    return string.byte(s, 1, 3)
+end
+
 local x, y = apply(swap, 1, 2)
 local n, s, b = apply(three)
 local p, m, t = prefix(three)
@@ -28,5 +33,9 @@ if n == 3 and s == "three" and b == true then
 end
 if p == "p" and m == 3 and t == "three" then
     score = score + 1000
+end
+local c1, c2, c3 = bytes("abc")
+if c1 == 97 and c2 == 98 and c3 == 99 then
+    score = score + 10000
 end
 return score

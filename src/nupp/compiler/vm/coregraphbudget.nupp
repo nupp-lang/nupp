@@ -3,6 +3,7 @@ module nupp.compiler.vm.coregraphbudget
 local schema = require("nupp.compiler.vm.coregraphschema")
 local shape = require("nupp.compiler.vm.coregraphshape")
 local budget = {}
+local bounds = schema.limits()
 
 local function need(ok: any, message: string): any
     assert(ok, "core graph contracts: " .. message)
@@ -18,12 +19,18 @@ end
 
 -- This is the tree admission contract, not graph verification. No partial
 -- counter result escapes refusal, and shared tables are rejected like cycles.
-function budget.measure(value: any): any
+-- `cap` overrides the item and text-byte bounds (`{items, text}`); the default
+-- is the schema's `treeitems` and `treetext`.
+function budget.measure(value: any, cap: any?): any
     local seen, result = {}, {items = 0, bytes = 0, maxDepth = 0}
+    local items, text = bounds.treeitems, bounds.treetext
+    if cap then
+        items, text = cap.items, cap.text
+    end
 
     local function visit(child: any, depth: integer): nil
         need(depth <= 32, "semantic nesting limit exceeded")
-        need(result.items < 1048576, "semantic expansion limit exceeded")
+        need(result.items < items, "semantic expansion limit exceeded")
         result.items += 1
         result.maxDepth = math.max(result.maxDepth, depth)
         local kind = type(child)
@@ -38,7 +45,7 @@ function budget.measure(value: any): any
             end
         elseif kind == "string" then
             need(#child <= 1048576, "bounded source text required")
-            need(#child <= 16777216 - result.bytes, "semantic string expansion limit exceeded")
+            need(#child <= text - result.bytes, "semantic string expansion limit exceeded")
             result.bytes += #child
         elseif kind == "number" then
             bounded(child, 4294967295)
@@ -60,8 +67,8 @@ function budget.policy(): any
     local definition, wire = schema.describe(), schema.wire()
     local result: any = {
         version = 1,
-        itemLimit = 1048576,
-        textLimit = 16777216,
+        itemLimit = bounds.treeitems,
+        textLimit = bounds.treetext,
         textItemLimit = 1048576,
         depthLimit = 32,
         integerLimit = 4294967295,

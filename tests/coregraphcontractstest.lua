@@ -733,4 +733,66 @@ function M.noPersistentProofCanBypassSourceVerification()
     )
 end
 
+-- The program-size bounds come from the schema, admit a program at the bound
+-- and refuse one past it. A program at the bound fails later, for its
+-- missing parts, not its size.
+local function filled(count)
+    local items = {}
+    for index = 1, count do
+        items[index] = {}
+    end
+
+    return items
+end
+
+function M.programSizeBoundsAdmitTheLimitAndRefuseOnePast()
+    local bounds = schema.limits()
+    test.eq(bounds.owners, 65536)
+    test.eq(bounds.modules, 65536)
+    test.eq(bounds.signatures, 65536)
+    test.eq(schema.describe(8).limits.owners, bounds.owners)
+    local past = "invalid bounded integer " .. (bounds.owners + 1) .. " (at most " .. bounds.owners .. ")"
+    refuses(function()
+        contracts.normalize({graphs = filled(bounds.owners + 1), header = {}, catalog = {}}, 8)
+    end, past)
+    refuses(function()
+        contracts.normalize({graphs = filled(bounds.owners), header = {}, catalog = {}}, 8)
+    end, "plain semantic table required")
+
+    local function catalog(owners, modules, signatures)
+        return {
+            schema = schema.describe(8),
+            entry = 0,
+            modules = filled(modules),
+            catalog = filled(owners),
+            signatures = filled(signatures),
+            graphs = filled(1),
+            contracts = {}
+        }
+    end
+
+    refuses(function()
+        semantic.catalog(catalog(bounds.owners + 1, 1, 1))
+    end, past)
+    refuses(function()
+        semantic.catalog(catalog(bounds.owners, 1, 1))
+    end, "complete semantic graph table required")
+    local one = catalog(1, bounds.modules + 1, 1)
+    refuses(function()
+        semantic.catalog(one)
+    end, "invalid bounded integer " .. (bounds.modules + 1))
+    one.modules = filled(bounds.modules)
+    refuses(function()
+        semantic.catalog(one)
+    end, "complete semantic module table required")
+    one = catalog(1, 1, bounds.signatures + 1)
+    refuses(function()
+        semantic.catalog(one)
+    end, "invalid bounded integer " .. (bounds.signatures + 1))
+    one.signatures = filled(bounds.signatures)
+    refuses(function()
+        semantic.catalog(one)
+    end, "bounded source text required")
+end
+
 return M

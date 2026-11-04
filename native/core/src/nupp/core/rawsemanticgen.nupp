@@ -13,7 +13,7 @@ function generator.source(): string
     }
 
     local function constant(name: string, value: number): nil
-        assert(value >= 0 and value <= 65535 and value % 1 == 0)
+        assert(value >= 0 and value <= 4294967295 and value % 1 == 0)
         if lines[#lines] == "end" then
             lines[#lines + 1] = ""
         end
@@ -44,9 +44,12 @@ function generator.source(): string
     end
 
     assert(definition.limits.blocks <= 65535)
-    assert(#definition.scalarKinds + definition.limits.owners <= 65535)
+    -- A value's word packs its block epoch in the low 16 bits and its kind
+    -- (a scalar kind, or a function: Kind_function plus the owner) in the 32
+    -- above, so owners stay well inside the kind field.
+    assert(#definition.scalarKinds + definition.limits.owners <= 4294967295)
     constant("epochMask", 65535)
-    constant("kindMask", 65535)
+    constant("kindMask", 4294967295)
     constant("kindShift", 16)
     constant("maximumKind", #definition.scalarKinds + definition.limits.owners)
     local scalar = {}

@@ -122,6 +122,14 @@ export const STRING_CONSTANT: uint64 = 0x7ffe000000000000ULL
 export const INTEGER_CONSTANT: uint64 = 0xfffe000000000000ULL
 export const INITIALIZER: uint64 = 0ULL
 export const FUNCTION: uint64 = 1ULL
+-- Program-size bounds, the schema's (coregraphschema.limits): owners,
+-- signatures, modules, call sites and instructions across the program. The
+-- artifact producer refuses to build against bounds that differ.
+export const ownerbound: uint64 = 65536ULL
+export const signaturebound: uint64 = 65536ULL
+export const modulebound: uint64 = 65536ULL
+export const callbound: uint64 = 16777216ULL
+export const instructionbound: uint64 = 16777216ULL
 
 local function range(base: uint64, bytes: uint64): uint64
     if base == 0ULL or bytes == 0ULL or (base & 7ULL) ~= 0ULL or bytes > 0xffffffffffffffffULL - base then
@@ -163,7 +171,7 @@ export function scalar(kind: uint64, value: uint64): uint64
 end
 
 export function storageBytes(count: uint64): uint64
-    if count == 0ULL or count > 256ULL then
+    if count == 0ULL or count > ownerbound then
         return 0ULL
     end
     return native.sizeOf<Catalog>() + count * (
@@ -197,14 +205,14 @@ local function valid(data: voidptr, bytes: uint64): uint64
     end
     local depth = native.load64(data, native.fieldOffset<Descriptor>("frameDepth"))
     if count == 0ULL
-        or count > 256ULL
+        or count > ownerbound
         or entry >= count
         or ns == 0ULL
-        or ns > 256ULL
-        or nc > 1048576ULL
+        or ns > signaturebound
+        or nc > callbound
         or nm == 0ULL
         or nm > 3ULL and version < 8ULL
-        or nm > 256ULL
+        or nm > modulebound
         or nm > count
         or depth == 0ULL
         or depth > count and (version < 7ULL or depth > 4096ULL)
@@ -307,7 +315,7 @@ local function valid(data: voidptr, bytes: uint64): uint64
             or native.load64(fn, native.fieldOffset<Function>("effect")) > 1ULL
             or size == 0ULL
             or size > 1048576ULL
-            or total > 1048576ULL - size
+            or total > instructionbound - size
             or nv == 0ULL
             or nv > 250ULL
             or constants > 65536ULL
