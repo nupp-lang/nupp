@@ -127,7 +127,8 @@ local UNITS = {
             {"gcunits", "rings", 2},
             {"gcunits", "fanOut", 2},
             {"gcunits", "barrier", 1},
-            {"gcunits", "initializedBlack", 1}
+            {"gcunits", "initializedBlack", 1},
+            {"gcunits", "segmentRoots", 3}
         },
         cases = function()
             -- Counts from tests/nativeheaptest.lua, computed there independently.
@@ -141,7 +142,11 @@ local UNITS = {
                 {"fanOut", {50, 40000}, 26},
                 {"barrier", {0}, 1},
                 {"barrier", {1}, 0},
-                {"initializedBlack", {3000}, 1}
+                {"initializedBlack", {3000}, 1},
+                -- A frame stack's roots end at its cursor.
+                {"segmentRoots", {40, 25, 0}, 40},
+                {"segmentRoots", {0, 25, 0}, 0},
+                {"segmentRoots", {40, 25, 1}, 0}
             }
         end
     }
