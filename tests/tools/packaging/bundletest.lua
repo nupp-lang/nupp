@@ -1429,7 +1429,9 @@ return {
         ):format(kind, stub and string.format("%q", stub) or "nil")
         local dir = tempProject({
             ["nupp.lua"] = manifest,
-            ["src/main.nupp"] = 'local workers = require("coroutine.workers")\nreturn workers\n',
+            [
+                "src/main.nupp"
+            ] = 'module main\nlocal scope = coroutine.scope()\nscope:work(function(): integer return 42 end)\n',
         })
         local out, ok = run(dir, "'" .. NUPP .. "' build")
         os.execute("rm -rf '" .. dir .. "'")

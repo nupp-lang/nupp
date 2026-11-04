@@ -104,6 +104,8 @@ function M.retiredNamespacesAreNotBundled()
         "io.gpu.spi",
         "coroutine.sus.spi",
         "coroutine.workers.spi",
+        "coroutine.workers",
+        "coroutine.sus.cancellation",
         "coroutine.suspension",
         "coroutine.suspension.host",
         "coroutine.suspension.spi",
@@ -180,10 +182,8 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         ["nupp.runtime.entropy"] = "/nupp/runtime/entropy.nupp",
         ["nupp.runtime.standardtable"] = "/nupp/runtime/standardtable.nupp",
         ["coroutine.sus"] = "/coroutine/sus/init.nupp",
-        ["coroutine.sus.cancellation"] = "/coroutine/sus/cancellation.nupp",
         ["coroutine.sus.host"] = "/coroutine/sus/host.nupp",
         ["nupp.suspension.contracts"] = "/nupp/suspension/contracts.nupp",
-        ["coroutine.workers"] = "/coroutine/workers/init.nupp",
         ["nupp.workers.contracts"] = "/nupp/workers/contracts.nupp",
         ["io.files"] = "/io/files/init.nupp",
         ["io.files.messages"] = "/io/files/messages.nupp",
@@ -215,6 +215,10 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     testAssert.eq(suspension.exports.values.suspend, nil, "the wait lives on coroutine")
     local coroutineModule = env.loadBundledModule("nupp.runtime.standardcoroutine")
     testAssert.eq(coroutineModule.exports.values.suspend.tag, "func")
+    local workerContract = env.loadBundledModule("nupp.workers.contracts")
+    testAssert.eq(coroutineModule.exports.types.Worker, workerContract.exports.types.Worker)
+    testAssert.eq(suspension.exports.values.newcancellation.tag, "func")
+    testAssert.eq(suspension.exports.values.iscancellation.rets[1].tag, "boolean")
 end
 
 function M.directSuspendKeepsItsGenericTypeOutsideTheCheckout()

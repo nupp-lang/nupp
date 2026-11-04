@@ -2151,7 +2151,11 @@ end
 -- under nupp.compiler.decls, where the internal root hid them. They sit beside their
 -- modules now, inside the namespace a reader browses, so each has to say so itself.
 function M.hostBoundariesDeclareThemselvesInternal()
-    local boundaries = {"src/nupp/workers/native.d.nupp", "src/binary/_representation.nupp",}
+    local boundaries = {
+        "src/nupp/workers/native.d.nupp",
+        "src/binary/_representation.nupp",
+        "src/io/files/messages.nupp",
+    }
     for _, relative in ipairs(boundaries) do
         local source = readFile(HERE .. "/../" .. relative)
         assert(source, "no boundary at " .. relative)
@@ -3032,7 +3036,6 @@ function M.coroutineWorkerDocsRetainScopesAndTaskResultPacks()
                 "src/nupp/tasks.nupp",
                 "src/nupp/workers/contracts.nupp",
                 "src/nupp/runtime/standardcoroutine.nupp",
-                "src/coroutine/workers/init.nupp",
             },
         },
         {format = "json", output = dir .. "/api.json"}
@@ -3061,8 +3064,8 @@ function M.coroutineWorkerDocsRetainScopesAndTaskResultPacks()
     assert(task.await and task.isdone and task.status and task.cancel, "task methods come from the actual type builder")
     assert(task.await.type:find("unpackof types.results(F)", 1, true), task.await.type)
     assert(task.status.type:find('"cancelled"', 1, true), task.status.type)
-    assert(modules["coroutine.workers"].text:find("coroutine.Scope.work", 1, true))
-    assert(modules["coroutine.workers"].text:find("coroutine.Task", 1, true))
+    assert(items.Worker, "the sendable worker body type belongs to coroutine")
+    assert(not modules["coroutine.workers"], "the retired worker module is absent")
     assert(not modules["nupp.tasks"] and not modules["nupp.workers.contracts"], "implementation modules stay private")
     os.execute("rm -rf '" .. dir .. "'")
 end

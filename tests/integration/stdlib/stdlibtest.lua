@@ -2073,8 +2073,10 @@ function M.nativeFeaturesAreResolvedEffects()
     local process = effectsOf("local process = require('io')\nlocal child = process.popen({args = {'true'}})")
     assert(process["runtime.process"], "structured popen records its process dependency")
     assert(not process["native.process"], "provider choice follows target catalog resolution")
-    local workers = effectsOf("local workers = require(\"coroutine.workers\")")
-    assert(workers["runtime.workers"], "the workers module records its facade dependency")
+    local workers = effectsOf(
+        "module main\nlocal scope = coroutine.scope()\nscope:work(function(): integer return 42 end)"
+    )
+    assert(workers["runtime.workers"], "worker submission records its runtime dependency")
     local http = effectsOf("local http = require(\"io.http\")")
     assert(http["runtime.http"], "the HTTP module records its facade dependency")
 
@@ -3405,12 +3407,7 @@ function M.applicationResourcesHideLifecycleAndTransportMachinery()
             table.concat(example, ".") .. " must be inaccessible: " .. diagnostics
         )
     end
-    -- A worker scope is not public at all: `fork` on a task scope is the only way to a
-    -- lane, so the facade names no scope type for application source to reach into.
-    local unnamed = diagsOf(
-        'const workers = require("coroutine.workers")\nlocal function expose(borrows value: workers.Scope): nil\nend\n'
-    )
-    assert(unnamed:find("NUPP2101", 1, true), "coroutine.workers must not name a scope type: " .. unnamed)
+    assertClean("local function expose<F is coroutine.Worker>(body: F): F\nreturn body\nend")
 end
 
 -- What a suspension provider keeps on the shared records is its own, so it carries the
@@ -3480,10 +3477,24 @@ end
             "scalar state must not belong to its public contract: " .. diagnostics
         )
     end
-    for _, name in ipairs({"nupp.io.internal.bytes", "nupp.io.internal.scalars", "nupp.io.http.internal.transport"}) do
+    for _, name in ipairs({
+        "nupp.io.internal.bytes",
+        "nupp.io.internal.scalars",
+        "nupp.io.http.internal.transport",
+        "io.files.messages"
+    }) do
         local diagnostics = diagsOf(('local hidden = require(%q)'):format(name))
         assert(diagnostics:find("NUPP2144", 1, true), name .. " must reject application imports: " .. diagnostics)
     end
+end
+
+function M.filesystemMetadataIsPublicOnlyThroughFiles()
+    assertClean("local function expose(value: io.files.Info): io.files.Info\nreturn value\nend")
+    local diagnostics = diagsOf("local function expose(value: io.files.messages.Info): nil\nend")
+    assert(
+        diagnostics:find("NUPP2144", 1, true),
+        "filesystem declarations reject qualified application access: " .. diagnostics
+    )
 end
 
 function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()

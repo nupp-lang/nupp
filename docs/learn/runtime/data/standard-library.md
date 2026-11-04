@@ -89,7 +89,7 @@ intrinsic namespaces and the declared modules:
   [](math.random) owns deterministic pseudo-random sequences with explicit,
   serializable state.
 - [](coroutine.suspend) waits for a callback result. [](coroutine) owns
-  application task scopes, and [](coroutine.workers) provides isolated worker
+  application task scopes, and [](coroutine.Scope.work) provides isolated worker
   lanes. [](coroutine.sus) registers and polls readiness sources.
   [](coroutine.sus.host) is the other side of waiting: what a host
   installs to decide which coroutine runs while something is parked.

@@ -4,7 +4,7 @@ order: 150
 
 # Worker tasks
 
-`coroutine.workers` runs sendable functions in parallel on a shared,
+`coroutine.Scope.work` runs sendable functions in parallel on a shared,
 bounded scheduler whose lanes are native threads with isolated LuaJIT states.
 A lane is reached through `work` on an [application task scope](task-scopes.md),
 which owns the worker children it starts. Arguments and results cross as copies,

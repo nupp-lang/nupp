@@ -31,8 +31,12 @@ this: [](coroutine.sus.host). A library needs none of it.
 
 This is the layer underneath. Somewhere to put children discovered over time,
 with one answer for failure and cancellation, is [](coroutine); real
-parallelism is [](coroutine.workers). Come here directly to make a library waitable,
-or to write a combinator neither of those has.
+parallel work starts through [](coroutine.Scope.work). Come here directly to
+make a library waitable, or to write a combinator neither of those has.
+
+`newcancellation(operation, reason)` creates the cancellation value recognized
+by `iscancellation` and [](coroutine.iscancelled). Providers, tasks and worker
+lanes share this identity within each Lua state.
 
 An arbitrary blocking Lua or C call still blocks the thread. A library opts in
 by calling [](coroutine.suspend); nothing intercepts calls that do not.
@@ -43,6 +47,7 @@ module coroutine.sus
 
 local contract = require("nupp.suspension.contracts")
 local source1 = require("nupp.suspension")
+local cancellation = require("nupp.suspension.cancellation")
 export type Context = source1.Context
 export type Source = source1.Source
 export const Context = source1.Context
@@ -52,3 +57,9 @@ export const create: contract.Provider.["create"] = source1.create
 export const handled: contract.Provider.["handled"] = source1.handled
 export const poll: contract.Provider.["poll"] = source1.poll
 export const source: contract.Provider.["source"] = source1.source
+
+--- Creates a cancellation value shared by suspension, tasks and worker lanes.
+export const newcancellation = cancellation.create
+
+--- Tests cancellation identity without parsing its message.
+export const iscancellation = cancellation.is

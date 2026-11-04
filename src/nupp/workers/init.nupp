@@ -60,7 +60,7 @@ local provider: contracts.Provider = require("nupp.runtime.workersprovider").pro
 end
 local workers = {}
 
-type workers.Submittable = contracts.Submittable
+type workers.Worker = contracts.Worker
 
 rawset(workers, "__scope", provider.openscope)
 rawset(workers, "__settle", provider.settle)

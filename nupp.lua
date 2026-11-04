@@ -482,10 +482,8 @@ local RESOURCES = {
     {source = "src/nupp/workers/native.d.nupp", output = "nupp/compiler/nupp/workers/native.d.nupp"},
 
     {source = "src/binary/span.nupp", output = "nupp/compiler/binary/span.nupp"},
-    {source = "src/coroutine/sus/cancellation.nupp", output = "nupp/compiler/coroutine/sus/cancellation.nupp"},
     {source = "src/coroutine/sus/host.nupp", output = "nupp/compiler/coroutine/sus/host.nupp"},
     {source = "src/coroutine/sus/init.nupp", output = "nupp/compiler/coroutine/sus/init.nupp"},
-    {source = "src/coroutine/workers/init.nupp", output = "nupp/compiler/coroutine/workers/init.nupp"},
     {source = "src/io/http/init.nupp", output = "nupp/compiler/io/http/init.nupp"},
     {source = "src/io/net/init.nupp", output = "nupp/compiler/io/net/init.nupp"},
     {source = "src/io/net/internal/contracts.nupp", output = "nupp/compiler/io/net/internal/contracts.nupp"},

@@ -163,7 +163,6 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.workers"
     ] = {
         name = "workers_runtime",
-        module = "coroutine.workers",
         modules = {"nupp.workers"},
         runtimeModule = "nupp.workers",
         portableRuntime = true,

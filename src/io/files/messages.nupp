@@ -1,3 +1,5 @@
+@!internal
+
 --[[
 `io.files.messages` defines filesystem metadata and capability contracts.
 Providers and callers share the same entry and information types.

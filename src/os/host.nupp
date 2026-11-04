@@ -158,7 +158,6 @@ local provider: contracts.HostProvider = require("nupp.runtime.bindings.host")
 local suspension = require("coroutine.sus")
 local suspensionHost = require("coroutine.sus.host")
 local suspensionContract = require("nupp.suspension.contracts")
-local cancellation = require("coroutine.sus.cancellation")
 
 --- Called with the results of a call whose caller stopped waiting.
 export type Late = contracts.Late
@@ -468,7 +467,7 @@ export function newpump(): Pump
                 if not waiting:ready() then
                     local keepRunning = coroutine.yield()
                     if keepRunning == false then
-                        error(cancellation.create("os.host.Pump", "the host stopped while it was parked"), 0)
+                        error(suspension.newcancellation("os.host.Pump", "the host stopped while it was parked"), 0)
                     end
                 end
             end

@@ -36,8 +36,8 @@ this: [](coroutine.sus.host). A library needs none of it.
 
 This is the layer underneath. Somewhere to put children discovered over time,
 with one answer for failure and cancellation, is [](coroutine); real
-parallelism is [](coroutine.workers). Come here directly to make a library waitable,
-or to write a combinator neither of those has.
+parallel work starts through [](coroutine.Scope.work). Come here directly to
+make a library waitable, or to write a combinator neither of those has.
 
 An arbitrary blocking Lua or C call still blocks the thread. A library opts in
 by calling [](coroutine.suspend); nothing intercepts calls that do not.

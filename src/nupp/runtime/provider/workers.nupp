@@ -39,7 +39,7 @@ local type Buffer = {
 }
 local buffer = require("string.buffer") as Buffer
 local suspension = require("nupp.suspension")
-local cancellation = require("coroutine.sus.cancellation")
+local cancellation = require("nupp.suspension.cancellation")
 
 local type Native = {
     channelCreate: @nosuspend function(): any,
@@ -100,7 +100,7 @@ local type TransferState = {
 
 local contracts = require("nupp.workers.contracts")
 local type Callable = function(...: any): any
-type workers.Submittable = contracts.Submittable
+type workers.Worker = contracts.Worker
 type workers.Task<F is Callable> = contracts.Task<F>
 
 ----------------------------------------------------------------------------
@@ -1613,7 +1613,7 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
     return task
 end
 
-local spawnSurface: function<F is workers.Submittable>(
+local spawnSurface: function<F is workers.Worker>(
     borrows self: workers.Scope,
     F,
     ...: unpackof contracts.Submitted(F)

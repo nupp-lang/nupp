@@ -1,6 +1,6 @@
 @!internal
 
---- Private compiler-host primitives used by [](coroutine.workers).
+--- Private compiler-host primitives used by [](coroutine.Scope.work).
 ---
 --- The public module owns values, framing, suspension, and lifecycle. These
 --- functions deliberately expose only opaque handles and serialized bytes, so

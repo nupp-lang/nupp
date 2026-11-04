@@ -2381,8 +2381,6 @@ local processCalls = {
     "require('io.internal.process')",
     'require("debug.profile")',
     "require('debug.profile')",
-    'require("coroutine.workers")',
-    "require('coroutine.workers')",
     -- Reaching into the loader is process-shaped whether or not a process is
     -- started. A suite that clears a module to prove it loads lazily, injects a
     -- loader, or writes a global through `rawset` is mutating what every other

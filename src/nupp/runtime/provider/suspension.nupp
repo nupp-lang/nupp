@@ -16,7 +16,7 @@ handler installations restore the captured outer handler.
 
 All public Source, Context, Waiting, Handler, and Installed values use the shared
 contract declarations. Cancellation values come from
-[](coroutine.sus.cancellation), so tasks and worker lanes recognize the
+[](coroutine.sus.iscancellation), so tasks and worker lanes recognize the
 same cancellation identity within a state. [](coroutine.sus) resolves this
 implementation at require-time; scheduling operations retain it directly.
 ]]

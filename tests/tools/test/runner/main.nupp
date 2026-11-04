@@ -37,7 +37,6 @@ const carriedprocess = io.popen
 require("io.net")
 require("io.http")
 require("io.gpu")
-require("coroutine.workers")
 
 const run = assert(loadfile(io.cli.args[0]))
 run()
