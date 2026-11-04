@@ -112,17 +112,17 @@ export function rootLimit(section: uint64): uint64
     if section == 0ULL then
         return 1ULL
     elseif section == 1ULL then
-        return 256ULL
+        return 65536ULL
     elseif section == 2ULL then
-        return 256ULL
+        return 65536ULL
     elseif section == 3ULL then
-        return 256ULL
+        return 65536ULL
     elseif section == 4ULL then
         return 4294967295ULL
     elseif section == 5ULL then
         return 4294967295ULL
     elseif section == 6ULL then
-        return 1048576ULL
+        return 16777216ULL
     elseif section == 7ULL then
         return 4294967295ULL
     elseif section == 8ULL then
@@ -130,7 +130,7 @@ export function rootLimit(section: uint64): uint64
     elseif section == 9ULL then
         return 4294967295ULL
     elseif section == 10ULL then
-        return 256ULL
+        return 65536ULL
     elseif section == 11ULL then
         return 4294967295ULL
     elseif section == 12ULL then

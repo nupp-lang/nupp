@@ -11,7 +11,7 @@ const policy = require("nupp.runtime.core.rawsemanticpolicy")
 
 -- Private transient state. IDs are checked before every value/block indexing.
 -- Epochs avoid clearing value and slot tables for every block. Each value
--- word has epoch in low16 and kind/provenance in bits16..31; high32 stays zero.
+-- word has epoch in low16 and kind/provenance in bits16..47; high16 stays zero.
 -- The global definition bitmap and independent slot epochs remain separate.
 local struct State
     descriptor: uint64

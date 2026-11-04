@@ -1,7 +1,9 @@
 module nupp.compiler.vm.corebytecode
 
 local opcodes = require("nupp.compiler.vm.opcodes")
+local schema = require("nupp.compiler.vm.coregraphschema")
 local bytecode = {}
+local owners = schema.limits().owners
 
 -- Final-core byte recipes. These are not the frozen VM's serialized image ABI.
 -- Each tuple binds one canonical operand to its byte offset and encoded width.
@@ -169,7 +171,7 @@ function bytecode.encode(instruction: any): string
             assert(value >= 0 and value < 250, "encoded register capacity")
         elseif field[1] == "fn" then
             -- The absent index marks a dynamic call (v8).
-            assert(value >= 0 and value < 256 or value == 4294967295, "encoded catalog owner capacity")
+            assert(value >= 0 and value < owners or value == 4294967295, "encoded catalog owner capacity")
         elseif field[4] == 1 then
             assert(value >= 0 and value <= 255, "encoded byte capacity")
         else

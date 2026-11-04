@@ -9,14 +9,24 @@ const policy = require("nupp.runtime.core.rawcatalogpolicy")
 
 -- Phase 3 is bounded catalog metadata validity only. Borrowed immutable input
 -- remains caller-owned; this does not prove SSA, scalar values or execution.
+--
+-- The catalog maps, in order: a bitmap of used signatures, a bitmap of used
+-- contracts and one of claimed callsite identities, then the call graph in
+-- compressed rows (an offset per owner plus one, and a target per call edge,
+-- at most one edge per contract record), each owner's in-degree, the ready
+-- queue, and a bitmap of owners whose lexical parents reach the entry. All
+-- linear in owners and records, never in owners squared.
+local function catalogBytes(): uint64
+    return (policy.signatures >> 3ULL) + (policy.calls >> 2ULL) + (policy.owners + 1ULL) * 8ULL
+        + wire.recordsLimit * 8ULL + policy.owners * 16ULL + (policy.owners >> 3ULL)
+end
+
 export function workspaceBytes(records: uint64, strings: uint64): uint64
     local shaped = shape.workspaceBytes(records, strings)
     if shaped == 0ULL then
         return 0ULL
     end
-    local catalog = (
-        policy.owners >> 3ULL
-    ) + (policy.items >> 2ULL) + ((policy.owners * policy.owners) >> 3ULL) + policy.owners * 16ULL
+    local catalog = catalogBytes()
     if shaped < catalog then
         shaped = catalog
     end
@@ -83,7 +93,10 @@ local function signatures(descriptor: voidptr, used: voidptr): uint64
     return 1ULL
 end
 
-local function owner(descriptor: voidptr, index: uint64, used: voidptr): uint64
+-- `rooted` marks the owners whose lexical parents are known to reach the
+-- entry initializer, so each walk stops at the first one and every owner is
+-- walked once: linear in owners, however deep the nesting.
+local function owner(descriptor: voidptr, index: uint64, used: voidptr, rooted: voidptr): uint64
     local entry = native.load64(descriptor, native.fieldOffset<header.Descriptor>("entry"))
     local signature = row(descriptor, wire.S_catalog, index, fields.F_catalog_signature)
     if row(descriptor, wire.S_catalog, index, fields.F_catalog_id) ~= index
@@ -111,7 +124,8 @@ local function owner(descriptor: voidptr, index: uint64, used: voidptr): uint64
             return 0ULL
         end
         local ancestor, remaining = index, count(descriptor, wire.S_catalog)
-        while row(descriptor, wire.S_catalog, ancestor, fields.F_catalog_kind) ~= policy.Owner_module do
+        while marked(rooted, ancestor) == 0ULL
+            and row(descriptor, wire.S_catalog, ancestor, fields.F_catalog_kind) ~= policy.Owner_module do
             if remaining == 0ULL then
                 return 0ULL
             end
@@ -121,8 +135,13 @@ local function owner(descriptor: voidptr, index: uint64, used: voidptr): uint64
                 return 0ULL
             end
         end
-        if ancestor ~= entry then
+        if marked(rooted, ancestor) == 0ULL and ancestor ~= entry then
             return 0ULL
+        end
+        local at = index
+        while at ~= ancestor do
+            mark(rooted, at)
+            at = row(descriptor, wire.S_catalog, at, fields.F_catalog_parent)
         end
     end
 
@@ -244,24 +263,23 @@ local function termShape(descriptor: voidptr, term: uint64, positions: uint64): 
     return 1ULL
 end
 
+-- The callee owner of a well-formed invoke, or `fields.absent`.
 local function invoke(
     descriptor: voidptr,
     term: uint64,
     ownerId: uint64,
     blockId: uint64,
-    used: voidptr,
-    adjacency: voidptr,
-    degree: voidptr
+    used: voidptr
 ): uint64
     local id = row(descriptor, wire.S_terms, term, fields.F_terms_contract)
     if id >= count(descriptor, wire.S_contracts) then
-        return 0ULL
+        return fields.absent
     end
     if mark(used, id) == 0ULL
         or row(descriptor, wire.S_contracts, id, fields.F_contracts_owner) ~= ownerId
         or row(descriptor, wire.S_contracts, id, fields.F_contracts_block) ~= blockId
     then
-        return 0ULL
+        return fields.absent
     end
     local target = row(descriptor, wire.S_contracts, id, fields.F_contracts_target)
     local signature = row(descriptor, wire.S_contracts, id, fields.F_contracts_signature)
@@ -274,23 +292,25 @@ local function invoke(
             fields.F_terms_argsCount
         ) ~= row(descriptor, wire.S_signatures, signature, fields.F_signatures_paramsCount)
     then
-        return 0ULL
-    end
-    local edge = ownerId * policy.owners + target
-    if marked(adjacency, edge) == 0ULL then
-        if mark(adjacency, edge) == 0ULL then
-            return 0ULL
-        end
-        local at = native.index(target * 8ULL)
-        native.store64(degree, at, native.load64(degree, at) + 1ULL)
+        return fields.absent
     end
 
-    return 1ULL
+    return target
 end
 
-local function graphs(descriptor: voidptr, used: voidptr, adjacency: voidptr, degree: voidptr): uint64
-    local index = 0ULL
+-- Owners are scanned in order, so the call edges arrive grouped by caller:
+-- each owner's offset is the edge count before its scan. Every edge consumes
+-- a distinct contract, which bounds the edges by the contract records.
+local function graphs(
+    descriptor: voidptr,
+    used: voidptr,
+    offsets: voidptr,
+    targets: voidptr,
+    degree: voidptr
+): uint64
+    local index, edges = 0ULL, 0ULL
     while index < count(descriptor, wire.S_catalog) do
+        native.store64(offsets, native.index(index * 8ULL), edges)
         if graphShape(descriptor, index) == 0ULL then
             return 0ULL
         end
@@ -315,9 +335,14 @@ local function graphs(descriptor: voidptr, used: voidptr, adjacency: voidptr, de
                 return 0ULL
             end
             if row(descriptor, wire.S_terms, term, fields.F_terms_kind) == policy.Term_invoke then
-                if invoke(descriptor, term, index, at + 1ULL, used, adjacency, degree) == 0ULL then
+                local target = invoke(descriptor, term, index, at + 1ULL, used)
+                if target == fields.absent or edges >= wire.recordsLimit then
                     return 0ULL
                 end
+                native.store64(targets, native.index(edges * 8ULL), target)
+                edges = edges + 1ULL
+                local slot = native.index(target * 8ULL)
+                native.store64(degree, slot, native.load64(degree, slot) + 1ULL)
                 effect = policy.invokeEffect
             end
             at = at + 1ULL
@@ -327,6 +352,7 @@ local function graphs(descriptor: voidptr, used: voidptr, adjacency: voidptr, de
         end
         index = index + 1ULL
     end
+    native.store64(offsets, native.index(index * 8ULL), edges)
 
     return 1ULL
 end
@@ -337,7 +363,7 @@ local function contracts(descriptor: voidptr, used: voidptr, sites: voidptr): ui
         local site = row(descriptor, wire.S_contracts, index, fields.F_contracts_callsite)
         if row(descriptor, wire.S_contracts, index, fields.F_contracts_id) ~= index
             or marked(used, index) == 0ULL
-            or site >= policy.items
+            or site >= policy.calls
             or row(descriptor, wire.S_contracts, index, fields.F_contracts_effect) ~= policy.invokeEffect
         then
             return 0ULL
@@ -351,9 +377,11 @@ local function contracts(descriptor: voidptr, used: voidptr, sites: voidptr): ui
     return 1ULL
 end
 
-local function acyclic(adjacency: voidptr, degree: voidptr, queue: voidptr, owners: uint64): uint64
-    -- Unique call edges charged during the single invoke scan populate degree.
-    -- Each queued owner scans at most owners targets: at most 65,536 tests.
+-- Exported for the catalog units, which run it on call graphs of their own.
+export function acyclic(offsets: voidptr, targets: voidptr, degree: voidptr, queue: voidptr, owners: uint64): uint64
+    -- Kahn's algorithm over the compressed rows: every edge, repeated calls
+    -- included, is counted into degree once and released once, so the work is
+    -- linear in owners and edges.
     local ready, index = 0ULL, 0ULL
     while index < owners do
         if native.load64(degree, native.index(index * 8ULL)) == 0ULL then
@@ -365,24 +393,24 @@ local function acyclic(adjacency: voidptr, degree: voidptr, queue: voidptr, owne
     index = 0ULL
     while index < ready do
         local from = native.load64(queue, native.index(index * 8ULL))
-        local target = 0ULL
-        while target < owners do
-            if marked(adjacency, from * policy.owners + target) ~= 0ULL then
-                local at = native.index(target * 8ULL)
-                local previous = native.load64(degree, at)
-                if previous == 0ULL then
+        local edge = native.load64(offsets, native.index(from * 8ULL))
+        local last = native.load64(offsets, native.index((from + 1ULL) * 8ULL))
+        while edge < last do
+            local target = native.load64(targets, native.index(edge * 8ULL))
+            local at = native.index(target * 8ULL)
+            local previous = native.load64(degree, at)
+            if previous == 0ULL then
+                return 0ULL
+            end
+            native.store64(degree, at, previous - 1ULL)
+            if previous == 1ULL then
+                if ready >= owners then
                     return 0ULL
                 end
-                native.store64(degree, at, previous - 1ULL)
-                if previous == 1ULL then
-                    if ready >= owners then
-                        return 0ULL
-                    end
-                    native.store64(queue, native.index(ready * 8ULL), target)
-                    ready = ready + 1ULL
-                end
+                native.store64(queue, native.index(ready * 8ULL), target)
+                ready = ready + 1ULL
             end
-            target = target + 1ULL
+            edge = edge + 1ULL
         end
         index = index + 1ULL
     end
@@ -397,30 +425,35 @@ local function catalog(descriptor: voidptr, work: voidptr): uint64
     local owners = count(descriptor, wire.S_catalog)
     local entry = native.load64(descriptor, native.fieldOffset<header.Descriptor>("entry"))
     if owners == 0ULL
+        or owners > policy.owners
         or count(descriptor, wire.S_graphs) ~= owners
+        or count(descriptor, wire.S_signatures) > policy.signatures
+        or count(descriptor, wire.S_contracts) > policy.calls
         or count(descriptor, wire.S_modules) ~= 1ULL
         or row(descriptor, wire.S_modules, 0ULL, fields.F_modules_chunk) ~= entry
         or row(descriptor, wire.S_catalog, entry, fields.F_catalog_kind) ~= policy.Owner_module
     then
         return 0ULL
     end
-    local signatureBytes, bitmapBytes = policy.owners >> 3ULL, policy.items >> 3ULL
-    local used = native.offset(work, native.index(signatureBytes))
-    local sites = native.offset(work, native.index(signatureBytes + bitmapBytes))
-    local adjacency = native.offset(work, native.index(signatureBytes + bitmapBytes * 2ULL))
-    local degree = native.offset(adjacency, native.index((policy.owners * policy.owners) >> 3ULL))
+    local callBytes = policy.calls >> 3ULL
+    local used = native.offset(work, native.index(policy.signatures >> 3ULL))
+    local sites = native.offset(used, native.index(callBytes))
+    local offsets = native.offset(sites, native.index(callBytes))
+    local targets = native.offset(offsets, native.index((policy.owners + 1ULL) * 8ULL))
+    local degree = native.offset(targets, native.index(wire.recordsLimit * 8ULL))
     local queue = native.offset(degree, native.index(policy.owners * 8ULL))
+    local rooted = native.offset(queue, native.index(policy.owners * 8ULL))
     local index = 0ULL
     while index < owners do
-        if owner(descriptor, index, work) == 0ULL then
+        if owner(descriptor, index, work, rooted) == 0ULL then
             return 0ULL
         end
         index = index + 1ULL
     end
     if signatures(descriptor, work) == 0ULL
-        or graphs(descriptor, used, adjacency, degree) == 0ULL
+        or graphs(descriptor, used, offsets, targets, degree) == 0ULL
         or contracts(descriptor, used, sites) == 0ULL
-        or acyclic(adjacency, degree, queue, owners) == 0ULL
+        or acyclic(offsets, targets, degree, queue, owners) == 0ULL
     then
         return 0ULL
     end

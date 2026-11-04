@@ -5,6 +5,7 @@ local semantic = require("nupp.compiler.vm.coregraphverify")
 local shape = require("nupp.compiler.vm.coregraphshape")
 local codec = {}
 local NONE: integer = 4294967295
+local bounds = schema.limits()
 
 local function need(ok: any, message: string): any
     assert(ok, "core graph codec: " .. message)
@@ -445,14 +446,14 @@ local function inflate(tables: any, entry: integer, wire: any): any
         modules = {},
         contracts = {}
     }
-    claim("catalog", 0, #tables.catalog, 256)
+    claim("catalog", 0, #tables.catalog, bounds.owners)
     for index, row in ipairs(tables.catalog) do
         local kind = need(wire.ownerKinds[row.kind + 1], "unknown owner kind").name
         local owner: any = {id = row.id, kind = kind, signature = row.signature, graph = row.graph, effect = row.effect}
         optional(owner, "parent", row.parent)
         p.catalog[index] = owner
     end
-    claim("signatures", 0, #tables.signatures, 256)
+    claim("signatures", 0, #tables.signatures, bounds.signatures)
     for index, row in ipairs(tables.signatures) do
         local kind = need(wire.signatureKinds[row.kind + 1], "unknown signature kind").name
         local params = words(row.paramsFirst, row.paramsCount, 239)
@@ -468,11 +469,11 @@ local function inflate(tables: any, entry: integer, wire: any): any
             params = params
         }
     end
-    claim("modules", 0, #tables.modules, 256)
+    claim("modules", 0, #tables.modules, bounds.modules)
     for index, row in ipairs(tables.modules) do
         p.modules[index] = {name = stringAt(row.name), path = stringAt(row.path), chunk = row.chunk}
     end
-    claim("contracts", 0, #tables.contracts, 1048576)
+    claim("contracts", 0, #tables.contracts, bounds.calls)
     for index, row in ipairs(tables.contracts) do
         p.contracts[
             index
@@ -486,7 +487,7 @@ local function inflate(tables: any, entry: integer, wire: any): any
             effect = row.effect
         }
     end
-    claim("graphs", 0, #tables.graphs, 256)
+    claim("graphs", 0, #tables.graphs, bounds.owners)
     for index, row in ipairs(tables.graphs) do
         local g: any = {
             programOwner = row.owner,

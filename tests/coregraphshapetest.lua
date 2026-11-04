@@ -304,7 +304,7 @@ function M.sparseRowsAndRootCapsRefuse()
         "sparse physical section"
     )
     tables, wire = rows(fixture())
-    for index = 2, 257 do
+    for index = 2, schema.limits().modules + 1 do
         tables.modules[index] = tables.modules[1]
     end
     refuses(

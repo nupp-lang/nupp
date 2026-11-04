@@ -229,7 +229,7 @@ function M.maximumCallsiteUsesFinalBitmapBit()
     local bytes = fixture()
     local _, _, offsets = rows(bytes)
     local at = field(offsets, "contracts", 1, "callsite")
-    local maximum = schema.describe().limits.items - 1
+    local maximum = schema.limits().calls - 1
     local accepted = patch(bytes, at, maximum)
     test.eq(codec.validateCatalog(accepted).contracts, 1)
     test.eq(codec.decode(accepted).contracts[1].callsite, maximum)
@@ -257,7 +257,7 @@ function M.catalogOwnerSignatureAndEffectRelationsRefuse()
         {"graphs", 1, "nv", 65537},
         {"blocks", 1, "id", 0},
         {"contracts", 1, "block", 0},
-        {"contracts", 1, "callsite", 1048576},
+        {"contracts", 1, "callsite", schema.limits().calls},
         {"contracts", 1, "effect", 0}
     }) do
         local changed = patch(bytes, field(offsets, mutation[1], mutation[2], mutation[3]), mutation[4])

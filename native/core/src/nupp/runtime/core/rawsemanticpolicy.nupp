@@ -3,9 +3,9 @@ module nupp.runtime.core.rawsemanticpolicy
 -- Generated validation data. No opcode execution or source authority.
 
 export const epochMask = 65535ULL
-export const kindMask = 65535ULL
+export const kindMask = 4294967295ULL
 export const kindShift = 16ULL
-export const maximumKind = 258ULL
+export const maximumKind = 65538ULL
 export const Kind_boolean = 1ULL
 export const Kind_nil = 2ULL
 export const Kind_function = 3ULL

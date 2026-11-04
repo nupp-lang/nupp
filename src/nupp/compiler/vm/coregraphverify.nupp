@@ -5,6 +5,7 @@ local graphimage = require("nupp.compiler.vm.graphimage")
 local schema = require("nupp.compiler.vm.coregraphschema")
 local budget = require("nupp.compiler.vm.coregraphbudget")
 local verify = {}
+local bounds = schema.limits()
 
 local function need(ok: any, message: string): any
     assert(ok, "core graph contracts: " .. message)
@@ -68,7 +69,7 @@ function verify.copyGraph(g: any, version: integer?, fromSource: boolean?): any
     fields(g, "nparams blocks types slots counts constants positions certificates name module path programOwner source")
     local copy: any = {
         nparams = integer(g.nparams, 239),
-        programOwner = integer(g.programOwner, 255),
+        programOwner = integer(g.programOwner, bounds.owners - 1),
         name = text(g.name),
         module = text(g.module),
         path = text(g.path),
@@ -684,22 +685,23 @@ function verify.catalog(p: any): any
         "unknown source graph profile"
     )
     same(p.schema, schema.describe(p.schema.version))
-    local count = dense(p.catalog, 256)
-    need(count > 0 and dense(p.graphs, 256) == count, "complete semantic graph table required")
-    local moduleCount = dense(p.modules, 256)
+    local count = dense(p.catalog, bounds.owners)
+    need(count > 0 and dense(p.graphs, bounds.owners) == count, "complete semantic graph table required")
+    local moduleCount = dense(p.modules, bounds.modules)
     need(moduleCount > 0 and moduleCount <= count, "complete semantic module table required")
     need(
         p.schema.version < 5 or moduleCount == 1 or p.schema.version >= 8,
         "loop profile requires one scalar initializer"
     )
-    dense(p.signatures, 256)
-    dense(p.contracts, 1048576)
-    local modulesByOwner, moduleNames = {}, {}
+    dense(p.signatures, bounds.signatures)
+    dense(p.contracts, bounds.calls)
+    local modulesByOwner, moduleNames, chunks = {}, {}, {}
     for index, module in ipairs(p.modules) do
         fields(module, "name path chunk")
         local name, path = text(module.name), text(module.path)
         need(not moduleNames[name], "duplicate semantic module")
         moduleNames[name] = true
+        chunks[name] = module.chunk
         need(module.chunk == index - 1, "initializer order differs")
         local owner = reference(module.chunk, p.catalog)
         need(owner.kind == "module" and owner.parent == nil, "initializer binding differs")
@@ -740,6 +742,26 @@ function verify.catalog(p: any): any
     for _, term in ipairs(p.schema.terms) do
         terms[term.name] = term
     end
+    -- Each owner's lexical root, memoized so a walk stops at the first owner
+    -- already resolved: linear in owners however deep the nesting.
+    local roots = {}
+
+    local function root(owner: any): any
+        local path, ancestor, remaining = {}, owner, count
+        while ancestor.kind ~= "module" and roots[ancestor] == nil do
+            need(remaining > 0, "cyclic lexical parents")
+            remaining -= 1
+            path[#path + 1] = ancestor
+            ancestor = reference(ancestor.parent, p.catalog)
+        end
+        local found = roots[ancestor] or ancestor
+        for _, item in ipairs(path) do
+            roots[item] = found
+        end
+
+        return found
+    end
+
     for index, owner in ipairs(p.catalog) do
         fields(owner, "id kind parent signature graph effect")
         need(owner.id == index - 1 and owner.graph == index - 1, "owner/graph order differs")
@@ -756,24 +778,12 @@ function verify.catalog(p: any): any
             )
         else
             need(owner.kind == "function" and signature.kind == "callable", "invalid function signature")
-            local ancestor, remaining = owner, count
-            while ancestor.kind ~= "module" do
-                need(remaining > 0, "cyclic lexical parents")
-                remaining -= 1
-                ancestor = reference(ancestor.parent, p.catalog)
-            end
-            need(modulesByOwner[ancestor.id] ~= nil, "foreign lexical root")
+            need(modulesByOwner[root(owner).id] ~= nil, "foreign lexical root")
         end
         local g = p.graphs[index]
         verify.copyGraph(g, p.schema.version)
         need(g.programOwner == owner.id and g.nparams == #signature.params, "graph owner/signature differs")
-        local ancestor, remaining = owner, count
-        while ancestor.kind ~= "module" do
-            need(remaining > 0, "cyclic lexical parents")
-            remaining -= 1
-            ancestor = reference(ancestor.parent, p.catalog)
-        end
-        local module = need(modulesByOwner[ancestor.id], "graph module is not cataloged")
+        local module = need(modulesByOwner[root(owner).id], "graph module is not cataloged")
         need(g.module == module.name and g.path == module.path, "graph module source differs")
         arities[index], calls[index] = {}, {}
         for bi, block in ipairs(g.blocks) do
@@ -787,12 +797,7 @@ function verify.catalog(p: any): any
                 elseif op == "Require" then
                     local constant = reference(block.args[at][1], g.constants)
                     need(constant.kind == "str", "require needs a static module name")
-                    local target
-                    for _, candidate in ipairs(p.modules) do
-                        if candidate.name == constant.value then
-                            target = candidate.chunk
-                        end
-                    end
+                    local target = chunks[constant.value]
                     need(
                         target ~= nil and (target < owner.id or p.schema.version >= 8 and target ~= owner.id),
                         "forward or cyclic require is unsupported"
@@ -853,7 +858,7 @@ function verify.catalog(p: any): any
             "handled call is not protected"
         )
         need(contract.id == index - 1 and used[index - 1], "unused or unordered contract")
-        integer(contract.callsite, 1048575)
+        integer(contract.callsite, bounds.calls - 1)
         need(not sites[contract.callsite], "reused callsite identity")
         sites[contract.callsite] = true
         need(contract.effect == 1, "invoke effect must remain conservative")

@@ -5,8 +5,10 @@ local semantic = require("nupp.compiler.vm.coregraphverify")
 local copies = require("nupp.compiler.vm.graphcopies")
 local bytecode = require("nupp.compiler.vm.corebytecode")
 local opcodes = require("nupp.compiler.vm.opcodes")
+local schema = require("nupp.compiler.vm.coregraphschema")
 local executable = {}
 local issued = setmetatable({}, {__mode = "k"})
+local bounds = schema.limits()
 
 local function need(ok: any, message: string): any
     assert(ok, "core executable: " .. message)
@@ -543,7 +545,7 @@ local function deriveCatalog(normalized: any): any
     for index, g in ipairs(normalized.graphs) do
         functions[index] = derive(g, normalized)
         total += functions[index].instructionCount
-        need(total <= 1048576, "complete executable instruction budget exceeded")
+        need(total <= bounds.instructions, "complete executable instruction budget exceeded")
     end
     local bounds, visiting = {}, {}
     local recursive = false

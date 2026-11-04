@@ -572,6 +572,24 @@ end
 -- the Rust heap, on standard input, replayed into the core's collector. A case
 -- names its trace as a fourth field; the answer is the disagreements, zero.
 UNITS[#UNITS + 1] = {
+    name = "catalogunits",
+    modules = {"catalogunits", "unitentry"},
+    entries = {{"catalogunits", "calls", 2}},
+    cases = function()
+        -- Past the 256 owners the raw catalog once admitted, up to its bound.
+        local cases = {}
+        for _, count in ipairs({300, 65536}) do
+            cases[#cases + 1] = {"calls", {count, 0}, 1}
+            cases[#cases + 1] = {"calls", {count, 1}, 0}
+            cases[#cases + 1] = {"calls", {count, 2}, 1}
+            cases[#cases + 1] = {"calls", {count, 3}, 0}
+        end
+
+        return cases
+    end
+}
+
+UNITS[#UNITS + 1] = {
     name = "replay",
     modules = {"replay", "unitentry"},
     paths = {replay = FIXTURES .. "/replay.nupp"},
@@ -597,6 +615,23 @@ os.execute("mkdir -p " .. quote(BUILD))
 local modes = (arg[1] and arg[1] ~= "all") and {arg[1]} or {"normal", "spill"}
 local tool = bridge()
 local failures, passed = 0, 0
+-- The raw loader's policies are generated from the graph schema and its
+-- bounds: each committed file stays exactly what its generator writes.
+for _, pair in ipairs({
+    {"nupp.core.rawwiregen", "rawwire"},
+    {"nupp.core.rawshapegen", "rawroles"},
+    {"nupp.core.rawcataloggen", "rawcatalogpolicy"},
+    {"nupp.core.rawbudgetgen", "rawbudgetpolicy"},
+    {"nupp.core.rawsemanticgen", "rawsemanticpolicy"}
+}) do
+    local path = ROOT .. "/native/core/src/nupp/runtime/core/" .. pair[2] .. ".nupp"
+    if read(path) == require(pair[1]).source() then
+        passed = passed + 1
+    else
+        failures = failures + 1
+        print("FAIL generated " .. pair[2] .. ": differs from " .. pair[1] .. ".source()")
+    end
+end
 for _, unit in ipairs(UNITS) do
     if next(only) and not only[unit.name] then
         goto continue
