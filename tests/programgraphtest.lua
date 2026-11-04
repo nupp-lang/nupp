@@ -217,6 +217,9 @@ return answer
         found = found or reference.token == argument
     end
     assert(found, "intrinsic argument must retain its checked binding")
+    -- The core runs drop; one it does not run, pin, is still refused.
+    intrinsic.operation = "pin"
+    intrinsic.node.ownershipIntrinsic = "pin"
     refuses(
         function()
             program.compile(p, guest)
@@ -227,7 +230,7 @@ return answer
         function()
             program.functionGraph(p, owner(p, "answer"), guest)
         end,
-        "intrinsic execution is not established: drop"
+        "intrinsic execution is not established: pin"
     )
     intrinsic.operation = "unproven"
     refuses(

@@ -35,6 +35,9 @@ export const LIB_ELEMENTS: uint64 = 101ULL
 export const LIB_ELEMENTKIND: uint64 = 102ULL
 -- cast(storage, kind): view(storage, kind, 0).
 export const LIB_CAST: uint64 = 103ULL
+-- A cleanup function set under its key, and read back by it.
+export const LIB_CLEANUPSET: uint64 = 104ULL
+export const LIB_CLEANUPGET: uint64 = 105ULL
 
 -- No index: an error was raised instead.
 const NOINDEX: uint64 = 0xffffffffffffffffULL
@@ -287,5 +290,40 @@ export function storageoffset(ctx: voidptr, subject: uint64, step: uint64): uint
         end
         tables.drain(h)
         return values.TAG_OBJ | made
+    end
+end
+
+-- Sets cleanup function `fn` under its key.
+export function cleanupset(ctx: voidptr, key: uint64, fn: uint64): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local at = native.fieldOffset<guestscope.Services>("cleanups")
+        local registry = native.load64(services, at)
+        if registry == 0ULL then
+            registry = values.TAG_OBJ | guestscope.newTable(ctx)
+            native.store64(services, at, registry)
+        end
+        local h = heapof(ctx)
+        if tables.set(h, registry & values.PAYLOAD, key, fn) ~= tables.OK then
+            error("not enough memory")
+        end
+        tables.drain(h)
+
+        return values.NIL
+    end
+end
+
+-- The cleanup function set under `key`, or nil.
+export function cleanupget(ctx: voidptr, key: uint64): uint64
+    @unsafe do
+        local registry = native.load64(
+            native.loadPointer(ctx, context.SERVICE_SCOPE),
+            native.fieldOffset<guestscope.Services>("cleanups")
+        )
+        if registry == 0ULL then
+            return values.NIL
+        end
+
+        return tables.get(registry & values.PAYLOAD, key)
     end
 end

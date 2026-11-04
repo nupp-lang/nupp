@@ -350,7 +350,9 @@ function tagged.constant(ctx: any, node: any, expected: string?): integer
             node.name and node.name.text and " ." .. node.name.text or ""
         ) .. (
             node.obj and " on " .. tostring(node.obj.inferredType and node.obj.inferredType.tag) or ""
-        ) .. " at line " .. tostring(token and token.line),
+        ) .. " " .. tostring(
+            token and token.text
+        ) .. " at " .. tostring(ctx.fn and ctx.fn.scope and ctx.fn.scope.path) .. ":" .. tostring(token and token.line),
         0
     )
 end
@@ -877,9 +879,15 @@ end
 local function ownership(ctx: any, node: any, count: integer): {integer}?
     local operation = node.ownershipIntrinsic
     local args = node.args and node.args.exprs or {}
-    -- A `drop` with nothing to clean up ends its value's life: nil.
+    -- A `drop` runs its owner's cleanups now; with none it ends its
+    -- value's life. Either way it is nil.
     if operation == "drop" then
-        if args[1] and ctx.expression(args[1], "tagged") == nil then
+        if next(node.ownerCleanups or {}) ~= nil then
+            need(ctx.dropOwner ~= nil and ctx.dropOwner(node), "drop of an owner this function does not hold")
+            if ctx.block == nil then
+                return nil
+            end
+        elseif args[1] and ctx.expression(args[1], "tagged") == nil then
             return nil
         end
         local results = {}
@@ -1174,6 +1182,17 @@ function tagged.erasedPattern(ctx: any, stat: any): nil
     end
 end
 
+-- Whether record declaration `stat` declares fields and nested types only.
+local function fieldsOnly(stat: any): boolean
+    for _, entry in ipairs(stat.entries or {}) do
+        if entry.kind ~= "fieldDecl" and entry.kind ~= "typeAlias" then
+            return false
+        end
+    end
+
+    return true
+end
+
 function tagged.erasedStatement(ctx: any, stat: any): nil
     -- An interface declares a type only, and has no value.
     if stat.kind == "recordDecl" and stat.declKind == "interface" then
@@ -1183,14 +1202,23 @@ function tagged.erasedStatement(ctx: any, stat: any): nil
         -- A record of fields declares a type only; its values are built where
         -- they are constructed. Methods in its body are stored on the table its
         -- name holds (`recordValue`).
-        need(stat.declKind == "record" and not stat.generics, "only plain record declarations are admitted")
+        -- A record's type parameters erase: its instances hold values.
+        need(
+            stat.declKind == "record",
+            "only plain record declarations are admitted: " .. tostring(
+                stat.declKind
+            ) .. " " .. tostring(stat.name and stat.name.text)
+        )
         for _, entry in ipairs(stat.entries or {}) do
             need(
                 entry.kind == "fieldDecl" or entry.kind == "inlineMethod" or entry.kind == "constructorDecl"
                 -- A metamethod declaration is a contract; the record's table
                 -- holds whatever fulfills it.
-                or entry.kind == "metamethodDecl",
-                "unsupported record entry"
+                or entry.kind == "metamethodDecl"
+                -- A nested type declares a type only, and so does a nested
+                -- record of fields alone, built where it is constructed.
+                or entry.kind == "typeAlias" or entry.kind == "recordDecl" and fieldsOnly(entry),
+                "unsupported record entry: " .. tostring(entry.kind) .. " in " .. tostring(stat.name and stat.name.text)
             )
         end
         return
@@ -1363,6 +1391,20 @@ local function cleanupProfile(base: any): any
         local origin = inner and (inner.origin or inner)
         local declaration = origin and origin.deriveDeclaration
         local tokens = catalog(ctx).cleanupTokens[site]
+        -- Cleanups that are not the record's own methods are functions read
+        -- from the core's registry by key.
+        local methods = declaration ~= nil and declaration.kind == "recordDecl" and declaration.name ~= nil
+        for _, item in ipairs(chain) do
+            local record = tostring(item.name):match("^(.-)%.[%w_]+$")
+            methods = methods and record == declaration.name.text
+        end
+        if not methods then
+            local keys = {}
+            for _, item in ipairs(chain) do
+                keys[#keys + 1] = need(item.key, "a cleanup function lacks its key")
+            end
+            return {keys = keys}
+        end
         local token = need(tokens and declaration and tokens[declaration], "cleanup site lacks its record reference")
         local methods = {}
         for _, item in ipairs(chain) do
@@ -1377,6 +1419,15 @@ local function cleanupProfile(base: any): any
     profile.cleanupStatus = always
     profile.cleanupRun = function(ctx: any, node: any, plan: any, value: integer, reason: string): nil
         local held = ctx.hold(value)
+        if plan.keys then
+            for index = #plan.keys, 1, -1 do
+                local key = ctx.emit(node, "K", {pool(ctx, "str", plan.keys[index])}, "tagged")
+                local callee = ctx.emit(node, "LibCall", {105, key}, "tagged")
+                ctx.emit(node, "Destroy", {callee, ctx.readHeld(held)}, nil)
+            end
+            ctx.release(held)
+            return
+        end
         for index = #plan.methods, 1, -1 do
             local class = plan.token.foreign and ctx.emit(node, "LibCall", {29, ctx.readHeld(held)}, "tagged")
                 or ctx.expression({kind = "name", token = plan.token, plan.token}, "tagged")
@@ -1592,13 +1643,15 @@ function tagged.forVersion(version: integer): any
     end
     -- `@unsafe` before a statement: the checker trusted what it says, a yield
     -- with affine values live; the statement runs as it would without it.
+    -- `@aot` asks for ahead-of-time code, which the core has no backend
+    -- for, and `@allow` quiets a lint: either way the statement runs as
+    -- written.
+    local pragmas: {[string]: boolean} = {unsafe = true, aot = true, allow = true}
     profile.checkedPragma = function(ctx: any, node: any): nil
+        local name = node.name and node.name.text
         need(
-            node.name
-            and node.name.text == "unsafe"
-            and node.annotationDefinition
-            and node.annotationDefinition.name == "unsafe",
-            "only a checked @unsafe scope is admitted"
+            pragmas[name or ""] == true and node.annotationDefinition and node.annotationDefinition.name == name,
+            "only a checked @unsafe, @aot or @allow scope is admitted, not @" .. tostring(name)
         )
     end
     profile.binary = function(ctx: any, node: any, expected: string?): integer
@@ -2023,7 +2076,8 @@ function tagged.forVersion(version: integer): any
             -- Its field names, each to its slot, under a key no field name
             -- can be: a read or write of an instance by name, where no type
             -- gave the slot, finds the field there.
-            local order = stat.resolvedType and stat.resolvedType.fieldOrder or {}
+            -- An interface's instances are its implementers': no slots.
+            local order = stat.declKind ~= "interface" and stat.resolvedType and stat.resolvedType.fieldOrder or {}
             if #order > 0 then
                 local fields = ctx.hold(ctx.emit(stat, "NewTable", {}, "tagged"))
                 for slot, field in ipairs(order) do
@@ -2104,6 +2158,26 @@ function tagged.forVersion(version: integer): any
         profile.namedVararg = function(ctx: any, parameter: any): integer
             return ctx.emit(parameter, "LibCall", {73, ctx.varargPack()}, "tagged") as integer
         end
+        -- Sets each cleanup function a declaration names in the core's
+        -- registry, under its checked key, as the declaration binds it.
+        profile.cleanupRegistrations = function(ctx: any, stat: any, value: any): nil
+            local tokens = {}
+            if stat.kind == "localFuncStmt" then
+                tokens[1] = stat.name
+            else
+                for _, part in ipairs(stat.name) do
+                    if cst.isToken(part) then
+                        tokens[#tokens + 1] = part
+                    end
+                end
+            end
+            for _, token in ipairs(tokens) do
+                for _, registration in ipairs(token.cleanupRegistrations or {}) do
+                    local key = ctx.emit(stat, "K", {pool(ctx, "str", registration.cleanup.key)}, "tagged")
+                    ctx.emit(stat, "LibCall", {104, key, value}, "tagged")
+                end
+            end
+        end
         profile.functionStatement = function(ctx: any, stat: any): nil
             local name = stat.name
             local fields = {}
@@ -2112,7 +2186,7 @@ function tagged.forVersion(version: integer): any
                     fields[#fields + 1] = part.text
                 end
             end
-            need(#fields == 1, "a function statement names one field of a table")
+            need(#fields >= 1, "a function statement names a field of a table")
             local owner = ctx.expression(
                 {kind = "name", token = name.base, inferredType = name.base.inferredType, name.base},
                 "tagged"
@@ -2120,10 +2194,17 @@ function tagged.forVersion(version: integer): any
             if owner == nil then
                 return
             end
+            -- `function a.b.c()`: the table the path names before its last
+            -- field.
+            for index = 1, #fields - 1 do
+                local key = ctx.emit(stat, "K", {pool(ctx, "str", fields[index])}, "tagged")
+                owner = ctx.emit(stat, "GetIdx", {owner, key}, "tagged")
+            end
             local held = ctx.hold(owner)
             local closure = ctx.hold(tagged.closure(ctx, stat))
-            local key = ctx.emit(stat, "K", {pool(ctx, "str", fields[1])}, "tagged")
+            local key = ctx.emit(stat, "K", {pool(ctx, "str", fields[#fields])}, "tagged")
             ctx.emit(stat, "SetIdx", {ctx.readHeld(held), key, ctx.readHeld(closure)}, nil)
+            profile.cleanupRegistrations(ctx, stat, ctx.readHeld(closure))
             ctx.release(closure)
             ctx.release(held)
         end

@@ -119,6 +119,7 @@ local CASES: {[string]: {
     modulesqualified = {fixture = "catalog-modules-qualified", version = 8, modules = {"catalog-atlas-geometry"},},
     libraryvalues = {fixture = "catalog-library-values", version = 8},
     librarybasics = {fixture = "catalog-library-basics", version = 8, follow = true},
+    cleanupfunctions = {fixture = "catalog-cleanup-functions", version = 8, follow = true},
     storagebasics = {fixture = "catalog-storage-basics", version = 8},
     storageprovider = {fixture = "catalog-storage-provider", version = 8, follow = true},
     textfacade = {fixture = "catalog-text-facade", version = 8, follow = true},
@@ -344,6 +345,14 @@ local function librarypath(root: string, name: string): string?
             return candidate
         end
     end
+    -- A plain Lua module, vendored: named with its extension.
+    for _, candidate in ipairs({"src/" .. relative .. ".lua", "src/" .. relative .. "/init.lua"}) do
+        local file = io.open(root .. "/" .. candidate, "rb")
+        if file then
+            file:close()
+            return candidate
+        end
+    end
 
     return nil
 end
@@ -391,6 +400,9 @@ local function requiredmodules(root: any, source: string): {string}
 end
 
 local function modulePath(root: string, name: string): string
+    if name:sub(-4) == ".lua" then
+        return root .. "/" .. name
+    end
     if name:sub(1, 1) == "/" then
         return name .. ".nupp"
     elseif name:sub(1, 4) == "src/" then
@@ -470,7 +482,7 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         -- A library module may be named by its path alone.
         local named = cst.declaredModule(parsed.root)
         if named == nil and libraryModule(name) then
-            named = (name:match("src/(.*)$") as string):gsub("/init$", ""):gsub("/", ".")
+            named = (name:match("src/(.*)$") as string):gsub("%.lua$", ""):gsub("/init$", ""):gsub("/", ".")
         end
         local declared = assert(named, "guest module declaration required: " .. name)
         local diagnostics
@@ -493,6 +505,11 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         end
         for _, diagnostic in ipairs(diagnostics) do
             assert(diagnostic.severity ~= "error", diagnostic.msg)
+        end
+        -- A plain Lua module is named by its path, as `require` finds it.
+        local named: any = parsed
+        if named.moduleName == nil and name:sub(-4) == ".lua" then
+            named.moduleName = declared
         end
         local module = {name = declared, path = path, parsed = parsed, diagnostics = diagnostics}
         if name == fixture then

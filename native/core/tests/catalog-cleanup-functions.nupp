@@ -1,0 +1,33 @@
+module nupp.core.catalogcleanupfunctions
+
+local own = require("own")
+
+local released = 0
+
+local record Token
+    n: integer
+end
+
+local function release(takes token: Token): nil
+    released = released + token.n
+end
+
+local type Held = affine(Token, release)
+
+local function hold(n: integer): Held
+    return @unsafe own.adopt<Held>(new Token(n = n))
+end
+
+local score = 0
+do
+    local first = hold(1)
+    local second = hold(10)
+    own.drop(second)
+    if released == 10 then
+        score = score + 1
+    end
+end
+if released == 11 then
+    score = score + 2
+end
+export = score

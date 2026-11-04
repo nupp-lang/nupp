@@ -58,18 +58,21 @@ local executableintrinsics: {
 } = {adopt = true, release = true, borrow = true, borrowFrom = true, region = true, partition = true}
 
 -- Whether the core runs ownership intrinsic call `node`: an executable one,
--- or a `drop` with no cleanups to run, which ends a lifetime and nothing
--- more.
+-- or a `drop`, which runs its owner's cleanups then.
 local function executable(node: any): boolean
     local operation = node.ownershipIntrinsic
 
-    return executableintrinsics[operation] == true
-        or operation == "drop" and next(node.ownerCleanups or {}) == nil and not node.cleanupRegistrations
+    return executableintrinsics[operation] == true or operation == "drop" and not node.cleanupRegistrations
 end
 
 local function need(ok: any, message: string): any
     assert(ok, "program graph: " .. message)
     return ok
+end
+
+-- Whether the core runs ownership intrinsic call `node`.
+function program.executableIntrinsic(node: any): boolean
+    return executable(node)
 end
 
 local function storagePlan(p: any): any
@@ -630,7 +633,19 @@ function program.describe(modules: {any}, entryModule: string): any
             local inner = t and t.tag == "affine" and t.inner
             local origin = inner and (inner.origin or inner)
             local declaration = origin and origin.deriveDeclaration
-            if not (declaration and declaration.kind == "recordDecl" and declaration.name) then
+            -- Cleanups that are not the record's own methods are functions
+            -- the core's registry holds by their checked keys.
+            local methods = declaration ~= nil and declaration.kind == "recordDecl" and declaration.name ~= nil
+            for _, item in ipairs(t and t.cleanups or {}) do
+                local record = tostring(item.name):match("^(.-)%.[%w_]+$")
+                methods = methods and record == declaration.name.text
+            end
+            if not methods then
+                if t and t.tag == "affine" and #(t.cleanups or {}) > 0 then
+                    p.cleanupTokens[site] = p.cleanupTokens[site] or {}
+                    p.cleanupTokens[site].registry = true
+                    p.cleanupOwners[owner.id] = true
+                end
                 return
             end
             -- Another module's record: its table is the owned instance's

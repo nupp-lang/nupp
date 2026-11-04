@@ -149,11 +149,13 @@ local function typeSignature(signature: any, numeric: boolean, dynamic: boolean,
         dense(pack.head, 240)
         need(dense(pack.modes, 240) == #pack.head, "signature modes differ")
         for at, mode in ipairs(pack.modes) do
+            -- A parameter's ownership mode is the checker's fact: at run
+            -- time the value passes as it is.
             need(
                 mode == "plain"
-                or dynamic and mode == "scoped" and pack.head[at].tag == "func"
-                or dynamic and mode == "borrows" and pack == signature.paramPack,
-                "qualified scalar signature"
+                or mode == "scoped" and pack.head[at].tag == "func"
+                or (mode == "borrows" or mode == "takes" or mode == "exclusive") and pack == signature.paramPack,
+                "qualified scalar signature: " .. tostring(mode)
             )
         end
     end
@@ -253,8 +255,16 @@ function contracts.normalize(compiled: any, version: integer?): any
     -- From v8 a program's modules run as their requirers call them.
     need(not loops or moduleCount == 1 or v >= 8, "loop profile requires one scalar initializer")
     need(#p.owners == #graphs, "complete graph table required")
-    for _, key in ipairs({"externals", "externalReferences", "intrinsics"}) do
+    for _, key in ipairs({"externals", "externalReferences"}) do
         need(type(p[key]) == "table" and next(p[key]) == nil, "unsupported catalog " .. key)
+    end
+    -- The ownership intrinsics the core runs: transfers, partition, drop.
+    need(type(p.intrinsics) == "table", "checked intrinsics required")
+    for _, intrinsic in ipairs(p.intrinsics) do
+        need(
+            program.executableIntrinsic(intrinsic.node),
+            "unsupported catalog intrinsic " .. tostring(intrinsic.operation)
+        )
     end
     local requireSite
     -- From v8 every require is a site of its own, each naming one of the

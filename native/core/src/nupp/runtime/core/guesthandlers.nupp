@@ -1713,6 +1713,10 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, basics.allocate(ctx, values.TAG_INTEGER | corestorage.UINT8, a))
     elseif libraryId == basics.LIB_ALLOCATE then
         slots.writeValue(frame, regs, dst, basics.allocate(ctx, a, b))
+    elseif libraryId == basics.LIB_CLEANUPSET then
+        slots.writeValue(frame, regs, dst, basics.cleanupset(ctx, a, b))
+    elseif libraryId == basics.LIB_CLEANUPGET then
+        slots.writeValue(frame, regs, dst, basics.cleanupget(ctx, a))
     elseif libraryId >= basics.LIB_VIEW and libraryId <= basics.LIB_CAST then
         slots.writeValue(frame, regs, dst, basics.storagecall(ctx, libraryId, native.word(count), a, b, c, d))
     elseif libraryId == basics.LIB_NEXT or libraryId == basics.LIB_NEXT_ALL then

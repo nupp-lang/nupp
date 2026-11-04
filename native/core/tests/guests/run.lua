@@ -141,6 +141,7 @@ local CASES = {
     {"stringbuffer", 0x7FFF000000000003},
     {"textfacade", 0x7FFF000000000003},
     {"librarybasics", 0x7FFF00000000007F},
+    {"cleanupfunctions", 0x7FFF000000000003},
     {"storagebasics", 0x7FFF000000001FFF},
     {"storageprovider", 0x7FFF00000000003F},
     {"modulesqualified", 0x7FFF0000000000E6},
@@ -182,7 +183,8 @@ local STRESS = {
     textfacade = true,
     librarybasics = true,
     storagebasics = true,
-    storageprovider = true
+    storageprovider = true,
+    cleanupfunctions = true
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
@@ -264,6 +266,7 @@ local NUMERIC = {
     stringbuffer = "catalog-string-buffer",
     textfacade = "catalog-text-facade",
     librarybasics = "catalog-library-basics",
+    cleanupfunctions = "catalog-cleanup-functions",
     storagebasics = "catalog-storage-basics",
     storageprovider = "catalog-storage-provider",
     modulesqualified = "catalog-modules-qualified",
@@ -495,6 +498,7 @@ local function stage()
             "catalog-string-buffer",
             "catalog-text-facade",
             "catalog-library-basics",
+            "catalog-cleanup-functions",
             "catalog-storage-basics",
             "catalog-storage-provider"
         }) do

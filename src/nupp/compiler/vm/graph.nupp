@@ -1422,7 +1422,8 @@ local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
             assert(
                 pack.modes[index] == "plain"
                 or pack.modes[index] == "scoped" and t and t.tag == "func"
-                or pack.modes[index] == "borrows" and pack == signature.paramPack,
+                or (pack.modes[index] == "borrows" or pack.modes[index] == "takes" or pack.modes[index] == "exclusive")
+                and pack == signature.paramPack,
                 "invoke ownership mode is unsupported: " .. tostring(pack.modes[index])
             )
             invokeScalar(t)
@@ -1809,6 +1810,26 @@ local libraryValues: {
     [string]: boolean
 } = {
     _G = true,
+    _VERSION = true,
+    math = true,
+    string = true,
+    table = true,
+    next = true,
+    pairs = true,
+    select = true,
+    ["string.char"] = true,
+    ["string.find"] = true,
+    ["string.match"] = true,
+    ["string.sub"] = true,
+    ["string.rep"] = true,
+    ["string.format"] = true,
+    ["string.gsub"] = true,
+    ["table.concat"] = true,
+    ["table.insert"] = true,
+    ["math.type"] = true,
+    ["math.max"] = true,
+    ["math.min"] = true,
+    ["math.tointeger"] = true,
     package = true,
     require = true,
     tostring = true,
@@ -1870,6 +1891,10 @@ function graph.mayTakeLibraryValue(root: any): boolean
                 found = true
                 return
             end
+        end
+        -- `math.floor` reads a field of the library, not the library table.
+        if node.kind == "dotIndex" and node.obj and node.obj.kind == "name" then
+            return
         end
         for _, child in ipairs(node) do
             walk(child, (node.kind == "call" or node.kind == "methodCall") and child == node.obj)

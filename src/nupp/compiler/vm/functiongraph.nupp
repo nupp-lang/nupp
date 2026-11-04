@@ -232,6 +232,18 @@ function frontend.compile(fn: any, options: any, profile: any): any
     local registerCleanup: function(any, any, any, integer): nil
 
     -- Whether a function statement names a bare name, not a table's field.
+    -- Whether an interface declares default methods: then, as a record's,
+    -- its name holds the table of them.
+    local function defaultMethods(stat: any): boolean
+        for _, entry in ipairs(stat.entries or {}) do
+            if entry.kind == "inlineMethod" then
+                return true
+            end
+        end
+
+        return false
+    end
+
     local function bareFunction(stat: any): boolean
         if not (stat.name and stat.name.base) then
             return false
@@ -666,7 +678,31 @@ function frontend.compile(fn: any, options: any, profile: any): any
         context()
     end
 
-    local function runCleanup(entry: any, node: any, reason: string): nil
+    local runCleanup: function(any, any, string): nil
+
+    -- `drop(owner)`: the owner's cleanups run now, as its scope's end would
+    -- run them, and its live flag is cleared so that end does not. False when
+    -- no owner this function holds is the one dropped.
+    ctx.dropOwner = function(node: any): boolean
+        local argument = cleanup.source(node.args and node.args.exprs and node.args.exprs[1])
+        for index = #cleanups, 1, -1 do
+            local entry = cleanups[index]
+            local owner = entry.owner
+            local named = argument
+                and argument.kind == "name"
+                and owner.token
+                and argument.token
+                and owner.token.definition == argument.token.definition
+            if named or owner == argument or argument and owner == argument.statementOwner then
+                runCleanup(entry, node, "drop")
+                return true
+            end
+        end
+
+        return false
+    end
+
+    runCleanup = function(entry: any, node: any, reason: string): nil
         local condition, parent = bindings[entry.live], block
         local yes, done = branch(), branch()
         parent.term = {kind = "branch", value = condition, edges = {yes.edge, done.edge}, pos = position(node)}
@@ -1095,23 +1131,25 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 elseif stat.pattern then
                     invoke("erasedPattern", stat, nil)
                 else
-                    need(#stat.exprs <= #stat.names, "too many local initializer values")
-                    need(profile.missingLocal or #stat.names == #stat.exprs, "plain initialized locals required")
+                    -- `local x: T` declares a name and initializes nothing.
+                    local exprs = stat.exprs or {}
+                    need(#exprs <= #stat.names, "too many local initializer values")
+                    need(profile.missingLocal or #stat.names == #exprs, "plain initialized locals required")
                     local values = {}
                     -- A last call fills every remaining name with its results.
-                    local spread, spreadValues = spreadCall(stat.exprs, #stat.names), nil
+                    local spread, spreadValues = spreadCall(exprs, #stat.names), nil
                     -- All RHS see the old lexical environment. Publication and
                     -- cell allocation happen only after every RHS was evaluated.
                     for index, token in ipairs(stat.names) do
                         local kind = profile.localKind(token, fn)
                         local value
-                        if spread and index >= #stat.exprs then
-                            if index == #stat.exprs then
-                                spreadValues = profile.callResults(ctx, stat.exprs[index], spread)
+                        if spread and index >= #exprs then
+                            if index == #exprs then
+                                spreadValues = profile.callResults(ctx, exprs[index], spread)
                             end
-                            value = spreadValues and spreadValues[index - #stat.exprs + 1]
-                        elseif stat.exprs[index] then
-                            value = expression(stat.exprs[index], kind)
+                            value = spreadValues and spreadValues[index - #exprs + 1]
+                        elseif exprs[index] then
+                            value = expression(exprs[index], kind)
                         else
                             value = invoke("missingLocal", stat, kind)
                         end
@@ -1130,7 +1168,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
                         if cleanupEnabled then
                             local owner = cleanup.localOwner(stat, index)
                             if owner then
-                                transferExpression(stat.exprs[index])
+                                transferExpression(exprs[index])
                                 registerCleanup(stat, owner, owner.type, value)
                             end
                         end
@@ -1158,6 +1196,9 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     writeBinding(stat, key, value)
                 else
                     ctx.bind(key, initializeBinding(stat, key, value))
+                end
+                if profile.cleanupRegistrations and block then
+                    invoke("cleanupRegistrations", stat, value)
                 end
             elseif stat.kind == "assignStmt" then
                 local spread, spreadValues = spreadCall(stat.exprs, #stat.targets), nil
@@ -1615,7 +1656,10 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 else
                     invoke("exportStatement", stat, nil)
                 end
-            elseif stat.kind == "recordDecl" and stat.declKind ~= "interface" and profile.recordValue then
+            elseif stat.kind == "recordDecl"
+                and (stat.declKind ~= "interface" or defaultMethods(stat))
+                and profile.recordValue
+            then
                 -- A record's name can hold a table of its methods.
                 invoke("erasedStatement", stat, nil)
                 local key = stat.name and stat.name.definition

@@ -72,7 +72,103 @@ export const functions: {[string]: any} = {
     ["os.getenv"] = function(name: string): string?
         return os.getenv(name)
     end,
+    _VERSION = "Lua 5.5",
+    next = function(t: table, key: any): (any, any)
+        return next(t, key)
+    end,
+    pairs = function(t: table): (function(table, any): (any, any), table, nil)
+        return next, t, nil
+    end,
+    select = function(n: any, ...: any): ...any
+        if n == "#" then
+            return select("#", ...)
+        end
+
+        return select(n as integer, ...)
+    end,
+    ["string.char"] = function(...: integer): string
+        local parts: {string} = {}
+        for index = 1, select("#", ...) do
+            parts[index] = string.char((select(index, ...)))
+        end
+
+        return table.concat(parts)
+    end,
+    ["string.find"] = function(s: string, pattern: string, init: integer?, plain: boolean?): ...any
+        return string.find(s, pattern, init, plain)
+    end,
+    ["string.match"] = function(s: string, pattern: string, init: integer?): ...any
+        return string.match(s, pattern, init)
+    end,
+    ["string.sub"] = function(s: string, i: integer, j: integer?): string
+        return string.sub(s, i, j)
+    end,
+    ["string.rep"] = function(s: string, n: integer, sep: string?): string
+        return string.rep(s, n, sep)
+    end,
+    ["string.format"] = function(format: string, ...: any): string
+        return string.format(format, ...)
+    end,
+    ["string.gsub"] = function(s: string, pattern: string, replacement: any, n: integer?): (string, integer)
+        if type(replacement) == "function" then
+            return string.gsub(s, pattern, replacement as function(...: string): any, n)
+        end
+
+        return string.gsub(s, pattern, replacement as string | {[string]: string}, n)
+    end,
+    ["table.concat"] = function(t: {string}, sep: string?, i: integer?, j: integer?): string
+        return table.concat(t, sep, i, j)
+    end,
+    ["table.insert"] = function(t: {any}, position: any, value: any): nil
+        if value == nil then
+            t[#t + 1] = position
+        else
+            table.insert(t, position as integer, value)
+        end
+    end,
+    ["math.type"] = function(x: any): string?
+        return math.type(x)
+    end,
+    ["math.max"] = function(x: number, ...: number): number
+        local best = x
+        for index = 1, select("#", ...) do
+            best = math.max(best, (select(index, ...)))
+        end
+
+        return best
+    end,
+    ["math.min"] = function(x: number, ...: number): number
+        local best = x
+        for index = 1, select("#", ...) do
+            best = math.min(best, (select(index, ...)))
+        end
+
+        return best
+    end,
+    ["math.tointeger"] = function(x: any): integer?
+        return math.tointeger(x)
+    end,
 }
+
+-- The library tables by name, `math` and `string` and `table`: the functions
+-- above under their field names, and `math`'s constants.
+local libraries: {
+    [string]: {[string]: any}
+} = {
+    math = {huge = math.huge, pi = math.pi, maxinteger = math.maxinteger, mininteger = math.mininteger},
+    string = {},
+    table = {}
+}
+for name, value in pairs(functions) do
+    local library, field = string.match(name, "^(%a+)%.(%a+)$")
+    local members = library and libraries[library]
+    if members ~= nil then
+        members[field as string] = value
+    end
+end
+for library, members in pairs(libraries) do
+    functions[library] = members
+end
 
 -- `_G`: the library functions above by their global names, and itself.
 local globals: {[string]: any} = {}

@@ -21,7 +21,9 @@ export type AliasError = own.AliasError
 export type Managed<T> = own.Managed<T>
 export type Alias<T> = own.Alias<T>
 
-local runtime = rawget(_G, "nupp") as any
+-- The VM's managed-cell runtime; a runtime without managed cells, as the
+-- native core is today, has none, and recovering an alias is not there.
+local runtime = (rawget(_G, "nupp") or {}) as any
 
 --- Recovers an erased alias after checking its managed-cell brand.
 export const recoveralias: function(value: any): ((alias(unknown), nil) | (nil, AliasError)) = runtime.__recoverAlias
