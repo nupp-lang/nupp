@@ -218,6 +218,56 @@ function M.extractsStructuredDocsFromTheParserCST()
     assert(point.members[1].text == "Horizontal coordinate.")
 end
 
+function M.typeAliasSignaturesOmitCommentsAndFormattingLines()
+    local module = assert(
+        doc.extract(
+            [=[
+export type Options = {
+    --- The peer name.
+    host: string?,
+    --[[ An implementation note. ]]
+    label: 'keep  two spaces -- literal',
+    nested: {
+        --- The item count.
+        count: integer
+    }
+}
+export record Container
+    --- Configuration for the container.
+    type Config = {
+        --- A literal marker.
+        marker: '--[[ not a comment ]]'
+    }
+end
+]=],
+            "src/options.nupp",
+            "options"
+        )
+    )
+    local items = {}
+    for _, item in ipairs(module.items) do
+        items[item.name] = item
+    end
+    local api = require("nupp.tools.doc.api")
+    local signature = api.displaySignature(items.Options)
+    assert(
+        signature == "type Options = { host: string?, label: 'keep  two spaces -- literal', nested: { count: integer } }",
+        signature
+    )
+    assert(items.Options.members[1].text == "The peer name.")
+    local nested = api.memberSpelling(items.Container.members[1])
+    assert(nested == "type Config = { marker: '--[[ not a comment ]]' }", nested)
+    local markdown = doc.markdown({module})
+    assert(markdown:find(signature, 1, true), markdown)
+    assert(markdown:find("The peer name.", 1, true), markdown)
+    assert(markdown:find("Configuration for the container.", 1, true), markdown)
+    for code in markdown:gmatch("```nupp\n(.-)\n```") do
+        assert(not code:find("\n", 1, true), code)
+        assert(not code:find("---", 1, true), code)
+        assert(not code:find("implementation note", 1, true), code)
+    end
+end
+
 function M.callableModulesDocumentHelpersAndPublishedSuiteMembers()
     local source = [[
 module assert

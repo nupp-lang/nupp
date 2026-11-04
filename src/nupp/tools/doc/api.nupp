@@ -4,6 +4,7 @@ Shared classification and signature formatting for generated API Markdown.
 module nupp.tools.doc.api
 
 local extractMod = require("nupp.tools.doc.extract")
+local lexer = require("nupp.compiler.syntax.lexer")
 
 export type ItemGroup = {
     title: string,
@@ -71,7 +72,25 @@ export function formSignature(form: extractMod.Form): string
     return omitNilResult(form.signature, form.returns)
 end
 
+local function compactType(source: string): string
+    local parts = {}
+    local tokens = lexer.lex(source)
+    for _, token in ipairs(tokens) do
+        if token.kind ~= "eof" then
+            if #parts > 0 and token.triviaCount > 0 then
+                parts[#parts + 1] = " "
+            end
+            parts[#parts + 1] = token.text
+        end
+    end
+
+    return table.concat(parts)
+end
+
 export function displaySignature(item: extractMod.Item): string
+    if item.kind == "type" then
+        return compactType(item.signature)
+    end
     if item.kind == "function" then
         local signature = item.signature
         local typed = signature:match("^local%s+[%w_%.]+:%s*(.*)$") or signature:match("^const%s+[%w_%.]+:%s*(.*)$")
@@ -142,7 +161,7 @@ end
 -- is a field whose values are types.
 export function memberSpelling(member: extractMod.Member): string
     if member.isAlias then
-        return "type " .. member.name .. (member.generics or "") .. " = " .. member.type
+        return compactType("type " .. member.name .. (member.generics or "") .. " = " .. member.type)
     end
 
     if member.isFunction and member.name ~= "constructor" then
@@ -150,5 +169,7 @@ export function memberSpelling(member: extractMod.Member): string
         return omitNilResult(signature, member.returns)
     end
 
-    return member.name .. ": " .. (member.isFunction and omitNilResult(member.type, member.returns) or member.type)
+    return member.name .. ": " .. (
+        member.isFunction and omitNilResult(member.type, member.returns) or compactType(member.type)
+    )
 end
