@@ -108,6 +108,9 @@ export const MATH_RANDOMSEED_HOST: uint64 = 72ULL
 export const NAMED_PACK: uint64 = 73ULL
 -- A table constructor's tail: a pack's values stored from a position.
 export const PACK_APPEND: uint64 = 74ULL
+-- table.freeze(t) and table.isfrozen(t), from Luau (runtime Decision 16).
+export const TABLE_FREEZE: uint64 = 114ULL
+export const TABLE_ISFROZEN: uint64 = 115ULL
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -284,6 +287,10 @@ local function libraryName(id: uint64): uint64
         return texts.NAME_RANDOM
     elseif id == MATH_RANDOMSEED or id == MATH_RANDOMSEED_HOST then
         return texts.NAME_RANDOMSEED
+    elseif id == TABLE_FREEZE then
+        return texts.NAME_FREEZE
+    elseif id == TABLE_ISFROZEN then
+        return texts.NAME_ISFROZEN
     end
 
     return 0ULL
@@ -1800,6 +1807,35 @@ local function loadAt(t: uint64, index: int64): uint64
     return tables.get(t, values.TAG_INTEGER | native.word(index))
 end
 
+-- A table library call that writes to `t` raises when it is frozen
+-- (runtime Decision 16), as Luau's do, before it writes anything.
+local function writable(ctx: voidptr, t: uint64): nil
+    if tables.frozen(t) then
+        guestscope.readonly(ctx)
+    end
+end
+
+-- table.freeze(t): t, frozen shallowly and for good; a frozen t is answered
+-- as it is. A table whose metatable is protected raises, as Luau's does.
+local function tableFreeze(ctx: voidptr, list: uint64): uint64
+    local t = tableArgument(ctx, list, 1ULL)
+    if guestscope.metaField(ctx, t, guestscope.META_METATABLE) ~= values.NIL then
+        texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_PROTECTED_TABLE, list)
+    end
+    tables.freeze(guestHeap(ctx), t)
+
+    return list
+end
+
+-- table.isfrozen(t): whether t is frozen.
+local function tableIsfrozen(ctx: voidptr, list: uint64): uint64
+    if tables.frozen(tableArgument(ctx, list, 1ULL)) then
+        return values.TRUE
+    end
+
+    return values.FALSE
+end
+
 -- table.insert(t, v) appends; table.insert(t, pos, v) moves t[pos..#t] up
 -- one first, through the table's __index and __newindex.
 local function tableInsert(ctx: voidptr, count: uint64, list: uint64, a: uint64, b: uint64): uint64
@@ -1811,6 +1847,7 @@ local function tableInsert(ctx: voidptr, count: uint64, list: uint64, a: uint64,
             return values.NIL
         end
         if count == 2ULL then
+            writable(ctx, t)
             guestscope.seti(ctx, t, size + 1, a)
             tables.drain(h)
             return values.NIL
@@ -1819,6 +1856,7 @@ local function tableInsert(ctx: voidptr, count: uint64, list: uint64, a: uint64,
         if pos < 1 or pos > size + 1 then
             texts.argumentError(ctx, 2ULL, 0ULL, texts.TEXT_OUT_OF_BOUNDS, a)
         end
+        writable(ctx, t)
         local at = size + 1
         while at > pos and not guestscope.suspended(ctx) do
             guestscope.seti(ctx, t, at, guestscope.geti(ctx, t, at - 1))
@@ -1847,6 +1885,7 @@ local function tableRemove(ctx: voidptr, count: uint64, list: uint64, a: uint64)
                 texts.argumentError(ctx, 2ULL, 0ULL, texts.TEXT_OUT_OF_BOUNDS, a)
             end
         end
+        writable(ctx, t)
         local removed = guestscope.geti(ctx, t, pos)
         local at = pos
         while at < size and not guestscope.suspended(ctx) do
@@ -1884,6 +1923,7 @@ local function tableMove(ctx: voidptr, source: uint64, fv: uint64, ev: uint64, t
             if t > native.index(0x7fffffffffffffffULL) - n + 1 then
                 texts.argumentError(ctx, 4ULL, 0ULL, texts.TEXT_WRAP, tv)
             end
+            writable(ctx, a2)
             if t > e or t <= f or a1 ~= a2 then
                 local i: int64 = 0
                 while i < n and not guestscope.suspended(ctx) do
@@ -2067,6 +2107,7 @@ end
 local function sortBegin(ctx: voidptr, list: uint64, less: uint64): uint64
     @unsafe do
         local t = tableArgument(ctx, list, 1ULL)
+        writable(ctx, t)
         local state = guestscope.newTable(ctx)
         -- The state is held while the buffer is made, which can collect.
         guestscope.hold(ctx, values.TAG_OBJ | state)
@@ -2807,6 +2848,10 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
             tables.get(pack, values.TAG_INTEGER | 3ULL),
             tables.get(pack, values.TAG_INTEGER | 4ULL)
         )
+    elseif id == TABLE_FREEZE then
+        return tableFreeze(ctx, a)
+    elseif id == TABLE_ISFROZEN then
+        return tableIsfrozen(ctx, a)
     elseif id == TABLE_SORT then
         sortStep(ctx, sortBegin(ctx, a, values.NIL))
         return values.NIL

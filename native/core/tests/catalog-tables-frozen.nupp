@@ -1,0 +1,161 @@
+module nupp.core.catalogtablesfrozen
+
+-- Frozen tables (runtime Decision 16, table.freeze from Luau): every write
+-- to one raises Luau's "attempt to modify a readonly table", whether by
+-- assignment, rawset, setmetatable or the table library; reads, traversal
+-- and copies out of one go on. setmetatable freezes the metatable it
+-- attaches, shallowly, and a value's metatable can still be swapped. A
+-- frozen table is old from when it freezes, so it holds the young values
+-- it froze with through every minor collection after.
+local readonly = "attempt to modify a readonly table"
+
+local function refused(f: function(): nil): boolean
+    local ok, problem = pcall(f)
+    return not ok and tostring(problem):find(readonly, 1, true) ~= nil
+end
+
+local score = 0
+
+local list: {integer} = {3, 1, 2}
+local shape: {[string]: integer} = {x = 1}
+if table.freeze(list) == list
+    and table.isfrozen(list)
+    and not table.isfrozen(shape)
+    and table.freeze(list) == list
+    and table.isfrozen(table.freeze(shape))
+then
+    score = score + 1
+end
+if refused(function(): nil
+    shape.x = 2
+end) and refused(function(): nil
+    shape.y = 3
+end) and shape.x == 1 and shape.y == nil then
+    score = score + 2
+end
+if refused(function(): nil
+    list[1] = 9
+end) and refused(function(): nil
+    list[4] = 4
+end) and refused(function(): nil
+    rawset(list, 2, 8)
+end) and list[1] == 3 and #list == 3 then
+    score = score + 4
+end
+if refused(function(): nil
+    table.insert(list, 5)
+end) and refused(function(): nil
+    table.insert(list, 1, 5)
+end) and refused(function(): nil
+    table.remove(list)
+end) and refused(function(): nil
+    table.sort(list)
+end) and table.concat(list, ",") == "3,1,2" then
+    score = score + 8
+end
+local copy: {integer} = {}
+table.move(list, 1, 3, 1, copy)
+if refused(function(): nil
+    table.move(copy, 1, 3, 1, list)
+end) and table.concat(copy, ",") == "3,1,2" and not table.isfrozen(copy) then
+    score = score + 16
+end
+if refused(function(): nil
+    setmetatable(shape, {})
+end) and getmetatable(shape) == nil then
+    score = score + 32
+end
+
+-- The class pattern: the metatable is the method table, so attaching it
+-- freezes the methods too; the instances stay writable.
+local Counter: {[string]: any} = {}
+Counter.__index = Counter
+Counter.bump = function(self: any): number
+    self.n = self.n + 1
+    return self.n
+end
+local counter: any = setmetatable({n = 0}, Counter)
+if table.isfrozen(Counter) and not table.isfrozen(counter) and counter:bump() == 1 and refused(function(): nil
+    Counter.extra = 1
+end) and refused(function(): nil
+    rawset(Counter, "bump", nil)
+end) then
+    score = score + 64
+end
+-- Swapping a value's metatable stays allowed, and a table reached through
+-- __index is not frozen by it.
+local methods: {[string]: any} = {
+    twice = function(self: any): number
+        return self.n * 2
+    end
+}
+local Other: {[string]: any} = {__index = methods}
+setmetatable(counter, Other)
+methods.thrice = function(self: any): number
+    return self.n * 3
+end
+if getmetatable(counter) == Other
+    and counter:twice() == 2
+    and counter:thrice() == 3
+    and not table.isfrozen(methods)
+    and table.isfrozen(Other)
+then
+    score = score + 128
+end
+-- A frozen table's __newindex still takes the keys it lacks, as Luau's
+-- does; a key it holds is refused.
+local sink: {[string]: integer} = {}
+local front: {[string]: integer} = table.freeze(setmetatable({held = 1}, {__newindex = sink}))
+front.fresh = 5
+if sink.fresh == 5 and rawget(front, "fresh") == nil and refused(function(): nil
+    front.held = 2
+end) then
+    score = score + 256
+end
+-- A protected metatable refuses table.freeze, as Luau's does.
+local guarded: {[string]: integer} = setmetatable({}, {__metatable = "locked"})
+local ok, problem = pcall(function(): any
+    return table.freeze(guarded)
+end)
+if not ok
+    and tostring(problem):find("bad argument #1 to 'freeze' (table has a protected metatable)", 1, true)
+    and not table.isfrozen(guarded) then
+    score = score + 512
+end
+local ok2, problem2 = pcall(function(): any
+    return table.isfrozen(3 as any)
+end)
+if not ok2 and tostring(problem2):find("bad argument #1 to 'isfrozen' (table expected, got number)", 1, true) then
+    score = score + 1024
+end
+-- Young values a table freezes with survive the collections that follow,
+-- frozen or attached, however much is allocated after.
+local held: {[string]: any} = {}
+for i = 1, 40 do
+    held["k" .. i] = {i, "v" .. i}
+end
+table.freeze(held)
+local behind: {[string]: any} = {}
+for i = 1, 20 do
+    behind["m" .. i] = {i * 2}
+end
+local carrier: any = setmetatable({}, behind)
+local churn = 0
+for i = 1, 400 do
+    local scratch = {i, tostring(i) .. "x"}
+    churn = churn + #scratch
+end
+local sum = 0
+for i = 1, 40 do
+    local entry = held["k" .. i]
+    if entry[2] == "v" .. i then
+        sum = sum + entry[1]
+    end
+end
+for i = 1, 20 do
+    sum = sum + (getmetatable(carrier) as any)["m" .. i][1]
+end
+if churn == 800 and sum == 820 + 420 and table.isfrozen(behind) then
+    score = score + 2048
+end
+export = score
