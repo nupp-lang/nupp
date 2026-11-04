@@ -196,6 +196,8 @@ local STRESS = {
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
 local STATUS = {numericModZero = 6, numericOverflow = 5}
+-- The cases reference Lua 5.5 also runs, as plain Lua or through a sibling
+-- .lua twin; Nupp-only cases (records, ownership, Nupp modules) are not here.
 local NUMERIC = {
     numericFor = "catalog-numeric-for",
     numericFloat = "catalog-numeric-float",
@@ -269,18 +271,6 @@ local NUMERIC = {
     modulescycle = "catalog-modules-cycle",
     modulesdynamic = "catalog-modules-dynamic",
     libraryvalues = "catalog-library-values",
-    textbuffer = "catalog-text-buffer",
-    stringbuffer = "catalog-string-buffer",
-    librarybasics = "catalog-library-basics",
-    cleanupfunctions = "catalog-cleanup-functions",
-    serdejson = "catalog-serde-json",
-    coreoperators = "catalog-core-operators",
-    methodcleanups = "catalog-method-cleanups",
-    ownerreinit = "catalog-owner-reinit",
-    coreforms = "catalog-core-forms",
-    storagebasics = "catalog-storage-basics",
-    storageprovider = "catalog-storage-provider",
-    modulesqualified = "catalog-modules-qualified",
     callsoverflow = "catalog-calls-overflow"
 }
 local FIXTURES = {
@@ -568,7 +558,9 @@ local function oracle(lua, fixture)
     )
     local status, output = shell(GUEST_ENV .. quote(lua) .. " " .. quote(program))
     assert(status == 0, output)
-    local kind, value = output:sub(1, 1), output:sub(2)
+    -- The result is written last, after whatever the fixture prints.
+    local result = output:match("([^\n]*)$")
+    local kind, value = result:sub(1, 1), result:sub(2)
     if kind == "E" then
         return "error"
     elseif kind == "I" then
@@ -578,7 +570,11 @@ local function oracle(lua, fixture)
         end
         return 0x7FFF000000000000 | (number & 0xFFFFFFFFFFFF)
     end
-    local bits = tonumber(value, 16)
+    -- In two halves: past 2^63 the VM's tonumber with a base answers a
+    -- float, where Lua wraps.
+    local high, low = tonumber(value:sub(1, 8), 16), tonumber(value:sub(9, 16), 16)
+    assert(kind == "F" and high and low, ("%s: unexpected reference output %q"):format(fixture, output))
+    local bits = (high << 32) | low
     if bits & 0x7FF0000000000000 == 0x7FF0000000000000 and bits & 0xFFFFFFFFFFFFF ~= 0 then
         return 0x7FF8000000000000
     end
