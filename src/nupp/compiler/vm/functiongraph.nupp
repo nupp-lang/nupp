@@ -241,7 +241,7 @@ function frontend.compile(fn: any, options: any, profile: any): any
             end
         end
 
-        return false
+        return #(stat.inheritedDefaultNames or {}) > 0
     end
 
     local function bareFunction(stat: any): boolean

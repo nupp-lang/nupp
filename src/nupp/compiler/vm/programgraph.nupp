@@ -228,6 +228,10 @@ function program.describe(modules: {any}, entryModule: string): any
         -- declaration whose destructor it runs, mapped to a synthetic
         -- reference to that record's name.
         cleanupTokens = {},
+        -- For each declaration that takes defaults from interfaces of its own
+        -- module, a reference to each one's table, by the interface's
+        -- runtime name.
+        inheritTokens = {},
         -- Every record declaration in the program's modules.
         recordDecls = {},
         -- The owners (by id) with any such site.
@@ -671,6 +675,45 @@ function program.describe(modules: {any}, entryModule: string): any
             p.cleanupOwners[owner.id] = true
         end
 
+        if node.kind == "recordDecl" and node.inheritedDefaultNames and #node.inheritedDefaultNames > 0 then
+            local tokens = {}
+            for _, super in ipairs(node.supertypes or {}) do
+                local resolved = super.resolvedSupertype
+                local origin = resolved and (resolved.origin or resolved)
+                local declaration = origin and origin.deriveDeclaration
+                local definition = declaration and declaration.name and declaration.name.definition
+                local foreign = origin and origin.moduleName and moduleNames[origin.moduleName]
+                if super.interfaceName and definition and definition.filename ~= owner.scope.path and foreign then
+                    -- Another module's interface: that module, required, and its
+                    -- export by the interface's name.
+                    local site: any = {kind = "dotIndex", qualifiedModule = origin.moduleName, inheritFrom = declaration.name.text}
+                    local item = {
+                        id = #p.requires,
+                        owner = owner.id,
+                        node = site,
+                        module = origin.moduleName,
+                        typeOnly = false,
+                        target = foreign.chunk,
+                        qualified = true
+                    }
+                    p.requires[#p.requires + 1], p.requireByNode[site] = item, item
+                    tokens[super.interfaceName] = site
+                elseif super.interfaceName and definition and definition.filename == owner.scope.path then
+                    local token: any = {
+                        kind = "name",
+                        text = declaration.name.text,
+                        line = node.name.line,
+                        col = node.name.col,
+                        offset = node.name.offset,
+                        trivia = {},
+                        definition = definition
+                    }
+                    reference(token, owner)
+                    tokens[super.interfaceName] = token
+                end
+            end
+            p.inheritTokens[node] = tokens
+        end
         if node.kind == "localStmt" and node.automaticOwners then
             for index, automatic in pairs(node.automaticOwners) do
                 local anchor = node.names and node.names[index]
@@ -683,9 +726,12 @@ function program.describe(modules: {any}, entryModule: string): any
         -- record's name is a type use there, not a read of its runtime value.
         if node.kind == "newExpr" and node.call and node.call.recordFields and not node.call.constructorEntry then
             loopForms[node.call] = true
-            -- Construction reads the record's table, its instances' metatable.
+            -- Construction reads the record's table, its instances' metatable:
+            -- by its name, or through the module that declares it.
             if node.call.obj and node.call.obj.kind == "name" then
                 reference(node.call.obj.token, owner)
+            elseif node.call.obj then
+                collect(node.call.obj, owner)
             end
         end
         -- `new R(...)` with a constructor calls it, the fresh instance first,

@@ -1,0 +1,10 @@
+module nupp.core.catalogserdejson
+
+local json = require("serde.json")
+
+local score = 0
+local text = json.encodevalue({1, 2, 3})
+if text == "[1,2,3]" then score = score + 1 end
+local back: any = json.decodevalue('{"a":[true,null,"x"]}')
+if back.a[1] == true and back.a[3] == "x" then score = score + 2 end
+export = score

@@ -1358,7 +1358,7 @@ invokeScalar = function(t: any): nil
         -- Fixed-width numbers are integers and floats at run time.
         or fixedwidths[t.tag] == true
         -- Storage and views of it are values on the core's heap.
-        or t.tag == "carray" or t.tag == "ptr" or t.tag == "ctype" or t.tag == "nominal" and t.declKind == "interface"
+        or t.tag == "carray" or t.tag == "ptr" or t.tag == "ctype" or t.tag == "intersection" or t.tag == "typeobject" or t.tag == "nominal" and t.declKind == "interface"
         -- A function that never returns gives no value to check.
         or t.tag == "never"
         -- A plain type parameter erases to a value, and a record is a table.

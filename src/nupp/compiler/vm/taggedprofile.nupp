@@ -2089,6 +2089,29 @@ function tagged.forVersion(version: integer): any
                 ctx.emit(stat, "SetIdx", {ctx.readHeld(held), fieldsKey, ctx.readHeld(fields)}, nil)
                 ctx.release(fields)
             end
+            -- A default it takes from an interface is read from that
+            -- interface's table, under the member it has here.
+            for _, taken in ipairs(stat.inheritedDefaultNames or {}) do
+                local tokens = catalog(ctx).inheritTokens[stat] or {}
+                local token = need(tokens[taken.from], "an inherited default from an interface not in the program: " .. tostring(taken.from))
+                local parent: integer? = nil
+                if token.qualifiedModule then
+                    local site = need(catalog(ctx).requireByNode[token], "inherited default lacks its require")
+                    local loaded = ctx.emit(stat, "Require", {pool(ctx, "str", site.module)}, "tagged")
+                    local name = ctx.emit(stat, "K", {pool(ctx, "str", token.inheritFrom)}, "tagged")
+                    parent = ctx.emit(stat, "GetIdx", {loaded, name}, "tagged")
+                else
+                    parent = ctx.expression({kind = "name", token = token, token}, "tagged")
+                end
+                if parent == nil then
+                    ctx.release(held)
+                    return nil
+                end
+                local fromKey = ctx.emit(stat, "K", {pool(ctx, "str", taken.fromMember or taken.name)}, "tagged")
+                local method = ctx.emit(stat, "GetIdx", {parent, fromKey}, "tagged")
+                local memberKey = ctx.emit(stat, "K", {pool(ctx, "str", taken.member or taken.name)}, "tagged")
+                ctx.emit(stat, "SetIdx", {ctx.readHeld(held), memberKey, method}, nil)
+            end
             for _, entry in ipairs(stat.entries or {}) do
                 -- A constructor is stored under a key no field name can be;
                 -- each body of an overloaded method under its own member.

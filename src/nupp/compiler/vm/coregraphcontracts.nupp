@@ -64,7 +64,7 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
     -- v8 passes strings, tables and functions as dynamic values, checked where
     -- used.
     if dynamic
-        and (value.tag == "string" or value.tag == "typevar" or value.tag == "nominal" and value.declKind == "record" or value.tag == "array" or value.tag == "map" or value.tag == "table" or value.tag == "shape" or value.tag == "func" or value.tag == "userdata" or value.tag == "carray" or value.tag == "ptr" or value.tag == "ctype" or value.tag == "nominal" and value.declKind == "interface" or value.tag == "never"
+        and (value.tag == "string" or value.tag == "typevar" or value.tag == "nominal" and value.declKind == "record" or value.tag == "array" or value.tag == "map" or value.tag == "table" or value.tag == "shape" or value.tag == "func" or value.tag == "userdata" or value.tag == "carray" or value.tag == "ptr" or value.tag == "ctype" or value.tag == "intersection" or value.tag == "typeobject" or value.tag == "nominal" and value.declKind == "interface" or value.tag == "never"
         -- Fixed-width numbers are integers and floats at run time.
         or value.tag == "int8"
         or value.tag == "int16"
