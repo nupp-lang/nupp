@@ -1,0 +1,642 @@
+module genunits
+
+-- Generations (runtime Decision 20) on the owned backend: promotion after two
+-- minor collections, the barrier remembering an old object that takes a young
+-- one, cards on a large old table across growth and rehash, frozen tables,
+-- weak tables across generations, cycles running young to old and back, and
+-- minor collections interleaved with whole and incremental full ones. Each
+-- answers counts run.lua works out on its own, plus a billion for every check
+-- that failed or disagreement the collector's reachability oracle reports.
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+const heap = require("nupp.runtime.vm.heap")
+const collector = require("nupp.runtime.vm.collector")
+const values = require("nupp.runtime.vm.values")
+const weak = require("nupp.runtime.vm.gcweak")
+const tables = require("nupp.runtime.core.coretables")
+
+const WRONG: uint64 = 1000000000ULL
+
+-- A closure-kind object with `slots` value slots, all nil.
+local function node(h: heap.Heap*, slots: uint64): uint64
+    @unsafe do
+        local o = collector.allocate(h, heap.KIND_CLOSURE, slots * 8ULL)
+        o.auxLen = slots
+        local i: uint64 = 0ULL
+        while i < slots do
+            native.store64(native.pointer(o.auxPtr), native.index(i * 8ULL), values.NIL)
+            i = i + 1ULL
+        end
+        collector.initialized(h, o)
+
+        return heap.objectValue(o)
+    end
+end
+
+-- A store into a node's slot, through the barrier.
+local function link(h: heap.Heap*, parent: uint64, slot: uint64, child: uint64): nil
+    @unsafe do
+        local o = heap.objectHeader(parent)
+        collector.barrier(h, o, child)
+        native.store64(native.pointer(o.auxPtr), native.index(slot * 8ULL), child)
+    end
+end
+
+local function slotOf(parent: uint64, slot: uint64): uint64
+    @unsafe do
+        return native.load64(native.pointer(heap.objectHeader(parent).auxPtr), native.index(slot * 8ULL))
+    end
+end
+
+-- `words` root slots in the arena, all nil, registered with the heap.
+local function rootsIn(borrows a: arena.Arena*, h: heap.Heap*, words: uint64): uint64
+    @unsafe do
+        local raw = arena.alloc(a, words * 8ULL + 8ULL, 8ULL)
+        if raw == nil then
+            error("generation units: no room for the roots")
+        end
+        local base = native.address(raw)
+        local i: uint64 = 0ULL
+        while i < words do
+            native.store64(native.pointer(base + i * 8ULL), 0, values.NIL)
+            i = i + 1ULL
+        end
+        collector.register(h, base, words)
+
+        return base
+    end
+end
+
+local function setRoot(base: uint64, i: uint64, value: uint64): nil
+    native.store64(native.pointer(base + i * 8ULL), 0, value)
+end
+
+local function getRoot(base: uint64, i: uint64): uint64
+    return native.load64(native.pointer(base + i * 8ULL), 0)
+end
+
+local function flagsOf(value: uint64): uint64
+    @unsafe do
+        return heap.objectHeader(value).flags as uint64
+    end
+end
+
+local function old(value: uint64): boolean
+    return flagsOf(value) & heap.F_OLD ~= 0ULL
+end
+
+local function alive(h: heap.Heap*, value: uint64): boolean
+    @unsafe do
+        return heap.isLiveSlot(h, value & values.PAYLOAD)
+    end
+end
+
+-- One when a check fails.
+local function miss(ok: boolean): uint64
+    if ok then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+local function int(i: uint64): uint64
+    return values.TAG_INTEGER | i
+end
+
+-- Dirty cards of a carded table: the set bits of its record over its array
+-- part, and with `hash` over its hash part too.
+local function dirtyCards(h: heap.Heap*, table: uint64, hash: boolean): uint64
+    @unsafe do
+        local o = native.pointer(table) as heap.Header*
+        if (o.flags as uint64) & heap.F_CARDS == 0ULL then
+            return 0ULL
+        end
+        local r = (((o.aux as uint64) >> 8ULL) - 1ULL) * 6ULL
+        local bits = heap.wordAt(h.cards, r + 1ULL)
+        local words = heap.wordAt(h.cards, r + 2ULL)
+        if hash then
+            words = words + heap.wordAt(h.cards, r + 3ULL)
+        end
+        local count: uint64 = 0ULL
+        local w: uint64 = 0ULL
+        while w < words do
+            local word = native.load64(native.pointer(bits), native.index(w * 8ULL))
+            while word ~= 0ULL do
+                count = count + (word & 1ULL)
+                word = word >> 1ULL
+            end
+            w = w + 1ULL
+        end
+        return count
+    end
+end
+
+-- A minor collection, the oracle checking that nothing reachable was freed.
+local function minor(h: heap.Heap*): uint64
+    collector.minorcycle(h)
+    return collector.checkOracle(h, false)
+end
+
+-- A whole full collection, the oracle checking it exactly.
+local function full(h: heap.Heap*): uint64
+    collector.fullCycle(h)
+    tables.drain(h)
+    return collector.checkOracle(h, true)
+end
+
+-- `count` rooted nodes in a list, each followed by an unreachable one. The
+-- first minor collection frees the garbage and leaves the list young, the
+-- second promotes it and lists none young. Answers a million times the
+-- objects living after the first plus a thousand times the old after the
+-- second.
+export function promotion(count: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = 1ULL
+            h.automatic = false
+            local roots = rootsIn(a, h, 1ULL)
+            local i: uint64 = 0ULL
+            while i < count do
+                local n = node(h, 1ULL)
+                link(h, n, 0ULL, getRoot(roots, 0ULL))
+                setRoot(roots, 0ULL, n)
+                node(h, 1ULL)
+                i = i + 1ULL
+            end
+            local wrong = minor(h)
+            local first = h.liveCount
+            local at = getRoot(roots, 0ULL)
+            while at ~= values.NIL do
+                wrong = wrong + miss(not old(at) and flagsOf(at) & heap.F_SURVIVAL ~= 0ULL)
+                at = slotOf(at, 0ULL)
+            end
+            wrong = wrong + minor(h)
+            local promoted: uint64 = 0ULL
+            at = getRoot(roots, 0ULL)
+            while at ~= values.NIL do
+                if old(at) then
+                    promoted = promoted + 1ULL
+                end
+                at = slotOf(at, 0ULL)
+            end
+            wrong = wrong + miss(h.young.count == 0ULL and h.stats.promoted == count)
+            wrong = wrong + full(h)
+            answer = first * 1000000ULL + promoted * 1000ULL + wrong * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- The barrier: an old node takes a young child nothing else holds. `skip` 1
+-- stores without the barrier, which loses the child at the next minor
+-- collection; 0 goes through it, and the parent stays remembered until the
+-- child is old and the child until its own promotion has been seen. Answers
+-- 1 when the child lives, plus ten times the remembered after each of three
+-- minor collections (in decimal places 10, 100 and 1000).
+export function barrier(skip: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = 1ULL
+            h.automatic = false
+            local roots = rootsIn(a, h, 1ULL)
+            local parent = node(h, 1ULL)
+            setRoot(roots, 0ULL, parent)
+            local wrong = minor(h) + minor(h)
+            wrong = wrong + miss(old(parent) and h.remembered.count == 1ULL)
+            -- The parent was remembered on promotion; the next minor
+            -- collection, finding nothing young in it, lets it go.
+            wrong = wrong + minor(h)
+            wrong = wrong + miss(h.remembered.count == 0ULL)
+            local child = node(h, 1ULL)
+            if skip == 1ULL then
+                native.store64(native.pointer(heap.objectHeader(parent).auxPtr), 0, child)
+                collector.minorcycle(h)
+                if alive(h, child) then
+                    answer = 1ULL
+                end
+            else
+                link(h, parent, 0ULL, child)
+                wrong = wrong + miss(flagsOf(parent) & heap.F_TOUCHED ~= 0ULL)
+                wrong = wrong + minor(h)
+                local first = h.remembered.count
+                wrong = wrong + minor(h)
+                local second = h.remembered.count
+                wrong = wrong + miss(old(child) and flagsOf(parent) & heap.F_TOUCHED == 0ULL)
+                wrong = wrong + minor(h)
+                local third = h.remembered.count
+                wrong = wrong + full(h)
+                if alive(h, child) then
+                    answer = 1ULL
+                end
+                answer = answer + first * 10ULL + second * 100ULL + third * 1000ULL + wrong * WRONG
+            end
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- Cards on a large old table: `count` integers fill its array part, two
+-- minor collections make it old, then young nodes go in at every fiftieth
+-- slot and as four key and value pairs of its hash part. The cards keep
+-- them through a minor collection, through the hash part's rehash as two
+-- hundred more keys arrive, and through the array part's growth as `count`
+-- more integers and another node do; two more minor collections promote
+-- everything and leave no card dirty. The table is never remembered whole.
+-- Answers the nodes alive at the end plus a thousand times the cards dirty
+-- after the young went in.
+export function cards(count: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(67108864ULL)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = 1ULL
+            h.automatic = false
+            local roots = rootsIn(a, h, 1ULL)
+            local t = tables.create(h)
+            setRoot(roots, 0ULL, values.TAG_OBJ | t)
+            local wrong: uint64 = 0ULL
+            local i: uint64 = 1ULL
+            while i <= count do
+                wrong = wrong + miss(tables.set(h, t, int(i), int(i)) == tables.OK)
+                i = i + 1ULL
+            end
+            wrong = wrong + minor(h) + minor(h) + minor(h)
+            wrong = wrong + miss(old(values.TAG_OBJ | t) and h.remembered.count == 0ULL)
+            -- The young: array slots, then hash pairs, held only by the table.
+            local raw = arena.alloc(a, (count // 50ULL + 16ULL) * 8ULL, 8ULL)
+            if raw == nil then
+                error("generation units: no room for the young")
+            end
+            local kept = native.address(raw)
+            local held: uint64 = 0ULL
+            i = 50ULL
+            while i <= count do
+                local n = node(h, 1ULL)
+                wrong = wrong + miss(tables.set(h, t, int(i), n) == tables.OK)
+                native.store64(native.pointer(kept), native.index(held * 8ULL), n)
+                held = held + 1ULL
+                i = i + 50ULL
+            end
+            i = 0ULL
+            while i < 4ULL do
+                local key = node(h, 1ULL)
+                local value = node(h, 1ULL)
+                wrong = wrong + miss(tables.set(h, t, key, value) == tables.OK)
+                native.store64(native.pointer(kept), native.index(held * 8ULL), key)
+                native.store64(native.pointer(kept), native.index(held * 8ULL + 8ULL), value)
+                held = held + 2ULL
+                i = i + 1ULL
+            end
+            local o = native.pointer(t) as heap.Header*
+            wrong = wrong + miss((o.flags as uint64) & heap.F_CARDS ~= 0ULL)
+            wrong = wrong + miss((o.flags as uint64) & heap.F_TOUCHED == 0ULL)
+            local dirty = dirtyCards(h, t, false)
+            wrong = wrong + minor(h)
+            -- The hash part grows past them, moving every entry.
+            i = 0ULL
+            while i < 200ULL do
+                wrong = wrong + miss(tables.set(h, t, int(count + 2ULL + 2ULL * i), int(i)) == tables.OK)
+                i = i + 1ULL
+            end
+            wrong = wrong + minor(h)
+            -- The array part grows: an integer key one past its end appends.
+            local length = tables.length(t)
+            i = 1ULL
+            while i <= count do
+                wrong = wrong + miss(tables.set(h, t, int(length + i), int(i)) == tables.OK)
+                i = i + 1ULL
+            end
+            local last = node(h, 1ULL)
+            wrong = wrong + miss(tables.set(h, t, int(tables.length(t)), last) == tables.OK)
+            native.store64(native.pointer(kept), native.index(held * 8ULL), last)
+            held = held + 1ULL
+            wrong = wrong + minor(h) + minor(h) + minor(h)
+            wrong = wrong + miss((o.flags as uint64) & heap.F_TOUCHED == 0ULL)
+            wrong = wrong + miss(dirtyCards(h, t, true) == 0ULL)
+            local living: uint64 = 0ULL
+            i = 0ULL
+            while i < held do
+                local n = native.load64(native.pointer(kept), native.index(i * 8ULL))
+                if alive(h, n) and old(n) then
+                    living = living + 1ULL
+                end
+                i = i + 1ULL
+            end
+            wrong = wrong + full(h)
+            answer = living + dirty * 1000ULL + wrong * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- A frozen table: `count` young nodes only it holds, then it freezes. It is
+-- old and remembered at once; the first minor collection keeps the nodes
+-- and it remembered, the second promotes them and lets it go, the third
+-- lets them go. Unrooted, it outlives a minor collection, being old, and a
+-- full one frees it with them. A store into it is not recorded. Answers
+-- the nodes alive after the first plus a thousand times the remembered
+-- after the second and a million times the objects living after the
+-- unrooted minor collection.
+export function frozen(count: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = 1ULL
+            h.automatic = false
+            local roots = rootsIn(a, h, 1ULL)
+            local t = tables.create(h)
+            setRoot(roots, 0ULL, values.TAG_OBJ | t)
+            local wrong: uint64 = 0ULL
+            local i: uint64 = 1ULL
+            while i <= count do
+                wrong = wrong + miss(tables.set(h, t, int(i), node(h, 1ULL)) == tables.OK)
+                i = i + 1ULL
+            end
+            local o = native.pointer(t) as heap.Header*
+            collector.freeze(h, o)
+            wrong = wrong + miss(old(values.TAG_OBJ | t) and h.remembered.count == 1ULL)
+            local remembers = h.stats.remembers
+            local probe = node(h, 1ULL)
+            collector.barrier(h, o, probe)
+            wrong = wrong + miss(h.stats.remembers == remembers and h.remembered.count == 1ULL)
+            wrong = wrong + minor(h)
+            local first: uint64 = 0ULL
+            i = 1ULL
+            while i <= count do
+                if alive(h, tables.get(t, int(i))) then
+                    first = first + 1ULL
+                end
+                i = i + 1ULL
+            end
+            wrong = wrong + miss(h.remembered.count == 1ULL)
+            wrong = wrong + minor(h)
+            local second = h.remembered.count
+            wrong = wrong + miss((o.flags as uint64) & heap.F_TOUCHED == 0ULL)
+            wrong = wrong + minor(h)
+            wrong = wrong + miss(h.remembered.count == 0ULL)
+            setRoot(roots, 0ULL, values.NIL)
+            collector.minorcycle(h)
+            local unrooted = h.liveCount
+            collector.fullCycle(h)
+            tables.drain(h)
+            wrong = wrong + miss(h.liveCount == 0ULL)
+            answer = first + second * 1000ULL + unrooted * 1000000ULL + wrong * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- Weak tables across generations, each check one bit of the answer (all
+-- eleven set when they hold). An old weak-values table drops a young value
+-- nothing else holds at a minor collection and keeps an old one, which only
+-- a full collection clears. A young weak-keys table keeps an old key's
+-- value through minor collections, and drops a young key's; the old key
+-- going, a minor collection still keeps its entry and a full one clears it.
+export function weakgen(): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = 1ULL
+            h.automatic = false
+            local roots = rootsIn(a, h, 4ULL)
+            local wv = tables.create(h)
+            local wvh = heap.objectHeader(values.TAG_OBJ | wv)
+            wvh.aux = weak.WEAK_VALUES
+            setRoot(roots, 0ULL, values.TAG_OBJ | wv)
+            local oldValue = node(h, 1ULL)
+            setRoot(roots, 1ULL, oldValue)
+            local wrong = minor(h) + minor(h)
+            local bits: uint64 = 0ULL
+            if old(values.TAG_OBJ | wv) and old(oldValue) then
+                bits = bits | 1ULL
+            end
+            local youngValue = node(h, 1ULL)
+            tables.set(h, wv, int(1ULL), oldValue)
+            tables.set(h, wv, int(2ULL), youngValue)
+            if flagsOf(values.TAG_OBJ | wv) & heap.F_TOUCHED ~= 0ULL then
+                bits = bits | 2ULL
+            end
+            setRoot(roots, 1ULL, values.NIL)
+            wrong = wrong + minor(h)
+            if tables.get(wv, int(2ULL)) == values.NIL and not alive(h, youngValue) then
+                bits = bits | 4ULL
+            end
+            if tables.get(wv, int(1ULL)) == oldValue and alive(h, oldValue) then
+                bits = bits | 8ULL
+            end
+            wrong = wrong + full(h)
+            if tables.get(wv, int(1ULL)) == values.NIL and not alive(h, oldValue) then
+                bits = bits | 16ULL
+            end
+            -- Ephemerons: an old key and a young one in a young table.
+            local oldKey = node(h, 1ULL)
+            setRoot(roots, 2ULL, oldKey)
+            wrong = wrong + minor(h) + minor(h)
+            local ek = tables.create(h)
+            local ekh = heap.objectHeader(values.TAG_OBJ | ek)
+            ekh.aux = weak.WEAK_KEYS
+            setRoot(roots, 3ULL, values.TAG_OBJ | ek)
+            local kept = node(h, 1ULL)
+            tables.set(h, ek, oldKey, kept)
+            local youngKey = node(h, 1ULL)
+            local dropped = node(h, 1ULL)
+            tables.set(h, ek, youngKey, dropped)
+            wrong = wrong + minor(h)
+            if old(oldKey) and not old(values.TAG_OBJ | ek) then
+                bits = bits | 32ULL
+            end
+            if alive(h, kept) and tables.get(ek, oldKey) == kept then
+                bits = bits | 64ULL
+            end
+            if not alive(h, youngKey) and not alive(h, dropped) then
+                bits = bits | 128ULL
+            end
+            setRoot(roots, 2ULL, values.NIL)
+            wrong = wrong + minor(h)
+            if alive(h, oldKey) and alive(h, kept) then
+                bits = bits | 256ULL
+            end
+            wrong = wrong + minor(h)
+            if alive(h, kept) then
+                bits = bits | 512ULL
+            end
+            wrong = wrong + full(h)
+            if not alive(h, oldKey) and not alive(h, kept) then
+                bits = bits | 1024ULL
+            end
+            answer = bits + wrong * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- `count` cycles running young to old and back: an old node takes a young
+-- one, which holds another, which holds the old node. Rooted only by the
+-- old node's root, every cycle survives minor collections; with that root
+-- gone they still do (the old node is not collected by them, and holds the
+-- rest), until a full collection frees them all. Answers the objects living
+-- after the rooted minor collections plus a thousand times those after the
+-- unrooted ones and a million times those after the full collection.
+export function cycles(count: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = 1ULL
+            h.automatic = false
+            local roots = rootsIn(a, h, count)
+            local i: uint64 = 0ULL
+            while i < count do
+                setRoot(roots, i, node(h, 1ULL))
+                i = i + 1ULL
+            end
+            local wrong = minor(h) + minor(h)
+            i = 0ULL
+            while i < count do
+                local o = getRoot(roots, i)
+                local b = node(h, 1ULL)
+                link(h, o, 0ULL, b)
+                local c = node(h, 1ULL)
+                link(h, slotOf(o, 0ULL), 0ULL, c)
+                link(h, c, 0ULL, o)
+                wrong = wrong + miss(old(o) and not old(b) and not old(c))
+                i = i + 1ULL
+            end
+            wrong = wrong + minor(h) + minor(h) + minor(h)
+            local rooted = h.liveCount
+            i = 0ULL
+            while i < count do
+                setRoot(roots, i, values.NIL)
+                i = i + 1ULL
+            end
+            collector.minorcycle(h)
+            collector.minorcycle(h)
+            local unrooted = h.liveCount
+            wrong = wrong + full(h)
+            answer = rooted + unrooted * 1000ULL + h.liveCount * 1000000ULL + wrong * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- The next word of a xorshift sequence.
+local function shuffle(x: uint64): uint64
+    local y = x ~ (x << 13ULL)
+    y = y ~ (y >> 7ULL)
+    return y ~ (y << 17ULL)
+end
+
+-- A churning graph of two-slot nodes under sixteen roots, `steps` changes
+-- long, its collections interleaved by `mode`. 0: a minor collection every
+-- third step, a whole full one every fiftieth, and an incremental cycle
+-- started every thirty-seventh and stepped while the graph changes, the
+-- oracle checking after each. 1: collection at every allocation, stress
+-- with the oracle (minor collections with a full one between). 2:
+-- interleaved incremental cycles with minor collections between them, the
+-- oracle checking. Freed objects are kept as tombstones, so the oracle sees
+-- any reachable one. Answers the objects living after a last full
+-- collection, which every mode agrees on.
+export function churn(steps: uint64, mode: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(67108864ULL)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = 1ULL
+            h.quarantine = true
+            h.oracle = true
+            h.automatic = mode ~= 0ULL
+            h.stress = mode == 1ULL
+            h.interleave = mode == 2ULL
+            local roots = rootsIn(a, h, 16ULL)
+            local x: uint64 = 88172645463325252ULL
+            local s: uint64 = 1ULL
+            while s <= steps do
+                x = shuffle(x)
+                local op = x & 7ULL
+                local r = (x >> 8ULL) & 15ULL
+                local q = (x >> 16ULL) & 15ULL
+                local slot = (x >> 24ULL) & 1ULL
+                if op < 3ULL then
+                    -- A fresh node at a root, taking another root's node.
+                    setRoot(roots, r, node(h, 2ULL))
+                    link(h, getRoot(roots, r), slot, getRoot(roots, q))
+                elseif op == 3ULL then
+                    -- A fresh node under a rooted one.
+                    local n = node(h, 2ULL)
+                    local parent = getRoot(roots, r)
+                    if parent ~= values.NIL then
+                        link(h, parent, slot, n)
+                    end
+                elseif op == 4ULL then
+                    -- One rooted node takes another.
+                    local parent = getRoot(roots, r)
+                    if parent ~= values.NIL then
+                        link(h, parent, slot, getRoot(roots, q))
+                    end
+                elseif op == 5ULL then
+                    setRoot(roots, r, values.NIL)
+                elseif op == 6ULL then
+                    -- Down a step: a root moves to the node its node holds.
+                    local parent = getRoot(roots, r)
+                    if parent ~= values.NIL then
+                        setRoot(roots, r, slotOf(parent, slot))
+                    end
+                else
+                    node(h, 2ULL)
+                end
+                if mode == 0ULL then
+                    if h.phase ~= heap.PHASE_IDLE then
+                        collector.step(h, 3ULL)
+                        if h.phase == heap.PHASE_IDLE then
+                            collector.checkOracle(h, false)
+                        end
+                    elseif s // 37ULL * 37ULL == s then
+                        collector.startCycle(h)
+                        collector.step(h, 3ULL)
+                    elseif s // 50ULL * 50ULL == s then
+                        collector.fullCycle(h)
+                        collector.checkOracle(h, true)
+                    elseif s // 3ULL * 3ULL == s then
+                        collector.minorcycle(h)
+                        collector.checkOracle(h, false)
+                    end
+                end
+                s = s + 1ULL
+            end
+            h.automatic = false
+            collector.fullCycle(h)
+            collector.fullCycle(h)
+            local failures = h.oracleFailures + collector.checkOracle(h, true)
+            answer = h.liveCount + failures * WRONG
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end

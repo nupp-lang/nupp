@@ -352,6 +352,104 @@ UNITS[#UNITS + 1] = {
     end
 }
 
+-- The objects reachable at the end of genunits.churn: the same xorshift
+-- sequence of changes to two-slot nodes under sixteen roots, followed here.
+local function churnSurvivors(steps)
+    local roots, x = {}, 88172645463325252
+    for _ = 1, steps do
+        x = x ~ (x << 13)
+        x = x ~ (x >> 7)
+        x = x ~ (x << 17)
+        local op, r, q, slot = x & 7, (x >> 8) & 15, (x >> 16) & 15, (x >> 24) & 1
+        if op < 3 then
+            roots[r] = {}
+            roots[r][slot] = roots[q]
+        elseif op == 3 then
+            if roots[r] then
+                roots[r][slot] = {}
+            end
+        elseif op == 4 then
+            if roots[r] then
+                roots[r][slot] = roots[q]
+            end
+        elseif op == 5 then
+            roots[r] = nil
+        elseif op == 6 then
+            if roots[r] then
+                roots[r] = roots[r][slot]
+            end
+        end
+    end
+    local seen, count, stack = {}, 0, {}
+    for i = 0, 15 do
+        stack[#stack + 1] = roots[i]
+    end
+    while #stack > 0 do
+        local node = table.remove(stack)
+        if not seen[node] then
+            seen[node], count = true, count + 1
+            stack[#stack + 1] = node[0]
+            stack[#stack + 1] = node[1]
+        end
+    end
+
+    return count
+end
+
+-- Generations (Decision 20): promotion, the barrier, cards, frozen and weak
+-- tables, cycles across generations, and minor collections interleaved with
+-- full ones under each verification mode.
+UNITS[#UNITS + 1] = {
+    name = "genunits",
+    modules = {"genunits", "unitentry", "nupp.runtime.core.coretables"},
+    paths = {["nupp.runtime.core.coretables"] = ROOT .. "/native/core/src/nupp/runtime/core/coretables.nupp"},
+    include = "native/core/src",
+    entries = {
+        {"genunits", "promotion", 1},
+        {"genunits", "barrier", 1},
+        {"genunits", "cards", 1},
+        {"genunits", "frozen", 1},
+        {"genunits", "weakgen", 0},
+        {"genunits", "cycles", 1},
+        {"genunits", "churn", 2}
+    },
+    cases = function()
+        local cases = {}
+        for _, n in ipairs({0, 1, 500}) do
+            cases[#cases + 1] = {"promotion", {n}, n * 1001000}
+        end
+        cases[#cases + 1] = {"barrier", {0}, 111}
+        cases[#cases + 1] = {"barrier", {1}, 0}
+        for _, n in ipairs({300, 1000, 5000}) do
+            -- Young nodes at every fiftieth array slot, four hash pairs and one
+            -- past the grown array part; the array cards the first dirtied.
+            local dirty, cards = {}, 0
+            for i = 50, n, 50 do
+                local card = (i - 1) // 64
+                if not dirty[card] then
+                    dirty[card], cards = true, cards + 1
+                end
+            end
+            cases[#cases + 1] = {"cards", {n}, n // 50 + 9 + cards * 1000}
+        end
+        for _, n in ipairs({1, 100}) do
+            cases[#cases + 1] = {"frozen", {n}, n + n * 1000 + (n + 1) * 1000000}
+        end
+        cases[#cases + 1] = {"weakgen", {}, 2047}
+        for _, n in ipairs({1, 50}) do
+            cases[#cases + 1] = {"cycles", {n}, 3 * n + 3 * n * 1000}
+        end
+        for _, steps in ipairs({200, 3000}) do
+            local survivors = churnSurvivors(steps)
+            for mode = 0, 2 do
+                cases[#cases + 1] = {"churn", {steps, mode}, survivors}
+            end
+        end
+
+        return cases
+    end
+}
+
 -- Strings as little-endian words, for unit inputs.
 local function pack(text, words)
     local result = {}

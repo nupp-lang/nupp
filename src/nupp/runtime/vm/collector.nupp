@@ -22,6 +22,16 @@ a frame word may be stale.
 The shared child cursor (`nupp.runtime.vm.childwalk`) reads canonical object
 layouts in insertion order. Marking visits every stored value; the oracle
 retains only object references from the same sequence.
+
+Generations (runtime Decision 20) are kept as Lua 5.4's generational mode
+keeps them, without moving anything. A heap whose `generational` is set runs
+minor collections: they trace the young objects reachable from the roots, the
+remembered old objects and the dirty cards of large old tables, then sweep
+only the young, and an object that survives its second one is old. The
+barrier records an old object taking a young child. Frames are roots, so a
+frame store needs no barrier. A full collection frees what is dead at any age
+and leaves ages as they were; with generations it runs whole, as Lua's major
+collections do, unless a verification mode steps it.
 ]]
 
 const native = require("nupp.runtime.vm.intrinsics")
@@ -31,6 +41,30 @@ const weak = require("nupp.runtime.vm.gcweak")
 const marking = require("nupp.runtime.vm.marking")
 const childwalk = require("nupp.runtime.vm.childwalk")
 const objectwalk = require("nupp.runtime.vm.objectwalk")
+const backing = require("nupp.runtime.vm.backing")
+const objecttable = require("nupp.runtime.vm.objecttable")
+
+--- Whether the core's heaps run minor collections (Decision 20): the switch
+--- that turns them off, which leaves the incremental collector as it was.
+export const GENERATIONAL: uint64 = 1ULL
+
+--- Slots one card covers, and the fewest slots, array and hash part
+--- together, of a table that carries cards rather than being remembered.
+export const CARD_SLOTS: uint64 = 64ULL
+
+export const CARD_MINIMUM: uint64 = 256ULL
+
+--- Under stress, the minor collections between full ones; interleaved, the
+--- minor collections before each incremental cycle.
+const STRESS_MINORS: uint64 = 15ULL
+
+const INTERLEAVED_MINORS: uint64 = 8ULL
+
+--- The least allocation between minor collections.
+const MINOR_FLOOR: uint64 = 262144ULL
+
+--- No card record, or no bucket.
+const NONE: uint64 = 0xffffffffffffffffULL
 
 --- A task's frame stack as the root walk reads it (5.1): the base of its
 --- words and the index of the top frame, or `NO_FRAME` once it is done.
@@ -189,12 +223,17 @@ export function eachChild(h: heap.Heap*, o: heap.Header*, stack: heap.Words*?): 
 end
 
 --- Scans a gray object: its children grayed, itself black. A table under a
---- weak mode keeps only the entries that will survive (`gcweak`).
+--- weak mode keeps only the entries that will survive (`gcweak`); in a minor
+--- collection its old referents survive with it.
 local function scanObject(h: heap.Heap*, o: heap.Header*): nil
     @unsafe do
         h.stats.scanned = h.stats.scanned + 1
         if o.kind as uint64 == heap.KIND_TABLE and (o.aux as uint64) & weak.WEAK_MODES ~= 0 then
-            weak.scanWeak(h, o)
+            local mode = (o.aux as uint64) & weak.WEAK_MODES
+            if h.minor ~= 0ULL then
+                mode = mode | weak.WEAK_MINOR
+            end
+            weak.weakCycleScan(h, o, mode)
         else
             marking.scanStrong(h, o)
         end
@@ -268,13 +307,423 @@ local function walkRoots(h: heap.Heap*, constants: boolean, stack: heap.Words*?)
     end
 end
 
+-- ---- generations -------------------------------------------------------------------
+
+local function flagsof(o: heap.Header*): uint64
+    @unsafe do
+        return o.flags as uint64
+    end
+end
+
+local function setflags(o: heap.Header*, flags: uint64): nil
+    @unsafe o.flags = flags
+end
+
+--- The header of an object value, or zero for any other value.
+local function objectof(value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ then
+        return 0ULL
+    end
+
+    return value & values.PAYLOAD
+end
+
+--- Whether a value is a young object.
+local function young(value: uint64): boolean
+    local address = objectof(value)
+    if address == 0ULL then
+        return false
+    end
+
+    @unsafe do
+        return flagsof(native.pointer(address) as heap.Header*) & heap.F_OLD == 0ULL
+    end
+end
+
+--- Whether a value is an object no minor collection has passed yet: one
+--- that is still young after the next.
+local function fresh(value: uint64): boolean
+    local address = objectof(value)
+    if address == 0ULL then
+        return false
+    end
+
+    @unsafe do
+        return flagsof(native.pointer(address) as heap.Header*) & (heap.F_OLD | heap.F_SURVIVAL) == 0ULL
+    end
+end
+
+--- Lists an old object that may hold a young one, once.
+export function remember(h: heap.Heap*, o: heap.Header*): nil
+    @unsafe do
+        if flagsof(o) & heap.F_TOUCHED ~= 0ULL then
+            return
+        end
+        setflags(o, flagsof(o) | heap.F_TOUCHED)
+        heap.wordsPush(h.remembered, native.address(o as voidptr))
+        h.stats.remembers = h.stats.remembers + 1ULL
+    end
+end
+
+--- Whether a store into `o` is one generations record: they are kept, and
+--- `o` is old and not frozen.
+local function recording(h: heap.Heap*, o: heap.Header*): boolean
+    @unsafe do
+        return h.generational ~= 0ULL and flagsof(o) & (heap.F_OLD | heap.F_FROZEN) == heap.F_OLD
+    end
+end
+
+local function tableof(o: heap.Header*): heap.TableBody*
+    @unsafe do
+        return native.pointer(native.address(o as voidptr) + heap.HEADER_BYTES) as heap.TableBody*
+    end
+end
+
+--- Words of card bits over `slots` slots.
+local function bitwords(slots: uint64): uint64
+    return (slots + CARD_SLOTS * 64ULL - 1ULL) // (CARD_SLOTS * 64ULL)
+end
+
+--- Whether a table carries cards: a large one, not weak, whose entries a
+--- minor collection may read strongly.
+local function cardable(o: heap.Header*): boolean
+    @unsafe do
+        if o.kind as uint64 ~= heap.KIND_TABLE or (o.aux as uint64) & weak.WEAK_MODES ~= 0ULL then
+            return false
+        end
+        local t = tableof(o)
+        return t.arrayCap + t.hashCap >= CARD_MINIMUM
+    end
+end
+
+local function bitword(base: uint64, i: uint64): uint64
+    return native.load64(native.pointer(base), native.index(i * 8ULL))
+end
+
+local function setbitword(base: uint64, i: uint64, bits: uint64): nil
+    native.store64(native.pointer(base), native.index(i * 8ULL), bits)
+end
+
+--- `words` words of zeroed card bits, or zero when there is no room.
+local function takebits(h: heap.Heap*, words: uint64): uint64
+    local base = backing.wordBackingTake(h, words)
+    if base == 0ULL then
+        return 0ULL
+    end
+    local i: uint64 = 0ULL
+    while i < words do
+        setbitword(base, i, 0ULL)
+        i = i + 1ULL
+    end
+
+    return base
+end
+
+--- Lays a card record's bits out again over `arraywords` and `hashwords`
+--- words, keeping the array part's bits; the hash part's are kept too, or
+--- with `rehashed` all set, since its entries moved. Answers false, the
+--- record as it was, when there is no room.
+local function relay(h: heap.Heap*, r: uint64, arraywords: uint64, hashwords: uint64, rehashed: boolean): boolean
+    @unsafe do
+        local cards = h.cards
+        local old = heap.wordAt(cards, r + 1ULL)
+        local oldarray = heap.wordAt(cards, r + 2ULL)
+        local oldhash = heap.wordAt(cards, r + 3ULL)
+        local bits = takebits(h, arraywords + hashwords)
+        if bits == 0ULL then
+            return false
+        end
+        local i: uint64 = 0ULL
+        while i < oldarray and i < arraywords do
+            setbitword(bits, i, bitword(old, i))
+            i = i + 1ULL
+        end
+        i = 0ULL
+        while i < hashwords do
+            if rehashed then
+                setbitword(bits, arraywords + i, 0xffffffffffffffffULL)
+            elseif i < oldhash then
+                setbitword(bits, arraywords + i, bitword(old, oldarray + i))
+            end
+            i = i + 1ULL
+        end
+        backing.wordBackingRelease(old)
+        heap.setWordAt(cards, r + 1ULL, bits)
+        heap.setWordAt(cards, r + 2ULL, arraywords)
+        heap.setWordAt(cards, r + 3ULL, hashwords)
+        return true
+    end
+end
+
+--- The offset of table `o`'s card record in `h.cards`, made when it has
+--- none, or NONE when there is no room for one.
+local function cardrecord(h: heap.Heap*, o: heap.Header*): uint64
+    @unsafe do
+        local address = native.address(o as voidptr)
+        if flagsof(o) & heap.F_CARDS ~= 0ULL then
+            local index = (o.aux as uint64) >> 8ULL
+            if index ~= 0ULL then
+                local at = (index - 1ULL) * 6ULL
+                if at < h.cards.count and heap.wordAt(h.cards, at) == address then
+                    return at
+                end
+            end
+            return NONE
+        end
+        local t = tableof(o)
+        local arraywords = bitwords(t.arrayCap)
+        local hashwords = bitwords(t.hashCap)
+        local r: uint64 = 0ULL
+        if h.cardfree.count > 0ULL then
+            r = heap.wordsPop(h.cardfree)
+        else
+            r = h.cards.count
+            -- Its index, from one, is kept above aux's low byte.
+            if r // 6ULL >= 0xffffffULL then
+                return NONE
+            end
+            local k: uint64 = 0ULL
+            while k < 6ULL do
+                heap.wordsPush(h.cards, 0ULL)
+                k = k + 1ULL
+            end
+        end
+        local bits = takebits(h, arraywords + hashwords)
+        if bits == 0ULL then
+            heap.wordsPush(h.cardfree, r)
+            return NONE
+        end
+        heap.setWordAt(h.cards, r, address)
+        heap.setWordAt(h.cards, r + 1ULL, bits)
+        heap.setWordAt(h.cards, r + 2ULL, arraywords)
+        heap.setWordAt(h.cards, r + 3ULL, hashwords)
+        heap.setWordAt(h.cards, r + 4ULL, t.hashPtr)
+        heap.setWordAt(h.cards, r + 5ULL, t.hashCap)
+        o.aux = ((o.aux as uint64) & 0xffULL) | ((r // 6ULL + 1ULL) << 8ULL)
+        setflags(o, flagsof(o) | heap.F_CARDS)
+        return r
+    end
+end
+
+--- Takes a rehash of the table's hash part into its card record: its
+--- entries moved, so every hash card is dirty. Answers false when the bits
+--- cannot be laid out again.
+local function synchash(h: heap.Heap*, r: uint64, o: heap.Header*): boolean
+    @unsafe do
+        local t = tableof(o)
+        if heap.wordAt(h.cards, r + 4ULL) == t.hashPtr and heap.wordAt(h.cards, r + 5ULL) == t.hashCap then
+            return true
+        end
+        if not relay(h, r, heap.wordAt(h.cards, r + 2ULL), bitwords(t.hashCap), true) then
+            return false
+        end
+        heap.setWordAt(h.cards, r + 4ULL, t.hashPtr)
+        heap.setWordAt(h.cards, r + 5ULL, t.hashCap)
+        return true
+    end
+end
+
+local function setbit(base: uint64, bit: uint64): nil
+    local word = bit >> 6ULL
+    setbitword(base, word, bitword(base, word) | (1ULL << (bit & 63ULL)))
+end
+
+--- Marks the card over array slot `i` (from 0). False when there is no room.
+local function markarray(h: heap.Heap*, r: uint64, i: uint64): boolean
+    @unsafe do
+        local card = i // CARD_SLOTS
+        local arraywords = heap.wordAt(h.cards, r + 2ULL)
+        if card >> 6ULL >= arraywords then
+            local wanted = arraywords * 2ULL
+            if wanted <= card >> 6ULL then
+                wanted = (card >> 6ULL) + 1ULL
+            end
+            if not relay(h, r, wanted, heap.wordAt(h.cards, r + 3ULL), false) then
+                return false
+            end
+        end
+        setbit(heap.wordAt(h.cards, r + 1ULL), card)
+        h.stats.cardmarks = h.stats.cardmarks + 1ULL
+        return true
+    end
+end
+
+--- Marks the card over hash bucket `bucket`. False when there is no room.
+local function markhash(h: heap.Heap*, r: uint64, o: heap.Header*, bucket: uint64): boolean
+    @unsafe do
+        if not synchash(h, r, o) then
+            return false
+        end
+        local card = bucket // CARD_SLOTS
+        if card >> 6ULL >= heap.wordAt(h.cards, r + 3ULL) then
+            return false
+        end
+        setbit(heap.wordAt(h.cards, r + 1ULL), heap.wordAt(h.cards, r + 2ULL) * 64ULL + card)
+        h.stats.cardmarks = h.stats.cardmarks + 1ULL
+        return true
+    end
+end
+
+--- Records that array slot `i` of old table `o` holds a young value: by
+--- its card, or when the table carries none by remembering it whole.
+local function arraycard(h: heap.Heap*, o: heap.Header*, i: uint64): nil
+    if cardable(o) then
+        local r = cardrecord(h, o)
+        if r ~= NONE and markarray(h, r, i) then
+            return
+        end
+    end
+    remember(h, o)
+end
+
+--- Lets go of a table's card record, before the sweep frees the table.
+local function cardsrelease(h: heap.Heap*, o: heap.Header*): nil
+    @unsafe do
+        if flagsof(o) & heap.F_CARDS == 0ULL then
+            return
+        end
+        local index = (o.aux as uint64) >> 8ULL
+        if index ~= 0ULL then
+            local r = (index - 1ULL) * 6ULL
+            if r < h.cards.count and heap.wordAt(h.cards, r) == native.address(o as voidptr) then
+                backing.wordBackingRelease(heap.wordAt(h.cards, r + 1ULL))
+                local k: uint64 = 0ULL
+                while k < 6ULL do
+                    heap.setWordAt(h.cards, r + k, 0ULL)
+                    k = k + 1ULL
+                end
+                heap.wordsPush(h.cardfree, r)
+            end
+        end
+        o.aux = (o.aux as uint64) & 0xffULL
+        setflags(o, flagsof(o) & ~heap.F_CARDS)
+    end
+end
+
+--- After a full collection: the young list drops the dead and repeats (a
+--- freed slot taken again is listed again), the remembered list the dead,
+--- and the next full collection waits for what lives now to double.
+local function afterfull(h: heap.Heap*): nil
+    @unsafe do
+        local list = h.young
+        local kept: uint64 = 0ULL
+        local i: uint64 = 0ULL
+        while i < list.count do
+            local address = heap.wordAt(list, i)
+            if heap.isLiveSlot(h, address) then
+                local o = native.pointer(address) as heap.Header*
+                if flagsof(o) & (heap.F_OLD | heap.F_LISTED) == 0ULL then
+                    setflags(o, flagsof(o) | heap.F_LISTED)
+                    heap.setWordAt(list, kept, address)
+                    kept = kept + 1ULL
+                end
+            end
+            i = i + 1ULL
+        end
+        list.count = kept
+        i = 0ULL
+        while i < kept do
+            local o = native.pointer(heap.wordAt(list, i)) as heap.Header*
+            setflags(o, flagsof(o) & ~heap.F_LISTED)
+            i = i + 1ULL
+        end
+        list = h.remembered
+        kept = 0ULL
+        i = 0ULL
+        while i < list.count do
+            local address = heap.wordAt(list, i)
+            if heap.isLiveSlot(h, address)
+                and flagsof(native.pointer(address) as heap.Header*) & heap.F_TOUCHED ~= 0ULL
+            then
+                heap.setWordAt(list, kept, address)
+                kept = kept + 1ULL
+            end
+            i = i + 1ULL
+        end
+        list.count = kept
+        h.genbase = h.liveBytes
+        if h.genbase < 1048576ULL then
+            h.genbase = 1048576ULL
+        end
+        h.sincefull = 0ULL
+    end
+end
+
 -- ---- the barrier -------------------------------------------------------------------
 
 --- The insertion barrier (4.2): storing a white child into a black parent
 --- while marking grays the child. Every heap store runs it; outside a
---- cycle it is one load and a branch.
+--- cycle it is one load and a branch. With generations an old object taking
+--- a young child is remembered (Decision 20).
 export function barrier(h: heap.Heap*, parent: heap.Header*, child: uint64): nil
     marking.insertionBarrier(h, parent, child)
+    if recording(h, parent) and young(child) then
+        remember(h, parent)
+    end
+end
+
+--- The insertion barrier alone, before a table store whose slot the
+--- generational record (`arraystore`, `arrayrange`, `hashstore`) names
+--- after it.
+export function insertion(h: heap.Heap*, parent: heap.Header*, child: uint64): nil
+    marking.insertionBarrier(h, parent, child)
+end
+
+--- After `value` is stored at array slot `i` (from 0) of table `o`.
+export function arraystore(h: heap.Heap*, o: heap.Header*, i: uint64, value: uint64): nil
+    if recording(h, o) and young(value) then
+        arraycard(h, o, i)
+    end
+end
+
+--- After the array part of table `o` took slots `first` up to `last`
+--- (from 0), as when it grows over keys its hash part held.
+export function arrayrange(h: heap.Heap*, o: heap.Header*, first: uint64, last: uint64): nil
+    if not recording(h, o) then
+        return
+    end
+    @unsafe do
+        local t = tableof(o)
+        local i = first
+        while i < last and i < t.arrayLen do
+            if young(native.load64(native.pointer(t.arrayPtr), native.index(i * 8ULL))) then
+                arraycard(h, o, i)
+            end
+            i = i + 1ULL
+        end
+    end
+end
+
+--- After `key` and `value` are stored in the hash part of table `o`.
+export function hashstore(h: heap.Heap*, o: heap.Header*, key: uint64, value: uint64): nil
+    if not recording(h, o) or not (young(key) or young(value)) then
+        return
+    end
+    if cardable(o) then
+        local r = cardrecord(h, o)
+        if r ~= NONE then
+            @unsafe do
+                local t = tableof(o)
+                local bucket = objecttable.tableProbe(native.pointer(t.hashPtr), t.hashCap, t.hashMask, key)
+                if bucket ~= NONE and markhash(h, r, o, bucket) then
+                    return
+                end
+            end
+        end
+    end
+    remember(h, o)
+end
+
+--- Freezes a table (Decision 20): it is old from now on and never written
+--- again, so no store into it is recorded. The minor collections that
+--- follow still trace the young objects it holds as it freezes.
+export function freeze(h: heap.Heap*, o: heap.Header*): nil
+    setflags(o, (flagsof(o) & ~heap.F_SURVIVAL) | heap.F_OLD | heap.F_FROZEN)
+    @unsafe do
+        if h.generational ~= 0ULL then
+            remember(h, o)
+        end
+    end
 end
 
 --- An object whose words changed without the barrier, as a coroutine's
@@ -317,6 +766,7 @@ end
 --- Frees a white object: its memory goes back to the allocator, or, when
 --- it owns something outside its slot, onto the released list (`gcweak`).
 local function freeObject(h: heap.Heap*, o: heap.Header*): nil
+    cardsrelease(h, o)
     @unsafe weak.release(h, o)
 end
 
@@ -386,6 +836,7 @@ local function sweepPart(h: heap.Heap*, work: uint64): nil
             if h.threshold < 1048576 then
                 h.threshold = 1048576
             end
+            afterfull(h)
         end
     end
 end
@@ -443,6 +894,254 @@ export function fullCycle(h: heap.Heap*): nil
             step(h, UNBOUNDED)
         end
         h.debt = 0
+    end
+end
+
+-- ---- minor collections
+-- ---------------------------------------------------------------
+
+--- Scans a remembered old object for the young ones it holds, leaving it
+--- unmarked: a minor collection never sweeps it.
+local function rememberscan(h: heap.Heap*, o: heap.Header*): nil
+    @unsafe do
+        if o.kind as uint64 == heap.KIND_TABLE and (o.aux as uint64) & weak.WEAK_MODES ~= 0ULL then
+            weak.weakCycleScan(h, o, ((o.aux as uint64) & weak.WEAK_MODES) | weak.WEAK_MINOR)
+        else
+            marking.scanStrong(h, o)
+        end
+        o.color = heap.COLOR_WHITE
+    end
+end
+
+--- Whether an object holds one no minor collection has passed, which the
+--- next minor collection still has to reach through it.
+local function holdsfresh(o: heap.Header*): boolean
+    @unsafe do
+        local state = new childwalk.Cursor(0ULL, 0ULL, values.NIL)
+        local cursor = state as childwalk.Cursor*
+        while childwalk.childNext(o, cursor) ~= 0ULL do
+            if fresh(cursor.value) then
+                return true
+            end
+        end
+        return false
+    end
+end
+
+--- After marking, the remembered list keeps an object only while it holds
+--- a fresh one (as Lua 5.4's touched objects stay gray for two cycles), and
+--- an old thread always, since its frames change without the barrier.
+local function rememberkeep(h: heap.Heap*): nil
+    @unsafe do
+        local list = h.remembered
+        local kept: uint64 = 0ULL
+        local i: uint64 = 0ULL
+        while i < list.count do
+            local address = heap.wordAt(list, i)
+            local o = native.pointer(address) as heap.Header*
+            if o.kind as uint64 == heap.KIND_THREAD or holdsfresh(o) then
+                heap.setWordAt(list, kept, address)
+                kept = kept + 1ULL
+            else
+                setflags(o, flagsof(o) & ~heap.F_TOUCHED)
+            end
+            i = i + 1ULL
+        end
+        list.count = kept
+    end
+end
+
+--- The array slots of card `card`: shaded when `scan`, else whether one of
+--- them holds a fresh object.
+local function arrayslots(h: heap.Heap*, t: heap.TableBody*, card: uint64, scan: boolean): boolean
+    @unsafe do
+        local i = card * CARD_SLOTS
+        local last = i + CARD_SLOTS
+        if last > t.arrayLen then
+            last = t.arrayLen
+        end
+        while i < last do
+            local value = native.load64(native.pointer(t.arrayPtr), native.index(i * 8ULL))
+            if scan then
+                marking.shadeValue(h, value)
+            elseif fresh(value) then
+                return true
+            end
+            i = i + 1ULL
+        end
+        return false
+    end
+end
+
+--- The hash buckets of card `card`, as `arrayslots`; a removed entry, its
+--- value nil, holds nothing.
+local function hashslots(h: heap.Heap*, t: heap.TableBody*, card: uint64, scan: boolean): boolean
+    @unsafe do
+        if t.hashPtr == 0ULL then
+            return false
+        end
+        local b = card * CARD_SLOTS
+        local last = b + CARD_SLOTS
+        if last > t.hashCap then
+            last = t.hashCap
+        end
+        while b < last do
+            local key = native.load64(native.pointer(t.hashPtr), native.index(b * 16ULL))
+            local value = native.load64(native.pointer(t.hashPtr), native.index(b * 16ULL + 8ULL))
+            if key ~= values.NIL and value ~= values.NIL then
+                if scan then
+                    marking.shadeValue(h, key)
+                    marking.shadeValue(h, value)
+                elseif fresh(key) or fresh(value) then
+                    return true
+                end
+            end
+            b = b + 1ULL
+        end
+        return false
+    end
+end
+
+--- Each dirty card of the record at `r`: its slots shaded when `scan`,
+--- else kept dirty only while one of them holds a fresh object.
+local function cardwalk(h: heap.Heap*, r: uint64, scan: boolean): nil
+    @unsafe do
+        local t = tableof(native.pointer(heap.wordAt(h.cards, r)) as heap.Header*)
+        local bits = heap.wordAt(h.cards, r + 1ULL)
+        local arraywords = heap.wordAt(h.cards, r + 2ULL)
+        local words = arraywords + heap.wordAt(h.cards, r + 3ULL)
+        local w: uint64 = 0ULL
+        while w < words do
+            local word = bitword(bits, w)
+            if word ~= 0ULL then
+                local b: uint64 = 0ULL
+                while b < 64ULL do
+                    local bit = 1ULL << b
+                    if word & bit ~= 0ULL then
+                        local holds: boolean = false
+                        if w < arraywords then
+                            holds = arrayslots(h, t, w * 64ULL + b, scan)
+                        else
+                            holds = hashslots(h, t, (w - arraywords) * 64ULL + b, scan)
+                        end
+                        if not scan and not holds then
+                            word = word & ~bit
+                        end
+                    end
+                    b = b + 1ULL
+                end
+                if not scan then
+                    setbitword(bits, w, word)
+                end
+            end
+            w = w + 1ULL
+        end
+    end
+end
+
+--- Shades what the dirty cards of every carded table hold. A table whose
+--- bits cannot follow its rehash is scanned whole and remembered instead.
+local function cardscan(h: heap.Heap*): nil
+    @unsafe do
+        local r: uint64 = 0ULL
+        while r < h.cards.count do
+            local address = heap.wordAt(h.cards, r)
+            if address ~= 0ULL then
+                local o = native.pointer(address) as heap.Header*
+                if synchash(h, r, o) then
+                    cardwalk(h, r, true)
+                else
+                    remember(h, o)
+                end
+            end
+            r = r + 6ULL
+        end
+    end
+end
+
+--- After marking, each card stays dirty only while it holds a fresh object.
+local function cardkeep(h: heap.Heap*): nil
+    @unsafe do
+        local r: uint64 = 0ULL
+        while r < h.cards.count do
+            if heap.wordAt(h.cards, r) ~= 0ULL then
+                cardwalk(h, r, false)
+            end
+            r = r + 6ULL
+        end
+    end
+end
+
+--- Sweeps the young list: an unmarked object is freed, a marked one
+--- survives, and one surviving its second minor collection is promoted and
+--- remembered, as the young it holds are not yet old.
+local function sweepyoung(h: heap.Heap*): nil
+    @unsafe do
+        local list = h.young
+        local kept: uint64 = 0ULL
+        local i: uint64 = 0ULL
+        while i < list.count do
+            local address = heap.wordAt(list, i)
+            local o = native.pointer(address) as heap.Header*
+            local flags = flagsof(o)
+            if flags & heap.F_OLD ~= 0ULL then
+                -- Frozen while young: no longer this list's.
+                i = i + 1ULL
+            elseif o.color as uint64 == heap.COLOR_WHITE then
+                h.stats.swept = h.stats.swept + 1ULL
+                freeObject(h, o)
+                i = i + 1ULL
+            else
+                o.color = heap.COLOR_WHITE
+                if flags & heap.F_SURVIVAL ~= 0ULL then
+                    setflags(o, (flags & ~heap.F_SURVIVAL) | heap.F_OLD)
+                    h.stats.promoted = h.stats.promoted + 1ULL
+                    remember(h, o)
+                else
+                    setflags(o, flags | heap.F_SURVIVAL)
+                    heap.setWordAt(list, kept, address)
+                    kept = kept + 1ULL
+                end
+                i = i + 1ULL
+            end
+        end
+        list.count = kept
+    end
+end
+
+--- A minor collection (Decision 20), whole: the young objects the roots,
+--- the remembered objects and the dirty cards reach are marked, weak
+--- entries naming dead young objects are cleared, and the young list is
+--- swept. It runs only between full cycles.
+export function minorcycle(h: heap.Heap*): nil
+    @unsafe do
+        if h.generational == 0ULL or h.phase ~= heap.PHASE_IDLE then
+            return
+        end
+        h.stats.minors = h.stats.minors + 1ULL
+        h.sincefull = h.sincefull + 1ULL
+        h.minor = 1ULL
+        weak.weakCycleReset(h)
+        walkRoots(h, true, nil)
+        cardscan(h)
+        local i: uint64 = 0ULL
+        while i < h.remembered.count do
+            rememberscan(h, native.pointer(heap.wordAt(h.remembered, i)) as heap.Header*)
+            i = i + 1ULL
+        end
+        while true do
+            local gray = heap.grayPop(h)
+            if gray ~= 0ULL then
+                scanObject(h, native.pointer(gray) as heap.Header*)
+            elseif not weak.propagate(h) then
+                break
+            end
+        end
+        weak.clear(h)
+        rememberkeep(h)
+        cardkeep(h)
+        sweepyoung(h)
+        h.minor = 0ULL
     end
 end
 
@@ -514,12 +1213,27 @@ end
 --- sweeping work; under stress a whole cycle every time; interleaved, one
 --- small step, with the oracle at every cycle's end (4.8: safety after the
 --- incremental cycle, exactness after the atomic one that follows).
+---
+--- With generations (Decision 20) stress runs a minor collection every time
+--- and a whole cycle after every `STRESS_MINORS` of them; interleaved,
+--- `INTERLEAVED_MINORS` minor collections come before each incremental
+--- cycle, the oracle checking safety after each. Otherwise, as Lua 5.4's
+--- generational mode is paced, a minor collection runs once allocation
+--- reaches a fifth of what lived after the last full collection, and a full
+--- one, whole, once what lives has doubled since.
 export function safepoint(h: heap.Heap*): nil
     @unsafe do
         if not h.automatic then
             return
         end
         if h.stress then
+            if h.generational ~= 0ULL and h.phase == heap.PHASE_IDLE and h.sincefull < STRESS_MINORS then
+                minorcycle(h)
+                if h.oracle then
+                    checkOracle(h, false)
+                end
+                return
+            end
             fullCycle(h)
             if h.oracle then
                 checkOracle(h, true)
@@ -528,6 +1242,13 @@ export function safepoint(h: heap.Heap*): nil
         end
         if h.interleave then
             if h.phase == heap.PHASE_IDLE then
+                if h.generational ~= 0ULL and h.sincefull < INTERLEAVED_MINORS then
+                    minorcycle(h)
+                    if h.oracle then
+                        checkOracle(h, false)
+                    end
+                    return
+                end
                 startCycle(h)
             end
             step(h, 2)
@@ -535,6 +1256,21 @@ export function safepoint(h: heap.Heap*): nil
                 checkOracle(h, false)
                 fullCycle(h)
                 checkOracle(h, true)
+            end
+            return
+        end
+        if h.generational ~= 0ULL and h.phase == heap.PHASE_IDLE then
+            local allowance = h.genbase // 5ULL
+            if allowance < MINOR_FLOOR then
+                allowance = MINOR_FLOOR
+            end
+            if h.debt < allowance then
+                return
+            end
+            minorcycle(h)
+            h.debt = 0
+            if h.liveBytes > h.genbase * 2ULL then
+                fullCycle(h)
             end
             return
         end

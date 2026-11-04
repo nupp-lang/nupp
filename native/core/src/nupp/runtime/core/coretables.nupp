@@ -133,6 +133,8 @@ export function lookup(h: heap.Heap*, table: uint64, key: uint64): uint64
 end
 
 -- Stores `value` at `key`; nil removes. Answers OK, BAD_KEY or NO_MEMORY.
+-- The insertion barrier runs before the store; the generational record,
+-- which names the slot so a large table's card is marked, after it.
 export function set(h: heap.Heap*, table: uint64, raw: uint64, value: uint64): uint64
     local key = normalized(h, raw, true)
     if admissible(key) == 0ULL then
@@ -140,13 +142,14 @@ export function set(h: heap.Heap*, table: uint64, raw: uint64, value: uint64): u
     end
     @unsafe do
         local o = native.pointer(table) as heap.Header*
-        collector.barrier(h, o, key)
-        collector.barrier(h, o, value)
+        collector.insertion(h, o, key)
+        collector.insertion(h, o, value)
         local a = arrayOf(o)
         local t = hashOf(o)
         local index = position(key)
         if index ~= 0ULL and index <= a.length then
             native.store64(native.pointer(a.base), native.index((index - 1ULL) * 8ULL), value)
+            collector.arraystore(h, o, index - 1ULL, value)
             if value == values.NIL and index == a.length then
                 arrays.arrayTrim(a)
                 mirror(o)
@@ -173,12 +176,15 @@ export function set(h: heap.Heap*, table: uint64, raw: uint64, value: uint64): u
                     end
                     if arrays.arrayPush(a, native.load64(native.pointer(slot), 0)) ~= 0ULL then
                         mirror(o)
+                        collector.arrayrange(h, o, index - 1ULL, a.length)
                         return NO_MEMORY
                     end
                     hashes.tableOwnedInsert(t, next, values.NIL)
                 end
             end
             mirror(o)
+            -- The array part took this slot and any the hash part held past it.
+            collector.arrayrange(h, o, index - 1ULL, a.length)
             return OK
         end
         if t.owner == 0ULL then
@@ -192,6 +198,7 @@ export function set(h: heap.Heap*, table: uint64, raw: uint64, value: uint64): u
         if hashes.tableOwnedInsert(t, key, value) ~= 0ULL then
             return NO_MEMORY
         end
+        collector.hashstore(h, o, key, value)
 
         return OK
     end

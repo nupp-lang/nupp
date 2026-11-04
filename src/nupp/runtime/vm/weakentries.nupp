@@ -8,6 +8,10 @@ const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
 const marking = require("nupp.runtime.vm.marking")
 
+-- A mode bit beside the weak sides: a minor collection is asking, so an old
+-- referent holds, as it is not collected (gcweak.WEAK_MINOR).
+const MINOR: uint64 = 4ULL
+
 local function weakClearable(value: uint64): boolean
     @unsafe do
         if value & values.TAG_MASK ~= values.TAG_OBJ then
@@ -18,12 +22,16 @@ local function weakClearable(value: uint64): boolean
     end
 end
 
-local function weakHolds(value: uint64): boolean
+local function weakHolds(value: uint64, mode: uint64): boolean
     @unsafe do
         if not weakClearable(value) then
             return true
         end
-        return (native.pointer(value & values.PAYLOAD) as heap.Header*).color as uint64 ~= heap.COLOR_WHITE
+        local o = native.pointer(value & values.PAYLOAD) as heap.Header*
+        if mode & MINOR ~= 0ULL and (o.flags as uint64) & heap.F_OLD ~= 0ULL then
+            return true
+        end
+        return o.color as uint64 ~= heap.COLOR_WHITE
     end
 end
 
@@ -42,7 +50,7 @@ export function weakMarkViews(
         local i: uint64 = 0ULL
         while i < length do
             local item = native.load64(array, native.index(i * 8ULL))
-            if not weakValues or weakHolds(item) then
+            if not weakValues or weakHolds(item, mode) then
                 if marking.shadeValue(h, item) then
                     grayed = true
                 end
@@ -55,10 +63,10 @@ export function weakMarkViews(
             local item = native.load64(buckets, native.index(i * 16ULL + 8ULL))
             if key ~= values.NIL and item ~= values.NIL then
                 local survives: boolean = true
-                if weakKeys and not weakHolds(key) then
+                if weakKeys and not weakHolds(key, mode) then
                     survives = false
                 end
-                if weakValues and not weakHolds(item) then
+                if weakValues and not weakHolds(item, mode) then
                     survives = false
                 end
                 if survives then
@@ -96,7 +104,7 @@ export function weakClearViews(
             local i: uint64 = 0ULL
             while i < length do
                 local item = native.load64(array, native.index(i * 8ULL))
-                if not weakHolds(item) then
+                if not weakHolds(item, mode) then
                     native.store64(array, native.index(i * 8ULL), values.NIL)
                     changed = true
                     arrayChanged = true
@@ -115,10 +123,10 @@ export function weakClearViews(
             local item = native.load64(buckets, native.index(i * 16ULL + 8ULL))
             if key ~= values.NIL and item ~= values.NIL then
                 local gone: boolean = false
-                if mode & 1ULL ~= 0ULL and not weakHolds(key) then
+                if mode & 1ULL ~= 0ULL and not weakHolds(key, mode) then
                     gone = true
                 end
-                if mode & 2ULL ~= 0ULL and not weakHolds(item) then
+                if mode & 2ULL ~= 0ULL and not weakHolds(item, mode) then
                     gone = true
                 end
                 if gone then
