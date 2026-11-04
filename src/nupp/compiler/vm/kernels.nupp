@@ -593,8 +593,8 @@ function frontend.build(body: any, mapMode: boolean?): any
                 local lanes = literal(args[2]) or 16 / widths[kind]
                 need(lanes >= 2 and lanes <= 64 and lanes % 1 == 0, "species width")
                 local witness = identity(args[1])
-                need(witness and witness:sub(1, 15) == "nupp.mem.array.", "checked storage witness")
-                need(elements[witness:sub(16)] == kind, "matching storage witness")
+                need(witness and witness:sub(1, 11) == "nupp.array.", "checked storage witness")
+                need(elements[witness:sub(12)] == kind, "matching storage witness")
                 seenVector = true
                 return shape("species", kind, lanes)
             elseif id == "simd.horizontal.algebraicSum" or id == "simd.horizontal.algebraicsum" then

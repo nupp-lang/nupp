@@ -8,7 +8,7 @@ parameters.
 ]]
 const assert2 = require("assert")
 
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 const tasks = require("coroutine")
 local foreign = require("nupp.foreign")
 

@@ -1653,7 +1653,7 @@ NO_JIT=1 python3 native/crates/vm/tests/simd-smoke.py COMPILER_IMAGE --output OU
 ### Struct and SoA field access: what it waits on (2026-10-13)
 
 The language's `load(span, at, field)` and `store` field forms, over a span
-of structs (strided) or a `nupp.mem.soa` column (contiguous), are refused on
+of structs (strided) or a `nupp.soa` column (contiguous), are refused on
 the VM by name. They are not a SIMD feature to add; they are the last
 consumer of a storage representation the VM does not have yet. The chain,
 in order:
@@ -1663,7 +1663,7 @@ in order:
    struct witness cannot allocate here. The descriptor needs fields with
    name, kind and offset, and the struct's size and alignment: contracts 2.9's
    layout record, the same item the entity ID plan puts first.
-2. **`nupp.mem.soa` off the FFI.** The module is LuaJIT `ffi` over a slab
+2. **`nupp.soa` off the FFI.** The module is LuaJIT `ffi` over a slab
    with one column per top-level field. On the VM it is one scalar storage
    per field under one owner, with the row count shared; the view and the
    affine tokens are unchanged.
@@ -2336,9 +2336,9 @@ them; the runtime binary is in no stamp.
 Nothing the VM loads from `src/` reaches LuaJIT's `ffi` any more. What each
 module that did became:
 
-- **`nupp.mem.soa`, `nupp.mem.heap`, `nupp.mem.sharedbytes`** have VM
-  implementations in `lib/nupp/mem` with the same public declarations. A SoA
-  slab is one managed allocation of words, each column a typed view
+- **`nupp.soa`, `nupp.heap`, `io.Bytes`** have VM implementations in
+  `lib/nupp/mem` with the same public declarations. A SoA slab is one
+  managed allocation of words, each column a typed view
   (`castWritableElements`) of its segment, laid out as LuaJIT lays it out; a
   heap array is managed storage of its element descriptor; a region's block
   is a shared block `copy` filled or a frozen builder's storage became. All of
@@ -2826,7 +2826,7 @@ Still `port-required`, by what they need:
   `importctest`, `ownershiptest`, `simdfixedlanestest`); `cheader(...)`
   namespaces are not lowered (`cheadertest`); a binding's `@lib/` library
   reaches dlopen unresolved (`projecttest`).
-- **`nupp.mem.heap` and `nupp.mem.sharedbytes`** still need `ffi` or the
+- **`nupp.heap` and `io.Bytes`** still need `ffi` or the
   engine host (`bundletest`, `ownershiptest`, `runtimetest`).
 - **Semantics**: integer `% 0` answers nan (`operatortest`); an `xpcall`
   handler runs after the unwind (`orexittest`); a generic constructor at
@@ -3197,13 +3197,13 @@ through its own owner object, so every collector traces only its own heap and
 the last owner to be swept frees the bytes. Every storage view over a shared
 owner is read-only (`storage::view` and the physical fast path both ask), so
 readers never synchronize; publication and release are the reference count.
-`nupp.mem.sharedbytes` makes its blocks this way through the storage
-provider's `share`: `copy` copies its string once into one (as the name and
-LuaJIT's library say), `readFile` likewise, and `freeze` turns the builder's
-own allocation into the block without copying.
+`io.Bytes` makes its blocks this way through the storage provider's
+`share`: `copy` copies its string once into one (as the name and LuaJIT's
+library say), `readfile` likewise, and `freeze` turns the builder's own
+allocation into the block without copying.
 
-**Moves.** A `nupp.mem.heap` array (a record of shape identity
-`nupp.mem.heap:Array`) reachable from a worker's arguments or a settled task's
+**Moves.** A `nupp.heap` array (a record of shape identity
+`nupp.heap:Array`) reachable from a worker's arguments or a settled task's
 results moves: the crossing takes the `AlignedBytes` out of the sender's
 owner, leaving `ByteBuffer::Moved`, and the receiver's owner adopts the same
 allocation. The checker already allows such an array to cross only where the

@@ -1164,12 +1164,12 @@ function metadata.expand(root, moduleName: string?)
             replaceExpression(current, storageDescriptor(current))
         elseif current.kind == "call" and current.soaLayout and current.soaOperation then
             -- The SoA intrinsics take the checker's declared-field specification,
-            -- as the Lua backend's layout helper does; the VM's `nupp.mem.soa`
+            -- as the Lua backend's layout helper does; the VM's `nupp.soa`
             -- measures the fields from the row's storage descriptor.
             local spec = current.soaLayout
             local arguments = current.args and current.args.exprs or {}
             local raw = data({name = spec.name, spec = spec.spec, printed = spec.printed})
-            local soa = required("nupp.mem.soa")
+            local soa = required("nupp.soa")
             local lowered
             if current.soaOperation == "allocate" then
                 lowered = call(field(soa, "_allocate"), {arguments[1] or data(nil), arguments[2] or data(nil), raw})

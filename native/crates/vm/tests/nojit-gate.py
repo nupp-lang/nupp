@@ -87,7 +87,7 @@ def kinds_source():
     """`nupp.tests.nojitkinds`: per element kind and width, a masked map that
     wraps, squares and selects, rendered as text."""
     source = '''module nupp.tests.nojitkinds
-const array = require("nupp.mem.array")
+const array = require("nupp.array")
 const span = require("nupp.mem.span")
 const simd = require("simd")
 '''

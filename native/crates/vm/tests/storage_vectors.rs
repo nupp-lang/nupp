@@ -418,7 +418,7 @@ fn vector_storage_graph_and_vm_checkpoints_keep_descriptor_bits_and_value_copies
 #[test]
 fn worker_moved_vector_arrays_keep_raw_bits_and_invalidate_sender_views() {
     let mut vm = vm();
-    let entry = image::load(&mut vm, "shape 0 Array identity=nupp.mem.heap:Array pointer:any count:num\nfunction echo 0 1 4 1 v:v\nRet 1\nend\nentry 0\n").unwrap();
+    let entry = image::load(&mut vm, "shape 0 Array identity=nupp.heap:Array pointer:any count:num\nfunction echo 0 1 4 1 v:v\nRet 1\nend\nentry 0\n").unwrap();
     vm.enable_scheduler().unwrap();
     let ty = vector_type(&mut vm, "uint64", 3);
     let rows = keep(&mut vm, "storage.allocateArray", &[ty, Value::num(2.0)]);
@@ -428,7 +428,7 @@ fn worker_moved_vector_arrays_keep_raw_bits_and_invalidate_sender_views() {
         .collect();
     let input = vector(&mut vm, 6, 3, &bits);
     call(&mut vm, "storage.write", &[rows, Value::num(1.0), input]);
-    let shape = vm.heap.shape_identities["nupp.mem.heap:Array"];
+    let shape = vm.heap.shape_identities["nupp.heap:Array"];
     let array = vm.new_record(shape);
     vm.register(array);
     set(&mut vm, array, "pointer", rows);

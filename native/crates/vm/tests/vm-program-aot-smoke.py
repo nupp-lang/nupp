@@ -31,7 +31,7 @@ process = ProcessRunner(out)
 
 PROGRAM = '''module main
 
-const array = require("nupp.mem.array")
+const array = require("nupp.array")
 const kernels = require("kernels")
 
 local parts: {string} = {}

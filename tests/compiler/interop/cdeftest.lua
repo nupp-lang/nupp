@@ -128,7 +128,7 @@ function M.countedPointersExecuteBoundsOffsetsCountsAndSharedDowngrades()
     )
     local source = declaration .. "\n" .. table.concat(
         {
-            "local array = require('nupp.mem.array')",
+            "local array = require('nupp.array')",
             "local input = array.scalar(array.int32, 6)",
             "local output = array.scalar(array.int32, 6)",
             "do",

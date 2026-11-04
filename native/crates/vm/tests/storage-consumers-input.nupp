@@ -3,9 +3,9 @@ module nupp.tests.vmstorageconsumers
 local probe = {}
 
 function probe.run(): integer
-    local heap = require("nupp.mem.heap")
-    local soa = require("nupp.mem.soa")
-    local shared = require("nupp.mem.sharedbytes")
+    local heap = require("nupp.heap")
+    local soa = require("nupp.soa")
+    local shared = io.Bytes
     local values = heap.alloc(ffi.typeof<int32>(), 2)
     do
         local writable = values:write();

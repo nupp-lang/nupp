@@ -422,7 +422,7 @@ function M.compoundSoAFieldsKeepTheirOriginalRowIndex()
     assert(
         run(
             [[
-local soa = require("nupp.mem.soa")
+local soa = require("nupp.soa")
 local struct Row
     value: float64
 end

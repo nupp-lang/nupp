@@ -2264,7 +2264,7 @@ function lower.emit(
     end
 
     -- SoA row views have no Lua metatable either: a row, a row's field and a
-    -- projected column are checked methods of the VM's `nupp.mem.soa` view,
+    -- projected column are checked methods of the VM's `nupp.soa` view,
     -- which owns the columns. `receiver` is the view, `arguments` its operands.
     local function soaAccess(f: Fn, method, receiver, arguments, value, dst)
         dst = dst or f:reg()
@@ -3001,13 +3001,16 @@ function lower.emit(
             -- `e or return`, `e or break`, `e or continue`: the operand runs once into
             -- fixed registers, its first value decides, and that value is the
             -- expression's. `or return` returns the whole pack through an ordinary
-            -- return, so it discharges what it leaves as a written one would.
-            local width = node.exitKind == "return" and math.max(node.orExitWidth or 1, 1) or 1
+            -- return, so it discharges what it leaves as a written one would. A
+            -- protected call's status decides instead: its second value is the
+            -- expression's, and `or return` returns nil and the error.
+            local protected = node.orExitProtected == true
+            local width = protected and 2 or node.exitKind == "return" and math.max(node.orExitWidth or 1, 1) or 1
             local base = f.nregs
             while f.nregs < base + width + 8 do
                 f:reg()
             end
-            if width > 1 and multiCall(node.operand) then
+            if protected or width > 1 and multiCall(node.operand) then
                 emitCall(f, node.operand, base, width)
             else
                 exprAs(f, node.operand, "v", base)
@@ -3022,12 +3025,15 @@ function lower.emit(
                 for index = 1, width do
                     values[index] = {kind = "vmRegister", reg = base + index - 1}
                 end
+                if protected then
+                    values[1] = {kind = "nil"}
+                end
                 stmt(f, {kind = "returnStmt", exprs = values})
             else
                 stmt(f, {kind = node.exitKind == "break" and "breakStmt" or "continueStmt"})
             end
             f:place(proceed)
-            f:op("Move", dst, base)
+            f:op("Move", dst, protected and base + 1 or base)
         elseif k == "istring" then
             -- `text ${value} text`: each literal piece as written, each value
             -- through the `tostring` builtin (never a local of that name), joined

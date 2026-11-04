@@ -158,6 +158,9 @@ local suspension = require("coroutine.sus")
 local suspensionHost = require("coroutine.sus.host")
 local suspensionContract = require("nupp.suspension.contracts")
 local cancellation = require("coroutine.sus.cancellation")
+-- A plain thread rather than the VM's owned one: the pump keeps its parked
+-- task in a field across calls, which an affine thread cannot be stored in.
+local coroutines = require("nupp.suspension.internal.coroutines")
 
 --- Called with the results of a call whose caller stopped waiting.
 export type Late = contracts.Late
@@ -395,7 +398,7 @@ export record Pump
         self.result = nil
         self.failure = nil
         local pump = self
-        local task = coroutine.create(function(): nil
+        local task = coroutines.create(function(): nil
             local succeeded, result = pcall(function(): boolean?
                 do
                     local installation = suspensionHost.install(pump.handler)

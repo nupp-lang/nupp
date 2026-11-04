@@ -4,7 +4,7 @@ bench/simd11 kernels, shared by native-simd-smoke.py and nojit-gate.py."""
 
 def native_source():
     source = '''module nupp.tests.vmnativesimd
-const array = require("nupp.mem.array")
+const array = require("nupp.array")
 const span = require("nupp.mem.span")
 const simd = require("simd")
 const tasks = require("nupp.tasks")
@@ -129,7 +129,7 @@ end
 export function workers(): number
     with scope = tasks.open() do
         local job = scope:fork(0, function(value: integer): integer
-            require("nupp.mem.array")
+            require("nupp.array")
             check_uint64()
             checkedKernels()
             return value + 42

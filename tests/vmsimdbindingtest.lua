@@ -69,7 +69,7 @@ function M.directAndAliasedPublicKernelCallsProduceTheSameGraph()
     local before
     for _, aliased in ipairs({false, true}) do
         local source = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local lanes = require("simd")
 ]] .. (
             aliased and "local reduce = lanes.horizontal.algebraicsum\n" or ""
@@ -114,7 +114,7 @@ end
 
 function M.lowercaseHorizontalIdentitiesKeepFrozenInstructionsAndResults()
     local source = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local simd = require("simd")
 local floats = assert(simd.species(array.float64, 4)):splat(2.0)
 local integers = assert(simd.species(array.int32, 4)):splat(3)

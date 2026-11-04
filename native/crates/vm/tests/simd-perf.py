@@ -25,7 +25,7 @@ project = args.output / "project"
 (project / "lib/kernels.nupp").write_bytes(Path("bench/simd11/kernels.nupp").read_bytes())
 for n in (63, 65539):
     (project / f"lib/nupp/tests/vmsimdperf{n}.nupp").write_text(f'''module nupp.tests.vmsimdperf{n}
-const array = require("nupp.mem.array")
+const array = require("nupp.array")
 const kernels = require("kernels")
 local input = array.scalar(array.float64, {n})
 local output = array.scalar(array.float64, {n})

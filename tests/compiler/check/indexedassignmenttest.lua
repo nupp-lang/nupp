@@ -17,7 +17,7 @@ end
 local M = {}
 function M.spanAssignmentsPreserveLocationsOrderAndTupleAdjustment()
     local source = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local span = require("binary.span")
 local u32 = math.u32
 local function apply(exclusive values: span.WriteSpan<float64>, trace: {number}): number
@@ -103,7 +103,7 @@ end
 
 function M.simultaneousStoresOnAWritableSpan()
     local source = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local function apply(): number
     const storage = array.scalar(array.float64, 2)
     const values = storage:write()
@@ -153,7 +153,7 @@ end
 
 function M.rootedStructFieldsEvaluateIndicesOnce()
     local source = [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local span = require("binary.span")
 local u32 = math.u32
 local struct Cell value: float64 end

@@ -219,7 +219,7 @@ end
 function M.floatingStorageWitnessesHaveExactPhysicalTypes()
     local parsed = checked(
         [[
-local array = require("nupp.mem.array")
+local array = require("nupp.array")
 local narrow: array.Scalar<float32> = array.float32
 local wide: array.Scalar<float64> = array.float64
 local exposed: any = array

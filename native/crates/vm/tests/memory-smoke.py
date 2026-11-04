@@ -5,7 +5,7 @@ Usage: memory-smoke.py SEED --binary PATH --output DIRECTORY [--target TRIPLE]
 
 SEED is a VM compiler image built from this checkout (the lowering of
 `ffi.typeof<T>()` and of SoA rows lives in it). The fixture covers the VM's
-`nupp.mem.soa`, `nupp.mem.heap` and `nupp.mem.sharedbytes`, regions crossing
+`nupp.soa`, `nupp.heap` and `io.Bytes`, regions crossing
 into workers by reference and heap arrays moving to them and back,
 `nupp.log`'s clock, and the host and GPU providers with nothing
 attached, on every engine with incremental collection, the root oracle and

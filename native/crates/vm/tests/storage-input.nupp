@@ -69,7 +69,7 @@ function storage.run(): number
     assert2(restored.owner[1] == 13ULL and words[1] == 18446744073709551615ULL)
     held = shared
 
-    local array = require("nupp.mem.array")
+    local array = require("nupp.array")
     do
         const owned = array.bytes(4)
         const writable = owned:write()

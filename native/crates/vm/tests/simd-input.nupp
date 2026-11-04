@@ -2,7 +2,7 @@ module nupp.tests.vmsimd
 
 const assert2 = require("assert")
 
-const array = require("nupp.mem.array")
+const array = require("nupp.array")
 const simd = require("simd")
 const persist = require("nupp.vm.persist")
 const tasks = require("coroutine")

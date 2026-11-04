@@ -1,70 +1,11 @@
 local M = {}
-local ffi = require("ffi")
 
 local moduleName = "io.internal.sharedbytes"
 local typesName = "io.internal.bytestypes"
-local priorTypes
-local nativeName = "nupp.mem.sharedbytes.native"
-local priorModule, priorNative, priorRegionMetatable, bytes
-local released = {}
+local bytes
 
 function M.beforeAll()
-    local nextIdentity = 0
-    priorModule = package.loaded[moduleName]
-    priorTypes = package.loaded[typesName]
-    priorNative = package.loaded[nativeName]
-    priorRegionMetatable = rawget(nupp, "__regionMetatable")
-    package.loaded[moduleName] = nil
-    package.loaded[typesName] = nil
-    package.loaded[nativeName] = {
-        fromString = function(text)
-            nextIdentity = nextIdentity + 1
-            local pointer = ffi.new("uint8_t[?]", math.max(#text, 1))
-            ffi.copy(pointer, text, #text)
-            return {identity = nextIdentity, pointer = pointer}, #text
-        end,
-        readFile = function()
-            return nil, "unavailable"
-        end,
-        text = function(value, first, last)
-            return ffi.string(value.pointer + first - 1, math.max(last - first + 1, 0))
-        end,
-        pointer = function(value)
-            return value.pointer
-        end,
-        length = function()
-            return 0
-        end,
-        builderNew = function()
-            return {}
-        end,
-        builderAppend = function()
-            return true
-        end,
-        builderReserve = function()
-            return 1
-        end,
-        builderCommit = function()
-            return true
-        end,
-        builderFreeze = function()
-            return {}, 0
-        end,
-        builderRelease = function(handle)
-            released[#released + 1] = handle
-        end,
-        accounted = function()
-            return 0
-        end,
-    }
     bytes = require(moduleName).Bytes
-end
-
-function M.afterAll()
-    package.loaded[moduleName] = priorModule
-    package.loaded[typesName] = priorTypes
-    package.loaded[nativeName] = priorNative
-    rawset(nupp, "__regionMetatable", priorRegionMetatable)
 end
 
 local function diagnostics(source)
@@ -136,12 +77,11 @@ function M.builderCountsRemainExactAtThePublicBoundary()
     )
 end
 
-function M.droppingAnUnfrozenBuilderReleasesItsStorageAtOnce()
+function M.droppingAnUnfrozenBuilderLeavesNothingToFreeze()
     local builder = bytes.newbuilder()
-    local handle = builder._handle
-    local before = #released
+    builder:append("abc")
     builder:drop()
-    assert(#released == before + 1 and released[#released] == handle)
+    assert(not pcall(builder.freeze, builder), "a dropped builder cannot be frozen")
 end
 
 function M.aNanOrFractionalBoundIsRefused()
@@ -187,88 +127,12 @@ end
 function M.readingAMissingFileAnswersAReason()
     local region, reason = bytes.readfile("definitely/not/here.bin")
     assert(region == nil)
-    assert(reason == "unavailable", tostring(reason))
+    assert(type(reason) == "string" and #reason > 0, tostring(reason))
 end
 
-function M.loadingThePublicBytesTypeDoesNotInitializeTheEngine()
-    local attempts = 0
-    local hostIo = {}
-    for name, value in pairs(io) do
-        hostIo[name] = value
-    end
-    local load = require("helpers.providerstate").instance(
-        {[typesName] = true, [moduleName] = true, ["nupp.runtime.standardio"] = true},
-        nil,
-        {
-            [nativeName] = function()
-                attempts = attempts + 1
-                error("loading the bytes type initialized the engine", 0)
-            end
-        },
-        {nupp = {}, io = hostIo}
-    )
-    local public = load("nupp.runtime.standardio").Bytes
-    assert(public == load(typesName).Bytes, "io exposes the canonical bytes record")
-    assert(type(public.copy) == "function" and type(public.Builder) == "table")
-    assert(attempts == 0, "loading io.Bytes must not load its native bridge")
-end
-
-local function withNativeBridge(loader, body)
-    local savedModule, savedNative = package.loaded[moduleName], package.loaded[nativeName]
-    local savedTypes = package.loaded[typesName]
-    local savedPreload = package.preload[nativeName]
-    local savedRegionMetatable = rawget(nupp, "__regionMetatable")
-    package.loaded[moduleName], package.loaded[nativeName] = nil, nil
-    package.loaded[typesName] = nil
-    package.preload[nativeName] = loader
-    local ok, problem = pcall(body)
-    package.loaded[moduleName], package.loaded[nativeName] = savedModule, savedNative
-    package.loaded[typesName] = savedTypes
-    package.preload[nativeName] = savedPreload
-    rawset(nupp, "__regionMetatable", savedRegionMetatable)
-    assert(ok, problem)
-end
-
-function M.constructingBytesWithoutTheEngineReportsTheHostRequirement()
-    withNativeBridge(nil, function()
-        local public = require(moduleName).Bytes
-        assert(type(public) == "table", "the type loads without an engine")
-        local ok, problem = pcall(public.copy, "payload")
-        assert(not ok)
-        assert(
-            problem == "nupp: io.Bytes needs the Nupp engine host, which a stamped binary provides",
-            tostring(problem)
-        )
-    end)
-end
-
-function M.nativeInitializationErrorsRetainTheirIdentity()
-    local attempts = 0
-    local marker = setmetatable({}, {
-        __tostring = function()
-            return "module '" .. nativeName .. "' not found: initializer failed"
-        end
-    })
-    withNativeBridge(
-        function()
-            attempts = attempts + 1
-            error(marker, 0)
-        end,
-        function()
-            local public = require(moduleName).Bytes
-            assert(attempts == 0, "requiring the type must leave the native initializer untouched")
-            local ok, problem = pcall(public.copy, "payload")
-            assert(not ok and problem == marker, "native initialization failures must propagate unchanged")
-            assert(attempts == 1, "a failed native initializer must not select another implementation")
-        end
-    )
-end
-
-function M.typedViewsUseTheAddressAlignmentRatherThanTheElementWidth()
-    local triple = ffi.typeof("struct { int32_t a; int32_t b; int32_t c; }")
-    local region = bytes.copy(string.rep("\0", 28)):slice(4, 24)
-    local values = region:viewas(triple)
-    assert(values.count == 2)
+function M.ioExposesTheCanonicalBytesRecord()
+    assert(io.Bytes == require(typesName).Bytes, "io exposes the canonical bytes record")
+    assert(type(io.Bytes.copy) == "function" and type(io.Bytes.Builder) == "table")
 end
 
 return M

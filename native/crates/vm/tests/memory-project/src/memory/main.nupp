@@ -8,9 +8,9 @@ const tasks = require("coroutine")
 -- slabs, heap arrays, shared byte regions, the logging clock, and the host and
 -- GPU providers that have nothing attached.
 
-local heap = require("nupp.mem.heap")
-local soa = require("nupp.mem.soa")
-local sharedbytes = require("nupp.mem.sharedbytes")
+local heap = require("nupp.heap")
+local soa = require("nupp.soa")
+const sharedbytes = io.Bytes
 local log = require("debug.log")
 local host = require("os.host")
 local gpu = require("io.gpu")
@@ -200,7 +200,7 @@ end
 -- its address in the VM it moved to.
 local representation: any = require("binary._representation").storage
 
-local function regionAddress(region: sharedbytes.Region): number
+local function regionAddress(region: io.Bytes): number
     return representation.address(((region as any)._handle as any).data) as number
 end
 
@@ -211,17 +211,17 @@ local function arrayAddress(borrows values: heap.Array<int32>): number
 end
 
 --- What a worker reads of a region it was handed.
-function test.regionPrefix(region: sharedbytes.Region): string
+function test.regionPrefix(region: io.Bytes): string
     return region:slice(0, 5):tostring()
 end
 
 --- What a worker reads of a region, and where the block it reads lives.
-function test.regionBlock(region: sharedbytes.Region): (string, number)
+function test.regionBlock(region: io.Bytes): (string, number)
     return region:slice(0, 5):tostring(), regionAddress(region)
 end
 
 --- A region a worker makes and hands back.
-function test.makeRegion(text: string): (sharedbytes.Region, number)
+function test.makeRegion(text: string): (io.Bytes, number)
     local region = sharedbytes.copy(text)
     return region, regionAddress(region)
 end

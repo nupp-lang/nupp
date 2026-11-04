@@ -40,7 +40,7 @@ local heap = {}
 local span = require("binary.span")
 local storage: any = assert2(
     require("binary._representation").storage,
-    "nupp.mem.heap: no storage implementation is available for the target"
+    "nupp.heap: no storage implementation is available for the target"
 )
 
 local function finish_array(takes self: any): nil

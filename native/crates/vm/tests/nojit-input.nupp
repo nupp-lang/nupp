@@ -5,7 +5,7 @@ const assert2 = require("assert")
 -- The no-JIT gate's own fixture (tests/nojit-gate.py). Its image also holds
 -- the public SIMD suites, the per-kind maps and the task fixture, so one
 -- linked object covers every case the gate runs.
-const array = require("nupp.mem.array")
+const array = require("nupp.array")
 const span = require("binary.span")
 const simd = require("simd")
 const tasks = require("coroutine")

@@ -74,7 +74,8 @@ local function scalar(value: any, numeric: boolean, dynamic: boolean?): string
         or value.tag == "uint32"
         or value.tag == "uint64"
         or value.tag == "float32"
-        or value.tag == "any") then
+        or value.tag == "any"
+        or value.tag == "unknown") then
         return "value"
     end
     -- An optional or other union is dynamic too, each member admissible.

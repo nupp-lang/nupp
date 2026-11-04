@@ -611,7 +611,7 @@ and a string naming an undeclared type is reported.
 All six are checked, but only `ffi.typeof<T>()` runs on the VM, where it
 lowers to the type's witness. The VM provides no `ffi` module for the other
 five, so a program that reaches one fails at run time. Allocate C-compatible
-storage with `carray` or `nupp.mem.heap`, and read sizes with `layoutof`.
+storage with `carray` or `nupp.heap`, and read sizes with `types.layoutof`.
 :::
 
 ### C arrays

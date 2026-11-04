@@ -37,6 +37,14 @@ builder:commit(5)
 builder:append("!")
 assert(builder:freeze():tostring() == "ABCDE!")
 ```
+
+On the VM a region's block is an immutable allocation the runtime shares by
+reference: `copy` copies the string into one, `freeze` turns the builder's
+storage into one without copying, and a region crossing into a worker -- an
+argument, a result, a captured value -- carries the same block, whatever its
+size. Every VM holding a block reads it in place; the last one to let go frees
+it. A checkpoint writes the block's bytes once, and a restore in the same
+process shares the live block again.
 ]]
 module io.internal.bytestypes
 
