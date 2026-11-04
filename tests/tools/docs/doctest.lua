@@ -4529,8 +4529,7 @@ function M.siteMatchesTheNuppdocPageModel()
 
     local module = readFile(dir .. "/site/modules/math/index.html")
     assert(module:find("nuppdoc-overview", 1, true), module)
-    -- A module page opens the API reference, while its library branches stay
-    -- collapsed even along the path to the current module.
+    -- A module page opens its API reference and the path to the current module.
     assert(module:find('<details open><summary>API reference</summary>', 1, true), module)
     assert(module:find('<li><a href="../../guide/index.html">Guide</a></li>', 1, true), module)
     assert(
@@ -4630,7 +4629,7 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(nestedModule:find('<code>render</code>', 1, true), nestedModule)
     assert(
         nestedModule:find(
-            '<details><summary class="nuppdoc-module-branch-link">'
+            '<details open><summary class="nuppdoc-module-branch-link">'
             .. '<a href="../../../modules/engine/index.html" aria-label="engine">'
             .. "<code>engine</code></a></summary>",
             1,
@@ -4642,7 +4641,7 @@ function M.siteMatchesTheNuppdocPageModel()
     local branchModule = readFile(dir .. "/site/modules/engine/index.html")
     assert(
         branchModule:find(
-            '<summary class="nuppdoc-module-branch-link">'
+            '<details open><summary class="nuppdoc-module-branch-link">'
             .. '<a aria-current="page" href="../../modules/engine/index.html"',
             1,
             true
@@ -5808,7 +5807,7 @@ function M.builtinNavigationKeepsEveryDeclaredGlobalAndLibrary()
     end
 end
 
-function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
+function M.builtinNavigationMergesOwnedRootsAndOpensCurrentBranch()
     local function library(name, members)
         local binding = name:match("([^.]+)$")
         local lines = {"module " .. name, "--[[Public operations.]]", "local " .. binding .. " = {}"}
@@ -5856,7 +5855,14 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
         )
     )
     local api = assert(sidebar:match('>API reference</a></summary>(.*)'))
-    assert(not api:find('<details open', 1, true), "an API branch starts open, including the active one")
+    assert(api:find('data-module="io"><details open>', 1, true), "the current module's parent must be open")
+    assert(api:find('data-module="jit"><details>', 1, true), "an unrelated module branch starts open")
+    local rootPage = readFile(dir .. "/site/modules/io/index.html")
+    assert(rootPage:find('data-module="io"><details open>', 1, true), "the current module must show its children")
+    local deepPage = readFile(dir .. "/site/modules/example/tools/widget/index.html")
+    for _, name in ipairs({"example", "example.tools"}) do
+        assert(deepPage:find('data-module="' .. name .. '"><details open>', 1, true), "closed ancestor " .. name)
+    end
     for _, name in ipairs({
         "io.cli",
         "assert",
