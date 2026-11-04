@@ -63,9 +63,8 @@ export function install(namespace: any): nil
         return blueprints[typeObject] ~= nil
     end
 
-    function reflect.register(typeObject: any, blueprint: any, targets: any?): any
-        blueprints[typeObject] = blueprint
-        references[typeObject] = targets
+    -- The type's `reflect` member, which answers its descriptor.
+    local function member(typeObject: any): nil
         if type(typeObject) == "table" and rawget(typeObject, "reflect") == nil then
             rawset(typeObject, "reflect", function(): any
                 if reflect.get == nil then
@@ -74,6 +73,12 @@ export function install(namespace: any): nil
                 return reflect.get(typeObject)
             end)
         end
+    end
+
+    function reflect.register(typeObject: any, blueprint: any, targets: any?): any
+        blueprints[typeObject] = blueprint
+        references[typeObject] = targets
+        member(typeObject)
 
         return typeObject
     end
@@ -81,7 +86,13 @@ export function install(namespace: any): nil
     function reflect.ensure(typeObject: any, describe: function(): (any, any)): any
         if blueprints[typeObject] == nil then
             local blueprint, targets = describe()
-            reflect.register(typeObject, blueprint, targets)
+            blueprints[typeObject] = blueprint
+            references[typeObject] = targets
+            -- A witness's first use can follow the type's attachment as an
+            -- instance's metatable, which froze it (runtime Decision 16): the
+            -- member is then left out rather than raised over. A declaration
+            -- whose `reflect` is read registers it before any instance.
+            pcall(member, typeObject)
         end
 
         return typeObject

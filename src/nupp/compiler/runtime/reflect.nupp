@@ -102,7 +102,6 @@ export function install(namespace: any): any
     local blueprints = reflect.blueprints or setmetatable({}, {__mode = "k"})
     local infos = claim(reflect, "valueInfos", setmetatable({}, {__mode = "kv"}))
     local states = claim(reflect, "valueStates", setmetatable({}, {__mode = "kv"}))
-    local infoKey = claim(reflect, "infoKey", {})
     local ctypeInfos = claim(reflect, "ctypeInfos", setmetatable({}, {__mode = "k"}))
     local references = claim(reflect, "references", setmetatable({}, {__mode = "k"}))
     local targetsKey = reflect.targetsKey
@@ -165,13 +164,11 @@ export function install(namespace: any): any
         })
         infos[typeObject] = info
         states[info] = state
-        -- Keep the cache on its owner. A weak-key table whose value reaches the
-        -- key would otherwise retain every reflected local record on LuaJIT.
-        if type(typeObject) == "table" then
-            rawset(typeObject, infoKey, info)
-        else
-            ctypeInfos[typeObject] = info
-        end
+        -- Kept while its type lives: a weak-key table is an ephemeron, so the
+        -- descriptor reaching its type does not keep the type alive. Not kept
+        -- on the type itself, which freezes when it is attached as its first
+        -- instance's metatable (runtime Decision 16).
+        ctypeInfos[typeObject] = info
         extensions.host(info)
 
         return info
