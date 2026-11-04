@@ -1,6 +1,6 @@
--- nupp.mem.arena: zero-filled struct rows leased from pages that never move.
+-- table.Pool: zero-filled struct rows leased from pages that never move.
 local ffi = require("ffi")
-local arena = require("nupp.mem.arena")
+local tables = require("table")
 local test = require("assert")
 
 local M = {}
@@ -56,31 +56,31 @@ local function allocated(body: function(): nil): number
     return least
 end
 
-function M.newHoldsOnePageAndHonoursThePageSize(): nil
-    local rows = arena.newarena(Row, 4)
-    test.eq(rows.pagesize, 4)
+function M.newWarmsOneBatchAndGrowsWithoutMovingRows(): nil
+    local rows = tables.newpool(Row, 4)
+    test.eq(rows.capacity, 4)
     test.eq(rows:pages(), 1)
     test.eq(rows:used(), 0)
     test.eq(rows:live(), 0)
     for _ = 1, 4 do
         rows:acquire()
     end
-    test.eq(rows:pages(), 1, "the page holds exactly pageSize rows")
+    test.eq(rows:pages(), 1, "the batch holds exactly its initial size")
     rows:acquire()
     test.eq(rows:pages(), 2, "the fifth row needs a second page")
     test.eq(rows:used(), 5)
     test.eq(rows:live(), 5)
-    test.eq(arena.newarena(Row).pagesize, 256)
+    test.eq(tables.newpool(Row).capacity, 32)
     test.raises(
         function()
-            arena.newarena(Row, 0)
+            tables.newpool(Row, -1)
         end,
-        "positive"
+        "nonnegative"
     )
 end
 
 function M.rowsAreStructReferencesIntoThePage(): nil
-    local rows = arena.newarena(Row, 4)
+    local rows = tables.newpool(Row, 4)
     local first = rows:acquire()
     assert(ffi.istype(Row, first), "a row is a reference of the struct type")
     first.x = 1.5
@@ -92,7 +92,7 @@ function M.rowsAreStructReferencesIntoThePage(): nil
 end
 
 function M.nestedAcquiresGiveDistinctRows(): nil
-    local rows = arena.newarena(Row, 8)
+    local rows = tables.newpool(Row, 8)
     local outer = rows:acquire()
     outer.x = 1
     local inner = rows:acquire()
@@ -107,13 +107,15 @@ function M.nestedAcquiresGiveDistinctRows(): nil
     rows:release(inner)
     rows:release(outer)
     test.eq(rows:live(), 0)
-    test.eq(rows:used(), 3, "a release does not rewind the cursor")
-    local next = rows:acquire()
-    assert(addressOf(next) ~= addressOf(outer), "a released row is not reused before a reset")
+    test.eq(rows:used(), 3, "release preserves the acquisition count")
+    local reused = rows:acquire()
+    test.eq(addressOf(reused), addressOf(outer), "a released row is reusable immediately")
+    test.eq(reused.x, 0, "a reused row is zero-filled")
+    rows:release(reused)
 end
 
 function M.acquireAllocatesNothingOnceItsPageExists(): nil
-    local rows = arena.newarena(Row, 64)
+    local rows = tables.newpool(Row, 64)
 
     local function epoch(count: integer): nil
         for _ = 1, count do
@@ -136,7 +138,7 @@ function M.acquireAllocatesNothingOnceItsPageExists(): nil
 end
 
 function M.resetWithLiveLeasesRaisesAndChangesNothing(): nil
-    local rows = arena.newarena(Row, 4)
+    local rows = tables.newpool(Row, 4)
     local first = rows:acquire()
     local second = rows:acquire()
     second.x = 9
@@ -158,7 +160,7 @@ function M.resetWithLiveLeasesRaisesAndChangesNothing(): nil
 end
 
 function M.resetRewindsToPageOneAndRowsReadAsZero(): nil
-    local rows = arena.newarena(Row, 2)
+    local rows = tables.newpool(Row, 2)
     local first = rows:acquire()
     first.x = 7
     first.y = 8
@@ -174,7 +176,6 @@ function M.resetRewindsToPageOneAndRowsReadAsZero(): nil
     test.eq(rows:used(), 0)
     test.eq(rows:live(), 0)
     test.eq(rows:pages(), 2, "a reset keeps the pages")
-    test.eq(first.x, 7, "a reset does not touch the rows until they are leased again")
 
     local again = rows:acquire()
     test.eq(addressOf(again), addressOf(first), "the first lease after a reset is the first row of page one")
@@ -187,8 +188,8 @@ function M.resetRewindsToPageOneAndRowsReadAsZero(): nil
     test.eq(rows:pages(), 2)
 end
 
-function M.pagesNeverMoveWhenTheArenaGrows(): nil
-    local rows = arena.newarena(Row, 2)
+function M.pagesNeverMoveWhenThePoolGrows(): nil
+    local rows = tables.newpool(Row, 2)
     local first = rows:acquire()
     first.x = 3
     local pageOne = addressOf(first)
@@ -224,7 +225,7 @@ function M.pagesNeverMoveWhenTheArenaGrows(): nil
 end
 
 function M.releaseWithoutALeaseRaises(): nil
-    local rows = arena.newarena(Row, 2)
+    local rows = tables.newpool(Row, 2)
     local row = rows:acquire()
     rows:release(row)
     test.raises(
@@ -236,7 +237,7 @@ function M.releaseWithoutALeaseRaises(): nil
 end
 
 function M.releaseTracksTheExactLeasedRow(): nil
-    local rows = arena.newarena(Row, 2)
+    local rows = tables.newpool(Row, 2)
     local first = rows:acquire()
     local second = rows:acquire()
     rows:release(first)
@@ -244,7 +245,7 @@ function M.releaseTracksTheExactLeasedRow(): nil
         function()
             rows:release(first)
         end,
-        "without a live lease"
+        "not live in this pool"
     )
     test.eq(rows:live(), 1, "a duplicate release does not spend another row's lease")
     test.raises(
@@ -254,15 +255,15 @@ function M.releaseTracksTheExactLeasedRow(): nil
         "1 live lease"
     )
 
-    local other = arena.newarena(Row, 1)
+    local other = tables.newpool(Row, 1)
     local foreign = other:acquire()
     test.raises(
         function()
             rows:release(foreign)
         end,
-        "without a live lease"
+        "not live in this pool"
     )
-    test.eq(rows:live(), 1, "a foreign row does not spend this arena's lease")
+    test.eq(rows:live(), 1, "a foreign row does not spend this pool's lease")
 
     rows:release(second)
     rows:reset()

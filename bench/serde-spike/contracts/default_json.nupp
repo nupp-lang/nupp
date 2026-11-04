@@ -3,7 +3,7 @@ local json = require("serde.json")
 local declarations = require("serde")
 local documents = require("serde.document")
 local model = require("example.richmodel")
-local text = require("nupp.text")
+local text = require("string.buffer")
 local record Config
     name: string
     enabled: boolean = true
@@ -12,7 +12,7 @@ local binding = declarations.binding(Config)
 local value = json.decode(binding, '{"name":"local"}')
 assert(value.enabled)
 assert(json.encode(binding, value) == '{"name":"local","enabled":true}')
-local buffer = text.newbuffer()
+local buffer = text.new()
 json.encodeinto(binding, value, buffer)
 assert(buffer:tostring() == json.encode(binding, value))
 local codec = json.codec()

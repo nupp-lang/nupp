@@ -262,9 +262,9 @@ local heapArrayParts = rawget(heapModule as table, "__heapArrayParts")
 local heapArrayFromParts = rawget(heapModule as table, "__heapArrayFromParts")
 local heapArrayFree = rawget(heapModule as table, "__heapArrayFree")
 
-local sharedbytesModule = require("nupp.mem.sharedbytes") as any
-local regionParts = rawget(sharedbytesModule as table, "__regionParts")
-local regionFromParts = rawget(sharedbytesModule as table, "__regionFromParts")
+local sharedbytesModule = require("io.internal.sharedbytes") as any
+local regionParts = sharedbytesModule.regionparts
+local regionFromParts = sharedbytesModule.regionfromparts
 local sharedbytesNative = require("nupp.mem.sharedbytes.native") as any
 
 --- Whether a region's extent still lies inside the storage it names. Its parts

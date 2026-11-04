@@ -337,11 +337,11 @@ end
 function M.arenaLowersThroughTheStorageContract()
     local source = table.concat(
         {
-            "local arena = require('nupp.mem.arena')",
+            "local arena = table",
             "local struct Sample",
             "   value: float",
             "end",
-            "local samples = arena.newarena(Sample, 8)",
+            "local samples = arena.newpool(Sample, 8)",
             "local sample = samples:acquire()",
             "sample.value = 3",
             "samples:release(sample)",

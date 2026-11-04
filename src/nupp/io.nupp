@@ -258,13 +258,13 @@ buffer or a string reader returns through the same contract.
 
 ## Byte queues
 
-A [`nupp.text`](nupp.text) buffer is a byte queue: `put` appends to the back
+A [](string.buffer) FIFO is a byte queue: `put` appends to the back
 and `get` consumes from the front. `io.newreader(queue):scalar()` adapts one, so
 bytes assembled there are read without copying everything in it first, and the
 queue's own `get` stays usable over the same bytes.
 
 ```nupp
-local queue = nupp.text.newbuffer()
+local queue = string.buffer.new()
 queue:put("header:")
 queue:put("!")
 
@@ -281,7 +281,7 @@ contract already covers.
 
 ```nupp
 local destination = io.newbuffer()
-local queue = nupp.text.newbuffer()
+local queue = string.buffer.new()
 queue:put("payload")
 do
     local reader = io.newreader(queue)

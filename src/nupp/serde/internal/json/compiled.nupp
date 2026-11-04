@@ -14,7 +14,7 @@ local provider = require("nupp.codec.json.provider")
 local errors = require("nupp.serde.internal.errors")
 local diagnostic = require("nupp.serde.internal.json.diagnostic")
 local json = require("nupp.serde.internal.json.values")
-const {type Buffer} = require("nupp.text")
+const {type Buffer} = require("string.buffer")
 
 local interface Assign<S is own.Closeable>
     apply: function(self, exclusive state: S, value: unknown): nil

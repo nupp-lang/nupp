@@ -35,7 +35,7 @@ try {
       terminal.textContent = JSON.stringify(previous);
       sentAt = performance.now();
       const source = previous.kind === 'large-check' ? 'local values={' + Array.from({length:2048}, (_,i)=>i+1).join(',') + '}; return values[1]'
-        : previous.kind === 'import-check' ? 'local text = require("nupp.text"); return text' : undefined;
+        : previous.kind === 'import-check' ? 'return string.buffer' : undefined;
       return {...previous, source, kind: source ? 'check' : previous.kind, padding: 'x'.repeat(previous.bytes)};
   };
   if (backend === 'lua51') {

@@ -711,15 +711,6 @@ function M.hostAndVmBindingsIgnoreAdvertisedOverrides()
             siblings = {"nupp.suspension.host"}
         },
         {
-            module = "nupp.text",
-            interface = "package.nupp.BufferProvider",
-            native = "nupp.runtime.provider.nativebuffer",
-            browser = "nupp.runtime.provider.tablebuffer",
-            member = "new",
-            exported = "newbuffer",
-            vm = true
-        },
-        {
             module = "binary._representation",
             interface = "package.nupp.CstorageProvider",
             native = "nupp.runtime.provider.nativestorage",

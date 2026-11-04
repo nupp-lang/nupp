@@ -129,6 +129,7 @@ local TEMPLATE_FILES = {
 -- want in full. One list because they have never differed and a second copy is
 -- how they would start to.
 local RESOURCES = {
+    {source = "src/nupp/util/internal/structpool.nupp", output = "nupp/compiler/nupp/util/internal/structpool.nupp"},
     {source = "src/warn.nupp", output = "nupp/compiler/warn.nupp"},
     {source = "src/types/init.nupp", output = "nupp/compiler/types/init.nupp"},
     {source = "src/types/derive.nupp", output = "nupp/compiler/types/derive.nupp"},
@@ -155,8 +156,6 @@ local RESOURCES = {
     {source = "src/nupp/runtime/bindings/clock.nupp", output = "nupp/compiler/nupp/runtime/bindings/clock.nupp"},
     {source = "src/nupp/runtime/bindings/workers.nupp", output = "nupp/compiler/nupp/runtime/bindings/workers.nupp"},
     {source = "src/nupp/runtime/target.nupp", output = "nupp/compiler/nupp/runtime/target.nupp"},
-    {source = "src/nupp/text/internal/buffer.d.nupp", output = "nupp/compiler/nupp/text/internal/buffer.d.nupp"},
-    {source = "src/nupp/text/init.nupp", output = "nupp/compiler/nupp/text/init.nupp"},
     {source = "src/io/cli.nupp", output = "nupp/compiler/io/cli.nupp"},
     {source = "src/assert.nupp", output = "nupp/compiler/assert.nupp"},
     {source = "src/nupp/runtime/standardio.nupp", output = "nupp/compiler/nupp/runtime/standardio.nupp"},
@@ -276,7 +275,8 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/serde/internal/valuebuilder.nupp"
     },
     {source = "src/nupp/mem/heap.nupp", output = "nupp/compiler/nupp/mem/heap.nupp"},
-    {source = "src/nupp/mem/sharedbytes.nupp", output = "nupp/compiler/nupp/mem/sharedbytes.nupp"},
+    {source = "src/io/internal/bytestypes.nupp", output = "nupp/compiler/io/internal/bytestypes.nupp"},
+    {source = "src/io/internal/sharedbytes.nupp", output = "nupp/compiler/io/internal/sharedbytes.nupp"},
     {source = "src/nupp/mem/soa.nupp", output = "nupp/compiler/nupp/mem/soa.nupp"},
     {
         source = "src/nupp/serde/internal/json/values.nupp",
@@ -402,7 +402,6 @@ local RESOURCES = {
     },
     {source = "src/nupp/mem/array.nupp", output = "nupp/compiler/nupp/mem/array.nupp"},
     {source = "src/nupp/util/internal/pool.nupp", output = "nupp/compiler/nupp/util/internal/pool.nupp"},
-    {source = "src/nupp/mem/arena.nupp", output = "nupp/compiler/nupp/mem/arena.nupp"},
     {source = "src/events.nupp", output = "nupp/compiler/events.nupp"},
     {source = "src/utf8.nupp", output = "nupp/compiler/utf8.nupp"},
     {source = "src/nupp/runtime/native.nupp", output = "nupp/compiler/nupp/runtime/native.nupp"},

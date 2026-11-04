@@ -1,208 +1,251 @@
 --[[
-A pool of record instances of one declared type.
+Reusable instances of one record or struct declaration.
 
-An instance leaves the pool stamped with the declaration and carrying no
-fields, and comes back cleared, so a hot path that would otherwise build a
-table per event reuses the ones it already built.
+A pool keeps its allocations and leases each instance to one caller at a time.
 
 ```nupp
 local record Damage
     amount: integer
-    source: string
 end
 
 local damage = table.newpool(Damage, 64)
 local hit = damage:acquire()
 hit.amount = 12
-hit.source = "trap"
-damage:release(hit) -- cleared, and kept for the next acquire
+damage:release(hit)
+assert(damage:free() == 64)
 ```
 
-`capacity` is how many released instances the pool keeps; it is not a limit on
-how many are out at once. An acquire past the free list allocates, and a
-release onto a full free list lets the collector have the instance. Within
-capacity, once the free list is warm, neither operation allocates.
+The size passed to `newpool` warms that many instances and sets the growth
+quantum. `capacity` reports retained instances; it grows when the free list
+runs out. A released instance becomes reusable immediately. `reset` refuses
+live leases, restarts the acquisition count, and retains every allocation.
 
-Nothing here reaches C storage: the pool is ordinary tables, so it is available
-on every backend, which is why it sits here rather than beside the views in
-[](nupp.mem). Struct rows are [](nupp.mem.arena).
+Record instances are ordinary tables, cleared on release. Struct rows are
+zero-filled on acquisition and occupy pages that never move. Record pools
+work on every backend; struct pools require C storage.
 ]]
 module nupp.util.internal.pool
 
---- A pool of instances stamped with a record declaration.
+--- Reusable instances of one record or struct declaration.
 --- @export
-export record Pool<T is table>
+export record Pool<T>
     @private @readonly witness: any
+    @private @readonly growth: integer
+    @private @readonly backend: any
 
-    --- How many released instances the pool retains for reuse.
+    --- How many instances the pool retains, including live leases.
     @readonly capacity: integer
 
-    @private freeList: {T}
-    @private freeCount: integer
-    @private liveCount: integer
-    @private liveValues: {[any]: boolean}
+    @private available: {T}
+    @private values: {T}
+    @private freecount: integer
+    @private livecount: integer
+    @private usedcount: integer
+    @private pagecount: integer
+    @private leases: table
 
-    --- Hands out an instance, from the free list or freshly stamped.
     acquire: function(exclusive self: Pool<T>): T
-
-    --- Clears an instance and returns it to the free list.
     release: function(exclusive self: Pool<T>, value: T): nil
-
-    --- Stamps free instances until at least `count` are waiting.
     reserve: function(exclusive self: Pool<T>, count: integer): nil
-
-    --- How many instances are acquired and not yet released.
     live: function(self: Pool<T>): integer
-
-    --- How many instances are waiting on the free list.
     free: function(self: Pool<T>): integer
-
-    --- Drops the free list.
+    pages: function(self: Pool<T>): integer
+    used: function(self: Pool<T>): integer
     reset: function(exclusive self: Pool<T>): nil
 end
 
---- Hands out an instance stamped with the pool's declaration and carrying no
---- fields.
+local setfield: function(exclusive destination: table, key: string, value: integer): nil = rawset as any
+
+local function addpage<T>(exclusive self: Pool<T>): nil
+    local count = self.growth
+    local created: {T}
+    if self.backend == nil then
+        created = {}
+        for index = 1, count do
+            created[index] = setmetatable({}, self.witness) as T
+        end
+    else
+        created = self.backend.allocate(count) as {T}
+    end
+    local retained = self.capacity
+    for index = 1, count do
+        local value = created[index]
+        self.values[retained + index] = value
+        self.available[retained + index] = value
+        rawset(self.leases, value as any, false)
+    end
+    local free = self.freecount
+    for index = count, 1, -1 do
+        free = free + 1
+        self.available[free] = created[index]
+    end
+    self.freecount = free
+    self.pagecount = self.pagecount + 1
+    setfield(self, "capacity", retained + count)
+end
+
+--- Acquires an empty record or zero-filled struct row.
 ---
---- The free list is consulted first, so within capacity a warmed pool returns
---- without allocating. Past it, a fresh table is stamped.
+--- Growth retains another allocation batch without moving existing rows.
+--- Once enough instances exist, acquisition and release allocate nothing.
 ---
 --- @param self the pool
 --- @return the instance, live until it is released
 --- @export
-function Pool.acquire<T is table>(exclusive self: Pool<T>): T
-    self.liveCount = self.liveCount + 1
-    local count = self.freeCount
-    local value: T
-    if count == 0 then
-        value = setmetatable({}, self.witness) as T
-    else
-        value = self.freeList[count]
-        self.freeList[count] = nil
-        self.freeCount = count - 1
+function Pool.acquire<T>(exclusive self: Pool<T>): T
+    if self.freecount == 0 then
+        addpage(self)
     end
-    self.liveValues[value] = true
+    local count = self.freecount
+    local value = self.available[count]
+    if self.backend ~= nil then
+        self.backend.clear(value)
+    end
+    -- The unused suffix keeps its array slots allocated for a full release.
+    self.freecount = count - 1
+    self.livecount = self.livecount + 1
+    self.usedcount = self.usedcount + 1
+    rawset(self.leases, value as any, true)
 
     return value
 end
 
---- Clears every field of an instance and returns it to the free list.
+--- Ends a lease and makes its instance reusable immediately.
 ---
---- The instance is discarded instead when the free list already holds
---- `capacity` instances, so a burst that acquired past capacity does not leave
---- the pool holding the burst.
+--- Record fields are cleared before the instance returns to the free list.
+--- Struct storage is zero-filled when the row is next acquired.
 ---
 --- @param self the pool
---- @param value the instance, spent by this call
---- @raises string when nothing is live, or value was not stamped by the pool's
----     declaration
+--- @param value the instance whose lease ends
+--- @raises string when value is not live in this pool
 --- @export
-function Pool.release<T is table>(exclusive self: Pool<T>, value: T): nil
-    if self.liveCount == 0 then
-        error("nupp: pool release without a live instance", 2)
+function Pool.release<T>(exclusive self: Pool<T>, value: T): nil
+    if self.livecount == 0 then
+        error("nupp: pool release without a live lease", 2)
     end
-    if getmetatable(value) ~= self.witness then
+    if self.backend == nil and getmetatable(value) ~= self.witness then
         error("nupp: pool release of a value the pool's declaration did not stamp", 2)
     end
-    if not self.liveValues[value] then
+    if rawget(self.leases, value as any) ~= true then
         error("nupp: pool release of a value not live in this pool", 2)
     end
-    self.liveValues[value] = nil
-    self.liveCount = self.liveCount - 1
-    table.clear(value as any)
-    local count = self.freeCount
-    if count >= self.capacity then
-        return
+    rawset(self.leases, value as any, false)
+    self.livecount = self.livecount - 1
+    if self.backend == nil then
+        table.clear(value as any)
     end
-    self.freeList[count + 1] = value
-    self.freeCount = count + 1
+    local count = self.freecount + 1
+    self.available[count] = value
+    self.freecount = count
 end
 
---- Stamps free instances until at least `count` are waiting.
----
---- A count above `capacity` is honoured: the surplus waits until it is
---- acquired, and only releases are capped.
----
+--- Ensures at least `count` instances are free, growing in allocation batches.
 --- @param self the pool
 --- @param count how many free instances to have waiting
---- @raises string when count is negative
+--- @raises string when count is not a nonnegative integer
 --- @export
-function Pool.reserve<T is table>(exclusive self: Pool<T>, count: integer): nil
-    if count < 0 then
-        error("nupp: pool reserve count cannot be negative", 2)
+function Pool.reserve<T>(exclusive self: Pool<T>, count: integer): nil
+    if type(count) ~= "number" or count < 0 or count % 1 ~= 0 then
+        error("nupp: pool reserve count must be a nonnegative integer", 2)
     end
-    local free = self.freeCount
-    while free < count do
-        free = free + 1
-        self.freeList[free] = setmetatable({}, self.witness) as T
+    while self.freecount < count do
+        addpage(self)
     end
-    self.freeCount = free
 end
 
---- How many instances are acquired and not yet released.
+--- Returns the number of live leases.
 --- @param self the pool
 --- @return the live count
 --- @export
-function Pool.live<T is table>(self: Pool<T>): integer
-    return self.liveCount
+function Pool.live<T>(self: Pool<T>): integer
+    return self.livecount
 end
 
---- How many instances are waiting on the free list.
+--- Returns the number of instances available for acquisition.
 --- @param self the pool
 --- @return the free count
 --- @export
-function Pool.free<T is table>(self: Pool<T>): integer
-    return self.freeCount
+function Pool.free<T>(self: Pool<T>): integer
+    return self.freecount
 end
 
---- Drops the free list, leaving the pool empty and its capacity unchanged.
----
---- Refused while anything is live, before anything changes: an instance that
---- is out belongs to whoever holds it, and the pool is not going to be the
---- one to say it is finished.
----
+--- Returns the number of retained allocation batches.
 --- @param self the pool
---- @raises string when any instance is live
+--- @return the batch count
 --- @export
-function Pool.reset<T is table>(exclusive self: Pool<T>): nil
-    if self.liveCount > 0 then
-        error("nupp: pool reset with " .. tostring(self.liveCount) .. " live instances", 2)
-    end
-    self.freeList = {}
-    self.freeCount = 0
+function Pool.pages<T>(self: Pool<T>): integer
+    return self.pagecount
 end
 
---- Creates a pool of `witness` instances with `capacity` of them stamped and
---- waiting.
+--- Returns the number of acquisitions since the last reset.
+--- @param self the pool
+--- @return the acquisition count
+--- @export
+function Pool.used<T>(self: Pool<T>): integer
+    return self.usedcount
+end
+
+--- Restarts acquisition order and counters while retaining all allocations.
+--- @param self the pool
+--- @raises string when any lease is live
+--- @export
+function Pool.reset<T>(exclusive self: Pool<T>): nil
+    if self.livecount > 0 then
+        error("nupp: pool reset with " .. tostring(self.livecount) .. " live leases", 2)
+    end
+    local free: integer = 0
+    for index = self.capacity, 1, -1 do
+        free = free + 1
+        self.available[free] = self.values[index]
+    end
+    self.freecount = free
+    self.usedcount = 0
+end
+
+--- Creates a pool of instances of a record or struct declaration.
 ---
 --- ```nupp:fragment
 --- local record Tick
 ---     frame: integer
 --- end
 ---
---- local ticks = pool.new(Tick, 8)
+--- local ticks = table.newpool(Tick, 8)
 --- assert(ticks:free() == 8)
 --- ```
 ---
---- @param witness the record declaration, whose metatable stamps every instance
---- @param capacity how many released instances to retain, 32 when omitted
---- @return the pool, warmed to capacity
---- @raises string when capacity is negative
+--- @param witness the record or struct declaration
+--- @param size initial capacity and growth quantum, 32 when omitted
+--- @return the warmed pool
+--- @raises string when size is not a nonnegative integer or witness is not a
+---     record or struct declaration
 --- @export
-export function new<T is table>(witness: Type<T>, capacity: integer?): Pool<T>
-    local retained = capacity or 32
-    if retained < 0 then
-        error("nupp: pool capacity cannot be negative", 2)
+export function new<T>(witness: Type<T>, size: integer?): Pool<T>
+    local initial = size ?? 32
+    if type(initial) ~= "number" or initial < 0 or initial % 1 ~= 0 then
+        error("nupp: pool size must be a nonnegative integer", 2)
+    end
+    local backend: any = nil
+    if type(witness) ~= "table" or rawget(witness as any, "__index") ~= witness then
+        if type(witness) ~= "cdata" or not tostring(witness):find("^ctype<struct ") then
+            error("nupp: pool expects a record or struct declaration", 2)
+        end
+        local implementation = "nupp.util.internal.structpool"
+        backend = _G.require(implementation).new(witness)
     end
     local created = new Pool(
         witness = witness,
-        capacity = retained,
-        freeList = {} as {T},
-        freeCount = 0,
-        liveCount = 0,
-        liveValues = {}
+        growth = math.max(1, initial),
+        backend = backend,
+        capacity = 0,
+        available = {} as {T},
+        values = {} as {T},
+        freecount = 0,
+        livecount = 0,
+        usedcount = 0,
+        pagecount = 0,
+        leases = {}
     ) as Pool<T>
-    created:reserve(retained)
+    created:reserve(initial)
 
     return created
 end

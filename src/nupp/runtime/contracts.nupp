@@ -9,8 +9,6 @@ Importing these declarations initializes no host service.
 ]]
 module nupp.runtime.contracts
 
-local {type Buffer as SharedBuffer} = require("nupp.text.internal.buffer")
-
 --- Cryptographically secure randomness for the executing host.
 ---
 --- Use the host secure random source and propagate its failures. Deterministic
@@ -78,18 +76,6 @@ export interface UuidProvider
 
     --- Generates a time-ordered version 7 UUID.
     @readonly uuid7: function(): string
-end
-
---- Construction of the canonical portable FIFO Buffer.
----
---- Return the shared Buffer type from nupp.text.internal.buffer. Implementations may
---- use native objects or portable state, but all signatures and chaining results
---- must retain that identity. Native pointer and serializer facilities are outside
---- this portable contract.
-export interface BufferProvider
-
-    --- Creates an independent FIFO buffer; accepts a size hint or an options table.
-    @readonly new: function(size: (integer | table)?, options: table?): SharedBuffer
 end
 
 --- Called with the results of a call whose caller stopped waiting.

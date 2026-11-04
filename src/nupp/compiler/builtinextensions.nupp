@@ -16,6 +16,7 @@ local ROOTS = {
         replace = {popen = true, open = true, lines = true, input = true, output = true},
         members = {
             URI = true,
+            Bytes = true,
             newuri = true,
             isuri = true,
             validateuri = true,

@@ -431,7 +431,7 @@ local models = require("runtime_derive_models")
 local record Outer inner: models.Inner end
 local value = new Outer(inner = new models.Inner())
 print(value:debug())
-local out = require("nupp.text").newbuffer()
+local out = require("string.buffer").new()
 local writer = serde.json.newwriter(out)
 require("serde.json").writevalue(serde.binding(Outer), value, writer)
 writer:close()

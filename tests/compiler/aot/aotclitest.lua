@@ -4123,7 +4123,7 @@ function M.rootedByteViewsCarryTheSameCursorProof()
 local array = require("nupp.mem.array")
 local builder = require("serde.valuebuilder")
 local simd = require("simd")
-local {type Buffer} = require("nupp.text")
+local {type Buffer} = require("string.buffer")
 
 @aot
 local function quotes(borrows source: string | Buffer, nullValue: any): (any, uint32, uint32)

@@ -55,7 +55,7 @@ export const passes = {
     ] = {
         name = "concat-buffer",
         level = 1,
-        summary = "build a string accumulated round a loop with a nupp.text buffer",
+        summary = "build a string accumulated round a loop with a string.buffer FIFO",
     },
     [
         "OPT-6"
@@ -575,7 +575,7 @@ end
 -- left operand and everything appended is down its right spine. Returns the pieces in
 -- the order they are concatenated, or nil when the shape is not an accumulation of
 -- `definition` -- including when any link is a concatenation the checker could not
--- prove primitive, since a `nupp.text` buffer will not run somebody's `__concat`.
+-- prove primitive, since a `string.buffer` buffer will not run somebody's `__concat`.
 local function appendedPieces(expr, definition)
     if not expr or isToken(expr) or expr.kind ~= "binop" then
         return nil
@@ -773,7 +773,8 @@ local function concatBufferBlocks(node, asked, remarks, counter: integer): integ
                     stat,
                     "OPT-5",
                     (
-                        "concat-buffer: %s is built with a nupp.text buffer, " .. "which appends instead of rebuilding"
+                        "concat-buffer: %s is built with a string.buffer FIFO, "
+                        .. "which appends instead of rebuilding"
                     ):format(stat.names[1].text)
                 )
             end
@@ -790,7 +791,7 @@ end
 -- Driving the body passes
 ----------------------------------------------------------------------------
 
---- Lowers a string accumulated round a loop to a `nupp.text` buffer.
+--- Lowers a string accumulated round a loop to a `string.buffer` buffer.
 ---
 --- `s = s .. piece` in a loop is O(n^2): each round allocates a string holding
 --- everything so far and interns it, so the work grows with the length rather than with

@@ -5,13 +5,13 @@ local documents = require("serde.document")
 local errors = require("serde")
 local json = require("serde.json")
 local model = require("example.richmodel")
-local text = require("nupp.text")
+local text = require("string.buffer")
 
 local binding = model.binding(model.newModel())
 local codec = json.codec(model.policy(true))
 local value = codec:decode(binding, '{"identifier":"cycle","created":0}')
 value.next = value
-local buffer = text.newbuffer()
+local buffer = text.new()
 buffer:put("prefix")
 
 local function cyclic(): nil

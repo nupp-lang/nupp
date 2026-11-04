@@ -42,7 +42,8 @@ local BUNDLED = {
     "nupp.mem.heap",
     "nupp.mem.array",
     "nupp.util.internal.pool",
-    "nupp.mem.arena",
+    "nupp.util.internal.structpool",
+    "io.internal.sharedbytes",
     "events",
     "nupp.runtime.contracts",
     "os.host",
@@ -83,6 +84,10 @@ end
 function M.retiredNamespacesAreNotBundled()
     local env = strictEnv()
     for _, name in ipairs({
+        "nupp.text",
+        "nupp.text.internal.buffer",
+        "nupp.mem.arena",
+        "nupp.mem.sharedbytes",
         "package.nupp",
         "binary.checksum.spi",
         "binary.digest.spi",

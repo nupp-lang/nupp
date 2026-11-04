@@ -1,3 +1,0 @@
-{
-  "serde.json.spi.Provider": ["nupp.codec.json.aot"]
-}

@@ -1,31 +1,15 @@
 @!internal
 
 --[[
-LuaJIT `string.buffer` adapter for `text.buffer` API 1.
+Native FIFO buffer constructor used by implementation conformance tests.
 
-The selected implementation constructs native FIFO buffers and exposes them
-through the single public Buffer type in [](nupp.text.internal.buffer). Constructor
-arguments are passed to the host library, including its options-table form.
-Native-only pointer and serialization facilities remain on `string.buffer`.
-
-The [](nupp.text) facade loads this adapter once and retains `new`
-directly. Requiring the adapter needs the host buffer library but allocates no
-individual buffer. Each call constructs an independent buffer whose explicit
-`free` operation and garbage collection follow the host library's lifetime.
+The constructor is LuaJIT's `string.buffer.new` function directly. It returns
+the native object with its pointer and serialization operations intact.
+Requiring this module allocates no individual buffer.
 ]]
 module nupp.runtime.provider.nativebuffer
 
 local native = require("string.buffer")
-local {type Buffer} = require("nupp.text.internal.buffer")
 
---- Adapts the host buffer object to the shared FIFO contract.
-export function new(size: (integer | table)?, options: table?): Buffer
-    if options ~= nil then
-        return native.new(size, options) as any
-    end
-    if size ~= nil then
-        return native.new(size) as any
-    end
-
-    return native.new() as any
-end
+--- Creates a native FIFO buffer without wrapping its object or constructor.
+export const new: function(size: (integer | table)?, options: table?): native.Buffer = native.new

@@ -1,7 +1,7 @@
 const assert2 = require("assert")
 
 const {type EncodedString} = require("serde.json")
-const {type Buffer} = require("nupp.text")
+const {type Buffer} = require("string.buffer")
 
 local m = {}
 
@@ -10,7 +10,7 @@ local serde = require("serde")
 local typedJSON = require("serde.json")
 local rendering = require("serde.debug")
 local native: any = require("serde_spike_native")
-local text = require("nupp.text")
+local text = require("string.buffer")
 
 local type FieldKind = "string" | "integer" | "number" | "boolean"
 
@@ -86,7 +86,7 @@ local function schema(members: {Member}): Schema
 end
 
 local function serializer(): JsonSerializer
-    local out = text.newbuffer()
+    local out = text.new()
     return new JsonSerializer(out = out, writer = @unsafe own.release(json.newwriter(out)))
 end
 
@@ -313,7 +313,7 @@ local preparedMedium = serde.binding(Medium, new serde.Options(unknownmembers = 
 local preparedConstantMedium = serde.binding(ConstantMedium, new serde.Options(unknownmembers = "ignore"))
 local preparedDebugSmall = rendering.binding(Small)
 local preparedDebugMedium = rendering.binding(Medium)
-local preparedOutput = text.newbuffer()
+local preparedOutput = text.new()
 
 local scalarString = {kind = "string"}
 local scalarInteger = {kind = "integer"}
@@ -453,7 +453,7 @@ end
 
 -- The public embedding path, with a caller-owned syntax writer.
 local function embeddedEncode<T>(binding: serde.Binding<T>, value: T): string
-    local out = text.newbuffer()
+    local out = text.new()
     local writer = json.newwriter(out)
     productionCodec:writevalue(binding, value, writer)
     writer:close()
@@ -667,13 +667,13 @@ end
 local smallJson = m.nativeEncodeSmall()
 local mediumJson = m.nativeEncodeMedium()
 local payload64KiBJson = productionCodec:encode(preparedPayload, payload64KiB)
-local smallInput = text.newbuffer()
+local smallInput = text.new()
 smallInput:put(smallJson)
-local mediumInput = text.newbuffer()
+local mediumInput = text.new()
 mediumInput:put(mediumJson)
-local nestedInput = text.newbuffer()
+local nestedInput = text.new()
 nestedInput:put(nestedJson)
-local payload64KiBInput = text.newbuffer()
+local payload64KiBInput = text.new()
 payload64KiBInput:put(payload64KiBJson)
 local mediumReverseJson = [[{"cached":true,"retries":3,"owner":"example-owner","ratio":0.625,"version":7,"enabled":false,"region":"us-east-1","score":98.25,"count":1701,"name":"Ada","active":true,"id":41}]]
 local mediumUnknownJson = [[{"ignored":{"nested":[1,2,3]},"id":41,"active":true,"name":"Ada","count":1701,"score":98.25,"region":"us-east-1","enabled":false,"version":7,"ratio":0.625,"owner":"example-owner","retries":3,"cached":true}]]

@@ -27,7 +27,7 @@ local binding = serde.binding(
 )
 
 local function encodedText(value: Reading): string
-    local out = require("nupp.text").newbuffer()
+    local out = require("string.buffer").new()
     local writer = json.newwriter(out)
     typedJSON.writevalue(binding, value, writer)
     writer:close()

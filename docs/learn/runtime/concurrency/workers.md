@@ -464,11 +464,10 @@ instead of returning it consumes it like any affine owner, with
 before rebuilding its owner, and primitive elements move; every other
 ownership mode and element shape keeps the refusal above.
 
-A move complements a region rather than replacing it: a
-`sharedbytes.Region` shares immutable bytes with any number of readers,
-while a move hands exclusive mutable storage to exactly one. Filling a
-moved buffer and freezing the content into a region when it stops changing
-is the intended composition, and there is no path back.
+[](io.Bytes) shares immutable engine storage with any number of readers; a move
+hands exclusive mutable storage to one lane. `io.Bytes.newbuilder()` constructs
+shared bytes incrementally, and consuming `Builder:freeze()` transfers its
+allocation into immutable bytes without copying.
 
 ## Failure and termination
 

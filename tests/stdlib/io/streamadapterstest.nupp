@@ -6,7 +6,7 @@ const {type Writer} = require("io")
 const {type ByteQueue} = require("io")
 const io2 = require("io")
 
-local text = require("nupp.text")
+local text = require("string.buffer")
 local span = require("binary.span")
 
 local M = {}
@@ -191,7 +191,7 @@ function M.readsThroughAnyReader(): nil
 end
 
 function M.readsAStringBufferInPlace(): nil
-    local queue = text.newbuffer()
+    local queue = text.new()
     queue:put("head:")
     queue:put("!")
 
@@ -204,7 +204,7 @@ function M.readsAStringBufferInPlace(): nil
 end
 
 function M.bridgesAStringBufferIntoTheReaderContract(): nil
-    local queue = text.newbuffer()
+    local queue = text.new()
     queue:put("payload")
 
     local destination = io2.newbuffer()

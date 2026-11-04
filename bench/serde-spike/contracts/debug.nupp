@@ -4,7 +4,7 @@ local __serdeJson = require("serde.json")
 local declarations = require("serde")
 local debug = require("serde.debug")
 local json = require("serde.json")
-local text = require("nupp.text")
+local text = require("string.buffer")
 local record Credentials
     user: string
     @debug(redact = true)
@@ -33,7 +33,7 @@ assert2(
     end)
 )
 assert2(debug.render(binding, value) == expected)
-local buffer = text.newbuffer()
+local buffer = text.new()
 buffer:put("prefix:")
 debug.write(binding, value, buffer)
 assert2(buffer:tostring() == "prefix:" .. expected)

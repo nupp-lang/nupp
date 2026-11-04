@@ -3014,6 +3014,37 @@ print(tiny.tiny_add(2, 3))
     remove(dir)
 end
 
+function M.recordPoolBundleOmitsPhysicalStorage()
+    local dir = tempProject({
+        [
+            "nupp.lua"
+        ] = [[return {include = {"src"}, build = {kind = "bundle",
+   outDir = "out", output = "out/app.lua", entries = {"main"}, host = "browser"}}]],
+        [
+            "src/main.nupp"
+        ] = [[
+local record Item
+    value: integer
+end
+local pool = table.newpool(Item, 2)
+local item = pool:acquire()
+item.value = 7
+pool:release(item)
+pool:reset()
+assert(pool.capacity == 2 and pool:free() == 2)
+]],
+    })
+    testAssert.eq(project.build(dir), 0)
+    local payload = read(dir .. "/out/app.lua")
+    for _, name in ipairs({"nupp.util.internal.structpool", "nupp.runtime.storage"}) do
+        assert(
+            not payload:find(('package.preload[%q]'):format(name), 1, true),
+            "record pool unexpectedly packages " .. name
+        )
+    end
+    remove(dir)
+end
+
 function M.byteIoBundleOmitsUnusedProcessAndClockProviders()
     local dir = tempProject({
         [
@@ -3032,6 +3063,7 @@ buffer:close()
     local payload = read(dir .. "/out/app.lua")
     for _, name in ipairs({
         "io.internal.process",
+        "io.internal.sharedbytes",
         "nupp.runtime.provider.nativeprocess",
         "nupp.runtime.provider.nativetime",
         "nupp.io.path.pathtext"

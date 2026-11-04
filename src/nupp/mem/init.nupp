@@ -25,11 +25,11 @@ slicing check the view's element count.
 
 Managed arrays and arena pages remain live through references to their storage.
 Heap and SoA allocations return affine owners with lexical cleanup. Immutable
-shared-byte regions retain engine-owned blocks and require the Nupp engine
-host. See each module's API for its allocation and lifetime contract.
+shared bytes are [](io.Bytes). See each module's API for its allocation and
+lifetime contract.
 
-Record-backed pooling is [](table.Pool). Struct rows use [](nupp.mem.arena),
-whose release ends a lease and whose reset rewinds the allocation cursor.
+Record and struct pooling is [](table.Pool). Released instances are reusable;
+reset retains allocations and refuses live leases.
 
 See [c-interop.md](docs/learn/runtime/c-interop/index.md) for what crossing the
 C boundary costs, and

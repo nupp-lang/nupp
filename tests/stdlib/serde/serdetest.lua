@@ -298,7 +298,7 @@ function M.bufferAndEmbeddedWriterKeepTheirBoundaries()
         .. [[
 local record User id: integer end
 local binding = serde.binding(User)
-local buffer = require("nupp.text").newbuffer()
+local buffer = require("string.buffer").new()
 buffer:put("prefix:")
 json.encodeinto(binding, new User(id = 7), buffer)
 local first = buffer:get()

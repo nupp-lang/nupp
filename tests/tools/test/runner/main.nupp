@@ -30,7 +30,7 @@ require("binary.compress")
 require("serde.json")
 const carriedpath = io.newpath
 const carrieduri = io.newuri
-require("nupp.text")
+require("string.buffer")
 require("coroutine")
 require("io.net")
 const carriedprocess = io.popen

@@ -12,7 +12,6 @@ local MODULES: {[string]: {
 }} = {
     ["warn"] = {kind = "common"},
     ["bit"] = facility("runtime", "runtime.bitops"),
-    ["nupp.text"] = facility("runtime", "runtime.text_buffer"),
     ["nupp.codec.json.provider"] = facility("runtime", "native.json"),
     ["nupp"] = {kind = "common"},
     ["assert"] = {kind = "common"},
@@ -136,7 +135,8 @@ local MODULES: {[string]: {
     ["nupp.mem"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.mem.heap"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.mem.indexed"] = {kind = "unavailable", capability = "cstorage"},
-    ["nupp.mem.sharedbytes"] = {kind = "unavailable", capability = "cinterop"},
+    ["io.internal.bytestypes"] = {kind = "common"},
+    ["io.internal.sharedbytes"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.mem.soa"] = {kind = "unavailable", capability = "cinterop"},
     ["nupp.mem.span"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.runtime.native"] = {kind = "unavailable", capability = "cinterop"},
@@ -159,7 +159,7 @@ local MODULES: {[string]: {
     ["nupp.workers"] = facility("host", "runtime.workers"),
     ["nupp.mem.array"] = {kind = "unavailable", capability = "cstorage"},
     ["nupp.util.internal.pool"] = {kind = "common"},
-    ["nupp.mem.arena"] = {kind = "unavailable", capability = "cstorage"},
+    ["nupp.util.internal.structpool"] = {kind = "unavailable", capability = "cstorage"},
     ["events"] = {kind = "unavailable", capability = "cstorage"},
 }
 

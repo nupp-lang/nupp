@@ -176,8 +176,8 @@ for _, invalid in ipairs({
 end
 
 -- Cached writers retain the same dynamic paths and transactional output.
-local text = require("nupp.text")
-local buffer = text.newbuffer()
+local text = require("string.buffer")
+local buffer = text.new()
 buffer:put("prefix:")
 value.rows[2].value = -1
 local ok, failure = pcall(json.encodeinto, fixture.collectionsBinding, value, buffer)
@@ -200,7 +200,7 @@ assert(buffer:tostring() == "prefix:")
 -- Buffer input reaches the provider without another facade copy. The current
 -- native host bridge materializes one input string; a future borrowing bridge
 -- may eliminate that copy without changing this contract.
-local inputBuffer = text.newbuffer()
+local inputBuffer = text.new()
 inputBuffer:put('{"name":"buffer","child":{"value":"nested"}}')
 assert(decoder:acceptsBuffer(inputBuffer))
 local methods = debug.getmetatable(inputBuffer).__index

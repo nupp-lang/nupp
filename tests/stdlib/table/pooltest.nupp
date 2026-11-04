@@ -1,4 +1,4 @@
--- table.Pool: record instances leased from a free list, cleared on release.
+-- table.Pool: retained record instances, cleared on release.
 const {type Pool, newpool as newPool} = require("table")
 local test = require("assert")
 
@@ -77,6 +77,29 @@ function M.newReservesTheCapacityUpFront(): nil
             newPool(Event, -1)
         end,
         "negative"
+    )
+end
+
+function M.invalidSizesAndWitnessesAreRefused(): nil
+    for _, size in ipairs({-1, 0.5, math.huge, 0 / 0}) do
+        test.raises(
+            function()
+                (newPool as any)(Event, size)
+            end,
+            "nonnegative integer"
+        )
+    end
+    test.raises(
+        function()
+            (newPool as any)(Event, false)
+        end,
+        "nonnegative integer"
+    )
+    test.raises(
+        function()
+            (newPool as any)({}, 1)
+        end,
+        "record or struct declaration"
     )
 end
 
@@ -159,7 +182,8 @@ function M.instancesAreDistinctWhileLive(): nil
         held[index] = event
     end
     test.eq(events:live(), 8)
-    test.eq(events:free(), 0)
+    test.eq(events:free(), 1)
+    test.eq(events.capacity, 9)
     for index = 1, 8 do
         test.eq(held[index].x, index)
     end
@@ -168,7 +192,7 @@ function M.instancesAreDistinctWhileLive(): nil
     end
 end
 
-function M.releaseDiscardsPastCapacity(): nil
+function M.growthAndReleaseRetainAllInstances(): nil
     local events = newPool(Event, 2)
     local held: {Event} = {}
     for index = 1, 5 do
@@ -177,7 +201,9 @@ function M.releaseDiscardsPastCapacity(): nil
     for index = 1, 5 do
         events:release(held[index])
     end
-    test.eq(events:free(), 2)
+    test.eq(events:free(), 6)
+    test.eq(events.capacity, 6)
+    test.eq(events:pages(), 3)
     test.eq(events:live(), 0)
 end
 
@@ -189,11 +215,12 @@ function M.reserveTopsTheFreeListUp(): nil
     end
     test.eq(events:free(), 0)
     events:reserve(2)
-    test.eq(events:free(), 2)
+    test.eq(events:free(), 4, "reserve grows in allocation batches")
     events:reserve(1)
-    test.eq(events:free(), 2, "reserve never shrinks the free list")
+    test.eq(events:free(), 4, "reserve never shrinks the free list")
     events:reserve(6)
-    test.eq(events:free(), 6, "reserve may hold more than capacity")
+    test.eq(events:free(), 8)
+    test.eq(events.capacity, 12, "capacity includes the four live instances")
     test.raises(
         function()
             events:reserve(-1)
@@ -203,7 +230,7 @@ function M.reserveTopsTheFreeListUp(): nil
     for index = 1, 4 do
         events:release(held[index])
     end
-    test.eq(events:free(), 6, "releases past capacity are discarded, not the reserve")
+    test.eq(events:free(), 12, "every retained instance becomes reusable")
 end
 
 function M.resetWithLiveInstancesRaisesAndChangesNothing(): nil
@@ -220,11 +247,47 @@ function M.resetWithLiveInstancesRaisesAndChangesNothing(): nil
     test.eq(events.capacity, 3)
     events:release(event)
     events:reset()
-    test.eq(events:free(), 0)
+    test.eq(events:free(), 3)
     test.eq(events:live(), 0)
     test.eq(events.capacity, 3)
     events:reserve(3)
     test.eq(events:free(), 3)
+end
+
+function M.resetKeepsInstancesAndRestartsAcquisitionCount(): nil
+    local events = newPool(Event, 2)
+    local first = events:acquire()
+    local second = events:acquire()
+    local third = events:acquire()
+    first.name = "retained"
+    events:release(first)
+    events:release(second)
+    events:release(third)
+    test.eq(events.capacity, 4)
+    test.eq(events:used(), 3)
+    events:reset()
+    test.eq(events.capacity, 4)
+    test.eq(events:free(), 4)
+    test.eq(events:used(), 0)
+    local reused = events:acquire()
+    test(reused == first, "reset restarts at the first retained instance")
+    test(hasNoFields(reused), "released record fields remain cleared")
+    events:release(reused)
+end
+
+function M.zeroSizeStartsEmptyAndStillReusesInstances(): nil
+    local events = newPool(Event, 0)
+    test.eq(events.capacity, 0)
+    test.eq(events:pages(), 0)
+    local event = events:acquire()
+    test.eq(events.capacity, 1)
+    test.eq(events:pages(), 1)
+    events:release(event)
+    events:reset()
+    test.eq(events:free(), 1)
+    local reused = events:acquire()
+    test(reused == event)
+    events:release(reused)
 end
 
 function M.releaseRefusesWhatThePoolDidNotStamp(): nil
@@ -233,7 +296,7 @@ function M.releaseRefusesWhatThePoolDidNotStamp(): nil
         function()
             events:release(new Event(x = 1))
         end,
-        "without a live instance"
+        "without a live lease"
     )
     local event = events:acquire()
     test.raises(

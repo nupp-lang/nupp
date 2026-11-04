@@ -1,0 +1,135 @@
+@!internal
+--[[
+Shared-byte regions retain immutable engine-owned storage.
+They require the Nupp engine host supplied by a stamped binary.
+
+```nupp
+const Bytes = io.Bytes
+
+const region = Bytes.copy("hello, region")
+const hello = region:slice(0, 5)
+assert(hello:len() == 5 and hello:tostring() == "hello")
+```
+
+A region names an extent of one reference-counted engine block. It crosses
+worker boundaries by reference, slices without copying, and is read in place
+through a borrowed [](binary.span) byte view; converting it to a Lua string
+is one explicit call.
+
+A region is storage, so its positions are zero-based offsets and counts, as a
+[](io.Buffer)'s are: `slice(offset, count)` and `view(offset, count)`
+name `count` bytes starting `offset` bytes in.
+
+A producer that has bytes only behind a pointer writes into builder storage
+directly through a reserve-and-commit pair, with no intermediate chunk string:
+
+```nupp
+const Bytes = io.Bytes
+
+local builder = Bytes.newbuilder()
+do
+    local writer = builder:reserve(5)
+    for index = 1, 5 do
+        writer[index] = 64 + index
+    end
+end
+builder:commit(5)
+builder:append("!")
+assert(builder:freeze():tostring() == "ABCDE!")
+```
+]]
+module io.internal.bytestypes
+
+local span = require("binary.span")
+
+const _FACTORY_REQUIRES = "@requires-dynamically io.internal.sharedbytes"
+local factory: any = nil
+
+local function implementation(name: string): any
+    if factory == nil then
+        factory = require(name)
+    end
+    return factory
+end
+
+--- An affine accumulator of engine storage. Appending grows one private
+--- allocation, and freezing transfers it into a region without copying.
+local interface BuilderToken is own.Affine<self.drop>
+    drop: @nosuspend function(takes self: BuilderToken): nil
+end
+
+--- An immutable extent of an engine-owned block. Crossing a worker boundary
+--- moves a reference, never the bytes; reading happens in place through a
+--- borrowed byte view, and `tostring` is the one explicit copy into a Lua state.
+export record Bytes
+    --- A growable engine allocation that becomes a region when frozen.
+    record Builder is BuilderToken
+        @private _handle: any
+
+        --- Appends the chunk's bytes to the builder's storage.
+        append: @nosuspend function(Bytes.Builder, string): nil
+
+        --- Grows the storage and lends a checked writer over exactly `count`
+        --- uninitialized bytes past what is already committed. All growth happens
+        --- here, before the writer exists, and the borrow keeps every other
+        --- builder operation a compile error while the writer lives, so the lent
+        --- pointer cannot be invalidated. One `commit` closes the reservation
+        --- after the writer drops.
+        reserve: function(exclusive self: Bytes.Builder, integer): span.Writable<uint8> borrows (self)
+
+        --- Closes the open reservation, keeping its first `written` bytes as
+        --- content; a short read commits what arrived, and the surplus returns to
+        --- capacity for the next reservation.
+        commit: @nosuspend function(Bytes.Builder, integer): nil
+
+        --- Consumes the builder and transfers its allocation into a region.
+        freeze: @nosuspend function(takes self: Bytes.Builder): Bytes
+
+        --- Releases an unfrozen builder's storage at scope exit.
+        drop: @nosuspend function(takes self: Bytes.Builder): nil
+    end
+
+    --- Copies text into immutable engine-owned bytes.
+    copy: function(text: string): Bytes
+
+    --- Reads a whole file directly into immutable engine-owned bytes.
+    readfile: function(path: string): (Bytes?, string?)
+
+    --- Opens an owned builder whose freeze transfers storage without copying.
+    newbuilder: function(): affine(Bytes.Builder)
+
+    @private _handle: any
+    @private _first: integer
+    @private _length: integer
+
+    --- How many bytes the region holds.
+    len: @nosuspend function(Bytes): integer
+
+    --- A zero-copy region over `count` bytes starting `offset` bytes into this one.
+    slice: function(Bytes, integer, integer): Bytes
+
+    --- A read-only borrowed view over `count` bytes starting `offset` bytes in,
+    --- the whole region by default.
+    view: function(borrows self: Bytes, integer?, integer?): span.ByteSpan borrows (self)
+
+    --- A checked zero-copy view of the complete region as physical elements.
+    viewas: function<T>(borrows self: Bytes, ctype<T>): span.Span<T> borrows (self)
+
+    --- The region's bytes copied and interned as an ordinary string.
+    tostring: @nosuspend function(Bytes): string
+end
+
+function Bytes.copy(text: string): Bytes
+    local create: function(string): Bytes = implementation("io.internal.sharedbytes").Bytes.copy
+    return create(text)
+end
+
+function Bytes.readfile(path: string): (Bytes?, string?)
+    local read: function(string): (Bytes?, string?) = implementation("io.internal.sharedbytes").Bytes.readfile
+    return read(path)
+end
+
+function Bytes.newbuilder(): affine(Bytes.Builder)
+    local create: function(): affine(Bytes.Builder) = implementation("io.internal.sharedbytes").Bytes.newbuilder
+    return create()
+end

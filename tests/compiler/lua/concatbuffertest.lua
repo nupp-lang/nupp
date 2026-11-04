@@ -53,7 +53,7 @@ local function assertLowered(src, ...)
     local fired, code = lowered(src)
     testAssert.eq(fired, true, "expected OPT-5 to fire\n" .. src)
     assert(code:find("__nuppBuffer", 1, true), "the buffer is required\n" .. code)
-    assert(code:find(".newbuffer()", 1, true), "the lowercase factory is emitted\n" .. code)
+    assert(code:find(".new()", 1, true), "the lowercase factory is emitted\n" .. code)
     local plain = compile(src, 0)
     testAssert.eq(
         runCode(code, "optimized", ...),

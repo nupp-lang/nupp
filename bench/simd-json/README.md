@@ -166,13 +166,13 @@ drained two, which is the whole of the difference. The reference runs at
 ## The rest of the experiment
 
 The full `simd-json` target builds on the public `serde.json`,
-`serde` and `nupp.text` surfaces. Its fused control calls the shipped
+`serde` and `string.buffer` surfaces. Its fused control calls the shipped
 public decoder; the production decoder and structural indexer both use the
 general SIMD algebra. Prepared-schema tests cover defaults, nullable fields,
 literals and tuples through the public binding API.
 
-`nupp/spi.json` advertises `nupp.codec.json.aot` for
-`serde.json.spi.Provider`; codec consumers select it at first load. The default codec remains Lunajson elsewhere.
+Native AOT builds select the compiled JSON paths through `@aot`. Compiler
+and browser targets use the portable implementation behind the same API.
 The test and benchmark entry points refuse to run unless the public eager,
 pull and serde decoders reach registered native C builders, and classification,
 indexing and arena parsing have registered AOT replacements. Merely loading some other

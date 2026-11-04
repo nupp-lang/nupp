@@ -729,7 +729,7 @@ same block.
 
 ### `OPT-5`, concat buffer
 
-A loop that appends to a string can use a `nupp.text` buffer:
+A loop that appends to a string can use a `string.buffer` FIFO:
 
 ::: code-group
 ```nupp [Nupp]
@@ -743,10 +743,10 @@ end
 ```
 
 ```lua [-O1]
-local __nuppBuffer = require("nupp.text")
+local __nuppBuffer = require("string.buffer")
 
 function m.join(items)
-    local __nuppBuf_1 = __nuppBuffer.newbuffer()
+    local __nuppBuf_1 = __nuppBuffer.new()
     for _, item in ipairs(items) do
         __nuppBuf_1:put(item, ",")
     end

@@ -17,8 +17,8 @@ print(#digest, math.lerp(10, 20, 0.25))
 
 Compiler intrinsics live in their subject namespaces, such as `types`, `simd`,
 and `own`. The compiler selects their implementations from the members checked
-source reaches. `nupp.mem` and `nupp.text` contain the remaining public storage
-and portable text-buffer modules.
+source reaches. `nupp.mem` contains the remaining public storage modules;
+[](string.buffer) owns FIFO byte buffers.
 
 Nupp-authored libraries outside that surface are ordinary declared modules on
 disk. A qualified module path loads one only when the source uses it:
@@ -59,8 +59,9 @@ intrinsic namespaces and the declared modules:
 - [](utf8) validates and walks UTF-8 text.
 - [](serde) binds application types to reusable serialization schemas.
 - [](binary.Bitset) is a growable set of bit positions. [](table.Pool) leases
-  cleared record instances of one declared type from a free list;
-  [](table.newpool) creates one.
+  cleared records or zero-filled struct rows of one declaration;
+  [](table.newpool) creates one. Released instances become reusable immediately,
+  and an idle pool resets without discarding its allocations.
 - [](types.Store) is a bag of values indexed by the typed keys [](types.newkey)
   creates.
 - `os.info()` reports execution platform, architecture, endianness, pointer
@@ -72,7 +73,8 @@ intrinsic namespaces and the declared modules:
   [](os.host.pump) runs an embedded component's operations for a host-owned
   loop. See [host.md](../host.md).
 - [](io) owns byte buffers, readers, writers, and typed scalar reads and writes
-  over them.
+  over them. [](io.Bytes) shares immutable engine storage across workers and
+  lends byte views without copying.
 - [](io.files) owns filesystem metadata and directories.
 - [](io.net) owns listeners, plain connections, and TLS sessions.
 - [](io) models filesystem paths and resource identifiers.
@@ -81,7 +83,6 @@ intrinsic namespaces and the declared modules:
 - [](binary.span) owns rooted, bounds-checked shared and writable C array views.
 - [`nupp.mem.soa`](structure-of-arrays.md) stores every top-level field of a
   reified struct in its own column.
-- [](nupp.mem.arena) leases zero-filled struct rows from pages that never move.
 - [](io.gpu) owns resident buffers, generated kernel dispatches, and tensor views.
   [](io.gpu.layout) owns the checked layout algebra.
 - [](os.randombytes) provides cryptographically secure random bytes.
@@ -149,7 +150,7 @@ automatic detection unless the packaging requires otherwise.
 
 Storage offsets count from zero; element indexes count from one. Storage is a
 [](io.Buffer), a [](io.ByteView), a
-[`sharedbytes.Region`](nupp.mem.sharedbytes) or an open file: a range in one is
+[](io.Bytes) or an open file: a range in one is
 a zero-based offset and a count, because an offset names a distance from the
 beginning and maps directly onto a native byte range. An element view, a
 [span](binary.span) or a [SoA](structure-of-arrays.md) view, and text, a Lua
@@ -161,13 +162,13 @@ string or [](utf8), use 1-based positions, as a Lua array and
 Check each operation's return signature before handling a failure. The typed
 file, process, network, TLS and HTTP services use [](io.Error), whose `kind`
 identifies failures such as `"notfound"`. The Lua stream function `io.open`
-and `nupp.mem.sharedbytes.readfile` return string reasons. Invalid arguments may
+and `io.Bytes.readfile` return string reasons. Invalid arguments may
 raise instead of returning a failure value.
 
 A result declared `affine(...)` has a cleanup obligation: its local scope drops
 it, and `own.drop` ends its lifetime early. Other values have different storage
-lifetimes. `nupp.mem.array` and arena pages use managed storage; shared-byte
-regions retain engine references; the portable text buffer provides `free` to
+lifetimes. `nupp.mem.array` and struct pool pages use managed storage; shared-byte
+regions retain engine references; `string.buffer.Buffer` provides `free` to
 discard retained capacity. None of those APIs promises automatic cleanup merely
 because a local leaves scope.
 

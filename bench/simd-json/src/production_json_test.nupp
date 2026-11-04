@@ -13,7 +13,7 @@ local function decoded<T>(binding: serde.Binding<T>, bytes: string): (T?, string
     return value as T, nil
 end
 
-local newBuffer = require("nupp.text").newbuffer
+local newBuffer = require("string.buffer").new
 
 -- Malformed text and an unmatched shape are answered, not raised.
 local function refused(value: any, reason: string?): boolean

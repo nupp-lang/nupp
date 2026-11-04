@@ -1,0 +1,42 @@
+@!internal
+
+--[[
+Stable C-storage pages for the record and struct pool implementation.
+
+The common pool loads this allocator only for a struct declaration. Cached row
+references and their backing arrays stay rooted together for the pool's life.
+]]
+module nupp.util.internal.structpool
+
+local storage = require("nupp.runtime.storage")
+
+export interface Backend<T>
+    @readonly allocate: function(count: integer): {T}
+    @readonly clear: function(value: T): nil
+end
+
+export function new<T>(witness: Type<T>): Backend<T>
+    local sample = (witness as any)()
+    local element = storage.descriptor(sample)
+    local width = storage.sizeOf(element)
+    local pages: {T[?]} = {}
+    local allocator: Backend<T> = {
+        allocate = function(count: integer): {T}
+            local page = storage.allocateArray(element, count) as T[?]
+            local rows: {T} = {}
+            @unsafe do
+                for offset = 0, count - 1 do
+                    rows[offset + 1] = page[offset]
+                end
+            end
+            pages[#pages + 1] = page
+
+            return rows
+        end,
+        clear = function(value: T): nil
+            storage.fill(value, width, 0)
+        end,
+    }
+
+    return allocator
+end

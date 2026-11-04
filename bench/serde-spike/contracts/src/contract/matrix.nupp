@@ -2,7 +2,7 @@ const assert2 = require("assert")
 
 local serde = require("serde")
 local json = require("serde.json")
-local text = require("nupp.text")
+local text = require("string.buffer")
 
 local record Small
     id: uint32
@@ -64,7 +64,7 @@ local function add(name, target, input)
     local value = operation.decode(input)
     local canonical = operation.encode(value)
     assert2(operation.encode(operation.decode(canonical)) == canonical)
-    local buffer = text.newbuffer()
+    local buffer = text.new()
     cases[#cases + 1] = {
         name = name,
         input = input,

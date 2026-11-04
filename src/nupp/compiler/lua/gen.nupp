@@ -1411,13 +1411,13 @@ export function generate(
 
     -- A module projected through a builtin namespace is required once per generated
     -- module. Reserved rather than assumed, so a user local with the preferred name
-    -- does not collide with it. OPT-5 reaches nupp.text through the same
+    -- does not collide with it. OPT-5 reaches string.buffer through the same
     -- registry.
 
     local function compilerModuleName(moduleName: string): string
         local name = compilerModules[moduleName]
         if not name then
-            local preferred = moduleName == "nupp.text" and "__nuppBuffer" or "__nuppModule"
+            local preferred = moduleName == "string.buffer" and "__nuppBuffer" or "__nuppModule"
             name = reservedName(preferred)
             compilerModules[moduleName] = name
             compilerModuleOrder[#compilerModuleOrder + 1] = moduleName
@@ -1433,11 +1433,11 @@ export function generate(
     end
 
     local function concatBufferName()
-        return compilerModuleName("nupp.text")
+        return compilerModuleName("string.buffer")
     end
 
     -- The suspension runtime, bound once per module using coroutine cleanup,
-    -- the way `nupp.text` is.
+    -- the way `string.buffer` is.
     local function suspensionModule()
         needsSuspension = true
         needRuntimeEffect("runtime.suspension")
@@ -9553,7 +9553,7 @@ export function generate(
 
         elseif kind == "dotIndex" and x.compilerModule then
             -- The module the checker projected through a builtin namespace. OPT-5
-            -- shares this binding when the module is nupp.text.
+            -- shares this binding when the module is string.buffer.
             e(compilerModuleName(x.compilerModule), sourceLine(x))
 
         elseif kind == "localStmt"
@@ -9616,7 +9616,7 @@ export function generate(
             if not x.concatBuffer.elide then
                 emitChildren(x)
             end
-            e(("local %s = %s.newbuffer()"):format(x.concatBuffer.name, concatBufferName()), sourceLine(x))
+            e(("local %s = %s.new()"):format(x.concatBuffer.name, concatBufferName()), sourceLine(x))
 
         elseif kind == "assignStmt" and x.concatBuffer then
             -- `s = s .. a .. b` becomes `buf:put(a, b)`. Lua's `..` is
@@ -9957,7 +9957,7 @@ export function generate(
         local recordDefinitions = {}
         if #exportedRecords > 0 then
             -- A worker state loads the same immutable module graph into a different Lua
-            -- heap. Publish only the stable module/member address: nupp.text
+            -- heap. Publish only the stable module/member address: the worker transport
             -- maps the sender's and receiver's distinct record tables through the
             -- matching index. The weak keys do not retain a module replaced by hot
             -- reload.

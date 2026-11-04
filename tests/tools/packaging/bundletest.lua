@@ -625,9 +625,9 @@ export function echoSparse(value: Sparse): Sparse
     return value
 end
 
-const sharedbytes = require("nupp.mem.sharedbytes")
+const sharedbytes = io.Bytes
 
-export function firstByte(region: sharedbytes.Region): integer
+export function firstByte(region: io.Bytes): integer
     return region:view(0, 1)[1]
 end
 
@@ -671,7 +671,7 @@ end
 const capture = require("capture")
 const jobs = require("jobs")
 const tasks = require("coroutine")
-const sharedbytes = require("nupp.mem.sharedbytes")
+const sharedbytes = io.Bytes
 
 local counter = require("counter")
 for index = 1, 100 do assert(counter.next() == index) end
@@ -809,6 +809,7 @@ end
 
 local dynamicShared = sharedbytes as any
 assert(dynamicShared.newBuilder == nil and dynamicShared.readFile == nil)
+assert(dynamicShared.__regionParts == nil and dynamicShared.__regionFromParts == nil)
 local loaded, readProblem = sharedbytes.readfile("shared-bytes.bin")
 if loaded == nil then error(readProblem or "shared byte file failed") end
 assert(loaded:len() == 13 and loaded:tostring() == "engine\0bytes\255")
@@ -830,7 +831,7 @@ local rawShared = require("nupp.mem.sharedbytes.native") as Accounted
 collectgarbage("collect")
 collectgarbage("collect")
 local before = rawShared.accounted()
-local grown: sharedbytes.Region? = sharedbytes.copy(("y"):rep(65536))
+local grown: io.Bytes? = sharedbytes.copy(("y"):rep(65536))
 print(rawShared.accounted() - before == 65536, grown ~= nil)
 grown = nil
 collectgarbage("collect")
@@ -1235,9 +1236,9 @@ return {include = {"src"}, build = {default = "app", targets = {app = {
 module jobs
 
 const heap = require("nupp.mem.heap")
-const sharedbytes = require("nupp.mem.sharedbytes")
+const sharedbytes = io.Bytes
 
-export function inspect(takes frame: heap.Array<uint8>, region: sharedbytes.Region): integer
+export function inspect(takes frame: heap.Array<uint8>, region: io.Bytes): integer
     local count = frame.count
     frame:close()
     return count + region:len()
@@ -1248,7 +1249,7 @@ end
         ] = [[
 const jobs = require("jobs")
 const heap = require("nupp.mem.heap")
-const sharedbytes = require("nupp.mem.sharedbytes")
+const sharedbytes = io.Bytes
 const tasks = require("coroutine")
 
 local region = sharedbytes.copy("abc")
