@@ -140,9 +140,8 @@ export function appendText(h: heap.Heap*, b: strings.Builder*, value: uint64): u
     if ints.isInteger(value) then
         return strings.appendInteger(h, b, native.index(ints.bitsOf(value)))
     end
-    -- A float as Lua 5.5 writes one (C's "%.15g", or "%.17g" when that
-    -- reads back as another number), with ".0" added when it reads as an
-    -- integer.
+    -- A float as Nupp writes one (Decision 13): the shorter exact text, which
+    -- the host writes whole ("5.0", "1e1").
     if value & values.QNAN ~= values.QNAN or value == values.QNAN then
         @unsafe do
             if strings.reserve(h, b, 66ULL) ~= 0ULL then
@@ -153,20 +152,7 @@ export function appendText(h: heap.Heap*, b: strings.Builder*, value: uint64): u
             if length < 0 or length > 64 then
                 return 1ULL
             end
-            local count = native.word(length)
-            local integral = true
-            local i: uint64 = 0ULL
-            while i < count do
-                local c = native.word(native.load8(native.pointer(at), native.index(i)))
-                if c ~= 45ULL and (c < 48ULL or c > 57ULL) then
-                    integral = false
-                end
-                i = i + 1ULL
-            end
-            b.length = b.length + count
-            if integral then
-                return strings.appendWord(h, b, 0x302eULL, 2ULL)
-            end
+            b.length = b.length + native.word(length)
             return 0ULL
         end
     end

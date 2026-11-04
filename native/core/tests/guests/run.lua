@@ -141,6 +141,7 @@ local CASES = {
     {"stringbuffer", 0x7FFF000000000003},
     {"librarybasics", 0x7FFF00000000007F},
     {"cleanupfunctions", 0x7FFF000000000003},
+    {"serdejson", 0x7FFF000000000003},
     {"coreoperators", 0x7FFF0000000003FF},
     {"methodcleanups", 0x7FFF00000000001F},
     {"storagebasics", 0x7FFF000000001FFF},
@@ -148,13 +149,14 @@ local CASES = {
     {"modulesqualified", 0x7FFF0000000000E6},
     {"callsoverflow", 0x7FFF000000000003}
 }
--- What the cases that print write to the host's output, as Lua 5.5 writes it.
+-- What the cases that print write to the host's output, as Lua 5.5 writes it
+-- but for floats, which print the shorter exact text (Decision 13).
 local OUTPUT = {
     textbuffer = "shown\n",
-    outputPrint = "hello\t42\t1.5\ttrue\tnil\tfalse\n\nxxx\t3\t-0.0\t1e+100\t9007199254740992.0\n"
+    outputPrint = "hello\t42\t1.5\ttrue\tnil\tfalse\n\nxxx\t3\t-0.0\t1e100\t9007199254740992.0\n"
         .. "line\t1\nline\t2\nline\t3\n",
     callsExpand = "1\t2\nx\t1\t2\n",
-    outputwrite = "hello 42 1.5\n3.0 -0.0 9.2233720368547758e+18\nab\nx7\np\n",
+    outputwrite = "hello 42 1.5\n3.0 -0.0 9.223372036854776e18\nab\nx7\np\n",
     libraryspread = "1\t2\t3\n3\t3\n97\t98\t99\n2\t3\ntrue\t1\t2\n",
     moduleslazy = "main start\nshapes loading\ncounter loading\nmain required\n"
 }

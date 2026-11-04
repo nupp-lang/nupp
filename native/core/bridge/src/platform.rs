@@ -217,9 +217,11 @@ fn float_spec(bytes: &[u8; 16]) -> bool {
 /// The `room` bit that says `out` holds a float_spec to format with.
 const FORMAT_SPEC: u64 = 1 << 63;
 
-/// Writes the binary64 `bits` as Lua 5.5 writes a float, C's "%.15g" or,
-/// when that reads back as another number, "%.17g", into `out`, at most
-/// `room` bytes: the text's whole length. The guest's float text.
+/// Writes the binary64 `bits` as Nupp writes a float (Decision 13): the
+/// shorter of the decimal and exponent texts that read back exactly, the
+/// decimal on a tie (`10.0` is `1e1`, `5.0` stays `5.0`), as the VM's
+/// `num_text` does; into `out`, at most `room` bytes: the text's whole
+/// length. The guest's float text.
 pub unsafe extern "C" fn format_number(bits: u64, out: u64, room: u64) -> u64 {
     let value = f64::from_bits(bits);
     // string.format's float conversions: the spec is in `out`.
@@ -242,20 +244,28 @@ pub unsafe extern "C" fn format_number(bits: u64, out: u64, room: u64) -> u64 {
         unsafe { std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, length.min(room as usize)) };
         return length as u64;
     }
-    let mut text = [0u8; 64];
-    let mut written = unsafe { snprintf(text.as_mut_ptr().cast(), text.len(), c"%.15g".as_ptr(), value) };
-    // Lua 5.5 writes 15 digits unless they read back as another number.
-    if written >= 0 && unsafe { strtod(text.as_ptr().cast(), std::ptr::null_mut()) }.to_bits() != bits {
-        written = unsafe { snprintf(text.as_mut_ptr().cast(), text.len(), c"%.17g".as_ptr(), value) };
-    }
-    if written < 0 {
-        return u64::MAX;
-    }
-    let length = (written as usize).min(text.len() - 1);
+    let text = float_text(value);
+    let length = text.len();
     if out != 0 {
         unsafe { std::ptr::copy_nonoverlapping(text.as_ptr(), out as *mut u8, length.min(room as usize)) };
     }
     length as u64
+}
+
+/// The shorter exact text of `value`, the decimal on a tie.
+fn float_text(value: f64) -> String {
+    if value.is_nan() {
+        return "nan".into();
+    }
+    if value == f64::INFINITY {
+        return "inf".into();
+    }
+    if value == f64::NEG_INFINITY {
+        return "-inf".into();
+    }
+    let decimal = format!("{value:?}");
+    let exponent = format!("{value:e}");
+    if exponent.len() < decimal.len() { exponent } else { decimal }
 }
 
 /// Reads the `bytes` at `text` as C's strtod does, the whole text but for
