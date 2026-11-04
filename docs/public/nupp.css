@@ -1,14 +1,8 @@
 :root {
   /* Follow the browser's default text size. */
   font-size: 100%;
-  /* A palette surveyed across woodblock prints — thirty-eight colors: paper
-   * through ink black, the earth/moss/indigo tones between, and (since the
-   * survey ran short of both) three near-whites and three near-blacks, each
-   * an existing surveyed hue pushed to its extreme rather than invented from
-   * scratch. The variables below assign each to a role rather than picking
-   * arbitrarily — small text that needs more contrast than any surveyed
-   * color gives is a color-mix of one of them toward black or white, used
-   * only where the set truly has no direct color for the job. */
+  /* Light mode uses parchment and rust; dark mode keeps the woodblock palette.
+   * Shared roles keep page surfaces, links, controls, and code in sync. */
   --nupp-woodblock-vermilion: #b1594f;
   --nupp-woodblock-vermilion-hover: #843d2f;
   /* Warm highlights complement the paper and ink palette. */
@@ -16,16 +10,16 @@
   --nupp-woodblock-ember-deep: color-mix(in srgb, var(--nupp-woodblock-ember) 60%, black);
   --nupp-woodblock-cinnabar: #d64a3b;
   --nupp-woodblock-cinnabar-deep: color-mix(in srgb, var(--nupp-woodblock-cinnabar) 65%, black);
-  --nuppdoc-light-accent: #006e86;
+  --nuppdoc-light-accent: #a36048;
   --nuppdoc-light-accent-hover: color-mix(in srgb, var(--nuppdoc-light-accent) 80%, black);
-  --nuppdoc-light-accent-soft: #f1e1df;
-  --nuppdoc-light-background: #f6f2e9;
+  --nuppdoc-light-accent-soft: color-mix(in srgb, var(--nuppdoc-light-background) 88%, var(--nuppdoc-light-accent));
+  --nuppdoc-light-background: #f6eddc;
   --nuppdoc-light-background-alt: color-mix(in srgb, var(--nuppdoc-light-background) 96%, var(--nuppdoc-light-text));
   --nuppdoc-light-border: #ccc;
   --nuppdoc-light-api-border: var(--nuppdoc-light-border);
-  --nuppdoc-light-code-background: #e6eaec;
-  --nuppdoc-light-text: #2e2f2a;
-  --nuppdoc-light-muted: #594a4f;
+  --nuppdoc-light-code-background: color-mix(in srgb, var(--nuppdoc-light-background) 95%, var(--nuppdoc-light-accent));
+  --nuppdoc-light-text: #362d25;
+  --nuppdoc-light-muted: #6f6051;
   --nuppdoc-dark-accent: #d64a3b;
   --nuppdoc-dark-accent-hover: color-mix(in srgb, #d64a3b 85%, white);
   --nuppdoc-dark-accent-soft: #161214;
@@ -50,18 +44,18 @@
   --nuppdoc-sidebar-background: var(--nuppdoc-background);
   --nuppdoc-code-block-radius: 4px;
   --nuppdoc-hero-glow-color: var(--nupp-woodblock-vermilion);
-  --nuppdoc-syntax-boolean: #836620;
-  --nuppdoc-syntax-comment: #474c44;
-  --nuppdoc-syntax-function: #376076;
-  --nuppdoc-syntax-keyword: #9a1600;
-  --nuppdoc-syntax-meta: #2e595c;
-  --nuppdoc-syntax-number: #836620;
-  --nuppdoc-syntax-operator: #2e595c;
+  --nuppdoc-syntax-boolean: #8b631e;
+  --nuppdoc-syntax-comment: #76664f;
+  --nuppdoc-syntax-function: var(--nuppdoc-light-accent);
+  --nuppdoc-syntax-keyword: #a1442d;
+  --nuppdoc-syntax-meta: #4e6767;
+  --nuppdoc-syntax-number: #8b631e;
+  --nuppdoc-syntax-operator: #4e6767;
   --nuppdoc-syntax-property: var(--nuppdoc-syntax-variable);
-  --nuppdoc-syntax-punctuation: #3c5156;
-  --nuppdoc-syntax-string: #364c31;
-  --nuppdoc-syntax-type: #2e595c;
-  --nuppdoc-syntax-variable: #6e5032;
+  --nuppdoc-syntax-punctuation: #4e6767;
+  --nuppdoc-syntax-string: #53693e;
+  --nuppdoc-syntax-type: #4e6767;
+  --nuppdoc-syntax-variable: #7b573a;
 }
 
 /* Darken just the line-number gutters, not every use of --nuppdoc-text-faint
@@ -339,6 +333,10 @@
 }
 
 @media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) {
+    --nuppdoc-syntax-foreground: var(--nuppdoc-light-text);
+  }
+
   :root:not([data-theme="dark"]) .nuppdoc-content :is(h1, h2, h3, h4, h5, h6, h7, h8) {
     color: #000;
   }
@@ -532,11 +530,6 @@
 }
 
 @media (prefers-color-scheme: dark) {
-  :root:not([data-theme="light"]) .nuppdoc-admonition-seealso {
-    border-left-width: 1px;
-    border-left-color: color-mix(in srgb, var(--nuppdoc-admonition-color) 45%, var(--nuppdoc-border));
-  }
-
   :root:not([data-theme="light"]) .nuppdoc-admonition-seealso .nuppdoc-admonition-title {
     font-weight: 600;
   }
@@ -557,11 +550,6 @@
     --nuppdoc-syntax-type: #718e90;
     --nuppdoc-syntax-variable: #d3a87c;
   }
-}
-
-:root[data-theme="dark"] .nuppdoc-admonition-seealso {
-  border-left-width: 1px;
-  border-left-color: color-mix(in srgb, var(--nuppdoc-admonition-color) 45%, var(--nuppdoc-border));
 }
 
 :root[data-theme="dark"] .nuppdoc-admonition-seealso .nuppdoc-admonition-title {
@@ -588,16 +576,17 @@
 :root[data-theme="light"] {
   --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
   --nuppdoc-playground-border: var(--nuppdoc-light-border);
-  --nuppdoc-syntax-boolean: #836620;
-  --nuppdoc-syntax-comment: #474c44;
-  --nuppdoc-syntax-function: #376076;
-  --nuppdoc-syntax-keyword: #9a1600;
-  --nuppdoc-syntax-meta: #2e595c;
-  --nuppdoc-syntax-number: #836620;
-  --nuppdoc-syntax-operator: #2e595c;
+  --nuppdoc-syntax-foreground: var(--nuppdoc-light-text);
+  --nuppdoc-syntax-boolean: #8b631e;
+  --nuppdoc-syntax-comment: #76664f;
+  --nuppdoc-syntax-function: var(--nuppdoc-light-accent);
+  --nuppdoc-syntax-keyword: #a1442d;
+  --nuppdoc-syntax-meta: #4e6767;
+  --nuppdoc-syntax-number: #8b631e;
+  --nuppdoc-syntax-operator: #4e6767;
   --nuppdoc-syntax-property: var(--nuppdoc-syntax-variable);
-  --nuppdoc-syntax-punctuation: #3c5156;
-  --nuppdoc-syntax-string: #364c31;
-  --nuppdoc-syntax-type: #2e595c;
-  --nuppdoc-syntax-variable: #6e5032;
+  --nuppdoc-syntax-punctuation: #4e6767;
+  --nuppdoc-syntax-string: #53693e;
+  --nuppdoc-syntax-type: #4e6767;
+  --nuppdoc-syntax-variable: #7b573a;
 }

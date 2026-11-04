@@ -796,7 +796,6 @@ input {
     margin: 1.25rem 0;
     padding: .85rem 1rem;
     border: 1px solid color-mix(in srgb, var(--nuppdoc-admonition-color) 45%, var(--nuppdoc-border));
-    border-left: 4px solid var(--nuppdoc-admonition-color);
     border-radius: 8px;
     background: color-mix(in srgb, var(--nuppdoc-admonition-color) 9%, var(--nuppdoc-background))
 }
@@ -823,8 +822,7 @@ input {
 
 .nuppdoc-admonition-deepdive {
     --nuppdoc-admonition-color: var(--nuppdoc-admonition-deepdive);
-    padding: 0;
-    border-left-width: 1px
+    padding: 0
 }
 
 details.nuppdoc-admonition>summary {
