@@ -1101,7 +1101,8 @@ export function identity(value: string): string return value end
     local html = table.concat(rendered)
     assert(html:find('>Arguments<a', 1, true) and html:find('<dl class="nuppdoc-api-details">', 1, true), html)
     assert(html:find('>Returns<a', 1, true), html)
-    assert(html:find("<dt><code>value</code> - ", 1, true), html)
+    assert(html:find('<dt><code>value</code> - <code class="nuppdoc-token-type">string</code></dt>', 1, true), html)
+    assert(html:find('<dt><code class="nuppdoc-token-type">string</code></dt>', 1, true), html)
     assert(html:find("The supplied value.", 1, true), html)
     assert(html:find("The value again.", 1, true), html)
     local markdown = doc.markdown({module})
@@ -1138,6 +1139,10 @@ export function deep(value: Box.Nested.Leaf): Box.Nested.Leaf end
     assert(markdown:find("[`Widget`](#model.Widget)", 1, true), markdown)
     assert(markdown:find("[`Box.Nested.Leaf`](#model.Box.Nested.Leaf)", 1, true), markdown)
     local html = require("nupp.tools.doc.html").markdownHtml(markdown)
+    for term in html:gmatch("<dt>(.-)</dt>") do
+        assert(not term:find("<span", 1, true), "argument and return types must not use syntax highlighting: " .. term)
+        assert(term:find('class="nuppdoc-token-type"', 1, true), term)
+    end
     local convert = assert(html:match('id="model.convert"(.-)</section>'), html)
     local args = assert(convert:match("<dt>(.-)</dt>"), convert)
     local _, links = convert:gsub('href="#model%.Widget"', "")
@@ -1201,8 +1206,9 @@ export function choose(option: 'collect' | 'rock & roll'): 'collect' end
     local rendered = {}
     renderMarkdownItem(rendered, module.items[1])
     local html = assert(table.concat(rendered):match('<dl class="nuppdoc%-api%-details">(.-)</dl>'))
-    assert(html:find("&#39;collect&#39;", 1, true), html)
-    assert(html:find("&#39;rock &amp; roll&#39;", 1, true), html)
+    local text = html:gsub("&#39;", "'")
+    assert(text:find("'collect'", 1, true), html)
+    assert(text:find("'rock &amp; roll'", 1, true), html)
     assert(not html:find("&amp;#39;", 1, true), html)
     assert(not html:find("&amp;amp;", 1, true), html)
 end

@@ -665,7 +665,8 @@ input {
     color: var(--nuppdoc-syntax-string)
 }
 
-.nuppdoc-token-type {
+.nuppdoc-token-type,
+.nuppdoc-api-details dt a {
     color: var(--nuppdoc-syntax-type)
 }
 
@@ -673,15 +674,7 @@ input {
     color: var(--nuppdoc-syntax-variable)
 }
 
-/* Decorate each syntax token so its underline follows its own text color. */
-.nuppdoc-api-details dt a:has(code) {
-    text-decoration: none
-}
-
-.nuppdoc-api-details dt a code:not(:has(.token)),
-.nuppdoc-api-details dt a .token {
-    text-decoration: underline;
-    text-decoration-color: currentColor;
+.nuppdoc-api-details dt a {
     text-decoration-thickness: .5px;
     text-underline-offset: .12em
 }
