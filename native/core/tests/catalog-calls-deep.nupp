@@ -1,0 +1,33 @@
+module nupp.core.catalogcallsdeep
+
+-- Recursion far past the 128 frames a recursive program once had, then a
+-- stack overflow where the core defines it: a stack holds 200,000 frames,
+-- and a call that would make one more raises. Main's chunk is the first
+-- frame and pcall calls `probe` from it, so `probe` reaches n = 199,999.
+local function down(n: integer): integer
+    if n == 0 then
+        return 0
+    end
+    return down(n - 1) + 1
+end
+
+local deepest = 0
+
+local function probe(n: integer): integer
+    deepest = n
+    return probe(n + 1) + 1
+end
+
+local score = 0
+if down(150000) == 150000 then
+    score = 1
+end
+local ok, err = pcall(probe, 1)
+if not ok and string.sub(tostring(err), -14) == "stack overflow" then
+    score = score + 2
+end
+-- And the stack unwound: as deep again.
+if down(150000) == 150000 then
+    score = score + 4
+end
+export = score * 1000000 + deepest

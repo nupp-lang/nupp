@@ -20,6 +20,18 @@ local build = {}
 -- summary: the runtime's selection, and each program's compile.
 build.timings = {} as {[string]: number}
 
+-- The generated modules main requires in case modulesmany: more than the
+-- 256 an entry once took, each a chain of calls whose depths sum past the
+-- 4096 frames a program once had.
+local function manymodules(): {string}
+    local list: {string} = {}
+    for index = 1, 260 do
+        list[index] = ("modulesmany%03d"):format(index)
+    end
+
+    return list
+end
+
 -- Each case's fixture and graph profile version.
 local CASES: {[string]: {
     fixture: string,
@@ -150,6 +162,8 @@ local CASES: {[string]: {
         modules = {"catalog-modules-ping", "catalog-modules-pong"},
     },
     callsoverflow = {fixture = "catalog-calls-overflow", version = 8},
+    callsdeep = {fixture = "catalog-calls-deep", version = 8},
+    modulesmany = {fixture = "modulesmany", version = 8, generated = true, modules = manymodules()},
     modulesretry = {
         fixture = "catalog-modules-retry",
         version = 8,
@@ -493,7 +507,11 @@ local function compileProgram(caseName: string, fixture: string, version: intege
     if others then
         names = {}
         for _, name in ipairs(others) do
-            names[#names + 1] = name
+            -- A generated case's modules are generated beside it.
+            names[#names + 1] = declared ~= nil
+                and declared.generated == true
+                and root .. "/build/core-guests/generated/" .. name
+                or name
         end
         names[#names + 1] = fixture
     end
@@ -617,6 +635,13 @@ function build.program(caseName: string): any
         or case.fixture
 
     return compileProgram(caseName, fixture, case.version)
+end
+
+-- The modules a case names beside its entry, as written for a generated case.
+function build.modules(caseName: string): {string}
+    local case = assert(CASES[caseName], "unknown guest case: " .. caseName)
+
+    return case.modules or {}
 end
 
 -- The graph profile version a named case compiles at; generated oracle

@@ -127,7 +127,8 @@ local UNITS = {
             {"gcunits", "rings", 2},
             {"gcunits", "fanOut", 2},
             {"gcunits", "barrier", 1},
-            {"gcunits", "initializedBlack", 1}
+            {"gcunits", "initializedBlack", 1},
+            {"gcunits", "segmentRoots", 3}
         },
         cases = function()
             -- Counts from tests/nativeheaptest.lua, computed there independently.
@@ -141,7 +142,11 @@ local UNITS = {
                 {"fanOut", {50, 40000}, 26},
                 {"barrier", {0}, 1},
                 {"barrier", {1}, 0},
-                {"initializedBlack", {3000}, 1}
+                {"initializedBlack", {3000}, 1},
+                -- A frame stack's roots end at its cursor.
+                {"segmentRoots", {40, 25, 0}, 40},
+                {"segmentRoots", {0, 25, 0}, 0},
+                {"segmentRoots", {40, 25, 1}, 0}
             }
         end
     }
@@ -617,19 +622,21 @@ local tool = bridge()
 local failures, passed = 0, 0
 -- The raw loader's policies are generated from the graph schema and its
 -- bounds: each committed file stays exactly what its generator writes.
+-- Each generator by a literal require: the core reaches no module by a
+-- computed name (toollayeringtest).
 for _, pair in ipairs({
-    {"nupp.core.rawwiregen", "rawwire"},
-    {"nupp.core.rawshapegen", "rawroles"},
-    {"nupp.core.rawcataloggen", "rawcatalogpolicy"},
-    {"nupp.core.rawbudgetgen", "rawbudgetpolicy"},
-    {"nupp.core.rawsemanticgen", "rawsemanticpolicy"}
+    {require("nupp.core.rawwiregen"), "rawwire", "nupp.core.rawwiregen"},
+    {require("nupp.core.rawshapegen"), "rawroles", "nupp.core.rawshapegen"},
+    {require("nupp.core.rawcataloggen"), "rawcatalogpolicy", "nupp.core.rawcataloggen"},
+    {require("nupp.core.rawbudgetgen"), "rawbudgetpolicy", "nupp.core.rawbudgetgen"},
+    {require("nupp.core.rawsemanticgen"), "rawsemanticpolicy", "nupp.core.rawsemanticgen"}
 }) do
     local path = ROOT .. "/native/core/src/nupp/runtime/core/" .. pair[2] .. ".nupp"
-    if read(path) == require(pair[1]).source() then
+    if read(path) == pair[1].source() then
         passed = passed + 1
     else
         failures = failures + 1
-        print("FAIL generated " .. pair[2] .. ": differs from " .. pair[1] .. ".source()")
+        print("FAIL generated " .. pair[2] .. ": differs from " .. pair[3] .. ".source()")
     end
 end
 for _, unit in ipairs(UNITS) do

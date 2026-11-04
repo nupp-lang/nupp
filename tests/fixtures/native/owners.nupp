@@ -1,0 +1,122 @@
+module owners
+
+-- Lexical owners: a local holding an affine value runs its cleanup at every
+-- way out of its scope, newest first, and not once it has been moved out.
+-- Each owner is a tally's address with its digit in the low bits; releasing
+-- it appends the digit to the tally's order and counts the release.
+const native = require("nupp.runtime.vm.intrinsics")
+const arena = require("nupp.runtime.vm.arena")
+
+local struct Tally
+    order: uint64
+    released: uint64
+end
+
+local function release(takes v: uint64): nil
+    @unsafe do
+        local t = native.pointer(v & ~7ULL) as Tally*
+        t.order = t.order * 10ULL + (v & 7ULL)
+        t.released = t.released + 1ULL
+    end
+end
+
+local function acquire(borrows t: Tally*, digit: uint64): affine(uint64, release)
+    return @unsafe native.address(t) | digit
+end
+
+-- The order and the release count of a tally, as one number.
+local function answer(borrows t: Tally*): uint64
+    @unsafe do
+        return t.released * 100000ULL + t.order
+    end
+end
+
+local function inner(borrows t: Tally*, early: boolean): uint64
+    local x = acquire(t, 1ULL)
+    do
+        local y = acquire(t, 2ULL)
+        if early then
+            return 7ULL
+        end
+    end
+    local z = acquire(t, 3ULL)
+
+    return 8ULL
+end
+
+-- Falling out of a scope releases its owners newest first.
+local function fallThrough(): uint64
+    do
+        local a = arena.open(4096);
+        local t = arena.alloc(a, 16, 8) as Tally*
+        do
+            local x = acquire(t, 1ULL)
+            local y = acquire(t, 2ULL)
+        end
+
+        return answer(t)
+    end
+end
+
+-- A return releases every enclosing owner after its value is computed.
+local function returning(early: boolean): uint64
+    do
+        local a = arena.open(4096);
+        local t = arena.alloc(a, 16, 8) as Tally*
+        local result = inner(t, early)
+
+        return result * 1000000ULL + answer(t)
+    end
+end
+
+-- A break releases what the loop body opened.
+local function breaking(stop: int64): uint64
+    do
+        local a = arena.open(4096);
+        local t = arena.alloc(a, 16, 8) as Tally*
+        local i: int64 = 1
+        while i <= 5 do
+            local x = acquire(t, 1ULL)
+            if i == stop then
+                break
+            end
+            local y = acquire(t, 2ULL)
+            i = i + 1
+        end
+
+        return answer(t)
+    end
+end
+
+-- A moved owner is not released again; one filled again is, with its new
+-- value.
+local function moving(move: boolean): uint64
+    do
+        local a = arena.open(4096);
+        local t = arena.alloc(a, 16, 8) as Tally*
+        do
+            local x = acquire(t, 1ULL)
+            if move then
+                release(x)
+                x = acquire(t, 3ULL)
+            end
+        end
+
+        return answer(t)
+    end
+end
+
+-- A repeat's condition still sees its body's owner, released after it.
+local function repeating(count: int64): uint64
+    do
+        local a = arena.open(4096);
+        local t = arena.alloc(a, 16, 8) as Tally*
+        local i: int64 = 0
+        repeat
+            local x = acquire(t, 4ULL)
+            i = i + 1
+        until i >= count and x ~= 0ULL
+
+        return answer(t)
+    end
+end

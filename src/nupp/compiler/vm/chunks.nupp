@@ -24,6 +24,55 @@ function chunks.image(source: string, filename: string?, environment: boolean?):
     )
 end
 
+--- The modules that add to Lua's own tables the Nupp members a plain chunk
+--- reads, as the requires `metadata.expand` hoists load them for a checked
+--- module: `os.monotonic` loads `os`'s, and a bare read of `os` might reach any
+--- member, so it does too. `math` is the VM's own, as `legacylower` lowers a
+--- checked module's reads of it.
+---
+--- Each is named below `nupp.runtime`, where every one of them lives, so the
+--- require that loads it keeps a literal prefix and cannot reach the tools.
+local function installers(root: any): {string}
+    local found: {string} = {}
+    local seen: {[string]: boolean} = {}
+    local extensions: any = nil
+
+    local function note(name: string, member: string?): nil
+        if name == "math" then
+            return
+        end
+        extensions = extensions or require("nupp.compiler.builtinextensions")
+        local module: string? = extensions.installer(name, member)
+        local below = module and module:match("^nupp%.runtime%.(.+)$")
+        if below ~= nil and not seen[below] then
+            seen[below] = true
+            found[#found + 1] = below
+        end
+    end
+
+    local function visit(node: any): nil
+        if type(node) ~= "table" then
+            return
+        end
+        local skip = nil
+        if node.kind == "name" and node.token then
+            note(node.token.text)
+        elseif node.kind == "dotIndex" and node.obj and node.obj.kind == "name" and node.obj.token and node.name then
+            note(node.obj.token.text, node.name.text)
+            skip = node.obj
+        end
+        for _, child in ipairs(node) do
+            if child ~= skip then
+                visit(child)
+            end
+        end
+    end
+
+    visit(root)
+
+    return found
+end
+
 --- Install source loading only in a host that exposes the image loader.
 function chunks.install(): boolean
     local loadImage = rawget(_G, "__nupp_load_image")
@@ -45,6 +94,7 @@ function chunks.install(): boolean
         -- lowering is needed only if the returned function is actually called.
         local compiled = nil
         local context = {value = env or _G}
+        local installs: {string}? = installers(tree.root)
 
         local function prepare()
             if not compiled then
@@ -53,7 +103,14 @@ function chunks.install(): boolean
         end
 
         local function chunk(...)
+            -- Before the chunk's first run, as a checked module's hoisted
+            -- requires run before its body.
+            for _, below in ipairs(installs or {}) do
+                require("nupp.runtime." .. below)
+            end
+            installs = nil
             prepare()
+
             return compiled(context, ...)
         end
 

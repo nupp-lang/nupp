@@ -102,6 +102,38 @@ export function listSurvives(kept: uint64, dropped: uint64): uint64
     return answer
 end
 
+-- A frame stack registered by its descriptor (base, limit and cursor words):
+-- `below` nodes in its words under the cursor and `above` past it, which are
+-- released frames' and not roots. `unset` leaves the descriptor's base 0, a
+-- stack whose entry has not started, which roots nothing.
+export function segmentRoots(below: uint64, above: uint64, unset: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local h = heap.create(a)
+            local words = rootsIn(a, below + above)
+            local segment = rootsIn(a, 5ULL)
+            if unset == 0ULL then
+                setRoot(segment, 0ULL, words)
+            end
+            setRoot(segment, 1ULL, words + (below + above) * 8ULL)
+            setRoot(segment, 2ULL, words + below * 8ULL)
+            collector.registerSegment(h, segment)
+            local i: uint64 = 0ULL
+            while i < below + above do
+                setRoot(words, i, node(h, 1ULL))
+                i = i + 1ULL
+            end
+            collector.fullCycle(h)
+            answer = verdict(h)
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
 -- `count` rings of `size` nodes; every other ring loses its root.
 export function rings(count: uint64, size: uint64): uint64
     local answer: uint64 = 0ULL

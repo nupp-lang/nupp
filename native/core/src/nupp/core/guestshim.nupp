@@ -11,6 +11,10 @@ local function align(value: integer): integer
     return (value + 15) & -16
 end
 
+-- The most bytes of frames an entry maps: its catalog's frame depth (at
+-- most coregraphexecutable.depthbound) times its largest frame.
+local POOL_BOUND: integer = 536870912
+
 -- Entries already built in this process, by everything an entry is made
 -- from (`build`): programs alike in those share one, which callers copy.
 local built: {[string]: any} = {}
@@ -50,9 +54,13 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
         {"WindowPlan", "frames"},
         {"RootControl", "frames"},
         {"State", "frames"},
-        {"Mark", "arena"}
+        {"Mark", "arena"},
+        {"Services", "guestscope"}
     }) do
-        if request[1] ~= "Request" or raw then
+        if request[1] == "Request" and raw
+            or request[1] == "Services" and not raw
+            or request[1] ~= "Request" and request[1] ~= "Services"
+        then
             local scope = source.scopes["nupp.runtime.core." .. request[2]]
             layouts[
                 request[1]
@@ -79,9 +87,16 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
     local slots = lazy and 1 or moduleCount
     assert(
         moduleCount >= 1
-        and moduleCount <= (lazy and 256 or 3)
+        and moduleCount <= (lazy and 65536 or 3)
         and executable.initializers[moduleCount] == executable.entry
     )
+    -- From v8 the entry's storage, which grows with the program's functions,
+    -- is mapped as the services open rather than taken from scratch.
+    local mappedStorage = lazy and not raw
+    -- From v7, which can recurse, the frame pool is mapped as the services
+    -- open too. Before it a program's pool is its exact depth, in scratch,
+    -- which the lifecycle audits read after the entry has closed.
+    local mappedPool = not raw and source.executable.semantic.schema.version >= 7
     local descriptorLayout = source.executable.semantic.schema.version >= 3 and layouts.Descriptor
         or moduleCount == 1 and layouts.DescriptorV1
         or layouts.Descriptor
@@ -99,8 +114,13 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
             align((align(layouts.Frame.size) + (fn.valueCount as integer) * 8) as integer)
         )
     end
+    -- The frames as deep as the catalog lets calls nest. A mapped pool is
+    -- touched only as deep as the program's calls reach.
     local poolBytes = raw and 4096 or (executable.frameDepth as integer) * maximumFrame
-    assert(poolBytes > 0 and poolBytes <= 1048576, "guest logical pool bound")
+    assert(
+        poolBytes > 0 and poolBytes <= (raw and 4096 or mappedPool and POOL_BOUND or 1048576),
+        "guest frame pool bound"
+    )
     -- The entry depends on the program only through the numbers above and
     -- its handlers; the selected runtime and its scopes are held per mode.
     local key: string? = nil
@@ -130,10 +150,10 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
     local worldOffset = align(contextBytes * slots)
     local bindingOffset = align((worldOffset + layouts.World.size) as integer)
     local storageOffset = align((bindingOffset + slots * layouts.Binding.size) as integer)
-    local dispatchOffset = align((storageOffset + slots * storageBytes) as integer)
+    local dispatchOffset = align((storageOffset + (mappedStorage and 0 or slots * storageBytes)) as integer)
     local poolOffset = align(dispatchOffset + 256 * 8)
     -- The entry's services (page ledger, scope, heap handle): see guestscope.
-    local servicesOffset = align((poolOffset + poolBytes) as integer)
+    local servicesOffset = align((poolOffset + (mappedPool and 0 or poolBytes)) as integer)
     local servicesBytes = raw and 0 or 12288
     local spillOffset = align(servicesOffset + servicesBytes)
     local requestOffset: integer = 131072
@@ -328,21 +348,29 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
         emit(arm.cmp_imm(64, 0, 0, 0))
         refuse(0)
         emit(arm.str(8, 0, 31, 192))
-        offset(1, 27, poolOffset)
-        immediate(2, (poolBytes // 8) as integer)
-        offset(3, 27, worldOffset)
-        immediate(4, (layouts.World.size // 8) as integer)
+        -- open(services, storage, stride, slots, pool bytes, world, stress)
+        -- and its scope: storage 0 asks it to map the storage, pool bytes 0
+        -- that the pool lies in scratch.
+        if mappedStorage then
+            emit(arm.movz(64, 1, 0, 0))
+        else
+            offset(1, 27, storageOffset)
+        end
+        immediate(2, storageBytes as integer)
+        immediate(3, slots)
+        immediate(4, mappedPool and poolBytes as integer or 0)
+        offset(5, 27, worldOffset)
         -- A third input word asks for collect-at-every-allocation.
         emit(arm.ldr(8, 17, 31, 168))
         emit(arm.ldr(8, 16, 17, 80))
-        emit(arm.movz(64, 5, 0, 0))
+        emit(arm.movz(64, 6, 0, 0))
         emit(arm.cmp_imm(64, 16, 3, 0))
         local noStress = #words + 1
         emit(arm.b_cond(3, 0))
         emit(arm.ldr(8, 17, 17, 72))
-        emit(arm.ldr(8, 5, 17, 16))
+        emit(arm.ldr(8, 6, 17, 16))
         words[noStress] = arm.b_cond(3, (#words + 1 - noStress) * 4)
-        emit(arm.mov_reg(64, 6, 0))
+        emit(arm.mov_reg(64, 7, 0))
         servicesCalls[2] = #words + 1
         emit(arm.bl(0))
         emit(arm.cmp_imm(64, 0, 1, 0))
@@ -414,11 +442,17 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
         for _, field in ipairs({
             {"context", "contextBytes", contextOffset, context.SIZE},
             {"world", "worldBytes", worldOffset, layouts.World.size},
-            {"storage", "storageBytes", moduleStorageOffset, storageBytes},
-            {"pool", "poolBytes", poolOffset, poolBytes},
+            {"storage", "storageBytes", moduleStorageOffset, storageBytes, mappedStorage},
+            {"pool", "poolBytes", poolOffset, poolBytes, mappedPool},
             {"helper", "helperBytes", spillOffset, extent}
         }) do
-            offset(16, 27, field[3]);
+            if field[5] then
+                -- What open mapped, as the Services keep it.
+                emit(arm.ldr(8, 16, 31, 192))
+                emit(arm.ldr(8, 16, 16, layouts.Services.offsets[field[1]]))
+            else
+                offset(16, 27, field[3]);
+            end
             emit(arm.str(8, 16, 14, binding[field[1]]))
             immediate(16, field[4]);
             emit(arm.str(8, 16, 14, binding[field[2]]))

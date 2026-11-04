@@ -101,6 +101,18 @@ export function register(h: heap.Heap*, base: uint64, words: uint64): nil
     end
 end
 
+--- The word count that marks a registered range as a frame stack: its base
+--- is then a stack's descriptor (its base, limit and cursor words, as the
+--- core's `arena.Segment` lays them out), and the words from the stack's base
+--- to its cursor are the roots. Those past the cursor are released frames,
+--- and a stack mapped for its deepest recursion is touched only as it grows.
+export const SEGMENT: uint64 = 0xffffffffffffffffULL
+
+--- Registers the frame stack `segment` describes as roots, until `unregister`.
+export function registerSegment(h: heap.Heap*, segment: uint64): nil
+    register(h, segment, SEGMENT)
+end
+
 export function unregister(takes h: heap.Heap*): nil
     @unsafe do
         heap.wordsPop(h.ranges)
@@ -257,12 +269,22 @@ local function rootRun(h: heap.Heap*, base: uint64, count: uint64, stack: heap.W
     end
 end
 
---- Each (base, words) pair of a range vector.
+--- Each (base, words) pair of a range vector; a frame stack's live words.
 local function rootRanges(h: heap.Heap*, ranges: heap.Words*, stack: heap.Words*?): nil
     @unsafe do
         local i: uint64 = 0
         while i < ranges.count do
-            rootRun(h, heap.wordAt(ranges, i), heap.wordAt(ranges, i + 1), stack)
+            local base = heap.wordAt(ranges, i)
+            local words = heap.wordAt(ranges, i + 1)
+            if words == SEGMENT then
+                local first = native.load64(native.pointer(base), 0)
+                local cursor = native.load64(native.pointer(base), 16)
+                if first ~= 0 and cursor > first then
+                    rootRun(h, first, (cursor - first) // 8, stack)
+                end
+            else
+                rootRun(h, base, words, stack)
+            end
             i = i + 2
         end
     end

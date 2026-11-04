@@ -335,10 +335,8 @@ local function switchin(ctx: voidptr, frame: voidptr, pc: voidptr, thread: uint6
         local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
         native.store64(frame, native.fieldOffset<frames.Frame>("resumePC"), (native.address(pc) - code) // 16ULL + 1ULL)
         native.store64(services(ctx), native.fieldOffset<guestscope.Services>("running"), thread)
-        local stack = native.offset(t, native.fieldOffset<Thread>("stack"))
-        local base = native.load64(stack, native.fieldOffset<arena.Segment>("base"))
-        local limit = native.load64(stack, native.fieldOffset<arena.Segment>("limit"))
-        collector.register(h, base, (limit - base) // 8ULL)
+        -- Its frames, as far as they reach.
+        collector.registerSegment(h, native.address(native.offset(t, native.fieldOffset<Thread>("stack"))))
         native.store64(ctx, context.STATE, native.address(native.offset(t, native.fieldOffset<Thread>("state"))))
     end
 end

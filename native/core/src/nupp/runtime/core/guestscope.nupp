@@ -20,6 +20,8 @@ const ints = require("nupp.runtime.core.coreintegers")
 const catalog = require("nupp.runtime.core.guestcatalog")
 const frames = require("nupp.runtime.core.frames")
 const access = require("nupp.runtime.core.frameaccess")
+const guestentry = require("nupp.runtime.core.guestentry")
+const instances = require("nupp.runtime.core.instances")
 
 -- The scope comes first, so a Services address is also its scope's address.
 export struct Services
@@ -104,6 +106,12 @@ export struct Services
     libraryanswer: uint64
     -- What the collector's oracle found wrong, kept when the heap closes.
     oraclefailures: uint64
+    -- The entry's storage, when open mapped it, and its frame pool: their
+    -- addresses (0 for none) and mapped bytes, which close unmaps.
+    storage: uint64
+    storagebytes: uint64
+    pool: uint64
+    poolbytes: uint64
 end
 
 -- tableSet's answer when a __newindex function is to be called instead.
@@ -149,21 +157,58 @@ export function prepare(base: voidptr, bytes: uint64): uint64
     end
     native.store64(services, native.fieldOffset<Services>("heap"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("arena"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("storage"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("storagebytes"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("pool"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("poolbytes"), 0ULL)
 
     return native.address(services)
 end
 
--- Maps the heap's arena, creates the heap in it and registers the guest frame
--- pool and module world as root ranges: their words may be stale, which root
--- marking tolerates. Answers 1, or 0 when the mapping is refused.
+-- Maps `bytes` for the entry, its address noted in `field` and its mapped
+-- bytes in the field after it for close to unmap; 0 when refused.
+local function mapEntry(services: voidptr, field: int64, bytes: uint64): uint64
+    local mapped = roundUp(bytes, os.pageSize())
+    local base = os.mapPages(mapped)
+    if base == nil then
+        return 0ULL
+    end
+    native.store64(services, field, native.address(base as voidptr))
+    native.store64(services, field + 8, mapped)
+
+    return native.address(base as voidptr)
+end
+
+-- Maps the heap's arena and creates the heap in it; maps the frame pool,
+-- `poolBytes` that grow into pages only as frames reach them (none when 0:
+-- the pool lies in scratch), and, when
+-- `storage` is 0, the storage of `slots` initializers `stride` bytes apart,
+-- which otherwise lies at `storage` in scratch. The module world and each
+-- initializer's frame stack, up to its cursor, become root ranges: their
+-- words may be stale, which root marking tolerates. Answers 1, or 0 when a
+-- mapping is refused, leaving what was mapped for close.
 export function open(
     services: voidptr,
-    pool: uint64,
-    poolWords: uint64,
+    storage: uint64,
+    stride: uint64,
+    slots: uint64,
+    poolBytes: uint64,
     world: uint64,
-    worldWords: uint64,
     stress: uint64
 ): uint64
+    if slots == 0ULL or stride == 0ULL then
+        return 0ULL
+    end
+    local stacks = storage
+    if stacks == 0ULL then
+        stacks = mapEntry(services, native.fieldOffset<Services>("storage"), slots * stride)
+        if stacks == 0ULL then
+            return 0ULL
+        end
+    end
+    if poolBytes ~= 0ULL and mapEntry(services, native.fieldOffset<Services>("pool"), poolBytes) == 0ULL then
+        return 0ULL
+    end
     local metadata = roundUp(native.sizeOf<arena.Chunk>(), native.alignmentOf<arena.Arena>())
     local header = roundUp(metadata + native.sizeOf<arena.Arena>(), 16ULL)
     local mapped = roundUp(HEAP_BYTES + header, os.pageSize())
@@ -186,8 +231,15 @@ export function open(
         local h = heap.create(a)
         -- Generations (Decision 20) are kept from the first allocation on.
         h.generational = collector.GENERATIONAL
-        collector.register(h, pool, poolWords)
-        collector.register(h, world, worldWords)
+        local slot: uint64 = 0ULL
+        while slot < slots do
+            collector.registerSegment(
+                h,
+                stacks + slot * stride + native.word(native.fieldOffset<guestentry.Storage>("segment"))
+            )
+            slot = slot + 1ULL
+        end
+        collector.register(h, world, native.sizeOf<instances.World>() // 8ULL)
         native.store64(services, native.fieldOffset<Services>("running"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("main"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("loaded"), 0ULL)
@@ -234,10 +286,23 @@ export function open(
     return 1ULL
 end
 
--- Destroys the heap and unmaps its arena; nothing when open never ran.
+-- Unmaps what `mapEntry` noted in `field`, and forgets it.
+local function unmapEntry(services: voidptr, field: int64): nil
+    local base = native.load64(services, field)
+    if base ~= 0ULL then
+        os.unmapPages(native.pointer(base), native.load64(services, field + 8))
+        native.store64(services, field, 0ULL)
+        native.store64(services, field + 8, 0ULL)
+    end
+end
+
+-- Destroys the heap and unmaps its arena, then the frame pool and storage;
+-- nothing when open never ran.
 export function close(services: voidptr): nil
     local address = native.load64(services, native.fieldOffset<Services>("heap"))
     if address == 0ULL then
+        unmapEntry(services, native.fieldOffset<Services>("pool"))
+        unmapEntry(services, native.fieldOffset<Services>("storage"))
         return
     end
     @unsafe do
@@ -259,6 +324,8 @@ export function close(services: voidptr): nil
     end
     native.store64(services, native.fieldOffset<Services>("heap"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("arena"), 0ULL)
+    unmapEntry(services, native.fieldOffset<Services>("pool"))
+    unmapEntry(services, native.fieldOffset<Services>("storage"))
 end
 
 -- The first raised error code, or 1000 when the scope cannot close cleanly
