@@ -6,6 +6,11 @@
 -- bounded or guarded so the two can be compared word for word.
 local generate = {}
 
+-- Nupp's float text (Decision 13), for the twin: the shorter of the decimal
+-- and exponent texts that read back exactly, the decimal on a tie, as Rust's
+-- `{:?}` and `{:e}` write them. One line, so the twin keeps its lines.
+local NUPPTEXT = "local function nupptext(x) if math.type(x) ~= \"float\" then return tostring(x) end if x ~= x then return \"nan\" elseif x == math.huge then return \"inf\" elseif x == -math.huge then return \"-inf\" elseif x == 0 then return 1 / x < 0 and \"-0.0\" or \"0.0\" end local mantissa, exponent for precision = 0, 16 do local text = string.format(\"%.\" .. precision .. \"e\", x) if tonumber(text) == x then mantissa, exponent = text:match(\"^(-?[%d.]+)e([-+]%d+)$\") break end end local sign = mantissa:sub(1, 1) == \"-\" and \"-\" or \"\" local digits = mantissa:gsub(\"^-\", \"\"):gsub(\"%.\", \"\") local power = tonumber(exponent) local rest = digits:sub(2) local scientific = sign .. digits:sub(1, 1) .. (rest ~= \"\" and \".\" .. rest or \"\") .. \"e\" .. power local magnitude = math.abs(x) if magnitude < 1e-4 or magnitude >= 1e16 then return scientific end local decimal if power >= 0 then local whole = digits:sub(1, power + 1) .. string.rep(\"0\", power + 1 - #digits) local fraction = digits:sub(power + 2) decimal = sign .. whole .. \".\" .. (fraction ~= \"\" and fraction or \"0\") else decimal = sign .. \"0.\" .. string.rep(\"0\", -power - 1) .. digits end return #scientific < #decimal and scientific or decimal end"
+
 local function chooser(seed)
     local state = seed % 2147483647
     if state <= 0 then
@@ -298,7 +303,8 @@ function generate.program(seed, size)
                 expression(1),
                 "(" .. expression(1) .. " // " .. d .. ")",
                 "math.floor((" .. expression(1) .. " % 100000) / " .. d .. ")",
-                -- Float text: Lua 5.5's 15- or 17-digit form.
+                -- Float text: Nupp's shorter exact text, which the twin
+                -- writes through nupptext.
                 "(" .. expression(1) .. " / " .. d .. ")",
                 "(-(" .. expression(1) .. ") / 7)",
                 -- The string library over the text built so far.
@@ -307,7 +313,8 @@ function generate.program(seed, size)
                 "(s:byte(-2) or 0)",
                 "#(s:match(\"%d+\") or \"\")"
             }
-            emit("s = s .. tostring(" .. forms[pick(9)] .. ") .. \",\"")
+            local form = forms[pick(9)]
+            emit("s = s .. tostring(" .. form .. ") .. \",\"", "s = s .. nupptext(" .. form .. ") .. \",\"")
         elseif roll == 14 and depth == 0 then
             arrays = arrays + 1
             local name = "u" .. arrays
@@ -463,7 +470,7 @@ function generate.program(seed, size)
     return "module nupp.core.generated" .. seed .. "\n\n" .. table.concat(
         lines,
         "\n"
-    ) .. "\n", "-- Generated twin of generated" .. seed .. ".nupp.\n" .. table.concat(lua, "\n") .. "\n"
+    ) .. "\n", NUPPTEXT .. " -- Generated twin of generated" .. seed .. ".nupp.\n" .. table.concat(lua, "\n") .. "\n"
 end
 
 return generate
