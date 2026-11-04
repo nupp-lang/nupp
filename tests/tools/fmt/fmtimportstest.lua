@@ -71,9 +71,9 @@ local function userFormatted(source)
 end
 
 function M.retainsBuiltinNamespaceCalls()
-    local output = formatted('return io.files.read("a"), io.files.read("b")\n')
+    local output = formatted('return io.files.exists("a"), io.files.exists("b")\n')
     assert(not output:find("require", 1, true), output)
-    assert(output:find('return io.files.read("a"), io.files.read("b")', 1, true), output)
+    assert(output:find('return io.files.exists("a"), io.files.exists("b")', 1, true), output)
 end
 
 function M.builtinTypeAccessRemainsQualifiedAndErased()
@@ -87,8 +87,8 @@ function M.builtinTypeAccessRemainsQualifiedAndErased()
 end
 
 function M.keepsDirectBuiltinAliases()
-    local output = formatted('local files = io.files\nreturn files.read("a"), io.files.read("b")\n')
-    assert(output == 'local files = io.files\nreturn files.read("a"), io.files.read("b")\n', output)
+    local output = formatted('local files = io.files\nreturn files.exists("a"), io.files.exists("b")\n')
+    assert(output == 'local files = io.files\nreturn files.exists("a"), io.files.exists("b")\n', output)
 end
 
 function M.avoidsCapturingNamesInAnyScope()
@@ -121,18 +121,18 @@ end
 
 function M.leavesIntrinsicsAndExplicitRequirePlacement()
     local output = formatted(
-        'local function size()\nreturn types.sizeof(int32), require("io.files").read("a")\nend\nreturn size\n'
+        'local function size()\nreturn types.sizeof(int32), require("io.files").exists("a")\nend\nreturn size\n'
     )
     assert(not output:find('const files', 1, true), output)
     assert(output:find('types.sizeof(int32)', 1, true), output)
-    assert(output:find('require("io.files").read', 1, true), output)
+    assert(output:find('require("io.files").exists', 1, true), output)
 end
 
 function M.preservesCommentsAndStrings()
-    local output = formatted('-- nupp.io.files.read\nreturn "nupp.io.files.read", io.files.read("a")\n')
-    assert(output:find('-- nupp.io.files.read', 1, true), output)
-    assert(output:find('"nupp.io.files.read", io.files.read', 1, true), output)
-    local inside = formatted('return io -- keep this\n.files.read("a")\n')
+    local output = formatted('-- nupp.io.files.exists\nreturn "nupp.io.files.exists", io.files.exists("a")\n')
+    assert(output:find('-- nupp.io.files.exists', 1, true), output)
+    assert(output:find('"nupp.io.files.exists", io.files.exists', 1, true), output)
+    local inside = formatted('return io -- keep this\n.files.exists("a")\n')
     assert(inside:find('-- keep this', 1, true), inside)
     assert(not inside:find('const files', 1, true), inside)
 end
@@ -155,16 +155,16 @@ function M.keepsModuleDocumentationAheadOfImports()
 end
 
 function M.doesNotRewritePlainLuaOrDisabledFiles()
-    local source = 'return io.files.read("a")\n'
+    local source = 'return io.files.exists("a")\n'
     assert(fmt.format(source, "example.lua") == source)
     local disabled = '@!nofmt\n' .. source
     assert(fmt.format(disabled, "example.nupp") == disabled)
 end
 
 function M.leavesAuthoredBuiltinImportsAndOtherQualifiedAccesses()
-    local output = formatted('local files = require("io.files")\nreturn io.files.read("a"), files.exists("b")\n')
+    local output = formatted('local files = require("io.files")\nreturn io.files.exists("a"), files.exists("b")\n')
     assert(not output:find('const files', 1, true), output)
-    assert(output:find('return io.files.read("a"), files.exists("b")', 1, true), output)
+    assert(output:find('return io.files.exists("a"), files.exists("b")', 1, true), output)
 end
 
 function M.keepsInnerAnnotationsBeforeImports()
@@ -239,19 +239,19 @@ end
 function M.ambientDeclarationsKeepTheirQualifiedNamespaces()
     local env = envMod.new(".")
     local formatter = fmt.new({environment = env})
-    local source = '@comptime local function read(): string return io.files.read("a") end\n'
+    local source = '@comptime local function read(): boolean return io.files.exists("a") end\n'
     local declared, errors = formatter:format(source, "prelude.d.nupp")
     assert(#errors == 0, errors[1] and errors[1].msg)
     assert(not declared:find("require", 1, true), declared)
-    assert(declared:find("io.files.read", 1, true), declared)
+    assert(declared:find("io.files.exists", 1, true), declared)
     local ordinary, problems = formatter:format(source, "ordinary.nupp")
     assert(#problems == 0, problems[1] and problems[1].msg)
     assert(not ordinary:find("require", 1, true), ordinary)
-    assert(ordinary:find("io.files.read", 1, true), ordinary)
+    assert(ordinary:find("io.files.exists", 1, true), ordinary)
     local runtime = formatted((source:gsub("@comptime ", "")))
     assert(not runtime:find('require', 1, true), runtime)
-    assert(runtime:find('io.files.read', 1, true), runtime)
-    local explicit = 'const files = require("io.files")\nlocal read: function(string): string = files.read\n'
+    assert(runtime:find('io.files.exists', 1, true), runtime)
+    local explicit = 'const files = require("io.files")\nlocal read: function(string): boolean = files.exists\n'
     local authored, issues = formatter:format(explicit, "external.d.nupp")
     assert(#issues == 0, issues[1] and issues[1].msg)
     assert(authored:find('require("io.files")', 1, true), authored)
@@ -275,16 +275,16 @@ function M.builtinNamespacesRemainQualifiedBesideUserImportsAndLexicalShadows()
     local output = userFormatted(
         [[
 local function fake(io)
-    return io.files.read("shadow")
+    return io.files.exists("shadow")
 end
 local files = io.files
 local type Bytes = binary.span.Span
-return app.files.read("user"), io.files.read("builtin"), files, fake
+return app.files.read("user"), io.files.exists("builtin"), files, fake
 ]]
     )
     assert(output:find('const files2 = require("app.files")', 1, true), output)
-    assert(output:find('io.files.read("shadow")', 1, true), output)
-    assert(output:find('io.files.read("builtin")', 1, true), output)
+    assert(output:find('io.files.exists("shadow")', 1, true), output)
+    assert(output:find('io.files.exists("builtin")', 1, true), output)
     assert(output:find('local files = io.files', 1, true), output)
     assert(output:find('local type Bytes = binary.span.Span', 1, true), output)
     assert(

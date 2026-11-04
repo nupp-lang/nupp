@@ -127,7 +127,7 @@ local FEATURES: {[string]: native.Feature} = {
         exports = {"nupp.runtime.standardio.popen"},
         runtimeModule = "io.internal.process",
         portableRuntime = true,
-        requires = {"runtime.suspension", "runtime.process_file"}
+        requires = {"runtime.suspension", "runtime.file_format", "runtime.file_views"}
     },
     [
         "runtime.tls"
@@ -250,8 +250,27 @@ local FEATURES: {[string]: native.Feature} = {
         requires = {"runtime.process_types"}
     },
     [
-        "runtime.process_file"
-    ] = {name = "process_file", runtimeModule = "io.internal.process.file", portableRuntime = true, requires = {}},
+        "runtime.file_views"
+    ] = {
+        name = "file_views",
+        globals = {"io.File.reader", "io.File.writer"},
+        runtimeModule = "io.internal.fileviews",
+        portableRuntime = true,
+        requires = {"stdlib.io"}
+    },
+    [
+        "runtime.portable_file"
+    ] = {
+        name = "portable_file",
+        globals = {"io.open", "io.lines"},
+        exports = {"nupp.runtime.standardio.open", "nupp.runtime.standardio.lines"},
+        runtimeModule = "io.internal.portablefile",
+        portableRuntime = true,
+        requires = {"runtime.files", "runtime.file_format", "runtime.file_views"}
+    },
+    [
+        "runtime.file_format"
+    ] = {name = "file_format", runtimeModule = "io.internal.fileformat", portableRuntime = true, requires = {}},
     [
         "runtime.process_types"
     ] = {name = "process_types", runtimeModule = "io.internal.process.types", portableRuntime = true, requires = {}},
@@ -792,7 +811,7 @@ end
 --- through it stays as precise as accessing the intrinsic path directly. A facility
 --- that has become a module is reached by requiring it instead, and records its
 --- effect at the require or at the qualified path that selects it.
-function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: string}}
+function native.decorateGlobals(globals: {[string]: any}, globalTypes: {[string]: any}?): {[any]: {[string]: string}}
     local effects = {}
 
     local function decorate(owner: any, member: string, effect: string): nil
@@ -815,6 +834,12 @@ function native.decorateGlobals(globals: {[string]: any}): {[any]: {[string]: st
         end
         local t = entry and entry.t
         for index = 2, #parts do
+            -- Interfaces have a canonical type but no namespace value. Instance
+            -- methods still carry their effects when only a typed parameter names
+            -- the interface, without an acquisition or a declaration-table read.
+            if t == nil and globalTypes then
+                t = globalTypes[table.concat(parts, ".", 1, index - 1)]
+            end
             if t and (t.tag == "typeobject" or t.tag == "metatable") then
                 t = t.of
             end

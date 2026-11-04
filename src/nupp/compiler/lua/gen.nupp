@@ -5293,6 +5293,9 @@ export function generate(
             return
         end
 
+        if x.instanceExtensionModule then
+            compilerModuleName(x.instanceExtensionModule)
+        end
         local kind = x.kind
         local witnessGroup = pluck.witnessPlan.blocks[x]
         if witnessGroup and not witnessGroup.active then

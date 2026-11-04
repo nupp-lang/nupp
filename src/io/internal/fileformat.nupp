@@ -1,6 +1,6 @@
 @!internal
 
-module io.internal.process.file
+module io.internal.fileformat
 
 local function opened(child: any): nil
     if child.state.reaped then
@@ -93,7 +93,7 @@ end
 local function reader(child: any): (any, string?)
     opened(child)
     if child.stdout == nil then
-        return nil, "the process has no readable stdout pipe"
+        return nil, "the file is not readable"
     end
 
     if child.state.filetext then
@@ -340,7 +340,7 @@ end
 export function write(child: any, ...: any): ...any
     opened(child)
     if child.stdin == nil then
-        return nil, "the process has no writable stdin pipe"
+        return nil, "the file is not writable"
     end
     local output = child.stdin
     if output.closed then

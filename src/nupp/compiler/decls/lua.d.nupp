@@ -1310,16 +1310,18 @@ interface types.Layout
     fields: {Field}
 end
 
---- A Lua file handle. Ownership is attached by producers rather than this interface, so
---- standard streams and borrowed handles use the same type.
+--- A file handle with Lua file methods and borrowed byte-stream views.
+---
+--- Ownership is attached by producers rather than this interface, so standard
+--- streams and borrowed handles use the same type.
 interface io.File
-    close: @nosuspend function(self: io.File): (boolean?, string?, integer?)
-    flush: function(self: io.File): (boolean?, string?)
-    lines: function(self: io.File, ...: any): @nosuspend function(): any
-    read: function(self: io.File, ...: any): any
-    seek: function(self: io.File, whence: string?, offset: number?): (number?, string?)
-    setvbuf: function(self: io.File, mode: string, size: number?): (boolean?, string?)
-    write: function(self: io.File, ...: any): (io.File?, string?)
+    close: @nosuspend function(exclusive self: io.File): (boolean?, string?, integer?)
+    flush: function(exclusive self: io.File): (boolean?, string?)
+    lines: function(exclusive self: io.File, ...: any): function(): ...any
+    read: function(exclusive self: io.File, ...: any): any
+    seek: function(exclusive self: io.File, whence: string?, offset: number?): (number?, string?)
+    setvbuf: function(exclusive self: io.File, mode: string, size: number?): (boolean?, string?)
+    write: function(exclusive self: io.File, ...: any): (io.File?, string?)
 end
 
 --- Closes a file that leaves its owning lexical scope.
@@ -1346,7 +1348,8 @@ local io: {
     ---
     --- @param path the file to read, or nil for the default input file
     --- @return an iterator yielding one line at a time, and nil once the file is read
-    lines: function(path: string?, ...: any): @nosuspend function(): ...any,
+    lines: (function(path: string?): function(): string?)
+    & (function(path: string?, format: string | number, ...: any): function(): ...any),
 
     --- Reads the default input file according to the given formats: "*l" for a line,
     --- "*n" for a number, "*a" for the rest, or a byte count.

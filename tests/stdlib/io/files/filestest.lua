@@ -108,6 +108,44 @@ function M.directoriesAreCreatedWithTheirParents()
     assert(files.mkdir(inRoot("a/b/c")), "creating an existing directory succeeds")
 end
 
+local function readFile(path)
+    local file, reason = io.open(path, "rb")
+    if file == nil then
+        return nil, reason
+    end
+    local bytes, readReason = file:read("*a")
+    local closed, closeReason = file:close()
+    if bytes == nil then
+        return nil, readReason
+    end
+    if not closed then
+        return nil, closeReason
+    end
+
+    return bytes
+end
+
+local function writeFile(path, bytes, mode)
+    local file, reason = io.open(path, mode or "wb")
+    if file == nil then
+        return false, reason
+    end
+    local written, writeReason = file:write(bytes)
+    local closed, closeReason = file:close()
+    if written == nil then
+        return false, writeReason
+    end
+    if not closed then
+        return false, closeReason
+    end
+
+    return true
+end
+
+local function appendFile(path, bytes)
+    return writeFile(path, bytes, "ab")
+end
+
 function M.infoDescribesAFileAndFailsOnAMissingOne()
     local files = ready()
     assert(files.mkdir(inRoot("info")))
@@ -271,11 +309,11 @@ function M.aTemporaryIsRemovedOnCloseAndKeptOnPersist()
     doomed:close()
 
     local kept = assert(files.tmpfile({directory = inRoot("settling")}))
-    assert(files.write(kept:tostring(), "final"))
+    assert(writeFile(kept:tostring(), "final"))
     assert(kept:persist(inRoot("settling/report.txt")))
     assert(kept:isreleased(), "persisting discharges the obligation")
     kept:close()
-    test.eq(assert(files.read(inRoot("settling/report.txt"))), "final", "the persisted file survives the close")
+    test.eq(assert(readFile(inRoot("settling/report.txt"))), "final", "the persisted file survives the close")
 end
 
 function M.wholeFilesAreReadWrittenAndCopied()
@@ -288,57 +326,63 @@ function M.wholeFilesAreReadWrittenAndCopied()
     end
 
     succeeds("create whole directory", files.mkdir(inRoot("whole")))
-    succeeds("initial write", files.write(inRoot("whole/a.txt"), "hello"))
-    test.eq(assert(files.read(inRoot("whole/a.txt"))), "hello")
-    succeeds("append", files.append(inRoot("whole/a.txt"), " world"))
-    test.eq(assert(files.read(inRoot("whole/a.txt"))), "hello world")
+    succeeds("initial write", writeFile(inRoot("whole/a.txt"), "hello"))
+    test.eq(assert(readFile(inRoot("whole/a.txt"))), "hello")
+    succeeds("append", appendFile(inRoot("whole/a.txt"), " world"))
+    test.eq(assert(readFile(inRoot("whole/a.txt"))), "hello world")
 
-    succeeds("append creates a missing file", files.append(inRoot("whole/new.txt"), "created"))
-    test.eq(assert(files.read(inRoot("whole/new.txt"))), "created")
+    succeeds("append creates a missing file", appendFile(inRoot("whole/new.txt"), "created"))
+    test.eq(assert(readFile(inRoot("whole/new.txt"))), "created")
 
     succeeds("atomic replacement", files.writeatomic(inRoot("whole/a.txt"), "replaced"))
-    test.eq(assert(files.read(inRoot("whole/a.txt"))), "replaced")
+    test.eq(assert(readFile(inRoot("whole/a.txt"))), "replaced")
     local remaining = assert(files.list(inRoot("whole")))
     for _, entry in ipairs(remaining) do
         assert(not entry.name:find("^%.nupp%-write%-"), "an atomic write leaves no temporary behind: " .. entry.name)
     end
 
     succeeds("copy", files.copy(inRoot("whole/a.txt"), inRoot("whole/b.txt")))
-    test.eq(assert(files.read(inRoot("whole/b.txt"))), "replaced")
+    test.eq(assert(readFile(inRoot("whole/b.txt"))), "replaced")
 
-    succeeds("empty write", files.write(inRoot("whole/empty.txt"), ""))
-    test.eq(assert(files.read(inRoot("whole/empty.txt"))), "")
+    succeeds("empty write", writeFile(inRoot("whole/empty.txt"), ""))
+    test.eq(assert(readFile(inRoot("whole/empty.txt"))), "")
     -- `nul`, even with an extension, names the Windows null device rather than
     -- an ordinary file. The contents are what this case is about, not the name.
-    succeeds("NUL write", files.write(inRoot("whole/embedded-nul.bin"), "a\0b"))
-    test.eq(assert(files.read(inRoot("whole/embedded-nul.bin"))), "a\0b", "a NUL byte is content, not a terminator")
+    succeeds("NUL write", writeFile(inRoot("whole/embedded-nul.bin"), "a\0b"))
+    test.eq(assert(readFile(inRoot("whole/embedded-nul.bin"))), "a\0b", "a NUL byte is content, not a terminator")
 
-    local missing, reason = files.read(inRoot("whole/absent"))
+    local missing, reason = readFile(inRoot("whole/absent"))
     test.eq(missing, nil)
-    assert(isIoError(reason))
+    assert(type(reason) == "string" and #reason > 0)
 end
 
 function M.transfersSettleThroughTheLaneAndReleaseTheirSlots()
     local files = ready()
+    local backend = require("nupp.runtime.provider.nativefiles")
     assert(files.mkdir(inRoot("lane")))
     test.eq(files.pendingtransfers(), 0, "the lane starts idle")
 
     local payload = ("lane"):rep(50000)
     for index = 1, 24 do
-        assert(files.write(inRoot("lane/" .. index .. ".bin"), payload))
+        assert(backend.write(inRoot("lane/" .. index .. ".bin"), payload))
     end
     for index = 1, 24 do
-        test.eq(#assert(files.read(inRoot("lane/" .. index .. ".bin"))), #payload)
+        test.eq(#assert(backend.read(inRoot("lane/" .. index .. ".bin"))), #payload)
     end
+    assert(backend.append(inRoot("lane/1.bin"), ":tail"))
+    test.eq(assert(backend.read(inRoot("lane/1.bin"))), payload .. ":tail")
     test.eq(files.pendingtransfers(), 0, "every settled transfer gave its slot back")
 
-    local missing, reason = files.read(inRoot("lane/absent"))
+    local missing, reason = backend.read(inRoot("lane/absent"))
     test.eq(missing, nil)
-    assert(isIoError(reason))
+    assert(type(reason) == "string" and #reason > 0)
     test.eq(files.pendingtransfers(), 0, "a refused transfer holds nothing")
 
-    local written, why = files.write(inRoot("lane/absent/deep.bin"), "x")
-    assert(not written and isIoError(why), "a write that fails on the worker carries its reason back")
+    local written, why = backend.write(inRoot("lane/absent/deep.bin"), "x")
+    assert(
+        not written and type(why) == "string" and #why > 0,
+        "a write that fails on the worker carries its reason back"
+    )
     test.eq(files.pendingtransfers(), 0)
 end
 
@@ -347,10 +391,11 @@ end
 -- the handler, which drives the registered pump and resumes it.
 function M.aTransferParksUnderAHandlerAndBlocksWithoutOne()
     local files = ready()
+    local backend = require("nupp.runtime.provider.nativefiles")
     local suspension = require("coroutine.sus")
     local suspensionHost = require("coroutine.sus.host")
     assert(files.mkdir(inRoot("parking")))
-    assert(files.write(inRoot("parking/payload.bin"), ("park"):rep(40000)))
+    assert(backend.write(inRoot("parking/payload.bin"), ("park"):rep(40000)))
 
     local parked, pumped = nil, 0
     local handler = {
@@ -362,7 +407,7 @@ function M.aTransferParksUnderAHandlerAndBlocksWithoutOne()
         end,
     }
     local installation = suspensionHost.install(handler)
-    local answers = {pcall(files.read, inRoot("parking/payload.bin"))}
+    local answers = {pcall(backend.read, inRoot("parking/payload.bin"))}
     installation:close()
     assert(answers[1], answers[2])
     test.eq(#answers[2], 160000, "the parked read answered its bytes")
@@ -375,7 +420,7 @@ function M.aTransferParksUnderAHandlerAndBlocksWithoutOne()
     test.eq(files.pendingtransfers(), 0)
 
     -- Without a handler the same call still answers, having waited by itself.
-    test.eq(#assert(files.read(inRoot("parking/payload.bin"))), 160000)
+    test.eq(#assert(backend.read(inRoot("parking/payload.bin"))), 160000)
     test.eq(files.pendingtransfers(), 0)
 end
 
@@ -384,9 +429,10 @@ end
 -- every later transfer may hold until nothing fits at all.
 function M.aCancelledTransferGivesItsLaneSlotBack()
     local files = ready()
+    local backend = require("nupp.runtime.provider.nativefiles")
     local tasks = require("coroutine")
     assert(files.mkdir(inRoot("cancel")))
-    assert(files.write(inRoot("cancel/large.bin"), ("drop"):rep(1000000)))
+    assert(backend.write(inRoot("cancel/large.bin"), ("drop"):rep(1000000)))
     test.eq(files.pendingtransfers(), 0, "the lane starts idle")
 
     -- The read is large enough to park, and the other branch settles at once, so
@@ -395,7 +441,7 @@ function M.aCancelledTransferGivesItsLaneSlotBack()
         function()
             -- A race branch answers one value; `assert` would pass on the nil reason
             -- too.
-            return (assert(files.read(inRoot("cancel/large.bin"))))
+            return (assert(backend.read(inRoot("cancel/large.bin"))))
         end,
         function()
             return "settled first"
@@ -408,79 +454,103 @@ end
 function M.anAtomicWriteLeavesTheDestinationAloneWhenItFails()
     local files = ready()
     assert(files.mkdir(inRoot("atomic")))
-    assert(files.write(inRoot("atomic/kept.txt"), "original"))
+    assert(writeFile(inRoot("atomic/kept.txt"), "original"))
     local written, reason = files.writeatomic(inRoot("atomic/absent/kept.txt"), "replacement")
     assert(not written and isIoError(reason))
-    test.eq(assert(files.read(inRoot("atomic/kept.txt"))), "original")
+    test.eq(assert(readFile(inRoot("atomic/kept.txt"))), "original")
 end
 
 function M.anOpenFileReadsAndWritesThroughTheSharedContracts()
     local files = ready()
+    test.eq(files.open, nil, "file acquisition belongs to io.open")
+    test.eq(files.lines, nil, "file iteration belongs to io.lines and Reader:lines")
+    test.eq(files.read, nil, "whole-file reads use io.open")
+    test.eq(files.write, nil, "whole-file writes use io.open")
+    test.eq(files.append, nil, "append uses io.open with append mode")
     assert(files.mkdir(inRoot("handles")))
-    assert(files.write(inRoot("handles/source.txt"), "hello world!"))
+    assert(writeFile(inRoot("handles/source.txt"), "hello world!"))
 
-    local file = assert(files.open(inRoot("handles/source.txt")))
-    test.eq(assert(file:size()), 12)
-    local reader = file
+    local file = assert(io.open(inRoot("handles/source.txt"), "rb"))
+    test.eq(assert(file:seek("end")), 12)
+    test.eq(assert(file:seek("set", 0)), 0)
+    local reader = file:reader()
     test.eq(reader:read(5), "hello")
-    test.eq(assert(file:position()), 5)
+    test.eq(assert(file:seek()), 5)
     test.eq(reader:read(64), " world!")
-    test.eq(reader:read(64), "", "a reader at the end answers no bytes")
-    test.eq(assert(file:seek(6)), 6)
+    test.eq(reader:read(64), "", "a byte reader at the end returns no bytes")
+    test.eq(file:read(1), nil, "Lua file reads return nil at EOF")
+    test.eq(assert(file:seek("set", 6)), 6)
     test.eq(reader:read(5), "world")
-    test.eq(assert(file:seek(-1, "end")), 11)
+    test.eq(assert(file:seek("end", -1)), 11)
     test.eq(reader:read(4), "!")
-    local invalid, invalidReason = file:seek(-100, "current")
+    local invalid, invalidReason = file:seek("cur", -100)
     test.eq(invalid, nil)
-    assert(isIoError(invalidReason), "a seek before the start answers a reason")
-    test.eq(assert(file:position()), 12, "a failed seek leaves the cursor unchanged")
+    assert(type(invalidReason) == "string", "a seek before the start returns a reason")
+    test.eq(assert(file:seek()), 12, "a failed seek leaves the cursor unchanged")
+    reader:close()
+    test.eq(io.type(file), "file", "closing a byte view leaves its file open")
+    assert(file:close())
+    test.eq(io.type(file), "closed file")
+    test.raises(
+        function()
+            file:read(1)
+        end,
+        "closed file"
+    )
+
+    local out = assert(io.open(inRoot("handles/sink.txt"), "wb"))
+    local writer = out:writer()
+    assert(writer:write("prefix:"))
+    assert(writer:flush())
+    writer:close()
+    assert(out:close(), "a Lua file close reports success")
+    test.eq(assert(readFile(inRoot("handles/sink.txt"))), "prefix:")
+
+    local missing, reason = io.open(inRoot("handles/absent"))
+    test.eq(missing, nil)
+    assert(type(reason) == "string" and #reason > 0)
+    local accepted, invalidFile, invalidMode = pcall(io.open, inRoot("handles/sink.txt"), "sideways")
+    assert(not accepted or invalidFile == nil and type(invalidMode) == "string", "invalid modes are refused")
+end
+
+function M.privateFileProviderRejectsInexactSeekPositions()
+    local files = ready()
+    assert(writeFile(inRoot("seek-integer-boundary"), "x"))
+    local nativeFiles = require("nupp.runtime.provider.nativefiles")
+    local file = assert(nativeFiles.open(inRoot("seek-integer-boundary")))
     test.eq(assert(file:seek(9007199254740991)), 9007199254740991)
     local overflow, overflowReason = file:seek(1, "current")
     test.eq(overflow, nil)
-    assert(isIoError(overflowReason), "a seek beyond the exact integer range answers a reason")
+    assert(isIoError(overflowReason), "a seek beyond the exact integer range returns a reason")
     test.eq(assert(file:position()), 9007199254740991, "a refused seek leaves the cursor unchanged")
     file:close()
-    assert(file:isreleased())
-    test.eq(select(2, reader:read(1)), "the file is closed", "a read from a closed file says so")
-
-    local out = assert(files.open(inRoot("handles/sink.txt"), "w"))
-    local writer = out
-    assert(writer:write("prefix:"))
-    assert(writer:flush())
-    test.eq(select("#", out:close()), 0, "a file's close answers nothing; flush reports failures")
-    test.eq(assert(files.read(inRoot("handles/sink.txt"))), "prefix:")
-
-    local missing, reason = files.open(inRoot("handles/absent"))
-    test.eq(missing, nil)
-    assert(isIoError(reason))
-    test.raises(
-        function()
-            files.open(inRoot("handles/sink.txt"), "sideways")
-        end,
-        "no mode named"
-    )
 end
 
 function M.transfersMoveBytesWithoutAStringInBetween()
     local files = ready()
     assert(files.mkdir(inRoot("transfer")))
     local payload = ("chunk"):rep(60000)
-    assert(files.write(inRoot("transfer/big.bin"), payload))
+    assert(writeFile(inRoot("transfer/big.bin"), payload))
 
-    local source = assert(files.open(inRoot("transfer/big.bin")))
-    local sink = assert(files.open(inRoot("transfer/copy.bin"), "w"))
-    test.eq(source:transferto(sink), #payload)
+    local source = assert(io.open(inRoot("transfer/big.bin")))
+    local sink = assert(io.open(inRoot("transfer/copy.bin"), "w"))
+    local reader = source:reader()
+    local writer = sink:writer()
+    test.eq(reader:transferto(writer), #payload)
+    reader:close()
+    writer:close()
     source:close()
     sink:close()
-    test.eq(assert(files.read(inRoot("transfer/copy.bin"))), payload)
+    test.eq(assert(readFile(inRoot("transfer/copy.bin"))), payload)
 
-    local file = assert(files.open(inRoot("transfer/big.bin")))
+    local file = assert(io.open(inRoot("transfer/big.bin")))
     local buffer = buffers.newbuffer()
-    local reader = file
+    local reader = file:reader()
     test.eq(reader:readinto(buffer, 0, 5), 5)
     test.eq(buffer:getstring(), "chunk")
     test.eq(reader:readinto(buffer, 8, 5), 5, "a read lands where it is told")
     test.eq(buffer:getstring(), "chunk\0\0\0chunk", "the gap before an offset reads as zero bytes")
+    reader:close()
     file:close()
 end
 
@@ -488,20 +558,27 @@ function M.aBufferWritesIntoAFileFromItsOwnStorage()
     local files = ready()
     assert(files.mkdir(inRoot("frombuffer")))
     local buffer = buffers.newbuffer("prefix:body")
-    local file = assert(files.open(inRoot("frombuffer/out.bin"), "w"))
-    local writer = file
+    local file = assert(io.open(inRoot("frombuffer/out.bin"), "w"))
+    local writer = file:writer()
     local bytes = buffer:readspan()
     test.eq(writer:writespan(bytes:slice(1, 7)), 7)
     test.eq(writer:writespan(bytes:slice(8)), 4)
     local prefix = buffer:view(0, 3)
     test.eq(writer:writespan(prefix:readspan()), 3)
     assert(writer:flush())
+    writer:close()
     file:close()
-    test.eq(assert(files.read(inRoot("frombuffer/out.bin"))), "prefix:bodypre")
+    test.eq(assert(readFile(inRoot("frombuffer/out.bin"))), "prefix:bodypre")
     test.raises(
         function()
-            local other = assert(files.open(inRoot("frombuffer/out.bin"), "w"))
-            other:writespan(bytes:slice(9, 48))
+            local other = assert(io.open(inRoot("frombuffer/out.bin"), "w"))
+            local writer = other:writer()
+            local ok, reason = pcall(function()
+                writer:writespan(bytes:slice(9, 48))
+            end)
+            writer:close()
+            other:close()
+            assert(ok, reason)
         end,
         "out of bounds"
     )
@@ -520,30 +597,42 @@ local function readLines(lines)
     end
 end
 
+local function readFileLines(path, limit)
+    local file, reason = io.open(path, "rb")
+    if file == nil then
+        return nil, reason
+    end
+    local lines = file:reader():lines(limit)
+    local seen, lineReason = readLines(lines)
+    file:close()
+
+    return seen, lineReason
+end
+
 function M.linesSplitOnEitherPlatformsEnding()
     local files = ready()
     assert(files.mkdir(inRoot("lines")))
-    assert(files.write(inRoot("lines/mixed.txt"), "one\ntwo\r\nthree"))
-    local seen, reason = readLines(assert(files.lines(inRoot("lines/mixed.txt"))))
+    assert(writeFile(inRoot("lines/mixed.txt"), "one\ntwo\r\nthree"))
+    local seen, reason = readFileLines(inRoot("lines/mixed.txt"))
     test.eq(table.concat(seen, "|"), "one|two|three")
     test.eq(reason, nil, "the end of the file has no reason")
 
-    assert(files.write(inRoot("lines/trailing.txt"), "only\n"))
-    local trailing = readLines(assert(files.lines(inRoot("lines/trailing.txt"))))
+    assert(writeFile(inRoot("lines/trailing.txt"), "only\n"))
+    local trailing = readFileLines(inRoot("lines/trailing.txt"))
     test.eq(#trailing, 1, "a trailing newline does not make an empty line")
     test.eq(trailing[1], "only")
 
-    assert(files.write(inRoot("lines/empty.txt"), ""))
-    test.eq(#readLines(assert(files.lines(inRoot("lines/empty.txt")))), 0, "an empty file has no lines")
+    assert(writeFile(inRoot("lines/empty.txt"), ""))
+    test.eq(#readFileLines(inRoot("lines/empty.txt")), 0, "an empty file has no lines")
 
-    assert(files.write(inRoot("lines/long.txt"), ("x"):rep(20) .. "\n"))
-    local long, longReason = readLines(assert(files.lines(inRoot("lines/long.txt"), 8)))
+    assert(writeFile(inRoot("lines/long.txt"), ("x"):rep(20) .. "\n"))
+    local long, longReason = readFileLines(inRoot("lines/long.txt"), 8)
     test.eq(#long, 0)
     assert(type(longReason) == "string", "a line past the limit answers a reason")
 
-    local missing, missingReason = files.lines(inRoot("lines/absent"))
+    local missing, missingReason = readFileLines(inRoot("lines/absent"))
     test.eq(missing, nil)
-    assert(isIoError(missingReason, "notfound"), "a missing file is notFound")
+    assert(type(missingReason) == "string" and #missingReason > 0, "a missing file returns its error")
 end
 
 -- A directory is the deterministic way to make the first read fail on a handle
@@ -551,9 +640,10 @@ end
 function M.aFailingReadAnswersAReasonRatherThanEndingTheLines()
     local files = ready()
     assert(files.mkdir(inRoot("lines")))
-    local lines = files.lines(inRoot("lines"))
-    if lines ~= nil then
-        local seen, reason = readLines(lines)
+    local file = io.open(inRoot("lines"), "rb")
+    if file ~= nil then
+        local seen, reason = readLines(file:reader():lines())
+        file:close()
         test.eq(#seen, 0)
         assert(type(reason) == "string" and #reason > 0, "a failed read answers the platform's reason")
     end
@@ -563,33 +653,27 @@ end
 -- composed from the provider's open file, so a provider cannot answer a failure
 -- as a clean stop: it arrives as nil and the reason, after the lines before it.
 function M.aReadThatFailsMidFileSurfacesFromTheLineReader()
-    local closed = 0
-    local fixture = require("helpers.providerstate").load("files", {
-        open = function()
-            local reads = 0
-            return {
-                lines = require("nupp.io.internal.bytes").Reader.lines,
-                read = function(_, count)
-                    reads = reads + 1
-                    if reads == 1 then
-                        return ("one\ntw"):sub(1, count)
-                    end
+    local closed, reads = 0, 0
+    local reader = {
+        read = function(_, count)
+            reads = reads + 1
+            if reads == 1 then
+                return ("one\ntw"):sub(1, count)
+            end
 
-                    return nil, "the disk went away"
-                end,
-                close = function()
-                    closed = closed + 1
-                end,
-            }
+            return nil, "the disk went away"
         end,
-    })
-    local lines = assert(fixture.lines("anything"))
+        close = function()
+            closed = closed + 1
+        end,
+    }
+    local lines = require("nupp.io.internal.bytes").Reader.lines(reader)
     test.eq(lines:read(), "one")
     local line, reason = lines:read()
     test.eq(line, nil, "a failed read is not a line")
     test.eq(reason, "the disk went away", "and it is not the end of the file either")
     lines:close()
-    test.eq(closed, 1, "closing the lines closes the file they took")
+    test.eq(closed, 1, "closing the lines closes the reader they took")
 end
 
 function M.pathsAndFoldersAnswerTheEnvironment()
@@ -650,8 +734,8 @@ function M.argumentsAreCheckedAtTheCallSite()
         end,
         "recursive must be a boolean"
     )
-    assert(files.write(inRoot("integer-boundary"), "x"))
-    local file = assert(files.open(inRoot("integer-boundary")))
+    assert(writeFile(inRoot("integer-boundary"), "x"))
+    local file = assert(require("nupp.runtime.provider.nativefiles").open(inRoot("integer-boundary")))
     test.raises(
         function()
             file:seek(math.huge)

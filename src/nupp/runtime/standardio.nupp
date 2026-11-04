@@ -10,9 +10,10 @@ local reader = bytes:reader()
 assert(reader:read(5) == "hello")
 ```
 
-Files, processes, network connections, TLS sessions, and HTTP bodies move bytes
-through the [](io.Reader) and [](io.Writer) interfaces. A parser written
-against either contract works over every implementation.
+Files expose borrowed byte views through `File:reader()` and `File:writer()`.
+Processes expose their individual streams; network connections, TLS sessions,
+and HTTP bodies use the [](io.Reader) and [](io.Writer) interfaces. A parser
+written against either contract accepts those views and streams.
 
 See [](io.files) for the filesystem, [](io.popen) for child processes,
 [](io.net) for plain and encrypted connections, and [](io.http) for the HTTP
@@ -28,25 +29,21 @@ without changing it.
 
 ## Failures
 
-The files, process, network, TLS and HTTP modules return a failure from the
-environment as `nil, err`, where `err` is a [](io.Error): a `kind` a
-program can branch on and a `message` a person can read. The kind is the same on
-every platform and provider, so a missing file is `"notfound"` whether the
-operating system or the browser said so; the message is whatever the platform
-said and is not.
+Filesystem path operations and network, TLS, and HTTP operations return
+[](io.Error) values for environmental failures. An error carries a portable
+`kind` and the platform's `message`:
 
 ```nupp
-local text, err = io.files.read("settings.json")
-if text == nil and err ~= nil and err.kind == "notfound" then
-    text = "{}"
+local info, err = io.files.info("settings.json")
+if info == nil and err ~= nil and err.kind == "notfound" then
+    print("No settings file")
 end
 ```
 
-An error prints as its message, and joins text the same way, so
-`assert(io.files.read(path))` and `print("cannot read: " .. err)` read as they
-would with a string. The reads and writes of the `Reader` and `Writer` contracts
-are the exception: their reason stays a string, the same message, because a
-buffer or a string reader returns through the same contract.
+An error prints as its message and joins text the same way.
+`io.open`, `io.popen`, Lua File methods, and the byte-stream contracts return
+string reasons. Process controls such as `communicate` retain structured
+errors.
 ]]
 
 --- @namespace io
@@ -68,6 +65,7 @@ export const Bytes = immutable.Bytes
 
 local source1 = require("nupp.io")
 const {type Path as NativePath} = require("io.internal.path")
+const {type AppPath} = require("io.files")
 local uriTypes = require("io.internal.uritypes")
 
 --- An immutable absolute URI with normalized components.
@@ -177,8 +175,30 @@ export const isuri = uriTypes.isuri
 --- working directories also accept paths.
 export type Path = NativePath
 
---- A Lua stream handle returned by `io.open` and `io.popen`.
+--- A file handle with Lua methods and borrowed byte-stream views.
+---
+--- `reader` and `writer` share its cursor and must close before the file. Native
+--- files retain Lua userdata handles. Browser app files can suspend while
+--- reading, writing, or seeking; close does not suspend. Browser writes are
+--- unbuffered, and `setvbuf` refuses other buffering modes.
 export type File = io.File
+
+--- Supplies the borrowed byte-stream methods of `File`.
+export interface FileMethods
+    --- Borrows the shared file cursor through a byte reader.
+    ---
+    --- Closing the view leaves the file open. The view cannot outlive the file.
+    --- @param self the file to borrow exclusively
+    --- @return the byte reader, borrowing the file
+    reader: function(exclusive self: io.File): affine(source1.Reader) borrows (self)
+
+    --- Borrows the shared file cursor through a byte writer.
+    ---
+    --- Closing the view leaves the file open. The view cannot outlive the file.
+    --- @param self the file to borrow exclusively
+    --- @return the byte writer, borrowing the file
+    writer: function(exclusive self: io.File): affine(source1.Writer) borrows (self)
+end
 
 export type Buffer = source1.Buffer
 export type BufferWriteLease = source1.BufferWriteLease
@@ -228,13 +248,18 @@ local luaFlush = original.flush
 local processInput: any = nil
 local processOutput: any = nil
 
-local function processHandle(value: any): any
+local function fileHandle(value: any): any
     local handles: any = rawget(_G, "__nuppProcessHandles")
-    return handles and handles[value] or nil
+    if handles and handles[value] then
+        return handles[value]
+    end
+    local files: any = rawget(_G, "__nuppFileHandles")
+
+    return files and files[value] or nil
 end
 
-local function requireOpenProcess(value: any): nil
-    local child = processHandle(value)
+local function requireOpenFile(value: any): nil
+    local child = fileHandle(value)
     if child and child.state.reaped then
         error("attempt to use a closed file", 3)
     end
@@ -322,14 +347,75 @@ local function filename(value: any): any
     return value
 end
 
+const _FILE_VIEWS_REQUIRES = "@requires-dynamically io.internal.fileviews"
+const _PORTABLE_FILE_REQUIRES = "@requires-dynamically io.internal.portablefile"
+local fileViews: any = nil
+
+local function views(): any
+    if fileViews == nil then
+        fileViews = require("io.internal.fileviews")
+    end
+    return fileViews
+end
+
+local function fileReader(file: any): any
+    return views().reader(file)
+end
+
+local function fileWriter(file: any): any
+    return views().writer(file)
+end
+
+local function decorateFile(file: any): any
+    if file ~= nil then
+        local meta: any = getmetatable(file)
+        if meta ~= nil and type(meta.__index) == "table" then
+            meta.__index.reader = fileReader
+            meta.__index.writer = fileWriter
+        end
+    end
+
+    return file
+end
+
 local function openFile(path: any, mode: any): ...any
-    return luaOpen(filename(path), mode)
+    if rawget(_G, "__nuppBrowser") ~= nil then
+        return require("io.internal.portablefile").open(path, mode)
+    end
+    local file, reason, code = luaOpen(filename(path), mode)
+
+    return decorateFile(file), reason, code
 end
 
 local function fileLines(path: any, ...: any): ...any
     if path == nil and processInput ~= nil then
         return processInput:lines(...)
     end
+    if rawget(_G, "__nuppBrowser") ~= nil and path ~= nil then
+        local file, reason = openFile(path, "r")
+        if file == nil then
+            error(reason, 2)
+        end
+        local iter = file:lines(...)
+
+        local function nextLine(ok: boolean, ...: any): ...any
+            if not ok or select(1, ...) == nil then
+                if original.type(file) ~= "closed file" then
+                    file:close()
+                end
+            end
+            if not ok then
+                error((...), 0)
+            end
+
+            return ...
+        end
+
+        return function(): ...any
+            return nextLine(pcall(iter))
+        end
+    end
+
     return luaLines(filename(path), ...)
 end
 
@@ -337,8 +423,8 @@ local function inputFile(file: any): any
     if file == nil then
         return processInput or luaInput()
     end
-    if processHandle(file) then
-        requireOpenProcess(file)
+    if fileHandle(file) then
+        requireOpenFile(file)
         processInput = file
         return file
     end
@@ -352,8 +438,8 @@ local function outputFile(file: any): any
     if file == nil then
         return processOutput or luaOutput()
     end
-    if processHandle(file) then
-        requireOpenProcess(file)
+    if fileHandle(file) then
+        requireOpenFile(file)
         processOutput = file
         return file
     end
@@ -371,29 +457,39 @@ end
 --- print(file:read("*a"))
 --- ```
 ---
---- @param path the filename or `io.Path` to open
+--- Native hosts accept a filename or `io.Path`; browser hosts accept an app path
+--- from [](io.files). Byte-stream views from `reader` and `writer` share the file
+--- cursor and borrow its lifetime. Closing a view leaves the file open.
+---
+--- @param path the filename, native path, or browser app path to open
 --- @param mode the mode to open it in, "r" by default
 --- @return the owned file handle, or nil on failure
 --- @return a failure reason, when unsuccessful
 export const open = openFile as function(
-    path: string | Path,
+    path: string | Path | AppPath,
     mode: string?
 ): (affine(io.File, __nuppCloseFile)?, string?)
 
 --- Iterates over a named file, closing it at EOF, or reads the default input.
+---
+--- Browser app files may suspend between lines. Named files close at EOF or
+--- a read error. Use `File:reader():lines(limit)` for bounded, owned line reads.
 --- @param path the filename or path, or nil for the default input
---- @return an iterator yielding one line at a time
-export const lines = fileLines as function(path: (string | Path)?, ...: any): @nosuspend function(): ...any
+--- @param format the first Lua read format, when supplied
+--- @param ... the remaining Lua read formats
+--- @return an iterator yielding the selected read formats
+export const lines = fileLines as(function(path: (string | Path | AppPath)?): function(): string?)
+    & (function(path: (string | Path | AppPath)?, format: string | number, ...: any): function(): ...any)
 
 --- Returns or sets the default input file.
 --- @param file a file handle, filename, or path, or nil to return the current file
 --- @return the default input file
-export const input = inputFile as function(file: (io.File | string | Path)?): io.File
+export const input = inputFile as function(file: (File | string | Path)?): File
 
 --- Returns or sets the default output file.
 --- @param file a file handle, filename, or path, or nil to return the current file
 --- @return the default output file
-export const output = outputFile as function(file: (io.File | string | Path)?): io.File
+export const output = outputFile as function(file: (File | string | Path)?): File
 
 const _DYNAMIC_REQUIRES = "@requires-dynamically io.internal.process"
 
@@ -457,7 +553,7 @@ export const popen = openProcess as function(
 
 local function closeFile(value: any): ...any
     local selected = value or processOutput
-    if processHandle(selected) then
+    if fileHandle(selected) then
         return selected:close()
     end
 
@@ -466,7 +562,7 @@ end
 
 local function fileType(...: any): any
     local value: any = (...)
-    local child = processHandle(value)
+    local child = fileHandle(value)
     if child then
         return child.state.reaped and "closed file" or "file"
     end
@@ -516,6 +612,9 @@ export const value: table = do
     original.newreader = newreader
     original.newwriter = newwriter
     original.readall = readall
+    decorateFile(original.stdin)
+    decorateFile(original.stdout)
+    decorateFile(original.stderr)
     original.popen = popen
     original.close = closeFile
     original.type = fileType

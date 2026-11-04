@@ -2327,8 +2327,8 @@ function M.standardIOApiHasCompleteDocumentation()
         [
             "src/io/files/init.nupp"
         ] = {
-            types = {File = true, TemporaryPath = true, Info = true, Entry = true,},
-            functions = {info = true, open = true, read = true, glob = true,},
+            types = {TemporaryPath = true, Info = true, Entry = true,},
+            functions = {info = true, glob = true, writeatomic = true,},
         },
     }
     for relative, expected in pairs(modules) do
@@ -5501,6 +5501,82 @@ export = setmetatable(api, {
     local stdlib = require("nupp.tools.doc.stdlib")
     stdlib.merge({parent, module}, assert(stdlib.page({path = "api"})))
     assert(parent.items[1] and parent.items[1].name == "counter", "parent is missing the callable module")
+end
+
+function M.builtinMethodDescriptorsFoldIntoTheirCanonicalPublicType()
+    local stdlib = require("nupp.tools.doc.stdlib")
+    local module = assert(
+        doc.extract(
+            [[
+--- @namespace io
+module fixture.io
+export type File = io.File
+export interface FileMethods
+    reader: function(self: io.File): any
+    writer: function(self: io.File): any
+end
+export interface OtherMethods is Named
+    method: function(self: OtherMethods): nil
+end
+]],
+            "src/file.nupp",
+            "io"
+        )
+    )
+    local page = assert(stdlib.page({path = "api"}))
+    stdlib.merge({module}, page)
+    stdlib.merge({module}, page)
+    local file, other
+    local declarations = 0
+    for _, item in ipairs(module.items) do
+        if item.path == "io.File" then
+            file = item
+            declarations = declarations + 1
+        elseif item.path == "io.OtherMethods" then
+            other = item
+        end
+        assert(item.path ~= "io.FileMethods", "the implementation descriptor must remain hidden")
+    end
+    assert(declarations == 1 and file, "File must remain one merged declaration")
+    assert(file.signature:match("^interface%s+[%w_.]+$"), file.signature)
+    assert(not file.supertypes or #file.supertypes == 0)
+    assert(other and other.supertypes[1] == "Named", "unrelated public interfaces must remain intact")
+    assert(#file.members == 9, "all Lua methods and both byte views must remain")
+    local members, badges = {}, 0
+    for _, member in ipairs(file.members) do
+        members[member.name] = member
+        assert(member.path == "io.File." .. member.name, member.path)
+        if member.lua then
+            badges = badges + 1
+        end
+    end
+    for _, name in ipairs({"close", "flush", "lines", "read", "seek", "setvbuf", "write"}) do
+        assert(members[name] and members[name].lua, "missing Lua method or badge: " .. name)
+    end
+    assert(members.reader and not members.reader.lua)
+    assert(members.writer and not members.writer.lua)
+    assert(badges == 7, "only the seven Lua methods get Lua badges")
+    local markdown = doc.markdown({module})
+    local _, anchors = markdown:gsub('<a id="io%.File"></a>', "")
+    assert(anchors == 1, markdown)
+    assert(not markdown:find("FileMethods", 1, true), markdown)
+    assert(not markdown:find("is io.File", 1, true), markdown)
+    local source = readFile(HERE .. "/../src/nupp/runtime/standardio.nupp")
+    local actual = assert(doc.extract(source, "src/nupp/runtime/standardio.nupp", "io"))
+    local descriptor
+    for _, item in ipairs(actual.items) do
+        if item.path == "io.FileMethods" then
+            descriptor = item
+        end
+    end
+    assert(descriptor and #descriptor.members == 2, "the actual File methods must reach the merge")
+    stdlib.merge({actual}, assert(stdlib.page({path = "api"})))
+    for _, item in ipairs(actual.items) do
+        assert(item.path ~= "io.FileMethods", "the actual descriptor must remain hidden")
+        if item.path == "io.File" then
+            assert(#item.members == 9, "the actual File must keep all Lua and byte-view methods")
+        end
+    end
 end
 
 function M.callableNestedModulesKeepTheirFunctionAndModuleEntries()

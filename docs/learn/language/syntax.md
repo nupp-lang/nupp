@@ -117,7 +117,7 @@ end
 result is falsy, and are that result when it is not.
 
 ```nupp:fragment
-local text = files.read(path) or return
+local text = reader:read(4096) or return
 ```
 
 See [exit-suffixes.md](exit-suffixes.md) for what the operand must look like and

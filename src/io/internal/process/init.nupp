@@ -40,7 +40,7 @@ local provider: contract.Provider = do
     yield _G.require("nupp.runtime.provider.nativeprocess") as contract.Provider
 end
 local process = {}
-local file = require("io.internal.process.file")
+local file = require("io.internal.fileformat")
 const shared = require("io.internal.process.types")
 
 ----------------------------------------------------------------------------
@@ -707,6 +707,22 @@ record process.Process is io.File, own.Affine<self._drop>
 
     --- Its standard error, when it was piped.
     stderr: process.Reader?
+
+    --- Borrows stdout through the shared byte-reader contract.
+    function reader(exclusive self): affine(Reader2) borrows (self)
+        local create: function(
+            exclusive file: any
+        ): affine(Reader2) borrows (file) = require("io.internal.fileviews").reader
+        return create(self)
+    end
+
+    --- Borrows stdin through the shared byte-writer contract.
+    function writer(exclusive self): affine(Writer2) borrows (self)
+        local create: function(
+            exclusive file: any
+        ): affine(Writer2) borrows (file) = require("io.internal.fileviews").writer
+        return create(self)
+    end
 
     --- Reads stdout using Lua file formats and EOF conventions.
     function read(self, ...: any): ...any

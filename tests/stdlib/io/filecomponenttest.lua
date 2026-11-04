@@ -38,9 +38,10 @@ return {include = {"src"}, build = {kind = "component", outDir = "build",
         directory .. "/src/fixture.nupp",
         [[
 module fixture
-local files = require("io.files")
 export function read(path: string): string
-    local lines = assert(files.lines(path, 1048576))
+    local file = assert(io.open(path, "rb"))
+    local reader = file:reader()
+    local lines = reader:lines(1048576)
     local text = ""
     while true do
         local line, reason = lines:read()
@@ -79,8 +80,8 @@ assert(fixture.read("lines.txt") == string.rep("x", 70000) .. "\n\nlast\n")
     test.eq(status, 0, output)
     test.eq(ran, 0, runOutput)
     assert(
-        bytes:find('package.preload["io.files"]', 1, true),
-        "the component carries the file implementation it checked"
+        bytes:find('package.preload["nupp.runtime.standardio"]', 1, true),
+        "the component carries the public I/O implementation it checked"
     )
 end
 

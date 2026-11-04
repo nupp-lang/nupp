@@ -1,4 +1,4 @@
-local file = require("io.internal.process.file")
+local file = require("io.internal.fileformat")
 local testAssert = require("assert")
 local rawtmpfile = io.tmpfile
 local M = {}

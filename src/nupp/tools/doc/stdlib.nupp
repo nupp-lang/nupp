@@ -734,6 +734,33 @@ export function merge(modules: {extractMod.Module}, document: Page?): nil
         end
     end
 
+    -- A source descriptor adds methods to an existing builtin type without
+    -- creating another public type or changing the builtin's identity.
+    local descriptors = {["io.FileMethods"] = "io.File"}
+    for _, module in ipairs(modules) do
+        local byPath = {}
+        for _, item in ipairs(module.items) do
+            byPath[item.path] = item
+        end
+        for index = #module.items, 1, -1 do
+            local descriptor = module.items[index]
+            local target = byPath[descriptors[descriptor.path]]
+            if target then
+                local function rebase(values)
+                    for _, member in ipairs(values or {}) do
+                        member.path = target.path .. member.path:sub(#descriptor.path + 1)
+                        rebase(member.members)
+                    end
+                end
+
+                rebase(descriptor.members)
+                target.members = target.members or {}
+                mergeItems(target.members, descriptor.members or {})
+                table.remove(module.items, index)
+            end
+        end
+    end
+
     local function itemOrder(left, right)
         if left.kind ~= right.kind then
             return left.kind < right.kind

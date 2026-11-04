@@ -644,9 +644,8 @@ end
 
 function M.openFilesKeepTheirLexicalCleanupAcrossThePublicFacade()
     local source = [[
-const files = require("io.files")
 do
-    local file, reason = files.open("input.txt")
+    local file, reason = io.open("input.txt")
     if file == nil then error(reason) end
     print(file)
 end
@@ -660,7 +659,150 @@ end
         end
     end
     local code = gen.generate(parsed, "files-owner")
-    assert(code:find("__nuppV:close()", 1, true), "the public File terminal runs at lexical scope exit")
+    assert(code:find("__nuppCloseFile", 1, true), "the public File terminal runs at lexical scope exit")
+end
+
+function M.fileByteViewsAreAffineOwners()
+    for _, method in ipairs({"reader", "writer"}) do
+        local diagnostics = diagsUnderPrelude(
+            ([[
+local file = assert(io.open("input.bin", "r+"))
+file:%s()
+]]):format(method)
+        )
+        assert(diagnostics:find("NUPP26", 1, true), method .. ": " .. diagnostics)
+    end
+end
+
+function M.fileByteViewsCannotEscapeTheirLocalFile()
+    for _, view in ipairs({{method = "reader", name = "Reader"}, {method = "writer", name = "Writer"}}) do
+        local diagnostics = diagsUnderPrelude(
+            (
+                [[
+local function escape(): affine(io.%s)
+    local file = assert(io.open("input.bin", "r+"))
+    return file:%s()
+end
+]]
+            ):format(view.name, view.method)
+        )
+        assert(diagnostics:find("NUPP26", 1, true), view.method .. ": " .. diagnostics)
+    end
+end
+
+function M.liveExclusiveFileViewsPreventClosingTheirFile()
+    for _, view in ipairs({
+        {method = "reader", operation = "read(1)"},
+        {method = "writer", operation = "write('x')"}
+    }) do
+        local diagnostics = diagsUnderPrelude(
+            (
+                [[
+local file = assert(io.open("input.bin", "r+"))
+local view = file:%s()
+file:close()
+view:%s
+view:close()
+]]
+            ):format(view.method, view.operation)
+        )
+        assert(diagnostics:find("NUPP26", 1, true), view.method .. ": " .. diagnostics)
+    end
+end
+
+function M.closingByteViewsAllowsReusingTheirFile()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local file = assert(io.open("input.bin", "r+"))
+local reader = file:reader()
+reader:read(1)
+reader:close()
+file:seek("set", 0)
+local writer = file:writer()
+writer:write("x")
+writer:close()
+file:flush()
+file:close()
+]]
+        ),
+        ""
+    )
+end
+
+function M.fileByteViewsCanBeConsumedByBoundedLines()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local file = assert(io.open("input.bin", "rb"))
+local reader = file:reader()
+local lines = reader:lines(32)
+local line, reason = lines:read()
+if line == nil then assert(reason == nil, reason) end
+lines:close()
+file:seek("set", 0)
+file:close()
+]]
+        ),
+        ""
+    )
+end
+
+function M.fileParametersGetByteViewsWithoutAnAcquisitionExpression()
+    local source = [[
+local function useFile(exclusive file: io.File): nil
+    local reader = file:reader()
+    reader:read(1)
+    reader:close()
+    local writer = file:writer()
+    writer:write("x")
+    writer:close()
+end
+return useFile
+]]
+    testAssert.eq(diagsUnderPrelude(source), "")
+    local parsed = parser.parse(source, "file-parameter.nupp")
+    testAssert.eq(#parsed.errors, 0)
+    for _, diagnostic in ipairs(check.check(parsed, "file-parameter.nupp", strictEnv(), {strict = true}) or {}) do
+        testAssert.ne(diagnostic.severity, "error", diagnostic.msg)
+    end
+    local code, diagnostics = gen.generate(parsed, "file-parameter.nupp")
+    testAssert.eq(#diagnostics, 0)
+    assert(code:find("nupp.runtime.standardio", 1, true), "byte view calls carry their runtime installer")
+end
+
+function M.standardStreamsExposeTheSameByteViewTypes()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local function acceptReader(exclusive reader: io.Reader): nil end
+local function acceptWriter(exclusive writer: io.Writer): nil end
+local reader = io.stdin:reader()
+acceptReader(reader)
+reader:close()
+local output = io.stdout:writer()
+acceptWriter(output)
+output:close()
+local errors = io.stderr:writer()
+acceptWriter(errors)
+errors:close()
+]]
+        ),
+        ""
+    )
+end
+
+function M.boundedFileLinesCannotEscapeTheirLocalFile()
+    local diagnostics = diagsUnderPrelude(
+        [[
+local function escape(): affine(io.Lines)
+    local file = assert(io.open("input.bin", "rb"))
+    local reader = file:reader()
+    return reader:lines(32)
+end
+]]
+    )
+    assert(diagnostics:find("NUPP26", 1, true), diagnostics)
 end
 
 function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()

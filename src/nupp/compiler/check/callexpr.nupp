@@ -2209,7 +2209,8 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
             node.valuePack = pack or (rets and T.pack(rets) or T.pack({}, {kind = "unknown", type = T.any}))
             return first
         end
-        local mt, fieldDef, fieldDefs = c.fieldType(ot, member.text)
+        local mt, fieldDef, fieldDefs, instanceModule = c.fieldType(ot, member.text);
+        (node as any).instanceExtensionModule = instanceModule
         if mt and node.safeMethod then
             mt = withoutNil(mt)
         end

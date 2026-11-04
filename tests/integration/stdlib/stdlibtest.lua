@@ -69,16 +69,15 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
     )
 end
 
--- Every owner the standard library hands out has one cleanup shape: it is a
--- `own.Closeable` whose `close` answers nothing, so `own.drop` is the one early
--- terminal and no second public `drop` stands beside it.
+-- Every owner the standard library hands out has a cleanup policy, and
+-- `own.drop` runs it early without adding a public `drop` on each resource.
 local FORMER_DROP_OWNERS = {
     "local owner = io.newbuffer('bytes')",
     "local source = io.newbuffer('bytes')\nlocal owner = source:view()",
     "local owner = io.newreader('abcd'):scalar()",
     "local destination = io.newbuffer(); local owner = destination:writer():scalar()",
     "local owner = io.newreader('one'):lines()",
-    "local owner = assert(io.files.open('input.bin'))",
+    "local owner = assert(io.open('input.bin'))",
     "local owner = assert(io.files.tmpfile())",
     "local owner = nupp.heap.alloc(ffi.typeof<int32>(), 4)",
     "local struct Row\n    x: int32\nend\nlocal owner = nupp.soa.alloc(ffi.typeof<Row>(), 4)",
@@ -1853,6 +1852,42 @@ function M.everyFeatureRuntimeIsReachableOrRefused()
     end
 end
 
+function M.fileViewFeaturesDecorateTypeOnlyInterfaceIdentities()
+    local file = {tag = "nominal", byname = {}}
+    local globals = {io = {t = {tag = "shape", byname = {}}}}
+    local effects = native.decorateGlobals(globals, {["io.File"] = file})
+    assert(effects[file] and effects[file].reader == "runtime.file_views")
+    assert(effects[file].writer == "runtime.file_views")
+    assert(file.byname.reader == nil and file.byname.writer == nil, "feature decoration does not mutate the interface")
+    assert(native.decorateGlobals(globals)[file] == nil, "the type is not a runtime namespace value")
+end
+
+function M.parameterOnlyFileViewsCarryTheirRuntimeFeature()
+    local env = envMod.new(HERE .. "/..", {cache = false})
+    for _, method in ipairs({"reader", "writer"}) do
+        local source = (
+            [=[
+local function useFile(exclusive file: io.File): nil
+    local view = file:%s()
+    view:close()
+end
+return useFile
+]=]
+        ):format(method)
+        local parsed = parser.parse(source, "file-view-effects.nupp")
+        testAssert.eq(#parsed.errors, 0)
+        for _, diagnostic in ipairs(check.check(parsed, "file-view-effects.nupp", env) or {}) do
+            testAssert.ne(diagnostic.severity, "error", diagnostic.msg)
+        end
+        assert(parsed.effects["runtime.file_views"], "checking a parameter-only " .. method .. " records its feature")
+        local code, diagnostics, _, emitted = gen.generate(parsed, "file-view-effects.nupp")
+        testAssert.eq(#diagnostics, 0)
+        assert(emitted["runtime.file_views"], "generated " .. method .. " retains its runtime feature")
+        assert(code:find("nupp.runtime.standardio", 1, true), "the view call installs the file methods")
+        assert(native.expand(emitted)["stdlib.io"], "the view carries its byte-stream runtime")
+    end
+end
+
 function M.reachableStandardFacilitiesHaveRuntimeMetadata()
     local surface = require("nupp.compiler.standardsurface")
     local browser = {opts = {}, env = {artifactHost = "browser"}}
@@ -2490,17 +2525,18 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     assertClean(
         table.concat(
             {
-                "const files = require(\"io.files\")",
                 "local function drain(exclusive source: io.Reader, exclusive sink: io.Writer): (integer?, string?)",
                 "    return source:transferto(sink)",
                 "end",
                 "do",
-                "    local file, reason = files.open('input.txt')",
+                "    local file, reason = io.open('input.txt')",
                 "    if file == nil then error(reason) end",
                 "    local bytes: string? = file:read(16)",
-                "    local wrote: boolean = file:write('x')",
-                "    local copy = assert(files.open('copy.txt', 'w'))",
-                "    local copied: integer? = drain(file, copy)",
+                "    local wrote: io.File? = file:write('x')",
+                "    local copy = assert(io.open('copy.txt', 'w'))",
+                "    local reader = file:reader()",
+                "    local writer = copy:writer()",
+                "    local copied: integer? = drain(reader, writer)",
                 "end",
             },
             "\n"
@@ -2521,7 +2557,9 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
         )
     )
 
-    testAssert.eq((diagsOf("const files = require(\"io.files\")\nlocal n: number = files.read('x')")), "NUPP2001:2")
+    testAssert.eq((diagsOf("io.files.read('x')")), "NUPP2004:1")
+    testAssert.eq((diagsOf("io.files.write('x', 'bytes')")), "NUPP2004:1")
+    testAssert.eq((diagsOf("io.files.append('x', 'bytes')")), "NUPP2004:1")
     assertClean("const files = require(\"io.files\")\nlocal paths: {io.Path} = assert(files.glob('src/**/*.nupp'))")
     testAssert.eq(
         (diagsOf("const files = require(\"io.files\")\nfiles.glob(io.newpath('src'))")),
@@ -2530,7 +2568,9 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     )
     assertClean("const files = require(\"io.files\")\nlocal link: boolean = files.issymlink('x')")
     testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.info(42)")), "NUPP2006:2")
-    testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.open('x')")), "NUPP2605:2")
+    testAssert.eq((diagsOf("io.open('x')")), "NUPP2605:1")
+    testAssert.eq((diagsOf("io.files.open('x')")), "NUPP2004:1")
+    testAssert.eq((diagsOf("io.files.lines('x')")), "NUPP2004:1")
     testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.tmpfile()")), "NUPP2605:2")
 end
 

@@ -137,7 +137,10 @@ whether the block falls through, returns early, or raises.
 
 ```nupp:fragment
 local scratch = assert(files.tmpfile(new files.TemporaryOptions(suffix = ".json")))
-assert(files.write(scratch:path(), encoded))
+do
+    local file = assert(io.open(scratch:path(), "wb"))
+    assert(file:write(encoded))
+end
 assert(scratch:persist("out/report.json"))
 ```
 
@@ -148,15 +151,16 @@ a half-written file under the final name.
 
 ## Reading and writing a whole file
 
-`read` and `write` move a file's complete contents in one call:
+`io.open` supplies file methods for reading and writing contents:
 
 ```nupp:fragment
-local text, reason = files.read("nupp.lua")
-assert(text, reason)
-assert(files.write("out/report.json", encoded))
+local input = assert(io.open("nupp.lua", "rb"))
+local text = assert(input:read("*a"))
+local output = assert(io.open("out/report.json", "wb"))
+assert(output:write(encoded))
 ```
 
-`append` adds to the end and creates a missing file. `copy` duplicates one path
+Mode "ab" appends and creates a missing file. `copy` duplicates one path
 over another. `writeatomic` writes through a temporary beside the destination
 and renames over it, so an interrupted write leaves the destination as it was
 rather than half replaced. A failed write removes the temporary rather than
@@ -164,11 +168,12 @@ leaving it behind.
 
 A NUL byte is content, not a terminator, in every direction.
 
-`lines` opens a file as a [line reader](io.Lines), which takes the file
-and closes it when it closes:
+`io.lines(path)` supplies Lua line iteration. A bounded, owned
+[line reader](io.Lines) comes from the file's byte view:
 
 ```nupp:fragment
-local log = assert(files.lines("access.log"))
+local file = assert(io.open("access.log"))
+local log = file:reader():lines()
 while true do
     local line, reason = log:read()
     if line == nil then
@@ -179,40 +184,34 @@ while true do
 end
 ```
 
-A line comes back without its terminator, `\n` or `\r\n`, so a file written on
-either platform reads the same. A read that fails partway through returns nil
-and the reason rather than ending the lines early, which is what tells a broken
-file apart from a finished one.
+Closing the line reader closes its byte view. The file remains owned by its
+caller. Lines omit `\n` or `\r\n`, and a failed read returns its reason
+separately from EOF.
 
 ## Reading and writing through a cursor
 
-`open` hands over a `File` and the obligation to close it:
+`io.open` returns an owned `io.File` with Lua file methods:
 
 ```nupp:fragment
-local file = assert(files.open("image.png"))
+local file = assert(io.open("image.png", "rb"))
 print(file:read(8))
 ```
 
-A file is itself a `io.Reader` and a `io.Writer`, the same shape as a
-network stream or a TLS session, so `read`, `readspan`, `readinto`,
-`transferto`, `write`, `writespan` and `flush` mean what they mean over a
-buffer, and all of them move the one cursor the file has. Native callers can
-read and write through checked spans without separating a pointer from its
-bound. `readinto` commits the destination buffer only after a successful read,
-and `transferto` streams a file of any size through a fixed window:
+`reader` and `writer` borrow the file through the byte-stream contracts. Their
+span and buffer operations use the same cursor as the Lua file methods:
 
 ```nupp:fragment
-local source = assert(files.open("input.bin"))
-local sink = assert(files.open("output.bin", "w"))
+local input = assert(io.open("input.bin", "rb"))
+local source = input:reader()
+local output = assert(io.open("output.bin", "wb"))
+local sink = output:writer()
 print(source:transferto(sink))
 ```
 
-`mode` is `r`, `w`, `a`, or the update modes `r+`, `w+` and `a+`, matching C and
-Lua. `seek(offset, origin)` moves the cursor, with `origin` one of `set`,
-`current` or `end`; `position` and `size` return where it is and how long the
-file is. A seek before the start or beyond the exact integer range fails without
-moving the cursor. `close` returns nothing, so a write that failed to land is
-reported by `flush`, which is the call to make first when it matters.
+`seek(whence, offset)` uses `"set"`, `"cur"`, or `"end"`, with the current
+position as the default. `flush` reports buffered write failures; `close`
+returns the Lua success or failure result. Closing a byte view leaves its
+parent file open.
 
 ## Platform directories
 
@@ -256,7 +255,7 @@ permits asking what a path is, listing a directory, or renaming one:
     if files.isdirectory(candidate) then
         print(#assert(files.list(candidate)))
     end
-    print(files.read(candidate)) -- NUPP2701: `read` may suspend
+    assert(files.copy(candidate, "backup")) -- NUPP2701: `copy` may suspend
 end
 ```
 
@@ -1417,8 +1416,8 @@ end
 --- Read a file's bytes, or report why not:
 ---
 --- ```nupp
---- local text, reason = io.files.read("nupp.lua")
---- assert(text, reason)
+--- local file = assert(io.open("nupp.lua", "rb"))
+--- local text = assert(file:read("*a"))
 --- ```
 --- @param path the file to read
 --- @return the contents, or nil on failure
@@ -1544,7 +1543,7 @@ end
 --- Read a header without holding the whole file:
 ---
 --- ```nupp
---- local file = assert(io.files.open("image.png"))
+--- local file = assert(io.open("image.png"))
 --- print(file:read(8))
 --- ```
 --- @param path the file to open
@@ -1584,7 +1583,10 @@ end
 --- ```nupp:fragment
 --- local options = new io.files.TemporaryOptions(directory = "build")
 --- local scratch = assert(io.files.tmpfile(options))
---- assert(io.files.write(scratch:path(), bytes))
+--- do
+---     local file = assert(io.open(scratch:path(), "wb"))
+---     assert(file:write(bytes))
+--- end
 --- assert(scratch:persist("build/output.bin"))
 --- ```
 --- @param options where to create it and how to name it

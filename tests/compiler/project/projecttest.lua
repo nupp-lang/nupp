@@ -3112,7 +3112,8 @@ function M.standaloneBinaryLinksRustFilesystemIntoItsOwnHost()
         ] = [[
 const files = require("io.files")
 assert(files.isfile("Cargo.toml"))
-local contents = assert(files.read("Cargo.toml"))
+local file = assert(io.open("Cargo.toml", "rb"))
+local contents = assert(file:read("*a"))
 assert(contents:find("[workspace]", 1, true))
 print("rust-files-ok")
 ]],
