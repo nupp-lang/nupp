@@ -121,6 +121,10 @@ export function admit(
             end
             previous = previous + 1ULL
         end
+        -- The wire's aggregate limits, which hold a raw image to about
+        -- 12,000 owners: the raw profile's executable subset is one scalar
+        -- initializer, and compiler-sized programs load as checked v8
+        -- catalogs instead (see coregraphschema.wire).
         if section == wire.S_bytes then
             if count > wire.stringLimit then
                 return 0ULL
