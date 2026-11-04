@@ -1,3 +1,4 @@
+require("nupp.runtime.standardos")
 -- `io.files` against a real filesystem, through the real provider.
 --
 -- The launcher's provider is reused when available, and otherwise one is built for
@@ -243,16 +244,16 @@ function M.renamingAndRemovingMoveAndDeletePaths()
     local files = ready()
     assert(files.mkdir(inRoot("moves/tree/deep")))
     write(inRoot("moves/from.txt"), "content")
-    assert(files.rename(inRoot("moves/from.txt"), inRoot("moves/to.txt")))
+    assert(os.rename(io.newpath(inRoot("moves/from.txt")), inRoot("moves/to.txt")))
     assert(files.isfile(inRoot("moves/to.txt")))
     assert(not files.exists(inRoot("moves/from.txt")))
 
-    assert(files.remove(inRoot("moves/to.txt")))
+    assert(os.remove(io.newpath(inRoot("moves/to.txt"))))
     assert(not files.exists(inRoot("moves/to.txt")))
 
-    local refused, reason = files.remove(inRoot("moves/tree"))
-    assert(not refused and isIoError(reason), "removing a populated directory needs the recursive flag")
-    assert(files.remove(inRoot("moves/tree"), true))
+    local refused, reason = os.remove(inRoot("moves/tree"))
+    assert(not refused and type(reason) == "string", "removing a populated directory needs the recursive flag")
+    assert(os.remove(io.newpath(inRoot("moves/tree")), true))
     assert(not files.exists(inRoot("moves/tree")))
 end
 
@@ -360,7 +361,7 @@ function M.transfersSettleThroughTheLaneAndReleaseTheirSlots()
     local files = ready()
     local backend = require("nupp.runtime.provider.nativefiles")
     assert(files.mkdir(inRoot("lane")))
-    test.eq(files.pendingtransfers(), 0, "the lane starts idle")
+    test.eq(backend.pendingTransfers(), 0, "the lane starts idle")
 
     local payload = ("lane"):rep(50000)
     for index = 1, 24 do
@@ -371,19 +372,19 @@ function M.transfersSettleThroughTheLaneAndReleaseTheirSlots()
     end
     assert(backend.append(inRoot("lane/1.bin"), ":tail"))
     test.eq(assert(backend.read(inRoot("lane/1.bin"))), payload .. ":tail")
-    test.eq(files.pendingtransfers(), 0, "every settled transfer gave its slot back")
+    test.eq(backend.pendingTransfers(), 0, "every settled transfer gave its slot back")
 
     local missing, reason = backend.read(inRoot("lane/absent"))
     test.eq(missing, nil)
     assert(type(reason) == "string" and #reason > 0)
-    test.eq(files.pendingtransfers(), 0, "a refused transfer holds nothing")
+    test.eq(backend.pendingTransfers(), 0, "a refused transfer holds nothing")
 
     local written, why = backend.write(inRoot("lane/absent/deep.bin"), "x")
     assert(
         not written and type(why) == "string" and #why > 0,
         "a write that fails on the worker carries its reason back"
     )
-    test.eq(files.pendingtransfers(), 0)
+    test.eq(backend.pendingTransfers(), 0)
 end
 
 -- The point of the whole design: the call below is the same call in both cases.
@@ -417,11 +418,11 @@ function M.aTransferParksUnderAHandlerAndBlocksWithoutOne()
     else
         test.eq(pumped, 0, "a transfer already ready before suspension needs no handler work")
     end
-    test.eq(files.pendingtransfers(), 0)
+    test.eq(backend.pendingTransfers(), 0)
 
     -- Without a handler the same call still answers, having waited by itself.
     test.eq(#assert(backend.read(inRoot("parking/payload.bin"))), 160000)
-    test.eq(files.pendingtransfers(), 0)
+    test.eq(backend.pendingTransfers(), 0)
 end
 
 -- Losing a race is the ordinary way a transfer is abandoned, and the lane's
@@ -433,7 +434,7 @@ function M.aCancelledTransferGivesItsLaneSlotBack()
     local tasks = require("coroutine")
     assert(files.mkdir(inRoot("cancel")))
     assert(backend.write(inRoot("cancel/large.bin"), ("drop"):rep(1000000)))
-    test.eq(files.pendingtransfers(), 0, "the lane starts idle")
+    test.eq(backend.pendingTransfers(), 0, "the lane starts idle")
 
     -- The read is large enough to park, and the other branch settles at once, so
     -- the race abandons the read while it is still in flight.
@@ -448,7 +449,7 @@ function M.aCancelledTransferGivesItsLaneSlotBack()
         end,
     })
     assert(value ~= nil)
-    test.eq(files.pendingtransfers(), 0, "a cancelled transfer gave its slot and bytes back")
+    test.eq(backend.pendingTransfers(), 0, "a cancelled transfer gave its slot and bytes back")
 end
 
 function M.anAtomicWriteLeavesTheDestinationAloneWhenItFails()
@@ -462,6 +463,9 @@ end
 
 function M.anOpenFileReadsAndWritesThroughTheSharedContracts()
     local files = ready()
+    test.eq(files.remove, nil, "path removal belongs to os.remove")
+    test.eq(files.rename, nil, "path renaming belongs to os.rename")
+    test.eq(files.pendingtransfers, nil, "transfer accounting is private")
     test.eq(files.open, nil, "file acquisition belongs to io.open")
     test.eq(files.lines, nil, "file iteration belongs to io.lines and Reader:lines")
     test.eq(files.read, nil, "whole-file reads use io.open")
@@ -700,9 +704,9 @@ function M.argumentsAreCheckedAtTheCallSite()
     )
     test.raises(
         function()
-            files.rename(inRoot("a"), true)
+            os.rename(inRoot("a"), true)
         end,
-        "must be a path or a string"
+        "string expected"
     )
     test.raises(
         function()
@@ -730,7 +734,7 @@ function M.argumentsAreCheckedAtTheCallSite()
     )
     test.raises(
         function()
-            files.remove(inRoot("a"), "yes")
+            os.remove(inRoot("a"), "yes")
         end,
         "recursive must be a boolean"
     )

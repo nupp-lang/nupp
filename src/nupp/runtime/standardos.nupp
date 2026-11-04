@@ -20,6 +20,90 @@ local system = require("nupp.runtime.system")
 local clocks = require("nupp.runtime.clocks").selected
 local entropy = require("nupp.runtime.entropy")
 
+local host: any = rawget(_G, "os")
+local luaRemove = host.remove
+local luaRename = host.rename
+
+--- Returns a filename for a temporary file that the caller removes explicitly.
+---
+--- On POSIX systems, this also creates an empty file to reserve the name.
+--- Use `io.tmpfile` for an owned handle or `io.files.tmpfile` for an owned path.
+--- @return the temporary filename
+@deprecated(reason = "temporary filenames require manual cleanup", replacement = "io.tmpfile or io.files.tmpfile")
+export const tmpname: function(): string = host.tmpname
+
+const _FILES_REQUIRES = "@requires-dynamically nupp.runtime.bindings.files"
+
+local function filename(value: any, position: integer): any
+    if type(value) == "table" then
+        if type(value.tostring) ~= "function" then
+            error("bad argument #" .. tostring(position) .. " (path or string expected)", 3)
+        end
+        return value:tostring()
+    end
+
+    return value
+end
+
+local function implementation(name: string): any
+    local ok, value = pcall(require, name)
+    if not ok then
+        error(value, 0)
+    end
+
+    return value
+end
+
+--- Removes a file, symbolic link, or directory.
+---
+--- Native hosts accept strings and `io.Path` values. Browser hosts accept
+--- `io.files.AppPath` values and refuse raw paths. A populated directory
+--- requires `recursive = true`; symbolic links are removed without following
+--- their targets. Without that flag, native calls retain Lua's behavior.
+---
+--- @param path the path to remove
+--- @param recursive whether to remove a directory's contents
+--- @return true on success, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @return the native error code, when supplied by Lua
+export function remove(path: io.files.Path, recursive: boolean?): (boolean?, string?, number?)
+    if recursive ~= nil and type(recursive) ~= "boolean" then
+        error("bad argument #2 to 'remove' (recursive must be a boolean)", 2)
+    end
+    if rawget(_G, "__nuppBrowser") ~= nil or recursive == true then
+        local removed, reason = implementation("nupp.runtime.bindings.files").remove(path, recursive)
+        if not removed then
+            return nil, reason
+        end
+        return true
+    end
+
+    return luaRemove(filename(path, 1))
+end
+
+--- Renames a file or directory, replacing the destination when supported.
+---
+--- Native hosts accept strings and `io.Path` values in either position and
+--- retain Lua's success and error returns. Browser hosts accept app-owned
+--- paths but currently return an unsupported-operation reason.
+---
+--- @param from the source path
+--- @param to the destination path
+--- @return true on success, or nil on failure
+--- @return a failure reason, when unsuccessful
+--- @return the native error code, when supplied by Lua
+export function rename(from: io.files.Path, to: io.files.Path): (boolean?, string?, number?)
+    if rawget(_G, "__nuppBrowser") ~= nil then
+        local renamed, reason = implementation("nupp.runtime.bindings.files").rename(from, to)
+        if not renamed then
+            return nil, reason
+        end
+        return true
+    end
+
+    return luaRename(filename(from, 1), filename(to, 2))
+end
+
 --- Calendar fields returned by `os.date("*t")`.
 export type DateFields = os.DateFields
 
@@ -52,23 +136,15 @@ export const walltime: function(): number = clocks.walltime
 const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.util.internal.uuid"
 
 -- UUID features carry the helper; clocks and system facts do not need it.
-local function uuidImplementation(name: string): any
-    local ok, implementation = pcall(require, name)
-    if not ok then
-        error(implementation, 0)
-    end
-
-    return implementation
-end
 
 --- Generates a random version 4 UUID using the retained host service.
 export function uuid4(): string
-    return uuidImplementation("nupp.util.internal.uuid").uuid4()
+    return implementation("nupp.util.internal.uuid").uuid4()
 end
 
 --- Generates a time-ordered version 7 UUID using the retained host service.
 export function uuid7(): string
-    return uuidImplementation("nupp.util.internal.uuid").uuid7()
+    return implementation("nupp.util.internal.uuid").uuid7()
 end
 
 --- Returns cryptographically secure random bytes from the selected host.
@@ -81,6 +157,8 @@ export const randombytes = entropy.randombytes
 --- @internal
 export const value: table = do
     local original = rawget(_G, "os") as any
+    original.remove = remove
+    original.rename = rename
     original.info = info
     original.monotonic = monotonic
     original.walltime = walltime

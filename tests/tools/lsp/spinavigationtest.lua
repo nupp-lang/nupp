@@ -57,7 +57,7 @@ export const result = provider.value()
         assert(implementation, "SPI navigation locates the implementation export")
         assert(#locations == 1, "one advertised implementation")
     end)
-    require("io.files").remove(dir, true)
+    os.remove(dir, true)
     if not success then
         error(failure, 0)
     end
@@ -100,7 +100,7 @@ export const value = provider.value]],
         assert(#locations == 1, "the facade's typed load refers to the defining interface")
         assert(locations[1].uri:find("/implementation.nupp", 1, true), locations[1].uri)
     end)
-    require("io.files").remove(dir, true)
+    os.remove(dir, true)
     assert(success, failure)
 end
 

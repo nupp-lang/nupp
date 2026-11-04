@@ -122,7 +122,7 @@ end
 --- Resolves and creates this app's platform configuration directory.
 ---
 --- Configuration, data and cache are always three distinct directories, so
---- clearing one with a recursive `remove` never reaches another.
+--- clearing one with a recursive `os.remove` never reaches another.
 --- @return the configuration path, or nil on failure
 --- @return a failure reason, when unsuccessful
 export function configurationpath(): (appPaths.AppPath?, io.Error?)
@@ -228,24 +228,6 @@ export function mkdir(path: Path): (boolean, io.Error?)
     return answered(provider.createDirectory(path))
 end
 
---- Removes a file, link, or directory.
---- @param path the path to remove
---- @param recursive whether to remove a directory's contents
---- @return whether the path was removed
---- @return a failure reason, when unsuccessful
-export function remove(path: Path, recursive: boolean?): (boolean, io.Error?)
-    return answered(provider.remove(path, recursive))
-end
-
---- Renames a path, replacing an existing destination when supported.
---- @param from the source path
---- @param to the destination path
---- @return whether the path was renamed
---- @return a failure reason, when unsuccessful
-export function rename(from: Path, to: Path): (boolean, io.Error?)
-    return answered(provider.rename(from, to))
-end
-
 --- Lists a directory's immediate children.
 --- @param path the directory to list
 --- @return its entries, or nil on failure
@@ -279,10 +261,6 @@ end
 export function copy(from: Path, to: Path): (boolean, io.Error?)
     return answered(provider.copy(from, to))
 end
-
---- Reports whole-file transfers that have not settled.
---- @return the number of pending transfers
-export const pendingtransfers = provider.pendingTransfers
 
 --- Creates a native temporary file owner when the provider supports one.
 --- @param options naming and placement options

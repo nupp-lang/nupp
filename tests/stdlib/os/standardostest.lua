@@ -124,7 +124,7 @@ return describe(facts), monotonic, wall, random, ordered, bytes
     test.eq(#bytes, 7)
 end
 
-function M.clockInstallerDoesNotPackageUuidAtAnyOptimizationLevel()
+function M.clockInstallerDoesNotPackageUnusedProvidersAtAnyOptimizationLevel()
     local parser = require("nupp.compiler.syntax.parser")
     local checker = require("helpers.fragment")
     local gen = require("nupp.compiler.lua.gen")
@@ -149,7 +149,15 @@ function M.clockInstallerDoesNotPackageUuidAtAnyOptimizationLevel()
             not expanded["runtime.uuid"] and not expanded["native.uuid"],
             "OS initialization selected unused UUID support"
         )
+        assert(
+            not expanded["runtime.files"] and not expanded["native.files"],
+            "OS initialization selected unused filesystem support"
+        )
         for _, name in ipairs(gen.runtimeModules(code)) do
+            assert(
+                name ~= "nupp.runtime.bindings.files" and name ~= "io.files",
+                "OS initialization packages unused filesystem module " .. name
+            )
             assert(
                 name ~= "nupp.util.internal.uuid"
                 and name ~= "nupp.runtime.uuidprovider"
@@ -195,6 +203,144 @@ function M.directAndAliasedUuidCallsCarryTheHelperAndProvider()
         assert(modules["nupp.util.internal.uuid"], "the UUID feature omits its validating helper")
         assert(modules["nupp.runtime.uuidprovider"], "the UUID feature omits its selected provider")
     end
+end
+
+local function fileSurface(host, provider, browser)
+    return providerstate.instance(
+        {["nupp.runtime.standardos"] = true},
+        {
+            ["nupp.runtime.system"] = {},
+            ["nupp.runtime.clocks"] = {selected = {}},
+            ["nupp.runtime.entropy"] = {},
+            ["nupp.runtime.bindings.files"] = provider,
+        },
+        nil,
+        {os = host, __nuppBrowser = browser}
+    )("nupp.runtime.standardos")
+end
+
+function M.fileMutationsPreserveLuaReturnsAndAcceptPaths()
+    local seen, providerCalls = {}, 0
+    local host = {
+        remove = function(path)
+            seen[#seen + 1] = path
+            return nil, "denied", 13
+        end,
+        rename = function(from, to)
+            seen[#seen + 1] = from
+            seen[#seen + 1] = to
+            return true
+        end,
+    }
+    local surface = fileSurface(host, {
+        remove = function(path, recursive)
+            providerCalls = providerCalls + 1
+            test.eq(path, "tree")
+            test.eq(recursive, true)
+            return false, "busy"
+        end
+    })
+    test.eq(surface.value, host)
+    local path = {
+        tostring = function()
+            return "file"
+        end
+    }
+    local ok, reason, code = host.remove(path)
+    test.eq(ok, nil)
+    test.eq(reason, "denied")
+    test.eq(code, 13)
+    test.eq(host.rename(path, "destination"), true)
+    test.deepeq(seen, {"file", "file", "destination"})
+    test.eq(providerCalls, 0, "ordinary native calls retain Lua's implementation")
+    ok, reason, code = host.remove("tree", true)
+    test.eq(ok, nil)
+    test.eq(reason, "busy")
+    test.eq(code, nil)
+    test.eq(providerCalls, 1)
+    test.raises(
+        function()
+            host.remove("tree", "yes")
+        end,
+        "recursive must be a boolean"
+    )
+end
+
+function M.browserFileMutationsKeepAppPathAuthorityAndNormalizeFailures()
+    local path, destination = {}, {}
+    local host = {
+        remove = function()
+            error("native remove reached browser")
+        end,
+        rename = function()
+            error("native rename reached browser")
+        end,
+    }
+    fileSurface(
+        host,
+        {
+            remove = function(received, recursive)
+                test.eq(received, path)
+                test.eq(recursive, true)
+                return true
+            end,
+            rename = function(from, to)
+                test.eq(from, path)
+                test.eq(to, destination)
+                return false, "rename unsupported"
+            end,
+        },
+        {}
+    )
+    test.eq(host.remove(path, true), true)
+    local ok, reason = host.rename(path, destination)
+    test.eq(ok, nil)
+    test.eq(reason, "rename unsupported")
+end
+
+function M.fileMutationsAcceptPathTypesAndRetainTheirRuntimeFeatures()
+    local parser = require("nupp.compiler.syntax.parser")
+    local checker = require("helpers.fragment")
+    local gen = require("nupp.compiler.lua.gen")
+    local root = require("helpers.paths").tests .. "/.."
+    for _, source in ipairs({
+        'local path: io.Path = io.newpath("tree")\nreturn os.remove(path, true)',
+        'local from: io.files.AppPath = assert(io.files.datapath())\nreturn os.rename(from, from:join("new"))',
+    }) do
+        local parsed = parser.parse(source, "file-mutations.nupp")
+        test.eq(#parsed.errors, 0)
+        local env = require("nupp.compiler.project.env").new(root, {cache = false})
+        local diagnostics = checker.check(parsed, "file-mutations.nupp", env)
+        test.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+        local _, errors, _, emitted = gen.generate(parsed, "file-mutations.nupp")
+        test.eq(#errors, 0)
+        assert(emitted["runtime.files"], "file mutations must package their provider path")
+    end
+end
+
+function M.temporaryNamesReportDeprecation()
+    local parser = require("nupp.compiler.syntax.parser")
+    local checker = require("helpers.fragment")
+    local root = require("helpers.paths").tests .. "/.."
+    local env = require("nupp.compiler.project.env").new(root, {cache = false})
+    for _, source in ipairs({
+        "return os.tmpname()",
+        "local system = os\nreturn system.tmpname()",
+        'local system = require("os")\nreturn system.tmpname()',
+        "const {tmpname} = os\nreturn tmpname()",
+    }) do
+        local parsed = parser.parse(source, "temporary-name.nupp")
+        local diagnostics = checker.check(parsed, "temporary-name.nupp", env)
+        assert(#diagnostics > 0, "deprecation was lost: " .. source)
+        for _, diagnostic in ipairs(diagnostics) do
+            test.eq(diagnostic.code, "NUPP2513", source)
+            assert(diagnostic.msg:find("manual cleanup", 1, true))
+        end
+    end
+    local source = "local os = {tmpname = function(): string return 'local' end}\nreturn os.tmpname()"
+    local parsed = parser.parse(source, "shadowed-temporary-name.nupp")
+    local env = require("nupp.compiler.project.env").new(root, {cache = false})
+    test.eq(#checker.check(parsed, "shadowed-temporary-name.nupp", env), 0)
 end
 
 return M

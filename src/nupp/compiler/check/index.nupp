@@ -753,6 +753,9 @@ export function install(c: state.Checker): state.ExprHandlers
                 fieldDef = exports and exports.valueDefs and exports.valueDefs[memberName] or nil
             end
         end
+        if not fieldDef and not writing then
+            fieldDef = builtinExtensions.definition(c, target, memberName)
+        end
         if not ft then
             local opposite = writing and c.fieldType(base, memberName) or c.fieldWriteType(base, memberName)
             if opposite then

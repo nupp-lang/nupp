@@ -376,7 +376,7 @@ function M.parallelChecksMatchSerialRecordsAndDiagnosticsAcrossSchedules()
         testAssert.eq(report.timing.parallel.retries, 0, "healthy workers are not retried")
     end
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 -- Checking a module whose effects need a feature runtime stages that runtime's
@@ -436,7 +436,7 @@ return {value = value, described = described}
     testAssert.eq(report.timing.parallel.rechecked, 0, "worker records survive validation")
     testAssert.eq(state, serialState, "parallel check records")
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 -- Staging a runtime's carried source checks the modules that name it again, from
@@ -501,7 +501,7 @@ return {value = value}
     testAssert.eq(code, 0, "parallel exit status")
     testAssert.eq(stable(report.diagnostics), stable(serialReport.diagnostics), "parallel diagnostics")
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 -- Checking an `@annotation` declaration registers it with the environment rather
@@ -560,7 +560,7 @@ return {make = make}
     local warmCode, warmOutput = process.capture({NUPP, "check", "--json"}, {cwd = directory})
     testAssert.eq(warmCode, 0, "the warm check reuses clean records: " .. warmOutput)
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 -- A build generates in the worker that checked, so what a parallel build writes has
@@ -580,7 +580,7 @@ function M.parallelBuildsWriteWhatSerialBuildsWrite()
         testAssert.eq(state, serialState, level .. " build state")
     end
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 -- Const specialization is planned across every module of a build at once. A
@@ -617,7 +617,7 @@ return {four = four}
     testAssert.eq(checkCode, 0, "const-generic check")
     testAssert.eq(checkReport.timing.parallel.mode, "parallel", "a check plans no specialization")
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
@@ -651,7 +651,7 @@ function M.workerAndInterfaceFailuresFallBackWithoutPublishingPartialState()
     testAssert.eq(report.timing.parallel.retries, 1, "the stopped worker was retried once")
     testAssert.eq(state, serialState, "restarted worker records")
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 function M.anInterruptedCheckLeavesNoWorkers()
@@ -732,7 +732,7 @@ function M.anInterruptedCheckLeavesNoWorkers()
         assert(ffi.C.kill(pid, 0) ~= 0, "parallel worker survived its interrupted parent: " .. tostring(pid))
     end
 
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 return M

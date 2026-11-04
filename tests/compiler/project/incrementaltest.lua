@@ -68,7 +68,7 @@ export const value: table = rawget(_G, "os") as table
         testAssert.eq(result.result.effects["runtime.clocks"], nil, "no clock effect " .. index)
     end
     testAssert.eq(inc.env.builtinExtensions.os, osType, "the canonical extension type is reused")
-    assert(require("io.files").remove(directory, true))
+    assert(os.remove(directory, true))
 end
 
 function M.memoizationAndInvalidation()

@@ -102,8 +102,8 @@ immediately:
 
 ```nupp:fragment
 assert(files.mkdir("out/lib/native"))
-assert(files.rename("out/report.tmp", "out/report.json"))
-assert(files.remove("out/stale", true))
+assert(os.rename("out/report.tmp", "out/report.json"))
+assert(os.remove("out/stale", true))
 ```
 
 `mkdir` creates every missing parent, and an existing directory
@@ -273,7 +273,7 @@ The lane those workers run is bounded three ways: how many transfers may be
 live, how many bytes they may hold between them, and how large one may be. Past
 any of the three a submission returns a reason rather than queueing, because a
 queue that grows with its callers eventually takes the process with it.
-`pendingtransfers` returns what the lane is holding.
+The private provider's `pendingTransfers` reports what the lane is holding.
 
 Metadata, listings and cursor reads through an open `File` do not use the lane.
 Scheduling a transfer costs more than those cost to run.

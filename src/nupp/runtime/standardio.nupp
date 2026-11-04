@@ -41,8 +41,8 @@ end
 ```
 
 An error prints as its message and joins text the same way.
-`io.open`, `io.popen`, Lua File methods, and the byte-stream contracts return
-string reasons. Process controls such as `communicate` retain structured
+`io.open`, `io.popen`, `os.remove`, `os.rename`, Lua File methods, and the
+byte-stream contracts return string reasons. Process controls such as `communicate` retain structured
 errors.
 ]]
 

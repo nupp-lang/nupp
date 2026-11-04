@@ -12,7 +12,7 @@ local function fixture(files, body)
         assert(fs.writeFile(fs.join(dir, name), source))
     end
     local ok, why = pcall(body, dir)
-    assert(require("io.files").remove(dir, true))
+    assert(os.remove(dir, true))
     assert(ok, why)
 end
 

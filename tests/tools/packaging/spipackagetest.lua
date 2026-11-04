@@ -29,7 +29,7 @@ local function tempProject(files)
 end
 
 local function remove(dir)
-    assert(require("io.files").remove(dir, true))
+    assert(os.remove(dir, true))
 end
 
 function M.capabilityDescriptorsRejectUnknownAndDuplicateEntries()

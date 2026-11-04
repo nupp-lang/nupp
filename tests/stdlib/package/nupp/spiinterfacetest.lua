@@ -134,7 +134,7 @@ print(checked, canonical)
         graph.changeDocument(typePath, declaration .. "\n")
         checked(graph)
     end)
-    require("io.files").remove(dir, true)
+    os.remove(dir, true)
     assert(ok, problem)
 end
 
@@ -180,7 +180,7 @@ return Reader
         end
         assert(count == 2, "same-named declaration nominals keep distinct method slots")
     end)
-    require("io.files").remove(dir, true)
+    os.remove(dir, true)
     assert(ok, problem)
 end
 
@@ -264,7 +264,7 @@ return marked.text
         end
         assert(found, "restored providers keep their nominal return type")
     end)
-    require("io.files").remove(dir, true)
+    os.remove(dir, true)
     if not ok then
         error(problem, 0)
     end

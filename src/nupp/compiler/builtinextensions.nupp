@@ -57,7 +57,18 @@ local ROOTS = {
     },
     os = {
         module = "nupp.runtime.standardos",
-        members = {info = true, uuid4 = true, uuid7 = true, monotonic = true, walltime = true, randombytes = true,}
+        replace = {remove = true, rename = true, tmpname = true},
+        members = {
+            remove = true,
+            rename = true,
+            tmpname = true,
+            info = true,
+            uuid4 = true,
+            uuid7 = true,
+            monotonic = true,
+            walltime = true,
+            randombytes = true,
+        }
     },
 }
 
@@ -263,6 +274,17 @@ function extensions.instanceNames(c: any, receiver: any, names: any): nil
             end
         end
     end
+end
+
+-- Shapes carry types rather than declaration identities. Builtin views retain
+-- their source module's definitions separately for diagnostics and navigation.
+function extensions.definition(c: any, node: any, name: string): any
+    local tokenDefinition = node.kind == "name" and node.token and node.token.definition or nil
+    local root = node.standardRoot or node.namespacePath or tokenDefinition and tokenDefinition.namespacePath
+    local published = root and c.env and c.env.builtinExtensionExports
+    local exports = published and published[root]
+
+    return exports and exports.valueDefs and exports.valueDefs[name] or nil
 end
 
 local function project(node: any, root: string): nil

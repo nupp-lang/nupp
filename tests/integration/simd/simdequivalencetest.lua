@@ -78,7 +78,7 @@ local function verifyMutation(id, failureMode)
     local output = exists(log) and runner.read(log) or ""
     os.remove(hostManifest)
     os.remove(log)
-    local removed, removeProblem = files.remove(project, true)
+    local removed, removeProblem = os.remove(project, true)
     assert(removed, removeProblem)
     assert(status ~= 0, "generated Wasm manifest mutation survived")
     assert(

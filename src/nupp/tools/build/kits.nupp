@@ -19,7 +19,7 @@ Nothing is fetched until a build links for that platform.
 ]]
 module nupp.tools.build.kits
 
-local files = require("io.files")
+local fileops = require("nupp.runtime.standardos")
 local fs = require("nupp.compiler.fs")
 local hash = require("nupp.compiler.hash")
 local packaging = require("nupp.tools.build.package")
@@ -175,7 +175,7 @@ local function unpack(record: kits.Record, archive: string, entry: string): stri
     -- removes it, or each failed attempt leaves one in the per-user cache.
     local function abandon(why: string?): string?
         if fs.exists(staging) then
-            files.remove(staging, true)
+            fileops.remove(staging, true)
         end
 
         return why

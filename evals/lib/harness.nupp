@@ -96,7 +96,7 @@ end
 
 function harness.remove(path: string): nil
     if files.exists(path) then
-        local removed, reason = files.remove(path, true)
+        local removed, reason = os.remove(path, true)
         if not removed then
             error("cannot remove " .. path .. ": " .. tostring(reason), 2)
         end
