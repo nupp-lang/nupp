@@ -221,7 +221,12 @@ function runner.select(
         local result = sink.compilerGraph(item.graph, item.owner.name, item.owner, resolved, bound)
         codes[name] = selectCode(result, mode)
         if cacheDirectory then
-            writeFile(cacheDirectory .. "/" .. keys[name] .. ".json", json.encodevalue(codes[name]))
+            -- Written aside and renamed into place: processes sharing the
+            -- cache never read a part-written entry.
+            local final = cacheDirectory .. "/" .. keys[name] .. ".json"
+            local aside = final .. "." .. (tostring({}):match("0x(%x+)") or "tmp") .. tostring(os.clock()) .. ".part"
+            writeFile(aside, json.encodevalue(codes[name]))
+            assert(os.rename(aside, final))
         end
     end
     phase("selection")

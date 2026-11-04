@@ -11,6 +11,19 @@ local function align(value: integer): integer
     return (value + 15) & -16
 end
 
+-- Entries already built in this process, by everything an entry is made
+-- from (`build`): programs alike in those share one, which callers copy.
+local built: {[string]: any} = {}
+
+local function shallow(value: any): any
+    local result = {}
+    for key, item in pairs(value) do
+        result[key] = item
+    end
+
+    return result
+end
+
 -- The issued graph catalog fixes initializer order. Each initializer borrows
 -- fresh Context/Storage, then completes before the next starts. The World and
 -- immutable image persist across runs; only the final result is published.
@@ -88,6 +101,31 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
     end
     local poolBytes = raw and 4096 or (executable.frameDepth as integer) * maximumFrame
     assert(poolBytes > 0 and poolBytes <= 1048576, "guest logical pool bound")
+    -- The entry depends on the program only through the numbers above and
+    -- its handlers; the selected runtime and its scopes are held per mode.
+    local key: string? = nil
+    if not raw then
+        key = table.concat(
+            {
+                tostring(selected),
+                tostring(source.scopes),
+                tostring(source.audited == true),
+                tostring(scratchBytes),
+                table.concat(source.handlers, ","),
+                tostring(moduleCount),
+                tostring(lazy),
+                tostring(source.executable.semantic.schema.version),
+                tostring(#executable.functions),
+                tostring(executable.instanceCapacity),
+                tostring(executable.frameDepth),
+                tostring(maximumFrame)
+            },
+            "\0"
+        )
+        if built[key] then
+            return shallow(built[key])
+        end
+    end
     local contextBytes = align(context.SIZE)
     local worldOffset = align(contextBytes * slots)
     local bindingOffset = align((worldOffset + layouts.World.size) as integer)
@@ -614,7 +652,7 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
         end
     end
 
-    return {
+    local result = {
         words = linked.words,
         offsets = linked.offsets,
         frames = linked.frames,
@@ -637,6 +675,12 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
         layouts = layouts,
         entry = 0
     }
+    if key then
+        built[key] = result
+        return shallow(result)
+    end
+
+    return result
 end
 
 export = shim

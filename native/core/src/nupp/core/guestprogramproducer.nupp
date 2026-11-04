@@ -351,14 +351,22 @@ function producer.selectUnits(
     assert(mode == "normal" or mode == "spill")
     local capacity = assert(tonumber(capacityText)) as integer
     assert(capacity == 65536 or capacity == 131072 or capacity == 1048576)
+    local timings = guestbuild.timings
     local source = guestbuild.guest(caseName, mode, cacheDirectory, scenario ~= nil)
+    local built = os.clock()
     local output = shim.build(source, source.selected, capacity)
     if scenario then
         audit(source, source.selected, output, scenario)
     end
+    local linked = os.clock()
     local packed = writer.encode(source.executable, source.scopes, output.dispatch, #output.words * 4)
+    local encoded = os.clock()
+    local result = publish(source, output, packed, mode, caseName, source.metrics, {})
+    timings.shim = (timings.shim or 0) + linked - built
+    timings.encode = (timings.encode or 0) + encoded - linked
+    timings.publish = (timings.publish or 0) + os.clock() - encoded
 
-    return publish(source, output, packed, mode, caseName, source.metrics, {})
+    return result
 end
 
 function producer.compile(caseName: string, mode: string, capacityText: string): string
