@@ -105,6 +105,8 @@ end
 
 -- tableSet's answer when a __newindex function is to be called instead.
 export const META_PENDING: uint64 = 100ULL
+-- tableSet's answer when the table it would store in is frozen.
+export const READONLY: uint64 = 101ULL
 
 export const FAULT_ARITH: uint64 = 1ULL
 export const FAULT_MODZERO: uint64 = 2ULL
@@ -115,6 +117,8 @@ export const FAULT_CALL: uint64 = 6ULL
 export const FAULT_KEY: uint64 = 7ULL
 export const FAULT_BITWISE: uint64 = 8ULL
 export const FAULT_NOINT: uint64 = 9ULL
+-- A store into a frozen table: Luau's "attempt to modify a readonly table".
+export const FAULT_READONLY: uint64 = 10ULL
 
 const LEDGER: uint64 = 256ULL
 const RECORDS: uint64 = 256ULL
@@ -611,8 +615,10 @@ end
 
 -- Lua's t[k] = v: a key the table holds, or one its metatable has no
 -- __newindex for, is stored in place; otherwise in the table __newindex
--- names. Answers coretables.set's status, or META_PENDING when a __newindex
--- function is noted (`takeMeta`) for the handler to call.
+-- names. Answers coretables.set's status, META_PENDING when a __newindex
+-- function is noted (`takeMeta`) for the handler to call, or READONLY when
+-- the table the value would be stored in is frozen. As Luau's, a frozen
+-- table's __newindex is still followed for a key it lacks.
 export function tableSet(ctx: voidptr, table: uint64, key: uint64, value: uint64): uint64
     @unsafe do
         local h = native.pointer(guestHeap(ctx)) as heap.Heap*
@@ -623,6 +629,9 @@ export function tableSet(ctx: voidptr, table: uint64, key: uint64, value: uint64
         if tables.meta(t) ~= values.NIL and strings.header(key) ~= 0ULL then
             local slot = recordSlot(ctx, t, key)
             if slot ~= values.NIL then
+                if tables.frozen(t) then
+                    return READONLY
+                end
                 local stored = tables.set(h, t, slot, value)
                 tables.drain(h)
                 return stored
@@ -643,6 +652,9 @@ export function tableSet(ctx: voidptr, table: uint64, key: uint64, value: uint64
             if depth >= 2000ULL then
                 error("'__newindex' chain too long; possible loop")
             end
+        end
+        if tables.frozen(t) then
+            return READONLY
         end
         local status = tables.set(h, t, key, value)
         tables.drain(h)
@@ -676,6 +688,19 @@ export const ACCESS_LENGTH: uint64 = 3ULL
 
 local function scopeof(ctx: voidptr): voidptr
     return native.loadPointer(ctx, context.SERVICE_SCOPE)
+end
+
+-- Raises Luau's "attempt to modify a readonly table" from a library call
+-- that would write to a frozen table (runtime Decision 16). The recovery
+-- words the fault (`runtimeError`) and positions it at the library call,
+-- as raiseFault does; this one is called from before raiseFault.
+export function readonly(ctx: voidptr): nil
+    local services = scopeof(ctx)
+    native.store64(services, native.fieldOffset<Services>("fault"), FAULT_READONLY)
+    native.store64(services, native.fieldOffset<Services>("culprit"), values.NIL)
+    native.store64(services, native.fieldOffset<Services>("other"), values.NIL)
+    native.store64(services, native.fieldOffset<Services>("libraryRaised"), 1ULL)
+    error("library error")
 end
 
 local function keyof(depth: uint64, field: uint64): uint64
@@ -997,6 +1022,9 @@ local function replayed(ctx: voidptr, kind: uint64, t: uint64, key: uint64, valu
         if status == META_PENDING then
             return stop(ctx, kind, key, value)
         end
+        if status == READONLY then
+            readonly(ctx)
+        end
         if status == tables.NO_MEMORY then
             error("not enough memory")
         end
@@ -1045,6 +1073,9 @@ export function seti(ctx: voidptr, t: uint64, index: int64, value: uint64): nil
         takeMeta(ctx)
         error("a function __newindex outside a table library call")
     end
+    if status == READONLY then
+        readonly(ctx)
+    end
     if status == tables.NO_MEMORY then
         error("not enough memory")
     end
@@ -1064,7 +1095,8 @@ export function leni(ctx: voidptr, t: uint64): uint64
 end
 
 -- setmetatable(t, mt): answers t; a metatable with __metatable set is
--- protected.
+-- protected. A frozen t cannot take another, and mt freezes as it is
+-- attached (runtime Decision 16), so its metamethods stay what they were.
 export function setMetatable(ctx: voidptr, value: uint64, mt: uint64): uint64
     local t = tableOf(value)
     if t == 0ULL then
@@ -1076,8 +1108,15 @@ export function setMetatable(ctx: voidptr, value: uint64, mt: uint64): uint64
     if metaField(ctx, t, META_METATABLE) ~= values.NIL then
         error("cannot change a protected metatable")
     end
+    if tables.frozen(t) then
+        readonly(ctx)
+    end
     @unsafe do
-        tables.setMeta(native.pointer(guestHeap(ctx)) as heap.Heap*, t, mt)
+        local h = native.pointer(guestHeap(ctx)) as heap.Heap*
+        tables.setMeta(h, t, mt)
+        if mt ~= values.NIL then
+            tables.freeze(h, mt & values.PAYLOAD)
+        end
     end
 
     return value
@@ -1103,6 +1142,9 @@ export function rawSet(ctx: voidptr, value: uint64, key: uint64, item: uint64): 
     local t = tableOf(value)
     if t == 0ULL then
         error("bad argument #1 to 'rawset' (table expected)")
+    end
+    if tables.frozen(t) then
+        readonly(ctx)
     end
     @unsafe do
         local h = native.pointer(guestHeap(ctx)) as heap.Heap*
@@ -1380,6 +1422,7 @@ const PHRASE_KEYNAN: uint64 = 19ULL
 const PHRASE_THREAD: uint64 = 20ULL
 const PHRASE_BITWISE: uint64 = 21ULL
 const PHRASE_NOINT: uint64 = 22ULL
+const PHRASE_READONLY: uint64 = 23ULL
 
 -- Appends phrase `id`; answers 1 when backing is refused.
 local function appendPhrase(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
@@ -1449,6 +1492,13 @@ local function appendPhrase(h: heap.Heap*, b: strings.Builder*, id: uint64): uin
             | strings.appendWord(h, b, 0x6572207265676574ULL, 8ULL)
             | strings.appendWord(h, b, 0x61746e6573657270ULL, 8ULL)
             | strings.appendWord(h, b, 0x6e6f6974ULL, 4ULL)
+    elseif id == PHRASE_READONLY then
+        -- "attempt to modify a readonly table"
+        return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6669646f6d206f74ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6461657220612079ULL, 8ULL)
+            | strings.appendWord(h, b, 0x62617420796c6e6fULL, 8ULL)
+            | strings.appendWord(h, b, 0x656cULL, 2ULL)
     elseif id == PHRASE_THREAD then
         return strings.appendWord(h, b, 0x646165726874ULL, 6ULL)
     elseif id == PHRASE_KEYNIL then
@@ -1578,6 +1628,8 @@ local function runtimeError(ctx: voidptr): uint64
                 | appendPhrase(h, builder, PHRASE_VALUE)
         elseif kind == FAULT_NOINT then
             refused = appendPhrase(h, builder, PHRASE_NOINT)
+        elseif kind == FAULT_READONLY then
+            refused = appendPhrase(h, builder, PHRASE_READONLY)
         elseif kind == FAULT_MODZERO then
             refused = appendPhrase(h, builder, PHRASE_MODZERO)
         elseif kind == FAULT_COMPARE then

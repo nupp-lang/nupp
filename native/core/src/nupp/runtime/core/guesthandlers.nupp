@@ -1364,6 +1364,11 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         access.refresh(s, current, ctx)
         return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
     end
+    if status == guestscope.READONLY then
+        guestscope.fault(ctx, guestscope.FAULT_READONLY, values.NIL, values.NIL)
+        ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+        return native.fail()
+    end
     if status == tables.BAD_KEY then
         guestscope.fault(ctx, guestscope.FAULT_KEY, slots.readValue(frame, regs, key), values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)

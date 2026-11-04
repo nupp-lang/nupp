@@ -866,7 +866,28 @@ const table: {
     --- @typearg T the table type
     --- @param t the table to copy
     --- @return a new table holding the same keys, values and metatable
-    @readonly clone: @nosuspend function<T is table>(t: T): T
+    @readonly clone: @nosuspend function<T is table>(t: T): T,
+
+    -- From Luau
+
+    --- Freezes `t` for good: writing to it afterwards, by assignment, `rawset`,
+    --- `setmetatable` or the table library, raises "attempt to modify a readonly
+    --- table". The freeze is shallow, so the tables `t` holds stay writable.
+    --- `setmetatable` freezes a metatable this way as it attaches it. Freezing a
+    --- frozen table answers it unchanged.
+    ---
+    --- @typearg T the table type
+    --- @param t the table to freeze
+    --- @return `t`, frozen
+    --- @raises string when `t`'s metatable has a `__metatable` field
+    @readonly freeze: @nosuspend function<T is table>(t: T): T,
+
+    --- Returns whether `t` is frozen, by `table.freeze` or by being attached as a
+    --- metatable.
+    ---
+    --- @param t the table to ask about
+    --- @return true when writing to `t` raises
+    @readonly isfrozen: @nosuspend function(t: table): boolean
 }
 
 ----------------------------------------------------------------------------

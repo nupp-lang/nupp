@@ -123,6 +123,9 @@ export const TEXT_NUMBER_EXPECTED: uint64 = 109ULL
 export const TEXT_STORAGE: uint64 = 110ULL
 export const TEXT_BASE_RANGE: uint64 = 111ULL
 export const TEXT_FOR_LIMIT: uint64 = 112ULL
+export const TEXT_PROTECTED_TABLE: uint64 = 113ULL
+export const NAME_FREEZE: uint64 = 114ULL
+export const NAME_ISFROZEN: uint64 = 115ULL
 
 export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
     if id == TEXT_BAD then
@@ -518,6 +521,18 @@ export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64
             | strings.appendWord(h, b, 0x7369206874676e65ULL, 8ULL)
             | strings.appendWord(h, b, 0x206e6120746f6e20ULL, 8ULL)
             | strings.appendWord(h, b, 0x72656765746e69ULL, 7ULL)
+    elseif id == TEXT_PROTECTED_TABLE then
+        -- "table has a protected metatable"
+        return strings.appendWord(h, b, 0x616820656c626174ULL, 8ULL)
+            | strings.appendWord(h, b, 0x746f727020612073ULL, 8ULL)
+            | strings.appendWord(h, b, 0x656d206465746365ULL, 8ULL)
+            | strings.appendWord(h, b, 0x656c6261746174ULL, 7ULL)
+    elseif id == NAME_FREEZE then
+        -- "freeze"
+        return strings.appendWord(h, b, 0x657a65657266ULL, 6ULL)
+    elseif id == NAME_ISFROZEN then
+        -- "isfrozen"
+        return strings.appendWord(h, b, 0x6e657a6f72667369ULL, 8ULL)
     elseif id == NAME_REQUIRE then
         -- "require"
         return strings.appendWord(h, b, 0x65726975716572ULL, 7ULL)

@@ -257,6 +257,25 @@ export function setMeta(h: heap.Heap*, table: uint64, value: uint64): nil
     end
 end
 
+-- Whether the table is frozen: by table.freeze, or attached as a metatable
+-- (runtime Decision 16). Nothing writes to it again.
+export function frozen(table: uint64): boolean
+    @unsafe do
+        return ((native.pointer(table) as heap.Header*).flags as uint64) & heap.F_FROZEN ~= 0ULL
+    end
+end
+
+-- Freezes the table, shallowly and for good. It is old from now on, and
+-- no store into it is recorded (collector.freeze); freezing it again
+-- changes nothing.
+export function freeze(h: heap.Heap*, table: uint64): nil
+    if not frozen(table) then
+        @unsafe do
+            collector.freeze(h, native.pointer(table) as heap.Header*)
+        end
+    end
+end
+
 -- A border: the array part's length, which the hash part never extends.
 export function length(table: uint64): uint64
     @unsafe do

@@ -148,7 +148,8 @@ local CASES = {
     {"storagebasics", 0x7FFF000000001FFF},
     {"storageprovider", 0x7FFF00000000003F},
     {"modulesqualified", 0x7FFF0000000000E6},
-    {"callsoverflow", 0x7FFF000000000003}
+    {"callsoverflow", 0x7FFF000000000003},
+    {"tablesfrozen", 0x7FFF000000000FFF}
 }
 -- What the cases that print write to the host's output, as Lua 5.5 writes it
 -- but for floats, which print the shorter exact text (Decision 13).
@@ -191,7 +192,8 @@ local STRESS = {
     coreoperators = true,
     methodcleanups = true,
     ownerreinit = true,
-    coreforms = true
+    coreforms = true,
+    tablesfrozen = true
 }
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
@@ -505,7 +507,8 @@ local function stage()
             "catalog-owner-reinit",
             "catalog-core-forms",
             "catalog-storage-basics",
-            "catalog-storage-provider"
+            "catalog-storage-provider",
+            "catalog-tables-frozen"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",

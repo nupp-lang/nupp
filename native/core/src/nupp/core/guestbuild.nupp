@@ -139,7 +139,8 @@ local CASES: {[string]: {
         version = 8,
         modules = {"catalog-modules-ping", "catalog-modules-pong"},
     },
-    callsoverflow = {fixture = "catalog-calls-overflow", version = 8}
+    callsoverflow = {fixture = "catalog-calls-overflow", version = 8},
+    tablesfrozen = {fixture = "catalog-tables-frozen", version = 8}
 }
 
 -- The handlers a profile version dispatches, in table order.
