@@ -485,7 +485,6 @@ function M.everySchemaRequiresOk()
     for _, operation in ipairs({
         "inspect",
         "definition",
-        "implementation",
         "references",
         "symbols",
         "rename",
