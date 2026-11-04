@@ -53,7 +53,8 @@ local osNames = {
     parseNumber = true,
     writeOutput = true,
     mathFunction = true,
-    randomSeed = true
+    randomSeed = true,
+    readInput = true
 }
 
 local function need(ok: any, message: string): any

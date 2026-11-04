@@ -115,6 +115,7 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
         platform::write_output as *const () as u64,
         platform::math_function as *const () as u64,
         platform::random_seed as *const () as u64,
+        platform::read_input as *const () as u64,
     ];
     let packet = [
         1,

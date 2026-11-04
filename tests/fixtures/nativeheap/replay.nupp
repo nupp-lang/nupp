@@ -116,7 +116,7 @@ local function writeCount(r: Replay*, label: uint64, labelBytes: uint64, count: 
             scale = scale // 10
         end
         native.store32(out, native.index(at), 10)
-        os.writeOutput(out, at + 1)
+        local _ = os.writeOutput(out, at + 1)
     end
 end
 
@@ -448,7 +448,9 @@ local function compareAndSweep(r: Replay*): nil
         local h = r.h
         collector.register(h, r.roots.base, r.roots.count)
         collector.markAll(h)
-        collector.unregister(h)
+        -- `unregister`, which takes the heap the replay holds.
+        heap.wordsPop(h.ranges)
+        heap.wordsPop(h.ranges)
         local count = number(r)
         local dead = r.objects
         local i: uint64 = 0
@@ -550,6 +552,22 @@ local function snapshot(r: Replay*): nil
     end
 end
 
+-- The heap the replay allocates in. Set apart from replayTrace, whose own
+-- read of `r.h` would otherwise carry the borrow `heap.create` answers.
+local function attachHeap(r: Replay*, borrows h: heap.Heap*): nil
+    @unsafe do
+        r.h = h
+    end
+end
+
+-- The object and root lists, set apart for the same reason.
+local function attachLists(r: Replay*, borrows objects: heap.Words*, borrows roots: heap.Words*): nil
+    @unsafe do
+        r.objects = objects
+        r.roots = roots
+    end
+end
+
 local function buffersArena(r: Replay*, borrows a: arena.Arena*): nil
     @unsafe do
         r.buffersArena = a
@@ -570,7 +588,7 @@ local function replayTrace(): int64
                     return -1
                 end
                 local r = raw as Replay*
-                r.h = heap.create(a)
+                attachHeap(r, heap.create(a))
                 r.h.automatic = false
                 r.input = native.address(input)
                 r.buffers = native.address(lists)
@@ -580,8 +598,7 @@ local function replayTrace(): int64
                 if objectsRaw == nil or rootsRaw == nil then
                     return -1
                 end
-                r.objects = objectsRaw as heap.Words*
-                r.roots = rootsRaw as heap.Words*
+                attachLists(r, objectsRaw as heap.Words*, rootsRaw as heap.Words*)
                 -- The magic, `NHT1`.
                 local magic = nextByte(r) | (nextByte(r) << 8) | (nextByte(r) << 16) | (nextByte(r) << 24)
                 if magic ~= 0x3154484e then

@@ -304,6 +304,23 @@ pub unsafe extern "C" fn write_output(base: u64, bytes: u64) -> u64 {
     }
 }
 
+/// Reads up to `bytes` bytes of standard input into `base`: the count read,
+/// zero at its end, or all ones when reading fails.
+pub unsafe extern "C" fn read_input(base: u64, bytes: u64) -> u64 {
+    use std::io::Read;
+    if base == 0 && bytes != 0 {
+        return u64::MAX;
+    }
+    if bytes == 0 {
+        return 0;
+    }
+    let buffer = unsafe { std::slice::from_raw_parts_mut(base as *mut u8, bytes as usize) };
+    match std::io::stdin().lock().read(buffer) {
+        Ok(count) => count as u64,
+        Err(_) => u64::MAX,
+    }
+}
+
 unsafe extern "C" {
     fn pow(x: f64, y: f64) -> f64;
     fn exp(x: f64) -> f64;

@@ -425,6 +425,71 @@ UNITS[#UNITS + 1] = {
     end
 }
 
+-- The workloads whose heap traces the replay checks, recorded once from the
+-- Rust heap by the VM that runs them, as tests/nativeheaptest.lua records them.
+local WORKLOADS = {"fib", "loops", "tables", "strings", "records", "closures"}
+
+local function vmPackage()
+    local generation = read(ROOT .. "/.nupp/vm-cli/current"):gsub("%s+$", "")
+    local package = ROOT .. "/.nupp/vm-cli/" .. generation
+
+    return package .. "/runtime", package .. "/compiler.image"
+end
+
+-- The trace of workload `name`, recorded the first time it is asked for.
+function workloadTrace(name)
+    local traces = BUILD .. "/traces"
+    local trace = traces .. "/" .. name .. ".trace"
+    if read(trace) then
+        return trace
+    end
+    local project = BUILD .. "/workloads"
+    os.execute("mkdir -p " .. quote(project .. "/src/wl") .. " " .. quote(traces))
+    write(project .. "/nupp.lua", 'return {name = "wl", include = {"src"}}\n')
+    for _, workload in ipairs(WORKLOADS) do
+        write(project .. "/src/wl/" .. workload .. ".nupp", assert(read(FIXTURES .. "/workloads/" .. workload .. ".nupp")))
+    end
+    local runtime, compiler = vmPackage()
+    local image = project .. "/" .. name .. ".image"
+    local status, output = shell(
+        ("%s run %s nupp.tools.vm.project emit %s wl.%s '' --output %s"):format(
+            quote(runtime), quote(compiler), quote(project), name, quote(image)
+        )
+    )
+    assert(status == 0, "emitting " .. name .. ": " .. output)
+    local recorded = BUILD .. "/trace-" .. name
+    os.execute("rm -rf " .. quote(recorded) .. " && mkdir -p " .. quote(recorded))
+    status, output = shell(
+        ("NO_AOT=1 NUPP_HEAP_TRACE=%s %s run %s wl.%s main"):format(quote(recorded), quote(runtime), quote(image), name)
+    )
+    assert(status == 0, "running " .. name .. ": " .. output)
+    local _, listing = shell("ls " .. quote(recorded))
+    local file = assert(listing:match("([^\n]+)"), "no trace recorded for " .. name)
+    os.execute("mv " .. quote(recorded .. "/" .. file) .. " " .. quote(trace))
+
+    return trace
+end
+
+-- The differential replay (tests/nativeheaptest.lua's): a trace recorded from
+-- the Rust heap, on standard input, replayed into the core's collector. A case
+-- names its trace as a fourth field; the answer is the disagreements, zero.
+UNITS[#UNITS + 1] = {
+    name = "replay",
+    modules = {"replay", "unitentry"},
+    paths = {replay = FIXTURES .. "/replay.nupp"},
+    include = "tests/fixtures/nativeheap",
+    entries = {{"replay", "replayTrace", 0}},
+    cases = function()
+        -- No input is the magic word missing.
+        local cases = {{"replayTrace", {}, -2, "/dev/null"}}
+        for _, name in ipairs(WORKLOADS) do
+            cases[#cases + 1] = {"replayTrace", {}, 0, workloadTrace(name)}
+        end
+
+        return cases
+    end
+}
+
 local only = {}
 for index = 2, #arg do
     only[arg[index]] = true
@@ -501,7 +566,10 @@ for _, unit in ipairs(UNITS) do
             end
             write(input, words(values))
             os.remove(output)
-            local status, text = shell(("%s %s %s %s"):format(quote(tool), quote(bundle), quote(input), quote(output)))
+            local stdin = case[4] and " < " .. quote(case[4]) or ""
+            local status, text = shell(
+                ("%s %s %s %s%s"):format(quote(tool), quote(bundle), quote(input), quote(output), stdin)
+            )
             local bytes = read(output)
             local label = ("%s %s %s(%s)"):format(unit.name, mode, case[1], table.concat(case[2], ", "))
             if status ~= 0 or not bytes or #bytes ~= 16 then
