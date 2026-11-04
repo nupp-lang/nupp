@@ -54,13 +54,13 @@
     --pg-muted: #ad9277;
     --pg-faint: color-mix(in srgb, var(--pg-muted) 45%, transparent);
     --pg-error: #ff7b72;
-    --pg-warning: #f9cd5f;
+    --pg-warning: #c7913d;
     --pg-info: #d64a3b;
     --pg-syntax-keyword: #fa745c;
-    --pg-syntax-boolean: #f9cd5f;
+    --pg-syntax-boolean: #c7913d;
     --pg-syntax-string: #9eb798;
     --pg-syntax-comment: #747673;
-    --pg-syntax-number: #f9cd5f;
+    --pg-syntax-number: #c7913d;
     --pg-syntax-function: #93aab7;
     --pg-syntax-meta: #718e90;
     --pg-syntax-type: #718e90;

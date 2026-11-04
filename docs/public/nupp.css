@@ -537,12 +537,12 @@
   :root {
     --nuppdoc-feature-heading: var(--nuppdoc-dark-text);
     --nuppdoc-playground-border: #38312d;
-    --nuppdoc-syntax-boolean: #f9cd5f;
+    --nuppdoc-syntax-boolean: var(--nupp-woodblock-ember);
     --nuppdoc-syntax-comment: #747673;
     --nuppdoc-syntax-function: #93aab7;
     --nuppdoc-syntax-keyword: #fa745c;
     --nuppdoc-syntax-meta: #718e90;
-    --nuppdoc-syntax-number: #f9cd5f;
+    --nuppdoc-syntax-number: var(--nupp-woodblock-ember);
     --nuppdoc-syntax-operator: #718e90;
     --nuppdoc-syntax-property: var(--nuppdoc-syntax-variable);
     --nuppdoc-syntax-punctuation: #84a2aa;
@@ -559,12 +559,12 @@
 :root[data-theme="dark"] {
   --nuppdoc-feature-heading: var(--nuppdoc-dark-text);
   --nuppdoc-playground-border: #38312d;
-  --nuppdoc-syntax-boolean: #f9cd5f;
+  --nuppdoc-syntax-boolean: var(--nupp-woodblock-ember);
   --nuppdoc-syntax-comment: #747673;
   --nuppdoc-syntax-function: #93aab7;
   --nuppdoc-syntax-keyword: #fa745c;
   --nuppdoc-syntax-meta: #718e90;
-  --nuppdoc-syntax-number: #f9cd5f;
+  --nuppdoc-syntax-number: var(--nupp-woodblock-ember);
   --nuppdoc-syntax-operator: #718e90;
   --nuppdoc-syntax-property: var(--nuppdoc-syntax-variable);
   --nuppdoc-syntax-punctuation: #84a2aa;

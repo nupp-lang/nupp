@@ -115,7 +115,7 @@ test("standalone playground uses the current documentation palette", () => {
   const docApp = readFileSync(new URL("../src/doc-app.js", import.meta.url), "utf8");
   for (const current of [
     "#fcfbfb", "#e6eaec", "#2e2f2a", "#9a1600", "#836620",
-    "#1c1917", "#1f1c1b", "#d4c2b6", "#fa745c", "#f9cd5f",
+    "#1c1917", "#1f1c1b", "#d4c2b6", "#fa745c", "#c7913d",
   ]) {
     assert.match(style, new RegExp(current));
   }
