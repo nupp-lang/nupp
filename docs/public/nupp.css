@@ -25,7 +25,8 @@
   --nuppdoc-light-accent-soft: #f1e1df;
   --nuppdoc-light-background: #fcfbfb;
   --nuppdoc-light-background-alt: #f0ebe7;
-  --nuppdoc-light-border: color-mix(in srgb, #50676c 70%, white);
+  --nuppdoc-light-border: #ccc;
+  --nuppdoc-light-api-border: var(--nuppdoc-light-border);
   --nuppdoc-light-code-background: #e6eaec;
   --nuppdoc-light-text: #2e2f2a;
   --nuppdoc-light-muted: #594a4f;
@@ -46,7 +47,7 @@
   --nuppdoc-accent-contrast: #ffffff;
   --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
   --nuppdoc-nav-heading: var(--nuppdoc-text-muted);
-  --nuppdoc-playground-border: color-mix(in srgb, #50676c 70%, white);
+  --nuppdoc-playground-border: var(--nuppdoc-light-border);
   /* Drop the sidebar onto the same paper the content sits on, rather than
    * the base theme's separate panel tone, so the left nav reads as part of
    * the page instead of a distinct surface. */
@@ -341,6 +342,16 @@
   color: var(--nuppdoc-feature-heading);
 }
 
+@media (prefers-color-scheme: light) {
+  :root:not([data-theme="dark"]) .nuppdoc-content :is(h1, h2, h3, h4, h5, h6, h7, h8) {
+    color: #000;
+  }
+}
+
+:root[data-theme="light"] .nuppdoc-content :is(h1, h2, h3, h4, h5, h6, h7, h8) {
+  color: #000;
+}
+
 .nuppdoc-content h2 {
   --heading-rule-color: var(--nuppdoc-border);
   border-top-color: var(--heading-rule-color);
@@ -580,7 +591,7 @@
 
 :root[data-theme="light"] {
   --nuppdoc-feature-heading: var(--nupp-woodblock-cinnabar-deep);
-  --nuppdoc-playground-border: color-mix(in srgb, #50676c 70%, white);
+  --nuppdoc-playground-border: var(--nuppdoc-light-border);
   --nuppdoc-syntax-boolean: #836620;
   --nuppdoc-syntax-comment: #474c44;
   --nuppdoc-syntax-function: #376076;
