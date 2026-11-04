@@ -354,7 +354,10 @@ function unit.session(projectRoot: string, requested: any, target: string, inclu
         for _, diagnostic in ipairs(result.diags or {}) do
             need(diagnostic.severity ~= "error", tostring(diagnostic.code) .. ": " .. tostring(diagnostic.msg))
         end
-        need(result.result and result.exports and not result.syntax and not result.missing, "checked module required: " .. path)
+        need(
+            result.result and result.exports and not result.syntax and not result.missing,
+            "checked module required: " .. path
+        )
         need(project.fileText(path) == state.sources[path], "checked source revision differs")
         state.checked[path] = result
         for _, name in ipairs(project.moduleDependencies(path)) do
