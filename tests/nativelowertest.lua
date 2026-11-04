@@ -484,6 +484,24 @@ function M.arenasOverMappedPagesOpenForAnExtentAndClose()
     check(compileFixture("arenas", {"arena"}), ARENAS)
 end
 
+-- Releases counted, in the hundred thousands, over the digits of the owners
+-- in the order they were released.
+local OWNERS = {
+    {"fallThrough", {}, 200021},
+    {"returning", {"true"}, 7200021},
+    {"returning", {"false"}, 8300231},
+    {"breaking", {2}, 300211},
+    {"breaking", {9}, 2122212121},
+    {"moving", {"true"}, 200013},
+    {"moving", {"false"}, 100001},
+    {"repeating", {3}, 300444},
+    {"repeating", {1}, 100004},
+}
+
+function M.affineLocalsAreReleasedAtEveryWayOutOfTheirScope()
+    check(compileFixture("owners", {"arena"}), OWNERS)
+end
+
 -- An arena's lifetime is the checker's: a borrow of it cannot leave the
 -- owning local's lexical scope, and resetting it needs the sole live view.
 local ARENA_PREFIX = 'module escapes\nconst arena = require("nupp.runtime.vm.arena")\n'

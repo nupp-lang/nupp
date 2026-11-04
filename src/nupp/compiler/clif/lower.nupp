@@ -1445,7 +1445,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
         error("lower: unsupported scalar intrinsic " .. identity, 0)
     end
 
-    expression = function(n: any): any
+    local function expressionBody(n: any): any
         if n.kind == "paren" then
             return expression(n.expr)
         elseif n.kind == "number" then
@@ -1683,6 +1683,128 @@ local function compileDirectFunction(fn: Fn, options: any): string
         error("lower: unsupported expression " .. tostring(n.kind), 0)
     end
 
+    -- The affine owners in scope, innermost last: a local's variable or a
+    -- statement temporary's, the cleanup chain the checker recorded for it
+    -- and, when the checker saw it moved, a flag saying it still holds its
+    -- value. Every way out of a scope releases what was opened inside it,
+    -- newest first, each chain in the order it was declared.
+    local owners = {}
+    local ownerEntries = {}
+
+    local function own(owner: any, variable: any, kind: string, temporary: boolean): any
+        need(not owner.optional and not owner.conditional, "an optional or conditional owner is not lowered")
+        need(owner.lowerable ~= false, "an owner bound with other names from one call is not lowered")
+        need(#(owner.cleanups or {}) > 0, "an owner has a cleanup")
+        for _, item in ipairs(owner.cleanups) do
+            need(item.kind == "function", "an owner's cleanup is a module function")
+        end
+        local entry: any = {owner = owner, variable = variable, kind = kind, cleanups = owner.cleanups}
+        if temporary or owner.moved then
+            entry.live = {}
+            b.declare(entry.live, "i8")
+            writeVariable(entry.live, b.here(), constant("i8", temporary and "0" or "1"))
+        end
+        owners[#owners + 1] = entry
+        ownerEntries[owner] = entry
+
+        return entry
+    end
+
+    -- The function a cleanup names: a function of the module the affine type
+    -- was declared in, or, when the key names no module of the set, the one
+    -- function of that name any module exports.
+    local function cleanupFunction(item: any): Fn
+        local origin = item.key and item.key:match("^(.-)#") or nil
+        local home = origin and modules[origin] or nil
+        local found = home and (home.functions[item.name] or home.exports[item.name]) or nil
+        if not found then
+            found = scope.functions[item.name]
+        end
+        if not found then
+            for _, other in pairs(modules) do
+                local export = other.exports[item.name]
+                need(not (found and export), "cleanup " .. tostring(item.name) .. " is exported by two modules")
+                found = found or export
+            end
+        end
+
+        return need(found, "cleanup " .. tostring(item.name) .. " is not a function of the set") as Fn
+    end
+
+    -- Runs one owner's cleanup chain where control is, skipped when the owner
+    -- was moved out on the way here.
+    local function release(entry: any): nil
+        local after: ssa.Block? = nil
+        if entry.live ~= nil then
+            local run = newBlock()
+            after = newBlock()
+            b.branch(readVariable(entry.live, b.here()), run, after as ssa.Block)
+            seal(run)
+            b.current = run
+        end
+        for _, item in ipairs(entry.cleanups) do
+            local fn = cleanupFunction(item)
+            need(#fn.paramKinds == 1, "a cleanup takes the value it releases")
+            local value = materialize(
+                {kind = entry.kind, value = readVariable(entry.variable, b.here())},
+                fn.paramKinds[1]
+            )
+            local text = "call " .. callee(fn).ref .. "(" .. value .. ")"
+            if fn.resultKind then
+                emit(text)
+            else
+                effect(text)
+            end
+        end
+        if after ~= nil then
+            b.jump(after as ssa.Block, {})
+            seal(after as ssa.Block)
+            b.current = after
+        end
+    end
+
+    -- Releases every owner opened above `depth`, newest first.
+    local function releaseAbove(depth: integer): nil
+        for index = #owners, depth + 1, -1 do
+            release(owners[index])
+        end
+    end
+
+    -- Forgets the owners opened above `depth` once their scope has closed.
+    local function forgetAbove(depth: integer): nil
+        for index = #owners, depth + 1, -1 do
+            ownerEntries[owners[index].owner] = nil
+            owners[index] = nil
+        end
+    end
+
+    expression = function(n: any): any
+        local e = expressionBody(n)
+        if not b.current or n.kind == "paren" or n.kind == "castExpr" then
+            return e
+        end
+        if n.statementOwner then
+            -- A temporary its statement releases once the statement is done.
+            local entry = need(ownerEntries[n.statementOwner], "an owned temporary outside its statement")
+            writeVariable(entry.variable, b.here(), materialize(e, entry.kind))
+            writeVariable(entry.live, b.here(), constant("i8", "1"))
+        end
+        if n.automaticOwnerReinit then
+            -- The assignment this value feeds fills the owner again.
+            need(not n.automaticOwnerReinit.field, "reinitializing an owned field is not lowered")
+            local entry = need(ownerEntries[n.automaticOwnerReinit.owner], "a reinitialized owner is in scope")
+            writeVariable(need(entry.live, "a reinitialized owner has a live flag"), b.here(), constant("i8", "1"))
+        end
+        if n.automaticOwnerMove then
+            local move = n.automaticOwnerMove
+            need(not move.field and not move.owner, "moving an owned field is not lowered")
+            local entry = need(ownerEntries[move], "a moved owner is in scope")
+            writeVariable(need(entry.live, "a moved owner has a live flag"), b.here(), constant("i8", "0"))
+        end
+
+        return e
+    end
+
     -- A support function, declared once per caller.
     local supports = {}
 
@@ -1758,13 +1880,66 @@ local function compileDirectFunction(fn: Fn, options: any): string
         inlining[target] = nil
     end
 
-    block = function(stats: any): nil
+    -- A statement with the owned temporaries it loans: each held from where
+    -- it is made to the statement's end, released there unless a way out of
+    -- the statement already did.
+    local function statement(stat: any): nil
+        local temporaries = stat.statementCleanupOwners
+        if not temporaries then
+            statements(stat)
+            return
+        end
+        need(
+            stat.kind ~= "whileStmt" and stat.kind ~= "repeatStmt" and stat.kind ~= "fornumStmt",
+            "an owned temporary in a loop header is not lowered"
+        )
+        local depth = #owners
+        for _, owner in ipairs(temporaries) do
+            local kind = tag(owner.node.inferredType)
+            need(machine(kind) == "i64", "an owned temporary is a word")
+            local variable = {}
+            b.declare(variable, "i64")
+            writeVariable(variable, b.here(), constant("i64", "0"))
+            own(owner, variable, kind, true)
+        end
+        local mine = {}
+        for index = depth + 1, #owners do
+            mine[owners[index]] = true
+        end
+        statements(stat)
+        for index = #owners, depth + 1, -1 do
+            local entry = owners[index]
+            if mine[entry] then
+                if b.current then
+                    release(entry)
+                end
+                ownerEntries[entry.owner] = nil
+                table.remove(owners, index)
+            end
+        end
+    end
+
+    -- Statements in a scope of their own, which releases the owners declared
+    -- in it wherever control leaves the end of it. `open` leaves them for the
+    -- caller to release, as a repeat's condition still sees them.
+    local function sequence(stats: any): integer
+        local depth = #owners
         for _, stat in ipairs(stats) do
             if stat.kind ~= "emptyStmt" then
                 need(b.current ~= nil, "unreachable statement")
-                statements(stat)
+                statement(stat)
             end
         end
+
+        return depth
+    end
+
+    block = function(stats: any): nil
+        local depth = sequence(stats)
+        if b.current then
+            releaseAbove(depth)
+        end
+        forgetAbove(depth)
     end
 
     local function assign(token: any, e: any): nil
@@ -1778,7 +1953,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
     end
 
     local function loopBody(bodyBlock: ssa.Block, exit: ssa.Block, continueTo: ssa.Block, stats: any): nil
-        loops[#loops + 1] = {exit = exit, continueTo = continueTo}
+        loops[#loops + 1] = {exit = exit, continueTo = continueTo, depth = #owners}
         b.current = bodyBlock
         seal(bodyBlock)
         block(stats)
@@ -1804,7 +1979,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
         if target.resultType ~= nil then
             value = addParam(join, target.resultType as string)
         end
-        scalarReturn = {join = join, kind = target.resultKind}
+        scalarReturn = {join = join, kind = target.resultKind, depth = #owners}
         scope = target.scope
         inlining[target] = true
         for index, param in ipairs(target.body.params) do
@@ -1836,6 +2011,11 @@ local function compileDirectFunction(fn: Fn, options: any): string
                 end
                 local variable = declare(token, declared, token.inferredType or e.type)
                 writeVariable(variable, b.here(), materialize(e, declared))
+                local owner = stat.automaticOwners and stat.automaticOwners[index]
+                if owner then
+                    need(owner.token == token and owner.expr == exprs[index], "an owner differs from its binding")
+                    own(owner, variable, declared, false)
+                end
             end
         elseif kind == "assignStmt" then
             local values = {}
@@ -1884,12 +2064,16 @@ local function compileDirectFunction(fn: Fn, options: any): string
                 else
                     need(#stat.exprs == 0, "statement helper returns no result")
                 end
-                b.jump(continuation.join, results)
+                if b.current then
+                    releaseAbove(continuation.depth)
+                    b.jump(continuation.join, results)
+                end
                 return
             end
             local value = stat.exprs[1]
             local transferName = handlers and #stat.exprs == 1 and isIntrinsicCall(value) and value.obj.name.text or nil
             local helper = handlers and #stat.exprs == 1 and resolveCallee(value, scope, modules) or nil
+            need(not (transferName or helper) or #owners == 0, "a tail transfer leaves no owner in scope")
             if transferName == "dispatch" or transferName == "reenter" or transferName == "fail" then
                 transfer(transferName, value.args.exprs or {})
             elseif helper and helper.isSupport then
@@ -1909,12 +2093,16 @@ local function compileDirectFunction(fn: Fn, options: any): string
                 need(b.current == nil, "helper " .. helper.name .. " may not fall through")
             elseif #stat.exprs == 0 then
                 need(resultKind == nil, "result required")
+                releaseAbove(0)
                 b.finish({})
             else
                 need(#stat.exprs == 1 and resultKind ~= nil, "one result")
                 -- The value is computed before what it may have read is released.
                 local value = materialize(expression(stat.exprs[1]), resultKind as string)
-                b.finish({value})
+                if b.current then
+                    releaseAbove(0)
+                    b.finish({value})
+                end
             end
         elseif kind == "doStmt" then
             block(stat.body.stats)
@@ -1959,13 +2147,25 @@ local function compileDirectFunction(fn: Fn, options: any): string
         elseif kind == "repeatStmt" then
             local bodyBlock, exit = newBlock(), newBlock()
             b.jump(bodyBlock, {})
-            loops[#loops + 1] = {exit = exit, continueTo = bodyBlock}
+            loops[#loops + 1] = {exit = exit, continueTo = bodyBlock, depth = #owners}
             b.current = bodyBlock
-            block(stat.body.stats)
+            -- The condition sees the body's locals, so they are released on
+            -- each edge out of it rather than before it.
+            local depth = sequence(stat.body.stats)
             loops[#loops] = nil
-            if b.current then
+            if b.current and #owners > depth then
+                local leave, again = newBlock(), newBlock()
+                branchOn(stat.cond, leave, again)
+                for _, edge in ipairs({{leave, exit}, {again, bodyBlock}}) do
+                    seal(edge[1])
+                    b.current = edge[1]
+                    releaseAbove(depth)
+                    b.jump(edge[2], {})
+                end
+            elseif b.current then
                 branchOn(stat.cond, exit, bodyBlock)
             end
+            forgetAbove(depth)
             seal(bodyBlock)
             b.current = exit
             seal(exit)
@@ -2003,7 +2203,7 @@ local function compileDirectFunction(fn: Fn, options: any): string
             b.current = bodyBlock
             seal(bodyBlock)
             writeVariable(iterator, bodyBlock, readVariable(counter, bodyBlock))
-            loops[#loops + 1] = {exit = exit, continueTo = advance}
+            loops[#loops + 1] = {exit = exit, continueTo = advance, depth = #owners}
             block(stat.body.stats)
             loops[#loops] = nil
             if b.current then
@@ -2023,13 +2223,15 @@ local function compileDirectFunction(fn: Fn, options: any): string
             -- `@unsafe` and its kin are the checker's business; the statement
             -- underneath lowers as itself.
             if stat.stat then
-                statements(stat.stat)
+                statement(stat.stat)
             end
         elseif kind == "breakStmt" then
             local loop = need(loops[#loops], "break outside a loop")
+            releaseAbove(loop.depth)
             b.jump(loop.exit, {})
         elseif kind == "continueStmt" then
             local loop = need(loops[#loops], "continue outside a loop")
+            releaseAbove(loop.depth)
             b.jump(loop.continueTo, {})
         else
             error("lower: unsupported statement " .. tostring(kind), 0)
