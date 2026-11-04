@@ -1199,8 +1199,11 @@ local os: {
     --- @return the time, in the system's own epoch-based encoding
     time: function(spec: table?): number,
 
-    --- Returns a file name usable for a temporary file. The file itself is neither
-    --- created nor removed for you.
+    --- Returns a filename for a temporary file.
+    ---
+    --- On POSIX systems, this also creates an empty file to reserve the name.
+    --- Open the file separately and remove it with `os.remove` when finished.
+    --- Use `io.tmpfile` when only a file handle is needed.
     ---
     --- @return the temporary file name
     tmpname: function(): string

@@ -38,12 +38,6 @@ export type Kind = messages.Kind
 --- A portable name for a conventional user directory.
 export type UserFolder = messages.UserFolder
 
---- A file open mode: read, write, append, or an updating variant.
-export type Mode = messages.Mode
-
---- The base used by a file seek.
-export type Origin = messages.Origin
-
 --- Metadata about one filesystem object.
 export type Info = messages.Info
 
