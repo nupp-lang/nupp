@@ -18,8 +18,12 @@ function cleanup.type(t: any): any
         "optional or conditional owner cleanup is unsupported"
     )
     need(#(t.cleanups or {}) > 0, "owner lacks an exact cleanup chain")
+    -- A method cleanup (`close`) is found through the owned value itself.
     for _, item in ipairs(t.cleanups) do
-        need(item.kind == "function" and item.functionType, "only checked free-function cleanup is supported")
+        need(
+            item.kind == "function" and item.functionType or item.kind == "method" and type(item.name) == "string",
+            "only checked free-function or method cleanup is supported"
+        )
     end
 
     return t

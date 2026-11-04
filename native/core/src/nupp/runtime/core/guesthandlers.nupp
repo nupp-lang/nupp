@@ -19,6 +19,8 @@ const threads = require("nupp.runtime.core.threads")
 const guestio = require("nupp.runtime.core.guestio")
 const basics = require("nupp.runtime.core.guestbasics")
 const widths = require("nupp.runtime.core.guestwidths")
+const numbers = require("nupp.runtime.core.guestnumbers")
+const bitops = require("nupp.runtime.core.guestbits")
 const corestorage = require("nupp.runtime.core.corestorage")
 const modules = require("nupp.runtime.core.modules")
 const texts = require("nupp.runtime.core.guesttexts")
@@ -1709,6 +1711,12 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, guestio.write(ctx, a))
     elseif libraryId >= widths.LIB_NARROW and libraryId <= widths.LIB_I32WRAP then
         slots.writeValue(frame, regs, dst, widths.call(ctx, libraryId, a))
+    elseif libraryId >= bitops.LIB_BAND and libraryId <= bitops.LIB_BNOT then
+        slots.writeValue(frame, regs, dst, bitops.bitcall(ctx, libraryId, a, b))
+    elseif libraryId == numbers.LIB_FOR_LIMIT then
+        slots.writeValue(frame, regs, dst, numbers.forlimit(ctx, a))
+    elseif libraryId == numbers.LIB_TONUMBER_BASE then
+        slots.writeValue(frame, regs, dst, numbers.tonumberbase(ctx, a, b))
     elseif libraryId == basics.LIB_ALLOCBYTES then
         slots.writeValue(frame, regs, dst, basics.allocate(ctx, values.TAG_INTEGER | corestorage.UINT8, a))
     elseif libraryId == basics.LIB_ALLOCATE then

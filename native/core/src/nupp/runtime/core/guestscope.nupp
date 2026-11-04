@@ -113,6 +113,8 @@ export const FAULT_LENGTH: uint64 = 4ULL
 export const FAULT_INDEX: uint64 = 5ULL
 export const FAULT_CALL: uint64 = 6ULL
 export const FAULT_KEY: uint64 = 7ULL
+export const FAULT_BITWISE: uint64 = 8ULL
+export const FAULT_NOINT: uint64 = 9ULL
 
 const LEDGER: uint64 = 256ULL
 const RECORDS: uint64 = 256ULL
@@ -1374,6 +1376,8 @@ const PHRASE_USERDATA: uint64 = 17ULL
 const PHRASE_KEYNIL: uint64 = 18ULL
 const PHRASE_KEYNAN: uint64 = 19ULL
 const PHRASE_THREAD: uint64 = 20ULL
+const PHRASE_BITWISE: uint64 = 21ULL
+const PHRASE_NOINT: uint64 = 22ULL
 
 -- Appends phrase `id`; answers 1 when backing is refused.
 local function appendPhrase(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
@@ -1428,6 +1432,21 @@ local function appendPhrase(h: heap.Heap*, b: strings.Builder*, id: uint64): uin
         return strings.appendWord(h, b, 0x6e6f6974636e7566ULL, 8ULL)
     elseif id == PHRASE_USERDATA then
         return strings.appendWord(h, b, 0x6174616472657375ULL, 8ULL)
+    elseif id == PHRASE_BITWISE then
+        -- "attempt to perform bitwise operation on a "
+        return strings.appendWord(h, b, 0x2074706d65747461ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6f66726570206f74ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6977746962206d72ULL, 8ULL)
+            | strings.appendWord(h, b, 0x617265706f206573ULL, 8ULL)
+            | strings.appendWord(h, b, 0x206e6f206e6f6974ULL, 8ULL)
+            | strings.appendWord(h, b, 0x2061ULL, 2ULL)
+    elseif id == PHRASE_NOINT then
+        -- "number has no integer representation"
+        return strings.appendWord(h, b, 0x68207265626d756eULL, 8ULL)
+            | strings.appendWord(h, b, 0x6e69206f6e207361ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6572207265676574ULL, 8ULL)
+            | strings.appendWord(h, b, 0x61746e6573657270ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6e6f6974ULL, 4ULL)
     elseif id == PHRASE_THREAD then
         return strings.appendWord(h, b, 0x646165726874ULL, 6ULL)
     elseif id == PHRASE_KEYNIL then
@@ -1547,6 +1566,16 @@ local function runtimeError(ctx: voidptr): uint64
             refused = appendPhrase(h, builder, PHRASE_ARITH)
                 | appendPhrase(h, builder, typePhrase(wrong))
                 | appendPhrase(h, builder, PHRASE_VALUE)
+        elseif kind == FAULT_BITWISE then
+            local wrong = culprit
+            if isNumber(culprit) then
+                wrong = other
+            end
+            refused = appendPhrase(h, builder, PHRASE_BITWISE)
+                | appendPhrase(h, builder, typePhrase(wrong))
+                | appendPhrase(h, builder, PHRASE_VALUE)
+        elseif kind == FAULT_NOINT then
+            refused = appendPhrase(h, builder, PHRASE_NOINT)
         elseif kind == FAULT_MODZERO then
             refused = appendPhrase(h, builder, PHRASE_MODZERO)
         elseif kind == FAULT_COMPARE then

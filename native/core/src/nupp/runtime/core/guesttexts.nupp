@@ -121,6 +121,8 @@ export const NAME_REQUIRE: uint64 = 107ULL
 export const TEXT_ASSERTION: uint64 = 108ULL
 export const TEXT_NUMBER_EXPECTED: uint64 = 109ULL
 export const TEXT_STORAGE: uint64 = 110ULL
+export const TEXT_BASE_RANGE: uint64 = 111ULL
+export const TEXT_FOR_LIMIT: uint64 = 112ULL
 
 export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
     if id == TEXT_BAD then
@@ -519,6 +521,18 @@ export function appendLibraryText(h: heap.Heap*, b: strings.Builder*, id: uint64
     elseif id == NAME_REQUIRE then
         -- "require"
         return strings.appendWord(h, b, 0x65726975716572ULL, 7ULL)
+    elseif id == TEXT_FOR_LIMIT then
+        -- "bad 'for' limit (number expected, got "
+        return strings.appendWord(h, b, 0x726f662720646162ULL, 8ULL)
+            | strings.appendWord(h, b, 0x2074696d696c2027ULL, 8ULL)
+            | strings.appendWord(h, b, 0x207265626d756e28ULL, 8ULL)
+            | strings.appendWord(h, b, 0x6465746365707865ULL, 8ULL)
+            | strings.appendWord(h, b, 0x20746f67202cULL, 6ULL)
+    elseif id == TEXT_BASE_RANGE then
+        -- "base out of range"
+        return strings.appendWord(h, b, 0x74756f2065736162ULL, 8ULL)
+            | strings.appendWord(h, b, 0x676e617220666f20ULL, 8ULL)
+            | strings.appendWord(h, b, 0x65ULL, 1ULL)
     elseif id == TEXT_STORAGE then
         -- "storage"
         return strings.appendWord(h, b, 0x656761726f7473ULL, 7ULL)
@@ -671,6 +685,19 @@ export function argumentError(ctx: voidptr, position: uint64, expected: uint64, 
             refused = refused | appendLibraryText(h, builder, detail)
         end
         raiseText(ctx, h, builder, refused | appendLibraryText(h, builder, TEXT_CLOSE))
+    end
+end
+
+-- Raises Lua 5.5's "bad 'for' limit (number expected, got <type>)".
+export function forLimitError(ctx: voidptr, value: uint64): nil
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestHeap(ctx)
+        local builder = state as strings.Builder*
+        local refused = appendLibraryText(h, builder, TEXT_FOR_LIMIT)
+            | strings.appendString(h, builder, strings.header(guestscope.typeName(ctx, value)))
+            | appendLibraryText(h, builder, TEXT_CLOSE)
+        raiseText(ctx, h, builder, refused)
     end
 end
 

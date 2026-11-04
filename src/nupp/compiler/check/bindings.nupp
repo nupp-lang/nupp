@@ -1532,10 +1532,15 @@ export function install(c: state.Checker): state.StatHandlers
                 token[key] = item
             end
             token.kind, token.text = op, op
-            local operation: any = {kind = "binop", op = token, lhs = assignTarget, rhs = value}
+            -- Its operands are its children too, so it has a source position.
+            local operation: any = {kind = "binop", op = token, lhs = assignTarget, rhs = value, assignTarget, value}
             resultT = c.infer(operation)
             local dynamic: any = stat
             dynamic.inferredType = resultT
+            -- The operation as checked, for a backend that lowers the
+            -- statement as the assignment of it.
+            operation.inferredType = operation.inferredType or resultT
+            dynamic.compoundOperation = operation
             dynamic.fixedArithmetic = operation.fixedArithmetic
             dynamic.wideArithmetic = operation.wideArithmetic
             c.fixedWidth.copy(stat, operation)

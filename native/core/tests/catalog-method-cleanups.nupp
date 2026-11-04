@@ -1,0 +1,72 @@
+module nupp.core.catalogmethodcleanups
+
+local own = require("own")
+
+local closed = 0
+
+local interface Closer is own.Affine<self.close>
+    close: function(takes self: Closer): nil
+end
+
+local record Sink is Closer
+    n: integer
+    function close(takes self): nil
+        local state = @unsafe own.release(self)
+        closed = closed + state.n
+    end
+end
+
+local function open(n: integer): Sink
+    return new Sink(n = n)
+end
+
+local record Left
+    kind: "left" = "left"
+    n: integer
+end
+
+local record Right
+    kind: "right" = "right"
+    n: integer
+end
+
+local function weight(v: Left | Right): integer
+    if v.kind == "left" then
+        return v.n
+    end
+    return v.n * 2
+end
+
+local function depth<T>(v: T, n: integer): integer
+    if n == 0 then
+        return 0
+    end
+    return 1 + (depth(v, n - 1) as integer)
+end
+
+local score = 0
+do
+    local a = open(1)
+    local b = open(10)
+    b:close()
+    if closed == 10 then
+        score = score + 1
+    end
+end
+if closed == 11 then
+    score = score + 2
+end
+local ok = pcall(function(): nil
+    local c = open(100)
+    error("boom")
+end)
+if not ok and closed == 111 then
+    score = score + 4
+end
+if weight(new Left(n = 3)) == 3 and weight(new Right(n = 3)) == 6 then
+    score = score + 8
+end
+if depth("x", 4) == 4 then
+    score = score + 16
+end
+export = score

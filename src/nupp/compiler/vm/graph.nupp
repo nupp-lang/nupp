@@ -1330,6 +1330,70 @@ local function checkingat(): string
 end
 
 local invokeScalar: function(any): nil
+
+-- The signature a call to `owner` is checked through. A generic function
+-- calling itself is typed `any` inside its own body; the call names that
+-- function by definition, so its declared signature is the call's.
+local function callsignatureof(owner: any, call: any): any
+    local called = call.calleeType or call.signatureType
+    if type(called) == "table" and called.tag == "any" and owner.signature and owner.signature.typeParams then
+        return owner.signature
+    end
+
+    return called
+end
+
+-- The reference types a value of which passes tagged, however instantiated.
+local referenceTags: {
+    [string]: boolean
+} = {
+    nominal = true,
+    typevar = true,
+    array = true,
+    map = true,
+    table = true,
+    shape = true,
+    func = true,
+    userdata = true,
+    intersection = true,
+    typeobject = true,
+    any = true,
+    unknown = true,
+}
+
+-- Whether a generic callee's declared parameter and the call's instantiated
+-- one pass the same way: a type parameter takes whatever it is instantiated
+-- to, and two reference types are both a tagged value.
+local sameValue: function(any, any): boolean
+sameValue = function(declared: any, instantiated: any): boolean
+    local function bare(t: any): any
+        while t and (t.tag == "affine" or t.tag == "borrowed" or t.tag == "pinned" or t.tag == "const") do
+            t = t.inner
+        end
+        return t
+    end
+
+    declared, instantiated = bare(declared), bare(instantiated)
+    if declared == nil or instantiated == nil then
+        return false
+    elseif declared == instantiated then
+        return true
+    end
+    -- A union passes as each of its members does, member for member.
+    if declared.tag == "union" and instantiated.tag == "union" then
+        if #declared.members ~= #instantiated.members then
+            return false
+        end
+        for index, member in ipairs(declared.members) do
+            if not sameValue(member, instantiated.members[index]) then
+                return false
+            end
+        end
+        return true
+    end
+
+    return declared.tag == "typevar" or referenceTags[declared.tag] == true and referenceTags[instantiated.tag] == true
+end
 invokeScalar = function(t: any): nil
     -- An owned value passes as the value it owns; its cleanup is the
     -- graph's, not the call's.
@@ -1377,7 +1441,12 @@ end
 -- `resultsIgnored`: a constructor's results, which its construction drops, may
 -- be open.
 local function invokeSignature(signature: any, resultsIgnored: boolean?): nil
-    assert(type(signature) == "table" and signature.tag == "func", "invoke requires a checked function signature")
+    assert(
+        type(signature) == "table" and signature.tag == "func",
+        "invoke requires a checked function signature, got " .. tostring(
+            type(signature) == "table" and signature.tag or signature
+        ) .. checkingat()
+    )
     -- What a coroutine body yields and resumes with (`yieldPack`,
     -- `resumePack`) is a static protocol; at run time the values pass as
     -- packs, which the core does not check against it.
@@ -1665,26 +1734,38 @@ local function invokeContract(contract: any): nil
                 call.kind == "call" and call.obj and call.obj.kind == "name" and call.obj.token.definition == definition
                 or method and call.name and call.name.definition == definition
             )
-            and (call.calleeType or call.signatureType) == contract.callSignature
+            and callsignatureof(owner, call) == contract.callSignature
         )
         and not call.cdefCall
         and not call.scalarIntrinsic
         and not call.ownershipIntrinsic
         and not call.affineClosureCall
-        and not call.automaticOwnerMoves
         and not call.runtimeLoader,
-        "invoke checked call identity differs"
+        "invoke checked call identity differs" .. checkingat()
     )
     invokeSignature(contract.signature, construct)
     invokeSignature(contract.callSignature)
     local signature, called = contract.signature, contract.callSignature
     -- A construction answers its instance whatever the constructor returns.
     assert(
-        #signature.params == #called.params and (construct or signature.rets[1] == called.rets[1]),
-        "invoke checked call signature differs"
+        #signature.params == #called.params
+        and (construct or signature.rets[1] == called.rets[1] or sameValue(signature.rets[1], called.rets[1])),
+        "invoke checked call signature differs: "
+        .. #signature.params
+        .. " and "
+        .. #called.params
+        .. " parameters, results "
+        .. tostring(
+            signature.rets[1] and signature.rets[1].tag
+        ) .. " and " .. tostring(called.rets[1] and called.rets[1].tag) .. checkingat()
     )
     for index, t in ipairs(signature.params) do
-        assert(t == called.params[index], "invoke checked parameter identity differs")
+        assert(
+            t == called.params[index] or sameValue(t, called.params[index]),
+            "invoke checked parameter identity differs: " .. tostring(
+                t and t.tag
+            ) .. " and " .. tostring(called.params[index] and called.params[index].tag) .. checkingat()
+        )
     end
     assert(call.args and call.args.kind == "args", "invoke requires explicit positional arguments")
     dense(call.args.exprs)
@@ -2321,7 +2402,7 @@ function graph.invokeContract(owner: any, call: any): any
         definition = owner.definition,
         signature = owner.signature,
         call = call,
-        callSignature = call.calleeType or call.signatureType,
+        callSignature = callsignatureof(owner, call),
         summary = owner.body.effectSummary,
         effects = {mayCollect = true, mayRaise = true, mayPark = false, pure = false}
     }

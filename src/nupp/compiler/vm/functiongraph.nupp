@@ -38,6 +38,9 @@ function frontend.compile(fn: any, options: any, profile: any): any
     -- Only explicit handles are read after a block change; SSA ids never remap
     -- behind a profile's back.
     local handles = {}
+    -- Held values a loop rebinds each iteration: never passed through as
+    -- the parameter they start as.
+    local varying: {[any]: boolean} = {}
     local inlining, loops = {}, {}
     -- The `do` expressions being lowered, innermost last: where a `yield`
     -- in one jumps with its value.
@@ -460,6 +463,41 @@ function frontend.compile(fn: any, options: any, profile: any): any
             context()
             return result as integer
         end
+        if node.kind == "ternary" then
+            -- `c ? a : b`: c's truth picks the one arm that runs, and
+            -- its value is the expression's.
+            local cleanupDepth = #cleanups
+            local condition = expression(
+                need(node.cond, "a conditional expression lacks its condition"),
+                profile.booleanKind
+            )
+            if not block then
+                return nil
+            end
+            local resultKind = expected or profile.kind(node.inferredType)
+            local done = branch(resultKind)
+            local parent = block
+            local yes, no = branch(), branch()
+            parent.term = {kind = "branch", value = condition, edges = {yes.edge, no.edge}, pos = position(node)}
+            for _, arm in ipairs({{yes, node.ifTrue}, {no, node.ifFalse}}) do
+                resume(arm[1])
+                local value = expression(need(arm[2], "a conditional expression lacks an arm"), resultKind)
+                need(
+                    not cleanupEnabled or #cleanups == cleanupDepth,
+                    "owning temporaries in a conditional expression require conditional cleanup"
+                )
+                if block then
+                    local edge = currentEdge(done)
+                    table.insert(edge.args, 1, need(value, "a conditional expression arm loses its value"))
+                    block.term = {kind = "jump", edges = {edge}, pos = position(node)}
+                    block = nil
+                end
+            end
+            resume(done)
+            context()
+
+            return done.result
+        end
         error("function graph: unsupported checked expression " .. tostring(node.kind), 0)
     end
     expression = function(node: any, expected: string?): integer?
@@ -504,7 +542,10 @@ function frontend.compile(fn: any, options: any, profile: any): any
             local value = bindings[key]
             order[#order + 1] = key
             if value <= g.nparams
-                and (handles[key] == true or key.token and key.token.definition == key and not key.reassigned)
+                and (
+                    handles[key] == true and not varying[key]
+                    or key.token and key.token.definition == key and not key.reassigned
+                )
             then
                 transported[key] = value
             else
@@ -537,8 +578,16 @@ function frontend.compile(fn: any, options: any, profile: any): any
     currentEdge = function(state: any): any
         local args = {}
         for _, key in ipairs(state.order) do
-            if state.bindings[key] <= g.nparams then
-                need(bindings[key] == state.bindings[key], "loop changes a function parameter binding")
+            -- A value held and released since (an operand inside the loop,
+            -- whose hold `resume` recorded in this state's own tables) is
+            -- carried by no edge.
+            if state.bindings[key] <= g.nparams and handles[key] ~= false then
+                need(
+                    bindings[key] == state.bindings[key],
+                    "loop changes a function parameter binding: " .. tostring(
+                        type(key) == "table" and (key.token and key.token.text or key.name) or key
+                    ) .. " at line " .. tostring(type(key) == "table" and key.token and key.token.line)
+                )
             end
         end
         for index, key in ipairs(state.keys) do
@@ -661,16 +710,30 @@ function frontend.compile(fn: any, options: any, profile: any): any
     -- evaluating every argument, immediately before the actual call. Nested
     -- calls have already updated their own independent live flags.
     ctx.beforeCall = function(node: any): nil
-        need(cleanupEnabled and block and node.kind == "call", "checked call transfer requires cleanup profile")
+        local method = node.kind == "methodCall"
+        need(
+            cleanupEnabled and block and (node.kind == "call" or method),
+            "checked call transfer requires cleanup profile"
+        )
         for _, move in ipairs(node.automaticOwnerMoves or {}) do
             transfer(node, move)
         end
-        local t = node.obj.inferredType
-        need(t and t.tag == "func" and t.paramPack, "checked closed call signature required")
+        -- A method's type leaves out its receiver, as its arguments do.
+        local t = method and (node.calleeType or node.signatureType) or node.obj.inferredType
+        -- A callee of a named function type is called through the function
+        -- type the checker resolved for the call.
+        if t and t.tag ~= "func" then
+            t = node.calleeType or node.signatureType or t
+        end
+        -- Which parameters take what they are given is the signature's to
+        -- say. A callable value (an interface's __call) has none here; that
+        -- matters only when an argument is an owning temporary.
+        local modes = t and t.tag == "func" and t.paramPack and (t.paramPack.modes or {}) or nil
         for index, argument in ipairs(node.args.exprs) do
-            if t.paramPack.modes and t.paramPack.modes[index] == "takes" then
-                local source = cleanup.source(argument)
-                if source and source.kind == "call" and cleanup.type(source.inferredType) then
+            local source = cleanup.source(argument)
+            if source and source.kind == "call" and cleanup.type(source.inferredType) then
+                need(modes ~= nil, "an owning argument to a call with no checked closed signature")
+                if modes[index] == "takes" then
                     transfer(source, source.statementOwner or source)
                 end
             end
@@ -1441,6 +1504,9 @@ function frontend.compile(fn: any, options: any, profile: any): any
                     for index = 2, #stat.names do
                         named[index] = ctx.hold(plan.none(ctx, stat))
                     end
+                    for _, handle in ipairs(named) do
+                        varying[handle] = true
+                    end
                     local before = block
                     local header = branch()
                     before.term = {kind = "jump", edges = {header.edge}, pos = position(stat)}
@@ -1685,6 +1751,30 @@ function frontend.compile(fn: any, options: any, profile: any): any
                 else
                     invoke("returnStatement", stat, nil)
                 end
+            elseif stat.kind == "compoundAssign" then
+                -- `t op= v` is `t = t op v` with the operation the checker
+                -- inferred. Reading the place again is the same read only
+                -- when its address is names, fields and constant keys.
+                local function place(node: any): boolean
+                    if node.kind == "name" then
+                        return true
+                    elseif node.kind == "paren" then
+                        return place(node.expr)
+                    elseif node.kind == "dotIndex" then
+                        return place(node.obj)
+                    elseif node.kind == "bracketIndex" then
+                        local key = node.expr
+                        return place(node.obj)
+                            and key ~= nil
+                            and (key.kind == "name" or key.kind == "number" or key.kind == "string")
+                    end
+
+                    return false
+                end
+
+                local operation = need(stat.compoundOperation, "compound assignment lacks its checked operation")
+                need(place(stat.target), "compound assignment to a computed place is unsupported")
+                statements({{kind = "assignStmt", targets = {stat.target}, exprs = {operation}, stat}})
             elseif stat.kind ~= "emptyStmt" then
                 error("function graph: unsupported checked statement " .. tostring(stat.kind), 0)
             end

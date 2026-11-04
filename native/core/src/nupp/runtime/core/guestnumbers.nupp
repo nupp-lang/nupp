@@ -1,0 +1,112 @@
+module nupp.runtime.core.guestnumbers
+
+-- Lua's tonumber with a base: a string of digits in that base, read as an
+-- integer.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const context = require("nupp.runtime.core.context")
+const ints = require("nupp.runtime.core.coreintegers")
+const strings = require("nupp.runtime.core.corestrings")
+const guestscope = require("nupp.runtime.core.guestscope")
+const guestlib = require("nupp.runtime.core.guestlib")
+const texts = require("nupp.runtime.core.guesttexts")
+
+-- tonumber(s, base).
+export const LIB_TONUMBER_BASE: uint64 = 106ULL
+-- A numeric for's limit whose type is known only at run time.
+export const LIB_FOR_LIMIT: uint64 = 113ULL
+
+-- A numeric for's limit as a number: a number as it is, a numeral string
+-- converted, as Lua's forlimit does; anything else raises as Lua 5.5 does.
+export function forlimit(ctx: voidptr, value: uint64): uint64
+    local number = values.NIL
+    if value ~= values.NIL then
+        number = guestlib.tonumber(ctx, value)
+    end
+    if number == values.NIL then
+        texts.forLimitError(ctx, value)
+    end
+
+    return number
+end
+
+local function numeralspace(c: uint64): boolean
+    return c == 32ULL or (c >= 9ULL and c <= 13ULL)
+end
+
+-- The digit `c` spells in bases up to 36, or 36 for none.
+local function numeraldigit(c: uint64): uint64
+    if c >= 48ULL and c <= 57ULL then
+        return c - 48ULL
+    end
+    local upper = c & 0xdfULL
+    if upper >= 65ULL and upper <= 90ULL then
+        return upper - 55ULL
+    end
+
+    return 36ULL
+end
+
+-- tonumber(s, base): as Lua's b_str2int, surrounding space and an optional
+-- sign around at least one digit below `base`, wrapping past 64 bits; nil
+-- for any other text.
+export function tonumberbase(ctx: voidptr, value: uint64, base: uint64): uint64
+    -- A nil base is the one-value form.
+    if base == values.NIL then
+        return guestlib.tonumber(ctx, value)
+    end
+    guestscope.nameLibrary(ctx, texts.NAME_TONUMBER)
+    local radix = native.word(guestlib.integerArgument(ctx, base, 0, 2ULL))
+    local s = strings.header(value)
+    if s == 0ULL then
+        texts.argumentError(ctx, 1ULL, texts.TEXT_STRING, 0ULL, value)
+    end
+    if radix < 2ULL or radix > 36ULL then
+        texts.argumentError(ctx, 2ULL, 0ULL, texts.TEXT_BASE_RANGE, base)
+    end
+    @unsafe do
+        local p = strings.bytes(s)
+        local finish = p + strings.length(s)
+        while p < finish and numeralspace(native.word(native.load8(native.pointer(p), 0))) do
+            p = p + 1ULL
+        end
+        local negative = false
+        if p < finish and native.word(native.load8(native.pointer(p), 0)) == 45ULL then
+            negative = true
+            p = p + 1ULL
+        elseif p < finish and native.word(native.load8(native.pointer(p), 0)) == 43ULL then
+            p = p + 1ULL
+        end
+        local bits: uint64 = 0ULL
+        local digits: uint64 = 0ULL
+        while p < finish do
+            local c = native.word(native.load8(native.pointer(p), 0))
+            local d = numeraldigit(c)
+            if d == 36ULL then
+                break
+            end
+            if d >= radix then
+                return values.NIL
+            end
+            bits = bits * radix + d
+            digits = digits + 1ULL
+            p = p + 1ULL
+        end
+        if digits == 0ULL then
+            return values.NIL
+        end
+        while p < finish and numeralspace(native.word(native.load8(native.pointer(p), 0))) do
+            p = p + 1ULL
+        end
+        if p ~= finish then
+            return values.NIL
+        end
+        if negative then
+            bits = 0ULL - bits
+        end
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local h = native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+        return ints.make(h, bits)
+    end
+end

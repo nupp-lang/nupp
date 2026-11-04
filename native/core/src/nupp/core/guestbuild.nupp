@@ -121,6 +121,8 @@ local CASES: {[string]: {
     librarybasics = {fixture = "catalog-library-basics", version = 8, follow = true},
     cleanupfunctions = {fixture = "catalog-cleanup-functions", version = 8, follow = true},
     serdejson = {fixture = "catalog-serde-json", version = 8, follow = true},
+    coreoperators = {fixture = "catalog-core-operators", version = 8},
+    methodcleanups = {fixture = "catalog-method-cleanups", version = 8, follow = true},
     storagebasics = {fixture = "catalog-storage-basics", version = 8},
     storageprovider = {fixture = "catalog-storage-provider", version = 8, follow = true},
     stringbuffer = {
@@ -382,7 +384,9 @@ local function requiredmodules(root: any, source: string): {string}
             end
             return
         end
-        if type(node.qualifiedModule) == "string" then
+        -- A qualified path loads its module only where it is a value; one
+        -- naming a type (`io.Writer`) loads nothing, as the graph sees it.
+        if node.kind == "dotIndex" and type(node.qualifiedModule) == "string" then
             found[#found + 1] = node.qualifiedModule
         end
         for _, child in ipairs(node) do

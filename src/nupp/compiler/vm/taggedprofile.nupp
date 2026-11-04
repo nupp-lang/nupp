@@ -50,11 +50,13 @@ local function binding(ctx: any, key: any): any
     return need(catalog(ctx).byDefinition[key], "missing checked lexical declaration")
 end
 
+-- A borrowing capture moves nothing: the closure reads the owner as any
+-- capture reads its value. A taking one needs the closure to own it.
 local function ordinaryCaptures(owner: any): nil
     for _, item in ipairs(owner.captures) do
         need(
-            item.mode == "value" or item.mode == "cell",
-            "qualified captures require ownership cleanup and lifetime lowering"
+            item.mode == "value" or item.mode == "cell" or item.mode == "borrow",
+            "taking captures require ownership cleanup and lifetime lowering"
         )
     end
 end
@@ -292,6 +294,27 @@ local function recordSlot(origin: any, name: string?): integer?
     return nil
 end
 
+-- A field's slot in a value of type `t`: its record's, or, for a union of
+-- records, the slot every member gives it when they all agree.
+local function fieldSlot(ctx: any, t: any, name: string?): integer?
+    local slot = recordSlot(ownrecord(ctx, t), name)
+    while slot == nil and t and (t.tag == "literal" or t.tag == "const") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    if slot ~= nil or not t or t.tag ~= "union" or #(t.members or {}) == 0 then
+        return slot
+    end
+    for _, member in ipairs(t.members) do
+        local found = recordSlot(ownrecord(ctx, member), name)
+        if found == nil or slot ~= nil and found ~= slot then
+            return nil
+        end
+        slot = found
+    end
+
+    return slot
+end
+
 local function pool(ctx: any, kind: string, value: any): integer
     local index = #ctx.g.constants
     ctx.g.constants[index + 1] = {kind = kind, value = value}
@@ -378,16 +401,36 @@ local function interfacetype(t: any): boolean
     return t ~= nil and t.tag == "nominal" and t.declKind == "interface"
 end
 
+-- Fixed widths are integers and floats at run time; uint64 is not, since
+-- past 2^63 its order is not int64's.
+local narrowIntegers: {
+    [string]: boolean
+} = {int64 = true, int8 = true, int16 = true, int32 = true, uint8 = true, uint16 = true, uint32 = true,}
+
 local function numberType(t: any): boolean
     local kind = typeKind(t)
-    return kind == "number" or kind == "float64"
+    return kind == "number" or kind == "float64" or kind == "float32"
 end
 
 local function integerType(t: any): boolean
-    return typeKind(t) == "int64"
+    return narrowIntegers[typeKind(t)] == true
 end
 
-local function numericType(t: any): boolean
+local numericType: function(any): boolean
+numericType = function(t: any): boolean
+    while t and (t.tag == "literal" or t.tag == "const") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    -- A union of numbers (`integer | number`) is a number either way.
+    if t and t.tag == "union" and #(t.members or {}) > 0 then
+        for _, member in ipairs(t.members) do
+            if not numericType(member) then
+                return false
+            end
+        end
+        return true
+    end
+
     return numberType(t) or integerType(t)
 end
 
@@ -405,8 +448,20 @@ end
 local function binary(ctx: any, node: any, expected: string?, version: integer): integer
     local operation = node.op.text
     need(expected == nil or expected == "tagged", "tagged result required")
-    -- From v8 `..`, `/` and `//` are core library calls (guestlib).
-    local library = version >= 8 and ({[".."] = 5, ["/"] = 6, ["//"] = 7, ["^"] = 56})[operation]
+    -- From v8 `..`, `/`, `//` and the bitwise operators are core library
+    -- calls (guestlib, guestbits).
+    local library = version >= 8
+        and ({
+            [".."] = 5,
+            ["/"] = 6,
+            ["//"] = 7,
+            ["^"] = 56,
+            ["&"] = 107,
+            ["|"] = 108,
+            ["~"] = 109,
+            ["<<"] = 110,
+            [">>"] = 111,
+        })[operation]
     if library then
         return libraryCall(ctx, node, library, {node.lhs, node.rhs})
     end
@@ -626,14 +681,65 @@ local function invoke(ctx: any, node: any, keepResult: boolean, dynamic: boolean
 end
 
 -- A field's default, which the checker keeps as its closed value: an
--- integer, string or Boolean. Floats and tables are not admitted yet.
-local function defaultConstant(ctx: any, node: any, value: any): integer
-    if type(value) == "string" then
+-- integer, float, string, Boolean, an explicit `nil`, or a table of those,
+-- built fresh for each construction.
+local defaultConstant: function(any, any, any): integer
+defaultConstant = function(ctx: any, node: any, value: any): integer
+    if type(value) == "table" then
+        local keys = {}
+        for key in pairs(value) do
+            keys[#keys + 1] = key
+        end
+        -- Integer keys first in order, then names, so the build is the same
+        -- every compile.
+        table.sort(keys, function(a: any, b: any): boolean
+            if type(a) ~= type(b) then
+                return type(a) == "number"
+            end
+            return a < b
+        end)
+        local held = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
+        for _, key in ipairs(keys) do
+            local item = ctx.hold(defaultConstant(ctx, node, value[key]))
+            local slot = type(key) == "string" and ctx.emit(node, "K", {pool(ctx, "str", key)}, "tagged")
+                or ctx.emit(
+                    node,
+                    "K",
+                    {
+                        pool(
+                            ctx,
+                            "int64",
+                            tostring(
+                                need(
+                                    math.type(key) == "integer" and key,
+                                    "a table default key is not an integer or name"
+                                )
+                            )
+                        )
+                    },
+                    "tagged"
+                )
+            ctx.emit(node, "SetIdx", {ctx.readHeld(held), slot, ctx.readHeld(item)}, nil)
+            ctx.release(item)
+        end
+        local result = ctx.readHeld(held)
+        ctx.release(held)
+        return result as integer
+    end
+    if value == nil then
+        return ctx.emit(node, "Nil", {}, "tagged") as integer
+    elseif type(value) == "string" then
         return ctx.emit(node, "K", {pool(ctx, "str", value)}, "tagged") as integer
     elseif type(value) == "boolean" then
         return ctx.emit(node, "K", {pool(ctx, value and "true" or "false", "")}, "tagged") as integer
     end
-    need(math.type(value) == "integer", "only integer, string and Boolean field defaults are admitted")
+    if math.type(value) == "float" then
+        return ctx.emit(node, "K", {pool(ctx, "num", graphimage.floatBytes(value as number))}, "tagged") as integer
+    end
+    need(
+        math.type(value) == "integer",
+        "only integer, float, string, Boolean and table field defaults are admitted, got " .. type(value)
+    )
 
     return ctx.emit(node, "K", {pool(ctx, "int64", tostring(value))}, "tagged") as integer
 end
@@ -1144,11 +1250,27 @@ local function invokeMethod(ctx: any, node: any, keepResult: boolean, count: int
         end
     end
     local pack = spreads and ctx.varargPack() or nil
+    -- In a function that owns affine values a method call moves what it
+    -- takes, and an error lands at it, as at any call.
+    if cleanupGraphs[ctx.g] then
+        local held = ctx.hold(value)
+        local heldArgs = {}
+        for index, arg in ipairs(args) do
+            heldArgs[index] = ctx.hold(arg)
+        end
+        ctx.beforeCall(node)
+        value = ctx.readHeld(held)
+        ctx.release(held)
+        for index, handle in ipairs(heldArgs) do
+            args[index] = ctx.readHeld(handle)
+            ctx.release(handle)
+        end
+    end
     if count then
-        return ctx.invokeMany(node, value, args, contract, count, pack)
+        return landed(ctx, node, ctx.invokeMany(node, value, args, contract, count, pack))
     end
 
-    return ctx.invoke(node, value, args, contract, keepResult, pack)
+    return landed(ctx, node, ctx.invoke(node, value, args, contract, keepResult, pack))
 end
 
 function tagged.call(ctx: any, node: any, expected: string?): integer
@@ -1298,7 +1420,9 @@ local function numericFor(ctx: any, stat: any): any
         integerMode or numberType(startType) and typeKind(startType) == "float64",
         "numeric for needs a statically integer or float initial value"
     )
-    need(numericType(stat.stop.inferredType), "numeric for limit must be a number")
+    -- A limit of no static number type is checked as the loop starts.
+    local dynamicLimit = typeKind(stat.stop.inferredType) == "any"
+    need(dynamicLimit or numericType(stat.stop.inferredType), "numeric for limit must be a number")
     local nodes = {stat.start, stat.stop}
     if stat.step then
         nodes[3] = stat.step
@@ -1310,6 +1434,17 @@ local function numericFor(ctx: any, stat: any): any
     local values = ctx.operands(nodes, kinds)
     if values == nil then
         return nil
+    end
+    if dynamicLimit then
+        local start = ctx.hold(values[1])
+        local step = values[3] and ctx.hold(values[3]) or nil
+        values[2] = ctx.emit(stat, "LibCall", {113, values[2]}, "tagged")
+        values[1] = ctx.readHeld(start)
+        ctx.release(start)
+        if step then
+            values[3] = ctx.readHeld(step)
+            ctx.release(step)
+        end
     end
     if stat.step == nil then
         values[3] = ctx.emit(stat, "K", {pool(ctx, "int64", "1")}, "tagged")
@@ -1391,6 +1526,20 @@ local function cleanupProfile(base: any): any
         local origin = inner and (inner.origin or inner)
         local declaration = origin and origin.deriveDeclaration
         local tokens = catalog(ctx).cleanupTokens[site]
+        -- A method cleanup (`close`) is looked up on the value as it is
+        -- destroyed, whatever implements it.
+        local dynamic = false
+        for _, item in ipairs(chain) do
+            dynamic = dynamic or item.kind == "method"
+        end
+        if dynamic then
+            local names = {}
+            for _, item in ipairs(chain) do
+                need(item.kind == "method", "a method cleanup chain mixes in a function")
+                names[#names + 1] = item.name
+            end
+            return {names = names}
+        end
         -- Cleanups that are not the record's own methods are functions read
         -- from the core's registry by key.
         local methods = declaration ~= nil and declaration.kind == "recordDecl" and declaration.name ~= nil
@@ -1419,6 +1568,15 @@ local function cleanupProfile(base: any): any
     profile.cleanupStatus = always
     profile.cleanupRun = function(ctx: any, node: any, plan: any, value: integer, reason: string): nil
         local held = ctx.hold(value)
+        if plan.names then
+            for index = #plan.names, 1, -1 do
+                local key = ctx.emit(node, "K", {pool(ctx, "str", plan.names[index])}, "tagged")
+                local callee = ctx.emit(node, "GetIdx", {ctx.readHeld(held), key}, "tagged")
+                ctx.emit(node, "Destroy", {callee, ctx.readHeld(held)}, nil)
+            end
+            ctx.release(held)
+            return
+        end
         if plan.keys then
             for index = #plan.keys, 1, -1 do
                 local key = ctx.emit(node, "K", {pool(ctx, "str", plan.keys[index])}, "tagged")
@@ -1819,7 +1977,7 @@ function tagged.forVersion(version: integer): any
             elseif libraryField == "math.mininteger" then
                 return ctx.emit(node, "K", {pool(ctx, "int64", "-9223372036854775808")}, "tagged") as integer
             end
-            local slot = recordSlot(ownrecord(ctx, node.obj.inferredType), node.name and node.name.text)
+            local slot = fieldSlot(ctx, node.obj.inferredType, node.name and node.name.text)
             -- A field of a plain table is its string key, and so is one of a
             -- record's name (`R.f`), which holds the table of its methods.
             local tag = typeKind(node.obj.inferredType)
@@ -1831,6 +1989,7 @@ function tagged.forVersion(version: integer): any
                     or tag == "shape"
                     or tag == "typeobject"
                     or tag == "any"
+                    or tag == "typevar"
                     or interfacetype(node.obj.inferredType)
                     or recordOrigin(node.obj.inferredType) ~= nil
                 )
@@ -1849,7 +2008,7 @@ function tagged.forVersion(version: integer): any
         end
         profile.assignmentTarget = function(ctx: any, node: any, rhs: any): any
             if node.kind == "dotIndex" then
-                local slot = recordSlot(ownrecord(ctx, node.obj.inferredType), node.name and node.name.text)
+                local slot = fieldSlot(ctx, node.obj.inferredType, node.name and node.name.text)
                 local tag = typeKind(node.obj.inferredType)
                 -- `R.f = ...` writes the table a record's name holds.
                 local plain = slot == nil
@@ -1860,6 +2019,7 @@ function tagged.forVersion(version: integer): any
                         or tag == "shape"
                         or tag == "typeobject"
                         or tag == "any"
+                        or tag == "typevar"
                         or interfacetype(node.obj.inferredType)
                         or recordOrigin(node.obj.inferredType) ~= nil
                     )
@@ -2093,7 +2253,10 @@ function tagged.forVersion(version: integer): any
             -- interface's table, under the member it has here.
             for _, taken in ipairs(stat.inheritedDefaultNames or {}) do
                 local tokens = catalog(ctx).inheritTokens[stat] or {}
-                local token = need(tokens[taken.from], "an inherited default from an interface not in the program: " .. tostring(taken.from))
+                local token = need(
+                    tokens[taken.from],
+                    "an inherited default from an interface not in the program: " .. tostring(taken.from)
+                )
                 local parent: integer? = nil
                 if token.qualifiedModule then
                     local site = need(catalog(ctx).requireByNode[token], "inherited default lacks its require")
@@ -2429,8 +2592,9 @@ function tagged.forVersion(version: integer): any
                 need(count >= 1 and count <= 2, "assert takes a value and an optional message")
                 return libraryCall(ctx, node, 87, node.args.exprs)
             elseif library == "tonumber" then
-                need(#(node.args.exprs or {}) == 1, "tonumber takes one value; a base is not yet admitted")
-                return libraryCall(ctx, node, 9, node.args.exprs)
+                local count = #(node.args.exprs or {})
+                need(count == 1 or count == 2, "tonumber takes a value and an optional base")
+                return libraryCall(ctx, node, count == 2 and 106 or 9, node.args.exprs)
             elseif library == "pcall" or library == "xpcall" then
                 return invokeProtected(ctx, node, true) as integer
             elseif library == "error" then
@@ -2635,6 +2799,12 @@ function tagged.forVersion(version: integer): any
                 operand = ctx.readHeld(held)
                 ctx.release(held)
                 return ctx.emit(node, "Mul", {operand, minusOne}, "tagged") as integer
+            end
+
+            -- `~x`, a core library call (guestbits).
+            if node.op and node.op.text == "~" and catalog(ctx).byNode[node] == nil then
+                need(expected == nil or expected == "tagged", "bitwise not requires tagged destination")
+                return libraryCall(ctx, node, 112, {node.operand})
             end
 
             return tagged.unary(ctx, node, expected)

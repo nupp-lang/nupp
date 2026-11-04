@@ -1117,7 +1117,7 @@ end
 -- decimal or wrapping hexadecimal, surrounding space); nil for any other
 -- value or text that is not a numeral. Other text, a decimal past int64
 -- included, is read as a float by C's strtod through the host.
-local function tonumber(ctx: voidptr, value: uint64): uint64
+export function tonumber(ctx: voidptr, value: uint64): uint64
     local cell = new strings.Builder(0ULL, 0ULL, 0ULL)
     if ints.isInteger(value) or floatOf(value) ~= values.NIL then
         return value
