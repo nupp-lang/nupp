@@ -617,19 +617,21 @@ local tool = bridge()
 local failures, passed = 0, 0
 -- The raw loader's policies are generated from the graph schema and its
 -- bounds: each committed file stays exactly what its generator writes.
+-- Each generator by a literal require: the core reaches no module by a
+-- computed name (toollayeringtest).
 for _, pair in ipairs({
-    {"nupp.core.rawwiregen", "rawwire"},
-    {"nupp.core.rawshapegen", "rawroles"},
-    {"nupp.core.rawcataloggen", "rawcatalogpolicy"},
-    {"nupp.core.rawbudgetgen", "rawbudgetpolicy"},
-    {"nupp.core.rawsemanticgen", "rawsemanticpolicy"}
+    {require("nupp.core.rawwiregen"), "rawwire", "nupp.core.rawwiregen"},
+    {require("nupp.core.rawshapegen"), "rawroles", "nupp.core.rawshapegen"},
+    {require("nupp.core.rawcataloggen"), "rawcatalogpolicy", "nupp.core.rawcataloggen"},
+    {require("nupp.core.rawbudgetgen"), "rawbudgetpolicy", "nupp.core.rawbudgetgen"},
+    {require("nupp.core.rawsemanticgen"), "rawsemanticpolicy", "nupp.core.rawsemanticgen"}
 }) do
     local path = ROOT .. "/native/core/src/nupp/runtime/core/" .. pair[2] .. ".nupp"
-    if read(path) == require(pair[1]).source() then
+    if read(path) == pair[1].source() then
         passed = passed + 1
     else
         failures = failures + 1
-        print("FAIL generated " .. pair[2] .. ": differs from " .. pair[1] .. ".source()")
+        print("FAIL generated " .. pair[2] .. ": differs from " .. pair[3] .. ".source()")
     end
 end
 for _, unit in ipairs(UNITS) do
