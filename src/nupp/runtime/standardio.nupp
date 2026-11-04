@@ -464,11 +464,29 @@ const {type Process as ChildProcess} = require("io.internal.process")
 export type Process = ChildProcess
 
 local original: any = rawget(_G, "io")
-local luaPopen = original.popen
 local luaOpen = original.open
 local luaLines = original.lines
 local luaInput = original.input
 local luaOutput = original.output
+local luaClose = original.close
+local luaType = original.type
+local luaRead = original.read
+local luaWrite = original.write
+local luaFlush = original.flush
+local processInput: any = nil
+local processOutput: any = nil
+
+local function processHandle(value: any): any
+    local handles: any = rawget(_G, "__nuppProcessHandles")
+    return handles and handles[value] or nil
+end
+
+local function requireOpenProcess(value: any): nil
+    local child = processHandle(value)
+    if child and child.state.reaped then
+        error("attempt to use a closed file", 3)
+    end
+end
 
 const _URI_REQUIRES = "@requires-dynamically io.internal.uri"
 local uris: any = nil
@@ -557,15 +575,40 @@ local function openFile(path: any, mode: any): ...any
 end
 
 local function fileLines(path: any, ...: any): ...any
+    if path == nil and processInput ~= nil then
+        return processInput:lines(...)
+    end
     return luaLines(filename(path), ...)
 end
 
 local function inputFile(file: any): any
-    return luaInput(filename(file))
+    if file == nil then
+        return processInput or luaInput()
+    end
+    if processHandle(file) then
+        requireOpenProcess(file)
+        processInput = file
+        return file
+    end
+    local result = luaInput(filename(file))
+    processInput = nil
+
+    return result
 end
 
 local function outputFile(file: any): any
-    return luaOutput(filename(file))
+    if file == nil then
+        return processOutput or luaOutput()
+    end
+    if processHandle(file) then
+        requireOpenProcess(file)
+        processOutput = file
+        return file
+    end
+    local result = luaOutput(filename(file))
+    processOutput = nil
+
+    return result
 end
 
 --- Opens a file from a filename or path using Lua file modes.
@@ -588,7 +631,7 @@ export const open = openFile as function(
 --- Iterates over a named file, closing it at EOF, or reads the default input.
 --- @param path the filename or path, or nil for the default input
 --- @return an iterator yielding one line at a time
-export const lines = fileLines as function(path: (string | Path)?): @nosuspend function(): string?
+export const lines = fileLines as function(path: (string | Path)?, ...: any): @nosuspend function(): ...any
 
 --- Returns or sets the default input file.
 --- @param file a file handle, filename, or path, or nil to return the current file
@@ -613,58 +656,92 @@ local function processImplementation(name: string): any
     return implementation
 end
 
-local function openProcess(command: any, ...: any): ...any
-    if type(command) == "table" then
-        local implementation = processImplementation("io.internal.process")
-        return implementation.spawn(command)
-    end
-
-    return luaPopen(command, ...)
+local function openProcess(command: any, options: any): ...any
+    local implementation = processImplementation("io.internal.process")
+    return implementation.spawn(command, options)
 end
 
---- Starts a child from an argument vector or opens a shell pipe.
+--- Starts a shell command or argument vector and returns an owned process.
 ---
---- Owners close at their lexical scope boundary. See [](io.Process) for child
---- operations and [](io.Process.Options) for environment, stream, and timeout options.
-export const popen = openProcess as(
-    --- Starts the program in `args[1]` directly, without shell parsing.
-    --- Arguments are separate strings; `cwd` also accepts an [](io.Path).
-    --- `communicate` feeds stdin and drains stdout and stderr together.
-    ---
-    --- ```nupp
-    --- local child = assert(io.popen({
-    ---     args = {"git", "status", "--short"},
-    ---     cwd = assert(io.cwd()),
-    ---     timeoutms = 5000,
-    --- }))
-    --- local result = assert(child:communicate())
-    --- print(result.output)
-    --- if not result:succeeded() then
-    ---     print(result.erroroutput)
-    --- end
-    --- ```
-    ---
-    --- @form Argument vector
-    --- @param options the program, arguments, and child process options
-    --- @return the owned process on success
-    --- @return the process error on failure
-    function(options: Process.Options): (affine(Process)?, Error?) &
+--- A string invokes the shell; an argument array starts its first entry directly.
+--- The second argument accepts Lua's "r" or "w" pipe mode, or process options.
+--- The default reads stdout, inherits stdin, and inherits stderr. Set `stdin`
+--- and `stderr` to "pipe" for a complete duplex exchange with `communicate`.
+--- Set `mode` in an options table to choose the same file profile with other
+--- controls. On Windows, "r" and "w" translate text; "rb" and "wb" preserve
+--- bytes. Explicit byte streams and `communicate` always transfer raw bytes.
+---
+--- ```nupp
+--- local child = assert(io.popen({"git", "status", "--short"}, {
+---     cwd = assert(io.cwd()),
+---     stderr = "pipe",
+---     timeoutms = 5000,
+--- }))
+--- local result = assert(child:communicate())
+--- print(result.output)
+--- ```
+---
+--- Existing Lua calls keep file operations on the same process object:
+---
+--- ```nupp
+--- local pipe = assert(io.popen("git status --short", "r"))
+--- print(pipe:read("*a"))
+--- local ok, reason, code = pipe:close()
+--- ```
+---
+--- `read` and `lines` read stdout; `write`, `flush`, and `setvbuf` write stdin.
+--- Explicit `close` closes the pipes and waits normally without suspending. Dropping an
+--- unfinished owner terminates and reaps it. See [](io.Process) for process controls.
+---
+--- @param command the shell command or program and arguments
+--- @param options a process options table or Lua pipe mode, "r" by default
+--- @return the owned process on success
+--- @return the failure message when the child could not be started
+--- @return the operating-system error code, when available
+export const popen = openProcess as function(
+    command: string | {string},
+    options: (Process.Options | string)?
+): (affine(Process)?, string?, integer?)
 
-    --- Invokes the shell and opens one pipe selected by `mode`.
-    --- The shell command must be a string.
-    ---
-    --- ```nupp
-    --- local pipe = assert(io.popen("git status --short", "r"))
-    --- print(pipe:read("*a"))
-    --- ```
-    ---
-    --- @form Shell command
-    --- @lua
-    --- @param cmd the shell command
-    --- @param mode "r" to read or "w" to write; defaults to "r"
-    --- @return the owned pipe on success
-    --- @return the error string on failure
-    function(cmd: string, mode: string?): (affine(io.File, __nuppCloseFile)?, string?))
+local function closeFile(value: any): ...any
+    local selected = value or processOutput
+    if processHandle(selected) then
+        return selected:close()
+    end
+
+    return luaClose(value)
+end
+
+local function fileType(...: any): any
+    local value: any = (...)
+    local child = processHandle(value)
+    if child then
+        return child.state.reaped and "closed file" or "file"
+    end
+
+    return luaType(...)
+end
+
+local function readFile(...: any): ...any
+    if processInput ~= nil then
+        return processInput:read(...)
+    end
+    return luaRead(...)
+end
+
+local function writeFile(...: any): ...any
+    if processOutput ~= nil then
+        return processOutput:write(...)
+    end
+    return luaWrite(...)
+end
+
+local function flushFile(): ...any
+    if processOutput ~= nil then
+        return processOutput:flush()
+    end
+    return luaFlush()
+end
 
 --- @internal
 export const value: table = do
@@ -688,5 +765,10 @@ export const value: table = do
     original.newwriter = newwriter
     original.readall = readall
     original.popen = popen
+    original.close = closeFile
+    original.type = fileType
+    original.read = readFile
+    original.write = writeFile
+    original.flush = flushFile
     yield original
 end

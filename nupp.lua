@@ -172,6 +172,7 @@ local RESOURCES = {
     {source = "src/nupp/workers/contracts.nupp", output = "nupp/compiler/nupp/workers/contracts.nupp"},
     {source = "src/nupp/suspension/contracts.nupp", output = "nupp/compiler/nupp/suspension/contracts.nupp"},
     {source = "src/nupp/suspension/selected.nupp", output = "nupp/compiler/nupp/suspension/selected.nupp"},
+    {source = "src/io/internal/process/file.nupp", output = "nupp/compiler/io/internal/process/file.nupp"},
     {source = "src/io/internal/process/contracts.nupp", output = "nupp/compiler/io/internal/process/contracts.nupp"},
     {source = "src/nupp/io/net/contracts.nupp", output = "nupp/compiler/nupp/io/net/contracts.nupp"},
     {source = "src/nupp/io/http/contracts.nupp", output = "nupp/compiler/nupp/io/http/contracts.nupp"},

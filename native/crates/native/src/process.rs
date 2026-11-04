@@ -169,6 +169,28 @@ pub unsafe extern "C" fn nuppNativeProcessSpawn(
     output: *mut ProcessStarted,
 ) -> i32 {
     boundary(|| {
+        // SAFETY: this entry point has the same descriptor and output contract.
+        unsafe { nuppNativeProcessSpawnWithError(descriptor, output, ptr::null_mut()) }
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Starts a child and reports its operating-system error number on failure.
+/// A zero error number means the failure has no operating-system error number.
+///
+/// # Safety
+/// `descriptor` and `output` have the `nuppNativeProcessSpawn` contract.
+/// A non-null `os_error` must be writable for one `i32`.
+pub unsafe extern "C" fn nuppNativeProcessSpawnWithError(
+    descriptor: *const ProcessSpawn,
+    output: *mut ProcessStarted,
+    os_error: *mut i32,
+) -> i32 {
+    boundary(|| {
+        if !os_error.is_null() {
+            // SAFETY: non-null output storage is writable by the ABI contract.
+            unsafe { os_error.write(0) };
+        }
         if descriptor.is_null() || output.is_null() {
             return super::failed(
                 Status::InvalidArgument,
@@ -248,7 +270,7 @@ pub unsafe extern "C" fn nuppNativeProcessSpawn(
             Ok(value) => value,
             Err(status) => return status,
         };
-        let started = match transport::spawn(transport::SpawnOptions {
+        let started = match transport::spawn_with_error(transport::SpawnOptions {
             args,
             env,
             clear_env: descriptor.clear_env != 0,
@@ -256,7 +278,13 @@ pub unsafe extern "C" fn nuppNativeProcessSpawn(
             modes: [stdin_mode, stdout_mode, stderr_mode],
         }) {
             Ok(value) => value,
-            Err(error) => return super::failed(Status::Internal, &error),
+            Err(error) => {
+                if !os_error.is_null() {
+                    // SAFETY: non-null output storage is writable by the ABI contract.
+                    unsafe { os_error.write(error.os_code.unwrap_or(0)) };
+                }
+                return super::failed(Status::Internal, &error.message);
+            }
         };
 
         let pid = started.child.id();
@@ -313,6 +341,24 @@ pub unsafe extern "C" fn nuppNativeProcessSpawn(
 /// `output` must be writable for one `ProcessExit`.
 pub unsafe extern "C" fn nuppNativeProcessPollExit(raw: u64, output: *mut ProcessExit) -> i32 {
     boundary(|| {
+        // SAFETY: this entry point has the same output contract.
+        unsafe { nuppNativeProcessPollExitWithSignal(raw, output, ptr::null_mut()) }
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Polls a child and separately reports its terminating signal, or zero.
+/// The original exit record retains its layout for existing callers.
+///
+/// # Safety
+/// `output` must be writable for one `ProcessExit`; a non-null `signal`
+/// must be writable for one `i32`.
+pub unsafe extern "C" fn nuppNativeProcessPollExitWithSignal(
+    raw: u64,
+    output: *mut ProcessExit,
+    signal: *mut i32,
+) -> i32 {
+    boundary(|| {
         if output.is_null() {
             return super::failed(Status::InvalidArgument, "process exit output is null");
         }
@@ -321,6 +367,10 @@ pub unsafe extern "C" fn nuppNativeProcessPollExit(raw: u64, output: *mut Proces
             Err(status) => return status,
         };
         let exit = child.collect_exit();
+        if !signal.is_null() {
+            // SAFETY: non-null output storage is writable by the ABI contract.
+            unsafe { signal.write(exit.and_then(|exit| exit.signal).unwrap_or(0)) };
+        }
         // SAFETY: output was validated above.
         unsafe {
             output.write(match exit {
@@ -567,6 +617,55 @@ mod tests {
         assert_eq!(offset_of!(ProcessStarted, pid), 32);
         assert_eq!(size_of::<ProcessStarted>(), 40);
         assert_eq!(offset_of!(ProcessExit, killed), 8);
+        assert_eq!(size_of::<ProcessExit>(), 12);
+    }
+
+    #[test]
+    fn spawn_error_is_separate_from_the_existing_started_record() {
+        let name = b"/__nupp_missing_process__/missing";
+        let argument = ProcessSlice {
+            data: name.as_ptr(),
+            length: name.len(),
+        };
+        let descriptor = ProcessSpawn {
+            args: &argument,
+            arg_count: 1,
+            env: ptr::null(),
+            env_count: 0,
+            cwd: ProcessSlice {
+                data: ptr::null(),
+                length: 0,
+            },
+            cwd_present: 0,
+            clear_env: 0,
+            stdin_mode: 2,
+            stdout_mode: 2,
+            stderr_mode: 2,
+        };
+        let mut output = ProcessStarted {
+            process: 0,
+            stdin_stream: 0,
+            stdout_stream: 0,
+            stderr_stream: 0,
+            pid: 0,
+        };
+        let mut os_error = 0;
+        // SAFETY: the descriptor, its argument, and both outputs live through the call.
+        let status =
+            unsafe { nuppNativeProcessSpawnWithError(&descriptor, &mut output, &mut os_error) };
+        assert_ne!(status, Status::Ok.code());
+        assert_ne!(os_error, 0);
+        assert_eq!(output.process, 0);
+
+        os_error = 123;
+        // SAFETY: a null descriptor is rejected before dereferencing it; outputs are valid.
+        let status =
+            unsafe { nuppNativeProcessSpawnWithError(ptr::null(), &mut output, &mut os_error) };
+        assert_eq!(status, Status::InvalidArgument.code());
+        assert_eq!(
+            os_error, 0,
+            "descriptor errors have no operating-system error"
+        );
     }
 
     #[test]

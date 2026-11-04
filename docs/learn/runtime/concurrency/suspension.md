@@ -9,7 +9,7 @@ type. The same call blocks in a command-line program and parks its coroutine
 where a host installed a [suspension handler](#hosts-supply-scheduling-policy):
 
 ```nupp:playground
-local child = assert(io.popen({args = {"cc", "--version"}}))
+local child = assert(io.popen({"cc", "--version"}))
 local result = assert(child:communicate())
 print(result.output)
 child:close()
@@ -52,7 +52,7 @@ park without accepting a scheduler parameter:
 local frame = require("scheduler")
 
 local function printCompilerVersion(): nil
-    local child = assert(io.popen({args = {"cc", "--version"}}))
+    local child = assert(io.popen({"cc", "--version"}))
     print(assert(child:communicate()).output)
     child:close()
 end
@@ -101,7 +101,7 @@ An ordinary wrapper returns the value produced after the wait:
 
 ```nupp
 local function compilerVersion(): string
-    local child = assert(io.popen({args = {"cc", "--version"}}))
+    local child = assert(io.popen({"cc", "--version"}))
     local result = assert(child:communicate())
     child:close()
     return result.output

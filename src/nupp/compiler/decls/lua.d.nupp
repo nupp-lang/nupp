@@ -1313,7 +1313,7 @@ end
 --- A Lua file handle. Ownership is attached by producers rather than this interface, so
 --- standard streams and borrowed handles use the same type.
 interface io.File
-    close: @nosuspend function(self: io.File): (boolean?, string?)
+    close: @nosuspend function(self: io.File): (boolean?, string?, integer?)
     flush: function(self: io.File): (boolean?, string?)
     lines: function(self: io.File, ...: any): @nosuspend function(): any
     read: function(self: io.File, ...: any): any
@@ -1346,7 +1346,7 @@ local io: {
     ---
     --- @param path the file to read, or nil for the default input file
     --- @return an iterator yielding one line at a time, and nil once the file is read
-    lines: function(path: string?): @nosuspend function(): string?,
+    lines: function(path: string?, ...: any): @nosuspend function(): ...any,
 
     --- Reads the default input file according to the given formats: "*l" for a line,
     --- "*n" for a number, "*a" for the rest, or a byte count.
@@ -1366,7 +1366,7 @@ local io: {
     ---
     --- @param f the file to close
     --- @return whether the file closed cleanly
-    close: function(f: io.File?): boolean?,
+    close: function(f: io.File?): (boolean?, string?, integer?),
 
     --- Classifies an open or closed file handle.
     --- @param value the value to inspect

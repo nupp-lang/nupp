@@ -13,7 +13,6 @@ of this module, and callers pass an argv and never build a command line.
 const assert2 = require("assert")
 
 const {type Process as NativeProcess} = require("nupp.runtime.standardio")
-const {type Error as IoError} = require("io")
 
 local process = {}
 
@@ -294,7 +293,6 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
     local args = boundedArgs(argv, opts)
     local native = require("nupp.runtime.standardio")
     local nativeOptions: ChildOptions = {
-        args = args,
         cwd = opts.cwd,
         env = opts.env,
         stdin = "null",
@@ -302,7 +300,7 @@ function process.captureIsolated(argv: {string}, opts: process.Options?): intege
         stderr = "stdout",
         timeoutms = opts.timeoutMs,
     }
-    local child, problem = native.popen(nativeOptions)
+    local child, problem = native.popen(args, nativeOptions)
     if child == nil then
         error(tostring(problem), 0)
     end
@@ -364,7 +362,7 @@ end
 --- read as one. Whether anything says such a thing depends on the machine, so
 --- merging them makes the protocol answer differently on different hosts. The
 --- caller must drain the second pipe; nothing else empties it.
-function process.startIsolated(argv: {string}, opts: process.Options?): (affine(NativeProcess)?, IoError?)
+function process.startIsolated(argv: {string}, opts: process.Options?): (affine(NativeProcess)?, string?, integer?)
     opts = (opts or {}) as process.Options
     assert2(
         opts.timeoutMs == nil and opts.pump == nil and opts.cancelled == nil,
@@ -373,7 +371,6 @@ function process.startIsolated(argv: {string}, opts: process.Options?): (affine(
     local args = boundedArgs(argv, opts)
     local native = require("nupp.runtime.standardio")
     local nativeOptions: ChildOptions = {
-        args = args,
         cwd = opts.cwd,
         env = opts.env,
         stdin = "pipe",
@@ -381,7 +378,7 @@ function process.startIsolated(argv: {string}, opts: process.Options?): (affine(
         stderr = "pipe",
     }
 
-    return native.popen(nativeOptions)
+    return native.popen(args, nativeOptions)
 end
 
 export = process

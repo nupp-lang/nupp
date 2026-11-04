@@ -863,7 +863,7 @@ function M.filesystemNamesAreFilesPathsEverywhere()
                 "    local body = http.file(where)",
                 "    local listener = net.listen({path = where})",
                 "    local stream = net.connect({path = where})",
-                "    local child = process.popen({args = {'true'}, cwd = where})",
+                "    local child = process.popen({'true'}, {cwd = where})",
                 "    print(body, listener, stream, child)",
                 "end",
                 "send('/tmp/x')",
@@ -1938,7 +1938,7 @@ local address: io.URI = assert(io.newuri(components))
 local valid, reason = io.validateuri("http://[")
 local kind: Error.Kind = "timeout"
 local mode: Error.Mode = "stdout"
-local options: Process.Options = {args = {"true"}, stderr = mode}
+local options: Process.Options = {stderr = mode}
 local communication: Process.CommunicateOptions = {maxoutputbytes = 10}
 local stream: Process.StreamMode = "pipe"
 local function child(value: io.Process, result: Process.Result, exit: Process.Exit, provider: Process.Provider): nil
@@ -1947,7 +1947,7 @@ end
 local function streams(borrows input: Process.Reader, borrows output: Process.Writer, interest: Process.Interest): nil
     print(input:isended(), output:isreleased(), #interest.read)
 end
-print(address:host(), io.isuri(address), valid, reason, kind, options.args[1], communication.maxoutputbytes, stream)
+print(address:host(), io.isuri(address), valid, reason, kind, options.stderr, communication.maxoutputbytes, stream)
 ]=]
     )
     for _, name in ipairs({
@@ -2008,14 +2008,14 @@ end
 
 function M.popenAliasesKeepTheirExplicitProcessFeature()
     local sources = {
-        "do local child = io.popen({args = {'fixture-child'}}) end",
-        "local channel = io\n do local child = channel.popen({args = {'fixture-child'}}) end",
-        "local open = io.popen\n do local child = open({args = {'fixture-child'}}) end",
-        "local channel = require('io')\n do local child = channel.popen({args = {'fixture-child'}}) end",
+        "do local child = io.popen({'fixture-child'}) end",
+        "local channel = io\n do local child = channel.popen({'fixture-child'}) end",
+        "local open = io.popen\n do local child = open({'fixture-child'}) end",
+        "local channel = require('io')\n do local child = channel.popen({'fixture-child'}) end",
         "module nupp.fixture\nlocal channel = require('nupp.runtime.standardio')\n"
-        .. "do local child = channel.popen({args = {'fixture-child'}}) end",
+        .. "do local child = channel.popen({'fixture-child'}) end",
         "module nupp.fixture\nlocal channel = require('nupp.runtime.standardio')\nlocal open = channel.popen\n"
-        .. "do local child = open({args = {'fixture-child'}}) end",
+        .. "do local child = open({'fixture-child'}) end",
     }
     for _, source in ipairs(sources) do
         local path = source:match("^module nupp%.fixture") and HERE .. "/../src/nupp/fixture.nupp"
@@ -2043,7 +2043,7 @@ function M.popenAliasesKeepTheirExplicitProcessFeature()
             error(sentinel, 0)
         end
     )
-    local ok, problem = pcall(facade.popen, {args = {"fixture-child"}})
+    local ok, problem = pcall(facade.popen, {"fixture-child"})
     assert(not ok and problem == sentinel, "the structured loader must preserve the original error object")
 end
 
@@ -2070,7 +2070,7 @@ function M.nativeFeaturesAreResolvedEffects()
     local test = effectsOf("local test = require('assert')")
     assert(test["runtime.test"], "require('assert') carries the assertion module")
 
-    local process = effectsOf("local process = require('io')\nlocal child = process.popen({args = {'true'}})")
+    local process = effectsOf("local process = require('io')\nlocal child = process.popen({'true'})")
     assert(process["runtime.process"], "structured popen records its process dependency")
     assert(not process["native.process"], "provider choice follows target catalog resolution")
     local workers = effectsOf(
@@ -2179,7 +2179,7 @@ function M.processViewsSatisfyTheSharedContracts()
         table.concat(
             {
                 "local process = require('io')",
-                "local child = assert(process.popen({args = {'true'}}))",
+                "local child = assert(process.popen({'true'}))",
                 "local running = child",
                 "print(running.pid)",
             },
@@ -2239,7 +2239,7 @@ function M.processViewsSatisfyTheSharedContracts()
     )
 end
 
-function M.popenKeepsBothAcquisitionContractsAndPublicProcessTypes()
+function M.popenKeepsOneAcquisitionContractAndPublicProcessTypes()
     assertClean(
         [[
 const io = require("io")
@@ -2248,14 +2248,62 @@ local function providerTypes(provider: io.Process.Provider, options: io.Process.
     input: io.Process.StreamMode, errors: io.Error.Mode): nil
     local settled: io.Process.Exit = {exitcode = 0, killed = false, timedout = false}
 end
-local pipe = io.popen("true", "r")
-if pipe ~= nil then pipe:close() end
-local child = io.popen({args = {"true"}})
-if child ~= nil then child:close() end
+local function inspect(borrows child: io.Process): nil
+    local id: integer = child.pid
+end
+local pipe, pipeReason, pipeCode = io.popen("true", "r")
+local pipeMessage: string? = pipeReason
+local pipeStatus: integer? = pipeCode
+if pipe ~= nil then inspect(pipe) pipe:close() end
+local child, childReason, childCode = io.popen({"true"}, {stderr = "pipe"})
+local childMessage: string? = childReason
+local childStatus: integer? = childCode
+if child ~= nil then inspect(child) child:close() end
+local shell = io.popen("true", {stderr = "pipe"})
+if shell ~= nil then inspect(shell) shell:close() end
 ]]
     )
     local diagnostics = diagsOf("local child = io.process")
     assert(diagnostics:find("NUPP2004", 1, true), "io exposes no process namespace: " .. diagnostics)
+end
+
+function M.popenProcessesSatisfyLuaFileContracts()
+    assertClean(
+        [[
+local function useFile(borrows file: io.File): nil
+    file:read("*l")
+    file:lines("*l")
+    file:write("line", 42)
+    file:flush()
+    file:seek("cur", 0)
+    file:setvbuf("no")
+end
+local function fileView(borrows child: io.Process): io.File borrows (child)
+    return child
+end
+local function useProcess(borrows child: io.Process): nil
+    useFile(child)
+    useFile(fileView(child))
+    child:read("*l")
+    child:lines("*l")
+    child:write("line", 42)
+    child:flush()
+    child:seek("cur", 0)
+    child:setvbuf("no")
+end
+-- Default-stream APIs accept unowned File handles. They retain their existing
+-- restriction against letting a lexical owner's borrow escape through globals.
+local function defaults(file: io.File): nil
+    io.input(file)
+    io.output(file)
+    io.close(file)
+end
+local pipe = io.popen("true", "r")
+if pipe ~= nil then useProcess(pipe) pipe:close() end
+local child = io.popen({"true"})
+if child ~= nil then useProcess(child) child:close() end
+]]
+    )
 end
 
 function M.processSurfaceIsBundledOutsideThisCheckout()
@@ -2263,7 +2311,7 @@ function M.processSurfaceIsBundledOutsideThisCheckout()
     local source = table.concat(
         {
             "local process = require('io')",
-            "local child = assert(process.popen({args = {'true'}}))",
+            "local child = assert(process.popen({'true'}))",
             "assert(child:isrunning() or not child:isrunning())",
         },
         "\n"
@@ -2524,7 +2572,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
                 "        body = http.reader(io.newreader('body'), 4, nil)",
                 "    )",
                 "end",
-                "do local child = assert(process.popen({args = {'true'}})) end",
+                "do local child = assert(process.popen({'true'})) end",
             },
             "\n"
         )

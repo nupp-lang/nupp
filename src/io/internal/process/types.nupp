@@ -11,10 +11,9 @@ export type StreamMode = "pipe" | "inherit" | "null"
 export type ErrorMode = Error.Mode
 
 export type Options = {
-    --- The program in `args[1]`, then its arguments. A program with no separator in
-    --- it is resolved through `PATH` by the platform, not by this module.
-    --- Convert an `io.Path` argument with `path:tostring()`.
-    args: {string},
+    --- Lua file mode, "r" by default. On Windows, "rb" and "wb" disable text
+    --- translation for File methods. Byte streams and `communicate` stay binary.
+    mode: ("r" | "w" | "rb" | "wb")?,
 
     --- The child's working directory, as anything [](io.files) accepts, or nil
     --- to inherit this one.
@@ -27,19 +26,23 @@ export type Options = {
     --- Whether to start from an empty environment rather than this process's.
     clearenv: boolean?,
 
-    --- Where the child's standard input comes from, `"pipe"` by default.
+    --- Where the child's standard input comes from: `"inherit"` in read mode, `"pipe"`
+    --- in write mode.
     stdin: StreamMode?,
 
-    --- Where the child's standard output goes, `"pipe"` by default.
+    --- Where the child's standard output goes: `"pipe"` in read mode, `"inherit"` in
+    --- write mode.
     stdout: StreamMode?,
 
-    --- Where the child's standard error goes, `"pipe"` by default.
+    --- Where the child's standard error goes, `"inherit"` by default.
     stderr: ErrorMode?,
 
     --- Kill the child after this many milliseconds. The clock starts when it is
     --- created, not when it is first waited on.
     timeoutms: integer?
 }
+
+export type SpawnOptions = Options & {args: {string}}
 
 export type CommunicateOptions = {
     --- Complete standard input.
@@ -57,6 +60,9 @@ export interface Exit
     --- The platform status code. A Unix signal is reported as 128 plus its number.
     --- Zero indicates success only when neither `killed` nor `timedout` is set.
     exitcode: integer
+
+    --- The terminating signal, when available from the provider.
+    signal: integer?
 
     --- Whether it was terminated rather than exiting on its own.
     killed: boolean

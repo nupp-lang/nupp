@@ -2095,13 +2095,13 @@ export function run(rootDir: string?): integer
         local path = ("package.path=%q .. package.path"):format(compilerRoot .. "/build/?.lua;")
         relayArgs = {"luajit", "-e", path, compilerRoot .. "/build/nupp/tools/main.lua", "__lsp-reader",}
     end
-    local relayOptions: ChildOptions = {args = relayArgs, stdin = "inherit", stdout = "pipe", stderr = "inherit",}
+    local relayOptions: ChildOptions = {stdin = "inherit", stdout = "pipe", stderr = "inherit",}
     -- The relay lives in a managed cell rather than in this frame, because it is
     -- read from two places: the loop below, and `pump`, which the session keeps in
     -- `host` and calls from inside long work. A closure over a borrow of an owner
     -- held here could not be stored there; an alias is copyable and checks the cell
     -- at each use instead.
-    local spawned, spawnProblem = process.popen(relayOptions)
+    local spawned, spawnProblem = process.popen(relayArgs, relayOptions)
     if spawned == nil then
         io.stderr:write("nupp-lsp: cannot start the input relay: " .. tostring(spawnProblem) .. "\n")
         return 1

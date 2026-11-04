@@ -179,7 +179,6 @@ function harness.run(
     timeoutSeconds: number?
 ): harness.CommandResult
     local options: io.Process.Options = {
-        args = launchable(argv),
         cwd = cwd,
         env = env,
         stdin = "null",
@@ -187,7 +186,7 @@ function harness.run(
         stderr = "pipe",
         timeoutms = timeoutSeconds ~= nil and math.floor(timeoutSeconds * 1000) or nil,
     }
-    local child, spawnProblem = io.popen(options)
+    local child, spawnProblem = io.popen(launchable(argv), options)
     if child == nil then
         error("cannot start " .. tostring(argv[1]) .. ": " .. tostring(spawnProblem), 2)
     end

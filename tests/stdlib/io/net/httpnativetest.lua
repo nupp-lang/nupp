@@ -16,8 +16,8 @@ local HERE = require("helpers.paths").tests
 local root, http, buffers, process, files, port, server
 local priorPreload, priorLoaded, unavailable
 
-local function startProcess(options)
-    return assert(process.popen(options))
+local function startProcess(command, options)
+    return assert(process.popen(command, options))
 end
 
 local function newHttpClient(options)
@@ -37,8 +37,7 @@ end
 
 local function startServer()
     local portFile = root .. "/port"
-    server = startProcess({
-        args = {"node", HERE .. "/fixtures/http_server.mjs", portFile},
+    server = startProcess({"node", HERE .. "/fixtures/http_server.mjs", portFile}, {
         stdin = "null",
         stdout = "null",
         stderr = "null",
@@ -105,6 +104,9 @@ end
 
 function M.afterAll()
     if server then
+        if server:isrunning() then
+            server:kill(true)
+        end
         server:close()
     end
     package.preload["nupp.runtime.native"] = priorPreload
@@ -618,7 +620,7 @@ function M.oneReadinessGenerationWakesHttpProcessAndFileWaiters()
         test.eq(response.body:read(64), "small response\n")
         response:close()
 
-        local child = startProcess({args = {"/bin/sh", "-c", "sleep 0.1"}, stdin = "null", stdout = "null"})
+        local child = startProcess({"/bin/sh", "-c", "sleep 0.1"}, {stdin = "null", stdout = "null"})
         test.eq(child:wait().exitcode, 0)
         child:close()
 

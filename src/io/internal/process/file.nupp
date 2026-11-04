@@ -1,0 +1,432 @@
+@!internal
+
+module io.internal.process.file
+
+local function opened(child: any): nil
+    if child.state.reaped then
+        error("attempt to use a closed file", 3)
+    end
+end
+
+local function textreader(child: any, input: any): any
+    local history: {string} = {}
+    local consumedMarker = false
+    local view: any = {}
+    view.read = function(_self: any, count: integer): (string?, string?)
+        if child.state.filetexteof then
+            return ""
+        end
+        local raw, reason = input:read(count)
+        if raw == nil then
+            return nil, reason
+        end
+        -- Only numeric scanning rolls back across several reads, all of one
+        -- byte. Other formats only retain the most recent chunk for lookahead.
+        if count > 1 then
+            history = {}
+        end
+        local marker = string.find(raw, "\026", 1, true)
+        if marker ~= nil then
+            input:unread(string.sub(raw, marker + 1))
+            raw = string.sub(raw, 1, marker - 1)
+            child.state.filetexteof = true
+            consumedMarker = true
+        elseif string.sub(raw, -1) == "\r" then
+            local following, problem = input:read(1)
+            if following == nil then
+                input:unread(raw)
+                return nil, problem
+            end
+            if following == "\n" then
+                raw = raw .. following
+            else
+                input:unread(following)
+            end
+        end
+        history[#history + 1] = raw
+        local translated = string.gsub(raw, "\r\n", "\n")
+
+        return translated
+    end
+    view.unread = function(_self: any, bytes: string): nil
+        if #bytes == 0 and not consumedMarker then
+            history = {}
+            return
+        end
+        local remaining = #bytes
+        local pieces: {string} = {}
+        for index = #history, 1, -1 do
+            local raw = history[index]
+            local logical = string.gsub(raw, "\r\n", "\n")
+            if #logical <= remaining then
+                pieces[#pieces + 1] = raw
+                remaining = remaining - #logical
+            else
+                local skip = #logical - remaining
+                local at: integer = 1
+                for _ = 1, skip do
+                    at = at + (string.sub(raw, at, at + 1) == "\r\n" and 2 or 1)
+                end
+                pieces[#pieces + 1] = string.sub(raw, at)
+                remaining = 0
+            end
+            if remaining == 0 then
+                break
+            end
+        end
+        local restored: {string} = {}
+        for index = #pieces, 1, -1 do
+            restored[#restored + 1] = pieces[index]
+        end
+        if consumedMarker then
+            restored[#restored + 1] = "\026"
+            child.state.filetexteof = false
+            consumedMarker = false
+        end
+        input:unread(table.concat(restored))
+        history = {}
+    end
+
+    return view
+end
+
+local function reader(child: any): (any, string?)
+    opened(child)
+    if child.stdout == nil then
+        return nil, "the process has no readable stdout pipe"
+    end
+
+    if child.state.filetext then
+        return textreader(child, child.stdout)
+    end
+
+    return child.stdout
+end
+
+local function counted(input: any, count: integer): (string?, string?)
+    if count == 0 then
+        local byte, reason = input:read(1)
+        if byte == nil then
+            return nil, reason
+        elseif byte == "" then
+            return nil
+        end
+        input:unread(byte)
+        return ""
+    end
+    local chunks: {string} = {}
+    local remaining = count
+    while remaining > 0 do
+        local chunk, reason = input:read(math.min(remaining, 65536))
+        if chunk == nil then
+            return nil, reason
+        elseif chunk == "" then
+            break
+        end
+        chunks[#chunks + 1] = chunk
+        remaining = remaining - #chunk
+    end
+    if #chunks == 0 then
+        return nil
+    end
+
+    return table.concat(chunks)
+end
+
+local function all(input: any): (string?, string?)
+    local chunks: {string} = {}
+    while true do
+        local chunk, reason = input:read(65536)
+        if chunk == nil then
+            return nil, reason
+        elseif chunk == "" then
+            return table.concat(chunks)
+        end
+        chunks[#chunks + 1] = chunk
+    end
+end
+
+local function line(input: any, keepnewline: boolean): (string?, string?)
+    local chunks: {string} = {}
+    while true do
+        local chunk, reason = input:read(4096)
+        if chunk == nil then
+            return nil, reason
+        elseif chunk == "" then
+            if #chunks == 0 then
+                return nil
+            end
+            return table.concat(chunks)
+        end
+        local newline = string.find(chunk, "\n", 1, true)
+        if newline ~= nil then
+            input:unread(string.sub(chunk, newline + 1))
+            chunks[#chunks + 1] = string.sub(chunk, 1, keepnewline and newline or newline - 1)
+            return table.concat(chunks)
+        end
+        chunks[#chunks + 1] = chunk
+    end
+end
+
+local function number(input: any): (number?, string?)
+    local token: {string} = {}
+    local current, reason = input:read(1)
+    if current == nil then
+        return nil, reason
+    end
+    while current ~= "" and string.match(current, "%s") ~= nil do
+        current, reason = input:read(1)
+        if current == nil then
+            return nil, reason
+        end
+    end
+
+    local function take(): nil
+        token[#token + 1] = current
+        current, reason = input:read(1)
+    end
+
+    if current == "+" or current == "-" then
+        take()
+    end
+    local special = string.lower(current or "")
+    if special == "n" or special == "i" then
+        while current ~= nil and current ~= "" and string.match(current, "[%w_()]") ~= nil do
+            take()
+        end
+    else
+        local hexadecimal = false
+        if current == "0" then
+            take()
+            if current == "x" or current == "X" then
+                hexadecimal = true
+                take()
+            end
+        end
+        local digits = hexadecimal and "%x" or "%d"
+        while current ~= nil and current ~= "" and string.match(current, digits) ~= nil do
+            take()
+        end
+        if current == "." then
+            take()
+            while current ~= nil and current ~= "" and string.match(current, digits) ~= nil do
+                take()
+            end
+        end
+        if current == (hexadecimal and "p" or "e") or current == (hexadecimal and "P" or "E") then
+            take()
+            if current == "+" or current == "-" then
+                take()
+            end
+            while current ~= nil and current ~= "" and string.match(current, "%d") ~= nil do
+                take()
+            end
+        end
+    end
+    if current == nil then
+        input:unread(table.concat(token))
+        return nil, reason
+    end
+    local text = table.concat(token)
+    local prefix = text
+    local value = tonumber(prefix)
+    -- A malformed exponent is left unread, just as the host's numeric scanner does.
+    if value == nil and special ~= "n" and special ~= "i" then
+        prefix = string.gsub(prefix, "[eEpP][+-]?$", "")
+        value = tonumber(prefix)
+        if value == nil and string.match(prefix, "^[+-]?0[xX]") ~= nil then
+            prefix = string.match(prefix, "^[+-]?0") or ""
+            value = tonumber(prefix)
+        end
+    end
+    if special == "n" or special == "i" then
+        local signed = string.match(text, "^[+-]?") or ""
+        local word = string.lower(string.sub(text, #signed + 1))
+        local length = 0
+        if string.sub(word, 1, 3) == "nan" then
+            length = #(string.match(word, "^nan%([%w_]*%)") or "nan")
+            value = 0 / 0
+        elseif string.sub(word, 1, 3) == "inf" then
+            length = string.sub(word, 1, 8) == "infinity" and 8 or 3
+            value = signed == "-" and -math.huge or math.huge
+        end
+        prefix = string.sub(text, 1, length > 0 and #signed + length or 0)
+    end
+    if value == nil then
+        prefix = ""
+    end
+    input:unread(string.sub(text, #prefix + 1) .. current)
+
+    return value
+end
+
+export function read(child: any, ...: any): ...any
+    local input, reason = reader(child)
+    if input == nil then
+        return nil, reason
+    end
+    local count = select("#", ...)
+    local results: {any} = {}
+    for index = 1, math.max(count, 1) do
+        if index > 1 and child.state.filetext then
+            input = textreader(child, child.stdout)
+        end
+        local format: any = count == 0 and "*l" or select(index, ...)
+        local value: any = nil
+        local problem: string? = nil
+        if type(format) == "number" then
+            local amount = math.floor(format)
+            if amount < 0 or amount == math.huge or amount ~= amount then
+                error("bad argument #" .. tostring(index) .. " to 'read' (invalid byte count)", 2)
+            end
+            value, problem = counted(input, amount)
+        elseif type(format) == "string" then
+            local mode = string.sub(format, 1, 1) == "*" and string.sub(format, 2) or format
+            if mode == "a" then
+                value, problem = all(input)
+            elseif mode == "l" or mode == "L" then
+                value, problem = line(input, mode == "L")
+            elseif mode == "n" then
+                value, problem = number(input)
+            else
+                error("bad argument #" .. tostring(index) .. " to 'read' (invalid format)", 2)
+            end
+        else
+            error("bad argument #" .. tostring(index) .. " to 'read' (string or number expected)", 2)
+        end
+        if problem ~= nil then
+            return nil, problem
+        end
+        results[index] = value
+        if value == nil then
+            return unpack(results, 1, index)
+        end
+    end
+
+    return unpack(results, 1, math.max(count, 1))
+end
+
+local function packed(...: any): any
+    return {n = select("#", ...), ...}
+end
+
+export function lines(child: any, ...: any): function(): ...any
+    opened(child)
+    local formats: {any} = {...}
+    local count = select("#", ...)
+    return function(): ...any
+        local results = packed(read(child, unpack(formats, 1, count)))
+        if results[1] == nil and results[2] ~= nil then
+            error(results[2], 2)
+        end
+
+        return unpack(results, 1, results.n)
+    end
+end
+
+local function drain(output: any, count: integer): (boolean, string?)
+    local bytes: string = output.filepending or ""
+    local prefix = string.sub(bytes, 1, count)
+    local remainder = string.sub(bytes, count + 1)
+    -- Writer:write flushes pending file data before direct byte writes. Clear it
+    -- while sending this prefix so the adapter's buffer is not sent twice.
+    output.filepending = ""
+    local ok, reason = output:write(prefix)
+    output.filepending = remainder .. (output.filepending or "")
+
+    return ok, reason
+end
+
+export function write(child: any, ...: any): ...any
+    opened(child)
+    if child.stdin == nil then
+        return nil, "the process has no writable stdin pipe"
+    end
+    local output = child.stdin
+    if output.closed then
+        return nil, "the process writer is closed"
+    end
+    if output.gone then
+        return nil, "the child is no longer reading this stream"
+    end
+    for index = 1, select("#", ...) do
+        local value: any = select(index, ...)
+        if type(value) ~= "string" and type(value) ~= "number" then
+            error("bad argument #" .. tostring(index) .. " to 'write' (string or number expected)", 2)
+        end
+        local bytes = tostring(value)
+        if child.state.filetext then
+            bytes = string.gsub(bytes, "\n", "\r\n")
+        end
+        local pending: string = (output.filepending or "") .. bytes
+        output.filepending = pending
+        local mode: string = output.filemode or "full"
+        local count: integer = 0
+        if mode == "no" then
+            count = #pending
+        elseif mode == "line" then
+            local at = string.find(pending, "\n", 1, true)
+            while at ~= nil do
+                count = at as integer
+                at = string.find(pending, "\n", at + 1, true)
+            end
+        end
+        if count == 0 and #pending >= (output.filesize or 8192) then
+            count = #pending
+        end
+        if count > 0 then
+            local ok, reason = drain(output, count)
+            if not ok then
+                return nil, reason
+            end
+        end
+    end
+
+    return child
+end
+
+export function flush(child: any): (boolean?, string?)
+    opened(child)
+    if child.stdin == nil then
+        return true
+    end
+    local ok, reason = child.stdin:flush()
+    if not ok then
+        return nil, reason
+    end
+
+    return true
+end
+
+export function seek(child: any, whence: string?, offset: number?): (number?, string?)
+    opened(child)
+    local direction = whence or "cur"
+    if direction ~= "set" and direction ~= "cur" and direction ~= "end" then
+        error("bad argument #1 to 'seek' (invalid option)", 2)
+    end
+    if offset ~= nil and type(offset) ~= "number" then
+        error("bad argument #2 to 'seek' (number expected)", 2)
+    end
+
+    return nil, "Illegal seek"
+end
+
+export function setvbuf(child: any, mode: string, size: number?): (boolean?, string?)
+    opened(child)
+    if mode ~= "no" and mode ~= "full" and mode ~= "line" then
+        error("bad argument #1 to 'setvbuf' (invalid option)", 2)
+    end
+    if size ~= nil and (size < 0 or size ~= size or size == math.huge) then
+        error("bad argument #2 to 'setvbuf' (invalid buffer size)", 2)
+    end
+    local ok, reason = flush(child)
+    if not ok then
+        return nil, reason
+    end
+    if child.stdin ~= nil then
+        child.stdin.filemode = mode
+        child.stdin.filesize = math.max(1, math.floor(size or 8192))
+    end
+
+    return true
+end

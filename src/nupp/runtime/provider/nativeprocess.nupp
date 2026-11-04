@@ -65,7 +65,10 @@ typedef struct {
 
 int32_t nuppNativeProcessSpawn(
     const NuppNativeProcessSpawn *, NuppNativeProcessStarted *);
+int32_t nuppNativeProcessSpawnWithError(
+    const NuppNativeProcessSpawn *, NuppNativeProcessStarted *, int32_t *);
 int32_t nuppNativeProcessPollExit(uint64_t, NuppNativeProcessExit *);
+int32_t nuppNativeProcessPollExitWithSignal(uint64_t, NuppNativeProcessExit *, int32_t *);
 int32_t nuppNativeProcessKill(uint64_t, int32_t);
 int32_t nuppNativeProcessRelease(uint64_t);
 int32_t nuppNativeProcessStreamRead(
@@ -136,8 +139,19 @@ end
 
 local function create(): contract.Provider
     native.requireFeature(PROCESS_FEATURE, "process")
+    -- New symbols are optional while installed runtimes still use the pinned ABI.
+    local hasSpawnError, spawnWithError = pcall(function(): any
+        return C.nuppNativeProcessSpawnWithError
+    end)
+    local hasExitSignal, pollWithSignal = pcall(function(): any
+        return C.nuppNativeProcessPollExitWithSignal
+    end)
+
     return {
-        spawn = function(self: contract.Provider, options: shared.Options): (any?, any?, any?, any?, integer, string?)
+        spawn = function(
+            self: contract.Provider,
+            options: shared.SpawnOptions
+        ): (any?, any?, any?, any?, integer, string?, integer?)
             local inputMode = options.stdin or "pipe"
             local outputMode = options.stdout or "pipe"
             local errorMode = options.stderr or "pipe"
@@ -192,9 +206,20 @@ local function create(): contract.Provider
             descriptor[0].stderr_mode = MODE[errorMode]
 
             local started = native.ffi.new("NuppNativeProcessStarted[1]")
-            local status = C.nuppNativeProcessSpawn(descriptor, started)
+            local status: integer
+            local errorCode: integer? = nil
+            if hasSpawnError and spawnWithError ~= nil then
+                local output = native.ffi.new("int32_t[1]")
+                status = spawnWithError(descriptor, started, output)
+                local code = tonumber(output[0]) as integer
+                if code ~= 0 then
+                    errorCode = code
+                end
+            else
+                status = C.nuppNativeProcessSpawn(descriptor, started)
+            end
             if status ~= 0 then
-                return nil, nil, nil, nil, 0, reason("nupp: could not start process")
+                return nil, nil, nil, nil, 0, reason("nupp: could not start process"), errorCode
             end
             local owner = {handle = started[0].process, released = false}
             local input = wrap(owner, started[0].stdin_stream)
@@ -205,7 +230,19 @@ local function create(): contract.Provider
         end,
         poll = function(self: contract.Provider, owner: any): shared.Exit?
             local output = native.ffi.new("NuppNativeProcessExit[1]")
-            configured(C.nuppNativeProcessPollExit(owner.handle, output), "poll process")
+            local signal: integer? = nil
+            if hasExitSignal and pollWithSignal ~= nil then
+                local result = native.ffi.new("int32_t[1]")
+                configured(pollWithSignal(owner.handle, output, result), "poll process")
+                local number = tonumber(result[0]) as integer
+                if number < 0 then
+                    error("nupp: native process provider returned an invalid signal", 0)
+                elseif number > 0 then
+                    signal = number
+                end
+            else
+                configured(C.nuppNativeProcessPollExit(owner.handle, output), "poll process")
+            end
             local ready = tonumber(output[0].ready) as integer
             local killed = tonumber(output[0].killed) as integer
             if (ready ~= 0 and ready ~= 1) or (killed ~= 0 and killed ~= 1) then
@@ -215,7 +252,12 @@ local function create(): contract.Provider
                 return nil
             end
 
-            return {exitcode = tonumber(output[0].code) as integer, killed = killed ~= 0, timedout = false}
+            return {
+                exitcode = tonumber(output[0].code) as integer,
+                killed = killed ~= 0,
+                timedout = false,
+                signal = signal
+            }
         end,
         kill = function(self: contract.Provider, owner: any, force: boolean): nil
             configured(C.nuppNativeProcessKill(owner.handle, force and 1 or 0), "kill process")

@@ -236,8 +236,7 @@ local function nuppRun(
         args[#args + 1] = entry
     end
     local childArgs = buildProcess.isolatedArguments(args)
-    local child, spawnProblem = process.popen({
-        args = childArgs,
+    local child, spawnProblem = process.popen(childArgs, {
         stdin = "inherit",
         stdout = "pipe",
         stderr = "pipe",

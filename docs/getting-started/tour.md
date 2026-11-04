@@ -331,7 +331,7 @@ standard library. A suspension-aware operation is an ordinary call with an
 ordinary result:
 
 ```nupp
-local child = assert(io.popen({args = {"cc", "--version"}}))
+local child = assert(io.popen({"cc", "--version"}))
 local result = assert(child:communicate())
 print(result.output)
 child:close()
