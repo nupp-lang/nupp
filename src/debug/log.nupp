@@ -217,13 +217,6 @@ evaluated, which is the cost of a name chosen at run time.
 
 Logging is initialized at startup to provide the global `warn` function. A
 module that uses the severity calls also binds its own logging view.
-
-::: seealso
-- [diagnostics.md](docs/reference/diagnostics.md#diagnostic-index) for the
-  codes a mistyped format string reports
-- [standard-library.md](docs/learn/runtime/data/standard-library.md) for how a facility
-  reaches a program without being linked into one that never uses it
-:::
 ]]
 module debug.log
 

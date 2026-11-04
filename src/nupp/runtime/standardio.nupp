@@ -10,321 +10,21 @@ local reader = bytes:reader()
 assert(reader:read(5) == "hello")
 ```
 
-A buffer holds its bytes in the target's physical storage: a native array on
-LuaJIT, or a rooted allocation in a Wasm application. `Reader` and `Writer` are
-interfaces rather than the concrete things that satisfy them. Code written
-against either contract works over every implementation without knowing which
-one it has.
-
-See [](io.files) for the filesystem
-itself, `io.popen` for running a child process, [](io.net) for
-plain and encrypted network connections, and [](io.http)
-for the asynchronous HTTP client.
-Keeping them apart is what lets a program that wants a byte buffer carry a byte
-buffer rather than every provider behind the name.
-
 Files, processes, network connections, TLS sessions, and HTTP bodies move bytes
-through the `Reader` and `Writer` contracts on this page. A parser written
-against byte I/O therefore accepts all of them.
+through the [](io.Reader) and [](io.Writer) interfaces. A parser written
+against either contract works over every implementation.
+
+See [](io.files) for the filesystem, [](io.popen) for child processes,
+[](io.net) for plain and encrypted connections, and [](io.http) for the HTTP
+client.
+
+## Ownership
 
 Buffers, views, readers, writers, and their adapters are owners. A factory that
 takes a reader or writer transfers its close obligation to the adapter; a
 factory that borrows a buffer or byte queue leaves that value with its caller.
 `close` consumes an owner. Types that expose `isreleased` report their state
 without changing it.
-
-## Paths
-
-`io.Path` is an immutable filesystem path whose joining, normalizing, and
-splitting follow the platform's rules. Reach for it when a program builds a
-filesystem name or takes one apart, rather than when it reads the bytes behind
-one.
-
-```nupp:playground
-local source = io.newpath("src", "app", "..", "main.nupp"):normalize()
-assert(source:tostring() == "src" .. io.sep() .. "main.nupp")
-assert(source:filename() == "main.nupp")
-```
-
-Path transformations leave the original unchanged. Two paths are equal when
-their native text is. `tostring(path)` and `path:tostring()` return that same text.
-
-### Building a path
-
-`io.newpath(first, parts...)` joins its components using the current platform's
-rules. `join` appends more to a path already built, and both accept a string or
-another path. `Path` has no public constructor; creation goes through `newpath`,
-which interns recent paths in a bounded LRU cache.
-
-```nupp
-local native = io.newpath("out"):join("lib", "native")
-assert(native:filename() == "native")
-```
-
-`io.cwd()` returns the current working directory, and `io.sep()` returns the
-platform's primary path separator:
-
-```nupp
-local current, reason = io.cwd()
-assert(current, reason)
-local log = current:join("var", "app.log"):withextension("jsonl")
-assert(log:extension() == "jsonl")
-```
-
-### Normalizing and resolving
-
-`normalize` removes lexical `.` and `..` components without touching the
-filesystem, so it returns even for a path that does not exist:
-
-```nupp
-assert(io.newpath("src", "app", "..", "main.nupp"):normalize():stem() == "main")
-```
-
-The operations that consult the process or filesystem can fail, as can a
-relative path whose base uses a different coordinate system. Each returns nil
-with a reason when it does.
-
-- `absolute()` resolves the path against the process's working directory. A
-  drive-relative Windows path fails when that directory uses another drive.
-- `resolve(parts...)` makes it absolute, appends the parts, and normalizes.
-- `canonicalize()` asks the filesystem for the real path, following every
-  symbolic link, which requires the path to exist.
-- `relativeto(base)` expresses the path against another one, when both share a
-  coordinate system. A path expressed against itself returns `.`, the path
-  that stays where the base already is.
-
-```nupp
-local real, reason = io.newpath("."):canonicalize()
-assert(real, reason)
-assert(real:isabsolute())
-```
-
-### Path components
-
-`parent` returns another path or nil. `filename`, `stem` and `extension` return
-the final component, that component without its extension, and the extension
-without its dot:
-
-```nupp
-local source = io.newpath("src", "main.nupp")
-assert(source:filename() == "main.nupp")
-assert(source:stem() == "main")
-assert(source:extension() == "nupp")
-assert(assert(source:parent()):tostring() == "src")
-```
-
-`withfilename` and `withextension` replace one component. Each takes one path
-component and raises when handed text that is not one, so a separator smuggled
-into a file name is reported where it was written rather than carried into the
-path it would have produced:
-
-```nupp
-local report = io.newpath("out", "report.tmp"):withextension("json")
-assert(report:filename() == "report.json")
-```
-
-`isabsolute` and `isrelative` classify a path without accessing the filesystem.
-
-`io.open`, `io.lines`, `io.input`, and `io.output` accept a path wherever
-they accept a filename. Filesystem operations, HTTP file bodies, and child
-working directories also accept paths.
-
-## Buffers
-
-`newbuffer()` creates an empty growable buffer. A string supplies initial
-bytes; an integer reserves capacity without changing the length.
-
-```nupp
-local bytes = io.newbuffer("hello")
-bytes:setstring("!", bytes:len())
-assert(bytes:getstring() == "hello!")
-```
-
-Buffer offsets are zero-based, as they are wherever a count is an offset into
-storage rather than a position in a Lua string. See [Byte
-positions](docs/learn/runtime/data/standard-library.md#byte-positions) for the
-rule and where the other convention applies.
-
-`getstring(offset, count)` copies a range. `setstring` overwrites from an
-offset and grows the buffer as needed, filling any gap with zero bytes. `clear`
-sets the length to zero without discarding capacity, and `resize` truncates or
-zero-fills:
-
-```nupp
-local bytes = io.newbuffer("hello")
-bytes:ensure(4096)
-assert(bytes:capacity() >= 4096)
-bytes:resize(3)
-assert(bytes:getstring() == "hel")
-```
-
-Capacity is the allocation, not a recorded number. Growing at least doubles it,
-so appending through a writer costs amortized constant time per byte and
-`capacity()` reports bytes that are actually held. `ensure` reserves at
-least the minimum asked for.
-
-`close()` releases the buffer's storage and returns nothing, and an operation on
-a released buffer raises rather than answering a reason.
-
-`readspan()` borrows the buffer's initialized bytes without separating its
-pointer from its length. Native producers write through `reservewrite(offset,
-count)`: the returned lease supplies a checked writable span, and
-`commit(written)` changes the logical length only after the producer succeeds.
-Dropping the lease aborts it and leaves the length unchanged.
-
-## Byte views
-
-`view(offset, count)` returns an immutable snapshot, not a mutable alias into
-the buffer. It remains valid if the source buffer changes or closes:
-
-```nupp
-local buffer = io.newbuffer("header-body")
-local header = buffer:view(0, 6)
-buffer:clear()
-assert(header:getstring() == "header")
-header:close()
-```
-
-A view can make a smaller view, open its own snapshot reader, report its byte
-length, copy to a string, borrow a checked span with `readspan()`, and be
-closed. Its offsets are zero-based like a buffer's. The data and UTF-8 modules
-accept views, which is what keeps those APIs from being coupled to a mutable
-buffer.
-
-## Readers
-
-An `io.Reader` is a forward-only byte source. `newreader(source)` accepts a
-string, a byte queue, a buffer, or a view. Buffers and views become independent
-snapshots; queues are drained as the reader advances. A reader owns its close obligation and closes automatically at the
-end of its scope unless `close()` consumes it earlier.
-
-```nupp
-local reader = io.newreader("abcdef")
-assert(reader:read(2) == "ab")
-
-local destination = io.newbuffer()
-assert(reader:readinto(destination, 0, 3) == 3)
-assert(destination:getstring() == "cde")
-assert(reader:read(8) == "f")
-assert(reader:read(8) == "") -- EOF
-```
-
-`read(count)` requires a positive count and returns at most that many bytes. It
-returns an empty string at EOF and nil with a reason after close.
-`readspan(writable)` fills a positive-sized checked writable span.
-`readinto(buffer, offset, count)` returns zero at EOF and reads 64 KiB when
-given no count; an explicit count must be positive. A failed or EOF read does
-not extend the destination. `transferto(writer)` copies the entire remaining
-source and returns the byte count.
-
-A read moves the reader's cursor as a write moves a writer's, so all four take
-the reader exclusively. Two readers over one cursor, such as a stream and a
-borrowed view of it, cannot both be reading at once; the checker refuses the
-second while the first is live.
-
-`readall(reader, maxbytes)` takes a reader and returns everything left in it as
-one string, closing the reader on the way out. A limit is checked as the bytes
-arrive, so a source larger than it returns a reason rather than a string:
-
-```nupp
-assert(io.readall(io.newreader("whole")) == "whole")
-local text, reason = io.readall(io.newreader("too long"), 3)
-assert(text == nil and reason ~= nil)
-```
-
-## Writers
-
-`newwriter(buffer)` clears the buffer and returns a forward-only writer
-targeting it. A writer likewise closes automatically; `flush()` publishes
-pending work without consuming that ownership. The writer holds its buffer
-exclusively for as long as it is live, so the buffer is read once the writer is
-gone:
-
-```nupp
-local destination = io.newbuffer()
-do
-    local writer = io.newwriter(destination)
-    assert(writer:write("prefix:"))
-
-    local payload = io.newbuffer("body")
-    assert(writer:writespan(payload:readspan()) == 4)
-    assert(writer:flush())
-end
-assert(destination:getstring() == "prefix:body")
-```
-
-`write` returns a boolean and `writespan` returns the byte count. Both return a
-reason when the writer is closed or the destination was released. The span is
-the common zero-copy input contract for buffers, views, files, processes, and
-HTTP transfers; there is no unchecked raw-pointer writer alongside it. `flush`
-does nothing for memory. It is part of the contract because a file or socket
-buffers, and `flush` is where one reports a write that failed to land: `close`
-returns nothing, so a caller that has to know flushes first.
-
-## Lines
-
-`Reader:lines(limit)` takes its reader and separates it at `\n` and `\r\n`.
-The terminator is not returned, and a final fragment before EOF is still a
-line:
-
-```nupp
-local lines = io.newreader("one\r\ntwo\nlast"):lines()
-assert(lines:read() == "one")
-assert(lines:read() == "two")
-assert(lines:read() == "last")
-assert(lines:read() == nil) -- EOF
-```
-
-The default limit is 64 KiB. An overlong line or source failure returns nil
-with a reason. Closing or dropping the line reader closes the source it took.
-
-## Typed scalars
-
-`Reader:scalar()` and `Writer:scalar()` add fixed-width numeric operations to
-byte handles. Multi-byte values use the machine's byte order.
-
-```nupp
-local stored = io.newbuffer()
-do
-    local writer = stored:writer():scalar()
-    writer:writeuint32(1447383632):writefloat64(1.5)
-end
-local reader = stored:reader():scalar()
-assert(reader:readuint32() == 1447383632)
-assert(reader:readfloat64() == 1.5)
-assert(reader:atend())
-```
-
-The scalar adapter takes its byte handle and closes it when dropped or closed.
-A short scalar read raises. Writes return the scalar writer so calls chain.
-
-### Scalar sources
-
-Create a byte reader over a string, buffer, view, or queue, then adapt it:
-
-```nupp
-local reader = io.newreader("\1\2\3\4"):scalar()
-assert(reader:remaining() == 4)
-```
-
-`remaining()` reports the bytes left in built-in string and queue readers,
-including bytes buffered by the adapter. Open-ended readers return nil.
-`atend()` checks whether a scalar reader has reached the end.
-
-### Scalar destinations
-
-A scalar writer writes at its byte writer's current position. Creating a
-buffer writer clears the buffer; adapting that writer preserves its position.
-The caller retains the buffer and reads it after the writer is dropped:
-
-```nupp
-local destination = io.newbuffer()
-do
-    local writer = destination:writer():scalar()
-    writer:writeuint8(33)
-end
-assert(destination:getstring() == "!")
-```
 
 ## Failures
 
@@ -343,55 +43,10 @@ end
 ```
 
 An error prints as its message, and joins text the same way, so
-`assert(files.read(path))` and `print("cannot read: " .. err)` read as they
+`assert(io.files.read(path))` and `print("cannot read: " .. err)` read as they
 would with a string. The reads and writes of the `Reader` and `Writer` contracts
 are the exception: their reason stays a string, the same message, because a
 buffer or a string reader returns through the same contract.
-
-## Byte queues
-
-A [](string.buffer) FIFO is a byte queue: `put` appends to the back
-and `get` consumes from the front. `io.newreader(queue):scalar()` adapts one, so
-bytes assembled there are read without copying everything in it first, and the
-queue's own `get` stays usable over the same bytes.
-
-```nupp
-local queue = string.buffer.new()
-queue:put("header:")
-queue:put("!")
-
-local reader = io.newreader(queue):scalar()
-assert(reader:readbytes(7) == "header:")
-assert(queue:tostring() == "!")
-assert(reader:readuint8() == 33)
-```
-
-Reading drains the queue, and `remaining()` reports what it still holds.
-`newreader` is the same bridge one layer down: it returns an ordinary
-`Reader` over the queue, for `transferto`, `readinto`, and everything else that
-contract already covers.
-
-```nupp
-local destination = io.newbuffer()
-local queue = string.buffer.new()
-queue:put("payload")
-do
-    local reader = io.newreader(queue)
-    assert(reader:transferto(destination:writer()) == 7)
-end
-assert(destination:getstring() == "payload")
-```
-
-Neither takes the queue over. Nothing here frees or closes it, and one read to
-empty leaves an empty queue rather than a released one.
-
-::: seealso
-- [](io.files) for the same contracts over a file on disk
-- [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete
-  contract every owned value here follows
-- [standard-library.md](docs/learn/runtime/data/standard-library.md) for the
-  errors, ownership, and byte-position conventions every facility shares
-:::
 ]]
 
 --- @namespace io
@@ -425,7 +80,101 @@ export const URI = uriTypes.URI
 --- @return whether it is a URI
 export const isuri = uriTypes.isuri
 
---- An immutable filesystem path. Build one with `io.newpath`.
+--- An immutable filesystem path with platform-specific joining and splitting.
+---
+--- Reach for it when a program builds a filesystem name or takes one apart,
+--- rather than when it reads the bytes behind one.
+---
+--- ```nupp
+--- local source = io.newpath("src", "app", "..", "main.nupp"):normalize()
+--- assert(source:tostring() == "src" .. io.sep() .. "main.nupp")
+--- assert(source:filename() == "main.nupp")
+--- ```
+---
+--- Path transformations leave the original unchanged. Two paths are equal when
+--- their native text is. `tostring(path)` and `path:tostring()` return that
+--- same text.
+---
+--- #### Building a path
+---
+--- `io.newpath(first, parts...)` joins its components using the current
+--- platform's rules. `join` appends more to a path already built, and both
+--- accept a string or another path. `Path` has no public constructor; creation
+--- goes through `newpath`, which interns recent paths in a bounded LRU cache.
+---
+--- ```nupp
+--- local native = io.newpath("out"):join("lib", "native")
+--- assert(native:filename() == "native")
+--- ```
+---
+--- `io.cwd()` returns the current working directory, and `io.sep()` returns the
+--- platform's primary path separator:
+---
+--- ```nupp
+--- local current, reason = io.cwd()
+--- assert(current, reason)
+--- local log = current:join("var", "app.log"):withextension("jsonl")
+--- assert(log:extension() == "jsonl")
+--- ```
+---
+--- #### Normalizing and resolving
+---
+--- `normalize` removes lexical `.` and `..` components without touching the
+--- filesystem, so it returns even for a path that does not exist:
+---
+--- ```nupp
+--- assert(io.newpath("src", "app", "..", "main.nupp"):normalize():stem() == "main")
+--- ```
+---
+--- The operations that consult the process or filesystem can fail, as can a
+--- relative path whose base uses a different coordinate system. Each returns
+--- nil with a reason when it does.
+---
+--- - `absolute()` resolves the path against the process's working directory. A
+---   drive-relative Windows path fails when that directory uses another drive.
+--- - `resolve(parts...)` makes it absolute, appends the parts, and normalizes.
+--- - `canonicalize()` asks the filesystem for the real path, following every
+---   symbolic link, which requires the path to exist.
+--- - `relativeto(base)` expresses the path against another one, when both share a
+---   coordinate system. A path expressed against itself returns `.`, the path
+---   that stays where the base already is.
+---
+--- ```nupp
+--- local real, reason = io.newpath("."):canonicalize()
+--- assert(real, reason)
+--- assert(real:isabsolute())
+--- ```
+---
+--- #### Path components
+---
+--- `parent` returns another path or nil. `filename`, `stem` and `extension`
+--- return the final component, that component without its extension, and the
+--- extension without its dot:
+---
+--- ```nupp
+--- local source = io.newpath("src", "main.nupp")
+--- assert(source:filename() == "main.nupp")
+--- assert(source:stem() == "main")
+--- assert(source:extension() == "nupp")
+--- assert(assert(source:parent()):tostring() == "src")
+--- ```
+---
+--- `withfilename` and `withextension` replace one component. Each takes one
+--- path component and raises when handed text that is not one, so a separator
+--- smuggled into a file name is reported where it was written rather than
+--- carried into the path it would have produced:
+---
+--- ```nupp
+--- local report = io.newpath("out", "report.tmp"):withextension("json")
+--- assert(report:filename() == "report.json")
+--- ```
+---
+--- `isabsolute` and `isrelative` classify a path without accessing the
+--- filesystem.
+---
+--- `io.open`, `io.lines`, `io.input`, and `io.output` accept a path wherever
+--- they accept a filename. Filesystem operations, HTTP file bodies, and child
+--- working directories also accept paths.
 export type Path = NativePath
 
 --- A Lua stream handle returned by `io.open` and `io.popen`.
@@ -446,6 +195,9 @@ export type ScalarReader = source1.ScalarReader
 export type ScalarWriter = source1.ScalarWriter
 
 --- Scalar reads and writes over one byte handle.
+---
+--- See [](io.ScalarReader) and [](io.ScalarWriter) for the numeric operations
+--- and ownership contract.
 export type ScalarStream = source1.ScalarStream
 
 export type Writer = source1.Writer

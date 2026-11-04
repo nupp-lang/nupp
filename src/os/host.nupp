@@ -108,12 +108,6 @@ to ship and a policy never applies.
 A kind is two or more dot-separated segments of letters, digits, `_` and `-`,
 such as `tecs.image.decode`. Names under `nupp.` are reserved for the runtime.
 
-::: seealso
-- [suspension.md](docs/learn/runtime/concurrency/suspension.md) for what a wait
-  does under a handler
-- [embedding.md](docs/learn/projects/embedding.md) for answering requests from C
-:::
-
 ## Host-owned loops
 
 `newpump` creates a driver that runs one operation at a time for an application that embeds

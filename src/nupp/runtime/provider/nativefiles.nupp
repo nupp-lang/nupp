@@ -278,16 +278,6 @@ queue that grows with its callers eventually takes the process with it.
 
 Metadata, listings and cursor reads through an open `File` do not use the lane.
 Scheduling a transfer costs more than those cost to run.
-
-::: seealso
-- [](io) for building and taking apart the names these operations
-  read
-- [](io) for the buffers, readers and writers a file's bytes move through
-- [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete contract an
-  open file and a temporary path are written against
-- [suspension.md](docs/learn/runtime/concurrency/suspension.md) for what a wait does under a
-  scheduler, and how several compose
-:::
 ]]
 module nupp.runtime.provider.nativefiles
 
