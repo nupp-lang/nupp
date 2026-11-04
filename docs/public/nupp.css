@@ -525,6 +525,15 @@
 }
 
 @media (prefers-color-scheme: dark) {
+  :root:not([data-theme="light"]) .nuppdoc-admonition-seealso {
+    border-left-width: 1px;
+    border-left-color: color-mix(in srgb, var(--nuppdoc-admonition-color) 45%, var(--nuppdoc-border));
+  }
+
+  :root:not([data-theme="light"]) .nuppdoc-admonition-seealso .nuppdoc-admonition-title {
+    font-weight: 600;
+  }
+
   :root {
     --nuppdoc-feature-heading: var(--nuppdoc-dark-text);
     --nuppdoc-playground-border: #38312d;
@@ -541,6 +550,15 @@
     --nuppdoc-syntax-type: #718e90;
     --nuppdoc-syntax-variable: #d3a87c;
   }
+}
+
+:root[data-theme="dark"] .nuppdoc-admonition-seealso {
+  border-left-width: 1px;
+  border-left-color: color-mix(in srgb, var(--nuppdoc-admonition-color) 45%, var(--nuppdoc-border));
+}
+
+:root[data-theme="dark"] .nuppdoc-admonition-seealso .nuppdoc-admonition-title {
+  font-weight: 600;
 }
 
 :root[data-theme="dark"] {
