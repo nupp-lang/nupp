@@ -1313,10 +1313,22 @@ function program.select(p: any, moduleName: string, name: string): any
     return need(selected, "missing checked function")
 end
 
+-- One owner's graph from a verified catalog whose external references and
+-- intrinsics the caller has established for this owner.
+local function ownerGraph(p: any, owner: any, profile: any): any
+    need(p.owners[owner.id + 1] == owner, "foreign function owner")
+    graph.checking(owner.scope and owner.scope.path)
+    -- A profile may give a function that acquires cleanups its own variant.
+    local chosen = profile.forOwner and profile.forOwner(p, owner) or profile
+    local g = lower.functionGraph(owner, {program = p}, chosen)
+    g.name, g.module, g.path, g.programOwner = owner.name, owner.scope.name, owner.scope.path, owner.id
+
+    return g
+end
+
 function program.functionGraph(p: any, owner: any, profile: any): any
     program.verify(p)
     need(p.owners[owner.id + 1] == owner, "foreign function owner")
-    graph.checking(owner.scope and owner.scope.path)
     for _, reference in ipairs(p.externalReferences) do
         need(reference.owner ~= owner.id, "external execution bindings are not established")
     end
@@ -1326,12 +1338,8 @@ function program.functionGraph(p: any, owner: any, profile: any): any
             "intrinsic execution is not established: " .. intrinsic.operation
         )
     end
-    -- A profile may give a function that acquires cleanups its own variant.
-    local chosen = profile.forOwner and profile.forOwner(p, owner) or profile
-    local g = lower.functionGraph(owner, {program = p}, chosen)
-    g.name, g.module, g.path, g.programOwner = owner.name, owner.scope.name, owner.scope.path, owner.id
 
-    return g
+    return ownerGraph(p, owner, profile)
 end
 
 local function explicitOperands(op: string): nil
@@ -1455,9 +1463,14 @@ function program.compile(p: any, profile: any): any
         end
         need(#names == 0, "intrinsic execution is not established: " .. table.concat(names, ", "))
     end
+    -- The whole catalog is verified and every intrinsic established above, and
+    -- no external is bound, so no owner holds an external reference: each
+    -- owner lowers without verifying the catalog again, which made compiling
+    -- quadratic in the program's owners.
+    need(#p.externalReferences == 0, "external execution bindings are not established")
     local graphs, modules = {}, {}
     for index, owner in ipairs(p.owners) do
-        graphs[index] = program.functionGraph(p, owner, profile)
+        graphs[index] = ownerGraph(p, owner, profile)
     end
     for index, module in ipairs(p.modules) do
         modules[index] = {name = module.name, path = module.path, chunk = module.chunk}
