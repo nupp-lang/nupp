@@ -38,7 +38,7 @@ function M.finalStandardRootsUseTheExistingCompilerSourceLoader()
             end
         end,
         function(loaders)
-            for _, name in ipairs({"types", "own", "utf8", "io.path", "io.uri"}) do
+            for _, name in ipairs({"types", "own", "utf8", "io.files", "binary.digest"}) do
                 local loader = loaders[#loaders](name)
                 test.eq(type(loader), "function", name)
                 test.eq(loader(), marker, name)
@@ -113,7 +113,7 @@ function M.coldExternalProjectsRetainDeclaredStandardLibraryTypes()
             dir .. "/src/coldlibraries.nupp",
             [[
 module coldlibraries
-const digest = require("binary.hash.digest")
+const digest = require("binary.digest")
 const compression = require("binary.compress")
 local main = {}
 function main.run(): integer

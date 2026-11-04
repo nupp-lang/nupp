@@ -346,6 +346,7 @@ end
 
 function M.lowercaseReflectionFunctionsKeepHandlesAndWitnessIdentity()
     local result = run(
+        "runtimereflectiontest.lowercaseReflectionFunctionsKeepHandlesAndWitnessIdentity",
         [[
 local record Leaf value: integer end
 local record Root leaf: Leaf end
@@ -366,7 +367,7 @@ return {sameKey = types.reflect.extensionkey == types.reflect.extensionkey,
 local types = {reflect = {extensionkey = function(): integer return 37 end}}
 return types.reflect.extensionkey()
 ]]
-    testAssert.eq(run(source), 37)
+    testAssert.eq(run("runtimereflectiontest.localTypesTableShadowsTheLibrary", source), 37)
 end
 
 return M

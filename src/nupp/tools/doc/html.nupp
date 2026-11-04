@@ -231,7 +231,11 @@ local function codeGroupHtml(blocks)
     for _, block in ipairs(blocks) do
         out[
             #out + 1
-        ] = '<figure class="nuppdoc-code-panel">' .. codeBlockHtml(block.source, block.language, block.firstLine) .. "</figure>"
+        ] = '<figure class="nuppdoc-code-panel">' .. codeBlockHtml(
+            block.source,
+            block.language,
+            block.firstLine
+        ) .. "</figure>"
     end
     out[#out + 1] = "</div>"
 

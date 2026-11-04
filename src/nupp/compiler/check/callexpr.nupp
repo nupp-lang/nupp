@@ -1950,7 +1950,12 @@ function callexpr.install(c: state.Checker): state.ExprHandlers
         if stableNupp and baseName == "nupp" and memberName == "managedGroup" then
             node.requiresManagedRuntime = true
         end
-        if stableNupp and baseName == "nupp" and memberName == "recoverAlias" then
+        -- `own.recoveralias(v)` is the same check: on the VM it is the managed
+        -- runtime's, which no `nupp` global reaches.
+        local stableOwn = globals and c.lookupEntry("own") == globals.own
+        if stableNupp and baseName == "nupp" and memberName == "recoverAlias"
+            or stableOwn and baseName == "own" and memberName == "recoveralias"
+        then
             if #argExprs == 1 then
                 local aliasType = managedGeneric("Alias", T.unknown)
                 first = T.optional(aliasType)

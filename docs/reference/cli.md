@@ -1881,15 +1881,15 @@ Usage:
   nupp lsp
 
 Commands:
-  serve           Run the language server over stdio.
-  inspect         Describe the symbol at a position.
-  definition      Find where the symbol at a position is defined.
-  references      Find semantic references to the symbol at a position.
-  symbols         Search workspace or document symbols.
-  rename          Rename a symbol and every semantic reference to it.
-  actions         List code actions available at a position.
-  artifacts       List the compiled artifacts available at a position.
-  artifact        Print what a file compiles to.
+  serve       Run the language server over stdio.
+  inspect     Describe the symbol at a position.
+  definition  Find where the symbol at a position is defined.
+  references  Find semantic references to the symbol at a position.
+  symbols     Search workspace or document symbols.
+  rename      Rename a symbol and every semantic reference to it.
+  actions     List code actions available at a position.
+  artifacts   List the compiled artifacts available at a position.
+  artifact    Print what a file compiles to.
 
 Options:
   -h, --help      Show this help

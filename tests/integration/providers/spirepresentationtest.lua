@@ -6,7 +6,8 @@ local function runtime(storage)
 
     return fixtures.instance(
         {['binary._representation'] = true, ['nupp.runtime.storage'] = true, ['nupp.runtime.structvalue'] = true,},
-        {['nupp.runtime.target'] = {dialect = 'luajit'}, ['nupp.runtime.provider.nativestorage'] = storage,}
+        -- The VM binds its storage provider by name rather than selecting one.
+        {['nupp.vm.storagebinding'] = storage}
     )
 end
 

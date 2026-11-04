@@ -311,6 +311,25 @@ print(type(os.monotonic()))
     )
 end
 
+-- tostring of a function once recursed in the VM until its stack overflowed.
+function M.cliRunPrintsFunctionsAsTheirIdentity()
+    withProject(
+        {["nupp.lua"] = "return { include = { 'src' } }\n", ["main.lua"] = [[
+print(tostring(print):match("^function: 0x") ~= nil, tostring(function() end):match("^function: 0x") ~= nil)
+]],},
+        function(dir)
+            local output = dir .. "/output.txt"
+            local errors = dir .. "/errors.txt"
+            local command = (
+                "cd '%s' && '%s/bin/nupp' run main.lua " .. "> '%s' 2> '%s'"
+            ):format(dir, ROOT, output, errors)
+            local status = os.execute(command)
+            testAssert.eq(status, 0, "nupp run tostring exit status: " .. readFile(errors))
+            testAssert.eq(readFile(output), "true\ttrue\n", "nupp run tostring output")
+        end
+    )
+end
+
 function M.cliRunLoadsRequiredLjppModules()
     withProject(
         {

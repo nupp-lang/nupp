@@ -30,14 +30,14 @@ end
 -- timings and the JIT its decisions on standard error, which is kept for a
 -- failure's message.
 local function answer(command)
-    local process = require("nupp.io.process")
-    local child, problem = process.spawn({args = {"sh", "-c", command}, stdin = "null", timeoutMs = 30000})
+    local process = require("io.internal.process")
+    local child, problem = process.spawn({args = {"sh", "-c", command}, stdin = "null", timeoutms = 30000})
     assert(child, problem)
-    local result, failed = child:communicate({maxOutputBytes = 16 * 1024 * 1024})
+    local result, failed = child:communicate({maxoutputbytes = 16 * 1024 * 1024})
     child:close()
     assert(result, failed)
-    local reported = result.errorOutput
-    if result.exit.timedOut then
+    local reported = result.erroroutput
+    if result.exit.timedout then
         reported = reported .. "\nguest process exceeded its execution deadline"
     end
 
@@ -413,7 +413,7 @@ function M.theJitRuntimeAnswersAsTheInterpreterDoesInGuestMode()
 end
 
 function M.selfEdgesRespectTheExecutionBudget()
-    local process = require("nupp.io.process")
+    local process = require("io.internal.process")
     for caseIndex, case in ipairs({
         {"Jmp -1", 0},
         {"const 0 num 1\nK 1 0\nJmpIf 1 -1", 1},
@@ -437,13 +437,13 @@ function M.selfEdgesRespectTheExecutionBudget()
         local child, problem = process.spawn({
             args = {glueTool(), "native", "jit", path, "exit_0"},
             stdin = "null",
-            timeoutMs = 10000,
+            timeoutms = 10000,
         })
         assert(child, problem)
         local result, failed = child:communicate()
         child:close()
         assert(result, failed)
-        assert(result:succeeded(), "a self edge did not stop at its budget: " .. result.errorOutput)
+        assert(result:succeeded(), "a self edge did not stop at its budget: " .. result.erroroutput)
         assert(tonumber(result.output) == case[2], "a self edge stopped at the wrong pc: " .. result.output)
         if caseIndex == 1 then
             for _, entry in ipairs({"word_0", "integer_word_0"}) do
@@ -451,7 +451,7 @@ function M.selfEdgesRespectTheExecutionBudget()
                     process.spawn({
                         args = {glueTool(), "native", "jit", path, entry},
                         stdin = "null",
-                        timeoutMs = 10000,
+                        timeoutms = 10000,
                     })
                 )
                 local refused, problem = incomplete:communicate()

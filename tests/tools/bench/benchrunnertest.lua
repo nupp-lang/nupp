@@ -389,14 +389,14 @@ function M.caseListingIsSeparateFromApplicationOutputAndRunnerNIsFixed()
             inWorkspace(
                 working,
                 (
-                    "%q run -O1 %q --case protocol --n 3 --baseline %q --out %q --quiet > %q"
+                    "%q run %q --case protocol --n 3 --baseline %q --out %q --quiet > %q"
                 ):format(NUPP, fixture, baseline, recordOut, stdout)
             )
         )
         testAssert.eq(status, 0, "standalone baseline schema " .. schema .. " reads")
         local nextRecord = json.decode(read(recordOut))
-        testAssert.eq(nextRecord.schema, 4)
-        assert(type(nextRecord.cases[1].medianMs) == "number", "schema4 output retains milliseconds")
+        testAssert.eq(nextRecord.schema, 5)
+        assert(type(nextRecord.cases[1].medianMs) == "number", "schema5 output retains milliseconds")
         testAssert.eq(nextRecord.cases[1].medianms, nil, "the public field does not leak into JSON")
         testAssert.eq(read(baseline), baselineText, "reading a baseline does not rewrite it")
     end

@@ -4498,11 +4498,11 @@ end
 -- failure are obligations of their own. This is the contract automatic
 -- destruction and resource sets already keep, reached from a terminal.
 function M.attemptAllRunsEveryStepAfterAFailure()
-    local invocations = {"   own.attemptAll(value, stop, release)"}
+    local invocations = {"   own.attemptall(value, stop, release)"}
     if program.onVm() then
         -- VM lowering also publishes callbacks when the intrinsic is an expression.
-        invocations[#invocations + 1] = "   local completed: nil = own.attemptAll(value, stop, release)"
-        invocations[#invocations + 1] = "   return own.attemptAll(value, stop, release)"
+        invocations[#invocations + 1] = "   local completed: nil = own.attemptall(value, stop, release)"
+        invocations[#invocations + 1] = "   return own.attemptall(value, stop, release)"
     end
     for index, invocation in ipairs(invocations) do
         local source = table.concat(

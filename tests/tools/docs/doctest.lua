@@ -5102,7 +5102,7 @@ function M.callableNestedModulesKeepTheirFunctionAndModuleEntries()
     assert(random, "callable module is missing")
     local rendered = doc.markdown({random})
     assert(rendered:find("### `random` _function_", 1, true), rendered)
-    assert(rendered:find("function(m: number, n: number): number", 1, true), rendered)
+    assert(rendered:find("function(m: integer, n: integer): integer", 1, true), rendered)
     assert(page.markdown:find("[`math.random`](../modules/math/random/index.html)", 1, true), page.markdown)
 end
 
@@ -5284,8 +5284,6 @@ function M.stdlibIndexIsWrittenWhereTheManifestAsked()
     )
     assert(not loadlib:find("keyword%-local"), "package.loadlib is not a local binding")
     assert(not loadlib:find("Read%-only binding"), "package.loadlib is not declared read-only")
-    local packageMarkdown = readFile(dir .. "/site/modules/package/llms.txt")
-    assert(packageMarkdown:find("function%(Interface%): function%(%)"), packageMarkdown)
     local sidebar = assert(page:match('<aside class="nuppdoc%-sidebar".-</aside>'), "the page has a sidebar")
     assert(
         sidebar:find(

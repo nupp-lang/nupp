@@ -968,7 +968,7 @@ export const result = true
         },
         function(dir)
             local env = projectEnv(dir)
-            local removeLoader = runtime.install(env, compile)
+            local removeLoader = installProject(env)
             local ok, problem = pcall(function()
                 local callable = require("callableprobe")
                 testAssert.eq(type(callable), "table")
@@ -1050,7 +1050,7 @@ export const result = true
         },
         function(dir)
             local env = projectEnv(dir)
-            local removeLoader = runtime.install(env, compile)
+            local removeLoader = installProject(env)
             local ok, problem = pcall(function()
                 local argv = require("argvprobe")
                 testAssert.eq(require("argvprobe"), argv, "the exported array has one module identity")
@@ -1130,7 +1130,7 @@ export const result = true
             testAssert.eq(found.declarations[1].name, "Named")
             testAssert.eq(found.declarations[1].visibility, "module")
             local env = projectEnv(dir)
-            local removeLoader = runtime.install(env, compile)
+            local removeLoader = installProject(env)
             local ok, problem = pcall(function()
                 local api = require("arrayprovider")
                 testAssert.eq(require("arrayprovider"), api)

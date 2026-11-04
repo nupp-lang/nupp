@@ -2,7 +2,7 @@ local test = require("assert")
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("helpers.fragment")
 local envMod = require("nupp.compiler.project.env")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local stdlib = require("nupp.compiler.stdlib")
 
 local HERE = require("helpers.paths").tests
@@ -15,25 +15,25 @@ local function compile(source)
     for _, diagnostic in ipairs(check.check(parsed, "math-namespace.nupp", env)) do
         assert(diagnostic.severity ~= "error", diagnostic.code .. ": " .. diagnostic.msg)
     end
-    local code, diagnostics = gen.generate(parsed, "math-namespace.nupp")
-    test.eq(#diagnostics, 0)
 
-    return parsed, code
+    return parsed, function()
+        return program.run(parsed, "mathnamespace", "math-namespace.nupp")
+    end
 end
 
 function M.finalMathCallsKeepTheExistingNumericContracts()
     local parsed, code = compile(
         [[
 local family = math.u32
-local add = family.add
-local wrapped: uint32 = add(family.wrap(-1), 1)
+local div = family.div
+local wrapped: uint32 = div(family.wrap(-1), family.wrap(-1))
 local bits: uint32 = math.f32.tobits(math.f32.narrow(1))
 return wrapped, bits, math.lerp(10, 20, 0.25)
 ]]
     )
     assert(parsed.effects["stdlib.math"], "the final surface retains its runtime dependency")
-    local wrapped, bits, interpolated = assert(loadstring(code))()
-    test.eq(wrapped, 0)
+    local wrapped, bits, interpolated = code()
+    test.eq(wrapped, 1)
     test.eq(bits, 0x3f800000)
     test.eq(interpolated, 12.5)
 end
@@ -46,7 +46,7 @@ return math.u32.add(1, 2)
 ]]
     )
     test.eq(parsed.effects and parsed.effects["stdlib.math"], nil)
-    test.eq(assert(loadstring(code))(), 43)
+    test.eq(code(), 43)
 end
 
 function M.ordinaryMathDoesNotSelectTheExtensionRuntime()

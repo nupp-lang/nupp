@@ -651,12 +651,12 @@ return child == getmetatable(value.child) and value.child.value == 7
     )
     local stats = {}
     testAssert.eq(project.build(dir, {stats = stats}), 0)
-    -- VM targets lower carried Nupp instead of reusing Lua-generation siblings.
-    testAssert.eq(stats.checkedModules, 2, "the consumer and newly reached reflection facade are checked")
-    testAssert.eq(answerFrom(dir), "true")
+    testAssert.eq(stats.checkedModules, 1, "only the changed consumer is checked; its reflection facade is current")
+    -- Before `answerFrom`, whose binary target is another manifest to check under.
     local warm = {}
     testAssert.eq(project.build(dir, {stats = warm}), 0)
     testAssert.eq(warm.checkedModules, 0, "the complete reflection closure is then reused")
+    testAssert.eq(answerFrom(dir), "true")
     remove(dir)
 end
 
