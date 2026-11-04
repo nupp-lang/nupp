@@ -631,8 +631,8 @@ function M.anIncompleteStructIsMarkedAsAHandle()
     assertContains(text, "cdef function layout_opaque_new(): layout_opaque*?")
 end
 
--- The structs an import emits, laid out by `layoutof` from the generated module and
--- by the C compiler from the header, must be the same.
+-- The structs an import emits, laid out by `types.layoutof` from the generated
+-- module and by the C compiler from the header, must be the same.
 function M.importedLayoutsMatchWhatTheCCompilerLaysOut()
     if os.execute("cc --version >/dev/null 2>&1") ~= 0 then
         return require("assert").suite.skip("cc is unavailable")
@@ -662,7 +662,7 @@ function M.importedLayoutsMatchWhatTheCCompilerLaysOut()
     end
     for _, spec in ipairs(specs) do
         local renamed = spec.name:gsub("layout_", "layoutcc_")
-        exported[#exported + 1] = renamed .. " = layoutof(" .. renamed .. ")"
+        exported[#exported + 1] = renamed .. " = types.layoutof(" .. renamed .. ")"
     end
     local source = table.concat(
         blocks,
@@ -673,7 +673,8 @@ function M.importedLayoutsMatchWhatTheCCompilerLaysOut()
         #result.errors == 0,
         "renamed declarations parse: " .. (result.errors[1] and result.errors[1].msg or "") .. "\n" .. source
     )
-    local diags = check.check(result, "layoutcc.nupp")
+    -- In the repository, where the standard `types` namespace resolves.
+    local diags = check.check(result, "layoutcc.nupp", envMod.new(HERE .. "/.."))
     assert(#diags == 0, "renamed declarations check: " .. (diags[1] and diags[1].msg or ""))
     local layouts = program.run(result, "layoutcc")
 

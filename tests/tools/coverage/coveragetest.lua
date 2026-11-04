@@ -347,9 +347,11 @@ local function vmModuleLoadCountsItsTopLevel()
     moduleFixtures = moduleFixtures + 1
     local name = "nupp.compiler.coveragefixture.generics" .. moduleFixtures
     local source = read(path)
-    local declaration = "module " .. realName
-    assert(source:sub(1, #declaration + 1) == declaration .. "\n", "the real module begins with its declared header")
-    source = "module " .. name .. source:sub(#declaration + 1)
+    -- The header follows the module's leading documentation, on a line of its own.
+    local declaration = "\nmodule " .. realName .. "\n"
+    local at = ("\n" .. source):find(declaration, 1, true)
+    assert(at, "the real module declares its header")
+    source = source:sub(1, at - 1) .. "module " .. name .. source:sub(at - 1 + #declaration - 1)
     local previousFixture = package.loaded[name]
     local vmHits, manifests
 

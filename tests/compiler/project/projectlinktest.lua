@@ -1394,32 +1394,13 @@ return person:hello()
             local parsed = parser.parse(readFile(path), path)
             local diags = check.check(parsed, path, env)
             testAssert.eq(#diags, 0, diags[1] and diags[1].msg or "")
-            local gen = require("nupp.compiler.lua.gen")
-            local code = gen.generate(parsed, path)
-            assert(code:find('require("greet").Greeter.hello', 1, true), code)
-            local greetPath = dir .. "/src/greet.nupp"
-            local greetParsed = parser.parse(readFile(greetPath), greetPath)
-            testAssert.eq(#check.check(greetParsed, greetPath, env), 0)
-            local greetCode = gen.generate(greetParsed, greetPath)
-            local greeting = assert(loadstring(greetCode))()
-            assert(type(greeting.Greeter.hello) == "function")
-            local actualRequire = require
-            local run = assert(loadstring(code))
-            setfenv(
-                run,
-                setmetatable(
-                    {
-                        require = function(name)
-                            if name == "greet" then
-                                return greeting
-                            end
-                            return actualRequire(name)
-                        end
-                    },
-                    {__index = _G}
-                )
-            )
-            testAssert.eq(run(), "hello, Ada")
+            -- The default body lives in the declaring module, which the
+            -- consumer reached only through a type-only import and aliases.
+            assert(program.names(program.image(parsed, "use", path), "greet"), "the consumer loads greet")
+            local greeting = withModules(dir, {"greet"}, function()
+                return program.run(parsed, "use", path)
+            end)
+            testAssert.eq(greeting, "hello, Ada")
         end
     )
 end

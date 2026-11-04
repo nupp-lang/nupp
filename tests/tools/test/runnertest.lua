@@ -180,18 +180,16 @@ return M
 end
 
 function M.rejectsDuplicateSuiteBasenamesAcrossDirectoriesAndLanguages()
-    local dir = os.tmpname()
-    os.remove(dir)
+    local dir = copiedRunner()
     local fs = require("nupp.compiler.fs")
-    assert(fs.mkdir(dir .. "/compiler"))
-    assert(fs.mkdir(dir .. "/stdlib"))
-    write(dir .. "/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/compiler/duplicatetest.lua", "return {}\n")
+    assert(fs.mkdir(dir .. "/tests/compiler"))
+    assert(fs.mkdir(dir .. "/tests/stdlib"))
+    write(dir .. "/tests/compiler/duplicatetest.lua", "return {}\n")
     for _, extension in ipairs({"lua", "nupp"}) do
-        local duplicate = dir .. "/stdlib/duplicatetest." .. extension
+        local duplicate = dir .. "/tests/stdlib/duplicatetest." .. extension
         write(duplicate, "return {}\n")
         local output, invocation = capturedRun(
-            (MODULES .. "NUPP_TEST_BUILD=build luajit %q --list-suites 2>&1"):format(dir .. "/run.lua")
+            ("cd %q && NUPP_TEST_BUILD=%q %q --list-suites 2>&1"):format(dir, dir .. "/build", RUNNER)
         )
         test.eq(invocation.status, 2, "duplicate suite names were accepted" .. evidence(invocation))
         test.matches(output, "duplicate test suite duplicatetest")
@@ -203,17 +201,16 @@ function M.rejectsDuplicateSuiteBasenamesAcrossDirectoriesAndLanguages()
 end
 
 function M.classifiesNestedSuitesFromTheirActualSources()
-    local dir = os.tmpname()
-    os.remove(dir)
+    local dir = copiedRunner()
     local fs = require("nupp.compiler.fs")
-    assert(fs.mkdir(dir .. "/nested/deeper"))
-    write(dir .. "/run.lua", read(ROOT .. "/tests/run.lua"))
-    write(dir .. "/nested/deeper/puretest.lua", "return {passes = function() end}\n")
-    write(dir .. "/nested/deeper/shelltest.lua", "return {passes = function() os.execute('exit 0') end}\n")
-    write(dir .. "/nested/deeper/isolatedtest.lua", "return {passes = function() package.loaded.sentinel = nil end}\n")
-    test.eq(run(dir .. "/run.lua", "--lane=shared --list-suites"), "puretest\n")
-    test.eq(run(dir .. "/run.lua", "--lane=shell --list-suites"), "shelltest\n")
-    test.eq(run(dir .. "/run.lua", "--lane=isolated --list-suites"), "isolatedtest\n")
+    local deeper = dir .. "/tests/nested/deeper"
+    assert(fs.mkdir(deeper))
+    write(deeper .. "/puretest.lua", "return {passes = function() end}\n")
+    write(deeper .. "/shelltest.lua", "return {passes = function() os.execute('exit 0') end}\n")
+    write(deeper .. "/isolatedtest.lua", "return {passes = function() package.loaded.sentinel = nil end}\n")
+    test.eq(run(dir, "--lane=shared --list-suites"), "puretest\n")
+    test.eq(run(dir, "--lane=shell --list-suites"), "shelltest\n")
+    test.eq(run(dir, "--lane=isolated --list-suites"), "isolatedtest\n")
     os.execute("rm -rf " .. string.format("%q", dir))
 end
 

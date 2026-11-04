@@ -120,6 +120,7 @@ local M = {}
 
 function M.lowercaseBuilderPathsRespectLocalBindings()
     local nominal, open = run(
+        "comptimetest.lowercaseBuilderPathsRespectLocalBindings",
         [[
 local types = {
     samenominal = function(left: integer, right: integer): boolean return left ~= right end,
@@ -136,6 +137,7 @@ end
 
 function M.lowercaseFieldcodecKeepsTheExistingMaterializationContract()
     local left, right = run(
+        "comptimetest.lowercaseFieldcodecKeepsTheExistingMaterializationContract",
         [[
 local record Item
     value: integer
@@ -470,12 +472,14 @@ local alignment: number = types.alignof(-4)
 local offset: integer = types.offsetof("field")
 return {size, alignment, offset}
 ]]
-    testAssert.eq(table.concat(run(source), ","), "9,4,5")
-    testAssert.eq(table.concat(run("return comptime do " .. source .. " end"), ","), "9,4,5")
+    local name = "comptimetest.layoutNamesRespectShadowedTypesAtRuntimeAndComptime"
+    testAssert.eq(table.concat(run(name .. ".runtime", source), ","), "9,4,5")
+    testAssert.eq(table.concat(run(name .. ".comptime", "return comptime do " .. source .. " end"), ","), "9,4,5")
 end
 
 function M.layoutNamespaceAliasesKeepTheDeclaredTarget()
     local values = runIn(
+        "comptimetest.layoutNamespaceAliasesKeepTheDeclaredTarget",
         [[
 local struct Value
     tag: int8
@@ -1024,11 +1028,9 @@ end
     local diagnostics = check.check(checked, "phaseexports.nupp", envMod.new(HERE .. "/..", {cache = false}))
     testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     testAssert.eq(type(checked.moduleExports.comptimeFunctions.debug), "table")
-    local code, generated = gen.generate(checked, "phaseexports.nupp")
-    testAssert.eq(#generated, 0)
     local originalDebug = rawget(_G, "debug")
     local priorModule = package.loaded.phaseexports
-    local ok, exported = pcall(assert(loadstring(code, "@phaseexports.nupp")))
+    local ok, exported = pcall(program.run, checked, "phaseexports", "phaseexports.nupp")
     local after = rawget(_G, "debug")
     rawset(_G, "debug", originalDebug)
     package.loaded.phaseexports = priorModule
@@ -1063,6 +1065,7 @@ end
 -- the missing argument is nil, and only a required one omitted is a mistake.
 function M.callableAssertionsKeepTheirTableAndResultPack()
     local value = run(
+        "comptimetest.callableAssertionsKeepTheirTableAndResultPack",
         [[
 return comptime do
     local verify = assert
@@ -1112,7 +1115,7 @@ end
     testAssert.eq(codes[1], "NUPP2411", "a shadowed table is not the registered callable")
     assert(diags[1].msg:find("a table is not callable", 1, true), diags[1].msg)
     testAssert.eq(
-        run([[
+        run("comptimetest.callableAssertionCapabilitiesDoNotAdmitOtherTables", [[
 return comptime do
     local assert = math.abs
     return assert(-4)

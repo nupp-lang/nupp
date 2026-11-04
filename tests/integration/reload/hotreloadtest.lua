@@ -1153,7 +1153,7 @@ end
 -- when one is installed or named by `NUPP_VM_CLI_IMAGE`; otherwise it refuses
 -- `--watch`, and these cases have nothing to run.
 local HERE = debug.getinfo(1, "S").source:sub(2):match("^(.*)[/\\]") or "."
-local ROOT = HERE:sub(1, 1) == "/" and (HERE .. "/..") or ((os.getenv("PWD") or ".") .. "/" .. HERE .. "/..")
+local ROOT = HERE:sub(1, 1) == "/" and (HERE .. "/../../..") or ((os.getenv("PWD") or ".") .. "/" .. HERE .. "/../../..")
 
 local function watchCommand()
     local installed = io.open(ROOT .. "/.nupp/vm-cli/current", "rb")
