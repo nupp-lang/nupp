@@ -16,7 +16,7 @@
   --nupp-woodblock-ember-deep: color-mix(in srgb, var(--nupp-woodblock-ember) 60%, black);
   --nupp-woodblock-cinnabar: #d64a3b;
   --nupp-woodblock-cinnabar-deep: color-mix(in srgb, var(--nupp-woodblock-cinnabar) 65%, black);
-  --nuppdoc-light-accent: #50676c;
+  --nuppdoc-light-accent: #006e86;
   --nuppdoc-light-accent-hover: color-mix(in srgb, var(--nuppdoc-light-accent) 80%, black);
   --nuppdoc-light-accent-soft: #f1e1df;
   --nuppdoc-light-background: #f6f2e9;
