@@ -177,6 +177,8 @@ export function open(
         -- through the scope and unmapped by close.
         a.growable = true
         local h = heap.create(a)
+        -- Generations (Decision 20) are kept from the first allocation on.
+        h.generational = collector.GENERATIONAL
         collector.register(h, pool, poolWords)
         collector.register(h, world, worldWords)
         native.store64(services, native.fieldOffset<Services>("running"), 0ULL)

@@ -53,6 +53,21 @@ export const COLOR_BLACK: uint64 = 2
 export const F_INTERNED: uint64 = 1
 export const F_TOMBSTONE: uint64 = 2
 
+-- The generations (runtime Decision 20), as Lua 5.4's generational mode keeps
+-- them: an object is young from its allocation, survives one minor collection
+-- to `F_SURVIVAL` and a second to `F_OLD`, and then only a full collection
+-- frees it. An old object the barrier saw take a young child is `F_TOUCHED`
+-- and listed in `Heap.remembered`; a large old table carries card bits
+-- instead (`F_CARDS`, its record's index in the upper bits of `aux`). A
+-- frozen table is old from when it freezes and is never written again.
+-- `F_LISTED` marks an entry while a list is deduplicated.
+export const F_SURVIVAL: uint64 = 4
+export const F_OLD: uint64 = 8
+export const F_TOUCHED: uint64 = 16
+export const F_CARDS: uint64 = 32
+export const F_FROZEN: uint64 = 64
+export const F_LISTED: uint64 = 128
+
 --- The size class byte of an object allocated on its own.
 export const CLASS_LARGE: uint64 = 255
 
@@ -97,7 +112,8 @@ export struct Header
     size: uint32
 
     --- Kind-specific: a record's shape, a closure's function, a table's weak
-    --- mode bits; a freed object's former kind.
+    --- mode bits (and above bit 8 its card record, under `F_CARDS`); a freed
+    --- object's former kind.
     aux: uint32
 
     --- The payload's address, or a free slot's successor.
@@ -333,6 +349,14 @@ export struct Stats
     large: uint64
     tombstones: uint64
     chunkBytesMapped: uint64
+
+    --- Minor collections, objects they promoted, old objects the barrier
+    --- remembered and cards it marked.
+    minors: uint64
+
+    promoted: uint64
+    remembers: uint64
+    cardmarks: uint64
 end
 
 --- The heap: the allocator's state, the collector's, and the roots it walks.
@@ -428,6 +452,24 @@ export struct Heap
     oracleFailures: uint64
 
     stats: Stats*
+
+    --- Generations (Decision 20). Nonzero `generational`, set before the
+    --- heap first allocates, keeps the lists minor collections need: every
+    --- young object in `young`, every touched old one in `remembered`, and
+    --- the card records of large old tables in `cards`, six words each (the
+    --- table, its bits, the array and hash words of bits, and the hash part
+    --- they were laid over), the free ones' offsets in `cardfree`. `minor`
+    --- is 1 while a minor collection runs; `genbase` is what lived after the
+    --- last full collection and `sincefull` the minor collections since it.
+    generational: uint64
+
+    minor: uint64
+    young: Words*
+    remembered: Words*
+    cards: Words*
+    cardfree: Words*
+    genbase: uint64
+    sincefull: uint64
 end
 
 -- ---- words over mappings ---------------------------------------------------
@@ -858,6 +900,14 @@ export function create(borrows a: arena.Arena*): Heap* borrows (a)
         h.released = zeroWords(a)
         h.seen = zeroSet(a)
         h.oracleStack = zeroWords(a)
+        h.young = zeroWords(a)
+        h.remembered = zeroWords(a)
+        h.cards = zeroWords(a)
+        h.cardfree = zeroWords(a)
+        h.generational = 0ULL
+        h.minor = 0ULL
+        h.genbase = 1048576
+        h.sincefull = 0ULL
         h.threshold = 1048576
         h.automatic = true
         h.phase = PHASE_IDLE
@@ -920,6 +970,18 @@ export function destroy(h: Heap*): nil
         wordsRelease(h.weak)
         wordsRelease(h.released)
         wordsRelease(h.oracleStack)
+        -- Card bits live in word backing, from the arena's pools or mapped.
+        i = 0
+        while i < h.cards.count do
+            if wordAt(h.cards, i) ~= 0ULL then
+                arena.releaseWordBacking(wordAt(h.cards, i + 1ULL))
+            end
+            i = i + 6ULL
+        end
+        wordsRelease(h.young)
+        wordsRelease(h.remembered)
+        wordsRelease(h.cards)
+        wordsRelease(h.cardfree)
         setClear(h.chunkSet)
         setClear(h.largeSet)
         setClear(h.seen)
@@ -1058,6 +1120,12 @@ export function allocRaw(h: Heap*, kind: uint64, inlineBytes: uint64): Header*
         error("heap: object extent exceeds its header")
     end
     @unsafe do
+        -- The young list has room before the object exists, so listing it
+        -- maps nothing between its allocation and its return.
+        local listed = h.generational ~= 0ULL
+        if listed and h.young.count == h.young.capacity then
+            wordsGrow(h.young, h.young.count + 1ULL)
+        end
         local size = HEADER_BYTES + inlineBytes
         local class = classFor(h, size)
         local header: uint64 = 0
@@ -1080,6 +1148,12 @@ export function allocRaw(h: Heap*, kind: uint64, inlineBytes: uint64): Header*
         h.liveBytes = h.liveBytes + size
         h.debt = h.debt + size
         h.stats.allocated = h.stats.allocated + 1
+        -- Young until two minor collections pass it (Decision 20).
+        if listed then
+            local list = h.young
+            native.store64(native.pointer(list.base), native.index(list.count * 8ULL), header)
+            list.count = list.count + 1ULL
+        end
 
         return o
     end
