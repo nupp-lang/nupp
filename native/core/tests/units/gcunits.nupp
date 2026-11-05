@@ -207,9 +207,10 @@ export function stackChain(count: uint64, bytes: uint64, keep: uint64): uint64
         local a = arena.open(16777216ULL)
         @unsafe do
             local h = heap.create(a)
-            local cache = rootsIn(a, 2ULL)
+            local cache = rootsIn(a, 3ULL)
             setRoot(cache, 0ULL, 0ULL)
             setRoot(cache, 1ULL, 0ULL)
+            setRoot(cache, 2ULL, 0ULL)
             local state = rootsIn(a, native.sizeOf<frames.State>() // 8ULL)
             local at: uint64 = 0ULL
             while at < native.sizeOf<frames.State>() // 8ULL do

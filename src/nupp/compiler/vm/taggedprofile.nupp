@@ -6,6 +6,13 @@ local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local tagged = {booleanKind = "tagged"}
 
+-- Core library call ids, as the core names them: guestlib.LANDED and
+-- guestlib.RERAISE, threads.LIB_CREATE, tasks.LIB_TASKS.
+local LIB_LANDED = 45
+local LIB_RERAISE = 46
+local LIB_CREATE = 75
+local LIB_TASKS = 127
+
 -- The graphs built with the cleanup protocol (a graph carries no extra
 -- fields), whose calls report ownership moves to it.
 local cleanupGraphs: {[any]: boolean} = setmetatable({}, {__mode = "k"})
@@ -17,7 +24,7 @@ local function landed(ctx: any, node: any, result: any): any
         return result
     end
     local none = ctx.emit(node, "Nil", {}, "tagged")
-    local status = ctx.emit(node, "LibCall", {45, none}, "tagged")
+    local status = ctx.emit(node, "LibCall", {LIB_LANDED, none}, "tagged")
     if type(result) == "table" then
         local held = {}
         for index, value in ipairs(result) do
@@ -143,6 +150,8 @@ local stringLibrary: {[string]: {integer}} = {
     ["math.sqrt"] = {44, 1, 1},
     ["math.f32.narrow"] = {91, 1, 1},
     ["math.u32.wrap"] = {92, 1, 1},
+    -- The scheduler's primitives, one id with its operation first.
+    ["taskcalls.op"] = {LIB_TASKS, 1, 3},
     ["storagecalls.allocbytes"] = {94, 1, 1},
     ["storagecalls.allocate"] = {95, 2, 2},
     ["storagecalls.view"] = {96, 3, 4},
@@ -173,7 +182,7 @@ local stringLibrary: {[string]: {integer}} = {
     ["table.freeze"] = {114, 1, 1},
     ["table.isfrozen"] = {115, 1, 1},
     -- The coroutine library calls answering one value.
-    ["coroutine.create"] = {75, 1, 1},
+    ["coroutine.create"] = {LIB_CREATE, 1, 1},
     ["coroutine.status"] = {78, 1, 1},
     ["coroutine.wrap"] = {79, 1, 1}
 }
@@ -1065,12 +1074,26 @@ local function printValues(ctx: any, node: any): integer
     return ctx.emit(node, "LibCall", {55, pack}, "tagged") as integer
 end
 
+-- A call's arguments, its receiver first in method form (`co:resume(x)`).
+local function callexprs(node: any): {any}
+    local exprs = node.args.exprs or {}
+    if node.kind ~= "methodCall" then
+        return exprs
+    end
+    local all = {node.obj}
+    for _, expr in ipairs(exprs) do
+        all[#all + 1] = expr
+    end
+
+    return all
+end
+
 -- coroutine.resume(co, ...), coroutine.yield(...) and coroutine.running():
 -- each answers its results as one pack, and resume and yield take their
 -- values as one.
 local function coroutinepack(ctx: any, node: any): integer
     local library = graph.coreLibraryCall(node)
-    local exprs = node.args.exprs or {}
+    local exprs = callexprs(node)
     if library == "coroutine.running" then
         need(#exprs == 0, "coroutine.running takes no arguments")
         local none = ctx.emit(node, "Nil", {}, "tagged")
@@ -1213,7 +1236,7 @@ local function invokeMethod(ctx: any, node: any, keepResult: boolean, count: int
         end
     end
     -- The overload the checker selected has a member of its own.
-    local member = node.overloadMember or node.name.text
+    local member = node.trailingCallableMember or node.overloadMember or node.name.text
     local value: integer = 0
     local args: any = nil
     if site.dynamic then
@@ -1609,7 +1632,13 @@ local function cleanupProfile(base: any): any
         return {token = token, methods = methods}
     end
     profile.cleanupAllowed = always
-    profile.cleanupStatus = always
+    -- After owners are destroyed: false once when a destructor raised, its
+    -- error landed here, which the failure path then raises, as Lua raises an
+    -- error a __close raises on the way out.
+    profile.cleanupStatus = function(ctx: any, node: any): integer
+        local none = ctx.emit(node, "Nil", {}, "tagged")
+        return ctx.emit(node, "LibCall", {LIB_LANDED, none}, "tagged") as integer
+    end
     profile.cleanupRun = function(ctx: any, node: any, plan: any, value: integer, reason: string): nil
         local held = ctx.hold(value)
         if plan.names then
@@ -1644,7 +1673,10 @@ local function cleanupProfile(base: any): any
     -- The landed error goes on, as it was, once the owners are destroyed.
     profile.failure = function(ctx: any, node: any): nil
         local none = ctx.emit(node, "Nil", {}, "tagged")
-        ctx.emit(node, "LibCall", {46, none}, "tagged")
+        -- A destructor that raised on the way here landed its error, which
+        -- is the one raised now: the mark goes with it.
+        ctx.emit(node, "LibCall", {LIB_LANDED, none}, "tagged")
+        ctx.emit(node, "LibCall", {LIB_RERAISE, none}, "tagged")
         ctx.block.term = {kind = "return", value = none, edges = {}, pos = ctx.position(node)}
         ctx.block = nil
     end
@@ -2846,6 +2878,26 @@ function tagged.forVersion(version: integer): any
                     ctx.release(held[index])
                 end
                 return result as integer
+            elseif library == "coroutine.create" and #(node.args.exprs or {}) > 1 then
+                -- create(f, ...): the arguments after f bound, as one pack.
+                local args = node.args.exprs
+                local body = ctx.expression(args[1], "tagged")
+                if body == nil then
+                    return nil as any
+                end
+                local held = ctx.hold(body)
+                local rest = {}
+                for index = 2, #args do
+                    rest[#rest + 1] = args[index]
+                end
+                local pack = valuespack(ctx, node, rest)
+                if pack == nil then
+                    ctx.release(held)
+                    return nil as any
+                end
+                local value = ctx.readHeld(held)
+                ctx.release(held)
+                return landed(ctx, node, ctx.emit(node, "LibCall", {LIB_CREATE, value, pack}, "tagged")) as integer
             elseif stringSpec(library) then
                 local spec: {integer} = need(stringSpec(library), "string library call")
                 local count = #(node.args.exprs or {})
@@ -2871,6 +2923,15 @@ function tagged.forVersion(version: integer): any
                 return invokeMethod(ctx, node, true) as integer
             end
             local library = graph.coreLibraryCall(node)
+            -- A thread's methods (`co:resume(x)`) are the coroutine library's.
+            if coroutinepacked[library or ""] then
+                local pack = coroutinepack(ctx, node)
+                if pack == nil then
+                    return nil as any
+                end
+                local key = ctx.emit(node, "K", {pool(ctx, "int64", "1")}, "tagged")
+                return ctx.emit(node, "GetIdx", {pack, key}, "tagged") as integer
+            end
             need(
                 library == "string.format" or stringSpec(library) ~= nil,
                 "only string library method calls are admitted"
@@ -2898,6 +2959,8 @@ function tagged.forVersion(version: integer): any
                 tagged.statementCall(ctx, node)
             elseif node.kind == "methodCall" and site and site.method then
                 invokeMethod(ctx, node, false)
+            elseif node.kind == "methodCall" and coroutinepacked[graph.coreLibraryCall(node) or ""] then
+                profile.methodCall(ctx, node, nil)
             elseif graph.coreLibraryCall(node) == "pcall" or graph.coreLibraryCall(node) == "xpcall" then
                 invokeProtected(ctx, node, false)
             elseif graph.coreLibraryCall(node) == "io.write" then

@@ -1820,6 +1820,8 @@ local coreLibrary: {[string]: boolean} = {
     ["storagecalls.fromstring"] = true,
     ["storagecalls.elements"] = true,
     ["storagecalls.elementkind"] = true,
+    -- The scheduler's primitives (`nupp.runtime.taskcalls`).
+    ["taskcalls.op"] = true,
     ["math.u32.wrap"] = true,
     ["math.i32.wrap"] = true,
     assert = true,
@@ -1944,6 +1946,25 @@ local libraryValues: {
     debug = true
 }
 
+-- The task surface (Decision 18), which the scheduler written in Nupp
+-- (`nupp.runtime.scheduler`) carries as values under these names.
+local schedulerValues: {
+    [string]: boolean
+} = {
+    ["coroutine.scope"] = true,
+    ["coroutine.checkpoint"] = true,
+    ["coroutine.deadline"] = true,
+    ["coroutine.iscancelled"] = true,
+    ["coroutine.sleep"] = true,
+    ["coroutine.sleepuntil"] = true
+}
+
+-- The image module carrying library value `name`: the scheduler for the
+-- task surface, `nupp.runtime.libraryvalues` for the rest.
+function graph.libraryValueModule(name: string): string
+    return schedulerValues[name] and "nupp.runtime.scheduler" or "nupp.runtime.libraryvalues"
+end
+
 -- The library name `node` reads when it names a library function, `tostring`
 -- or `string.upper`, outside the callee of a call the core makes itself.
 function graph.libraryValue(node: any): string?
@@ -1954,7 +1975,7 @@ function graph.libraryValue(node: any): string?
         name = node.obj.token.text .. "." .. node.name.text
     end
 
-    return name and libraryValues[name] and name or nil
+    return name and (libraryValues[name] or schedulerValues[name]) and name or nil
 end
 
 -- Whether an unchecked tree may take a library function as a value: a name
@@ -1996,10 +2017,40 @@ function graph.mayTakeLibraryValue(root: any): boolean
     return found
 end
 
+-- Whether an unchecked tree uses the task surface (`coroutine.scope` and
+-- its kin): a builder reads it to carry `nupp.runtime.scheduler`.
+function graph.mayUseScheduler(root: any): boolean
+    local found = false
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if found or type(node) ~= "table" then
+            return
+        end
+        if node.kind == "dotIndex"
+            and node.name
+            and node.obj
+            and node.obj.kind == "name"
+            and node.obj.token
+            and schedulerValues[node.obj.token.text .. "." .. node.name.text]
+        then
+            found = true
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+
+    return found
+end
+
 -- The declaration modules whose functions the core implements as library
 -- calls: a call of one is that call, and requiring the module loads
 -- nothing.
-local corecallmodules: {[string]: string} = {["nupp.runtime.storagecalls"] = "storagecalls"}
+local corecallmodules: {
+    [string]: string
+} = {["nupp.runtime.storagecalls"] = "storagecalls", ["nupp.runtime.taskcalls"] = "taskcalls"}
 
 function graph.corecallmodule(name: string?): boolean
     return name ~= nil and corecallmodules[name] ~= nil
@@ -2046,6 +2097,18 @@ local function stringType(t: any): boolean
     return t ~= nil and t.tag == "string"
 end
 
+-- Whether `t` is a thread's type, whose methods are the coroutine
+-- library's (Decision 18: the threads' metatable's __index is `coroutine`).
+local function threadType(t: any): boolean
+    while t and (t.tag == "const" or t.tag == "affine" or t.tag == "borrowed") do
+        t = t.inner
+    end
+    return t ~= nil and (t.tag == "thread" or t.tag == "protocolThread")
+end
+
+-- The coroutine library functions a thread answers as methods on the core.
+local threadMethods: {[string]: boolean} = {resume = true, status = true, close = true}
+
 -- The library constants the core folds: `math.huge` and its kin, by name.
 local coreConstants: {
     [string]: boolean
@@ -2068,6 +2131,13 @@ function graph.coreLibraryCall(call: any): string?
     local name
     if call and call.kind == "methodCall" and call.name and stringType(call.obj and call.obj.inferredType) then
         name = "string." .. call.name.text
+    elseif call
+        and call.kind == "methodCall"
+        and call.name
+        and threadMethods[call.name.text]
+        and threadType(call.obj and call.obj.inferredType)
+    then
+        name = "coroutine." .. call.name.text
     elseif call and call.kind == "call" and preludeName(call.obj) then
         name = call.obj.token.text
     elseif call

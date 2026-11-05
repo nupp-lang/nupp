@@ -666,6 +666,24 @@ export function libraryCall(ctx: voidptr, frame: voidptr, pc: voidptr, nargs: ui
         fail(ctx, frame, pc, INVALID)
         return 0ULL
     end
+    -- A wrapped coroutine's function as the metamethod: its thread resumes
+    -- with the arguments, and what it yields first answers the call, which
+    -- then runs again (`threads.handover`). Its thread stands for the frame
+    -- the call waits on.
+    local window = native.loadPointer(frame, native.fieldOffset<frames.Frame>("values"))
+    local wrapped = threads.wrapped(native.load64(window, native.index((nv - 4ULL) * 8ULL)))
+    if wrapped ~= 0ULL then
+        local answer = threads.callwrapped(ctx, frame, pc, wrapped, nv - 3ULL, nargs, resultSlot | (1ULL << 32ULL))
+        if answer == threads.RAISED then
+            fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+            return 0ULL
+        elseif answer ~= threads.SWITCHED then
+            fail(ctx, frame, pc, INVALID)
+            return 0ULL
+        end
+        threads.waitinglibrary(wrapped)
+        return wrapped & values.PAYLOAD
+    end
     local child = metaPrepare(ctx, frame, pc, nv - 4ULL, nargs, resultSlot)
     if child == 0ULL then
         return 0ULL

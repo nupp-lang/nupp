@@ -109,7 +109,7 @@ local CASES = {
     {"numbersMath", 0x7FFF00000010F44A},
     {"recordsAffine", 0x7FFF000000007D88},
     {"recordsAffineErrors", 0x7FFF00000632F03D},
-    {"recordsaffineraise", 0x7FFF000000008182},
+    {"recordsaffineraise", 0x7FFF000000025642},
     {"recordsdynamic", 0x7FFF0000002F2854},
     {"tablesSort", 0x7FFF000000560C7F},
     {"stringsGsubFunction", 0x7FFF00000000003F},
@@ -131,6 +131,11 @@ local CASES = {
     {"threadsclose", 0x7FFF00000000007F},
     {"threadsiterate", 0x7FFF00000000001F},
     {"threadsmeta", 0x7FFF000000105C53},
+    {"threadsmethods", 0x7FFF00000000007F},
+    {"tasksbasic", 0x7FFF00000000003F},
+    {"taskscancel", 0x7FFF00000000003F},
+    -- 3,000 tasks parked on timers and on each other.
+    {"tasksscopes", 0x7FFF00000000003F},
     -- 200,000 coroutines between collections, recursion 150,000 frames deep
     -- in one, a yield 20,000 deep and an overflow in one.
     {"threadsstacks", 0x7FFF00000000003F},
@@ -202,6 +207,10 @@ local STRESS = {
     libraryspread = true,
     threadsiterate = true,
     threadsmeta = true,
+    threadsmethods = true,
+    tasksbasic = true,
+    taskscancel = true,
+    tasksscopes = true,
     threadsstacks = true,
     textbuffer = true,
     stringbuffer = true,
@@ -224,7 +233,7 @@ local STRESS = {
 -- every allocation and interleaved collection, which keeps every freed
 -- object as a tombstone: there a collection runs between any two
 -- coroutines however few they are.
-local STRESS_ENV = {threadsstacks = "NUPP_GUEST_COROUTINES=4000 "}
+local STRESS_ENV = {threadsstacks = "NUPP_GUEST_COROUTINES=4000 ", tasksscopes = "NUPP_GUEST_TASKS=300 "}
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
 local STATUS = {numericModZero = 6, numericOverflow = 5}
@@ -291,6 +300,7 @@ local NUMERIC = {
     threadsclose = "catalog-threads-close",
     threadsiterate = "catalog-threads-iterate",
     threadsmeta = "catalog-threads-meta",
+    threadsmethods = "catalog-threads-methods",
     threadsstacks = "catalog-threads-stacks",
     outputwrite = "catalog-output-write",
     libraryspread = "catalog-library-spread",
@@ -615,7 +625,10 @@ local function stage()
             "catalog-core-forms",
             "catalog-storage-basics",
             "catalog-storage-provider",
-            "catalog-tables-frozen"
+            "catalog-tables-frozen",
+            "catalog-tasks-basic",
+            "catalog-tasks-cancel",
+            "catalog-tasks-scopes"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",

@@ -139,6 +139,16 @@ export function randomSeed(scope: voidptr): uint64
     return os.randomSeed()
 end
 
+export function monotonicNanos(scope: voidptr): uint64
+    local _ = scope
+    return os.monotonicNanos()
+end
+
+export function sleepNanos(scope: voidptr, nanos: uint64): uint64
+    local _ = scope
+    return os.sleepNanos(nanos)
+end
+
 -- Root-registration close failure retains all backing. Entry must preserve
 -- this scope and ledger, never reset them or drain mappings under live roots.
 export function retain(scope: voidptr): nil

@@ -120,6 +120,10 @@ local CASES: {[string]: {
     threadsclose = {fixture = "catalog-threads-close", version = 8},
     threadsiterate = {fixture = "catalog-threads-iterate", version = 8},
     threadsmeta = {fixture = "catalog-threads-meta", version = 8},
+    threadsmethods = {fixture = "catalog-threads-methods", version = 8},
+    tasksbasic = {fixture = "catalog-tasks-basic", version = 8},
+    taskscancel = {fixture = "catalog-tasks-cancel", version = 8},
+    tasksscopes = {fixture = "catalog-tasks-scopes", version = 8},
     threadsstacks = {fixture = "catalog-threads-stacks", version = 8},
     outputwrite = {fixture = "catalog-output-write", version = 8},
     libraryspread = {fixture = "catalog-library-spread", version = 8},
@@ -513,6 +517,15 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         end
         if takes then
             table.insert(names, #names, root .. "/src/nupp/runtime/libraryvalues")
+        end
+        -- A program using the task surface carries the scheduler.
+        local tasks = false
+        for _, name in ipairs(names) do
+            local path = modulePath(root, name)
+            tasks = tasks or graph.mayUseScheduler(parser.parse(read(path), path).root)
+        end
+        if tasks then
+            table.insert(names, #names, root .. "/src/nupp/runtime/scheduler")
         end
     end
     local staged = root .. "/build/core-guest-programs/source"

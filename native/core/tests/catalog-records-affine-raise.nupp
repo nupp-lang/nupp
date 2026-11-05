@@ -43,4 +43,45 @@ end
 if string.find(tostring(e2), "too big") ~= nil and string.find(tostring(e3), "out of range") ~= nil then
     score = score + 20000
 end
+-- A destructor that raises on the way out of a function raises there, as
+-- Lua raises an error a __close raises.
+local record Faulty
+    constructor(self): affine(Faulty, Faulty.destroy)
+    end
+
+    function destroy(takes self): nil
+        error("faulty", 0)
+    end
+end
+
+local function leaving(): integer
+    const f = new Faulty()
+    return 1
+end
+
+const ok4, e4 = pcall(leaving)
+if not ok4 and e4 == "faulty" then
+    score = score + 40000
+end
+
+-- A wrapped thread's error, raised again at the call of its function, lands
+-- in the calling function, which destroys its owners.
+local function resuming(): integer
+    local f = new File(6)
+    const id = f.id
+    local inner = coroutine.wrap(function(): integer
+        if id > 0 then
+            error("inside", 0)
+        end
+        return 0
+    end)
+
+    return inner()
+end
+
+const before = closed
+const ok5, e5 = pcall(resuming)
+if not ok5 and string.find(tostring(e5), "inside") ~= nil and closed == before + 1 then
+    score = score + 80000
+end
 export = score

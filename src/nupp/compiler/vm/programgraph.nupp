@@ -551,13 +551,14 @@ function program.describe(modules: {any}, entryModule: string): any
         -- `nupp.runtime.libraryvalues` carries under its name, read through a
         -- require of that module.
         local libraryValue = graph.libraryValue(node)
-        local values = moduleNames["nupp.runtime.libraryvalues"]
+        local valuesModule = libraryValue and graph.libraryValueModule(libraryValue) or "nupp.runtime.libraryvalues"
+        local values = moduleNames[valuesModule]
         if libraryValue and values then
             local item = {
                 id = #p.requires,
                 owner = owner.id,
                 node = node,
-                module = "nupp.runtime.libraryvalues",
+                module = valuesModule,
                 typeOnly = false,
                 target = values.chunk,
                 qualified = true,
@@ -838,7 +839,7 @@ function program.describe(modules: {any}, entryModule: string): any
         local throughValue = node.kind == "call"
             and node.obj.kind == "name"
             and graph.libraryValue(node.obj) ~= nil
-            and moduleNames["nupp.runtime.libraryvalues"] ~= nil
+            and moduleNames[graph.libraryValueModule(graph.libraryValue(node.obj) as string)] ~= nil
         if node.kind == "call"
             and node.obj.kind == "name"
             and not throughValue

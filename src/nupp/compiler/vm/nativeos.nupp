@@ -16,7 +16,9 @@ local definitions = {
     writeOutput = {slot = 6, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
     mathFunction = {slot = 7, params = {"uint64", "uint64", "uint64"}, result = "uint64", cResult = "uint64"},
     randomSeed = {slot = 8, params = {}, result = "uint64", cResult = "uint64"},
-    readInput = {slot = 9, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"}
+    readInput = {slot = 9, params = {"voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    monotonicNanos = {slot = 10, params = {}, result = "uint64", cResult = "uint64"},
+    sleepNanos = {slot = 11, params = {"uint64"}, result = "uint64", cResult = "uint64"}
 }
 
 local function need(value: any, message: string): any

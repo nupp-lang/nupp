@@ -24,8 +24,8 @@ export const FIRST: uint64 = 16384ULL
 const LARGEST: uint64 = 67108864ULL
 -- The most bytes one chunk may map: past every frame a catalog admits.
 const BOUND: uint64 = 1073741824ULL
--- How many first chunks a cache keeps for the next coroutine.
-const CACHED: uint64 = 8ULL
+-- How many first chunks a slab holds.
+const SLAB: uint64 = 32ULL
 
 local function roundUp(value: uint64, alignment: uint64): uint64
     return (value + (alignment - 1ULL)) & ~(alignment - 1ULL)
@@ -102,28 +102,66 @@ export function count(chunk: uint64): uint64
     return total
 end
 
--- A coroutine's first chunk, with room for a `bytes` frame: one `cache`
--- keeps (its first word the first chunk kept, the next their count, the
--- chunks linked through `below`), or a fresh mapping, which counts as
+-- A slab's first page: the next slab and the bytes it maps. Its first
+-- chunks follow, each a page multiple.
+const SLAB_NEXT: int64 = 0
+const SLAB_BYTES: int64 = 8
+
+-- Maps a slab of SLAB first chunks onto `cache`'s free list, its mapping
+-- counted as allocation on the heap at `h`. Answers 1, or 0 when refused.
+local function refill(cache: voidptr, h: uint64): uint64
+    local page = os.pageSize()
+    local size = page + SLAB * firstBytes()
+    local base = os.mapPages(size)
+    if base == nil then
+        return 0ULL
+    end
+    local slab = native.address(base as voidptr)
+    native.store64(native.pointer(slab), SLAB_NEXT, native.load64(cache, 16))
+    native.store64(native.pointer(slab), SLAB_BYTES, size)
+    native.store64(cache, 16, slab)
+    local index: uint64 = 0ULL
+    while index < SLAB do
+        local chunk = native.pointer(slab + page + index * firstBytes())
+        native.store64(chunk, native.fieldOffset<frames.Chunk>("tag"), frames.CHUNK)
+        native.store64(chunk, native.fieldOffset<frames.Chunk>("bytes"), 0ULL)
+        native.store64(chunk, native.fieldOffset<frames.Chunk>("pool"), native.address(cache))
+        native.store64(chunk, native.fieldOffset<frames.Chunk>("above"), native.load64(cache, 0))
+        native.store64(cache, 0, native.address(chunk))
+        index = index + 1ULL
+    end
+    @unsafe do
+        local owner = native.pointer(h) as heap.Heap*
+        owner.debt = owner.debt + size
+    end
+
+    return 1ULL
+end
+
+-- A coroutine's first chunk, with room for a `bytes` frame. One that fits a
+-- first chunk's size comes from `cache` (its first word the free chunks,
+-- linked through `above`; its third the slabs they were carved from, each
+-- one mapping for many, as the page ledger holds few), a slab mapped when
+-- none is free; a larger one is a mapping of its own. A mapping counts as
 -- allocation on the heap at `h`, so that many coroutines left suspended
 -- bring a collection on. Answers it, or 0 when the mapping is refused.
 export function first(cache: voidptr, bytes: uint64, h: uint64): uint64
     local need = header() + roundUp(bytes, 16ULL)
-    local kept = native.load64(cache, 0)
-    if kept ~= 0ULL and need <= firstBytes() then
-        native.store64(cache, 0, native.load64(native.pointer(kept), native.fieldOffset<frames.Chunk>("below")))
-        native.store64(cache, 8, native.load64(cache, 8) - 1ULL)
-        if fresh(kept, firstBytes()) == 0ULL then
-            os.unmapPages(native.pointer(kept), firstBytes())
+    if need <= firstBytes() then
+        if native.load64(cache, 0) == 0ULL and refill(cache, h) == 0ULL then
             return 0ULL
         end
-        return kept
+        local chunk = native.load64(cache, 0)
+        native.store64(cache, 0, native.load64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("above")))
+        if fresh(chunk, firstBytes()) == 0ULL then
+            return 0ULL
+        end
+        -- A slab's: its bytes go with the slab, and it comes back here.
+        native.store64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("bytes"), 0ULL)
+        native.store64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("pool"), native.address(cache))
+        return chunk
     end
-    local size = firstBytes()
-    if need > size then
-        size = need
-    end
-    local chunk = map(size)
+    local chunk = map(need)
     if chunk ~= 0ULL then
         @unsafe do
             local owner = native.pointer(h) as heap.Heap*
@@ -134,40 +172,24 @@ export function first(cache: voidptr, bytes: uint64, h: uint64): uint64
     return chunk
 end
 
--- Gives back a coroutine's stack, its first chunk `chunk`: that one to
--- `cache` when it is a first chunk's size and the cache has room, every
--- other unmapped.
+-- Gives back a coroutine's stack, its first chunk `chunk`: a slab's goes
+-- back to its free list, every other chunk is unmapped.
 export function release(cache: voidptr, chunk: uint64): nil
-    local above = heap.chunkAbove(chunk)
-    if above ~= 0ULL then
-        heap.releaseChunks(above)
-    end
-    local bytes = native.load64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("bytes"))
-    if bytes == firstBytes() and native.load64(cache, 8) < CACHED then
-        native.store64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("above"), 0ULL)
-        native.store64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("below"), native.load64(cache, 0))
-        native.store64(cache, 0, chunk)
-        native.store64(cache, 8, native.load64(cache, 8) + 1ULL)
-        return
-    end
-    if bytes ~= 0ULL then
-        os.unmapPages(native.pointer(chunk), bytes)
-    end
+    local _ = cache
+    heap.releaseChunks(chunk)
 end
 
--- Unmaps the chunks `cache` keeps.
+-- Unmaps the slabs `cache`'s chunks were carved from.
 export function drain(cache: voidptr): nil
-    local chunk = native.load64(cache, 0)
-    while chunk ~= 0ULL do
-        local below = native.load64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("below"))
-        os.unmapPages(
-            native.pointer(chunk),
-            native.load64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("bytes"))
-        )
-        chunk = below
+    local slab = native.load64(cache, 16)
+    while slab ~= 0ULL do
+        local following = native.load64(native.pointer(slab), SLAB_NEXT)
+        os.unmapPages(native.pointer(slab), native.load64(native.pointer(slab), SLAB_BYTES))
+        slab = following
     end
     native.store64(cache, 0, 0ULL)
     native.store64(cache, 8, 0ULL)
+    native.store64(cache, 16, 0ULL)
 end
 
 -- Unmaps the chunks of the stack `state` runs past the one above the chunk

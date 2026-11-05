@@ -49,6 +49,10 @@ export struct Services
     -- status check (LANDED) takes the failure path, destroys them and raises
     -- lastError again.
     landed: uint64
+    -- 1 while the error a wrapped thread raised is raised again at the call
+    -- of its function (`reraise`): the frame making that call waits on it,
+    -- as on any call, and takes it first when it owns affine values.
+    rethrown: uint64
     -- math.random's xoshiro256** state, all zero until the first draw or
     -- math.randomseed seeds it.
     random0: uint64
@@ -91,6 +95,11 @@ export struct Services
     -- where its declaration runs, for an owner's cleanup to call
     -- (`guestbasics.cleanupset`), once one is.
     cleanups: uint64
+    -- The metatable every thread shares (Decision 18) and the scheduler's
+    -- function closing a task, once the scheduler installs them
+    -- (`threads.TASK_INSTALL`), or 0.
+    threadmeta: uint64
+    closetask: uint64
     -- 1 while coroutine.close unwinds a suspended thread: its error lands at
     -- every frame that owns affine values, and no protected call takes it.
     closing: uint64
@@ -118,10 +127,11 @@ export struct Services
     stacks: uint64
     stride: uint64
     slots: uint64
-    -- First chunks of finished coroutines' stacks, kept for the next ones,
-    -- and how many (`stacks.first`).
+    -- The free first chunks of coroutines' stacks, a count, and the slabs
+    -- they are carved from (`stacks.first`).
     chunks: uint64
     chunkcount: uint64
+    chunkslabs: uint64
 end
 
 -- tableSet's answer when a __newindex function is to be called instead.
@@ -176,6 +186,7 @@ export function prepare(base: voidptr, bytes: uint64): uint64
     native.store64(services, native.fieldOffset<Services>("slots"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("chunks"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("chunkcount"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("chunkslabs"), 0ULL)
 
     return native.address(services)
 end
@@ -267,6 +278,8 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("metanames"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("modulenames"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("cleanups"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("threadmeta"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("closetask"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("closing"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replay"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replaycursor"), 0ULL)
@@ -275,7 +288,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("replaykey"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replayvalue"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("libraryanswer"), 0ULL)
-        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 8ULL)
+        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 10ULL)
         -- Collect-at-every-allocation (1): a whole cycle at every safepoint;
         -- interleaved (2): a small incremental step at every safepoint, the
         -- oracle checking each cycle's survivors. Both keep freed objects as
@@ -292,6 +305,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("fault"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("metaCallee"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("landed"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("rethrown"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("random0"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("random1"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("random2"), 0ULL)
@@ -1234,10 +1248,40 @@ end
 
 -- getmetatable(v): a table's metatable, or its __metatable field when it
 -- has one; nil for anything else.
+-- The metatable every thread shares (Decision 18) when `value` is a thread
+-- and the scheduler installed one, else nil.
+export function threadMeta(ctx: voidptr, value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ or value & values.PAYLOAD == 0ULL then
+        return values.NIL
+    end
+    @unsafe do
+        local header = native.pointer(value & values.PAYLOAD)
+        if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_THREAD then
+            return values.NIL
+        end
+        local meta = native.load64(scopeof(ctx), native.fieldOffset<Services>("threadmeta"))
+        if meta == 0ULL then
+            return values.NIL
+        end
+        return meta
+    end
+end
+
+-- The table a thread's fields are read from: its shared metatable's
+-- __index, or 0 when that is not a table.
+export function threadIndex(ctx: voidptr, value: uint64): uint64
+    local meta = tableOf(threadMeta(ctx, value))
+    if meta == 0ULL then
+        return 0ULL
+    end
+
+    return tableOf(tables.get(meta, metaKey(ctx, META_INDEX)))
+end
+
 export function getMetatable(ctx: voidptr, value: uint64): uint64
     local t = tableOf(value)
     if t == 0ULL then
-        return values.NIL
+        return threadMeta(ctx, value)
     end
     local protected = metaField(ctx, t, META_METATABLE)
     if protected ~= values.NIL then
@@ -2111,6 +2155,19 @@ export function recoverEntry(ctx: voidptr): uint64
         if located and not closing then
             own = selfLanding(ctx, state, failedOwner, failedIndex)
         end
+        -- A wrapped thread's error at the call of its function: the frame
+        -- that made the call resumes after it, as from any call.
+        local rethrown = native.load64(services, native.fieldOffset<Services>("rethrown")) == 1ULL
+        native.store64(services, native.fieldOffset<Services>("rethrown"), 0ULL)
+        if own == 0ULL and rethrown and not closing then
+            local active = native.load64(state, native.fieldOffset<frames.State>("active"))
+            if active ~= 0ULL
+                and lands(ctx, active)
+                and native.load64(native.pointer(active), native.fieldOffset<frames.Frame>("functionId")) == failedOwner
+            then
+                own = active
+            end
+        end
         local landing: uint64 = 0ULL
         if own == 0ULL then
             landing = landingFrame(ctx, state)
@@ -2192,6 +2249,7 @@ end
 export function reraise(ctx: voidptr, value: uint64, owner: uint64, pc: uint64): nil
     @unsafe do
         local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        native.store64(services, native.fieldOffset<Services>("rethrown"), 1ULL)
         native.store64(ctx, context.ERROR_OWNER, owner)
         native.store64(ctx, context.ERROR_PC, pc)
         native.store64(services, native.fieldOffset<Services>("raised"), value)

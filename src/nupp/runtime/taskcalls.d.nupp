@@ -1,0 +1,20 @@
+@!internal
+
+--- The native core's scheduler primitives, under the scheduler written in
+--- Nupp (`nupp.runtime.scheduler`). A call of one is the core's own library
+--- call, and requiring this module loads nothing: it exists only on the core.
+local record taskcalls
+    --- One primitive, by its code: 1 a task calling `a` with the arguments
+    --- of the pack `b`; 2 runs the task `a` until it returns, fails, parks or
+    --- gives up its turn, answering a pack whose first value says which (1 to
+    --- 4) and the rest what came with it, its park answering `b`; 3 parks the
+    --- running task, answering what its driver runs it again with, or false at
+    --- once where no task runs; 4 the running task, or nil; 5 a task's record,
+    --- 6 setting it to `b`; 7 the monotonic clock in milliseconds; 8 waits `a`
+    --- milliseconds; 9 installs `a` as every thread's metatable and `b` as the
+    --- function closing a task.
+    op: function(code: integer, a: any, b: any): any
+end
+
+local calls: taskcalls
+return calls

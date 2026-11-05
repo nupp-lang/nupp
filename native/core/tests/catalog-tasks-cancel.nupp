@@ -1,0 +1,158 @@
+module nupp.core.catalogtaskscancel
+
+-- Parks pass through every resumer (Decision 18): a generator whose body
+-- sleeps parks the task consuming it, and cancellation reaches a task parked
+-- inside one, unwinding the generator's owners and then the task's. Closing
+-- a parked task from another task cancels it and waits for its cleanups.
+-- Each check adds a bit.
+local score = 0
+local cleaned: {string} = {}
+
+local record Guard
+    name: string
+
+    constructor(self, name: string): affine(Guard, Guard.destroy)
+        self.name = name
+    end
+
+    function destroy(takes self): nil
+        cleaned[#cleaned + 1] = self.name
+    end
+end
+
+-- A generator in a scheduled task: its sleeps park the task, and its
+-- yields still go to the task that resumes it.
+do
+    local scope = coroutine.scope()
+    const consumer = scope:spawn(function(): integer
+        local numbers = coroutine.wrap(function(): nil
+            for value = 1, 4 do
+                coroutine.sleep(1)
+                coroutine.yield(value)
+            end
+        end)
+        local total: integer = 0
+        for _ = 1, 4 do
+            total = total * 10 + (numbers() as integer)
+        end
+
+        return total
+    end)
+    const ticker = scope:spawn(function(): integer
+        local ticks: integer = 0
+        for _ = 1, 3 do
+            coroutine.checkpoint()
+            ticks = ticks + 1
+        end
+
+        return ticks
+    end)
+    if consumer:await() == 1234 and ticker:await() == 3 then
+        score = score + 1
+    end
+end
+
+-- Cancellation through nested resumers: the generator parked in its sleep
+-- raises the cancellation, its guard is destroyed, the task's after it, and
+-- the task ends cancelled. Its scope was cancelled deliberately, so closing
+-- it raises nothing.
+local caught = "none"
+do
+    local scope = coroutine.scope()
+    const sleeper = scope:spawn(function(): integer
+        const outer = new Guard("task")
+        local inner = coroutine.wrap(function(): nil
+            const held = new Guard("generator")
+            coroutine.sleep(1000)
+            @unsafe coroutine.yield(1)
+        end)
+
+        return inner() as integer
+    end)
+    scope:spawn(function(): nil
+        coroutine.sleep(1)
+        scope:cancel("enough")
+    end)
+    const ok, problem = pcall(function(): integer
+        return sleeper:await()
+    end)
+    if not ok and coroutine.iscancelled(problem) then
+        caught = "cancelled"
+    end
+end
+if caught == "cancelled" and table.concat(cleaned, ",") == "generator,task" then
+    score = score + 2
+end
+
+-- Close from another task: the closer waits for the parked task's cleanups
+-- and gets Lua's true.
+local victim: thread? = nil
+local closedwith = false
+local status = "none"
+cleaned = {}
+do
+    local scope = coroutine.scope()
+    scope:spawn(function(): nil
+        const guard = new Guard("victim")
+        victim = coroutine.running()
+        coroutine.sleep(1000)
+    end)
+    scope:spawn(function(): nil
+        coroutine.sleep(1)
+        const target = victim
+        if target ~= nil then
+            status = coroutine.status(target)
+            closedwith = coroutine.close(target)
+        end
+    end)
+end
+if closedwith and status == "parked" and table.concat(cleaned, ",") == "victim" then
+    score = score + 4
+end
+if victim ~= nil and coroutine.status(victim) == "dead" then
+    score = score + 8
+end
+
+-- coroutine.resume refuses a task: only its scheduler runs it.
+local refused = "none"
+do
+    local scope = coroutine.scope()
+    local task: thread? = nil
+    scope:spawn(function(): nil
+        task = coroutine.running()
+        coroutine.sleep(2)
+    end)
+    coroutine.checkpoint()
+    const ok, why = pcall(function(): any
+        const target = task
+        if target ~= nil then
+            return coroutine.resume(target)
+        end
+
+        return nil
+    end)
+    if not ok then
+        refused = tostring(why)
+    end
+end
+if string.find(refused, "cannot resume a scheduled coroutine", 1, true) ~= nil then
+    score = score + 16
+end
+
+-- A thread's methods through `any`: the shared metatable's __index.
+local running: thread? = nil
+do
+    local scope = coroutine.scope()
+    scope:spawn(function(): integer
+        running = coroutine.running()
+        coroutine.sleep(1)
+        return 5
+    end)
+    coroutine.checkpoint()
+    local loose: any = running
+    if loose:await() == 5 and loose:status() == "dead" and loose:isdone() then
+        score = score + 32
+    end
+end
+
+export = score

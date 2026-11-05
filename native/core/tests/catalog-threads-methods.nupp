@@ -1,0 +1,100 @@
+module nupp.core.catalogthreadsmethods
+
+-- Threads have methods (Decision 18): `co:status()` is `coroutine.status(co)`.
+-- `coroutine.create(f, ...)` binds the start arguments, so every resume
+-- passes resume values and the first one's are dropped. A wrapped
+-- coroutine's function serves as `__call` and as the metamethod a library
+-- call reads through. Each check adds a bit.
+local score = 0
+
+local co = coroutine.create(function(a: integer): integer
+    coroutine.yield(a + 1)
+    return a + 2
+end)
+if co:status() == "suspended" then
+    local ok, v = co:resume(1)
+    if ok and v == 2 and co:status() == "suspended" then
+        score = score + 1
+    end
+end
+local ok, v = co:resume()
+if ok and v == 3 and co:status() == "dead" then
+    score = score + 2
+end
+
+-- Bound start arguments: the first resume's values have nothing to take them.
+local sums = coroutine.create(
+    function(a: integer, b: integer): integer
+        local extra = coroutine.yield(a + b)
+        return a * 100 + b + (extra as integer)
+    end,
+    3,
+    4
+)
+local first, seven = coroutine.resume(sums, 99)
+local second, total = sums:resume(5)
+if first and seven == 7 and second and total == 309 then
+    score = score + 4
+end
+
+-- Bound arguments keep their nils; closing a suspended one ends it.
+local counted = 0
+local spread = coroutine.create(
+    function(...: any): nil
+        counted = select("#", ...)
+        coroutine.yield()
+    end,
+    1,
+    nil,
+    3
+)
+spread:resume()
+local closed = spread:close()
+if counted == 3 and closed and spread:status() == "dead" then
+    score = score + 8
+end
+
+-- A wrapped function as __call: the table and the arguments resume it, and
+-- what it yields is the call's result.
+local calls: any = setmetatable({}, {
+    __call = coroutine.wrap(function(self: any, x: integer): nil
+        local count = 0
+        while true do
+            count = count + 1
+            self, x = coroutine.yield(x * 10 + count)
+        end
+    end)
+})
+if calls(4) == 41 and calls(5) == 52 then
+    score = score + 16
+end
+
+-- A wrapped function as __index under a library call: table.concat reads
+-- each element through it, and runs again with each answer.
+local letters = coroutine.wrap(function(t: any, k: integer): nil
+    while true do
+        t, k = coroutine.yield(string.char(96 + k))
+    end
+end)
+local proxy: any = setmetatable({}, {__index = letters})
+if table.concat(proxy, ",", 1, 3) == "a,b,c" then
+    score = score + 32
+end
+
+-- Unary and concatenation metamethods through wrapped functions.
+local negate = coroutine.wrap(function(a: any): nil
+    while true do
+        a = coroutine.yield(-(a["v"] as integer))
+    end
+end)
+local join = coroutine.wrap(function(a: any, b: any): nil
+    while true do
+        a, b = coroutine.yield("joined")
+    end
+end)
+local value: any = setmetatable({v = 6}, {__unm = negate, __concat = join})
+if -value == -6 and value .. "x" == "joined" then
+    score = score + 64
+end
+
+export = score

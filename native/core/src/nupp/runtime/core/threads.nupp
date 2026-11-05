@@ -34,6 +34,8 @@ export struct Thread
     body: uint64
     resumer: uint64
     transfer: uint64
+    -- The scheduler's record of a task (`taskcalls`), or nil.
+    data: uint64
     segment: uint64
     pages: uint64
     pagebytes: uint64
@@ -50,6 +52,16 @@ export struct Thread
     resumertruth: uint64
     -- The slot the pending yield's results land in when it is resumed.
     yieldslot: uint64
+    -- FLAG_ bits: a task the scheduler drives, start arguments bound by
+    -- create.
+    flags: uint64
+    -- A parked task's innermost thread, which the park left from: the one
+    -- its driver's next run continues.
+    inner: uint64
+    -- 1 while the resumer is a library call waiting on this thread as its
+    -- metamethod: what the thread yields answers it, and the call runs
+    -- again.
+    resumerlibrary: uint64
     mark: arena.Mark
     state: frames.State
 end
@@ -61,6 +73,14 @@ export const NORMAL: uint64 = 4ULL
 export const DEAD: uint64 = 5ULL
 -- The main thread's object, which coroutine.running answers there.
 export const MAIN: uint64 = 6ULL
+-- Parked: waiting on its scheduler, with every thread between it and its
+-- task (Decision 18). Only the task's driver runs it again.
+export const PARKED: uint64 = 7ULL
+
+-- A task: the scheduler drives it, and coroutine.resume refuses it.
+export const FLAG_TASK: uint64 = 1ULL
+-- `transfer` holds the arguments create bound, which its start takes.
+export const FLAG_BOUND: uint64 = 2ULL
 
 -- coroutine.resume: the resumer takes one pack, {true, ...} or {false, e}.
 export const MODE_PACK: uint64 = 1ULL
@@ -74,6 +94,15 @@ export const MODE_PROTECTED: uint64 = 3ULL
 -- coroutine.close unwinding a suspended thread: the closer takes one pack,
 -- {true} or {false, e}.
 export const MODE_CLOSE: uint64 = 4ULL
+-- A task's driver (the scheduler): it takes one pack whose first value says
+-- what happened, DRIVE_RETURNED and the results, DRIVE_FAILED and the
+-- error, DRIVE_PARKED, or DRIVE_YIELDED and the values.
+export const MODE_DRIVE: uint64 = 5ULL
+
+export const DRIVE_RETURNED: uint64 = 1ULL
+export const DRIVE_FAILED: uint64 = 2ULL
+export const DRIVE_PARKED: uint64 = 3ULL
+export const DRIVE_YIELDED: uint64 = 4ULL
 
 -- What resume answers: the thread runs; it cannot, and the resumer has its
 -- reason; it cannot, and its reason is raised; the frames are not as
@@ -174,6 +203,7 @@ local function newthread(ctx: voidptr, fn: uint64, initial: uint64): uint64
         native.store64(t, native.fieldOffset<Thread>("body"), fn)
         native.store64(t, native.fieldOffset<Thread>("resumer"), values.NIL)
         native.store64(t, native.fieldOffset<Thread>("transfer"), values.NIL)
+        native.store64(t, native.fieldOffset<Thread>("data"), values.NIL)
         native.store64(t, native.fieldOffset<Thread>("status"), initial)
         collector.initialized(h, o)
 
@@ -181,13 +211,61 @@ local function newthread(ctx: voidptr, fn: uint64, initial: uint64): uint64
     end
 end
 
--- coroutine.create(f).
-export function create(ctx: voidptr, fn: uint64): uint64
+-- coroutine.create(f), or create(f, ...) with the start arguments bound:
+-- `bound` is their pack, or 0 for Lua's form, whose first resume supplies
+-- them. `flags` adds FLAG_TASK for a task.
+export function create(ctx: voidptr, fn: uint64, bound: uint64, flags: uint64): uint64
     if target(fn) == 0ULL then
         texts.argumentError(ctx, 1ULL, texts.TEXT_FUNCTION, 0ULL, fn)
     end
+    @unsafe do
+        local h = native.pointer(heapof(ctx)) as heap.Heap*
+        local mark = collector.scopeOpen(h)
+        if bound ~= 0ULL then
+            collector.scopePush(h, bound)
+        end
+        local thread = newthread(ctx, fn, FRESH)
+        collector.scopeClose(h, mark)
+        local t = native.pointer(bodyof(thread))
+        if bound ~= 0ULL then
+            native.store64(t, native.fieldOffset<Thread>("transfer"), bound)
+            collector.barrier(h, native.pointer(thread & values.PAYLOAD) as heap.Header*, bound)
+            native.store64(t, native.fieldOffset<Thread>("flags"), flags | FLAG_BOUND)
+        else
+            native.store64(t, native.fieldOffset<Thread>("flags"), flags)
+        end
 
-    return newthread(ctx, fn, FRESH)
+        return thread
+    end
+end
+
+-- Whether `value` is a task's thread.
+export function istask(value: uint64): boolean
+    local t = bodyof(value)
+
+    return t ~= 0ULL and native.load64(native.pointer(t), native.fieldOffset<Thread>("flags")) & FLAG_TASK ~= 0ULL
+end
+
+-- A task's record, and setting it.
+export function taskdata(value: uint64): uint64
+    local t = bodyof(value)
+    if t == 0ULL then
+        return values.NIL
+    end
+
+    return native.load64(native.pointer(t), native.fieldOffset<Thread>("data"))
+end
+
+export function setdata(ctx: voidptr, value: uint64, record: uint64): nil
+    local t = bodyof(value)
+    if t == 0ULL then
+        return
+    end
+    @unsafe do
+        local h = native.pointer(heapof(ctx)) as heap.Heap*
+        native.store64(native.pointer(t), native.fieldOffset<Thread>("data"), record)
+        collector.barrier(h, native.pointer(value & values.PAYLOAD) as heap.Header*, record)
+    end
 end
 
 -- coroutine.wrap(f): a closure whose first word marks it as a thread's and
@@ -303,6 +381,8 @@ export function status(ctx: voidptr, value: uint64): uint64
         text = texts.TEXT_RUNNING
     elseif state == NORMAL then
         text = texts.TEXT_NORMAL
+    elseif state == PARKED then
+        text = texts.TEXT_PARKED
     elseif state == MAIN then
         text = texts.TEXT_NORMAL
         if running(ctx) == 0ULL then
@@ -386,7 +466,7 @@ end
 -- or its first `wanted` values from `slot` on, nil past its end.
 local function place(frame: voidptr, mode: uint64, slot: uint64, wanted: uint64, result: uint64, truth: uint64): nil
     local window = native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("values")))
-    if mode == MODE_PACK or mode == MODE_CLOSE or wanted == 0ULL then
+    if mode == MODE_PACK or mode == MODE_CLOSE or mode == MODE_DRIVE or wanted == 0ULL then
         native.store64(window, native.index(slot * 8ULL), result)
         return
     end
@@ -417,6 +497,22 @@ local function deliver(t: voidptr, result: uint64): nil
         result,
         native.load64(t, native.fieldOffset<Thread>("resumertruth"))
     )
+end
+
+-- deliver, and for a library call waiting on the thread as its metamethod,
+-- the answer it runs again with: its frame resumes at the call, not after.
+local function handover(ctx: voidptr, t: voidptr, result: uint64): nil
+    deliver(t, result)
+    if native.load64(t, native.fieldOffset<Thread>("resumerlibrary")) == 1ULL then
+        native.store64(t, native.fieldOffset<Thread>("resumerlibrary"), 0ULL)
+        local frame = native.pointer(native.load64(t, native.fieldOffset<Thread>("resumerframe")))
+        native.store64(
+            frame,
+            native.fieldOffset<frames.Frame>("resumePC"),
+            native.load64(frame, native.fieldOffset<frames.Frame>("resumePC")) - 1ULL
+        )
+        guestscope.answered(ctx, native.address(t) - heap.HEADER_BYTES)
+    end
 end
 
 -- Takes a fresh thread's first chunk and makes its bottom frame, calling
@@ -550,6 +646,127 @@ local function start(ctx: voidptr, thread: uint64, t: voidptr, args: uint64): ui
     end
 end
 
+-- The thread `inner` resumed, counting `steps` outward from it.
+local function outward(inner: uint64, steps: uint64): uint64
+    local at = inner
+    local k: uint64 = 0ULL
+    while k < steps do
+        at = native.load64(native.pointer(bodyof(at)), native.fieldOffset<Thread>("resumer"))
+        k = k + 1ULL
+    end
+
+    return at
+end
+
+-- A driver at `frame` and `pc` runs the parked task `task` (body `t`)
+-- again: the threads its park left run as they were, the task's resumed by
+-- the driver now and each the next one's resumer still, and the innermost
+-- one's park answers `value`.
+local function rewind(ctx: voidptr, frame: voidptr, pc: voidptr, task: uint64, t: voidptr, value: uint64): uint64
+    local inner = native.load64(t, native.fieldOffset<Thread>("inner"))
+    native.store64(t, native.fieldOffset<Thread>("inner"), 0ULL)
+    if bodyof(inner) == 0ULL then
+        return BROKEN
+    end
+    -- How many threads lie between the innermost and the task.
+    local depth: uint64 = 0ULL
+    local at = inner
+    while at ~= task do
+        at = native.load64(native.pointer(bodyof(at)), native.fieldOffset<Thread>("resumer"))
+        if bodyof(at) == 0ULL then
+            return BROKEN
+        end
+        depth = depth + 1ULL
+    end
+    switchin(ctx, frame, pc, task, t)
+    @unsafe do
+        local h = native.pointer(heapof(ctx)) as heap.Heap*
+        -- Outermost first, as their frame ranges nest.
+        while depth > 0ULL do
+            depth = depth - 1ULL
+            local thread = outward(inner, depth)
+            local body = native.pointer(bodyof(thread))
+            local outer = native.load64(body, native.fieldOffset<Thread>("resumer"))
+            native.store64(native.pointer(bodyof(outer)), native.fieldOffset<Thread>("status"), NORMAL)
+            native.store64(body, native.fieldOffset<Thread>("status"), RUNNING)
+            native.store64(services(ctx), native.fieldOffset<guestscope.Services>("running"), thread)
+            collector.registerChain(h, native.load64(body, native.fieldOffset<Thread>("segment")))
+            native.store64(ctx, context.STATE, native.address(native.offset(body, native.fieldOffset<Thread>("state"))))
+        end
+    end
+    -- The park answers the driver's value.
+    local body = native.pointer(bodyof(inner))
+    local parked = native.pointer(
+        native.load64(body, native.fieldOffset<Thread>("state") + native.fieldOffset<frames.State>("active"))
+    )
+    native.store64(
+        native.pointer(native.load64(parked, native.fieldOffset<frames.Frame>("values"))),
+        native.index(native.load64(body, native.fieldOffset<Thread>("yieldslot")) * 8ULL),
+        value
+    )
+
+    return SWITCHED
+end
+
+-- The task the running thread belongs to: the nearest task among it and
+-- its resumers, or 0 where none is one (the main thread's own stack).
+export function currenttask(ctx: voidptr): uint64
+    local at = running(ctx)
+    while bodyof(at) ~= 0ULL do
+        local body = native.pointer(bodyof(at))
+        if native.load64(body, native.fieldOffset<Thread>("flags")) & FLAG_TASK ~= 0ULL then
+            return at
+        end
+        at = native.load64(body, native.fieldOffset<Thread>("resumer"))
+    end
+
+    return 0ULL
+end
+
+-- Parks the running task at `pc` in `frame`, what its driver runs it again
+-- with to land in `slot`: every thread from the running one out to the
+-- task waits as it is, and the task's driver takes DRIVE_PARKED (Decision
+-- 18: a park passes through every resumer). Answers SWITCHED; REFUSED
+-- where no task runs, the caller then waiting itself; RAISED when a
+-- library call waits on the running frame, as a yield there would cross
+-- it.
+export function park(ctx: voidptr, frame: voidptr, pc: voidptr, slot: uint64): uint64
+    local task = currenttask(ctx)
+    if task == 0ULL then
+        return REFUSED
+    end
+    if guestscope.crossing(ctx) then
+        guestscope.raise(ctx, texts.textvalue(ctx, texts.TEXT_YIELD_ACROSS), 0ULL)
+        return RAISED
+    end
+    local inner = running(ctx)
+    local innerbody = native.pointer(bodyof(inner))
+    native.store64(innerbody, native.fieldOffset<Thread>("yieldslot"), slot)
+    local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
+    native.store64(frame, native.fieldOffset<frames.Frame>("resumePC"), (native.address(pc) - code) // 16ULL + 1ULL)
+    @unsafe do
+        local h = native.pointer(heapof(ctx)) as heap.Heap*
+        local at = inner
+        while at ~= task do
+            local body = native.pointer(bodyof(at))
+            stacks.trim(native.offset(body, native.fieldOffset<Thread>("state")))
+            heap.wordsPop(h.ranges)
+            heap.wordsPop(h.ranges)
+            collector.rescan(h, native.pointer(at & values.PAYLOAD) as heap.Header*)
+            native.store64(body, native.fieldOffset<Thread>("status"), PARKED)
+            -- Its resumer stays: the task's driver runs them all again.
+            at = native.load64(body, native.fieldOffset<Thread>("resumer"))
+        end
+    end
+    local t = native.pointer(bodyof(task))
+    native.store64(t, native.fieldOffset<Thread>("inner"), inner)
+    stacks.trim(native.offset(t, native.fieldOffset<Thread>("state")))
+    switchout(ctx, task, t, PARKED)
+    deliver(t, packed(ctx, 1ULL, values.TAG_INTEGER | DRIVE_PARKED, 0ULL, 0ULL))
+
+    return SWITCHED
+end
+
 -- Resumes the thread `value` with the arguments in the pack `args`: the
 -- resumer, `frame` at `pc`, takes the results as `mode` says, from the slot
 -- in the low half of `where` and as many as its high half wants. Answers
@@ -575,7 +792,13 @@ export function resume(
     end
     local body = native.pointer(t)
     local state = native.load64(body, native.fieldOffset<Thread>("status"))
-    if state ~= FRESH and state ~= SUSPENDED then
+    local flags = native.load64(body, native.fieldOffset<Thread>("flags"))
+    -- A task runs only when its scheduler runs it (Decision 18).
+    if flags & FLAG_TASK ~= 0ULL and mode ~= MODE_DRIVE and state ~= DEAD then
+        guestscope.raise(ctx, texts.textvalue(ctx, texts.TEXT_RESUME_TASK), 1ULL)
+        return RAISED
+    end
+    if state ~= FRESH and state ~= SUSPENDED and (state ~= PARKED or mode ~= MODE_DRIVE) then
         local text = texts.TEXT_RESUME_ACTIVE
         if state == DEAD then
             text = texts.TEXT_RESUME_DEAD
@@ -593,12 +816,35 @@ export function resume(
     native.store64(body, native.fieldOffset<Thread>("resumerslot"), slot)
     native.store64(body, native.fieldOffset<Thread>("resumerwanted"), wanted)
     native.store64(body, native.fieldOffset<Thread>("resumertruth"), truth)
+    native.store64(body, native.fieldOffset<Thread>("resumerlibrary"), 0ULL)
+    if state == PARKED then
+        return rewind(ctx, frame, pc, value, body, args)
+    end
     if state == FRESH then
-        if start(ctx, value, body, args) ~= 1ULL then
+        -- Bound start arguments are the body's; the first resume's values,
+        -- with nothing yet to take them, are dropped.
+        local startargs = args
+        if flags & FLAG_BOUND ~= 0ULL then
+            startargs = native.load64(body, native.fieldOffset<Thread>("transfer"))
+            native.store64(body, native.fieldOffset<Thread>("transfer"), values.NIL)
+            native.store64(body, native.fieldOffset<Thread>("flags"), flags & ~FLAG_BOUND)
+            -- The frames root the arguments once the body has them; until
+            -- then the frame waiting on the thread does.
+            native.store64(
+                native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("values"))),
+                native.index(slot * 8ULL),
+                startargs
+            )
+        end
+        if start(ctx, value, body, startargs) ~= 1ULL then
             return BROKEN
         end
     else
-        -- The pending yield answers the arguments, as a pack.
+        -- The pending yield answers the arguments, as a pack: none, when the
+        -- scheduler runs a task that gave up its turn.
+        if mode == MODE_DRIVE then
+            args = packed(ctx, 0ULL, 0ULL, 0ULL, 0ULL)
+        end
         local yielding = native.pointer(
             native.load64(body, native.fieldOffset<Thread>("state") + native.fieldOffset<frames.State>("active"))
         )
@@ -631,13 +877,17 @@ export function yield(ctx: voidptr, frame: voidptr, pc: voidptr, slot: uint64, a
     local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
     native.store64(frame, native.fieldOffset<frames.Frame>("resumePC"), (native.address(pc) - code) // 16ULL + 1ULL)
     local result = args
-    if native.load64(t, native.fieldOffset<Thread>("mode")) ~= MODE_CALL then
+    local mode = native.load64(t, native.fieldOffset<Thread>("mode"))
+    if mode == MODE_DRIVE then
+        -- A task yielding to its driver gives up its turn.
+        result = packed(ctx, 1ULL, values.TAG_INTEGER | DRIVE_YIELDED, 0ULL, args & values.PAYLOAD)
+    elseif mode ~= MODE_CALL then
         result = packed(ctx, 1ULL, values.TRUE, 0ULL, args & values.PAYLOAD)
     end
     -- A suspended thread keeps no more of its stack than its frames need.
     stacks.trim(native.offset(t, native.fieldOffset<Thread>("state")))
     switchout(ctx, thread, t, SUSPENDED)
-    deliver(t, result)
+    handover(ctx, t, result)
 
     return 1ULL
 end
@@ -667,19 +917,24 @@ export function finish(ctx: voidptr, frame: voidptr, results: uint64): uint64
     end
     local t = native.pointer(bodyof(thread))
     local result = results
-    if native.load64(t, native.fieldOffset<Thread>("mode")) ~= MODE_CALL then
+    local mode = native.load64(t, native.fieldOffset<Thread>("mode"))
+    if mode ~= MODE_CALL then
+        local lead = values.TRUE
+        if mode == MODE_DRIVE then
+            lead = values.TAG_INTEGER | DRIVE_RETURNED
+        end
         @unsafe do
             local h = native.pointer(heapof(ctx)) as heap.Heap*
             local mark = collector.scopeOpen(h)
             collector.scopePush(h, results)
-            result = packed(ctx, 1ULL, values.TRUE, 0ULL, results & values.PAYLOAD)
+            result = packed(ctx, 1ULL, lead, 0ULL, results & values.PAYLOAD)
             collector.scopeClose(h, mark)
         end
     end
     if retire(ctx, thread, t) ~= 1ULL then
         return 0ULL
     end
-    deliver(t, result)
+    handover(ctx, t, result)
 
     return 1ULL
 end
@@ -706,6 +961,15 @@ export function fail(ctx: voidptr, value: uint64): uint64
     elseif mode == MODE_CLOSE then
         -- A cleanup raised another error.
         result = failure(ctx, value)
+    elseif mode == MODE_DRIVE then
+        -- The task's driver takes its error.
+        @unsafe do
+            local h = native.pointer(heapof(ctx)) as heap.Heap*
+            local mark = collector.scopeOpen(h)
+            collector.scopePush(h, value)
+            result = packed(ctx, 2ULL, values.TAG_INTEGER | DRIVE_FAILED, value, 0ULL)
+            collector.scopeClose(h, mark)
+        end
     else
         -- A later close answers the error that ended it.
         native.store64(t, native.fieldOffset<Thread>("transfer"), value)
@@ -719,7 +983,7 @@ export function fail(ctx: voidptr, value: uint64): uint64
     if result == 0ULL then
         return 1ULL
     end
-    deliver(t, result)
+    handover(ctx, t, result)
     local frame = native.pointer(native.load64(t, native.fieldOffset<Thread>("resumerframe")))
     local code = native.load64(frame, native.fieldOffset<frames.Frame>("code"))
 
@@ -790,10 +1054,12 @@ export function libraryname(id: uint64): uint64
 end
 
 -- The coroutine library calls that switch nothing: create, status, wrap,
--- running (a pack) and isyieldable, with their one argument `a`.
-export function call(ctx: voidptr, id: uint64, a: uint64): uint64
+-- running (a pack) and isyieldable, with their argument `a` (and for
+-- create, `b`, the pack of arguments it binds, or nil).
+export function call(ctx: voidptr, id: uint64, a: uint64, b: uint64): uint64
     if id == LIB_CREATE then
-        return create(ctx, a)
+        -- create(f, ...): the arguments after f come as one pack.
+        return create(ctx, a, native.chooseWord(b == values.NIL, 0ULL, b), 0ULL)
     elseif id == LIB_STATUS then
         return status(ctx, a)
     elseif id == LIB_WRAP then
@@ -820,7 +1086,7 @@ export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, 
     local state = native.load64(body, native.fieldOffset<Thread>("status"))
     if state == MAIN and running(ctx) == 0ULL then
         texts.libraryError(ctx, texts.TEXT_CLOSE_MAIN)
-    elseif state == NORMAL or state == MAIN then
+    elseif state == NORMAL or state == MAIN or state == PARKED then
         texts.libraryError(ctx, texts.TEXT_CLOSE_NORMAL)
     elseif state == RUNNING then
         local scope = services(ctx)
@@ -884,4 +1150,30 @@ export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, 
     guestscope.raise(ctx, value, 0ULL)
 
     return UNWIND
+end
+
+-- The running thread `value` was resumed by a library call waiting on it as
+-- its metamethod (`guestops.libraryCall`): what it yields answers the call.
+export function waitinglibrary(value: uint64): nil
+    native.store64(native.pointer(bodyof(value)), native.fieldOffset<Thread>("resumerlibrary"), 1ULL)
+end
+
+-- A call of a wrapped thread's function whose `count` arguments are at
+-- slot `first` of `frame`'s window: they are packed (the pack held in that
+-- slot until the thread has it) and the thread resumes with them, its
+-- values landing as `where` says (`resume`). Answers what resume does.
+export function callwrapped(
+    ctx: voidptr,
+    frame: voidptr,
+    pc: voidptr,
+    thread: uint64,
+    first: uint64,
+    count: uint64,
+    where: uint64
+): uint64
+    local window = native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("values")))
+    local args = guestscope.packValues(ctx, native.offset(window, native.index(first * 8ULL)), count, 0ULL)
+    native.store64(window, native.index(first * 8ULL), args)
+
+    return resume(ctx, frame, pc, thread, args, MODE_CALL, where)
 end

@@ -272,7 +272,7 @@ function shim.build(source: any, selected: {[string]: any}, capacity: integer?, 
         {48, scratchBytes, 3},
         {88, 1, 3},
         {32, raw and 48 or descriptorLayout.size, 3},
-        {64, 10, 3},
+        {64, 12, 3},
         {80, 3, 8}
     }) do
         emit(arm.ldr(8, 16, 0, check[1]));
