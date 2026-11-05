@@ -1364,6 +1364,22 @@ return {reduce = reduce}
     test.eq(spirv:sub(1, 4), "\3\2#\7")
     test.eq(spirvOpcodeCount(spirv, 224), 5, "reduction emitted the wrong barrier count")
     assert(spirvDecorationCount(spirv, 11) >= 3, "workgroup kernel lost invocation builtins")
+    local workgroupArrays = {}
+    for _, instruction in ipairs(spirvInstructions(spirv)) do
+        local operands = instruction.operands
+        if instruction.opcode == 32 and operands[2] == 4 then
+            workgroupArrays[operands[3]] = true
+        end
+    end
+    assert(next(workgroupArrays), "reduction emitted no Workgroup array type")
+    for _, instruction in ipairs(spirvInstructions(spirv)) do
+        local operands = instruction.operands
+        assert(
+            not (instruction.opcode == 71 and operands[2] == 6 and workgroupArrays[operands[1]]),
+            "Workgroup scratch array has an explicit ArrayStride"
+        )
+    end
+    assert(spirvDecorationCount(spirv, 6) > 0, "storage-buffer arrays lost their explicit stride")
 
     local binding, bindingCode = run(dir, "--emit binding reduce.nupp")
     test.eq(bindingCode, 0, binding)

@@ -2175,9 +2175,7 @@ function M.phaseAccessesIncludeConditionsAndNestedBlocks()
     test.eq(crossRead.ownLane, nil)
 end
 
-function M.scratchCountsMustMatchTheLocalIndexDomain()
-    local program = lowered(
-        [[
+local SHARED_DOMAIN = [[
 local gpu = require("io.gpu")
 local span = require("binary.span")
 @aot(target = "gpu")
@@ -2197,14 +2195,38 @@ local function fill(exclusive output: span.WriteSpan<float>): nil
     end)
 end
 return {fill = fill}
-]],
-        "shared-domain.nupp"
-    )
+]]
+
+function M.scratchCountsMustMatchTheLocalIndexDomain()
+    local program = lowered(SHARED_DOMAIN, "shared-domain.nupp")
     verify.program(program)
     for _, count in ipairs({2, 8}) do
         program.workgroup.shared[1].count = count
         refuses(program, "invalid workgroup scratch declaration")
     end
+end
+
+function M.ordinaryPhasesCannotHideScratchRacesInsideReducerRegions()
+    local program = lowered(SHARED_DOMAIN, "shared-region-race.nupp")
+    verify.program(program)
+    local phase = assert(
+        find(program.workgroup.statements, function(statement)
+            return statement.op == "phase"
+        end)
+    )
+    local write = assert(
+        find(phase.body, function(statement)
+            return statement.op == "shared_store"
+        end)
+    )
+    write.value = {
+        op = "shared_load",
+        type = write.value.type,
+        shared = write.shared,
+        index = {op = "constant_i32", type = "u32", value = "0"},
+    }
+    phase.body = {{op = "reducer_region", reducers = {}, body = {write}}}
+    refuses(program, "ordinary workgroup phase has a cross-lane scratch race")
 end
 
 return M

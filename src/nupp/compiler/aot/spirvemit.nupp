@@ -526,7 +526,6 @@ function spirv.program(
             local element = scalarType(scratch.element)
             local arrayType = id()
             instruction(declarations, OP.TypeArray, {arrayType, element, constant(u32Type, scratch.count)})
-            decorate(arrayType, DECORATION.ArrayStride, {4})
             local variable = id()
             instruction(declarations, OP.Variable, {
                 pointerType(STORAGE.Workgroup, arrayType),
