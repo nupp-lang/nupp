@@ -1,7 +1,10 @@
 module nupp.compiler.vm.reactorcalls
 
+const processcalls = require("nupp.compiler.vm.processcalls")
+
 -- The reactor's calls on the core: the poller's (nupp.runtime.pollcalls) and
--- the blocking-work pool's (nupp.runtime.poolcalls). Each is a core library
+-- the blocking-work pool's (nupp.runtime.poolcalls). The process layer's
+-- (processcalls) are carried with them. Each is a core library
 -- call, and requiring either declaration module loads nothing. They ride
 -- the file calls' library call, their operation first; the core's
 -- guestreactor numbers the operations the same.
@@ -25,6 +28,8 @@ export const modules: {
     [string]: string
 } = {["nupp.runtime.pollcalls"] = "pollcalls", ["nupp.runtime.poolcalls"] = "poolcalls"}
 
+modules[processcalls.declaration] = processcalls.name
+
 --- Each call's operation, and how many arguments it takes.
 export const operations: {
     [string]: {integer}
@@ -41,3 +46,7 @@ export const operations: {
     ["poolcalls.finish"] = {POOL_FINISH, 2},
     ["poolcalls.cancel"] = {POOL_CANCEL, 1}
 }
+
+for name, spec in pairs(processcalls.operations) do
+    operations[name] = spec
+end

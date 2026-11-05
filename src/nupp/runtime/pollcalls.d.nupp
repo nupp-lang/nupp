@@ -16,9 +16,10 @@ local record pollcalls
     arm: function(poller: integer, descriptor: integer, interest: integer): integer
 
     --- Waits at most `nanos` nanoseconds, or without limit when it is -1, for
-    --- one event: its descriptor times 16, plus 1 readable, 2 writable, 4
-    --- hung up and 8 failed; 0 when the time passed first or a signal
-    --- interrupted the wait.
+    --- one event: its descriptor times 32, plus 1 readable, 2 writable, 4
+    --- hung up and 8 failed; or a child's process id times 32 plus 16, for
+    --- its exit (`processcalls.watch`); 0 when the time passed first or a
+    --- signal interrupted the wait.
     wait: function(poller: integer, nanos: integer): integer
 
     --- A pipe whose ends are nonblocking and close on exec: the read end's

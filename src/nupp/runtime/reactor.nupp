@@ -16,6 +16,10 @@ loop's state can be captured and its I/O recorded.
   reads and writes go to the host's pool (`poolcalls`): threads that make the
   raw system call and post its result, running no Nupp code. The pool's wake
   descriptor is one more readiness source.
+- Exits. A child process's exit is one more event from the poller (kqueue's
+  process filter, a pidfd under epoll); the loop then collects its status,
+  which the wait's completion carries as Lua reports it: "exit" and the
+  status, or "signal" and the signal's number.
 - Deadlines. Timers are the scheduler's deadline heap; `wait` takes the
   nearest deadline and waits for the poller no longer than that.
 
@@ -32,6 +36,7 @@ module nupp.runtime.reactor
 const pollcalls = require("nupp.runtime.pollcalls")
 const poolcalls = require("nupp.runtime.poolcalls")
 const filecalls = require("nupp.runtime.filecalls")
+const processcalls = require("nupp.runtime.processcalls")
 
 --- What an operation does.
 export const OPEN = 1
@@ -40,6 +45,7 @@ export const READ = 2
 export const WRITE = 3
 export const SEEK = 4
 export const CLOSE = 5
+export const EXIT = 6
 
 --- One operation, as it is submitted: what it does, to which descriptor, and
 --- what that kind of operation takes.
@@ -64,20 +70,29 @@ export record Operation
     offset: integer = 0
 
     whence: integer = 0
+
+    --- The child an exit waits for.
+    process: integer = 0
 end
 
 --- What an operation completed with.
 export record Completion
     --- The descriptor an open made, the bytes a write wrote, which may be
-    --- fewer than it was given, or the position a seek reached; 0 for a read
-    --- or a close, and -1 when the operation failed.
+    --- fewer than it was given, the position a seek reached, or the child an
+    --- exit waited for; 0 for a read or a close, and -1 when the operation
+    --- failed.
     value: integer
 
     --- The bytes a read read, "" at the end of the file.
     text: string = ""
 
-    --- 0, or the system's error number when the operation failed.
+    --- 0, or the system's error number when the operation failed. For an
+    --- exit, the child's exit status or the number of the signal that ended
+    --- it, as `reason` says.
     code: integer = 0
+
+    --- How an exit's child ended: "exit" or "signal"; "" for the others.
+    reason: string = ""
 end
 
 --- What makes a parked task runnable, its park to answer the completion it
@@ -103,10 +118,24 @@ const WRITABLE = 2
 const HUNGUP = 4
 const FAILED = 8
 
--- An event is its descriptor above these four readiness bits.
-const EVENTBITS = 4
+-- A child's exit, whose event carries its process id for a descriptor.
+const EXITED = 16
 
-const READINESS = 15
+-- An event is its descriptor or process id above these five bits.
+const EVENTBITS = 5
+
+const READINESS = 31
+
+-- A collected child's status: its reason above the code, 1 an exit and 2 a
+-- signal; 0 while it runs.
+const RUNNING = 0
+
+const REASONBITS = 8
+const CODEMASK = 255
+const SIGNALLED = 2
+
+-- ESRCH: what watching a child that has exited already answers.
+const GONE = 3
 
 -- A pipe is its read end below bit 32 and its write end above.
 const ENDBITS = 32
@@ -152,6 +181,9 @@ local record Waiter
 
     --- Its pool job's ticket, or 0 while it waits for readiness.
     ticket: integer = 0
+
+    --- An exit's completion, found before the poller reported it.
+    result: Completion? = nil
 end
 
 -- A readiness source and the operations waiting on it, oldest first.
@@ -191,6 +223,16 @@ local wakearmed = false
 
 local parker: Parker? = nil
 
+-- The exits waited for, by process id, and those whose completion was found
+-- as they were submitted, delivered by the next wait.
+local exits: {[integer]: {Waiter}} = {}
+
+local early: {Waiter} = {}
+
+-- The statuses collected and not yet delivered, by process id: a child is
+-- collected once, so a second wait for it before then shares its status.
+local collected: {[integer]: Completion} = {}
+
 local function answer(result: integer): Completion
     if result < 0 then
         return new Completion(value = -1, code = -result)
@@ -214,6 +256,8 @@ local function openpoller(): integer
 
     return poller
 end
+
+local exited: function(integer): nil
 
 -- Hands `completion` to what `waiter` was submitted with: the one place a
 -- completion crosses into the program.
@@ -339,10 +383,60 @@ local function collect(): nil
     armwake()
 end
 
+-- Child `process`'s status, collected if it has exited: nil while it runs.
+local function reap(process: integer): Completion?
+    local held = collected[process]
+    if held ~= nil then
+        return held
+    end
+    local status = processcalls.reap(process)
+    if status == RUNNING then
+        return nil
+    elseif status < 0 then
+        return failure(-status)
+    end
+    local reason = status >> REASONBITS == SIGNALLED and "signal" or "exit"
+    local done = new Completion(value = process, code = status & CODEMASK, reason = reason)
+    collected[process] = done
+
+    return done
+end
+
+-- Hands the exit waits on `process` its status, once the poller reported
+-- it; a report with no wait left, or for a child still running (its id
+-- since reused), changes nothing.
+exited = function(process: integer): nil
+    local queue = exits[process]
+    if queue == nil then
+        return
+    end
+    local done = reap(process)
+    if done == nil then
+        -- Watched again; one that has ended since is collected now.
+        if processcalls.watch(openpoller(), process) ~= -GONE then
+            return
+        end
+        done = reap(process)
+        if done == nil then
+            return
+        end
+    end
+    exits[process] = nil
+    collected[process] = nil
+    processcalls.unwatch(openpoller(), process)
+    for _, waiter in ipairs(queue) do
+        deliver(waiter, done as Completion)
+    end
+end
+
 -- Handles one event from the poller.
 local function dispatch(event: integer): nil
     local descriptor = event >> EVENTBITS
     local bits = event & READINESS
+    if bits & EXITED ~= 0 then
+        exited(descriptor)
+        return
+    end
     if descriptor == wake then
         collect()
         return
@@ -416,17 +510,47 @@ export function pipe(): (integer, integer)
     return reader, writer
 end
 
+-- Waits for `waiter`'s child to exit. One that has exited already, before
+-- the poller could watch it or since, is collected now and completes at the
+-- next wait.
+local function waitexit(waiter: Waiter): nil
+    local process = waiter.operation.process
+    local queue = exits[process]
+    if queue ~= nil then
+        queue[#queue + 1] = waiter
+        return
+    end
+    local status = processcalls.watch(openpoller(), process)
+    if status < 0 and status ~= -GONE then
+        error("reactor: cannot watch process " .. tostring(process) .. ": " .. filecalls.reason(-status), 3)
+    end
+    local done = reap(process)
+    if done ~= nil then
+        processcalls.unwatch(openpoller(), process)
+        waiter.result = done
+        early[#early + 1] = waiter
+        return
+    end
+    exits[process] = {waiter}
+end
+
 --- Submits `operation`, whose completion is handed to `done` from a later
 --- `wait`, never from this call: a read or write on a readiness source waits
 --- for it, and an open, or a read or write on anything else, goes to the
 --- pool. Answers its id, which `cancel` takes.
 export function submit(operation: Operation, done: function(Completion): nil): integer
     local kind = operation.kind
-    if kind ~= OPEN and kind ~= READ and kind ~= WRITE then
+    if kind ~= OPEN and kind ~= READ and kind ~= WRITE and kind ~= EXIT then
         error("reactor: an operation of kind " .. tostring(kind) .. " does not wait", 2)
     end
     last = last + 1
     local waiter = new Waiter(id = last, operation = operation, done = done)
+    if kind == EXIT then
+        waitexit(waiter)
+        waiters[waiter.id] = waiter
+        count = count + 1
+        return waiter.id
+    end
     local source = kind ~= OPEN and sources[operation.descriptor] or nil
     if source ~= nil then
         local queue = kind == READ and source.reads or source.writes
@@ -489,6 +613,27 @@ export function cancel(id: integer): boolean
     end
     waiters[id] = nil
     count = count - 1
+    if waiter.operation.kind == EXIT then
+        local process = waiter.operation.process
+        for index, held in ipairs(early) do
+            if held == waiter then
+                table.remove(early, index)
+                return true
+            end
+        end
+        local queue = exits[process] or {}
+        for index, queued in ipairs(queue) do
+            if queued == waiter then
+                table.remove(queue, index)
+                break
+            end
+        end
+        if #queue == 0 then
+            exits[process] = nil
+            processcalls.unwatch(openpoller(), process)
+        end
+        return true
+    end
     local ticket = waiter.ticket
     if ticket ~= 0 then
         jobs[ticket] = nil
@@ -514,6 +659,33 @@ export function cancel(id: integer): boolean
     return true
 end
 
+--- Child `process`'s exit, collected now if it has exited, without
+--- waiting: its completion, as an exit's wait would complete, or nil while
+--- it runs. A wait for it still completes.
+export function status(process: integer): Completion?
+    local done = reap(process)
+    if done ~= nil and exits[process] == nil then
+        collected[process] = nil
+    end
+
+    return done
+end
+
+--- A read of at most `count` bytes from `descriptor`, to submit.
+export function reading(descriptor: integer, count: integer): Operation
+    return new Operation(kind = READ, descriptor = descriptor, count = count)
+end
+
+--- A write of `text` from its byte `first` to `descriptor`, to submit.
+export function writing(descriptor: integer, text: string, first: integer): Operation
+    return new Operation(kind = WRITE, descriptor = descriptor, text = text, first = first)
+end
+
+--- A wait for child `process` to exit, to submit.
+export function exiting(process: integer): Operation
+    return new Operation(kind = EXIT, process = process)
+end
+
 --- The operations submitted and not yet completed or cancelled.
 export function pending(): integer
     return count
@@ -527,6 +699,16 @@ end
 export function wait(deadline: number?): integer
     local before = delivered
     local descriptor = openpoller()
+    if #early > 0 then
+        local found = early
+        early = {}
+        for _, waiter in ipairs(found) do
+            local done = waiter.result as Completion
+            collected[done.value] = nil
+            deliver(waiter, done)
+        end
+        return delivered - before
+    end
     while true do
         local nanos: integer = FOREVER
         if deadline ~= nil then
@@ -564,32 +746,59 @@ export function parks(): boolean
     return scheduler ~= nil and scheduler.waker() ~= nil
 end
 
---- Submits `operation` and answers its completion. The calling task parks
---- until then and others run; where nothing can park it, this drives the
---- reactor until the operation completes. A task cancelled while it waits
---- cancels the operation and raises what its park raised.
-export function await(operation: Operation): Completion
+--- Waits for what `start` sets going, which may be several operations:
+--- `start` is handed the function that ends the wait with a completion, and
+--- answers the function that withdraws what it submitted. The calling task
+--- parks until the wait ends and others run; where nothing can park it, this
+--- drives the reactor until then. A task cancelled while it waits withdraws
+--- and raises what its park raised.
+export function suspend(start: function(Waker): function(): nil): Completion
     local scheduler = parker
     local waker: Waker? = nil
     if scheduler ~= nil then
         waker = scheduler.waker()
     end
+    local result: Completion? = nil
     if scheduler == nil or waker == nil then
-        local result: Completion? = nil
-        submit(operation, function(completion: Completion): nil
-            result = completion
+        start(function(completion: Completion): nil
+            if result == nil then
+                result = completion
+            end
         end)
         while result == nil do
+            if count == 0 then
+                error("reactor: a wait that nothing pending can end", 2)
+            end
             wait(nil)
         end
         return result as Completion
     end
-    local id = submit(operation, waker as Waker)
+    local ended = false
+    local withdraw = start(function(completion: Completion): nil
+        if not ended then
+            ended = true
+            (waker as Waker)(completion)
+        end
+    end)
     local ok, got = pcall(scheduler.park)
     if not ok then
-        cancel(id)
+        ended = true
+        withdraw()
         error(got, 0)
     end
 
     return got as Completion
+end
+
+--- Submits `operation` and answers its completion. The calling task parks
+--- until then and others run; where nothing can park it, this drives the
+--- reactor until the operation completes. A task cancelled while it waits
+--- cancels the operation and raises what its park raised.
+export function await(operation: Operation): Completion
+    return suspend(function(resume: Waker): function(): nil
+        local id = submit(operation, resume)
+        return function(): nil
+            cancel(id)
+        end
+    end)
 end

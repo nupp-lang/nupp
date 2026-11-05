@@ -1,0 +1,11 @@
+module nupp.core.catalogprocessexit
+
+-- os.exit on the core, as reference Lua 5.5 does it: what was written
+-- before it reaches the output, the program ends with the status given,
+-- and nothing after it runs.
+io.write("before exit\n")
+print("printed", 1)
+os.exit(3)
+print("never")
+
+export = 0

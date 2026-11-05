@@ -33,7 +33,14 @@ local definitions = {
     poolSubmit = {slot = 23, params = {"uint64", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
     poolTake = {slot = 24, params = {}, result = "int64", cResult = "int64"},
     poolFinish = {slot = 25, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    poolCancel = {slot = 26, params = {"uint64"}, result = "int64", cResult = "int64"}
+    poolCancel = {slot = 26, params = {"uint64"}, result = "int64", cResult = "int64"},
+    processPipe = {slot = 27, params = {"uint64"}, result = "int64", cResult = "int64"},
+    processSpawn = {slot = 28, params = {"voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"},
+    processWatch = {slot = 29, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
+    processUnwatch = {slot = 30, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
+    processReap = {slot = 31, params = {"uint64"}, result = "int64", cResult = "int64"},
+    processKill = {slot = 32, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
+    processExit = {slot = 33, params = {"uint64"}, result = "int64", cResult = "int64"}
 }
 
 local function need(value: any, message: string): any
@@ -210,6 +217,19 @@ function os.status(declaration: any): any
     os.validate(declaration)
     local out = issued[declaration].out
     return out and {parameter = out.parameter, offset = out.offset, bytes = out.bytes} or nil
+end
+
+-- How many imports the bridge passes: one per definition, by slot.
+function os.imports(): integer
+    local count: integer = 0
+    for _, spec in pairs(definitions) do
+        local slot = spec.slot as integer
+        if slot >= count then
+            count = slot + 1
+        end
+    end
+
+    return count
 end
 
 function os.slot(declaration: any, owner: any?): integer

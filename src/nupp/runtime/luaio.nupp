@@ -1,18 +1,11 @@
 @!internal
 
 --[[
-Lua 5.5's `io` library on the native core, written over its file layer
-(`nupp.runtime.files`): `io.open` with Lua's modes, results and errors;
-file handles with `read`, `write`, `lines`, `seek`, `setvbuf`, `flush` and
-`close`; `io.read`, `io.write`, `io.lines`, `io.close`, `io.input`,
-`io.output` and `io.type`; and the standard files.
-
-A handle reads ahead a buffer's worth and answers every format from it, as
-C's stdio does. A write collects its values and hands them to the file
-before it returns, one write for the call: the core runs no finalizer at
-exit yet, so bytes held past a call would be lost by a program that ends
-without closing its file, where Lua's state closing (or C's `exit`) writes
-them. `setvbuf("no")` writes each value as it comes.
+Lua 5.5's `io` library on the native core, over its file handles
+(`nupp.runtime.luastreams`): `io.open` with Lua's modes, results and
+errors; `io.read`, `io.write`, `io.lines`, `io.close`, `io.input`,
+`io.output` and `io.type`; the standard files; and `io.popen`, whose
+handle is a process's (`nupp.runtime.luaprocess`).
 
 The handles of `io.open` are affine (Decision 12): one that leaves its
 owner's scope unclosed is closed by the prelude's `__nuppCloseFile`, which
@@ -22,586 +15,22 @@ module nupp.runtime.luaio
 
 const files = require("nupp.runtime.files")
 const hostcalls = require("nupp.runtime.hostcalls")
-
--- The bytes a read asks the file for at a time, as stdio's buffer holds.
-const BUFFER = 4096
-
--- The longest numeral the "n" format reads, as Lua's L_MAXLENNUM.
-const NUMERAL = 200
-
--- The most formats `lines` keeps, as Lua's MAXARGLINE.
-const LINEFORMATS = 250
-
--- One open file: its descriptor and its read-ahead.
-local record Stream
-    descriptor: integer
-
-    --- A standard file, which `close` refuses.
-    standard: boolean = false
-
-    closed: boolean = false
-
-    --- Bytes read ahead, unread from `at` on.
-    input: string = ""
-
-    at: integer = 1
-
-    --- The buffering `setvbuf` set: "no", "full" or "line", and its size.
-    mode: string = "full"
-
-    size: integer = 4096
-
-    --- The error number of a read that failed since the last read began,
-    --- as C's error indicator holds it; 0 when none did.
-    failure: integer = 0
-end
-
-local type Handle = {stream: Stream}
-
-local methods: {[string]: any} = {}
-
-local meta: {[string]: any} = {__index = methods, __name = "FILE*"}
-
--- The name Lua's argument errors give a value's type: its metatable's
--- __name when it has one.
-local function typename(value: any): string
-    local m = getmetatable(value)
-    if type(m) == "table" and type((m as {[string]: any}).__name) == "string" then
-        return (m as {[string]: any}).__name as string
-    end
-
-    return type(value)
-end
-
--- Raises Lua's error for argument `position` of `name`, at `level` past the
--- function that calls this.
-local function argerror(position: integer, name: string, message: string, level: integer): nil
-    error(("bad argument #%d to '%s' (%s)"):format(position, name, message), level + 1)
-end
-
--- The stream of the file handle `value`, argument `position` of `name`, or
--- Lua's error at `level` past the caller.
-local function streamof(value: any, position: integer, name: string, level: integer): Stream
-    if type(value) ~= "table" or getmetatable(value) ~= meta then
-        argerror(position, name, "FILE* expected, got " .. typename(value), level + 1)
-    end
-
-    return (value as Handle).stream
-end
-
--- streamof for a file that must be open, as Lua's tofile.
-local function openstream(value: any, position: integer, name: string, level: integer): Stream
-    local s = streamof(value, position, name, level + 1)
-    if s.closed then
-        error("attempt to use a closed file", level + 1)
-    end
-
-    return s
-end
-
--- An integer argument as luaL_checkinteger takes one: a number with an
--- integer value, or a string that converts to one.
-local function integerarg(value: any, position: integer, name: string, level: integer): integer
-    local number: any = value
-    if type(value) == "string" then
-        number = tonumber(value as string)
-    end
-    if math.type(number) == "integer" then
-        return number as integer
-    elseif math.type(number) == "float" then
-        local whole = math.tointeger(number as number)
-        if whole ~= nil then
-            return whole
-        end
-        argerror(position, name, "number has no integer representation", level + 1)
-    end
-    argerror(position, name, "number expected, got " .. typename(value), level + 1)
-
-    return 0
-end
-
--- An optional string argument as luaL_optstring takes one: nil is
--- `default`, and a number its text.
-local function stringarg(value: any, default: string?, position: integer, name: string, level: integer): string
-    if value == nil and default ~= nil then
-        return default
-    elseif type(value) == "string" then
-        return value as string
-    elseif type(value) == "number" then
-        return tostring(value)
-    end
-    argerror(position, name, "string expected, got " .. typename(value), level + 1)
-
-    return ""
-end
-
-local function newhandle(descriptor: integer, standard: boolean, mode: string): any
-    local s = new Stream(descriptor = descriptor, standard = standard, mode = mode)
-
-    return setmetatable({stream = s}, meta)
-end
-
--- Lua's failure results for error number `code`, its text after `prefix`.
-local function failure(code: integer, prefix: string?): (nil, string, integer)
-    local text = files.reason(code)
-    if prefix ~= nil then
-        text = prefix .. ": " .. text
-    end
-
-    return nil, text, code
-end
-
-----------------------------------------------------------------------------
--- Reading
-----------------------------------------------------------------------------
-
--- Reads ahead when what was read is spent: false at the end of the file or
--- when the read fails, whose error number the stream keeps.
-local function fill(s: Stream): boolean
-    if s.at <= #s.input then
-        return true
-    end
-    -- An unbuffered file reads a byte at a time, as C's does.
-    local size = s.mode == "no" and 1 or s.size
-    local done = files.read(s.descriptor, size)
-    s.input, s.at = "", 1
-    if done.code ~= 0 then
-        s.failure = done.code
-        return false
-    end
-    s.input = done.text
-
-    return done.text ~= ""
-end
-
--- The next unread byte, or nil at the end.
-local function peek(s: Stream): integer?
-    if not fill(s) then
-        return nil
-    end
-
-    return string.byte(s.input, s.at)
-end
-
--- A line, without its newline when `chop`: nil when the file has ended
--- before any byte of it.
-local function readline(s: Stream, chop: boolean): string?
-    local parts: {string} = {}
-    local newline = false
-    while fill(s) do
-        local stop = string.find(s.input, "\n", s.at, true)
-        if stop ~= nil then
-            parts[#parts + 1] = string.sub(s.input, s.at, chop and stop - 1 or stop)
-            s.at = stop + 1
-            newline = true
-            break
-        end
-        parts[#parts + 1] = string.sub(s.input, s.at)
-        s.at = #s.input + 1
-    end
-    local line = table.concat(parts)
-    if newline or #line > 0 then
-        return line
-    end
-
-    return nil
-end
-
--- At most `count` bytes: nil when none are left.
-local function readcount(s: Stream, count: integer): string?
-    local parts: {string} = {}
-    local have: integer = 0
-    while have < count and fill(s) do
-        local take = math.min(count - have, #s.input - s.at + 1) as integer
-        parts[#parts + 1] = string.sub(s.input, s.at, s.at + take - 1)
-        s.at = s.at + take
-        have = have + take
-    end
-    if have > 0 then
-        return table.concat(parts)
-    end
-
-    return nil
-end
-
--- The rest of the file, "" at its end.
-local function readall(s: Stream): string
-    local parts: {string} = {}
-    while fill(s) do
-        parts[#parts + 1] = string.sub(s.input, s.at)
-        s.at = #s.input + 1
-    end
-
-    return table.concat(parts)
-end
-
--- Whether the next byte is a decimal or, with `hex`, a hexadecimal digit.
-local function isdigit(c: integer?, hex: boolean): boolean
-    if c == nil then
-        return false
-    end
-    local byte = c as integer
-    if byte >= 48 and byte <= 57 then
-        return true
-    end
-
-    return hex and (byte >= 97 and byte <= 102 or byte >= 65 and byte <= 70)
-end
-
--- A numeral, as Lua's read_number takes the longest prefix of one (at most
--- NUMERAL bytes) and then converts it: nil when that is not a number. The
--- bytes it takes stay taken either way.
-local function readnumber(s: Stream): number?
-    local c = peek(s)
-    while c ~= nil and (c == 32 or c >= 9 and c <= 13) do
-        s.at = s.at + 1
-        c = peek(s)
-    end
-    local taken: {string} = {}
-    local overflow = false
-
-    -- Takes the byte looked at, when there is room for it.
-    local function take(): boolean
-        if #taken >= NUMERAL then
-            overflow = true
-            return false
-        end
-        taken[#taken + 1] = string.char(c as integer)
-        s.at = s.at + 1
-        c = peek(s)
-
-        return true
-    end
-
-    -- Takes the byte looked at when it is `a` or `b`.
-    local function either(a: integer, b: integer): boolean
-        if c == a or c == b then
-            return take()
-        end
-        return false
-    end
-
-    local function digits(hex: boolean): integer
-        local count: integer = 0
-        while isdigit(c, hex) and take() do
-            count = count + 1
-        end
-
-        return count
-    end
-
-    local count: integer = 0
-    local hex = false
-    either(45, 43)
-    if either(48, 48) then
-        if either(120, 88) then
-            hex = true
-        else
-            count = 1
-        end
-    end
-    count = count + digits(hex)
-    if either(46, 46) then
-        count = count + digits(hex)
-    end
-    if count > 0 and (hex and either(112, 80) or not hex and either(101, 69)) then
-        either(45, 43)
-        digits(false)
-    end
-    if overflow then
-        return nil
-    end
-
-    return tonumber(table.concat(taken))
-end
-
--- The values `...` asks for, read from `s` as Lua's g_read reads them: one
--- per format until one fails, nil in its place; or, when a read failed,
--- nil, the system's text and its number. The formats are arguments
--- `position` on of `name`, for errors raised at `level` past the caller.
-local function readformats(s: Stream, position: integer, name: string, level: integer, ...: any): ...any
-    s.failure = 0
-    local count = select("#", ...)
-    local results: {any} = {}
-    local n: integer = 0
-    if count == 0 then
-        results[1] = readline(s, true)
-        n = 1
-    else
-        local success = true
-        local index: integer = 1
-        while index <= count and success do
-            local format: any = select(index, ...)
-            local value: any = nil
-            if type(format) == "number" then
-                local size = integerarg(format, position + index - 1, name, level + 1)
-                if size == 0 then
-                    if fill(s) then
-                        value = ""
-                    end
-                else
-                    value = readcount(s, size)
-                end
-            else
-                local text = stringarg(format, nil, position + index - 1, name, level + 1)
-                local first = string.sub(text, 1, 1) == "*" and 2 or 1
-                local kind = string.sub(text, first, first)
-                if kind == "n" then
-                    value = readnumber(s)
-                elseif kind == "l" then
-                    value = readline(s, true)
-                elseif kind == "L" then
-                    value = readline(s, false)
-                elseif kind == "a" then
-                    value = readall(s)
-                else
-                    argerror(position + index - 1, name, "invalid format", level + 1)
-                end
-            end
-            results[index] = value
-            n = index
-            success = value ~= nil
-            index = index + 1
-        end
-    end
-    if s.failure ~= 0 then
-        return failure(s.failure)
-    end
-
-    return table.unpack(results, 1, n)
-end
-
-----------------------------------------------------------------------------
--- Writing
-----------------------------------------------------------------------------
-
--- Hands the bytes read ahead back to the file, so a write lands where the
--- reading stopped: the descriptor moves back over them. A file that cannot
--- seek keeps nothing to hand back that a write would land behind.
-local function unread(s: Stream): nil
-    local pending = #s.input - s.at + 1
-    s.input, s.at = "", 1
-    if pending > 0 then
-        files.seek(s.descriptor, -pending, files.FROMHERE)
-    end
-end
-
--- Writes all of `text`: the bytes written, and 0 or the error number that
--- stopped it.
-local function emit(s: Stream, text: string): (integer, integer)
-    local first: integer = 1
-    while first <= #text do
-        local done = files.write(s.descriptor, text, first)
-        if done.code ~= 0 then
-            return first - 1, done.code
-        end
-        if done.value <= 0 then
-            -- A write that takes nothing will not take the rest: C's EIO.
-            return first - 1, 5
-        end
-        first = first + done.value
-    end
-
-    return #text, 0
-end
-
--- Writes `...` to the file of `handle` as Lua's g_write does, strings as
--- they are and numbers as tostring writes them: `handle`, or nil, the
--- system's text, its number and the bytes written. The values are arguments
--- `position` on of `name`; one of another type raises at `level` past the
--- caller once those before it are written.
-local function writevalues(handle: any, s: Stream, position: integer, name: string, level: integer, ...: any): ...any
-    unread(s)
-    local pieces: {string} = {}
-    local total = 0
-    local count = select("#", ...)
-
-    -- Writes the collected pieces: 0, or the error number that stopped it.
-    local function drain(): integer
-        if #pieces == 0 then
-            return 0
-        end
-        local written, code = emit(s, table.concat(pieces))
-        pieces = {}
-        total = total + written
-
-        return code
-    end
-
-    for index = 1, count do
-        local value: any = select(index, ...)
-        local text = ""
-        if type(value) == "number" then
-            text = tostring(value)
-        elseif type(value) == "string" then
-            text = value as string
-        else
-            drain()
-            argerror(position + index - 1, name, "string expected, got " .. typename(value), level + 1)
-        end
-        pieces[#pieces + 1] = text
-        if s.mode == "no" then
-            local code = drain()
-            if code ~= 0 then
-                local _, text2, number = failure(code)
-                return nil, text2, number, total
-            end
-        end
-    end
-    local code = drain()
-    if code ~= 0 then
-        local _, text, number = failure(code)
-        return nil, text, number, total
-    end
-
-    return handle
-end
-
-----------------------------------------------------------------------------
--- Handles
-----------------------------------------------------------------------------
-
--- Closes the file of `s`: true, or Lua's failure results. A standard file
--- stays open and answers nil and Lua's message.
-local function closestream(s: Stream): (boolean?, string?, integer?)
-    if s.standard then
-        return nil, "cannot close standard file"
-    end
-    s.closed = true
-    s.input, s.at = "", 1
-    local done = files.close(s.descriptor)
-    if done.code ~= 0 then
-        return failure(done.code)
-    end
-
-    return true
-end
-
--- An iterator over the values `formats` asks for, as Lua's io_readline:
--- nothing once the file is read, closing it then when `toclose`.
-local function lineiterator(s: Stream, toclose: boolean, formats: {any}, count: integer): function(): ...any
-    -- The results of a read and their count.
-    local function packed(...: any): ({any}, integer)
-        return {...}, select("#", ...)
-    end
-
-    return function(): ...any
-        if s.closed then
-            error("file is already closed", 2)
-        end
-        local results, n = packed(readformats(s, 1, "lines", 2, table.unpack(formats, 1, count)))
-        if results[1] ~= nil and results[1] ~= false then
-            return table.unpack(results, 1, n)
-        end
-        if n > 1 and type(results[2]) == "string" then
-            error(results[2], 2)
-        end
-        if toclose then
-            closestream(s)
-        end
-
-        return nil
-    end
-end
-
--- The formats after the file, kept for an iterator, as Lua's aux_lines.
-local function lineformats(position: integer, level: integer, ...: any): ({any}, integer)
-    local count = select("#", ...)
-    if count > LINEFORMATS then
-        argerror(LINEFORMATS + position, "lines", "too many arguments", level + 1)
-    end
-
-    return {...}, count
-end
-
---- Reads the values `...` asks for: "n", "l", "L", "a" or a byte count.
-methods.read = function(self: any, ...: any): ...any
-    local s = openstream(self, 1, "read", 2)
-
-    return readformats(s, 1, "read", 2, ...)
-end
-
---- Writes strings and numbers: the file, or Lua's failure results.
-methods.write = function(self: any, ...: any): ...any
-    local s = openstream(self, 1, "write", 2)
-
-    return writevalues(self, s, 1, "write", 2, ...)
-end
-
---- An iterator over the values `...` asks for, a line by default.
-methods.lines = function(self: any, ...: any): function(): ...any
-    local s = openstream(self, 1, "lines", 2)
-    local formats, count = lineformats(1, 2, ...)
-
-    return lineiterator(s, false, formats, count)
-end
-
---- Writes what is buffered: true, as every write has reached the file
---- before it returned.
-methods.flush = function(self: any): (boolean?, string?, integer?)
-    openstream(self, 1, "flush", 2)
-
-    return true
-end
-
---- Moves the file to `offset` from "set", "cur" or "end": the new position,
---- or Lua's failure results.
-methods.seek = function(self: any, whence: any, offset: any): (integer?, string?, integer?)
-    local s = openstream(self, 1, "seek", 2)
-    local name = stringarg(whence, "cur", 1, "seek", 2)
-    local origin = name == "set" and files.FROMSTART
-        or name == "cur" and files.FROMHERE
-        or name == "end" and files.FROMEND
-        or nil
-    if origin == nil then
-        argerror(1, "seek", ("invalid option '%s'"):format(name), 2)
-    end
-    local at = offset == nil and 0 or integerarg(offset, 2, "seek", 2)
-    -- Read-ahead is where the file is, not where the reading is.
-    local pending = #s.input - s.at + 1
-    local move = origin == files.FROMHERE and at - pending or at
-    local done = files.seek(s.descriptor, move, origin as integer)
-    if done.code ~= 0 then
-        return failure(done.code)
-    end
-    s.input, s.at = "", 1
-
-    return done.value
-end
-
---- Sets the file's buffering: "no", "full" or "line", with a size.
-methods.setvbuf = function(self: any, mode: any, size: any): (boolean?, string?, integer?)
-    local s = openstream(self, 1, "setvbuf", 2)
-    local name = stringarg(mode, nil, 1, "setvbuf", 2)
-    if name ~= "no" and name ~= "full" and name ~= "line" then
-        argerror(1, "setvbuf", ("invalid option '%s'"):format(name), 2)
-    end
-    local bytes = size == nil and BUFFER or integerarg(size, 2, "setvbuf", 2)
-    s.mode = name
-    s.size = bytes > 0 and bytes or BUFFER
-
-    return true
-end
-
---- Closes the file: true, or Lua's failure results.
-methods.close = function(self: any): (boolean?, string?, integer?)
-    local s = openstream(self, 1, "close", 2)
-
-    return closestream(s)
-end
-
-meta.__tostring = function(self: any): string
-    local s = (self as Handle).stream
-    if s.closed then
-        return "file (closed)"
-    end
-
-    return "file (" .. (string.match(tostring(s), "0x%x+") or "?") .. ")"
-end
-
-----------------------------------------------------------------------------
--- The library
-----------------------------------------------------------------------------
+const luaargs = require("nupp.runtime.luaargs")
+const streams = require("nupp.runtime.luastreams")
+const luaprocess = require("nupp.runtime.luaprocess")
+
+local type Handle = streams.Handle
+
+local stringarg = luaargs.stringarg
+local argerror = luaargs.argerror
+local newhandle = streams.newhandle
+local failure = streams.failure
+local openstream = streams.openstream
+local closestream = streams.closestream
+local readformats = streams.readformats
+local writevalues = streams.writevalues
+local lineiterator = streams.lineiterator
+local lineformats = streams.lineformats
 
 local stdin = newhandle(files.STDIN, true, "full")
 local stdout = newhandle(files.STDOUT, true, "full")
@@ -662,6 +91,9 @@ local function close(...: any): (boolean?, string?, integer?)
         file = select(1, ...)
     end
     local s = openstream(file, 1, "close", 2)
+    if luaprocess.isprocess(file) then
+        return (file as any):close()
+    end
 
     return closestream(s)
 end
@@ -676,7 +108,7 @@ local function read(...: any): ...any
 end
 
 local function write(...: any): ...any
-    local s = (output as Handle).stream
+    local s = streams.writer(output)
     if s.closed then
         error("default output file is closed", 2)
     end
@@ -685,7 +117,7 @@ local function write(...: any): ...any
 end
 
 local function flush(): (boolean?, string?, integer?)
-    if (output as Handle).stream.closed then
+    if streams.writer(output).closed then
         error("default output file is closed", 2)
     end
 
@@ -737,7 +169,7 @@ local function filetype(...: any): string?
         argerror(1, "type", "value expected", 2)
     end
     local value: any = select(1, ...)
-    if type(value) ~= "table" or getmetatable(value) ~= meta then
+    if not streams.isfile(value) then
         return nil
     end
     if (value as Handle).stream.closed then
@@ -747,11 +179,7 @@ local function filetype(...: any): string?
     return "file"
 end
 
--- Child processes and temporary files are not the core's yet.
-local function popen(...: any): nil
-    error("'popen' not supported", 2)
-end
-
+-- Temporary files are not the core's yet.
 local function tmpfile(...: any): nil
     error("'tmpfile' not supported", 2)
 end
@@ -768,7 +196,7 @@ local library: {
     input = inputfile,
     output = outputfile,
     type = filetype,
-    popen = popen,
+    popen = luaprocess.popen,
     tmpfile = tmpfile,
     stdin = stdin,
     stdout = stdout,
@@ -782,7 +210,12 @@ local function closefile(handle: any): nil
     if s.closed then
         return
     end
-    local ok, reason = closestream(s)
+    local ok, reason: (boolean?, string?) = nil, nil
+    if luaprocess.isprocess(handle) then
+        ok, reason = (handle as any):close()
+    else
+        ok, reason = closestream(s)
+    end
     if not ok then
         error(reason or "the file could not be closed", 0)
     end

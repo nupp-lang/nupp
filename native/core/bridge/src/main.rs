@@ -3,6 +3,7 @@ mod files;
 mod platform;
 mod poll;
 mod pool;
+mod process;
 
 #[cfg(all(test, target_arch = "aarch64"))]
 #[path = "../tests/support/abi.rs"]
@@ -143,6 +144,13 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
         pool::pool_take as *const () as u64,
         pool::pool_finish as *const () as u64,
         pool::pool_cancel as *const () as u64,
+        process::process_pipe as *const () as u64,
+        process::process_spawn as *const () as u64,
+        poll::process_watch as *const () as u64,
+        poll::process_unwatch as *const () as u64,
+        process::process_reap as *const () as u64,
+        process::process_kill as *const () as u64,
+        process::process_exit as *const () as u64,
     ];
     let packet = [
         1,

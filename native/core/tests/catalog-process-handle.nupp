@@ -1,0 +1,107 @@
+module nupp.core.catalogprocesshandle
+
+-- io.popen's process handle on the core, as io.Process is: an argument
+-- vector without a shell, the options table, the handle's file methods and
+-- process controls together, communicate, wait's exit record, a kill of the
+-- child's group, the piped streams as files with a read that does not wait,
+-- and the option errors. Each check is a bit of the score.
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local function ends(text: any, suffix: string): boolean
+    return type(text) == "string" and string.sub(text as string, -#suffix) == suffix
+end
+
+-- io.popen through its value: its handles are plain values here, as Lua's
+-- files are, rather than owners.
+local popen: any = io.popen
+
+-- An argument vector, read as a file, closed as Lua's pclose answers.
+do
+    local child = assert(popen({"printf", "%s-%s", "a b", "$HOME"}))
+    check(type(child.pid) == "number" and child.pid > 0)
+    check(io.type(child) == "file" and tostring(child) == "file (process " .. tostring(child.pid) .. ")")
+    check(child:read("a") == "a b-$HOME")
+    local ok, how, code = child:close()
+    check(ok == true and how == "exit" and code == 0 and io.type(child) == "closed file")
+end
+
+-- Options: the directory, the environment over this one or alone, and
+-- standard error piped beside standard output.
+do
+    local placed = assert(
+        popen("printf '%s:%s:%s' \"$PWD\" \"$EXTRA\" \"$NUPP_GUEST_PROBE\"", {
+            cwd = "/",
+            env = {EXTRA = "set"}
+        })
+    )
+    check(placed:read("a") == "/:set:core-environment" and placed:close() == true)
+    local alone = assert(
+        popen({"/bin/sh", "-c", "printf '%s:%s' \"$EXTRA\" \"${NUPP_GUEST_PROBE:-none}\""}, {
+            env = {EXTRA = "only"},
+            clearenv = true
+        })
+    )
+    check(alone:read("a") == "only:none" and alone:close() == true)
+    local both = assert(popen("printf out; printf err >&2; exit 3", {stderr = "pipe"}))
+    local result = assert(both:communicate())
+    check(result.output == "out" and result.erroroutput == "err")
+    check(result.exit.exitcode == 3 and result.exit.signal == nil and not result:succeeded())
+end
+
+-- Writing a child's input and reading its output through one handle.
+do
+    local child = assert(popen({"tr", "a-z", "A-Z"}, {stdin = "pipe", stdout = "pipe"}))
+    check(child:write("shout ", 3, "\n") == child)
+    local result = assert(child:communicate({input = "more\n"}))
+    check(result.output == "SHOUT 3\nMORE\n" and result:succeeded())
+    check(child:close() == true)
+end
+
+-- wait's exit record, a signal's number beside 128 plus it, and a kill of
+-- the child's whole group.
+do
+    local child = assert(popen("sleep 30 & echo started; wait"))
+    check(child:isrunning() and child:read("l") == "started")
+    check(child:kill(true) == true)
+    local exit = child:wait()
+    check(exit.signal == 9 and exit.exitcode == 137 and exit.killed and not exit.timedout)
+    check(not child:isrunning() and child:read("a") == "")
+    local ok, how, code = child:close()
+    check(ok == nil and how == "signal" and code == 9)
+end
+
+-- The piped streams as files: a read that does not wait, and its end.
+do
+    local child = assert(popen("sleep 0.2; printf late"))
+    local early, ended = child.stdout:poll()
+    check(early == nil and ended == false and child.stdin == nil)
+    local wait = child:wait()
+    check(wait.exitcode == 0)
+    local text, done = child.stdout:poll()
+    check(text == "late" and done == false)
+    local none, over = child.stdout:poll()
+    check(none == nil and over == true)
+    check(child:close() == true)
+end
+
+-- What the options and the command may be.
+do
+    local mode, modemessage = pcall(popen, "true", {mode = "x"})
+    check(not mode and ends(modemessage, "(invalid mode)"))
+    local args, argsmessage = pcall(popen, "true", {args = {"true"}})
+    check(not args and ends(argsmessage, "popen takes the command as its first argument"))
+    local stream, streammessage = pcall(popen, "true", {stdout = "file"})
+    check(not stream and ends(streammessage, "must be \"pipe\", \"inherit\" or \"null\""))
+    local missing, reason, code = popen({"no-such-program-anywhere"})
+    check(missing == nil and reason == "no-such-program-anywhere: No such file or directory" and code == 2)
+end
+
+export = score

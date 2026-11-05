@@ -224,6 +224,41 @@ export function poolCancel(scope: voidptr, ticket: uint64): int64
     return os.poolCancel(ticket)
 end
 
+export function processPipe(scope: voidptr, keep: uint64): int64
+    local _ = scope
+    return os.processPipe(keep)
+end
+
+export function processSpawn(scope: voidptr, spec: voidptr, bytes: uint64, flags: uint64): int64
+    local _ = scope
+    return os.processSpawn(spec, bytes, flags)
+end
+
+export function processWatch(scope: voidptr, poller: uint64, pid: uint64): int64
+    local _ = scope
+    return os.processWatch(poller, pid)
+end
+
+export function processUnwatch(scope: voidptr, poller: uint64, pid: uint64): int64
+    local _ = scope
+    return os.processUnwatch(poller, pid)
+end
+
+export function processReap(scope: voidptr, pid: uint64): int64
+    local _ = scope
+    return os.processReap(pid)
+end
+
+export function processKill(scope: voidptr, pid: uint64, signal: uint64): int64
+    local _ = scope
+    return os.processKill(pid, signal)
+end
+
+export function processExit(scope: voidptr, code: uint64): int64
+    local _ = scope
+    return os.processExit(code)
+end
+
 -- Root-registration close failure retains all backing. Entry must preserve
 -- this scope and ledger, never reset them or drain mappings under live roots.
 export function retain(scope: voidptr): nil

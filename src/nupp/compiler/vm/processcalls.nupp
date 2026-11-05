@@ -1,0 +1,34 @@
+module nupp.compiler.vm.processcalls
+
+-- The process layer's calls on the core (nupp.runtime.processcalls): a core
+-- library call each, riding the file calls' library call after the
+-- reactor's, the operation first. The core's guestprocess numbers the
+-- operations the same; reactorcalls carries them with its own.
+
+-- The operations, after the reactor's.
+export const PROCESS_PIPE = 18
+
+export const PROCESS_SPAWN = 19
+export const PROCESS_WATCH = 20
+export const PROCESS_UNWATCH = 21
+export const PROCESS_REAP = 22
+export const PROCESS_KILL = 23
+export const PROCESS_EXIT = 24
+
+--- The declaration module, and the name a call is spelled with.
+export const declaration = "nupp.runtime.processcalls"
+
+export const name = "processcalls"
+
+--- Each call's operation, and how many arguments it takes.
+export const operations: {
+    [string]: {integer}
+} = {
+    ["processcalls.pipe"] = {PROCESS_PIPE, 1},
+    ["processcalls.spawn"] = {PROCESS_SPAWN, 2},
+    ["processcalls.watch"] = {PROCESS_WATCH, 2},
+    ["processcalls.unwatch"] = {PROCESS_UNWATCH, 2},
+    ["processcalls.reap"] = {PROCESS_REAP, 1},
+    ["processcalls.kill"] = {PROCESS_KILL, 2},
+    ["processcalls.exit"] = {PROCESS_EXIT, 1}
+}

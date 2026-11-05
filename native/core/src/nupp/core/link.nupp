@@ -2,6 +2,7 @@ module nupp.core.link
 
 local arm = require("s0.arm64")
 local selector = require("s0.select")
+local nativeos = require("nupp.compiler.vm.nativeos")
 local link = {}
 
 -- Build-time local Nupp calls only. Typed callers and targets are checked by
@@ -110,7 +111,10 @@ local function assemble(
             )
             if code.fixupKind[at] == selector.IMPORT_LOAD then
                 local index = assert(imports and imports[code])[code.fixupName[at]]
-                assert(index ~= nil and index >= 0 and index < 27 and index % 1 == 0, "core link OS import index")
+                assert(
+                    index ~= nil and index >= 0 and index < nativeos.imports() and index % 1 == 0,
+                    "core link OS import index"
+                )
                 local base, slot, importIndex = offset as integer, word as integer, index as integer
                 words[base // 4 + slot] = arm.ldr(8, 16, 22, importIndex * 8)
             else

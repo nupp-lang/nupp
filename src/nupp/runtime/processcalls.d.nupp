@@ -1,0 +1,47 @@
+@!internal
+
+--- The system calls under the native core's process layer, as its host
+--- answers them: posix_spawn, a child's exit through the reactor's poller
+--- (kqueue's process filter on macOS, a pidfd on Linux), waitpid, and a
+--- signal to a child's process group. A call of one is the core's own library
+--- call, and requiring this module loads nothing: it exists only on the core,
+--- for `nupp.runtime.reactor` and `nupp.runtime.processes`. Each answers what
+--- the system call did, or the negated error number.
+local record processcalls
+    --- A pipe for a child's standard stream, both ends closing on exec: the
+    --- end `keep` names (0 the read end, 1 the write end) is nonblocking, and
+    --- the child's end blocks. The read end's descriptor plus the write
+    --- end's times 2^32.
+    pipe: function(keep: integer): integer
+
+    --- Starts the child `spec` describes, in a process group of its own that
+    --- it leads: its process id. `spec` is entries of a tag and text, each
+    --- ended by a NUL: "x" the program, "a" each argument (the first is the
+    --- program's name), "e" each environment entry, "d" the directory, and
+    --- "0", "1" or "2" the decimal descriptor the child's standard input,
+    --- output or error copies. `flags` adds 1 to look the program up on PATH,
+    --- and 2 to give the child only the "e" entries for its environment or 4
+    --- to set them over this program's.
+    spawn: function(spec: string, flags: integer): integer
+
+    --- Has `poller` report child `process`'s exit once, as an event: 0, or
+    --- ESRCH negated when it has exited already, and `reap` collects it.
+    watch: function(poller: integer, process: integer): integer
+
+    --- Stops watching child `process`'s exit: 0.
+    unwatch: function(poller: integer, process: integer): integer
+
+    --- Collects child `process` if it has exited, without waiting: its reason
+    --- times 256 (1 an exit, 2 a signal) plus its exit status or signal
+    --- number; 0 while it runs.
+    reap: function(process: integer): integer
+
+    --- Sends `signal` to every process in the group child `process` leads: 0.
+    kill: function(process: integer, signal: integer): integer
+
+    --- Ends this program with status `code`. It does not return.
+    exit: function(code: integer): nil
+end
+
+local calls: processcalls
+return calls

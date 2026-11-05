@@ -71,7 +71,14 @@ local osNames = {
     poolSubmit = true,
     poolTake = true,
     poolFinish = true,
-    poolCancel = true
+    poolCancel = true,
+    processPipe = true,
+    processSpawn = true,
+    processWatch = true,
+    processUnwatch = true,
+    processReap = true,
+    processKill = true,
+    processExit = true
 }
 
 local function need(ok: any, message: string): any
