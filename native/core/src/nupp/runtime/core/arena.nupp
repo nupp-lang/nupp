@@ -23,6 +23,11 @@ export struct Mark
     bytes: uint64
 end
 
+-- The alignment of every frame reservation (`push`).
+export const FRAME_ALIGNMENT: uint64 = 16ULL
+-- The last serial a segment issues; a reservation past it is refused.
+export const LAST_SERIAL: uint64 = 0xffffffffffffffffULL
+
 -- Initialization requires a fresh zeroed descriptor for this mapping lifetime.
 -- Successful operations return one; refusal returns zero without any write.
 export function initialize(segment: voidptr, base: uint64, bytes: uint64): uint64
@@ -200,6 +205,67 @@ export function release(segment: voidptr, mark: voidptr): uint64
     local previous = native.load64(mark, native.fieldOffset<Mark>("previous"))
     native.store64(segment, native.fieldOffset<Segment>("cursor"), before)
     native.store64(segment, native.fieldOffset<Segment>("top"), previous)
+
+    return 1ULL
+end
+
+-- The frame stack's reserve: `reserve` for a segment and mark the caller
+-- made and owns, so neither is checked again, at the frames' alignment
+-- (FRAME_ALIGNMENT). It writes the same mark `reserve` writes; only room
+-- and serial exhaustion refuse, with nothing written.
+export function push(segment: voidptr, bytes: uint64, mark: voidptr): uint64
+    local limit = native.load64(segment, native.fieldOffset<Segment>("limit"))
+    local cursor = native.load64(segment, native.fieldOffset<Segment>("cursor"))
+    local issued = native.load64(segment, native.fieldOffset<Segment>("issued"))
+    local payload = (cursor + FRAME_ALIGNMENT - 1ULL) & (0ULL - FRAME_ALIGNMENT)
+    if payload > limit or bytes > limit - payload or issued == LAST_SERIAL then
+        return 0ULL
+    end
+    local finish = payload + bytes
+    local serial = issued + 1ULL
+    native.store64(mark, native.fieldOffset<Mark>("owner"), native.address(segment))
+    native.store64(mark, native.fieldOffset<Mark>("serial"), serial)
+    native.store64(
+        mark,
+        native.fieldOffset<Mark>("previous"),
+        native.load64(segment, native.fieldOffset<Segment>("top"))
+    )
+    native.store64(mark, native.fieldOffset<Mark>("before"), cursor)
+    native.store64(mark, native.fieldOffset<Mark>("finish"), finish)
+    native.store64(mark, native.fieldOffset<Mark>("payload"), payload)
+    native.store64(mark, native.fieldOffset<Mark>("bytes"), bytes)
+    native.store64(segment, native.fieldOffset<Segment>("cursor"), finish)
+    native.store64(segment, native.fieldOffset<Segment>("issued"), serial)
+    native.store64(segment, native.fieldOffset<Segment>("top"), serial)
+
+    return 1ULL
+end
+
+-- The frame stack's release of its top reservation: refused, with nothing
+-- written, unless `mark` is the segment's top and ends at its cursor.
+export function pop(segment: voidptr, mark: voidptr): uint64
+    if native.load64(
+        mark,
+        native.fieldOffset<Mark>("serial")
+    ) ~= native.load64(segment, native.fieldOffset<Segment>("top"))
+        or native.load64(
+            mark,
+            native.fieldOffset<Mark>("finish")
+        ) ~= native.load64(segment, native.fieldOffset<Segment>("cursor"))
+        or native.load64(mark, native.fieldOffset<Mark>("owner")) ~= native.address(segment)
+    then
+        return 0ULL
+    end
+    native.store64(
+        segment,
+        native.fieldOffset<Segment>("cursor"),
+        native.load64(mark, native.fieldOffset<Mark>("before"))
+    )
+    native.store64(
+        segment,
+        native.fieldOffset<Segment>("top"),
+        native.load64(mark, native.fieldOffset<Mark>("previous"))
+    )
 
     return 1ULL
 end
