@@ -6,7 +6,6 @@ local scalarAdapters = require("nupp.io.internal.scalars")
 local io = require("nupp.io")
 local paths = require("io.internal.path")
 local messages = require("io.internal.files.messages")
-local appPaths = require("io.internal.files.path")
 
 --- An affine open file and its exclusive platform handle. The file is itself the
 --- byte stream: every read and write moves its one cursor.
@@ -83,6 +82,6 @@ export interface Provider
         suffix: string?,
         within: any?
     ): (affine(TemporaryPath?), string?)
-    @readonly apppath: function(kind: string, organization: string, app: string): (appPaths.AppPath?, string?)
+    @readonly apppath: function(kind: string, organization: string, app: string): (paths.Path?, string?)
     @readonly requestPersistentStorage: function(): (boolean, string?)
 end

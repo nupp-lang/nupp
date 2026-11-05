@@ -76,10 +76,10 @@ local platformLibraries = {
         return require("nupp.runtime.standardmath")
     end,
     function()
-        return require("binary").Mac
+        return require("binary").mac
     end,
     function()
-        return require("binary").Digest
+        return require("binary").digest
     end,
     function()
         return require("binary")

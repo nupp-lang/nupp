@@ -1477,9 +1477,9 @@ function M.builtinBindingsImportOnlyTheBuildTargetsImplementation()
     end
 end
 
-function M.optionalBuiltinBindingsDoNotForceHostFacilitiesIntoArtifacts()
+function M.optionalNativeBindingsDoNotForceHostFacilitiesIntoArtifacts()
     for _, name in ipairs({"clock", "workers"}) do
-        for _, host in ipairs({"native", "browser"}) do
+        for _, host in ipairs({"native"}) do
             local code = gen.generate({moduleName = "nupp.runtime.bindings." .. name, host = host})
             local imported = gen.runtimeModules(code)
             testAssert.eq(#imported, 1)
@@ -1515,6 +1515,33 @@ function M.optionalBuiltinBindingsDoNotForceHostFacilitiesIntoArtifacts()
             testAssert.eq(setfenv(assert(loadstring(code)), environment)().provider, marker)
             testAssert.eq(loads, 1)
         end
+    end
+end
+
+function M.browserBuiltinBindingsCarryTheirHostImplementations()
+    for name, implementation in pairs({
+        clock = "nupp.runtime.browser.time",
+        workers = "nupp.runtime.browser.workers"
+    }) do
+        local code = gen.generate({moduleName = "nupp.runtime.bindings." .. name, host = "browser"})
+        local imported = gen.runtimeModules(code)
+        testAssert.eq(#imported, 1)
+        testAssert.eq(imported[1], implementation, "the bundle carries the selected browser implementation")
+        local marker, loads = {}, 0
+        local environment = {
+            rawget = rawget,
+            _G = {},
+            require = function(module)
+                testAssert.eq(module, implementation)
+                loads = loads + 1
+                return marker
+            end,
+        }
+        testAssert.eq(setfenv(assert(loadstring(code)), environment)().provider, nil)
+        testAssert.eq(loads, 0, "a native compiler can carry browser bindings without initializing them")
+        environment._G.__nuppBrowser = {}
+        testAssert.eq(setfenv(assert(loadstring(code)), environment)().provider, marker)
+        testAssert.eq(loads, 1, "the packaged browser loads its carried implementation")
     end
 end
 

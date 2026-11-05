@@ -16,6 +16,52 @@ local integer_ = storage.validateInteger
 -- Shared cursor helpers are defined after the concrete adapters.
 local fill: function(borrows self: ScalarReader, need: integer): (integer, string?)
 local taken: function(borrows self: ScalarReader, need: integer): string
+local put: function(borrows self: ScalarWriter, bytes: string): nil
+
+local function remaining(borrows self: ScalarReader): integer?
+    local state = self as any
+    if state._closed then
+        error("nupp: io.ScalarReader is closed", 2)
+    end
+    local left = storage.readerRemaining(state._reader as Reader)
+
+    return left ~= nil and #state._pending + left or nil
+end
+
+local function atend(borrows self: ScalarReader): boolean
+    local state = self as any
+    if state._closed then
+        error("nupp: io.ScalarReader is closed", 2)
+    end
+    local have, failure = fill(self, 1)
+    if failure then
+        error("nupp: io.ScalarReader source failed: " .. tostring(failure), 2)
+    end
+
+    return have < 1
+end
+
+local function writebytes(borrows self: ScalarWriter, bytes: string): ScalarWriter borrows (self)
+    if type(bytes) ~= "string" then
+        error("nupp: io.ScalarWriter bytes must be a string", 2)
+    end
+
+    put(self, bytes)
+
+    return self
+end
+
+local function flush(borrows self: ScalarWriter): (boolean, string?)
+    local state = self as any
+    if state._closed then
+        return false, "the writer is closed"
+    end
+    if state._writer then
+        return state._writer:flush()
+    end
+
+    return true, nil
+end
 
 ----------------------------------------------------------------------------
 -- Scalars
@@ -29,24 +75,11 @@ local record Scalars is ScalarReader
     close: @nosuspend function(takes self: Scalars): nil
 
     function remaining(self): integer?
-        if self._closed then
-            error("nupp: io.ScalarReader is closed", 2)
-        end
-        local left = storage.readerRemaining(self._reader as Reader)
-
-        return left ~= nil and #self._pending + left or nil
+        return remaining(self)
     end
 
     function atend(self): boolean
-        if self._closed then
-            error("nupp: io.ScalarReader is closed", 2)
-        end
-        local have, failure = fill(self, 1)
-        if failure then
-            error("nupp: io.ScalarReader source failed: " .. tostring(failure), 2)
-        end
-
-        return have < 1
+        return atend(self)
     end
 
     function readbytes(self, count: integer): string
@@ -55,9 +88,6 @@ local record Scalars is ScalarReader
 
 end
 
--- Declared after the interface it takes and answers, and defined below.
-local put: function(borrows self: ScalarWriter, bytes: string): nil
-
 --- The storage behind a scalar writer.
 local record ScalarSink is ScalarWriter
     @private _writer: any
@@ -65,24 +95,11 @@ local record ScalarSink is ScalarWriter
     close: @nosuspend function(takes self: ScalarSink): nil
 
     function writebytes(borrows self, bytes: string): ScalarWriter borrows (self)
-        if type(bytes) ~= "string" then
-            error("nupp: io.ScalarWriter bytes must be a string", 2)
-        end
-
-        put(self, bytes)
-
-        return self
+        return writebytes(self, bytes)
     end
 
     function flush(self): (boolean, string?)
-        if self._closed then
-            return false, "the writer is closed"
-        end
-        if self._writer then
-            return self._writer:flush()
-        end
-
-        return true, nil
+        return flush(self)
     end
 
 end
@@ -183,24 +200,11 @@ local record Duplex is ScalarStream
     @private _closed: boolean
 
     function remaining(self): integer?
-        if self._closed then
-            error("nupp: io.ScalarReader is closed", 2)
-        end
-        local left = storage.readerRemaining(self._reader as Reader)
-
-        return left ~= nil and #self._pending + left or nil
+        return remaining(self)
     end
 
     function atend(self): boolean
-        if self._closed then
-            error("nupp: io.ScalarReader is closed", 2)
-        end
-        local have, failure = fill(self, 1)
-        if failure then
-            error("nupp: io.ScalarReader source failed: " .. tostring(failure), 2)
-        end
-
-        return have < 1
+        return atend(self)
     end
 
     function readbytes(self, count: integer): string
@@ -208,24 +212,11 @@ local record Duplex is ScalarStream
     end
 
     function writebytes(borrows self, bytes: string): ScalarWriter borrows (self)
-        if type(bytes) ~= "string" then
-            error("nupp: io.ScalarWriter bytes must be a string", 2)
-        end
-
-        put(self, bytes)
-
-        return self
+        return writebytes(self, bytes)
     end
 
     function flush(self): (boolean, string?)
-        if self._closed then
-            return false, "the writer is closed"
-        end
-        if self._writer then
-            return self._writer:flush()
-        end
-
-        return true, nil
+        return flush(self)
     end
 
     function close(takes self): nil

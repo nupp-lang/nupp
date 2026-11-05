@@ -403,15 +403,3 @@ operations only where a diagnostic does not say enough:
 4. Use `nupp lsp inspect`, `definition`, and `references` when more semantic
    context is needed.
 5. Re-check after each edit group, and run `nupp test` before committing.
-
-::: seealso
-- [editors.md](editors.md) for the Visual Studio Code and Claude Code clients
-  that start this server
-- [cli.md](../../reference/cli.md#lsp) for every option and a worked example of
-  each operation
-- [diagnostics.md](../../reference/diagnostics.md) for the codes an editor shows
-  and what each one means
-- [jit-trace-checking.md](../performance/jit-trace-checking.md) for what `trace-check` reports
-- [cli.md](../../reference/cli.md#bc) for `nupp bc`, which renders the same
-  listing the `bytecode` artifact carries
-:::

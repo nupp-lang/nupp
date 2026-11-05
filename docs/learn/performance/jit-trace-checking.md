@@ -610,12 +610,3 @@ graphs, then profile to prioritize what remains:
 Static checking removes the catalogued, attributable causes. It does not replace
 profiling for cold code, input-dependent types and shapes, side exits, recorder
 limits, or deciding whether a reported site matters to the workload.
-
-::: seealso
-- [performance.md](index.md) for the rewrites the compiler applies before
-  LuaJIT sees the code
-- [profiling.md](profiling.md) for where a running program spends its time
-- [lints.md](../../reference/lints.md#jit-loop-closure) for the trace lints and
-  their severities
-- [`bc`](../../reference/cli.md#bc) for the bytecode command's options and JSON
-:::

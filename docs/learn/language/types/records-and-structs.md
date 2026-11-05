@@ -529,14 +529,3 @@ a snapshot writer, or a GPU vertex-attribute descriptor be derived from the
 declaration rather than maintained beside it. See
 [c-interop.md](../../runtime/c-interop/index.md#read-a-structs-layout) for what it
 returns.
-
-::: seealso
-- [affine-types.md](../../runtime/ownership/affine-types.md#constructors-can-introduce-the-policy) for
-  the result policies a constructor may state
-- [properties.md](properties.md) for independent read and write views of a
-  record field
-- [c-interop.md](../../runtime/c-interop/index.md#export-ordinary-structs-to-c) for
-  passing a struct across the C boundary
-- [structure-of-arrays.md](../../runtime/data/structure-of-arrays.md) for storing many
-  small records field-by-field instead
-:::

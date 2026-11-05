@@ -13,7 +13,7 @@
 
 local check = require("assert")
 local digest = require("nupp.digest.internal.sha256")
-local data = require("binary").Digest
+local data = require("binary").digest
 
 local M = {}
 
@@ -47,7 +47,7 @@ end
 
 function M.isReachedThroughTheDataFacility()
     for _, vector in ipairs(VECTORS) do
-        check.eq(data.computehex("sha256", vector[1]), vector[2])
+        check.eq(data("sha256"):computehex(vector[1]), vector[2])
     end
 end
 

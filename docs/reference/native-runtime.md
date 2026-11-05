@@ -238,10 +238,3 @@ contracts. Code which loaded a provider directly, relied on SDL or curl
 behavior, or linked files from the deleted C host must move to the compiler-
 selected provider or the public embedding SDK. There is no compatibility mode
 which restores the old ownership model.
-
-::: seealso
-- [Distribution](distribution.md) for stubs, payloads, signing, and link kits
-- [Embedding Nupp](../learn/projects/embedding.md) for the public C SDK
-- [Building projects](../learn/projects/build.md) for standalone and sidecar native artifacts
-- [Native GPU AOT](../learn/performance/ahead-of-time/gpu.md) for the WGPU contract
-:::

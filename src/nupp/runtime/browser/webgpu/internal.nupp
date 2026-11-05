@@ -27,7 +27,6 @@ local requestNosuspend = effects.request as @nosuspend function(string, any, fun
 local memory = require("nupp.runtime.browser.memory") as any
 local storage = require("nupp.runtime.storage")
 local array = require("nupp.array")
-local span = require("binary.span")
 local {type Span, type WriteSpan} = require("binary.span")
 local shared = require("nupp.gpu.types")
 local api = require("nupp.gpu.api")
@@ -35,35 +34,13 @@ local operations = require("nupp.gpu.operations")
 local {type Scalar} = require("nupp.array")
 local layoutFacts = require("nupp.gpu.layoutfacts").layoutFacts
 local gpu = {}
-type gpu.Buffer<T> = shared.Buffer<T>
-gpu.Buffer = shared.Buffer
-type gpu.Kernel = shared.Kernel
-gpu.Kernel = shared.Kernel
-type gpu.ArtifactSet = shared.ArtifactSet
-gpu.ArtifactSet = shared.ArtifactSet
-
-type gpu.Shared<T> = shared.Shared<T>
-gpu.Shared = shared.Shared
-type gpu.Phases = shared.Phases
-gpu.Phases = shared.Phases
-
---- What a binding reads from the kernel it was made from, including whether
---- that kernel has since been closed.
-local type KernelView = {
-    @readonly _handle: any,
-    @readonly _released: boolean,
-    @readonly _readonlyBuffers: integer,
-    @readonly _writableBuffers: integer,
-    @readonly _uniformBytes: integer,
-    @readonly _threads: integer
-}
 
 --- @internal
 record gpu.Binding is api.Binding
     @readonly _anchor: any
 
     --- The kernel's state, which the binding reads but does not own.
-    @readonly _kernel: KernelView
+    @readonly _kernel: shared.KernelView
 
     @readonly _read: {integer}
     @readonly _write: {integer}
@@ -77,39 +54,8 @@ record gpu.Binding is api.Binding
     @readonly _readonlyBuffers: integer
     _released: boolean
 
-    --- Releases the binding's attachments without suspending. The kernel and
-    --- buffers it named remain their owners'.
-    close: @nosuspend function(borrows self: gpu.Binding): nil
-
-    --- Number of elements dispatched by this binding.
     @readonly count: integer
 
-    --- Attaches a resident buffer to one read-only slot. A dispatch-indexed
-    --- span asks for `matchcount`, which holds the buffer to one element per
-    --- dispatched thread; a cursor-proved span passes false and may be any
-    --- length, because its bound check runs inside the shader.
-    --- @internal
-    setread: function<T>(
-        borrows self: gpu.Binding,
-        slot: integer,
-        borrows buffer: api.Buffer<T>,
-        matchcount: boolean
-    ): nil
-
-    --- Attaches a resident buffer to one writable slot.
-    --- @internal
-    setwrite: function<T>(
-        borrows self: gpu.Binding,
-        slot: integer,
-        borrows buffer: api.Buffer<T>,
-        matchcount: boolean
-    ): nil
-
-    --- Enqueues the binding with a compiler-laid-out uniform block.
-    --- @internal
-    dispatchwords: function(borrows self: gpu.Binding, scalars: {uint32}): nil
-
-    dispatchpacked: function(borrows self: gpu.Binding, uniforms: any, uniformbytes: integer): nil
 end
 
 record gpu.Context is api.KernelContext
@@ -117,30 +63,8 @@ record gpu.Context is api.KernelContext
     _buffers: {integer}
     _kernels: {integer}
 
-    --- Closes the context and makes its resources unavailable.
-    close: @nosuspend function(takes self: Context): nil
-
     _destroy: @nosuspend function(state: any): nil
 
-    --- WebGPU provider family selected for this context.
-    driver: function(borrows self: Context): string
-
-    --- Allocates a typed resident device buffer.
-    buffer: function<T>(
-        borrows self: Context,
-        element: Scalar<T> | Type<T>,
-        count: integer
-    ): affine(api.Buffer<T>) borrows (self)
-
-    --- Allocates a dense row-major resident tensor.
-    tensor: function<T>(
-        borrows self: Context,
-        element: Scalar<T> | Type<T>,
-        shape: {integer}
-    ): affine(api.Buffer<T>) borrows (self)
-
-    --- A tensor passes its dense dimensions and strides; a buffer is a row.
-    --- `elementType` only carries the element type; `element` is its C type.
     _allocate: function<T>(
         borrows self: Context,
         elementType: T?,
@@ -150,56 +74,9 @@ record gpu.Context is api.KernelContext
         strides: {integer}?
     ): affine(api.Buffer<T>) borrows (self)
 
-    --- Compiles the artifacts emitted beside an `@aot(target = "gpu")` body.
-    --- The selected provider chooses its source member from this set.
-    --- @internal
-    compilegenerated: function(
-        borrows self: Context,
-        artifacts: gpu.ArtifactSet,
-        readonlybuffers: integer,
-        writablebuffers: integer,
-        uniformbytes: integer,
-        threads: integer?
-    ): api.Kernel borrows (self)
-
-    --- Starts attaching a generated kernel to resident buffers. `count` is the
-    --- dispatch length, which the compiler takes from the kernel's primary
-    --- span; the generated binding fills every slot before dispatching.
-    --- @internal
-    bindkernel: function(borrows self: Context, borrows kernel: api.Kernel, count: integer): api.Binding borrows (self)
-
-    --- Queues a root buffer's destruction without waiting; a closed context
-    --- already queued it. A queued readback of it is discarded.
     _releaseBuffer: function(borrows self: Context, buffer: any): nil
-
-    --- Queues a compiled kernel's destruction without waiting; a closed
-    --- context already queued it.
     _releaseKernel: function(borrows self: Context, handle: any): nil
 
-    --- Copies a complete shared span into a resident buffer or view and
-    --- enqueues its transfer. It does not wait.
-    upload: function<T>(borrows self: Context, borrows buffer: api.Buffer<T>, borrows source: span.Span<T>): nil
-
-    --- Enqueues a complete resident-buffer or view download without waiting.
-    enqueuedownload: function<T>(borrows self: Context, borrows buffer: api.Buffer<T>): nil
-
-    --- Submits the accumulated command stream and waits for it.
-    synchronize: function(borrows self: Context): nil
-
-    --- Copies a download completed by `synchronize()` into a complete writable
-    --- span. No GPU work or waiting happens here.
-    readdownloaded: function<T>(
-        borrows self: Context,
-        borrows buffer: api.Buffer<T>,
-        exclusive destination: span.WriteSpan<T>
-    ): nil
-
-    --- Convenience CPU boundary: enqueue, synchronize, and copy out.
-    download: function<T>(
-        borrows self: Context,
-        borrows buffer: api.Buffer<T>,
-        exclusive destination: span.WriteSpan<T>
-    ): nil
 end
 
 local function live(borrows context: gpu.Context): nil
@@ -343,7 +220,7 @@ end
 
 function gpu.Context.compilegenerated(
     borrows self: gpu.Context,
-    artifacts: gpu.ArtifactSet,
+    artifacts: api.ArtifactSet,
     readonlybuffers: integer,
     writablebuffers: integer,
     uniformbytes: integer,
@@ -418,7 +295,7 @@ function gpu.Binding.setread<T>(
     borrows bufferValue: api.Buffer<T>,
     matchcount: boolean
 ): nil
-    local buffer = own.borrow(bufferValue as gpu.Buffer<T>)
+    local buffer = own.borrow(bufferValue as shared.Buffer<T>)
     if self._released or self._kernel._released then
         error("nupp: browser GPU binding or kernel was released", 2)
     end
@@ -446,7 +323,7 @@ function gpu.Binding.setwrite<T>(
     borrows bufferValue: api.Buffer<T>,
     matchcount: boolean
 ): nil
-    local buffer = own.borrow(bufferValue as gpu.Buffer<T>)
+    local buffer = own.borrow(bufferValue as shared.Buffer<T>)
     if self._released or self._kernel._released then
         error("nupp: browser GPU binding or kernel was released", 2)
     end
@@ -523,7 +400,7 @@ function gpu.Context.upload<T>(
     borrows bufferValue: api.Buffer<T>,
     borrows source: Span<T>
 ): nil
-    local buffer = own.borrow(bufferValue as gpu.Buffer<T>)
+    local buffer = own.borrow(bufferValue as shared.Buffer<T>)
     live(self)
     local pointer, count = source:ref()
     if buffer._context ~= self or buffer._state.released or not buffer:isdense() then
@@ -548,7 +425,7 @@ function gpu.Context.upload<T>(
 end
 
 function gpu.Context.enqueuedownload<T>(borrows self: gpu.Context, borrows bufferValue: api.Buffer<T>): nil
-    local buffer = own.borrow(bufferValue as gpu.Buffer<T>)
+    local buffer = own.borrow(bufferValue as shared.Buffer<T>)
     live(self)
     if buffer._context ~= self or buffer._state.released or not buffer:isdense() then
         error("nupp: browser GPU download buffer is unavailable in this context", 2)
@@ -571,7 +448,7 @@ function gpu.Context.readdownloaded<T>(
     borrows bufferValue: api.Buffer<T>,
     exclusive destination: WriteSpan<T>
 ): nil
-    local buffer = own.borrow(bufferValue as gpu.Buffer<T>)
+    local buffer = own.borrow(bufferValue as shared.Buffer<T>)
     live(self)
     local pointer, count = destination:ref()
     if buffer._context ~= self or buffer._state.released or not buffer:isdense() then
@@ -590,7 +467,7 @@ function gpu.Context.download<T>(
     borrows bufferValue: api.Buffer<T>,
     exclusive destination: WriteSpan<T>
 ): nil
-    local buffer = own.borrow(bufferValue as gpu.Buffer<T>)
+    local buffer = own.borrow(bufferValue as shared.Buffer<T>)
     self:enqueuedownload(buffer)
     self:synchronize()
     self:readdownloaded(buffer, destination)
@@ -635,7 +512,7 @@ function gpu.Context.bindkernel(
     borrows kernelValue: api.Kernel,
     count: integer
 ): api.Binding borrows (self)
-    local kernel = kernelValue as gpu.Kernel
+    local kernel = kernelValue as shared.Kernel
     live(self)
     if kernel._anchor ~= self then
         error("nupp: browser GPU kernel belongs to another context", 2)
@@ -651,7 +528,7 @@ function gpu.Context.bindkernel(
         _context = self,
         _uniformBytes = kernel._uniformBytes,
         _readonlyBuffers = kernel._readonlyBuffers,
-        _kernel = kernel as any as KernelView,
+        _kernel = kernel as any as shared.KernelView,
         _read = {},
         _write = {},
         _readCounts = {},

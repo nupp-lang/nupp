@@ -16,6 +16,9 @@ module nupp.compression.contracts
 
 local {type ByteSpan, type ByteWriteSpan} = require("binary.span")
 
+--- Canonical native compression names and their ABI format identifiers.
+export const formatids: {@readonly [string]: integer} = {gzip = 1, zlib = 2, ["deflate-raw"] = 3}
+
 --- The step needs another input chunk.
 export const needinput = 1
 

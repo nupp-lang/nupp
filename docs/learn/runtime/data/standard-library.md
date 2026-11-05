@@ -6,10 +6,10 @@ order: 180
 
 Nupp's standard library provides types, text, data formats, I/O, and application
 tools. Its APIs live in builtin tables such as `math` and in declared modules
-such as `binary.Digest`.
+such as `binary`.
 
 ```nupp:playground
-local digest = binary.Digest.computehex("sha256", "payload")
+local digest = binary.digest("sha256"):computehex("payload")
 print(#digest, math.lerp(10, 20, 0.25))
 ```
 
@@ -48,11 +48,11 @@ for how a declared module is named and resolved.
 The standard surface is deliberately small. These pages cover both the
 intrinsic namespaces and the declared modules:
 
-- [](binary.Digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512
+- [](binary.digest) provides incremental MD5, SHA-1, SHA-256 and SHA-512
   with algorithm lookup, output-size metadata and consuming finalization.
-- [](binary.Checksum) provides Adler-32 and explicitly named CRC variants
+- [](binary.checksum) provides Adler-32 and explicitly named CRC variants
   as numeric values; protocols choose their serialization byte order.
-- [](binary.Mac) provides keyed authentication, including HMAC-SHA256.
+- [](binary.mac) provides keyed authentication, including HMAC-SHA256.
 - [](binary.fnv1a64) hashes bytes with FNV-1a.
 - [](serde.json) and [](binary) encode and decode
   representations. [](serde.valuebuilder) supports codec authors.
@@ -175,10 +175,3 @@ because a local leaves scope.
 A writer that buffers output reports delivery failures through `flush`. Check
 that result before closing when delivery matters. See
 [ownership.md](../ownership/index.md) for affine ownership and borrowing.
-
-::: seealso
-- [](io) for buffers, readers, writers, and byte views
-- [ownership.md](../ownership/index.md) for the affine results these modules return
-- [build.md](../../projects/build.md#compiler-native-features) for native feature
-  detection and its override
-:::

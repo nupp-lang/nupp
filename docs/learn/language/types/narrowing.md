@@ -330,13 +330,3 @@ over a union of records, where a dispatch tests a discriminant field rather
 than the value. See [unions.md](unions.md#exhaustiveness) for the rule and
 [lints.md](../../../reference/lints.md#exhaustiveness) for the lint's severity and
 suppression.
-
-::: seealso
-- [unions.md](unions.md) for the types narrowing takes apart
-- [switch-expressions.md](../switch-expressions.md) for narrowing per
-  arm, with binding and destructuring
-- [primitives.md](primitives.md#never-the-bottom-type) for `never` and the
-  guard clauses it enables
-- [lints.md](../../../reference/lints.md#exhaustiveness) for the `exhaustiveness`
-  lint and how to suppress it
-:::

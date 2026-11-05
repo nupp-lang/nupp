@@ -39,8 +39,3 @@ An in-memory browser request accepts one source file. It does not read imported
 application files, run comptime worker processes, render documentation, import
 C headers, or compile AOT artifacts. The bundle contains the standard-library
 declarations needed while checking source.
-
-::: seealso
-- [Build source sets](../build.md#target-source-sets)
-- [Portable Lua libraries](libraries.md)
-:::

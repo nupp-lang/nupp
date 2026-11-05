@@ -1,5 +1,18 @@
 [
   {
+    "kind": "compile",
+    "filename": "browser-platform.nupp",
+    "source": "local time = require(\"coroutine\")\ntime.sleep(10)\nprint(os.uuid(4))",
+    "expect": {
+      "errorCodes": [],
+      "generatedCode": true
+    },
+    "options": {
+      "strict": true,
+      "optimize": true
+    }
+  },
+  {
     "kind": "check",
     "source": "local answer: integer = 42\nreturn answer",
     "filename": "sample.nupp",

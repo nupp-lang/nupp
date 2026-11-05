@@ -74,6 +74,24 @@ local function renderMarkdownItem(out, item)
     )
 end
 
+function M.stableJsonPreservesNestedSentinelsAndRejectsObjectIndexes()
+    local encode = require("nupp.tools.internal.sortedjson").encode
+    local json = require("serde.json")
+    local first = {z = json.NULL, a = {object = json.EMPTY_OBJECT, array = json.EMPTY_ARRAY}, n = 1.5}
+    local second = {n = 1.5, a = {array = json.EMPTY_ARRAY, object = json.EMPTY_OBJECT}, z = json.NULL}
+    local expected = '{"a":{"array":[],"object":{}},"n":1.5,"z":null}'
+    assert(encode(first) == expected, encode(first))
+    assert(encode(second) == expected, encode(second))
+    assert(encode(json.asarray({json.NULL, json.EMPTY_ARRAY, json.EMPTY_OBJECT})) == '[null,[],{}]')
+    for _, invalid in ipairs({
+        {{field = true, [2] = false}, "a JSON container cannot mix array indexes and object keys"},
+        {{[false] = true}, "JSON object keys must be strings and array indexes must be positive integers"},
+    }) do
+        local ok, why = pcall(encode, invalid[1])
+        assert(not ok and why == invalid[2], tostring(why))
+    end
+end
+
 function M.moduleDocumentationPrecedesItsDeclaration()
     for _, source in ipairs({
         "--[[Module description.]]\nmodule example\n",
@@ -1413,6 +1431,23 @@ export function first(value: other.Widget): Imported end
     assert(count >= 2, page)
 end
 
+function M.argumentTypesLinkToTheMostSpecificNamespacePage()
+    local parent = assert(doc.extract("export record derive\n    record Info end\nend\n", "src/types.nupp", "types"))
+    local nested = assert(doc.extract("export record Info end\n", "src/types/derive.nupp", "types.derive"))
+    local consumer = assert(
+        doc.extract("export function event(info: types.derive.Info): nil end\n", "src/events.nupp", "events")
+    )
+    local links = urls.symbolLinkIndex({parent, nested, consumer})
+    assert(links["types.derive.Info"] == "modules/types/derive/index.html#types.derive.Info")
+    local markdown = require(
+        "nupp.tools.doc.markdown"
+    ).render({consumer}, nil, {parent, nested, consumer}, nil, "../../")
+    assert(
+        markdown:find("[`types.derive.Info`](../../modules/types/derive/index.html#types.derive.Info)", 1, true),
+        markdown
+    )
+end
+
 function M.rendersQuotedTypesWithoutDoubleEscaping()
     local module = assert(
         doc.extract(
@@ -2494,8 +2529,8 @@ function M.standardIOApiHasCompleteDocumentation()
         [
             "src/nupp/runtime/standardos.nupp"
         ] = {
-            types = {TemporaryPath = true, FileKind = true, FsCaps = true, Path = true, AppPath = true,},
-            functions = {stat = true, lstat = true, exists = true, list = true, glob = true, writeatomic = true,},
+            types = {TemporaryPath = true, FileKind = true, FsCaps = true, Path = true,},
+            functions = {stat = true, exists = true, list = true, glob = true, writeatomic = true,},
         },
     }
     for relative, expected in pairs(modules) do
@@ -2808,6 +2843,8 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
     for _, name in ipairs({
         "nupp/runtime/standardio.nupp",
         "nupp/runtime/standardos.nupp",
+        "nupp/runtime/systeminfo.nupp",
+        "io/internal/files/messages.nupp",
         "io/cli.nupp",
         "nupp/cli/internal/terminal.nupp",
         "nupp/cli/internal/tablebuilder.nupp",
@@ -2896,11 +2933,12 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
         assert(osItems[name], "the system member is missing: " .. name)
     end
     assert(not osItems.uuid4 and not osItems.uuid7, "retired UUID names stay out of the API")
+    assert(not osItems.lstat and not osItems.fscaps, "consolidated filesystem queries stay out of the API")
     local fields = {}
     for _, field in ipairs(osItems.Info.members) do
         fields[field.name] = true
     end
-    for _, name in ipairs({"platform", "arch", "endianness", "pointerbits", "parallelism"}) do
+    for _, name in ipairs({"platform", "arch", "endianness", "pointerbits", "parallelism", "fs"}) do
         assert(fields[name], "os.Info lost its field: " .. name)
     end
     assert(doc.build(dir, config, settings, {format = "site", output = "site"}) == 0)

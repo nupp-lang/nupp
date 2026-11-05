@@ -1079,10 +1079,3 @@ write beneath `build/` by default; `-o DIR` changes that directory.
 Remarks never fail a build; `check` does not optimize. Use
 `-Zno-opt=CODE` to disable one pass or `-O0` to disable all passes. `OPT-n`
 codes are stable; `-Z` flags are debugging interfaces.
-
-::: seealso
-- [Benchmarks](benchmarks.md): measure changes and set regression gates.
-- [Profiling](profiling.md): find where time goes.
-- [Trace checking](jit-trace-checking.md): identify recorder blockers in bytecode.
-- [Ahead-of-time compilation](ahead-of-time/index.md): compile numeric loops to native code.
-:::

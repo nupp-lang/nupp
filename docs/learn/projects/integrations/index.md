@@ -20,11 +20,3 @@ changing the host's execution model.
 The planned entries are deliberately not setup guides. A host belongs here once
 its integration has a reproducible example or template, rather than when it is
 only expected to work.
-
-::: seealso
-- [File types](../../language/file-types.md) for moving a Lua file into Nupp
-  without changing how other modules load it
-- [LuaCATS](luacats.md) for the comments Nupp reads in ordinary `.lua` files
-- [Embedding Nupp](../embedding.md) when a C application owns the
-  process and event loop
-:::

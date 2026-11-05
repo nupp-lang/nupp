@@ -98,10 +98,3 @@ See these pages for each part of the AOT pipeline.
 - [Wasm applications](wasm.md) for the browser guest and Wasm side modules.
 - [GPU compute](gpu.md) for native resident buffers, workgroup kernels, and
   browser WebGPU.
-
-::: seealso
-- [jit-trace-checking.md](../jit-trace-checking.md) for deciding whether LuaJIT
-  can compile the loop you were about to annotate
-- [performance.md](../index.md) for the rewrites applied to ordinary Nupp
-- [](binary.span) for the span types a kernel takes
-:::

@@ -568,12 +568,3 @@ When an effect contract is reported:
 
 For a bodyless declaration, review the implementation on the other side of the
 boundary. The checker cannot do that verification for you.
-
-::: seealso
-- [suspension.md](../runtime/concurrency/suspension.md) for the control-flow model behind `suspends`
-- [ownership.md](../runtime/ownership/borrowing.md) for cleanup and lifetime
-  obligations
-- [c-interop.md](../runtime/c-interop/index.md) for the trusted declarations a C boundary needs
-- [performance.md](../performance/index.md) for the passes that consume a
-  summary
-:::

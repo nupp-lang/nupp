@@ -77,10 +77,17 @@ jobs:
         with:
           node-version: '24'
       - name: Install browser engines
-        # apt behind this has hung on an unreachable mirror for the whole job
-        # timeout; a stalled install fails in minutes instead.
+        # The hosted runner's Azure mirror can download too slowly to finish.
+        # Use Ubuntu's primary archive and bound retries on stalled connections.
         timeout-minutes: 20
         run: |
+          for apt_source in /etc/apt/sources.list /etc/apt/sources.list.d/*.list /etc/apt/sources.list.d/*.sources; do
+            if [ -f "$apt_source" ]; then
+              sudo sed -i 's|://azure\.archive\.ubuntu\.com/|://archive.ubuntu.com/|g' "$apt_source"
+            fi
+          done
+          printf '%s\n' 'Acquire::Retries "2";' 'Acquire::http::Timeout "30";' 'Acquire::https::Timeout "30";' \
+            | sudo tee /etc/apt/apt.conf.d/80nupp-network >/dev/null
           npm ci --prefix editors/playground
           npx --prefix editors/playground playwright install --with-deps firefox webkit
       - name: Test transport boundaries

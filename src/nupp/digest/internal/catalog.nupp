@@ -1,0 +1,16 @@
+module nupp.digest.internal.catalog
+
+export function populate<P, D>(
+    implementations: {[string]: P},
+    available: {[string]: D},
+    names: {string},
+    factory: function(string, P): D
+): nil
+    for name, implementation in pairs(implementations) do
+        available[name] = factory(name, implementation)
+    end
+    for name in pairs(available) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+end

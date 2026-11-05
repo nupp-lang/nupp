@@ -4,8 +4,6 @@ module harness
 -- evaluations. The tiers own their tasks and graders; this module owns how an
 -- agent is run and how its work is recorded.
 
-local files = require("io.files")
-
 local json = require("serde.json")
 
 local harness = {}
@@ -69,7 +67,7 @@ function harness.parent(path: string): string
 end
 
 function harness.write(path: string, text: string): nil
-    local made, makeErr = files.mkdir(harness.parent(path))
+    local made, makeErr = os.mkdir(harness.parent(path))
     if not made then
         error("cannot create " .. harness.parent(path) .. ": " .. tostring(makeErr), 2)
     end
@@ -95,7 +93,7 @@ function harness.read(path: string): string
 end
 
 function harness.remove(path: string): nil
-    if files.exists(path) then
+    if os.exists(path) then
         local removed, reason = os.remove(path, true)
         if not removed then
             error("cannot remove " .. path .. ": " .. tostring(reason), 2)
@@ -106,7 +104,7 @@ end
 --- Creates a unique directory which the caller removes explicitly.
 --- @raises string when the platform cannot create or retain the directory
 function harness.temporaryDirectory(prefix: string): string
-    local temporary, reason = files.tmpdirectory(files.TemporaryOptions(prefix = prefix))
+    local temporary, reason = os.mktempdir(prefix)
     if temporary == nil then
         error("cannot create a temporary directory: " .. tostring(reason), 2)
     end
@@ -121,30 +119,26 @@ function harness.temporaryDirectory(prefix: string): string
 end
 
 function harness.copyTree(from: string, to: string): nil
-    local made, makeErr = files.mkdir(to)
+    local made, makeErr = os.mkdir(to)
     if not made then
         error("cannot create " .. to .. ": " .. tostring(makeErr), 2)
     end
-    local entries, listErr = files.list(from)
-    if entries == nil then
-        error("cannot list " .. from .. ": " .. tostring(listErr), 2)
-    end
-    for _, entry in ipairs(entries) do
-        local source = harness.join(from, entry.name)
-        local destination = harness.join(to, entry.name)
-        if entry.kind == "directory" then
+    for name, kind in os.list(from) do
+        local source = harness.join(from, name)
+        local destination = harness.join(to, name)
+        if kind == "directory" then
             harness.copyTree(source, destination)
-        elseif entry.kind == "symlink" then
-            local target, readErr = files.readlink(source)
+        elseif kind == "symlink" then
+            local target, readErr = os.readlink(source)
             if target == nil then
                 error("cannot read link " .. source .. ": " .. tostring(readErr), 2)
             end
-            local linked, linkErr = files.symlink(target, destination)
+            local linked, linkErr = os.symlink(target, destination)
             if not linked then
                 error("cannot create link " .. destination .. ": " .. tostring(linkErr), 2)
             end
-        elseif entry.kind == "file" then
-            local copied, copyErr = files.copy(source, destination)
+        elseif kind == "file" then
+            local copied, copyErr = os.copy(source, destination)
             if not copied then
                 error("cannot copy " .. source .. ": " .. tostring(copyErr), 2)
             end

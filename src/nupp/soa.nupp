@@ -243,6 +243,22 @@ export sealed interface Span<T> is ReadView
     slice: function(borrows self: Span<T>, first: integer, last: integer?): Span<T> borrows (self)
 end
 
+local function rowIndex(offset: integer, count: integer, index: integer): integer
+    if index % 1 ~= 0 or index < 1 or index > count then
+        error("nupp: SoA row index out of bounds", 2)
+    end
+    return offset + index - 1
+end
+
+local function rowValue<T>(element: ctype<T>, layout: Layout, columns: {any}, physical: integer): T
+    local value = ffi.new(element) as T
+    for ordinal, field in ipairs(layout.fields) do
+        (value as any)[field.name] = (columns[ordinal] as {[integer]: any})[physical]
+    end
+
+    return value
+end
+
 local record SpanImpl<T> is Span<T>
     @private @readonly anchor: any
     @private @readonly element: ctype<T>
@@ -252,20 +268,11 @@ local record SpanImpl<T> is Span<T>
     @readonly count: integer
 
     function checkedIndex(self, index: integer): integer
-        if index % 1 ~= 0 or index < 1 or index > self.count then
-            error("nupp: SoA row index out of bounds", 2)
-        end
-        return self.offset + index - 1
+        return rowIndex(self.offset, self.count, index)
     end
 
     function get(self, index: integer): T
-        local physical = self:checkedIndex(index)
-        local value = ffi.new(self.element) as T
-        for ordinal, field in ipairs(self.layout.fields) do
-            (value as any)[field.name] = (self.columns[ordinal] as {[integer]: any})[physical]
-        end
-
-        return value
+        return rowValue(self.element, self.layout, self.columns, self:checkedIndex(index))
     end
 
     function slice(self, first: integer, last: integer?): Span<T> borrows (self)
@@ -348,20 +355,11 @@ local record WriteSpanImpl<T> is WriteToken, WriteSpan<T>
     @readonly count: integer
 
     function checkedIndex(self, index: integer): integer
-        if index % 1 ~= 0 or index < 1 or index > self.count then
-            error("nupp: SoA row index out of bounds", 2)
-        end
-        return self.offset + index - 1
+        return rowIndex(self.offset, self.count, index)
     end
 
     function get(self, index: integer): T
-        local physical = self:checkedIndex(index)
-        local value = ffi.new(self.element) as T
-        for ordinal, field in ipairs(self.layout.fields) do
-            (value as any)[field.name] = (self.columns[ordinal] as {[integer]: any})[physical]
-        end
-
-        return value
+        return rowValue(self.element, self.layout, self.columns, self:checkedIndex(index))
     end
 
     function set(exclusive self, index: integer, value: T): nil

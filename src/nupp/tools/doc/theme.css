@@ -2003,11 +2003,20 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
 
 /* Fieldset-style overviews keep their real headings and the code-block border. */
 .nuppdoc-overview-section {
+    position: relative;
     min-width: 0;
-    margin: 1.6rem 0 1.35rem;
+    margin: 4.1rem 0 1.35rem;
     padding: 0 .9rem .3rem;
     border: 1px solid var(--nuppdoc-subtle-border);
     border-radius: var(--nuppdoc-code-block-radius);
+}
+.nuppdoc-overview-section::before {
+    content: "";
+    position: absolute;
+    top: -2.5rem;
+    left: -1px;
+    right: -1px;
+    border-top: 1px solid var(--nuppdoc-border);
 }
 .nuppdoc-content .nuppdoc-overview-section > .nuppdoc-overview-title {
     display: table;

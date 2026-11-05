@@ -14,6 +14,8 @@ describe, list and rename paths but not copy or write whole files.
 ]]
 module nupp.runtime.provider.nativefiles
 
+const systeminfo = require("nupp.runtime.systeminfo")
+
 ----------------------------------------------------------------------------
 -- The native binding
 ----------------------------------------------------------------------------
@@ -189,9 +191,6 @@ local scratch: function(borrows self: File, count: integer): any
 local function named(value: any, what: string, level: integer): string
     if type(value) == "string" then
         return value as string
-    end
-    if appPaths.is(value) then
-        return (value as appPaths.AppPath):tostring()
     end
     if type(value) == "table" and (value as any).tostring ~= nil then
         return (value as paths.Path):tostring()
@@ -1192,27 +1191,14 @@ export function createTemporary(
     return TemporaryPath(_text = text as string, _directory = directory, _closed = false), nil
 end
 
-const CAPS = messages.FsCaps(
-    available = true,
-    arbitrarypaths = true,
-    symlinks = true,
-    glob = true,
-    rename = true,
-    atomicwrite = true,
-    tmppaths = true,
-    concurrentopenhandles = true,
-    cwd = true,
-    persist = true
-)
-
 --- Reports the complete native filesystem surface.
 export function capabilities(): messages.FsCaps
-    return CAPS
+    return systeminfo.filesystem()
 end
 
 local APP_BASES = {configuration = 0, data = 1, cache = 2,}
 
-export function apppath(kind: string, organization: string, app: string): (appPaths.AppPath?, string?)
+export function apppath(kind: string, organization: string, app: string): (paths.Path?, string?)
     local code = APP_BASES[kind]
     if code == nil then
         return nil, "unknown app path kind"

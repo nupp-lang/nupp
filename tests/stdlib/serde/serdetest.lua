@@ -31,6 +31,55 @@ end
 
 local M = {}
 
+function M.readPlansPreserveRecursiveDescriptionsAndRejectDuplicateNames()
+    local plans = require("nupp.serde.internal.readplan")
+    local first, second = {name = "first"}, {name = "second"}
+    local recursive = {kind = "structure", canread = true, children = {}}
+    local scalar = {kind = "string", canread = true, children = {}}
+    recursive.children = {
+        {
+            member = first,
+            describe = function()
+                return recursive
+            end
+        },
+        {
+            member = second,
+            describe = function()
+                return scalar
+            end
+        },
+    }
+    local seen = {}
+    local selected = plans.plan(recursive, seen)
+    assert(selected.description == recursive and selected.children[first] == selected)
+    assert(selected.names.first == first and selected.names.second == second)
+    assert(selected.children[second].description == scalar and plans.plan(recursive, seen) == selected)
+
+    local duplicate = {
+        kind = "structure",
+        canread = true,
+        children = {
+            {
+                member = {name = "same"},
+                describe = function()
+                    return scalar
+                end
+            },
+            {
+                member = {name = "same"},
+                describe = function()
+                    return scalar
+                end
+            },
+        }
+    }
+    local ok, problem = pcall(plans.plan, duplicate, {})
+    assert(not ok and tostring(problem):find("duplicate logical member name", 1, true), tostring(problem))
+    ok, problem = pcall(plans.plan, {kind = "string", canread = false, children = {}}, {})
+    assert(not ok and tostring(problem):find("binding has no construction operation", 1, true), tostring(problem))
+end
+
 function M.publicNamespacesKeepOneJsonIdentityAndRespectLocalShadowing()
     local result = run(
         [=[

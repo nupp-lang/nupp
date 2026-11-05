@@ -15,10 +15,11 @@ See [system services](docs/learn/runtime/system.md) for facts, clocks, and UUIDs
 
 ## The filesystem
 
-A path argument is a string or an [](io.Path) on a native host, and an
-[](os.AppPath) from [](os.appdir) on either host. A browser program refuses raw
-path text. An operation that fails because of the environment returns nil or
-false with an [](io.Error), and a malformed argument raises at the call site.
+A path argument is a string or an [](io.Path) on a native host. Browser
+programs accept only paths derived from [](os.appdir), whose private storage
+identity stays with the path through supported operations. An operation that
+fails because of the environment returns nil or false with an [](io.Error), and
+a malformed argument raises at the call site.
 
 ```nupp:fragment
 local kind, size, modified, readonly, err = os.stat("nupp.lua")
@@ -26,8 +27,8 @@ assert(kind, err)
 print(kind, size, modified, readonly)
 ```
 
-`stat` follows symbolic links and `lstat` describes the link itself. `size` is a
-byte count, `modified` is milliseconds since the Unix epoch, the unit
+`stat` follows symbolic links. Pass `nofollow = true` to describe the link itself.
+`size` is a byte count, `modified` is milliseconds since the Unix epoch, the unit
 [](os.walltime) returns in, and `readonly` is the platform's write refusal
 rather than a permission model. A failure answers nil in the first four
 positions and the error last.
@@ -71,7 +72,7 @@ Origin Private File System and stays evictable unless `persiststorage` succeeds.
 --- @namespace os
 module nupp.runtime.standardos
 
-local system = require("nupp.runtime.system")
+local systeminfo = require("nupp.runtime.systeminfo")
 local clocks = require("nupp.runtime.timeprovider").provider
 local entropy = require("nupp.runtime.entropy")
 const {
@@ -79,7 +80,7 @@ const {
     type AppDir as AppDirType,
     type FsCaps as FsCapsType,
 } = require("io.internal.files.messages")
-const {type Path as PathType, type AppPath as AppPathType} = require("io.internal.files.path")
+const {type Path as PathType} = require("io.internal.files.path")
 const {type TemporaryPath as TemporaryPathType} = require("io.internal.files.contracts")
 
 local host: any = rawget(_G, "os")
@@ -103,9 +104,6 @@ const _FILESYSTEM_REQUIRES = "@requires-dynamically io.internal.files"
 
 --- A native path string or [](io.Path), or an app path from `appdir`.
 export type Path = PathType
-
---- An opaque path beneath this app's storage root.
-export type AppPath = AppPathType
 
 --- The kind of filesystem object a path names.
 export type FileKind = FileKindType
@@ -142,7 +140,7 @@ end
 --- Removes a file, symbolic link, or directory.
 ---
 --- Native hosts accept strings and `io.Path` values. Browser hosts accept
---- `os.AppPath` values and refuse raw paths. A populated directory
+--- application paths and refuse raw paths. A populated directory
 --- requires `recursive = true`; symbolic links are removed without following
 --- their targets. Without that flag, native calls retain Lua's behavior.
 ---
@@ -207,31 +205,26 @@ export function exists(path: Path): (boolean?, io.Error?)
     return filesystem().exists(path)
 end
 
---- Describes what a path refers to, following symbolic links.
+--- Describes what a path refers to.
+---
+--- Symbolic links are followed unless `nofollow` is true.
 ---
 --- ```nupp:fragment
 --- local kind, size, modified, readonly, err = os.stat("nupp.lua")
 --- assert(kind == "file", err)
 --- ```
 --- @param path the path to describe
+--- @param nofollow whether to describe the link itself, false by default
 --- @return its kind, or nil on failure
 --- @return its byte size, zero for a directory
 --- @return its modification time in milliseconds since the Unix epoch
 --- @return whether the platform refuses writes to it
 --- @return the failure, when unsuccessful
-export function stat(path: Path): (FileKind?, integer?, number?, boolean?, io.Error?)
-    return filesystem().stat(path)
-end
-
---- Describes a path itself, without following a symbolic link.
---- @param path the path to describe
---- @return its kind, `symlink` for a link, or nil on failure
---- @return its byte size
---- @return its modification time in milliseconds since the Unix epoch
---- @return whether the platform refuses writes to it
---- @return the failure, when unsuccessful
-export function lstat(path: Path): (FileKind?, integer?, number?, boolean?, io.Error?)
-    return filesystem().lstat(path)
+export function stat(path: Path, nofollow: boolean?): (FileKind?, integer?, number?, boolean?, io.Error?)
+    if nofollow ~= nil and type(nofollow) ~= "boolean" then
+        error("bad argument #2 to 'stat' (boolean expected)", 2)
+    end
+    return filesystem().stat(path, nofollow)
 end
 
 --- Reads a symbolic link's target without resolving it.
@@ -369,18 +362,15 @@ end
 --- local data = assert(os.appdir("data"))
 --- local file = assert(io.open(data:join("notes.txt"), "w"))
 --- ```
+--- The returned [](io.Path) retains its storage identity when joined or renamed.
+--- Components must be portable names, and `parent` stops at this root. Browser
+--- paths cannot be canonicalized; rebuilding a path from its text grants no
+--- storage access.
 --- @param which `config`, `data` or `cache`
 --- @return the root, or nil on failure
 --- @return the failure, when unsuccessful
-export function appdir(which: AppDir): (AppPath?, io.Error?)
+export function appdir(which: AppDir): (io.Path?, io.Error?)
     return filesystem().appdir(which)
-end
-
---- Reports the filesystem guarantees of the selected provider. The report is
---- built once and shared.
---- @return the capability report
-export function fscaps(): FsCaps
-    return filesystem().fscaps()
 end
 
 --- Requests that browser storage not be evicted. Native storage is never evicted,
@@ -394,25 +384,16 @@ end
 --- Calendar fields returned by `os.date("*t")`.
 export type DateFields = os.DateFields
 
---- The executing ABI and the available parallelism at the time of a query.
-export record Info
-    @readonly platform: string
-    @readonly arch: string
-    @readonly endianness: "little" | "big"
-    @readonly pointerbits: integer
-    @readonly parallelism: integer
-end
+--- Cached, immutable facts and capabilities of the executing runtime.
+export type Info = systeminfo.Info
 
---- Returns the executing ABI's facts and current available parallelism.
---- @return the platform, architecture, endianness, pointer width and parallelism
+--- Returns the runtime's shared, immutable system report.
+---
+--- Parallelism and filesystem capabilities are resolved on first access and
+--- cached. Reading another field initializes neither query.
+--- @return the system report, with filesystem capabilities under `fs`
 export function info(): Info
-    return Info(
-        platform = system.platform,
-        arch = system.architecture,
-        endianness = system.endianness,
-        pointerbits = system.pointerBits,
-        parallelism = system.availableParallelism()
-    )
+    return systeminfo.get()
 end
 
 --- Returns monotonic milliseconds with the host's unspecified origin.
@@ -454,7 +435,6 @@ export const value: table = do
     original.rename = rename
     original.exists = exists
     original.stat = stat
-    original.lstat = lstat
     original.readlink = readlink
     original.mkdir = mkdir
     original.list = list
@@ -467,7 +447,6 @@ export const value: table = do
     original.setappid = setappid
     original.appid = appid
     original.appdir = appdir
-    original.fscaps = fscaps
     original.persiststorage = persiststorage
     original.info = info
     original.monotonic = monotonic

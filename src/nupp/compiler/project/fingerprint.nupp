@@ -128,6 +128,19 @@ local function relativeTo(dir: string, path: string): string
     return path
 end
 
+local function runtimeParts(root: string, files: {string}, digest: function(string): string): {string}
+    local parts = {}
+    for _, path in ipairs(files) do
+        local relative = relativeTo(root, path)
+        if not relative:match("^nupp/compiler/") and not relative:match("^nupp/tools/") then
+            parts[#parts + 1] = relative .. "\0" .. (hashFile(path, digest) or "missing")
+        end
+    end
+    table.sort(parts)
+
+    return parts
+end
+
 local function toolFingerprint(contentDigest: (function(string): string)?): string
     if toolFingerprintMemo then
         return toolFingerprintMemo
@@ -175,14 +188,7 @@ local besideToolMemo: string? = nil
 local function privateGraphFingerprint(digest: function(string): string): string
     local dir = dirname(compilerDir())
     local root = dirname(dir)
-    local parts = {}
-    for _, path in ipairs(treeFiles(dir)) do
-        local relative = relativeTo(root, path)
-        if not relative:match("^nupp/compiler/") and not relative:match("^nupp/tools/") then
-            parts[#parts + 1] = relative .. "\0" .. (hashFile(path, digest) or "missing")
-        end
-    end
-    table.sort(parts)
+    local parts = runtimeParts(root, treeFiles(dir), digest)
 
     return digest(toolFingerprint(digest) .. "\0" .. digest(table.concat(parts, "\0")))
 end
@@ -200,14 +206,7 @@ local function besideToolFingerprint(digest: function(string): string): string
     end
     local dir = dirname(compilerDir())
     local root = dirname(dir)
-    local parts = {}
-    for _, path in ipairs(compiledFiles(dir)) do
-        local relative = relativeTo(root, path)
-        if not relative:match("^nupp/compiler/") and not relative:match("^nupp/tools/") then
-            parts[#parts + 1] = relative .. "\0" .. (hashFile(path, digest) or "missing")
-        end
-    end
-    table.sort(parts)
+    local parts = runtimeParts(root, compiledFiles(dir), digest)
     besideToolMemo = digest(table.concat(parts, "\0"))
 
     return besideToolMemo as string

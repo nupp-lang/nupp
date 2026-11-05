@@ -156,7 +156,7 @@ function M.compressionNamesUseCanonicalKeysOnly()
     assert(contract.needinput == NEED_INPUT and contract.needoutput == NEED_OUTPUT and contract.finished == FINISHED)
     assert(contract.NEED_INPUT == nil and contract.NEED_OUTPUT == nil and contract.FINISHED == nil)
     local load = state.family("compression", {})
-    local format = load("binary").compression("gzip")
+    local format = load("binary").compress("gzip")
     assert(type(format.reader) == "function" and format.newReader == nil)
     assert(type(format.writer) == "function" and format.newWriter == nil)
     local native = nativeProvider()
@@ -183,7 +183,7 @@ function M.decoderEofCanFillMoreThanOneOutputSpan()
             end)
         ),
     })
-    local reader = load("binary").compression("fixture"):reader(io2.Reader.of("input"), {
+    local reader = load("binary").compress("fixture"):reader(io2.Reader.of("input"), {
         workspacebytes = 1,
         unbounded = true
     })
@@ -203,7 +203,7 @@ function M.rejectsInvalidProviderAndSourceProgress()
         end,
     }) do
         local load = state.family("compression", {provider("fixture", decoder(finishInput))})
-        local reader = load("binary").compression("fixture"):reader(io2.Reader.of("input"), {
+        local reader = load("binary").compress("fixture"):reader(io2.Reader.of("input"), {
             workspacebytes = 1,
             unbounded = true
         })
@@ -227,7 +227,7 @@ function M.rejectsInvalidProviderAndSourceProgress()
         close = function()
         end,
     }
-    local reader = load("binary").compression("fixture"):reader(source, {workspacebytes = 1, unbounded = true})
+    local reader = load("binary").compress("fixture"):reader(source, {workspacebytes = 1, unbounded = true})
     local bytes, reason = reader:read(1)
     assert(bytes == nil and reason:find("source reader", 1, true), tostring(reason))
     reader:close()
@@ -242,7 +242,7 @@ function M.rejectsMalformedUntypedOptions()
             end)
         )
     })
-    local format = load("binary").compression("fixture")
+    local format = load("binary").compress("fixture")
 
     local function rejects(options, expected)
         local source = io2.Reader.of("")
@@ -305,7 +305,7 @@ function M.cleanupContinuesAfterProviderReleaseFailure()
             },
         },
     }
-    local format = state.family("compression", {fixture})("binary").compression("fixture")
+    local format = state.family("compression", {fixture})("binary").compress("fixture")
     local destination = {
         flush = function()
             return true
@@ -337,14 +337,15 @@ function M.targetBindingRetainsCatalogWithoutDiscovery()
     local load, counts = state.family("compression")
     local api = load("binary")
     assert(counts.resolutions == 0, "loading binary does not initialize compression")
-    assert(api.compress == nil, "the removed compression submodule has no alias")
-    local names = api.compressionformats()
+    assert(api.compression == nil and api.compressionformats == nil, "retired factories have no aliases")
+    local names = api.formats("compression")
     assert(table.concat(names, ",") == "deflate-raw,gzip,zlib")
     names[1] = "changed"
-    assert(api.compressionformats()[1] == "deflate-raw", "format listings are independent copies")
-    assert(api.compression("gzip"))
-    assert(api.compression("zlib"))
-    assert(api.compression("deflate-raw"))
+    assert(api.formats("compression")[1] == "deflate-raw", "format listings are independent copies")
+    assert(counts.resolutions == 0, "listing formats does not load native compression")
+    assert(api.compress("gzip"))
+    assert(api.compress("zlib"))
+    assert(api.compress("deflate-raw"))
     assert(load("binary") == api)
     assert(counts.resolutions == 1, "builtin implementation initializes once")
 end
@@ -401,6 +402,19 @@ function M.nativeProviderMapsStepAndReleaseFailures()
     local decoder = native.formats.gzip:createdecoder()
     ok, problem = pcall(decoder.close, decoder)
     assert(not ok and tostring(problem):find("nupp: fixture failure", 1, true), tostring(problem))
+end
+
+function M.unavailableTargetsListNoCompressionWithoutLoadingTheBackend()
+    local load = state.instance(
+        {["binary"] = true, ["nupp.compression"] = true},
+        {["nupp.runtime.target"] = {dialect = "luajit", host = "browser"},},
+        {
+            ["nupp.runtime.provider.nativecompression"] = function()
+                error("listing unavailable compression loaded its native backend")
+            end,
+        }
+    )
+    assert(#load("binary").formats("compression") == 0)
 end
 
 return M

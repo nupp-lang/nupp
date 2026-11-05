@@ -402,10 +402,3 @@ nupp explain NUPP2119
 
 Each shares one parse, one type checker, and one incremental engine, so the
 editor and the build never disagree about what your code means.
-
-::: seealso
-- [tooling.md](../learn/tooling/index.md) for the guided version of that list
-- [file-types.md](../learn/language/file-types.md) for how `.lua` and `.nupp`
-  files share a project
-- [overview.md](../learn/language/types/index.md) for the type system as a whole
-:::

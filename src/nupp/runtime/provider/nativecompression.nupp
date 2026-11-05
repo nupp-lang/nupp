@@ -257,13 +257,10 @@ local record Format is contract.Format
     end
 end
 
-local formats: {
-    [string]: contract.Format
-} = {
-    gzip = Format(name = "gzip", id = 1),
-    zlib = Format(name = "zlib", id = 2),
-    ["deflate-raw"] = Format(name = "deflate-raw", id = 3),
-}
+local formats: {[string]: contract.Format} = {}
+for name, id in pairs(contract.formatids) do
+    formats[name] = Format(name = name, id = id)
+end
 
 local provider: contract.Provider = {formats = formats}
 export = provider

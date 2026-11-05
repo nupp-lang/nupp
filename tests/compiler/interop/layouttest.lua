@@ -78,6 +78,32 @@ return field.size > 0 and date.month >= 1
     testAssert.eq(value, true)
 end
 
+function M.assertionHelpersAreAvailableThroughThePrelude()
+    local value = runs(
+        [[
+assert.lt(1, 2)
+assert.le(2, 2)
+assert.gt(2, 1)
+assert.ge(2, 2)
+assert.near(1, 1, 0)
+assert.isnil(nil)
+assert.notnil(false)
+assert.truthy(0)
+assert.falsy(false)
+assert.istype("x", "string")
+assert.contains("a.b", ".")
+assert.notcontains("abc", ".")
+assert.notmatches("abc", "%d")
+local function fails(): never
+    assert.fail("failure")
+end
+return tostring(assert.raises(fails))
+]],
+        "assertion helpers"
+    )
+    testAssert.matches(value, "failure")
+end
+
 function M.fileTypeDoesNotLoadItsImplementation()
     local isolated = envMod.new(HERE .. "/..")
     local resolve = isolated.resolveModule

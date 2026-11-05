@@ -200,9 +200,3 @@ empty frame did.
 A call that waits alone for its answer takes one frame each way. Many calls made
 together share their frames, so issue independent calls from separate tasks in
 a [task scope](concurrency/task-scopes.md) rather than one after another.
-
-::: seealso
-- [](os.host) for the full API
-- [suspension.md](concurrency/suspension.md) for what a wait does under a handler
-- [embedding.md](../projects/embedding.md) for the C side of the channel
-:::

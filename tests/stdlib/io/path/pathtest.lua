@@ -406,4 +406,124 @@ function M.verbatimWindowsPathsAreCarriedUntouched()
     assert(type(reason) == "string" and #reason > 0, "a verbatim path answers why there is no relative form")
 end
 
+function M.storageDerivationKeepsItsRootAndPortableComponents()
+    local paths = ready()
+    local root = paths.browser("data", "example", "notes")
+    assert(getmetatable(root) == paths.Path, "app directories use the public Path record")
+    assert(root:parent() == nil, "an app root has no accessible parent")
+    assert(root:isabsolute() and not root:isrelative())
+    assert(rawequal(root:normalize(), root))
+    assert(rawequal(assert(root:absolute()), root))
+    local file = assert(root:resolve("draft.txt")):withfilename("note.tmp"):withextension("txt")
+    test.eq(file:tostring(), "opfs:/data/example/notes/note.txt")
+    test.eq(file:filename(), "note.txt")
+    test.eq(file:stem(), "note")
+    test.eq(file:extension(), "txt")
+    test.eq(file:parent(), root)
+    test.eq(paths.newpath(root, paths.newpath("note.txt")), file)
+    for _, invalid in ipairs({
+        "",
+        ".",
+        "..",
+        "/escape",
+        "a/b",
+        "a\\b",
+        "NUL",
+        "COM¹.txt",
+        "bad?name",
+        "bad\0name",
+        "tail.",
+        "tail ",
+        string.char(255)
+    }) do
+        test.raises(
+            function()
+                root:join(invalid)
+            end,
+            "application path component"
+        )
+        test.raises(
+            function()
+                file:withfilename(invalid)
+            end,
+            "application path component"
+        )
+    end
+    test.raises(
+        function()
+            root:withfilename("other")
+        end,
+        "storage root"
+    )
+    test.raises(
+        function()
+            root:withextension("txt")
+        end,
+        "storage root"
+    )
+    test.raises(
+        function()
+            root:join(file)
+        end,
+        "application path"
+    )
+    test.raises(
+        function()
+            file:withextension("bad:name")
+        end,
+        "application path component"
+    )
+    local canonical, reason = file:canonicalize()
+    test.eq(canonical, nil)
+    assert(reason:find("canonicalize", 1, true))
+    local relative, relativeReason = file:relativeto(root)
+    test.eq(relative, nil)
+    assert(relativeReason:find("relativeto", 1, true))
+end
+
+function M.pathCachingNeverGrantsStorageAuthorityFromText()
+    local paths = ready()
+    local app = paths.browser("data", "example", "notes")
+    local ordinary = paths.newpath(app:tostring())
+    assert(not rawequal(app, ordinary))
+    assert(app ~= ordinary, "equal display text is not equal storage authority")
+    assert(not paths.isapplication(ordinary))
+    assert(not paths.isapplication(ordinary:join("file"):normalize()))
+    assert(not paths.isapplication(paths.newpath("", app)))
+    assert(paths.isapplication(paths.newpath(app, "file")))
+    local otherRoot = paths.native("opfs:", "data", "example"):join("notes")
+    if paths.sep() == "/" then
+        test.eq(otherRoot:tostring(), app:tostring())
+    end
+    assert(otherRoot ~= app, "providers with identical display text stay distinct")
+    local a = paths.native("/base", "org", "app"):join("file")
+    local b = paths.native("/base/org", "app", "file")
+    test.eq(a:tostring(), b:tostring())
+    assert(a ~= b, "different storage roots stay distinct")
+    for index = 1, 1100 do
+        paths.newpath("evict-" .. index)
+    end
+    local rebuilt = paths.newpath(app:tostring())
+    assert(not paths.isapplication(rebuilt))
+    assert(rebuilt ~= app)
+    test.eq(app:join("file"):parent(), app)
+    local descriptor = paths.descriptor(app)
+    descriptor.parts[1] = "elsewhere"
+    test.eq(paths.descriptor(app).parts[1], "data", "descriptor consumers cannot mutate a path")
+end
+
+function M.interningPromotesCacheHitsAndEvictsTheLeastRecentPath()
+    local paths = ready()
+    local prefix = "nupp-cache-path/"
+    local hot = paths.newpath(prefix .. "hot")
+    local cold = paths.newpath(prefix .. "cold")
+    for index = 1, 1022 do
+        paths.newpath(prefix .. index)
+    end
+    assert(rawequal(paths.newpath(prefix .. "hot"), hot))
+    paths.newpath(prefix .. "newest")
+    assert(not rawequal(paths.newpath(prefix .. "cold"), cold))
+    assert(rawequal(paths.newpath(prefix .. "hot"), hot))
+end
+
 return M

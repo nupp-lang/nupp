@@ -376,10 +376,3 @@ member limits. Results cross the worker boundary as validated structural
 blueprints, so they cannot forge nominal identity or escape into generated Lua.
 Recursive algorithms use ordinary comptime calls or loops and are governed by
 the same limits.
-
-::: seealso
-- [comptime.md](../comptime.md) for `comptime do` and the value-level
-  side of compile-time evaluation
-- [generics.md](generics.md) for the binders an open call waits on
-- [packs.md](packs.md) for `typepack` results and where they may appear
-:::

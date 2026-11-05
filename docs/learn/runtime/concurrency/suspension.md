@@ -455,9 +455,3 @@ error: NUPP2702: `pause` may suspend, and `table.sort` cannot yield across the C
 The same function is free to suspend anywhere else; the boundary belongs to the
 invocation. Where an unknown C API hides the boundary from static analysis, the
 runtime names the operation instead.
-
-::: seealso
-- [workers.md](workers.md) for CPU parallelism on native threads
-- [](io) for the library these examples wait on
-- [ownership.md](../ownership/index.md) for the cleanup a cancelled park unwinds
-:::

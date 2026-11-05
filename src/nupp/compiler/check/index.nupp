@@ -864,6 +864,20 @@ export function install(c: state.Checker): state.ExprHandlers
             })
             return T.any
         end
+        -- An interface's logical field may be supplied by its __index handler.
+        -- Stored record fields need no fallback. A handler for another key type
+        -- (such as integer indexing) cannot supply a named field either.
+        local readContract = not writing
+            and base.tag == "nominal"
+            and base.declKind == "interface"
+            and c.metamethodOf(base, "__index")
+            or nil
+        if readContract and readContract.tag == "func" and readContract.params[2] then
+            local fieldKey = T.literal(memberName, T.string)
+            if isA(fieldKey, readContract.params[2]) then
+                c.applyContract(readContract, {base, fieldKey}, {target, node}, node, "__index")
+            end
+        end
         local staticOwner = (base.tag == "metatable" or base.tag == "typeobject") and rawType(base.of) or nil
         if not writing
             and staticOwner

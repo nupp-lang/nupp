@@ -792,10 +792,3 @@ differs wants an LSP session in `tests/tools/lsp/lsptest.lua`.
 
 Assert the `severity` as well as the code. A lint that reports at the wrong
 level is a lint that fails the wrong builds.
-
-::: seealso
-- [diagnostics.md](diagnostics.md) for every code the compiler reports, lint or
-  not
-- [`@allow`](../api.md#annotation-allow) for the lint suppression contract
-- [cli.md](cli.md#lints) for `nupp lints` and its JSON output
-:::
