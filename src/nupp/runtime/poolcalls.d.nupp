@@ -1,0 +1,40 @@
+@!internal
+
+--- The blocking-work pool under the native core's reactor: the host's fixed
+--- set of threads that make the file system calls readiness cannot wait for
+--- (open, read and write on regular files), running no Nupp code. A call of
+--- one is the core's own library call, and requiring this module loads
+--- nothing: it exists only on the core, for `nupp.runtime.reactor`. A job's
+--- bytes are copied in when it is submitted and out when it is collected.
+local record poolcalls
+    --- Starts `threads` workers, once: the wake descriptor, readable while
+    --- finished jobs wait to be taken. Later calls answer the same one.
+    start: function(threads: integer): integer
+
+    --- Submits an open of the file at `path` with the access `flags` asks for,
+    --- as `filecalls.open` takes them: its ticket.
+    open: function(path: string, flags: integer): integer
+
+    --- Submits a read of at most `count` bytes from `descriptor`: its ticket.
+    read: function(descriptor: integer, count: integer): integer
+
+    --- Submits a write of `text` from its byte `first` to `descriptor`: its
+    --- ticket.
+    write: function(descriptor: integer, text: string, first: integer): integer
+
+    --- The ticket of a finished job not yet taken, oldest first, or 0.
+    take: function(): integer
+
+    --- Collects the taken job `ticket`, spending it: for a read (`room` at
+    --- least 0) the bytes it read, at most `room`; otherwise (`room` -1) the
+    --- descriptor or count its system call answered. Either way a failure
+    --- is the negated error number.
+    finish: function(ticket: integer, room: integer): string | integer
+
+    --- Withdraws job `ticket` if no worker has started it: 1, and the ticket
+    --- is spent; 0, and it is still to be taken and collected.
+    cancel: function(ticket: integer): integer
+end
+
+local calls: poolcalls
+return calls

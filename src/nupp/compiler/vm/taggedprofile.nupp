@@ -3,6 +3,7 @@ module nupp.compiler.vm.taggedprofile
 local graph = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local cst = require("nupp.compiler.syntax.cst")
+local reactorcalls = require("nupp.compiler.vm.reactorcalls")
 local lexer = require("nupp.compiler.syntax.lexer")
 local tagged = {booleanKind = "tagged"}
 
@@ -191,6 +192,11 @@ local fileoperations: {
     ["filecalls.close"] = {5, 1},
     ["filecalls.reason"] = {6, 1}
 }
+
+-- The reactor's calls ride the same library call.
+for name, spec in pairs(reactorcalls.operations) do
+    fileoperations[name] = spec
+end
 
 -- What `type` answers for the values of a primitive type a test names.
 local typeNames: {

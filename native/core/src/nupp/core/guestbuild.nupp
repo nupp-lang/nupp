@@ -176,6 +176,20 @@ local CASES: {[string]: {
     benchforms = {fixture = "catalog-bench-forms", version = 8},
     iofiles = {fixture = "catalog-io-files", version = 8},
     iostandard = {fixture = "catalog-io-standard", version = 8},
+    -- The reactor under a minimal scheduler (catalog-reactor-driver): pipes
+    -- through the poller, files through the blocking-work pool.
+    reactorpipes = {
+        fixture = "catalog-reactor-pipes",
+        version = 8,
+        modules = {"catalog-reactor-driver"},
+        follow = true
+    },
+    reactorfiles = {
+        fixture = "catalog-reactor-files",
+        version = 8,
+        modules = {"catalog-reactor-driver"},
+        follow = true
+    },
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",
@@ -530,14 +544,18 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         if takes then
             table.insert(names, #names, root .. "/src/nupp/runtime/libraryvalues")
         end
-        -- One that reads Lua's `io` carries the core's, over its file layer.
+        -- One that reads Lua's `io` carries the core's, over its file layer
+        -- and the reactor beneath it.
         local usesio = false
         for _, name in ipairs(names) do
             usesio = usesio or graph.mayUseIo(parser.parse(read(modulePath(root, name)), modulePath(root, name)).root)
         end
         if usesio then
-            table.insert(names, #names, root .. "/src/nupp/runtime/files")
-            table.insert(names, #names, root .. "/src/nupp/runtime/luaio")
+            -- Named as following a require names them, so a program that
+            -- also requires one carries it once.
+            table.insert(names, #names, "src/nupp/runtime/reactor")
+            table.insert(names, #names, "src/nupp/runtime/files")
+            table.insert(names, #names, "src/nupp/runtime/luaio")
         end
     end
     local staged = root .. "/build/core-guest-programs/source"
@@ -625,7 +643,7 @@ local function compileProgram(caseName: string, fixture: string, version: intege
                 queue[#queue + 1] = values
             end
             -- And it may read Lua's `io`, which the core carries as a module.
-            local luaio = root .. "/src/nupp/runtime/luaio"
+            local luaio = "src/nupp/runtime/luaio"
             if not carried[luaio] and graph.mayUseIo(parser.parse(source, path).root) then
                 carried[luaio] = true
                 queue[#queue + 1] = luaio

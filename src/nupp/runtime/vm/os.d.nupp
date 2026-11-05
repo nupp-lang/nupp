@@ -109,5 +109,54 @@ local record Os
     --- most `room` bytes: its whole length.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     errorText: function(code: uint64, out: voidptr, room: uint64): int64
+
+    --- A new poller (kqueue on macOS, epoll on Linux): its descriptor, or
+    --- the negated error number. The core's bridge answers it and the
+    --- eight calls after it, for the core's reactor.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    pollOpen: function(): int64
+
+    --- Sets the readiness `poller` waits for on descriptor `fd` to `interest`
+    --- (1 readable, 2 writable, added together; 0 none), for one event: 0, or
+    --- the negated error number.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    pollArm: function(poller: uint64, fd: uint64, interest: uint64): int64
+
+    --- Waits at most `nanos` nanoseconds (all ones: without limit) for one
+    --- event: its descriptor above four bits (1 readable, 2 writable, 4 hung
+    --- up, 8 failed), 0 when the time passed, or the negated error number.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    pollWait: function(poller: uint64, nanos: uint64): int64
+
+    --- A nonblocking pipe: its read end's descriptor, the write end's from
+    --- bit 32, or the negated error number.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    pipeOpen: function(): int64
+
+    --- Starts the blocking-work pool's `threads` workers, once: the wake
+    --- descriptor that is readable while results wait, or the negated error
+    --- number.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    poolStart: function(threads: uint64): int64
+
+    --- Submits a pool job, its bytes copied now: an open of the path at
+    --- `base` with access `word` (kind 1), a read of at most `bytes` bytes
+    --- from descriptor `word` (2), or a write of the bytes at `base` to it
+    --- (3). Its ticket, or the negated error number.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    poolSubmit: function(kind: uint64, word: uint64, base: voidptr, bytes: uint64): int64
+
+    --- The ticket of a finished pool job not yet taken, or 0.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    poolTake: function(): int64
+
+    --- Collects taken pool job `ticket`, copying what a read read into `out`,
+    --- at most `room` bytes: what its system call answered.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    poolFinish: function(ticket: uint64, out: voidptr, room: uint64): int64
+
+    --- Withdraws pool job `ticket` if no worker has started it: 1, or 0.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    poolCancel: function(ticket: uint64): int64
 end
 return Os

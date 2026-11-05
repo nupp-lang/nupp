@@ -1,8 +1,9 @@
 module nupp.runtime.core.guestio
 
 -- The host's services a program reaches through the core's library calls:
--- the file system calls under the program's file layer (filecalls), the
--- monotonic clock, the collector's controls and the program's arguments.
+-- the file system calls under the program's file layer (filecalls) and its
+-- reactor (pollcalls, poolcalls), the monotonic clock, the collector's
+-- controls and the program's arguments.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
@@ -15,8 +16,10 @@ const guestscope = require("nupp.runtime.core.guestscope")
 const guestlib = require("nupp.runtime.core.guestlib")
 const texts = require("nupp.runtime.core.guesttexts")
 const collector = require("nupp.runtime.vm.collector")
+const guestreactor = require("nupp.runtime.core.guestreactor")
 
--- The file calls' LibCall id: the operation first, then its arguments.
+-- The file calls' LibCall id: the operation first, then its arguments. The
+-- reactor's poller and pool calls (guestreactor) share it, from operation 7.
 export const LIB_FILES: uint64 = 120ULL
 
 -- The operations, as filecalls names them.
@@ -109,6 +112,9 @@ end
 -- number, as the bridge's system call answered it.
 export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64): uint64
     local operation = integerOf(op)
+    if operation >= guestreactor.FIRST and operation <= guestreactor.LAST then
+        return guestreactor.call(ctx, operation, a, b, c)
+    end
     @unsafe do
         local h = heapOf(ctx)
         if operation == FILE_OPEN then

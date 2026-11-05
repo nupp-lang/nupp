@@ -1,0 +1,43 @@
+module nupp.compiler.vm.reactorcalls
+
+-- The reactor's calls on the core: the poller's (nupp.runtime.pollcalls) and
+-- the blocking-work pool's (nupp.runtime.poolcalls). Each is a core library
+-- call, and requiring either declaration module loads nothing. They ride
+-- the file calls' library call, their operation first; the core's
+-- guestreactor numbers the operations the same.
+
+-- The operations, after the file calls' six.
+export const POLL_OPEN = 7
+
+export const POLL_ARM = 8
+export const POLL_WAIT = 9
+export const POLL_PIPE = 10
+export const POOL_START = 11
+export const POOL_OPEN = 12
+export const POOL_READ = 13
+export const POOL_WRITE = 14
+export const POOL_TAKE = 15
+export const POOL_FINISH = 16
+export const POOL_CANCEL = 17
+
+--- The declaration modules, and the name a call is spelled with.
+export const modules: {
+    [string]: string
+} = {["nupp.runtime.pollcalls"] = "pollcalls", ["nupp.runtime.poolcalls"] = "poolcalls"}
+
+--- Each call's operation, and how many arguments it takes.
+export const operations: {
+    [string]: {integer}
+} = {
+    ["pollcalls.open"] = {POLL_OPEN, 0},
+    ["pollcalls.arm"] = {POLL_ARM, 3},
+    ["pollcalls.wait"] = {POLL_WAIT, 2},
+    ["pollcalls.pipe"] = {POLL_PIPE, 0},
+    ["poolcalls.start"] = {POOL_START, 1},
+    ["poolcalls.open"] = {POOL_OPEN, 2},
+    ["poolcalls.read"] = {POOL_READ, 2},
+    ["poolcalls.write"] = {POOL_WRITE, 3},
+    ["poolcalls.take"] = {POOL_TAKE, 0},
+    ["poolcalls.finish"] = {POOL_FINISH, 2},
+    ["poolcalls.cancel"] = {POOL_CANCEL, 1}
+}

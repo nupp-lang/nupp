@@ -31,6 +31,7 @@ local service = require("nupp.compiler.vm.nativeservice")
 -- An opcode listed under `terminators` never appears inside a block: the
 -- terminator records produce it. Graph-only macros expand when lowered.
 local opcodes = require("nupp.compiler.vm.opcodes")
+local reactorcalls = require("nupp.compiler.vm.reactorcalls")
 
 -- A signature spells one instruction's operands in order, a letter each: a
 -- register of class v, i, f or x, uppercase where the instruction defines
@@ -1899,6 +1900,11 @@ local coreLibrary: {[string]: boolean} = {
     ["require.dynamic"] = true
 }
 
+-- The reactor's calls are core library calls too.
+for name in pairs(reactorcalls.operations) do
+    coreLibrary[name] = true
+end
+
 local function preludeName(node: any): boolean
     local definition = node and node.kind == "name" and node.token and node.token.definition
     return type(definition) == "table" and definition.filename == "nupp:lua.d.nupp"
@@ -2050,6 +2056,9 @@ local corecallmodules: {
     ["nupp.runtime.hostcalls"] = "hostcalls",
     ["nupp.runtime.filecalls"] = "filecalls"
 }
+for name, short in pairs(reactorcalls.modules) do
+    corecallmodules[name] = short
+end
 
 function graph.corecallmodule(name: string?): boolean
     return name ~= nil and corecallmodules[name] ~= nil

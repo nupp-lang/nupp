@@ -24,7 +24,16 @@ local definitions = {
     fileWrite = {slot = 14, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
     fileSeek = {slot = 15, params = {"uint64", "uint64", "uint64"}, result = "int64", cResult = "int64"},
     fileClose = {slot = 16, params = {"uint64"}, result = "int64", cResult = "int64"},
-    errorText = {slot = 17, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"}
+    errorText = {slot = 17, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    pollOpen = {slot = 18, params = {}, result = "int64", cResult = "int64"},
+    pollArm = {slot = 19, params = {"uint64", "uint64", "uint64"}, result = "int64", cResult = "int64"},
+    pollWait = {slot = 20, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
+    pipeOpen = {slot = 21, params = {}, result = "int64", cResult = "int64"},
+    poolStart = {slot = 22, params = {"uint64"}, result = "int64", cResult = "int64"},
+    poolSubmit = {slot = 23, params = {"uint64", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    poolTake = {slot = 24, params = {}, result = "int64", cResult = "int64"},
+    poolFinish = {slot = 25, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
+    poolCancel = {slot = 26, params = {"uint64"}, result = "int64", cResult = "int64"}
 }
 
 local function need(value: any, message: string): any
