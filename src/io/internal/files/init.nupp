@@ -19,13 +19,12 @@ local provider: contracts.Provider = require("nupp.runtime.bindings.files")
 export type FileKind = messages.FileKind
 export type AppDir = messages.AppDir
 export type FsCaps = messages.FsCaps
-export type AppPath = appPaths.AppPath
 export type Path = appPaths.Path
 export type TemporaryPath = contracts.TemporaryPath
 
 local organization: string?
 local app: string?
-local roots: {[string]: appPaths.AppPath} = {}
+local roots: {[string]: paths.Path} = {}
 
 -- The names app roots are stored under, which predate the shorter selectors.
 local STORED: {[string]: string} = {config = "configuration", data = "data", cache = "cache"}
@@ -70,7 +69,7 @@ export function appid(): (string?, string?)
     return organization, app
 end
 
-export function appdir(which: messages.AppDir): (appPaths.AppPath?, io.Error?)
+export function appdir(which: messages.AppDir): (paths.Path?, io.Error?)
     local stored = STORED[which]
     if stored == nil then
         error("bad argument #1 to 'appdir' (expected \"config\", \"data\" or \"cache\")", 2)

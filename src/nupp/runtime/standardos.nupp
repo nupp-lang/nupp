@@ -15,10 +15,11 @@ See [system services](docs/learn/runtime/system.md) for facts, clocks, and UUIDs
 
 ## The filesystem
 
-A path argument is a string or an [](io.Path) on a native host, and an
-[](os.AppPath) from [](os.appdir) on either host. A browser program refuses raw
-path text. An operation that fails because of the environment returns nil or
-false with an [](io.Error), and a malformed argument raises at the call site.
+A path argument is a string or an [](io.Path) on a native host. Browser
+programs accept only paths derived from [](os.appdir), whose private storage
+identity stays with the path through supported operations. An operation that
+fails because of the environment returns nil or false with an [](io.Error), and
+a malformed argument raises at the call site.
 
 ```nupp:fragment
 local kind, size, modified, readonly, err = os.stat("nupp.lua")
@@ -79,7 +80,7 @@ const {
     type AppDir as AppDirType,
     type FsCaps as FsCapsType,
 } = require("io.internal.files.messages")
-const {type Path as PathType, type AppPath as AppPathType} = require("io.internal.files.path")
+const {type Path as PathType} = require("io.internal.files.path")
 const {type TemporaryPath as TemporaryPathType} = require("io.internal.files.contracts")
 
 local host: any = rawget(_G, "os")
@@ -103,9 +104,6 @@ const _FILESYSTEM_REQUIRES = "@requires-dynamically io.internal.files"
 
 --- A native path string or [](io.Path), or an app path from `appdir`.
 export type Path = PathType
-
---- An opaque path beneath this app's storage root.
-export type AppPath = AppPathType
 
 --- The kind of filesystem object a path names.
 export type FileKind = FileKindType
@@ -142,7 +140,7 @@ end
 --- Removes a file, symbolic link, or directory.
 ---
 --- Native hosts accept strings and `io.Path` values. Browser hosts accept
---- `os.AppPath` values and refuse raw paths. A populated directory
+--- application paths and refuse raw paths. A populated directory
 --- requires `recursive = true`; symbolic links are removed without following
 --- their targets. Without that flag, native calls retain Lua's behavior.
 ---
@@ -364,10 +362,14 @@ end
 --- local data = assert(os.appdir("data"))
 --- local file = assert(io.open(data:join("notes.txt"), "w"))
 --- ```
+--- The returned [](io.Path) retains its storage identity when joined or renamed.
+--- Components must be portable names, and `parent` stops at this root. Browser
+--- paths cannot be canonicalized; rebuilding a path from its text grants no
+--- storage access.
 --- @param which `config`, `data` or `cache`
 --- @return the root, or nil on failure
 --- @return the failure, when unsuccessful
-export function appdir(which: AppDir): (AppPath?, io.Error?)
+export function appdir(which: AppDir): (io.Path?, io.Error?)
     return filesystem().appdir(which)
 end
 

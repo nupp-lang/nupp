@@ -220,6 +220,24 @@ function M.compilerCarriesEveryFeatureRuntimeSource()
     end
 end
 
+function M.applicationDirectoriesReturnTheUnifiedPathOutsideTheCheckout()
+    local env = envMod.new("/private/tmp/nupp-app-path-consumer", {config = {include = {"src"}}, cache = false})
+    local source = [[
+os.setappid("example", "notes")
+local root: io.Path = assert(os.appdir("data"))
+local path: io.Path = assert(root:resolve("draft.txt")):withfilename("notes.txt")
+local named: os.Path = path
+local file = assert(io.open(named, "w"))
+assert(file:write("notes"))
+]]
+    local parsed = parser.parse(source, "app-path.nupp")
+    testAssert.eq(#parsed.errors, 0)
+    local diagnostics = check.check(parsed, "app-path.nupp", env)
+    testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
+    local public = assert(env.loadBundledModule("nupp.runtime.standardos"))
+    testAssert.eq(public.exports.types.AppPath, nil, "the separate public type is removed")
+end
+
 function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     local env = envMod.new("/private/tmp/nupp-bundled-layout-consumer", {config = {include = {"src"}}, cache = false})
     local sources = {

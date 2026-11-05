@@ -370,7 +370,7 @@ function M.fileMutationsPreserveLuaReturnsAndAcceptPaths()
     )
 end
 
-function M.browserFileMutationsKeepAppPathAuthorityAndNormalizeFailures()
+function M.browserFileMutationsKeepPathAuthorityAndNormalizeFailures()
     local path, destination = {}, {}
     local host = {
         remove = function()
@@ -409,7 +409,7 @@ function M.fileMutationsAcceptPathTypesAndRetainTheirRuntimeFeatures()
     local root = require("helpers.paths").tests .. "/.."
     for _, source in ipairs({
         'local path: io.Path = io.Path.of("tree")\nreturn os.remove(path, true)',
-        'local from: os.AppPath = assert(os.appdir("data"))\nreturn os.rename(from, from:join("new"))',
+        'local from: io.Path = assert(os.appdir("data"))\nreturn os.rename(from, from:join("new"))',
     }) do
         local parsed = parser.parse(source, "file-mutations.nupp")
         test.eq(#parsed.errors, 0)
@@ -466,7 +466,7 @@ function M.filesystemFunctionsTypeAsTheirTuplesAndIterators()
         'local kind: os.FileKind? = os.stat("a", false)\nprint(kind)',
         'local present: boolean?, err: io.Error? = os.exists("a")\nprint(present, err)',
         'local matches: {io.Path}? = os.glob("src/*.nupp")\nprint(matches)',
-        'os.setappid("example", "notes")\nlocal data: os.AppPath? = os.appdir("data")\nprint(data)',
+        'os.setappid("example", "notes")\nlocal data: io.Path = assert(os.appdir("data"))\nlocal file = assert(io.open(data:join("notes.txt"), "w"))\nprint(file)',
         'local scratch = assert(os.mktemp(nil, ".json"))\nprint(scratch:tostring())\nscratch:close()',
     }
     for _, source in ipairs(accepted) do
@@ -485,6 +485,7 @@ function M.filesystemFunctionsTypeAsTheirTuplesAndIterators()
         'os.stat("a", nofollow = "yes")',
         'os.lstat("a")',
         'os.fscaps()',
+        "local old: os.AppPath = nil",
         'os.appdir("documents")',
         'local present: boolean = os.exists("a")',
         'local info = io.files.info("a")',

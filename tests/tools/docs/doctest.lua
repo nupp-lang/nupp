@@ -2511,7 +2511,7 @@ function M.standardIOApiHasCompleteDocumentation()
         [
             "src/nupp/runtime/standardos.nupp"
         ] = {
-            types = {TemporaryPath = true, FileKind = true, FsCaps = true, Path = true, AppPath = true,},
+            types = {TemporaryPath = true, FileKind = true, FsCaps = true, Path = true,},
             functions = {stat = true, exists = true, list = true, glob = true, writeatomic = true,},
         },
     }

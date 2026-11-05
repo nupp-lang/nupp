@@ -73,7 +73,6 @@ local ROOTS = {
             appdir = true,
             persiststorage = true,
             Path = true,
-            AppPath = true,
             FileKind = true,
             AppDir = true,
             FsCaps = true,

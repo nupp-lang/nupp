@@ -540,7 +540,29 @@ function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
     local ok, problem = pcall(function()
         local browser = require("helpers.providerstate").browserFiles(memory)
         local paths = require("io.internal.files.path")
-        local path = paths.browser("data", "nupp", "files-test"):join("value.bin")
+        local root = paths.browser("data", "nupp", "files-test")
+        local pathApi = require("io.internal.path")
+        local path = assert(root:absolute())
+            :normalize()
+            :join("draft.tmp")
+            :withfilename("value.tmp")
+            :withextension("bin")
+        assert(path:parent() == root)
+        assert(root:parent() == nil)
+        for _, forged in ipairs({
+            path:tostring(),
+            pathApi.newpath(path:tostring()),
+            pathApi.newpath(path:tostring()):normalize(),
+            paths.native("opfs:/data", "nupp", "files-test"):join("value.bin")
+        }) do
+            local before = #calls
+            local accepted, message = pcall(browser.open, forged, "r")
+            assert(not accepted and tostring(message):find("paths must come from", 1, true), tostring(message))
+            testAssert.eq(#calls, before, "text and another provider cannot reach browser storage")
+        end
+        local copied = pathApi.descriptor(path)
+        copied.parts[1] = "escaped"
+        testAssert.eq(pathApi.descriptor(path).parts[1], "data")
 
         local before = #calls
         local application, kindReason = browser.apppath("logs", "nupp", "files-test")
@@ -553,6 +575,8 @@ function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
 
         local file = assert(browser.open(path, "r+"))
         testAssert.eq(calls[#calls].operation, "open")
+        testAssert.eq(calls[#calls].root, "data")
+        testAssert.eq(table.concat(calls[#calls].parts, "/"), "data/nupp/files-test/value.bin")
         testAssert.eq(assert(file:seek(3)), 3)
         local validCalls = #calls
         local sought, invalidOffset = pcall(file.seek, file, math.huge, "set")

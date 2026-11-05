@@ -861,8 +861,23 @@ function M.appPathsAreScopedPortableAndStable()
     test.eq(apppaths.encodeid("NUL"), "%4EUL")
     test.eq(apppaths.encodeid("COM¹"), "%43OM¹")
     assert(apppaths.encodeid("/") ~= apppaths.encodeid("%2F"), "identity escaping remains reversible")
+    local returned = assert(files.appdir("cache"))
+    assert(getmetatable(returned) == require("io.internal.pathtypes").Path)
+    assert(files.remove(returned, true))
     local data = apppaths.native(root, "nupp", app)
 
+    assert(getmetatable(data) == require("io.internal.pathtypes").Path)
+    assert(files.mkdir(data))
+    local note = assert(data:resolve("notes.txt"))
+    do
+        local handle = assert(io.open(note, "w"))
+        assert(handle:write("unified path"))
+        assert(handle:close())
+    end
+    test.eq(assert(readFile(note)), "unified path")
+    test.eq(note:parent(), data)
+    local canonical = assert(note:canonicalize())
+    test.eq(assert(readFile(canonical)), "unified path")
     local safe = data:join("save files", "slot-1.dat")
     assert(safe:tostring():find("save files", 1, true))
     for _, invalid in ipairs({
@@ -889,7 +904,7 @@ function M.appPathsAreScopedPortableAndStable()
             function()
                 data:join(invalid)
             end,
-            "AppPath component"
+            "application path component"
         )
     end
 

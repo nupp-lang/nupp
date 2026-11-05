@@ -905,7 +905,7 @@ function M.hostAndVmBindingsIgnoreAdvertisedOverrides()
     end
 end
 
-function M.memoizedAppPathsAreRecreated()
+function M.memoizedApplicationPathsAreRecreated()
     local root = {}
     local resolved, created = 0, 0
     local provider = {
