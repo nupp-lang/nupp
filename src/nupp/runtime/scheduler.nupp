@@ -1,0 +1,737 @@
+@!internal
+
+module nupp.runtime.scheduler
+
+--[[
+The native core's scheduler (Decision 18), written in Nupp over the core's
+thread primitives (`nupp.runtime.taskcalls`). A task is a thread like any
+coroutine; the scheduler drives it. A park passes through every coroutine
+the task resumed, so a generator whose body sleeps parks the whole stack and
+resumes where it was.
+
+Whoever waits drives: a task that waits parks, and its driver runs the next
+runnable one; the main thread's own stack (and any coroutine it resumed) has
+no driver above it, so its wait runs the scheduler in place until it is
+woken. Timers are a deadline heap here; with nothing runnable the scheduler
+waits in the reactor (`nupp.runtime.reactor`) until the nearest deadline or
+an I/O completion, so parked I/O and timers share one loop: the reactor's
+Parker is this scheduler's park, and its waker wakes the task like any
+wait. A program's image carries this module when it uses the task surface
+(`coroutine.scope` and its kin), which the core reads from `functions`.
+]]
+
+local calls = require("nupp.runtime.taskcalls")
+local reactor = require("nupp.runtime.reactor")
+
+-- What a run of a task answers first.
+const RETURNED = 1
+const FAILED = 2
+const YIELDED = 4
+
+-- What a cancelled park is woken with.
+local CANCEL: any = {}
+
+----------------------------------------------------------------------------
+-- Cancellation
+----------------------------------------------------------------------------
+
+local CancellationMT: any = {}
+
+CancellationMT.__tostring = function(value: any): string
+    if value.reason ~= nil then
+        return "nupp: " .. tostring(value.operation) .. " was cancelled: " .. tostring(value.reason)
+    end
+
+    return "nupp: " .. tostring(value.operation) .. " was cancelled"
+end
+
+local function cancellation(operation: string, reason: any): any
+    return setmetatable({operation = operation, reason = reason}, CancellationMT)
+end
+
+local function iscancelled(value: any): boolean
+    return type(value) == "table" and getmetatable(value) == CancellationMT
+end
+
+----------------------------------------------------------------------------
+-- The run queue and the timers
+----------------------------------------------------------------------------
+
+-- The tasks that may run, oldest first, from `head` to `tail`.
+local queue: {any} = {}
+local head: integer = 1
+local tail: integer = 0
+
+-- The deadline heap: entries ordered by `at`, then by `seq`.
+local timers: {any} = {}
+local sequence: integer = 0
+
+local function earlier(a: any, b: any): boolean
+    if a.at ~= b.at then
+        return a.at < b.at
+    end
+
+    return a.seq < b.seq
+end
+
+local function addtimer(entry: any): nil
+    sequence = sequence + 1
+    entry.seq = sequence
+    local at = #timers + 1
+    timers[at] = entry
+    while at > 1 do
+        local parent = at // 2
+        if not earlier(timers[at], timers[parent]) then
+            break
+        end
+        timers[at], timers[parent] = timers[parent], timers[at]
+        at = parent
+    end
+end
+
+local function poptimer(): any
+    local top = timers[1]
+    local last: integer = #timers
+    timers[1] = timers[last]
+    timers[last] = nil
+    last = last - 1
+    local at: integer = 1
+    while true do
+        local left, right = at * 2, at * 2 + 1
+        local least = at
+        if left <= last and earlier(timers[left], timers[least]) then
+            least = left
+        end
+        if right <= last and earlier(timers[right], timers[least]) then
+            least = right
+        end
+        if least == at then
+            break
+        end
+        timers[at], timers[least] = timers[least], timers[at]
+        at = least
+    end
+
+    return top
+end
+
+local function enqueue(record: any, value: any): nil
+    if record.queued then
+        return
+    end
+    record.queued = true
+    record.wake = value
+    tail = tail + 1
+    queue[tail] = record
+end
+
+-- A waiter: a parked task's record and the ticket its park holds, or the
+-- main stack's box.
+local function wake(waiter: any, value: any): nil
+    local record = waiter.record
+    if record == nil then
+        if not waiter.done then
+            waiter.done = true
+            waiter.value = value
+        end
+        return
+    end
+    -- A stale ticket is a park this one no longer waits in.
+    if record.ticket == waiter.ticket then
+        record.ticket = record.ticket + 1
+        enqueue(record, value)
+    end
+end
+
+local function stale(entry: any): boolean
+    local waiter = entry.waiter
+    if waiter ~= nil then
+        local record = waiter.record
+        if record == nil then
+            return waiter.done
+        end
+        return record.ticket ~= waiter.ticket
+    end
+
+    return entry.scope.closed or entry.scope.live == 0
+end
+
+local deadlinepassed: function(any): nil
+
+local function fire(entry: any): nil
+    if entry.waiter ~= nil then
+        wake(entry.waiter, true)
+    else
+        deadlinepassed(entry.scope)
+    end
+end
+
+-- The scheduler's wait while nothing can run: the reactor's, taking I/O
+-- completions too with the nearest deadline as its timeout, once any I/O is
+-- pending; with none, the bridge's sleep. Both clocks are the monotonic one
+-- in milliseconds.
+local function wait(milliseconds: number): nil
+    if reactor.pending() > 0 then
+        reactor.wait((calls.now() as number) + milliseconds)
+    else
+        calls.sleep(milliseconds)
+    end
+end
+
+local runone: function(any): nil
+
+-- Runs one runnable task, or waits for the nearest timer and fires what is
+-- due. Raises when nothing could ever wake the caller.
+local function step(): nil
+    if head <= tail then
+        local record = queue[head]
+        queue[head] = nil
+        head = head + 1
+        if head > tail then
+            head, tail = 1, 0
+        end
+        runone(record)
+        return
+    end
+    while #timers > 0 and stale(timers[1]) do
+        poptimer()
+    end
+    if #timers == 0 then
+        -- Only I/O can wake a task now: the reactor waits for it.
+        if reactor.pending() > 0 then
+            reactor.wait(nil)
+            return
+        end
+        error("nupp: nothing can wake this wait: every task is parked", 0)
+    end
+    local now = calls.now() as number
+    local at = timers[1].at as number
+    if at > now then
+        wait(at - now)
+        now = calls.now() as number
+    end
+    while #timers > 0 and timers[1].at <= now do
+        local entry = poptimer()
+        if not stale(entry) then
+            fire(entry)
+        end
+    end
+end
+
+----------------------------------------------------------------------------
+-- Parking
+----------------------------------------------------------------------------
+
+local function current(): any
+    local thread = calls.current()
+    if thread == nil then
+        return nil
+    end
+
+    return calls.data(thread)
+end
+
+-- Waits until `arm`'s waiter is woken, answering what it was woken with.
+-- A task parks; the main thread's stack runs the scheduler meanwhile. A
+-- cancelled task's park raises its cancellation, unless `shielded`, whose
+-- caller must go on waiting regardless (a scope settling its children).
+local function park(arm: function(any): nil, shielded: boolean): any
+    local record = current()
+    if record ~= nil then
+        if record.requested and not shielded then
+            error(record.cancelled, 0)
+        end
+        local waiter = {record = record, ticket = record.ticket}
+        arm(waiter)
+        record.status = "parked"
+        local value = calls.park()
+        record.status = "running"
+        if record.requested and not shielded then
+            error(record.cancelled, 0)
+        end
+        return value
+    end
+    local box = {done = false, value = nil}
+    arm(box)
+    while not box.done do
+        step()
+    end
+
+    return box.value
+end
+
+local function sleepuntil(deadline: number): nil
+    park(
+        function(waiter: any): nil
+            addtimer({at = deadline, waiter = waiter})
+        end,
+        false
+    )
+end
+
+local function sleep(milliseconds: number): nil
+    sleepuntil((calls.now() as number) + milliseconds)
+end
+
+----------------------------------------------------------------------------
+-- Tasks and scopes
+----------------------------------------------------------------------------
+
+local function final(status: string): boolean
+    return status == "done" or status == "failed" or status == "cancelled"
+end
+
+local cancelscope: function(any, any, boolean): nil
+
+local function unlink(scope: any, record: any): nil
+    local children = scope.children
+    local index = record.index as integer
+    local last = #children
+    local moved = children[last]
+    children[index] = moved
+    moved.index = index
+    children[last] = nil
+end
+
+local function wakeall(waiters: {any}): nil
+    for index = 1, #waiters do
+        wake(waiters[index], true)
+    end
+end
+
+-- The first failure a child has is the scope's, and cancels its siblings.
+local function ownfailure(scope: any, problem: any): nil
+    if not scope.failed then
+        scope.failed = true
+        scope.failure = problem
+        cancelscope(scope, "the scope is unwinding", false)
+    end
+end
+
+local function settle(record: any, status: string, value: any): nil
+    record.status = status
+    if status == "done" then
+        record.results = value
+    else
+        record.problem = value
+    end
+    local scope = record.scope
+    scope.live = scope.live - 1
+    unlink(scope, record)
+    if status == "failed" then
+        ownfailure(scope, value)
+    end
+    local waiters = record.waiters
+    record.waiters = {}
+    wakeall(waiters)
+    local slots = scope.slots
+    scope.slots = {}
+    wakeall(slots)
+    if scope.live == 0 then
+        local closers = scope.closers
+        scope.closers = {}
+        wakeall(closers)
+    end
+end
+
+runone = function(record: any): nil
+    record.queued = false
+    local value = record.wake
+    record.wake = nil
+    if final(record.status) then
+        return
+    end
+    -- One cancelled before it started never runs.
+    if record.requested and not record.started then
+        settle(record, "cancelled", record.cancelled)
+        return
+    end
+    record.started = true
+    record.status = "running"
+    local answer = calls.run(record.thread, value)
+    local code = answer[1]
+    if code == RETURNED then
+        settle(record, "done", answer)
+    elseif code == FAILED then
+        local problem = answer[2]
+        if iscancelled(problem) and record.requested then
+            settle(record, "cancelled", problem)
+        else
+            settle(record, "failed", problem)
+        end
+    elseif code == YIELDED then
+        -- It gave up its turn: last in line.
+        record.status = "queued"
+        enqueue(record, nil)
+    end
+end
+
+-- Requests a task's cancellation: a parked one is woken to raise it, a
+-- running one sees it at its next park or checkpoint, one never started is
+-- settled now. The scopes it opened are cancelled with it.
+local function cancelrecord(record: any, cancelled: any): boolean
+    if final(record.status) or record.requested then
+        return false
+    end
+    record.requested = true
+    record.cancelled = cancelled
+    local opened = record.opened
+    for index = 1, #opened do
+        local scope = opened[index]
+        if not scope.closed then
+            cancelscope(scope, cancelled.reason, false)
+        end
+    end
+    if not record.started then
+        settle(record, "cancelled", cancelled)
+        return true
+    end
+    if record.status == "parked" then
+        record.ticket = record.ticket + 1
+        enqueue(record, CANCEL)
+    end
+
+    return true
+end
+
+cancelscope = function(scope: any, reason: any, deliberate: boolean): nil
+    if scope.cancellation == nil then
+        scope.cancellation = cancellation("the task scope", reason)
+        scope.deliberate = deliberate
+    end
+    -- A child settled by the walk leaves the list: walk a copy.
+    local children: {any} = {}
+    for index = 1, #scope.children do
+        children[index] = scope.children[index]
+    end
+    for index = 1, #children do
+        cancelrecord(children[index], scope.cancellation)
+    end
+end
+
+deadlinepassed = function(scope: any): nil
+    if not scope.closed then
+        cancelscope(scope, "its deadline passed", false)
+    end
+end
+
+local ScopeMethods: any = {}
+local ScopeMT: any = {__index = ScopeMethods}
+
+-- The scopes the main thread's stack opened, innermost last.
+local rootscopes: {any} = {}
+
+local function open(limit: integer?, timeoutms: number?): any
+    local owner = current()
+    local deadline: number? = nil
+    if timeoutms ~= nil then
+        deadline = (calls.now() as number) + timeoutms
+    end
+    -- A scope inside another takes the earlier deadline.
+    local outer: any = nil
+    if owner ~= nil then
+        outer = owner.scope
+    elseif #rootscopes > 0 then
+        outer = rootscopes[#rootscopes]
+    end
+    if outer ~= nil and outer.deadline ~= nil and (deadline == nil or outer.deadline < deadline) then
+        deadline = outer.deadline
+    end
+    local scope = setmetatable(
+        {
+            children = {},
+            live = 0,
+            closers = {},
+            slots = {},
+            limit = limit,
+            deadline = deadline,
+            owner = owner,
+            closed = false,
+            failed = false,
+            deliberate = false
+        },
+        ScopeMT
+    )
+    if owner ~= nil then
+        owner.opened[#owner.opened + 1] = scope
+        if owner.requested then
+            cancelscope(scope, owner.cancelled.reason, false)
+        end
+    else
+        rootscopes[#rootscopes + 1] = scope
+    end
+    if deadline ~= nil then
+        addtimer({at = deadline, scope = scope})
+    end
+
+    return scope
+end
+
+local function start(scope: any, name: any, body: any, arguments: any): any
+    if scope.closed then
+        error("nupp: the task scope is closed", 3)
+    end
+    -- A full scope parks the spawner until a child settles.
+    while scope.limit ~= nil and scope.live >= scope.limit do
+        park(
+            function(waiter: any): nil
+                scope.slots[#scope.slots + 1] = waiter
+            end,
+            false
+        )
+    end
+    local thread = calls.new(body, arguments)
+    local record = {
+        thread = thread,
+        scope = scope,
+        name = name,
+        status = "queued",
+        ticket = 0,
+        waiters = {},
+        opened = {},
+        requested = false,
+        started = false,
+        queued = false,
+        index = #scope.children + 1
+    }
+    calls.setdata(thread, record)
+    scope.children[record.index] = record
+    scope.live = scope.live + 1
+    if scope.cancellation ~= nil then
+        cancelrecord(record, scope.cancellation)
+    else
+        enqueue(record, nil)
+    end
+
+    return thread
+end
+
+-- scope:spawn(arguments..., f): `f` last, called with the arguments.
+ScopeMethods.spawn = function(scope: any, ...: any): any
+    local count = select("#", ...)
+    local arguments = {...}
+    local body = arguments[count]
+    arguments[count] = nil
+    arguments[0] = count - 1
+
+    return start(scope, "task", body, arguments)
+end
+
+-- scope:spawn(name, f): a named body taking no arguments.
+ScopeMethods._spawnNamed = function(scope: any, name: string, body: any): any
+    return start(scope, name, body, {[0] = 0})
+end
+
+ScopeMethods.work = function(scope: any, ...: any): any
+    error("nupp: worker lanes are not available on the core yet", 2)
+end
+
+ScopeMethods.cancel = function(scope: any, reason: any): nil
+    cancelscope(scope, reason, true)
+end
+
+-- Settles the scope: every child has run, been cancelled or unwound when it
+-- returns, then the first failure a child had is raised, or the
+-- cancellation a deadline caused.
+ScopeMethods.close = function(scope: any): nil
+    if scope.closed then
+        return
+    end
+    local record = current()
+    while scope.live > 0 do
+        -- A cancelled owner still waits for its children, which it cancels.
+        if record ~= nil and record.requested and scope.cancellation == nil then
+            cancelscope(scope, record.cancelled.reason, false)
+        end
+        park(
+            function(waiter: any): nil
+                scope.closers[#scope.closers + 1] = waiter
+            end,
+            true
+        )
+    end
+    scope.closed = true
+    local opened = record ~= nil and record.opened or rootscopes
+    for index = #opened, 1, -1 do
+        if opened[index] == scope then
+            table.remove(opened, index)
+            break
+        end
+    end
+    if scope.failed then
+        error(scope.failure, 0)
+    end
+    if scope.cancellation ~= nil and not scope.deliberate then
+        error(scope.cancellation, 0)
+    end
+    if record ~= nil and record.requested then
+        error(record.cancelled, 0)
+    end
+end
+
+----------------------------------------------------------------------------
+-- Threads' methods
+----------------------------------------------------------------------------
+
+local function taskof(thread: any): any
+    local record = calls.data(thread)
+    if record == nil then
+        error("nupp: not a task", 3)
+    end
+
+    return record
+end
+
+-- Waits for a task and answers its results, or raises its failure.
+local function await(thread: any): ...any
+    local record = taskof(thread)
+    while not final(record.status) do
+        park(
+            function(waiter: any): nil
+                record.waiters[#record.waiters + 1] = waiter
+            end,
+            false
+        )
+    end
+    if record.status ~= "done" then
+        error(record.problem, 0)
+    end
+    local results = record.results
+
+    return table.unpack(results, 2, results[0] as integer)
+end
+
+-- coroutine.close of a task: its cancellation requested, its cleanups waited
+-- for; Lua's results, true or false and the error that ended it.
+local function closetask(thread: any): any
+    local record = taskof(thread)
+    if not final(record.status) then
+        if current() == record then
+            error("nupp: a task cannot close itself", 2)
+        end
+        cancelrecord(record, cancellation(record.name, "it was closed"))
+        while not final(record.status) do
+            park(
+                function(waiter: any): nil
+                    record.waiters[#record.waiters + 1] = waiter
+                end,
+                false
+            )
+        end
+    end
+    if record.status == "failed" then
+        return {[0] = 2, false, record.problem}
+    end
+
+    return {[0] = 1, true}
+end
+
+local methods: any = {
+    status = function(thread: any): string
+        return coroutine.status(thread)
+    end,
+    resume = function(thread: any, ...: any): ...any
+        return coroutine.resume(thread, ...)
+    end,
+    close = function(thread: any): (boolean, any)
+        return coroutine.close(thread)
+    end,
+    await = await,
+    isdone = function(thread: any): boolean
+        return final(taskof(thread).status)
+    end,
+    cancel = function(thread: any, reason: any): boolean
+        local record = taskof(thread)
+        return cancelrecord(record, cancellation(record.name, reason))
+    end
+}
+
+----------------------------------------------------------------------------
+-- The task surface
+----------------------------------------------------------------------------
+
+local function checkpoint(): nil
+    local record = current()
+    if record == nil then
+        -- The main thread's stack lets what is runnable now run once.
+        local count = tail - head + 1
+        for _ = 1, count do
+            if head <= tail then
+                step()
+            end
+        end
+        return
+    end
+    if record.requested then
+        error(record.cancelled, 0)
+    end
+    park(
+        function(waiter: any): nil
+            wake(waiter, true)
+        end,
+        false
+    )
+end
+
+local function deadline(): number?
+    local record = current()
+    if record ~= nil then
+        return record.scope.deadline
+    end
+    if #rootscopes > 0 then
+        return rootscopes[#rootscopes].deadline
+    end
+
+    return nil
+end
+
+calls.install({__index = methods}, closetask)
+
+-- The reactor's side of a task's wait (`reactor.Parker`): its waker, made
+-- before the operation is submitted, wakes the park that follows it, or
+-- keeps a completion that came first for that park to answer at once.
+local arming: any = nil
+
+local function iowaker(): any
+    if current() == nil then
+        return nil
+    end
+    local box: any = {waiter = nil, done = false, value = nil}
+    arming = box
+    return function(completion: any): nil
+        if box.waiter ~= nil then
+            wake(box.waiter, completion)
+        else
+            box.done = true
+            box.value = completion
+        end
+    end
+end
+
+local function iopark(): any
+    local box = arming
+    arming = nil
+    if box.done then
+        return box.value
+    end
+
+    return park(
+        function(waiter: any): nil
+            box.waiter = waiter
+        end,
+        false
+    )
+end
+
+reactor.install({waker = iowaker, park = iopark} as any)
+
+export const functions: {
+    [string]: any
+} = {
+    ["coroutine.scope"] = open,
+    ["coroutine.checkpoint"] = checkpoint,
+    ["coroutine.deadline"] = deadline,
+    ["coroutine.iscancelled"] = iscancelled,
+    ["coroutine.sleep"] = sleep,
+    ["coroutine.sleepuntil"] = sleepuntil
+}

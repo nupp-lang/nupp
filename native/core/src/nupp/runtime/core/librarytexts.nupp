@@ -124,6 +124,8 @@ export const NAME_ISFROZEN: uint64 = 115ULL
 export const TEXT_ALREADY_FROZEN: uint64 = 116ULL
 export const TEXT_INVALID_OPTION: uint64 = 117ULL
 export const NAME_COLLECTGARBAGE: uint64 = 118ULL
+export const TEXT_PARKED: uint64 = 119ULL
+export const TEXT_RESUME_TASK: uint64 = 120ULL
 
 -- Appends text `id` to `b`: nonzero when the builder refused it.
 export function append(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
@@ -576,6 +578,16 @@ export function append(h: heap.Heap*, b: strings.Builder*, id: uint64): uint64
     elseif id == NAME_COLLECTGARBAGE then
         -- "collectgarbage"
         return strings.appendWord(h, b, 0x677463656c6c6f63ULL, 8ULL) | strings.appendWord(h, b, 0x656761627261ULL, 6ULL)
+    elseif id == TEXT_PARKED then
+        -- "parked"
+        return strings.appendWord(h, b, 0x64656b726170ULL, 6ULL)
+    elseif id == TEXT_RESUME_TASK then
+        -- "cannot resume a scheduled coroutine"
+        return strings.appendWord(h, b, 0x7220746f6e6e6163ULL, 8ULL)
+            | strings.appendWord(h, b, 0x206120656d757365ULL, 8ULL)
+            | strings.appendWord(h, b, 0x656c756465686373ULL, 8ULL)
+            | strings.appendWord(h, b, 0x74756f726f632064ULL, 8ULL)
+            | strings.appendWord(h, b, 0x656e69ULL, 3ULL)
     end
 
     return 0ULL

@@ -114,7 +114,7 @@ local CASES = {
     {"numbersMath", 0x7FFF00000010F44A},
     {"recordsAffine", 0x7FFF000000007D88},
     {"recordsAffineErrors", 0x7FFF00000632F03D},
-    {"recordsaffineraise", 0x7FFF000000008182},
+    {"recordsaffineraise", 0x7FFF000000025642},
     {"recordsdynamic", 0x7FFF0000002F2854},
     {"tablesSort", 0x7FFF000000560C7F},
     {"stringsGsubFunction", 0x7FFF00000000003F},
@@ -136,6 +136,11 @@ local CASES = {
     {"threadsclose", 0x7FFF00000000007F},
     {"threadsiterate", 0x7FFF00000000001F},
     {"threadsmeta", 0x7FFF000000105C53},
+    {"threadsmethods", 0x7FFF00000000007F},
+    {"tasksbasic", 0x7FFF00000000003F},
+    {"taskscancel", 0x7FFF00000000003F},
+    -- 3,000 tasks parked on timers and on each other.
+    {"tasksscopes", 0x7FFF00000000003F},
     -- 200,000 coroutines between collections, recursion 150,000 frames deep
     -- in one, a yield 20,000 deep and an overflow in one.
     {"threadsstacks", 0x7FFF00000000003F},
@@ -177,6 +182,8 @@ local CASES = {
     {"iostandard", 0x7FFF00000000000F},
     {"reactorpipes", 0x7FFF00000007FFFF},
     {"reactorfiles", 0x7FFF000000001FFF},
+    -- Parked I/O and timers in the scheduler's one loop.
+    {"tasksreactor", 0x7FFF00000000001F},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -260,6 +267,10 @@ local STRESS = {
     libraryspread = true,
     threadsiterate = true,
     threadsmeta = true,
+    threadsmethods = true,
+    tasksbasic = true,
+    taskscancel = true,
+    tasksscopes = true,
     threadsstacks = true,
     textbuffer = true,
     stringbuffer = true,
@@ -284,7 +295,8 @@ local STRESS = {
     iofiles = true,
     iostandard = true,
     reactorpipes = true,
-    reactorfiles = true
+    reactorfiles = true,
+    tasksreactor = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
@@ -301,7 +313,7 @@ local REFUSED = {}
 -- every allocation and interleaved collection, which keeps every freed
 -- object as a tombstone: there a collection runs between any two
 -- coroutines however few they are.
-local STRESS_ENV = {threadsstacks = "NUPP_GUEST_COROUTINES=4000 "}
+local STRESS_ENV = {threadsstacks = "NUPP_GUEST_COROUTINES=4000 ", tasksscopes = "NUPP_GUEST_TASKS=300 "}
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
 local STATUS = {numericModZero = 6, numericOverflow = 5}
@@ -368,6 +380,7 @@ local NUMERIC = {
     threadsclose = "catalog-threads-close",
     threadsiterate = "catalog-threads-iterate",
     threadsmeta = "catalog-threads-meta",
+    threadsmethods = "catalog-threads-methods",
     threadsstacks = "catalog-threads-stacks",
     outputwrite = "catalog-output-write",
     libraryspread = "catalog-library-spread",
@@ -704,7 +717,11 @@ local function stage()
             "catalog-io-standard",
             "catalog-reactor-driver",
             "catalog-reactor-pipes",
-            "catalog-reactor-files"
+            "catalog-reactor-files",
+            "catalog-tasks-basic",
+            "catalog-tasks-cancel",
+            "catalog-tasks-scopes",
+            "catalog-tasks-reactor"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",

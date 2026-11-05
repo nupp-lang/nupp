@@ -42,6 +42,7 @@ local requireSite = taggedcalls.requireSite
 local sortWith = taggedcalls.sortWith
 local stringSpec = taggedcalls.stringSpec
 local typeKind = taggedvalues.typeKind
+local valuespack = taggedcalls.valuespack
 local typeNames = taggedvalues.typeNames
 
 function tagged.initializeModule(fn: any, options: any): any
@@ -1445,7 +1446,7 @@ function tagged.forVersion(version: integer): any
                     return nil as any
                 end
                 local operation = ctx.emit(node, "K", {pool(ctx, "int64", tostring(spec.operation))}, "tagged")
-                local operands: {any} = {corelibrary.id("HOST_FILES"), operation}
+                local operands: {any} = {corelibrary.operationcall(library as string), operation}
                 for _, value in ipairs(evaluated) do
                     operands[#operands + 1] = value
                 end
@@ -1530,6 +1531,26 @@ function tagged.forVersion(version: integer): any
                     ctx.release(held[index])
                 end
                 return result as integer
+            elseif library == "coroutine.create" and #(node.args.exprs or {}) > 1 then
+                -- create(f, ...): the arguments after f bound, as one pack.
+                local args = node.args.exprs
+                local body = ctx.expression(args[1], "tagged")
+                if body == nil then
+                    return nil as any
+                end
+                local held = ctx.hold(body)
+                local rest = {}
+                for index = 2, #args do
+                    rest[#rest + 1] = args[index]
+                end
+                local pack = valuespack(ctx, node, rest)
+                if pack == nil then
+                    ctx.release(held)
+                    return nil as any
+                end
+                local value = ctx.readHeld(held)
+                ctx.release(held)
+                return landed(ctx, node, ctx.emit(node, "LibCall", {corelibrary.id("COROUTINE_CREATE"), value, pack}, "tagged")) as integer
             elseif stringSpec(library) then
                 local spec: {integer} = need(stringSpec(library), "string library call")
                 local count = #(node.args.exprs or {})
@@ -1555,6 +1576,15 @@ function tagged.forVersion(version: integer): any
                 return invokeMethod(ctx, node, true) as integer
             end
             local library = graph.coreLibraryCall(node)
+            -- A thread's methods (`co:resume(x)`) are the coroutine library's.
+            if coroutinepacked[library or ""] then
+                local pack = coroutinepack(ctx, node)
+                if pack == nil then
+                    return nil as any
+                end
+                local key = ctx.emit(node, "K", {pool(ctx, "int64", "1")}, "tagged")
+                return ctx.emit(node, "GetIdx", {pack, key}, "tagged") as integer
+            end
             need(
                 library == "string.format" or stringSpec(library) ~= nil,
                 "only string library method calls are admitted"
@@ -1582,6 +1612,8 @@ function tagged.forVersion(version: integer): any
                 tagged.statementCall(ctx, node)
             elseif node.kind == "methodCall" and site and site.method then
                 invokeMethod(ctx, node, false)
+            elseif node.kind == "methodCall" and coroutinepacked[graph.coreLibraryCall(node) or ""] then
+                profile.methodCall(ctx, node, nil)
             elseif graph.coreLibraryCall(node) == "pcall" or graph.coreLibraryCall(node) == "xpcall" then
                 invokeProtected(ctx, node, false)
             elseif node.kind == "call" and graph.coreLibraryCall(node) ~= nil then

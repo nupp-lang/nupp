@@ -488,7 +488,7 @@ end
 -- The values of `exprs` as one pack, the count at key 0: a `...` or a call
 -- giving other than one result last gives them all. With `texts`, each fixed
 -- value that may have a metatable is its tostring, its __tostring called.
-local function valuespack(ctx: any, node: any, exprs: any, texts: boolean?): integer
+export function valuespack(ctx: any, node: any, exprs: any, texts: boolean?): integer
     local last = exprs[#exprs]
     local tail = last ~= nil and (last.kind == "vararg" or graph.expandsResults(last) or protectedcall(last))
     local fixed, kinds = {}, {}
@@ -622,12 +622,26 @@ export function printValues(ctx: any, node: any): integer
     return ctx.emit(node, "LibCall", {corelibrary.id("PRINT"), pack}, "tagged") as integer
 end
 
+-- A call's arguments, its receiver first in method form (`co:resume(x)`).
+local function callexprs(node: any): {any}
+    local exprs = node.args.exprs or {}
+    if node.kind ~= "methodCall" then
+        return exprs
+    end
+    local all = {node.obj}
+    for _, expr in ipairs(exprs) do
+        all[#all + 1] = expr
+    end
+
+    return all
+end
+
 -- coroutine.resume(co, ...), coroutine.yield(...) and coroutine.running():
 -- each answers its results as one pack, and resume and yield take their
 -- values as one.
 export function coroutinepack(ctx: any, node: any): integer
     local library = graph.coreLibraryCall(node)
-    local exprs = node.args.exprs or {}
+    local exprs = callexprs(node)
     if library == "coroutine.running" then
         need(#exprs == 0, "coroutine.running takes no arguments")
         local none = ctx.emit(node, "Nil", {}, "tagged")
@@ -779,7 +793,7 @@ export function invokeMethod(ctx: any, node: any, keepResult: boolean, count: in
         end
     end
     -- The overload the checker selected has a member of its own.
-    local member = node.overloadMember or node.name.text
+    local member = node.trailingCallableMember or node.overloadMember or node.name.text
     local value: integer = 0
     local args: any = nil
     if site.dynamic then

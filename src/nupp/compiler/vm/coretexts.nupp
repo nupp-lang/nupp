@@ -134,7 +134,9 @@ local texts: {
     {name = "NAME_ISFROZEN", id = 115, text = "isfrozen"},
     {name = "TEXT_ALREADY_FROZEN", id = 116, text = "table is already frozen"},
     {name = "TEXT_INVALID_OPTION", id = 117, text = "invalid option '"},
-    {name = "NAME_COLLECTGARBAGE", id = 118, text = "collectgarbage"}
+    {name = "NAME_COLLECTGARBAGE", id = 118, text = "collectgarbage"},
+    {name = "TEXT_PARKED", id = 119, text = "parked"},
+    {name = "TEXT_RESUME_TASK", id = 120, text = "cannot resume a scheduled coroutine"}
 }
 
 local byName: {[string]: coretexts.Text} = {}

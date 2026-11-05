@@ -278,6 +278,13 @@ local subjects: {corelibrary.Subject} = {
         }
     },
     {
+        -- The scheduler's primitives (Decision 18), one call whose first
+        -- argument is a TASK_ operation (the TASKS group below).
+        name = "tasks",
+        range = false,
+        calls = {{name = "TASKS", id = 123}}
+    },
+    {
         name = "modules",
         range = false,
         calls = {
@@ -316,11 +323,17 @@ local subjects: {corelibrary.Subject} = {
 -- requiring one of its declaration modules loads nothing.
 type corelibrary.FileOperation = {name: string, library: string, operation: integer, arguments: integer}
 
-type corelibrary.OperationGroup = {name: string, modules: {string}, operations: {corelibrary.FileOperation}}
+type corelibrary.OperationGroup = {
+    name: string,
+    call: string,
+    modules: {string},
+    operations: {corelibrary.FileOperation}
+}
 
 local operationgroups: {corelibrary.OperationGroup} = {
     {
         name = "FILES",
+        call = "HOST_FILES",
         modules = {"filecalls"},
         operations = {
             {name = "FILE_OPEN", library = "filecalls.open", operation = 1, arguments = 2},
@@ -333,6 +346,7 @@ local operationgroups: {corelibrary.OperationGroup} = {
     },
     {
         name = "REACTOR",
+        call = "HOST_FILES",
         modules = {"pollcalls", "poolcalls"},
         operations = {
             {name = "POLL_OPEN", library = "pollcalls.open", operation = 7, arguments = 0},
@@ -346,6 +360,29 @@ local operationgroups: {corelibrary.OperationGroup} = {
             {name = "POOL_TAKE", library = "poolcalls.take", operation = 15, arguments = 0},
             {name = "POOL_FINISH", library = "poolcalls.finish", operation = 16, arguments = 2},
             {name = "POOL_CANCEL", library = "poolcalls.cancel", operation = 17, arguments = 1}
+        }
+    },
+    {
+        -- The scheduler's primitives (nupp.runtime.taskcalls), which the
+        -- TASKS call takes: a task of a function and the pack of its
+        -- arguments; running one until it returns, fails, parks or yields,
+        -- its park answered with a value; parking the running task; the
+        -- running task; a task's record, and setting it; the monotonic clock
+        -- in milliseconds; waiting some milliseconds; and installing the
+        -- threads' shared metatable and the function closing a task.
+        name = "TASK",
+        call = "TASKS",
+        modules = {"taskcalls"},
+        operations = {
+            {name = "TASK_NEW", library = "taskcalls.new", operation = 1, arguments = 2},
+            {name = "TASK_RUN", library = "taskcalls.run", operation = 2, arguments = 2},
+            {name = "TASK_PARK", library = "taskcalls.park", operation = 3, arguments = 0},
+            {name = "TASK_CURRENT", library = "taskcalls.current", operation = 4, arguments = 0},
+            {name = "TASK_DATA", library = "taskcalls.data", operation = 5, arguments = 1},
+            {name = "TASK_SETDATA", library = "taskcalls.setdata", operation = 6, arguments = 2},
+            {name = "TASK_NOW", library = "taskcalls.now", operation = 7, arguments = 0},
+            {name = "TASK_SLEEP", library = "taskcalls.sleep", operation = 8, arguments = 1},
+            {name = "TASK_INSTALL", library = "taskcalls.install", operation = 9, arguments = 2}
         }
     }
 }
@@ -438,6 +475,8 @@ local single: {[string]: corelibrary.Call} = {}
 local packed: {[string]: integer} = {}
 local meta: {[integer]: boolean} = {}
 local files: {[string]: corelibrary.FileOperation} = {}
+-- The call each operation's library function rides.
+local calls: {[string]: integer} = {}
 
 -- Every id is one call's, and every name one id's; a range subject's ids are
 -- consecutive.
@@ -468,14 +507,19 @@ do
         end
         assert(not subject.range or high - low + 1 == #subject.calls, "core library range has a gap: " .. subject.name)
     end
-    local operations: {[integer]: boolean} = {}
+    -- Operations are numbered within the call they ride.
+    local operations: {[string]: {[integer]: boolean}} = {}
     for _, group in ipairs(operationgroups) do
+        assert(ids[group.call], "operation group of no call: " .. group.name)
+        local taken: {[integer]: boolean} = operations[group.call] or {}
+        operations[group.call] = taken
         local first = group.operations[1].operation
         for index, operation in ipairs(group.operations) do
-            assert(not operations[operation.operation], "file operation taken twice: " .. operation.name)
-            assert(operation.operation == first + index - 1, "file operation group has a gap: " .. group.name)
-            operations[operation.operation] = true
+            assert(not taken[operation.operation], "operation taken twice: " .. operation.name)
+            assert(operation.operation == first + index - 1, "operation group has a gap: " .. group.name)
+            taken[operation.operation] = true
             files[operation.library] = operation
+            calls[operation.library] = ids[group.call] as integer
         end
     end
 end
@@ -556,13 +600,21 @@ function corelibrary.packed(library: string?): integer?
     return packed[library]
 end
 
--- The file operation library function `library` stands for, or nil.
+-- The operation library function `library` stands for, or nil.
 function corelibrary.fileoperation(library: string?): corelibrary.FileOperation?
     if library == nil then
         return nil
     end
 
     return files[library]
+end
+
+-- The id of the call operation library function `library` rides.
+function corelibrary.operationcall(library: string): integer
+    local id = calls[library]
+    assert(id ~= nil, "no operation " .. library)
+
+    return id
 end
 
 -- Whether call `id`'s operands may call a metamethod in its place.
@@ -623,7 +675,7 @@ function corelibrary.operationgroups(): {corelibrary.OperationGroup}
         for at, name in ipairs(group.modules) do
             modules[at] = name
         end
-        result[index] = {name = group.name, modules = modules, operations = operations}
+        result[index] = {name = group.name, call = group.call, modules = modules, operations = operations}
     end
 
     return result

@@ -144,6 +144,11 @@ export function monotonicNanos(scope: voidptr): uint64
     return os.monotonicNanos()
 end
 
+export function sleepNanos(scope: voidptr, nanos: uint64): uint64
+    local _ = scope
+    return os.sleepNanos(nanos)
+end
+
 export function argument(scope: voidptr, index: uint64, out: voidptr, room: uint64): int64
     local _ = scope
     return os.argument(index, out, room)

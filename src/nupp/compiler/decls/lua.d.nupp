@@ -1445,11 +1445,15 @@ local io: {
 
 local coroutine: {
     --- Creates a coroutine with `f` as its body. The body does not start running until
-    --- the first `resume`.
+    --- the first `resume`. Arguments after `f` are bound: the body starts with them, as
+    --- `spawn` starts a task, and every `resume`, the first included, passes the values
+    --- its `yield` answers; the first one's are dropped, with no `yield` yet to take
+    --- them.
     ---
     --- @param f the function to run inside the coroutine
+    --- @param ... the arguments it starts with, bound now
     --- @return the new coroutine
-    create: function(f: any): thread,
+    create: function(f: any, ...: any): thread,
 
     --- Starts or continues `co`. The extra arguments go to its body on the first call,
     --- and become the results of the `yield` that suspended it on later ones.
@@ -1468,7 +1472,8 @@ local coroutine: {
     yield: function<Y...>(Y...): ...any,
 
     --- Returns the state of `co`: "running", "suspended", "normal" for one that resumed
-    --- another coroutine, or "dead".
+    --- another coroutine, "parked" for a task waiting on its scheduler and the
+    --- coroutines it resumed, or "dead".
     ---
     --- @param co the coroutine to inspect
     --- @return the state name

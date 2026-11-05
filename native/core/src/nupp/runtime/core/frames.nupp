@@ -96,13 +96,15 @@ end
 -- one otherwise (`stacks`). A return that empties a chunk goes back to the
 -- chunk below, keeping the emptied one for the next call. `bytes` is what
 -- the chunk maps from its descriptor on, or 0 for a first chunk its owner
--- mapped elsewhere.
+-- mapped elsewhere. `pool` is the free list a coroutine's first chunk goes
+-- back to when it was carved from a slab (`stacks`), or 0.
 export struct Chunk
     segment: arena.Segment
     tag: uint64
     below: uint64
     above: uint64
     bytes: uint64
+    pool: uint64
 end
 
 -- A Chunk's tag; a plain segment is followed by anything else.

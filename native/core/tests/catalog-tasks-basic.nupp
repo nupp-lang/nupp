@@ -1,0 +1,83 @@
+module nupp.core.catalogtasksbasic
+
+-- Tasks on the core's scheduler (Decision 18): spawned into a scope, awaited
+-- for their results, parked on timers and on each other, and settled when
+-- the scope's block ends. Each check adds a bit.
+local score = 0
+
+-- Results through await, arguments bound at spawn, and a task awaiting a
+-- sibling, which parks it until the sibling returns.
+do
+    local scope = coroutine.scope()
+    const first = scope:spawn(function(): integer
+        coroutine.sleep(2)
+        return 20
+    end)
+    const second = scope:spawn(21, 1, function(a: integer, b: integer): integer
+        return a + b
+    end)
+    const third = scope:spawn(function(): integer
+        return first:await() + 3
+    end)
+    if first:await() + second:await() == 42 and third:await() == 23 then
+        score = score + 1
+    end
+end
+
+-- Timers wake in deadline order, whatever order the tasks slept in (far
+-- enough apart that collecting at every step cannot reorder them).
+local order: {integer} = {}
+do
+    local scope = coroutine.scope()
+    for index = 1, 4 do
+        scope:spawn(index, function(n: integer): nil
+            coroutine.sleep((5 - n) * 50)
+            order[#order + 1] = n
+        end)
+    end
+end
+if #order == 4 and order[1] == 4 and order[2] == 3 and order[3] == 2 and order[4] == 1 then
+    score = score + 2
+end
+
+-- A task yielding with no resumer gives up its turn: two tasks interleave.
+local turns: {string} = {}
+do
+    local scope = coroutine.scope()
+    for _, name in ipairs({"a", "b"}) do
+        scope:spawn(name, function(label: string): nil
+            for _ = 1, 3 do
+                turns[#turns + 1] = label
+                coroutine.checkpoint()
+            end
+        end)
+    end
+end
+if table.concat(turns) == "ababab" then
+    score = score + 4
+end
+
+-- A thread a scope spawned is a thread: type and status say so, "parked"
+-- while it sleeps.
+local handle: thread? = nil
+do
+    local scope = coroutine.scope()
+    const task = scope:spawn(function(): integer
+        handle = coroutine.running()
+        coroutine.sleep(1)
+        return 1
+    end)
+    if type(task) == "thread" then
+        score = score + 8
+    end
+    coroutine.checkpoint()
+    if handle ~= nil and coroutine.status(handle) == "parked" then
+        score = score + 16
+    end
+    task:await()
+end
+if handle ~= nil and coroutine.status(handle) == "dead" then
+    score = score + 32
+end
+
+export = score

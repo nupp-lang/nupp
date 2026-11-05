@@ -16,6 +16,7 @@ const tables = require("nupp.runtime.core.coretables")
 const heap = require("nupp.runtime.vm.heap")
 const wide = require("nupp.runtime.core.coreintegers")
 const threads = require("nupp.runtime.core.threads")
+const tasks = require("nupp.runtime.core.tasks")
 const guestio = require("nupp.runtime.core.guestio")
 const basics = require("nupp.runtime.core.guestbasics")
 const numbers = require("nupp.runtime.core.guestnumbers")
@@ -978,6 +979,10 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
     if header == 0ULL then
+        -- A thread's fields are its shared metatable's (`co:status()`).
+        header = guestmeta.threadIndex(ctx, slots.readValue(frame, regs, object))
+    end
+    if header == 0ULL then
         guesterrors.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
@@ -1342,10 +1347,34 @@ export function LibCall(
     guestscope.librarySite(ctx, frame, pc, count, counted >> librarylayouts.METHOD_SHIFT)
     -- The coroutine library. Resume and yield switch threads: the context
     -- then runs the other thread, from its active frame.
-    if libraryId >= librarycalls.COROUTINES_FIRST and libraryId <= librarycalls.COROUTINES_LAST then
+    if libraryId >= librarycalls.COROUTINES_FIRST and libraryId <= librarycalls.COROUTINES_LAST or libraryId == librarycalls.TASKS then
         guestscope.nameLibrary(ctx, librarycalls.libraryname(libraryId))
         local switched = true
-        if libraryId == librarycalls.COROUTINE_CLOSE then
+        if libraryId == librarycalls.COROUTINE_CLOSE and threads.istask(a) and tasks.closer(ctx) ~= 0ULL then
+            -- Closing a task asks its scheduler: cancellation requested, its
+            -- cleanups waited for, Lua's results.
+            guestscope.libraryReturned(ctx)
+            local top = native.index(valueCount - 4ULL)
+            slots.writeValue(frame, regs, top, tasks.closer(ctx))
+            slots.writeValue(frame, regs, top + 1, a)
+            if ops.metaCall(ctx, frame, pc, 1ULL, native.word(dst), 0ULL) ~= 1ULL then
+                return native.fail()
+            end
+        elseif libraryId == librarycalls.TASKS then
+            -- The scheduler's primitives: running and parking switch threads.
+            local op = wide.bitsOf(a)
+            local answer = tasks.switching(ctx, frame, pc, op, b, c, native.word(dst))
+            if answer == threads.RAISED then
+                ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+                return native.fail()
+            elseif answer == threads.BROKEN then
+                ops.fail(ctx, frame, pc, ops.INVALID)
+                return native.fail()
+            elseif answer == threads.REFUSED then
+                slots.writeValue(frame, regs, dst, tasks.answer(ctx, op, b, c))
+                switched = false
+            end
+        elseif libraryId == librarycalls.COROUTINE_CLOSE then
             -- Closing a suspended thread with cleanups runs it to unwind.
             local answer = threads.close(ctx, frame, pc, a, native.word(dst))
             if answer == threads.UNWIND then
@@ -1357,11 +1386,14 @@ export function LibCall(
             end
             switched = answer == threads.SWITCHED
         elseif libraryId ~= librarycalls.COROUTINE_RESUME and libraryId ~= librarycalls.COROUTINE_YIELD then
-            slots.writeValue(frame, regs, dst, threads.call(ctx, libraryId, a))
+            slots.writeValue(frame, regs, dst, threads.call(ctx, libraryId, a, b))
             switched = false
         elseif libraryId == librarycalls.COROUTINE_RESUME then
             local answer = threads.resume(ctx, frame, pc, a, b, threads.MODE_PACK, native.word(dst) | (1ULL << 32ULL))
-            if answer == threads.BROKEN then
+            if answer == threads.RAISED then
+                ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+                return native.fail()
+            elseif answer == threads.BROKEN then
                 ops.fail(ctx, frame, pc, ops.INVALID)
                 return native.fail()
             end
@@ -1664,6 +1696,35 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
             end
             slots.writeValue(frame, regs, native.index(first + 1ULL), callee)
             slots.writeValue(frame, regs, native.index(first), handler)
+            -- A wrapped coroutine's closure as __call: its thread resumes with
+            -- the table and the arguments, as a call of it would.
+            local wrappedCall = threads.wrapped(handler)
+            if wrappedCall ~= 0ULL then
+                local answer = threads.callwrapped(
+                    ctx,
+                    frame,
+                    pc,
+                    wrappedCall,
+                    first + 1ULL,
+                    native.word(nargs) + 1ULL,
+                    (first + 1ULL) | (native.word(wanted) << 32ULL)
+                )
+                if answer == threads.RAISED then
+                    ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
+                    return native.fail()
+                elseif answer ~= threads.SWITCHED then
+                    ops.fail(ctx, frame, pc, ops.INVALID)
+                    return native.fail()
+                end
+                local resumed = native.pointer(ops.state(ctx))
+                local active = native.pointer(access.active(resumed))
+                local activeValues = native.pointer(access.values(resumed, active))
+                local activeIntegers = native.pointer(access.integers(resumed, active))
+                local activeFloats = native.pointer(access.floats(resumed, active))
+                local activePC = native.pointer(access.pc(resumed, active))
+                access.refresh(resumed, active, ctx)
+                return native.dispatch(activePC, activeValues, activeIntegers, activeFloats, ctx, active)
+            end
             local child = ops.metaPrepare(ctx, frame, pc, first, native.word(nargs) + 1ULL, first + 1ULL)
             if child == 0ULL then
                 return native.fail()

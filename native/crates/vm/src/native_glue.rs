@@ -529,6 +529,7 @@ fn allocator_os_signature(name: &str, call_conv: CallConv) -> Option<Signature> 
     let (arity, result) = match name {
         "nupp_os_map_pages" => (1, true),
         "nupp_os_unmap_pages" => (2, false),
+        "nupp_os_sleep_nanos" => (1, true),
         "nupp_os_advise_pages" => (3, false),
         "nupp_os_page_size" | "nupp_os_monotonic_nanos" | "nupp_os_random_seed" => (0, true),
         "nupp_os_read_input" | "nupp_os_write_output" => (2, true),

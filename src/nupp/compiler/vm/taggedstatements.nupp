@@ -308,7 +308,13 @@ export function cleanupProfile(base: any): any
         return {token = token, methods = methods}
     end
     profile.cleanupAllowed = always
-    profile.cleanupStatus = always
+    -- After owners are destroyed: false once when a destructor raised, its
+    -- error landed here, which the failure path then raises, as Lua raises an
+    -- error a __close raises on the way out.
+    profile.cleanupStatus = function(ctx: any, node: any): integer
+        local none = ctx.emit(node, "Nil", {}, "tagged")
+        return ctx.emit(node, "LibCall", {corelibrary.id("LANDED"), none}, "tagged") as integer
+    end
     profile.cleanupRun = function(ctx: any, node: any, plan: any, value: integer, reason: string): nil
         local held = ctx.hold(value)
         if plan.names then
@@ -344,6 +350,9 @@ export function cleanupProfile(base: any): any
     -- The landed error goes on, as it was, once the owners are destroyed.
     profile.failure = function(ctx: any, node: any): nil
         local none = ctx.emit(node, "Nil", {}, "tagged")
+        -- A destructor that raised on the way here landed its error, which
+        -- is the one raised now: the mark goes with it.
+        ctx.emit(node, "LibCall", {corelibrary.id("LANDED"), none}, "tagged")
         ctx.emit(node, "LibCall", {corelibrary.id("RERAISE"), none}, "tagged")
         ctx.block.term = {kind = "return", value = none, edges = {}, pos = ctx.position(node)}
         ctx.block = nil

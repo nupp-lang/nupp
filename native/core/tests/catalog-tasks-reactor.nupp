@@ -1,0 +1,71 @@
+module nupp.core.catalogtasksreactor
+
+-- Parked I/O and timers share the scheduler's loop: under coroutine.scope, a
+-- task's pipe read parks it in the reactor until a task a timer woke
+-- writes, a task sleeping past the read wakes after it, and a task reading
+-- with no timer left waits in the reactor alone. Each check is a bit of the
+-- score.
+const reactor = require("nupp.runtime.reactor")
+const files = require("nupp.runtime.files")
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+-- A read parks until a task a timer woke writes; a later sleeper wakes last.
+do
+    local reader, writer = reactor.pipe()
+    local log: {string} = {}
+    local began = os.monotonic()
+    do
+        local scope = coroutine.scope()
+        scope:spawn(function(): nil
+            log[#log + 1] = "read"
+            local got = files.read(reader, 64)
+            log[#log + 1] = "got " .. got.text
+        end)
+        scope:spawn(function(): nil
+            coroutine.sleep(20)
+            log[#log + 1] = "write"
+            files.write(writer, "hello", 1)
+        end)
+        scope:spawn(function(): nil
+            coroutine.sleep(60)
+            log[#log + 1] = "late"
+        end)
+    end
+    check(#log == 4 and log[1] == "read" and log[2] == "write" and log[3] == "got hello" and log[4] == "late")
+    check(os.monotonic() - began >= 60)
+    check(reactor.pending() == 0)
+    files.close(writer)
+    files.close(reader)
+end
+
+-- With every timer fired, only I/O can wake a task: the scheduler waits in
+-- the reactor until the write lands.
+do
+    local reader, writer = reactor.pipe()
+    local got = ""
+    do
+        local scope = coroutine.scope()
+        scope:spawn(function(): nil
+            got = files.read(reader, 8).text
+        end)
+        scope:spawn(function(): nil
+            coroutine.sleep(5)
+            files.write(writer, "late", 1)
+        end)
+    end
+    check(got == "late")
+    check(reactor.pending() == 0)
+    files.close(writer)
+    files.close(reader)
+end
+
+export = score

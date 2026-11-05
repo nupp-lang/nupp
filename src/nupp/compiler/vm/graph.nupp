@@ -175,6 +175,7 @@ export const checking = graphcalls.checking
 export const libraryValue = graphcalls.libraryValue
 export const libraryModule = graphcalls.libraryModule
 export const mayUseIo = graphcalls.mayUseIo
+export const mayUseScheduler = graphcalls.mayUseScheduler
 export const mayTakeLibraryValue = graphcalls.mayTakeLibraryValue
 export const corecallmodule = graphcalls.corecallmodule
 export const erased = graphcalls.erased

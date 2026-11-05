@@ -143,6 +143,7 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
         pool::pool_take as *const () as u64,
         pool::pool_finish as *const () as u64,
         pool::pool_cancel as *const () as u64,
+        platform::sleep_nanos as *const () as u64,
     ];
     let packet = [
         1,

@@ -45,4 +45,34 @@ end
 if string.find(tostring(e2), "too big") ~= nil and string.find(tostring(e3), "out of range") ~= nil then
     score = score + 20000
 end
+local function leaving()
+    local f <close> = setmetatable({}, {__close = function()
+        error("faulty", 0)
+    end})
+    return 1
+end
+
+local ok4, e4 = pcall(leaving)
+if not ok4 and e4 == "faulty" then
+    score = score + 40000
+end
+
+local function resuming()
+    local f <close> = setmetatable({id = 6}, {__close = function(self)
+        destroy(self)
+    end})
+    local inner = coroutine.wrap(function()
+        if f.id > 0 then
+            error("inside", 0)
+        end
+        return 0
+    end)
+    return inner()
+end
+
+local before = closed
+local ok5, e5 = pcall(resuming)
+if not ok5 and string.find(tostring(e5), "inside") ~= nil and closed == before + 1 then
+    score = score + 80000
+end
 return score

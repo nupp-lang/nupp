@@ -689,6 +689,19 @@ local libraryValues: {
 
 -- The library name `node` reads when it names a library function, `tostring`
 -- or `string.upper`, outside the callee of a call the core makes itself.
+-- The task surface (Decision 18), which the scheduler written in Nupp
+-- (`nupp.runtime.scheduler`) carries as values under these names.
+const schedulerValues: {
+    [string]: boolean
+} = {
+    ["coroutine.scope"] = true,
+    ["coroutine.checkpoint"] = true,
+    ["coroutine.deadline"] = true,
+    ["coroutine.iscancelled"] = true,
+    ["coroutine.sleep"] = true,
+    ["coroutine.sleepuntil"] = true
+}
+
 export function libraryValue(node: any): string?
     local name: string? = nil
     if node and node.kind == "name" and preludeName(node) then
@@ -697,18 +710,48 @@ export function libraryValue(node: any): string?
         name = node.obj.token.text .. "." .. node.name.text
     end
 
-    return name and libraryValues[name] and name or nil
+    return name and (libraryValues[name] or schedulerValues[name]) and name or nil
 end
 
 -- The module whose `functions` carries library value `name`: Lua's `io`, the
--- library itself, is `nupp.runtime.luaio`; the others are
--- `nupp.runtime.libraryvalues`.
+-- library itself, is `nupp.runtime.luaio`; the task surface is the
+-- scheduler's; the others are `nupp.runtime.libraryvalues`.
 export function libraryModule(name: string): string
     if name == "io" then
         return "nupp.runtime.luaio"
+    elseif schedulerValues[name] then
+        return "nupp.runtime.scheduler"
     end
 
     return "nupp.runtime.libraryvalues"
+end
+
+-- Whether an unchecked tree uses the task surface (`coroutine.scope` and
+-- its kin): a builder reads it to carry `nupp.runtime.scheduler`.
+export function mayUseScheduler(root: any): boolean
+    local found = false
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if found or type(node) ~= "table" then
+            return
+        end
+        if node.kind == "dotIndex"
+            and node.name
+            and node.obj
+            and node.obj.kind == "name"
+            and node.obj.token
+            and schedulerValues[node.obj.token.text .. "." .. node.name.text]
+        then
+            found = true
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+
+    return found
 end
 
 -- Whether an unchecked tree may read Lua's `io`: a name spelled `io`
@@ -846,6 +889,18 @@ local function stringType(t: any): boolean
     return t ~= nil and t.tag == "string"
 end
 
+-- Whether `t` is a thread's type, whose methods are the coroutine
+-- library's (Decision 18: the threads' metatable's __index is `coroutine`).
+local function threadType(t: any): boolean
+    while t and (t.tag == "const" or t.tag == "affine" or t.tag == "borrowed") do
+        t = t.inner
+    end
+    return t ~= nil and (t.tag == "thread" or t.tag == "protocolThread")
+end
+
+-- The coroutine library functions a thread answers as methods on the core.
+const threadMethods: {[string]: boolean} = {resume = true, status = true, close = true}
+
 -- The library constants the core folds: `math.huge` and its kin, by name.
 local coreConstants: {
     [string]: boolean
@@ -868,6 +923,13 @@ export function coreLibraryCall(call: any): string?
     local name
     if call and call.kind == "methodCall" and call.name and stringType(call.obj and call.obj.inferredType) then
         name = "string." .. call.name.text
+    elseif call
+        and call.kind == "methodCall"
+        and call.name
+        and threadMethods[call.name.text]
+        and threadType(call.obj and call.obj.inferredType)
+    then
+        name = "coroutine." .. call.name.text
     elseif call and call.kind == "call" and preludeName(call.obj) then
         name = call.obj.token.text
     elseif call

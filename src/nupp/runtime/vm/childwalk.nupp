@@ -61,7 +61,7 @@ local function threadNext(body: voidptr, cursor: Cursor*): uint64
     @unsafe do
         local first = native.load64(body, native.fieldOffset<heap.ThreadBody>("segment"))
         if cursor.phase == 0ULL then
-            if childRun(native.address(body), 3ULL, cursor) ~= 0ULL then
+            if childRun(native.address(body), 4ULL, cursor) ~= 0ULL then
                 return 1ULL
             end
             cursor.phase = 1ULL

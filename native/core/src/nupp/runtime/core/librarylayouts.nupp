@@ -38,6 +38,17 @@ export const POOL_FINISH: uint64 = 16ULL
 export const POOL_CANCEL: uint64 = 17ULL
 export const REACTOR_FIRST: uint64 = 7ULL
 export const REACTOR_LAST: uint64 = 17ULL
+export const TASK_NEW: uint64 = 1ULL
+export const TASK_RUN: uint64 = 2ULL
+export const TASK_PARK: uint64 = 3ULL
+export const TASK_CURRENT: uint64 = 4ULL
+export const TASK_DATA: uint64 = 5ULL
+export const TASK_SETDATA: uint64 = 6ULL
+export const TASK_NOW: uint64 = 7ULL
+export const TASK_SLEEP: uint64 = 8ULL
+export const TASK_INSTALL: uint64 = 9ULL
+export const TASK_FIRST: uint64 = 1ULL
+export const TASK_LAST: uint64 = 9ULL
 
 -- The keys of the state tables some calls keep between steps.
 export const GMATCH_SUBJECT: uint64 = 1ULL

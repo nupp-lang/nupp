@@ -103,6 +103,23 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
             put(vm, h, "_tag", vm.loaded["nupp.vm.coroutineTag"]);
             put(vm, h, "_body", body);
             text(vm, h, "_status", "suspended");
+            // create(f, ...) binds the arguments after f: the body starts with
+            // them, and the first resume's values are dropped.
+            if args.len() > 1 {
+                let bound = vm.new_table();
+                let held = vm.register(bound);
+                for (i, v) in args[1..].iter().enumerate() {
+                    vm.set_index(bound, Value::num(i as f64 + 1.0), *v);
+                }
+                put(vm, h, "_bound", bound);
+                crate::task_api::put_integer(vm, h, "_boundCount", (args.len() - 1) as u64);
+                vm.release(held);
+            }
+            // Every thread shares a metatable whose __index is the coroutine
+            // library (Decision 18): `co:status()` is `coroutine.status(co)`.
+            if let Some(&meta) = vm.loaded.get("nupp.vm.threadMeta") {
+                vm.set_metatable(h, meta);
+            }
             vm.release(root);
             Answer::Values(vec![h])
         }
@@ -211,8 +228,16 @@ pub(crate) fn call(vm: &mut Interp, tid: usize, name: &str, args: &[Value]) -> A
                 task
             } else {
                 let body = field(vm, h, "_body");
+                let bound = field(vm, h, "_bound");
+                let values: Vec<Value> = if bound == Value::NIL {
+                    args.get(1..).unwrap_or(&[]).to_vec()
+                } else {
+                    let n = crate::numeric::integral(field(vm, h, "_boundCount")).unwrap_or(0) as usize;
+                    (1..=n).map(|i| vm.get_index(bound, Value::num(i as f64))).collect()
+                };
+                put(vm, h, "_bound", Value::NIL);
                 let task = vm
-                    .schedule_inner(body, args.get(1..).unwrap_or(&[]), None)
+                    .schedule_inner(body, &values, None)
                     .unwrap_or_else(|e| vm.err(&e));
                 crate::task_api::put_integer(vm, h, "_task", task.index as u64);
                 crate::task_api::put_integer(vm, h, "_generation", task.generation);

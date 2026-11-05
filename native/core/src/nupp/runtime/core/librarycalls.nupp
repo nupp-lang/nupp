@@ -151,6 +151,9 @@ export const COROUTINE_CLOSE: uint64 = 82ULL
 export const COROUTINES_FIRST: uint64 = 75ULL
 export const COROUTINES_LAST: uint64 = 82ULL
 
+-- tasks
+export const TASKS: uint64 = 123ULL
+
 -- modules
 export const MODULE_PUBLISH: uint64 = 84ULL
 export const MODULE_REQUIRE: uint64 = 85ULL

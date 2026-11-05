@@ -322,6 +322,19 @@ export function recoverEntry(ctx: voidptr): uint64
         if located and not closing then
             own = selfLanding(ctx, state, failedOwner, failedIndex)
         end
+        -- A wrapped thread's error at the call of its function: the frame
+        -- that made the call resumes after it, as from any call.
+        local rethrown = native.load64(services, native.fieldOffset<guestscope.Services>("rethrown")) == 1ULL
+        native.store64(services, native.fieldOffset<guestscope.Services>("rethrown"), 0ULL)
+        if own == 0ULL and rethrown and not closing then
+            local active = native.load64(state, native.fieldOffset<frames.State>("active"))
+            if active ~= 0ULL
+                and lands(ctx, active)
+                and native.load64(native.pointer(active), native.fieldOffset<frames.Frame>("functionId")) == failedOwner
+            then
+                own = active
+            end
+        end
         local landing: uint64 = 0ULL
         if own == 0ULL then
             landing = landingFrame(ctx, state)
@@ -403,6 +416,7 @@ end
 export function reraise(ctx: voidptr, value: uint64, owner: uint64, pc: uint64): nil
     @unsafe do
         local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        native.store64(services, native.fieldOffset<guestscope.Services>("rethrown"), 1ULL)
         native.store64(ctx, context.ERROR_OWNER, owner)
         native.store64(ctx, context.ERROR_PC, pc)
         native.store64(services, native.fieldOffset<guestscope.Services>("raised"), value)

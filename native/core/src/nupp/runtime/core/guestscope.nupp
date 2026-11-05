@@ -48,6 +48,10 @@ export struct Services
     -- status check (LANDED) takes the failure path, destroys them and raises
     -- lastError again.
     landed: uint64
+    -- 1 while the error a wrapped thread raised is raised again at the call
+    -- of its function (`reraise`): the frame making that call waits on it,
+    -- as on any call, and takes it first when it owns affine values.
+    rethrown: uint64
     -- math.random's xoshiro256** state, all zero until the first draw or
     -- math.randomseed seeds it.
     random0: uint64
@@ -90,6 +94,11 @@ export struct Services
     -- where its declaration runs, for an owner's cleanup to call
     -- (`guestbasics.cleanupset`), once one is.
     cleanups: uint64
+    -- The metatable every thread shares (Decision 18) and the scheduler's
+    -- function closing a task, once the scheduler installs them
+    -- (`threads.TASK_INSTALL`), or 0.
+    threadmeta: uint64
+    closetask: uint64
     -- 1 while coroutine.close unwinds a suspended thread: its error lands at
     -- every frame that owns affine values, and no protected call takes it.
     closing: uint64
@@ -117,10 +126,11 @@ export struct Services
     stacks: uint64
     stride: uint64
     slots: uint64
-    -- First chunks of finished coroutines' stacks, kept for the next ones,
-    -- and how many (`stacks.first`).
+    -- The free first chunks of coroutines' stacks, a count, and the slabs
+    -- they are carved from (`stacks.first`).
     chunks: uint64
     chunkcount: uint64
+    chunkslabs: uint64
 end
 
 export const FAULT_ARITH: uint64 = 1ULL
@@ -169,6 +179,7 @@ export function prepare(base: voidptr, bytes: uint64): uint64
     native.store64(services, native.fieldOffset<Services>("slots"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("chunks"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("chunkcount"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("chunkslabs"), 0ULL)
 
     return native.address(services)
 end
@@ -260,6 +271,8 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("metanames"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("modulenames"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("cleanups"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("threadmeta"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("closetask"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("closing"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replay"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replaycursor"), 0ULL)
@@ -268,7 +281,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("replaykey"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("replayvalue"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("libraryanswer"), 0ULL)
-        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 8ULL)
+        collector.register(h, native.address(native.offset(services, native.fieldOffset<Services>("running"))), 10ULL)
         -- Collect-at-every-allocation (1): a whole cycle at every safepoint;
         -- interleaved (2): a small incremental step at every safepoint, the
         -- oracle checking each cycle's survivors. Both keep freed objects as
@@ -285,6 +298,7 @@ export function open(
         native.store64(services, native.fieldOffset<Services>("fault"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("metaCallee"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("landed"), 0ULL)
+        native.store64(services, native.fieldOffset<Services>("rethrown"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("random0"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("random1"), 0ULL)
         native.store64(services, native.fieldOffset<Services>("random2"), 0ULL)

@@ -158,5 +158,10 @@ local record Os
     --- Withdraws pool job `ticket` if no worker has started it: 1, or 0.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     poolCancel: function(ticket: uint64): int64
+
+    --- Sleeps for `nanos` nanoseconds: the scheduler's wait while nothing but
+    --- its timers can wake it. Answers 0.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    sleepNanos: function(nanos: uint64): uint64
 end
 return Os

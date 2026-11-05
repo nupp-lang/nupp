@@ -52,6 +52,35 @@ local producer: Producer = worker
     )
 end
 
+function M.threadMethodsAndBoundCreateCheck()
+    -- Threads share a metatable whose __index is the coroutine library, so its
+    -- functions are methods; create(f, ...) binds f's start arguments.
+    clean(
+        [[
+local function worker(a: integer, b: integer) yields(integer) resumes(integer): integer
+    local extra: integer = coroutine.yield(a + b)
+    return extra
+end
+local co = coroutine.create(worker, 3, 4)
+local ok, value = co:resume(0)
+local state: string = co:status()
+local closed, problem = co:close()
+]]
+    )
+    testAssert.eq(
+        codes(
+            [[
+local function worker(a: integer, b: integer): integer
+    return a + b
+end
+local co = coroutine.create(worker, "three", 4)
+]]
+        ),
+        "NUPP2010"
+    )
+    testAssert.eq(codes("local co = coroutine.create(function(): nil end)\nco:missing()"), "NUPP2004")
+end
+
 function M.functionProtocolRenderingUsesTheFinalGrammar()
     local types = require("nupp.compiler.types")
     local arguments = {

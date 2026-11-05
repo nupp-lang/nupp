@@ -1,0 +1,34 @@
+@!internal
+
+--- The native core's scheduler primitives, under the scheduler written in
+--- Nupp (`nupp.runtime.scheduler`). A call of one is the core's own library
+--- call (TASKS, its operation first, numbered once in
+--- `nupp.compiler.vm.corelibrary`), and requiring this module loads nothing:
+--- it exists only on the core.
+local record taskcalls
+    --- A task calling `body` with the arguments of the pack `arguments`, not
+    --- yet run.
+    new: function(body: any, arguments: any): any
+    --- Runs `task` until it returns, fails, parks or gives up its turn: a pack
+    --- whose first value says which (1 to 4) and the rest what came with it,
+    --- its park answering `value`.
+    run: function(task: any, value: any): any
+    --- Parks the running task, answering what its driver runs it again with,
+    --- or false at once where no task runs.
+    park: function(): any
+    --- The running task, or nil.
+    current: function(): any
+    --- A task's record, and setting it to `record`.
+    data: function(task: any): any
+    setdata: function(task: any, record: any): any
+    --- The monotonic clock in milliseconds.
+    now: function(): any
+    --- Waits `milliseconds` milliseconds.
+    sleep: function(milliseconds: any): any
+    --- Installs `metatable` as every thread's metatable and `close` as the
+    --- function closing a task.
+    install: function(metatable: any, close: any): any
+end
+
+local calls: taskcalls
+return calls

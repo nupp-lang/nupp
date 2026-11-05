@@ -1,0 +1,140 @@
+module nupp.core.catalogtasksscopes
+
+-- Scopes on the core's scheduler: a scope opened in a task belongs to it, so
+-- cancelling the task's scope cancels the grandchildren; a child's error is
+-- the scope's, cancels its siblings and is raised where the block ends, out
+-- through a task's own scope too; a deadline cancels what is left; a limit
+-- bounds how many children are live. Each check adds a bit.
+local score = 0
+local cleaned: integer = 0
+
+local record Guard
+    constructor(self): affine(Guard, Guard.destroy)
+    end
+
+    function destroy(takes self): nil
+        cleaned = cleaned + 1
+    end
+end
+
+-- Nested scopes: cancelling the outer scope reaches the task's own children.
+local inner = "none"
+do
+    local scope = coroutine.scope()
+    scope:spawn(function(): nil
+        local own = coroutine.scope()
+        for _ = 1, 3 do
+            own:spawn(function(): nil
+                const guard = new Guard()
+                coroutine.sleep(1000)
+            end)
+        end
+        const ok, problem = pcall(function(): nil
+            coroutine.sleep(1000)
+        end)
+        if not ok and coroutine.iscancelled(problem) then
+            inner = "cancelled"
+        end
+    end)
+    coroutine.sleep(1)
+    scope:cancel("stop")
+end
+if inner == "cancelled" and cleaned == 3 then
+    score = score + 1
+end
+
+-- A child's error is raised where its scope's block ends, its sibling
+-- cancelled on the way.
+cleaned = 0
+local raised: any = nil
+const ok, problem = pcall(function(): nil
+    local scope = coroutine.scope()
+    scope:spawn(function(): nil
+        const guard = new Guard()
+        coroutine.sleep(1000)
+    end)
+    scope:spawn(function(): nil
+        coroutine.sleep(1)
+        error("boom", 0)
+    end)
+end)
+if not ok then
+    raised = problem
+end
+if raised == "boom" and cleaned == 1 then
+    score = score + 2
+end
+
+-- Out through a task's own scope: the task fails with it, and so does the
+-- outer scope's block.
+const nestedok, nestedproblem = pcall(function(): nil
+    local scope = coroutine.scope()
+    scope:spawn(function(): nil
+        local own = coroutine.scope()
+        own:spawn(function(): nil
+            error("deep", 0)
+        end)
+    end)
+end)
+if not nestedok and nestedproblem == "deep" then
+    score = score + 4
+end
+
+-- A deadline cancels the children still running, and closing the scope
+-- raises that cancellation; the children see their deadline.
+local sawdeadline = false
+const timedok, timedproblem = pcall(function(): nil
+    local scope = coroutine.scope(nil, 5)
+    scope:spawn(function(): nil
+        sawdeadline = coroutine.deadline() ~= nil
+        coroutine.sleep(1000)
+    end)
+end)
+if not timedok and coroutine.iscancelled(timedproblem) and sawdeadline then
+    score = score + 8
+end
+
+-- A limit: spawning parks while two children are live.
+local live: integer = 0
+local most: integer = 0
+do
+    local scope = coroutine.scope(2)
+    for _ = 1, 6 do
+        scope:spawn(function(): nil
+            live = live + 1
+            if live > most then
+                most = live
+            end
+            coroutine.sleep(1)
+            live = live - 1
+        end)
+    end
+end
+if most == 2 then
+    score = score + 16
+end
+
+-- Thousands of tasks, parked on timers and on each other: every tenth awaits
+-- the one before it.
+const count: integer = math.tointeger(tonumber(os.getenv("NUPP_GUEST_TASKS") or "3000")) or 3000
+local sum: integer = 0
+local handles: {[integer]: thread} = {}
+do
+    local scope = coroutine.scope()
+    for index = 1, count do
+        scope:spawn(index, function(n: integer): nil
+            handles[n] = coroutine.running() as thread
+            coroutine.sleep(n % 3)
+            const before: any = handles[n - 1]
+            if before ~= nil and n % 10 == 0 then
+                before:await()
+            end
+            sum = sum + n
+        end)
+    end
+end
+if sum == count * (count + 1) // 2 then
+    score = score + 32
+end
+
+export = score

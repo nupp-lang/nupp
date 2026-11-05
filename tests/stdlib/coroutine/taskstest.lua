@@ -1538,4 +1538,23 @@ end
     testAssert.eq(count, 3, "the complete result pack survives canonical worker submission")
 end
 
+-- Threads share a metatable whose __index is the coroutine library (Decision
+-- 18), and create(f, ...) binds the start arguments, so the first resume's
+-- values have no yield to take them.
+function M.threadsTakeCoroutineMethodsAndBoundArguments()
+    local co = coroutine.create(function(a, b)
+        local extra = coroutine.yield(a + b)
+        return a * 100 + b + extra
+    end, 3, 4)
+    local ok, seven = co:resume(99)
+    testAssert.eq(ok, true)
+    testAssert.eq(seven, 7)
+    testAssert.eq(co:status(), "suspended")
+    local again, total = co:resume(5)
+    testAssert.eq(again, true)
+    testAssert.eq(total, 309)
+    testAssert.eq(co:status(), "dead")
+    testAssert.eq(getmetatable(co).__index, coroutine)
+end
+
 return M

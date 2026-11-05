@@ -405,12 +405,42 @@ export function setMetatable(ctx: voidptr, value: uint64, mt: uint64): uint64
     return value
 end
 
+-- The metatable every thread shares (Decision 18) when `value` is a thread
+-- and the scheduler installed one, else nil.
+export function threadMeta(ctx: voidptr, value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ or value & values.PAYLOAD == 0ULL then
+        return values.NIL
+    end
+    @unsafe do
+        local header = native.pointer(value & values.PAYLOAD)
+        if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_THREAD then
+            return values.NIL
+        end
+        local meta = native.load64(guestscope.scopeof(ctx), native.fieldOffset<guestscope.Services>("threadmeta"))
+        if meta == 0ULL then
+            return values.NIL
+        end
+        return meta
+    end
+end
+
+-- The table a thread's fields are read from: its shared metatable's
+-- __index, or 0 when that is not a table.
+export function threadIndex(ctx: voidptr, value: uint64): uint64
+    local meta = tableOf(threadMeta(ctx, value))
+    if meta == 0ULL then
+        return 0ULL
+    end
+
+    return tableOf(tables.get(meta, metaKey(ctx, META_INDEX)))
+end
+
 -- getmetatable(v): a table's metatable, or its __metatable field when it
--- has one; nil for anything else.
+-- has one; the threads' shared one for a thread; nil for anything else.
 export function getMetatable(ctx: voidptr, value: uint64): uint64
     local t = tableOf(value)
     if t == 0ULL then
-        return values.NIL
+        return threadMeta(ctx, value)
     end
     local protected = metaField(ctx, t, META_METATABLE)
     if protected ~= values.NIL then

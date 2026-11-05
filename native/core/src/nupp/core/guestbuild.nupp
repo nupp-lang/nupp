@@ -124,6 +124,10 @@ local CASES: {[string]: {
     threadsclose = {fixture = "catalog-threads-close", version = 8},
     threadsiterate = {fixture = "catalog-threads-iterate", version = 8},
     threadsmeta = {fixture = "catalog-threads-meta", version = 8},
+    threadsmethods = {fixture = "catalog-threads-methods", version = 8},
+    tasksbasic = {fixture = "catalog-tasks-basic", version = 8},
+    taskscancel = {fixture = "catalog-tasks-cancel", version = 8},
+    tasksscopes = {fixture = "catalog-tasks-scopes", version = 8},
     threadsstacks = {fixture = "catalog-threads-stacks", version = 8},
     outputwrite = {fixture = "catalog-output-write", version = 8},
     libraryspread = {fixture = "catalog-library-spread", version = 8},
@@ -192,6 +196,8 @@ local CASES: {[string]: {
         modules = {"catalog-reactor-driver"},
         follow = true
     },
+    -- Tasks reading pipes through the reactor the scheduler waits in.
+    tasksreactor = {fixture = "catalog-tasks-reactor", version = 8, follow = true},
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",
@@ -562,6 +568,20 @@ local function compileProgram(caseName: string, fixture: string, version: intege
             table.insert(names, #names, "src/nupp/runtime/reactor")
             table.insert(names, #names, "src/nupp/runtime/files")
             table.insert(names, #names, "src/nupp/runtime/luaio")
+        end
+        -- A program using the task surface carries the scheduler.
+        local tasks = false
+        for _, name in ipairs(names) do
+            local path = modulePath(root, name)
+            tasks = tasks or graph.mayUseScheduler(parser.parse(read(path), path).root)
+        end
+        if tasks then
+            -- The scheduler waits in the reactor, which a program reading
+            -- `io` carries already.
+            if not usesio then
+                table.insert(names, #names, "src/nupp/runtime/reactor")
+            end
+            table.insert(names, #names, root .. "/src/nupp/runtime/scheduler")
         end
     end
     local staged = root .. "/build/core-guest-programs/source"

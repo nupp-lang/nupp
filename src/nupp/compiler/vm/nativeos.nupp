@@ -33,7 +33,8 @@ local definitions = {
     poolSubmit = {slot = 23, params = {"uint64", "uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
     poolTake = {slot = 24, params = {}, result = "int64", cResult = "int64"},
     poolFinish = {slot = 25, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
-    poolCancel = {slot = 26, params = {"uint64"}, result = "int64", cResult = "int64"}
+    poolCancel = {slot = 26, params = {"uint64"}, result = "int64", cResult = "int64"},
+    sleepNanos = {slot = 27, params = {"uint64"}, result = "uint64", cResult = "uint64"}
 }
 
 local function need(value: any, message: string): any

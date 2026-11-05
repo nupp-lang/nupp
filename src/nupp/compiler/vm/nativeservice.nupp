@@ -71,7 +71,8 @@ local osNames = {
     poolSubmit = true,
     poolTake = true,
     poolFinish = true,
-    poolCancel = true
+    poolCancel = true,
+    sleepNanos = true
 }
 
 local function need(ok: any, message: string): any

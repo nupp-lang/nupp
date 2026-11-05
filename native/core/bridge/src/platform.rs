@@ -419,3 +419,18 @@ pub unsafe extern "C" fn random_seed() -> u64 {
     let local = 0u8;
     clock ^ (&local as *const u8 as u64).rotate_left(32) ^ u64::from(std::process::id())
 }
+
+/// A monotonic clock in nanoseconds since the bridge first read it: the
+/// scheduler's timers.
+pub extern "C" fn monotonic_nanos() -> u64 {
+    use std::sync::OnceLock;
+    static START: OnceLock<std::time::Instant> = OnceLock::new();
+    START.get_or_init(std::time::Instant::now).elapsed().as_nanos() as u64
+}
+
+/// Sleeps `nanos` nanoseconds: the scheduler's wait while only its timers
+/// can wake it. Answers 0.
+pub extern "C" fn sleep_nanos(nanos: u64) -> u64 {
+    std::thread::sleep(std::time::Duration::from_nanos(nanos));
+    0
+}
