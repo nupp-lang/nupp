@@ -36,6 +36,7 @@ const {type ParseResult} = require("nupp.compiler.syntax.parser")
 const {type Archive} = require("nupp.compiler.aot.binding")
 const {type Reporter} = require("nupp.tools.build.progress")
 const json = require("serde.json")
+local sortedJson = require("nupp.tools.internal.sortedjson").encode
 
 local bindingRules = require("nupp.compiler.aot.binding")
 local gpuBinding = require("nupp.compiler.aot.gpubinding")
@@ -1497,41 +1498,6 @@ function aot.readUnitsManifest(path: string): (any?, string?)
     end
 
     return document
-end
-
---- JSON with object keys in sorted order.
----
---- `json.encodeValue` writes keys in `pairs` order, and LuaJIT seeds its string hash
---- per process, so the same manifest came out in a different order every build.
---- A manifest is an artifact a browser package copies and a digest can cover,
---- so its bytes have to be a function of what it says.
---- @raises string when an object has a non-string key
-local function sortedJson(value: any): string
-    if type(value) ~= "table" or value == json.EMPTY_ARRAY or value == json.EMPTY_OBJECT or value == json.NULL then
-        return json.encodevalue(value)
-    end
-    local entries = value as {[any]: any}
-    local parts: {string} = {}
-    if json.isarray(entries) then
-        for index = 1, #entries do
-            parts[index] = sortedJson(entries[index])
-        end
-
-        return "[" .. table.concat(parts, ",") .. "]"
-    end
-    local keys: {string} = {}
-    for key in pairs(entries) do
-        if type(key) ~= "string" then
-            error("JSON object keys must be strings", 0)
-        end
-        keys[#keys + 1] = key
-    end
-    table.sort(keys)
-    for index, key in ipairs(keys) do
-        parts[index] = json.encodevalue(key) .. ":" .. sortedJson(entries[key])
-    end
-
-    return "{" .. table.concat(parts, ",") .. "}"
 end
 
 --- Writes `aot/units.json`: every unit, its tier and the options it compiled

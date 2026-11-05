@@ -1,0 +1,32 @@
+module nupp.tools.internal.sortedjson
+
+local json = require("serde.json")
+
+-- Stable tool serialization preserves the JSON provider's sentinel identities.
+export function encode(value: any): string
+    if type(value) ~= "table" or value == json.EMPTY_ARRAY or value == json.EMPTY_OBJECT or value == json.NULL then
+        return json.encodevalue(value)
+    end
+    local entries = value as {[any]: any}
+    local parts: {string} = {}
+    if json.isarray(entries) then
+        for index = 1, #entries do
+            parts[index] = encode(entries[index])
+        end
+
+        return "[" .. table.concat(parts, ",") .. "]"
+    end
+    local keys: {string} = {}
+    for key in pairs(entries) do
+        if type(key) ~= "string" then
+            error("JSON object keys must be strings", 0)
+        end
+        keys[#keys + 1] = key
+    end
+    table.sort(keys)
+    for index, key in ipairs(keys) do
+        parts[index] = json.encodevalue(key) .. ":" .. encode(entries[key])
+    end
+
+    return "{" .. table.concat(parts, ",") .. "}"
+end

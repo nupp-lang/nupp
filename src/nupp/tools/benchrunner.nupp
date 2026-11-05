@@ -1076,6 +1076,22 @@ end
 --- the two sets came from one interleaved session, where fork `k` of each ran under
 --- the same conditions; unpaired otherwise, which is every comparison against a record
 --- made in another session.
+local function appendComparisons(pending: {any}, verdicts: {any}, margin: number): nil
+    if #pending == 0 then
+        return
+    end
+    local pValues: {number} = {}
+    for _, item in ipairs(pending) do
+        pValues[#pValues + 1] = item.pValue
+    end
+    local adjusted = statistics.benjaminiHochberg(pValues)
+    for index, item in ipairs(pending) do
+        item.adjusted = adjusted[index]
+        item.verdict = statistics.verdict(item.interval, margin, adjusted[index])
+        verdicts[#verdicts + 1] = item
+    end
+end
+
 local function durationChange(current: {number}, previous: {number}, paired: boolean): (number, any, number)
     if #current == 0 or #previous == 0 then
         return 0.0, nil, 1.0
@@ -1734,18 +1750,7 @@ export function run(options: Options): integer
                 }
             end
         end
-        if #pending > 0 then
-            local pValues: {number} = {}
-            for _, item in ipairs(pending) do
-                pValues[#pValues + 1] = item.pValue
-            end
-            local adjusted = statistics.benjaminiHochberg(pValues)
-            for index, item in ipairs(pending) do
-                item.adjusted = adjusted[index]
-                item.verdict = statistics.verdict(item.interval, margin or 0.0, adjusted[index])
-                comparison.verdicts[#comparison.verdicts + 1] = item
-            end
-        end
+        appendComparisons(pending, comparison.verdicts, margin or 0.0)
     end
     if previous then
         local comparison = {
@@ -1804,18 +1809,7 @@ export function run(options: Options): integer
                 #notes + 1
             ] = "durations not compared: the baseline was recorded on another machine, so nothing controls for the difference"
         end
-        if #pending > 0 then
-            local pValues: {number} = {}
-            for _, item in ipairs(pending) do
-                pValues[#pValues + 1] = item.pValue
-            end
-            local adjusted = statistics.benjaminiHochberg(pValues)
-            for index, item in ipairs(pending) do
-                item.adjusted = adjusted[index]
-                item.verdict = statistics.verdict(item.interval, margin or 0.0, adjusted[index])
-                comparison.verdicts[#comparison.verdicts + 1] = item
-            end
-        end
+        appendComparisons(pending, comparison.verdicts, margin or 0.0)
     end
 
     -- Serialize only after comparisons are complete: stdout, the latest record,

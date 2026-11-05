@@ -212,6 +212,42 @@ function M.coversStructuralFunctionsCollectionsAndCapabilities()
     testAssert.eq(result.fields[2].writable, true, "write capability")
 end
 
+function M.preservesGenericMetadataAndRecursiveInterningAcrossDeclarationKinds()
+    local first = T.typevar("First", "dedup:first")
+    local second = T.typevar("Second", "dedup:second")
+    local pack = T.packvar("Rest", "dedup:rest")
+    local count = T.constvar("Count", "integer", "dedup:count")
+    local node = recursiveNode(first)
+    node.typeParams, node.typeBounds = {first, second}, {[2] = node}
+    node.packParams, node.constParams, node.paramKinds = {pack}, {count}, {"type", "type", "pack", "const"}
+    local alias = T.genericAlias(
+        "GenericAlias",
+        node,
+        node.typeParams,
+        node.typeBounds,
+        {pack},
+        {count},
+        node.paramKinds
+    )
+    local callable = T.func({first, second}, {node})
+    callable.typeParams, callable.typeBounds = node.typeParams, node.typeBounds
+    callable.packParams, callable.constParams, callable.paramKinds = {pack}, {count}, node.paramKinds
+    for _, declaration in ipairs({node, alias, callable}) do
+        local descriptor = reflection.describe(declaration)
+        local root = descriptor.types[descriptor.root]
+        testAssert.eq(#root.typeParameters, 2, "type parameter order")
+        testAssert.eq(descriptor.types[root.typeParameters[1]].name, "First")
+        testAssert.eq(descriptor.types[root.typeParameters[2]].name, "Second")
+        testAssert.eq(root.typeBounds[1], nil, "an absent first bound keeps its slot")
+        local bound = descriptor.types[root.typeBounds[2]]
+        testAssert.eq(bound.kind, "record", "recursive second bound")
+        testAssert.eq(bound.fields[1].read, root.typeParameters[1], "generic uses reuse the interned parameter")
+        testAssert.eq(descriptor.types[root.packParameters[1]].name, "Rest")
+        testAssert.eq(descriptor.types[root.constParameters[1]].name, "Count")
+        testAssert.eq(table.concat(root.parameterKinds, ","), "type,type,pack,const")
+    end
+end
+
 function M.carriesConstBindersAndArrayTermsInTheSharedDescriptorVocabulary()
     local size = T.constvar("Size", "integer", "reflection:const")
     local count = T.constOp("*", {size, T.constLiteral("integer", 2)})

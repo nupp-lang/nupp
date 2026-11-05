@@ -74,6 +74,24 @@ local function renderMarkdownItem(out, item)
     )
 end
 
+function M.stableJsonPreservesNestedSentinelsAndRejectsObjectIndexes()
+    local encode = require("nupp.tools.internal.sortedjson").encode
+    local json = require("serde.json")
+    local first = {z = json.NULL, a = {object = json.EMPTY_OBJECT, array = json.EMPTY_ARRAY}, n = 1.5}
+    local second = {n = 1.5, a = {array = json.EMPTY_ARRAY, object = json.EMPTY_OBJECT}, z = json.NULL}
+    local expected = '{"a":{"array":[],"object":{}},"n":1.5,"z":null}'
+    assert(encode(first) == expected, encode(first))
+    assert(encode(second) == expected, encode(second))
+    assert(encode(json.asarray({json.NULL, json.EMPTY_ARRAY, json.EMPTY_OBJECT})) == '[null,[],{}]')
+    for _, invalid in ipairs({
+        {{field = true, [2] = false}, "a JSON container cannot mix array indexes and object keys"},
+        {{[false] = true}, "JSON object keys must be strings and array indexes must be positive integers"},
+    }) do
+        local ok, why = pcall(encode, invalid[1])
+        assert(not ok and why == invalid[2], tostring(why))
+    end
+end
+
 function M.moduleDocumentationPrecedesItsDeclaration()
     for _, source in ipairs({
         "--[[Module description.]]\nmodule example\n",

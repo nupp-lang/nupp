@@ -131,6 +131,16 @@ end
 
 local M = {}
 
+function M.hashesMissingFilesWithTheirPaths()
+    local fingerprint = require("nupp.compiler.project.fingerprint")
+    local hash = require("nupp.compiler.hash")
+    local missing = os.tmpname()
+    os.remove(missing)
+    testAssert.eq(fingerprint.hashFile(missing), nil)
+    testAssert.eq(fingerprint.hashFiles({missing}), hash.digest(missing .. "\0missing"))
+    testAssert.eq(fingerprint.hashFiles({}), hash.digest(""))
+end
+
 -- Sets or clears a variable of this process's own environment, which the
 -- build it then runs in process reads: POSIX `setenv`, or the Windows C
 -- runtime's `_putenv_s`, where an empty value clears it.

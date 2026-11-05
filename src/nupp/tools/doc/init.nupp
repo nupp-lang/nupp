@@ -39,6 +39,7 @@ local frontmatterMod = require("nupp.tools.doc.frontmatter")
 local diagnosticsMod = require("nupp.tools.doc.diagnostics")
 local stdlibMod = require("nupp.tools.doc.stdlib")
 local json = require("serde.json")
+local sortedJson = require("nupp.tools.internal.sortedjson").encode
 
 local trim, htmlEscape = stringsMod.trim, stringsMod.htmlEscape
 local escapeJs = stringsMod.escapeJs
@@ -230,38 +231,6 @@ function doc.markdown(
     end
 
     return text
-end
-
---- JSON with object keys in sorted order, so one model is one document:
---- `json.encodeValue` writes keys in `pairs` order, which LuaJIT's per-process string
---- hash seed changes from one run to the next.
---- @raises string when an object has a non-string key
-local function sortedJson(value: any): string
-    if type(value) ~= "table" or value == json.EMPTY_ARRAY or value == json.EMPTY_OBJECT or value == json.NULL then
-        return json.encodevalue(value)
-    end
-    local entries = value as {[any]: any}
-    local parts: {string} = {}
-    if json.isarray(entries) then
-        for index = 1, #entries do
-            parts[index] = sortedJson(entries[index])
-        end
-
-        return "[" .. table.concat(parts, ",") .. "]"
-    end
-    local keys: {string} = {}
-    for key in pairs(entries) do
-        if type(key) ~= "string" then
-            error("JSON object keys must be strings", 0)
-        end
-        keys[#keys + 1] = key
-    end
-    table.sort(keys)
-    for index, key in ipairs(keys) do
-        parts[index] = json.encodevalue(key) .. ":" .. sortedJson(entries[key])
-    end
-
-    return "{" .. table.concat(parts, ",") .. "}"
 end
 
 --- Renders the parse-only documentation model for external generators. The envelope
