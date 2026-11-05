@@ -2768,6 +2768,41 @@ export = implementation
     end
 end
 
+function M.eventsDocumentOperationsOnlyOnTheBus()
+    local source = readFile(HERE .. "/../src/events.nupp")
+    local module = assert(doc.extract(source, "src/events.nupp", "events"))
+    local public = {}
+    for _, item in ipairs(module.items) do
+        public[item.name] = item
+    end
+    for _, name in ipairs({"event", "Emittable", "Observer", "Allocator", "id", "name", "MessageBus"}) do
+        assert(public[name], "public event declaration missing: " .. name)
+    end
+    for _, name in ipairs({"Source", "Observers", "State", "clear", "reset", "emit", "setallocator"}) do
+        assert(not public[name], "event implementation exposed at module level: " .. name)
+    end
+    local methods = {}
+    for _, member in ipairs(public.MessageBus.members) do
+        methods[member.name] = member
+    end
+    assert(not methods.state and not methods.observers, "bus state must stay private")
+    for _, name in ipairs({
+        "observe",
+        "once",
+        "stop",
+        "contains",
+        "emit",
+        "deliver",
+        "clear",
+        "reset",
+        "setallocator",
+        "count"
+    }) do
+        local method = assert(methods[name], "bus method missing: " .. name)
+        assert(method.text ~= "", "bus method documentation missing: " .. name)
+    end
+end
+
 function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
     local fixture = {['guide.md'] = '# Extensions\n\nThe clock is [](os.monotonic).\n'}
     for _, name in ipairs({

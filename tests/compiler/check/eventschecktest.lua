@@ -72,6 +72,20 @@ local bus = Bus(handlers = {})
 
 local M = {}
 
+function M.busStateIsPrivate()
+    testAssert.eq(
+        codes(
+            [[
+local events = require("events")
+local bus: events.MessageBus<integer> = events.MessageBus()
+print(bus.state)
+]]
+        ),
+        "NUPP2209",
+        "bus bookkeeping is private"
+    )
+end
+
 ---------------------------------------------------------------------------
 -- Mode adoption
 ---------------------------------------------------------------------------

@@ -8,8 +8,8 @@ local M = {}
 
 local type Bus = events.MessageBus<integer>
 
-local record CustomSource is events.Source<integer>
-    observers: events.Observers<integer>
+local record Owner
+    bus: Bus
     label: string
 end
 
@@ -153,10 +153,10 @@ local function allocated(body: function(): nil): number
     return least
 end
 
--- The source's default allocator for an event type, reached through the
+-- The bus's default allocator for an event type, reached through the
 -- private state so a test can watch it rewind.
 local function defaultAllocatorOf(borrows bus: Bus, event: any): any
-    return (bus.observers as any).allocators[events.id(event)]
+    return (bus as any).state.allocators[events.id(event)]
 end
 
 ----------------------------------------------------------------------------
@@ -175,7 +175,24 @@ end
 
 function M.canonicalNamesDoNotRetainPublicAliases(): nil
     local module = events as any
-    for _, name in ipairs({"newmessagebus", "observeonce", "stopobserving", "hasobservers", "clearaddress"}) do
+    for _, name in ipairs({
+        "newmessagebus",
+        "observeonce",
+        "stopobserving",
+        "hasobservers",
+        "clearaddress",
+        "Source",
+        "Observers",
+        "observe",
+        "once",
+        "stop",
+        "contains",
+        "clear",
+        "reset",
+        "setallocator",
+        "emit",
+        "deliver"
+    }) do
         test.eq(module[name], nil, "retired events key: " .. name)
     end
     local bus = newBus() as any
@@ -190,7 +207,8 @@ function M.canonicalNamesDoNotRetainPublicAliases(): nil
         "clearaddress",
         "setAllocator",
         "id",
-        "name"
+        "name",
+        "observers"
     }) do
         test.eq(bus[name], nil, "retired or module-only bus key: " .. name)
     end
@@ -198,42 +216,73 @@ function M.canonicalNamesDoNotRetainPublicAliases(): nil
     test.eq(type(module.name), "function", "event names stay at module level")
 end
 
-function M.canonicalModuleFunctionsDispatchThroughACustomSource(): nil
-    local source = CustomSource(observers = events.Observers<integer>(), label = "world")
-    local total = 0
-    events.once<integer, CustomSource, Damage>(
-        source,
+function M.ownersContainIndependentBuses(): nil
+    local first = Owner(bus = newBus(), label = "first")
+    local second = Owner(bus = newBus(), label = "second")
+    local firstStorage = newCounting()
+    local secondStorage = newCounting()
+    first.bus:setallocator(Damage, firstStorage)
+    second.bus:setallocator(Damage, secondStorage)
+    local firstTotal = 0
+    local secondTotal = 0
+    first.bus:once(
         7,
         Damage,
         |event| -> do
-            total = total + event.amount
+            firstTotal = firstTotal + event.amount
         end,
-        "once"
+        "log"
     )
-    test(events.contains<integer, CustomSource, Damage>(source, 7, Damage))
-    events.emit<integer, CustomSource, Damage>(source, 7, Damage, 3, 1)
-    events.emit<integer, CustomSource, Damage>(source, 7, Damage, 9, 1)
-    test.eq(total, 3, "the one-shot observer is consumed")
-    test(not events.contains<integer, CustomSource, Damage>(source, 7, Damage))
-    events.observe<integer, CustomSource, Damage>(
-        source,
+    second.bus:observe(
         7,
         Damage,
         |event| -> do
-            total = total + event.amount
+            secondTotal = secondTotal + event.amount
         end,
-        "steady"
+        "log"
     )
-    test(events.stop<integer, CustomSource, Damage>(source, 7, Damage, "steady"))
-    test(not events.stop<integer, CustomSource, Damage>(source, 7, Damage, "steady"))
-    events.observe<integer, CustomSource, Damage>(source, 7, Damage, |event| -> do
-        total = total + event.amount
-    end)
-    events.clear<integer, CustomSource>(source, 7)
-    test.eq(source.observers.count, 0)
-    test.eq(source.label, "world", "dispatch preserves the source's own state")
-    test.eq(events.name(Heal), "combat.Heal")
-    test.eq(events.id(Damage), events.id(Damage))
+    test.eq(first.bus:count(), 1)
+    test.eq(second.bus:count(), 1)
+    first.bus:emit(7, Damage, 3, 1)
+    first.bus:emit(7, Damage, 9, 1)
+    test.eq(firstTotal, 3, "the one-shot observer is consumed")
+    test.eq(secondTotal, 0, "emission reaches only its owning bus")
+    test.eq(firstStorage.acquires, 1)
+    test.eq(secondStorage.acquires, 0, "allocators belong to their buses")
+    test.eq(first.bus:count(), 0)
+    test.eq(second.bus:count(), 1)
+    test(not first.bus:contains(7, Damage))
+    test(second.bus:contains(7, Damage))
+    first.bus:observe(
+        7,
+        Damage,
+        |event| -> do
+            firstTotal = firstTotal + event.amount
+        end,
+        "log"
+    )
+    first.bus:clear(7)
+    test.eq(first.bus:count(), 0)
+    test.eq(second.bus:count(), 1, "clearing one bus preserves the other")
+    first.bus:observe(
+        7,
+        Damage,
+        |event| -> do
+            firstTotal = firstTotal + event.amount
+        end,
+        "log"
+    )
+    first.bus:reset()
+    test.eq(first.bus:count(), 0)
+    test.eq(second.bus:count(), 1, "clearing or resetting another bus preserves registrations")
+    second.bus:emit(7, Damage, 5, 1)
+    test.eq(secondTotal, 5)
+    test.eq(secondStorage.acquires, 1)
+    test(second.bus:stop(7, Damage, "log"))
+    test(not second.bus:stop(7, Damage, "log"))
+    test.eq(second.bus:count(), 0)
+    test.eq(first.label, "first", "delivery preserves the owner's other state")
+    test.eq(second.label, "second")
 end
 
 ----------------------------------------------------------------------------
@@ -327,7 +376,7 @@ function M.observersReachOtherStateThroughCaptures(): nil
     local bus = newBus()
     local countSeen = 0
     bus:observe(7, Damage, |event| -> do
-        countSeen = bus.observers.count
+        countSeen = bus:count()
     end)
     bus:emit(7, Damage, amount = 1, source = 1)
     test.eq(countSeen, 1)
@@ -399,12 +448,12 @@ function M.aNameAlreadyRegisteredAtTheSameAddressAndEventIsRefused(): nil
     -- registration.
     bus:observe(8, Damage, |event| -> nil, "log")
     bus:observe(7, Heal, |event| -> nil, "log")
-    test.eq(bus.observers.count, 3)
+    test.eq(bus:count(), 3)
 
     -- Once the name is removed it may be used again.
     test(bus:stop(7, Damage, "log"))
     bus:observe(7, Damage, |event| -> nil, "log")
-    test.eq(bus.observers.count, 3)
+    test.eq(bus:count(), 3)
 end
 
 function M.stopObservingByNameRemovesThatRegistrationAndByCallbackEveryMatch(): nil
@@ -425,17 +474,17 @@ function M.stopObservingByNameRemovesThatRegistrationAndByCallbackEveryMatch(): 
     bus:observe(7, Damage, shared, "b")
     bus:observe(7, Damage, shared)
     bus:observe(7, Damage, other, "c")
-    test.eq(bus.observers.count, 4)
+    test.eq(bus:count(), 4)
 
     test(bus:stop(7, Damage, "a"), "removing a name reports the removal")
-    test.eq(bus.observers.count, 3)
+    test.eq(bus:count(), 3)
     bus:emit(7, Damage, amount = 1, source = 1)
     test.eq(runs, 102, "the two other registrations of the callback survive a removal by name")
     test(not bus:stop(7, Damage, "a"), "a name already removed reports nothing")
 
     runs = 0
     test(bus:stop(7, Damage, shared), "removing a callback reports the removal")
-    test.eq(bus.observers.count, 1, "every registration of the callback went")
+    test.eq(bus:count(), 1, "every registration of the callback went")
     bus:emit(7, Damage, amount = 1, source = 1)
     test.eq(runs, 100)
     test(not bus:stop(7, Damage, shared))
@@ -443,7 +492,7 @@ function M.stopObservingByNameRemovesThatRegistrationAndByCallbackEveryMatch(): 
     test(not bus:stop(9, Damage, "c"), "an address with nothing registered reports nothing")
 
     test(bus:stop(7, Damage, "c"))
-    test.eq(bus.observers.count, 0)
+    test.eq(bus:count(), 0)
     test(not bus:contains(7, Damage))
     test(not bus:stop(7, Damage, "c"), "an emptied address is gone entirely")
 end
@@ -488,7 +537,7 @@ function M.anObserverAddedDuringDeliveryJoinsTheNextEmission(): nil
     bus:emit(7, Damage, amount = 1, source = 1)
     test.eq(firstRuns, 1)
     test.eq(lateRuns, 0, "a registration made during a delivery is not reached by it")
-    test.eq(bus.observers.count, 2)
+    test.eq(bus:count(), 2)
     bus:emit(7, Damage, amount = 1, source = 1)
     test.eq(firstRuns, 2)
     test.eq(lateRuns, 1)
@@ -504,7 +553,7 @@ function M.removalDuringDeliveryTakesEffectNowAndCompactsAfterTheDeliveryLeaves(
             order[#order + 1] = "first"
             test(bus:stop(7, Damage, "third"), "the later registration is removable mid-delivery")
             test(bus:stop(7, Damage, "first"), "and so is the running one")
-            test.eq(bus.observers.count, 1, "the count drops at once")
+            test.eq(bus:count(), 1, "the count drops at once")
         end,
         "first"
     )
@@ -527,11 +576,11 @@ function M.removalDuringDeliveryTakesEffectNowAndCompactsAfterTheDeliveryLeaves(
 
     bus:emit(7, Damage, amount = 1, source = 1)
     test.eq(table.concat(order, ","), "first,second", "a removed registration not yet reached is skipped")
-    test.eq(bus.observers.count, 1)
+    test.eq(bus:count(), 1)
     test(bus:contains(7, Damage))
 
     -- After the outermost delivery left, the list holds only what remains.
-    local list = (bus.observers as any).byAddress[7][events.id(Damage)]
+    local list = (bus as any).state.byAddress[7][events.id(Damage)]
     test.eq(list.n, 1, "tombstones were compacted out")
     test.eq(list[1], "second")
     test.eq(#list, 3, "one registration is three slots")
@@ -553,8 +602,8 @@ function M.removingTheLastRegistrationDuringDeliveryPrunesTheAddressAfterwards()
         "only"
     )
     bus:emit(7, Damage, amount = 1, source = 1)
-    test.eq(bus.observers.count, 0)
-    test((bus.observers as any).byAddress[7] == nil, "the emptied address was pruned after delivery")
+    test.eq(bus:count(), 0)
+    test((bus as any).state.byAddress[7] == nil, "the emptied address was pruned after delivery")
     bus:emit(7, Damage, amount = 1, source = 1)
     -- The address is usable again.
     local runs = 0
@@ -574,7 +623,7 @@ function M.aOnceRegistrationIsConsumedBeforeItsCallbackRuns(): nil
         Damage,
         |event| -> do
             onceRuns = onceRuns + 1
-            test.eq(bus.observers.count, 1, "the once registration is already gone")
+            test.eq(bus:count(), 1, "the once registration is already gone")
             -- Re-emitting the same event at the same address must not reach this
             -- callback a second time.
             bus:emit(7, Damage, event.amount + 1, 1)
@@ -587,7 +636,7 @@ function M.aOnceRegistrationIsConsumedBeforeItsCallbackRuns(): nil
     bus:emit(7, Damage, amount = 1, source = 1)
     test.eq(onceRuns, 1)
     test.eq(plainRuns, 2, "the plain observer saw both the outer and the nested emission")
-    test.eq(bus.observers.count, 1)
+    test.eq(bus:count(), 1)
     test(not bus:stop(7, Damage, "once"), "a consumed once registration cannot be removed again")
     bus:emit(7, Damage, amount = 1, source = 1)
     test.eq(onceRuns, 1)
@@ -610,7 +659,7 @@ function M.aOnceRegistrationNotYetReachedCanStillBeRemovedDuringDelivery(): nil
     )
     bus:emit(7, Damage, amount = 1, source = 1)
     test.eq(onceRuns, 0)
-    test.eq(bus.observers.count, 1)
+    test.eq(bus:count(), 1)
 end
 
 function M.clearAddressDuringDeliveryLetsTheDeliveryFinish(): nil
@@ -619,7 +668,7 @@ function M.clearAddressDuringDeliveryLetsTheDeliveryFinish(): nil
     bus:observe(7, Damage, |event| -> do
         order[#order + 1] = "first"
         bus:clear(7)
-        test.eq(bus.observers.count, 1, "only the other address remains counted")
+        test.eq(bus:count(), 1, "only the other address remains counted")
     end)
     bus:observe(7, Damage, |event| -> do
         order[#order + 1] = "second"
@@ -635,7 +684,7 @@ function M.clearAddressDuringDeliveryLetsTheDeliveryFinish(): nil
     test(not bus:contains(7, Damage))
     test(not bus:contains(7, Heal))
     test(bus:contains(0, Damage))
-    test.eq(bus.observers.count, 1)
+    test.eq(bus:count(), 1)
 
     order = {}
     bus:emit(7, Damage, amount = 1, source = 1)
@@ -676,7 +725,7 @@ function M.clearAddressAfterRemovalDuringDeliverySettlesCleanly(): nil
 
     bus:emit(7, Damage, amount = 1, source = 1)
     test.eq(runs, 1, "the removed observer did not run")
-    test.eq(bus.observers.count, 0)
+    test.eq(bus:count(), 0)
     test(not bus:contains(7, Damage))
 
     bus:observe(7, Damage, |event| -> do
@@ -692,7 +741,7 @@ function M.resetDuringDeliveryLetsTheDeliveryFinish(): nil
     bus:observe(7, Damage, |event| -> do
         order[#order + 1] = "first"
         bus:reset()
-        test.eq(bus.observers.count, 0)
+        test.eq(bus:count(), 0)
     end)
     bus:observe(7, Damage, |event| -> do
         order[#order + 1] = "second"
@@ -702,7 +751,7 @@ function M.resetDuringDeliveryLetsTheDeliveryFinish(): nil
     end)
     bus:emit(7, Damage, amount = 1, source = 1)
     test.eq(table.concat(order, ","), "first,second")
-    test.eq(bus.observers.count, 0)
+    test.eq(bus:count(), 0)
     test(not bus:contains(0, Damage), "reset cleared every address")
     order = {}
     bus:emit(7, Damage, amount = 1, source = 1)
@@ -734,15 +783,15 @@ function M.registrationsAtAddressZeroSurviveClearingAnotherAddress(): nil
     )
     bus:observe(7, Damage, |event| -> nil, "entity")
     bus:observe(7, Heal, |event| -> nil)
-    test.eq(bus.observers.count, 3)
+    test.eq(bus:count(), 3)
     bus:clear(7)
-    test.eq(bus.observers.count, 1)
+    test.eq(bus:count(), 1)
     test(bus:contains(0, Damage))
     test(not bus:contains(7, Damage))
     bus:emit(0, Damage, amount = 1, source = 1)
     test.eq(worldRuns, 1)
     test(bus:stop(0, Damage, "world"), "the registration is still removable by name")
-    test.eq(bus.observers.count, 0)
+    test.eq(bus:count(), 0)
     -- Clearing an address nobody observes is not an error.
     bus:clear(42)
 end
@@ -788,7 +837,7 @@ function M.anObserverThatRaisesReleasesTheLeaseAndRestoresBookkeeping(): nil
     test.eq(counting.releases, 1, "the lease was released on the way out")
     test.eq(counting.live, 0)
     test.eq(counting.inner:live(), 0)
-    test.eq(bus.observers.count, 2, "the registrations are untouched")
+    test.eq(bus:count(), 2, "the registrations are untouched")
 
     -- Delivery depth was restored: an allocator may be installed again, which
     -- is refused while any delivery is active.
@@ -800,7 +849,7 @@ function M.anObserverThatRaisesReleasesTheLeaseAndRestoresBookkeeping(): nil
     test.eq(counting.live, 0)
     test(bus:stop(7, Damage, "failing"))
     test(bus:stop(7, Damage, "after"))
-    test.eq(bus.observers.count, 0)
+    test.eq(bus:count(), 0)
 end
 
 function M.aFailingInitializerReleasesTheLeaseBeforeRaising(): nil
@@ -901,8 +950,8 @@ function M.aRemovalMadeBeforeAFailureIsStillCompacted(): nil
         end,
         "boom"
     )
-    test.eq(bus.observers.count, 1)
-    local list = (bus.observers as any).byAddress[7][events.id(Damage)]
+    test.eq(bus:count(), 1)
+    local list = (bus as any).state.byAddress[7][events.id(Damage)]
     test.eq(list.n, 1, "the dirty list was compacted although the delivery raised")
     test.eq(list[1], "first")
 end
@@ -956,7 +1005,7 @@ function M.nestedEmissionOfTheSameTypeUsesDistinctStorage(): nil
         innerIdentity = tostring(event)
         innerSeen = event.amount
         event.amount = event.amount + 1
-        peakLive = bus.observers.count > 0 and counting.live or 0
+        peakLive = bus:count() > 0 and counting.live or 0
     end)
     bus:emit(1, Damage, amount = 1, source = 1)
     test.ne(innerIdentity, outerIdentity, "the nested lease is a different instance")
