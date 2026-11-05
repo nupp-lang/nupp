@@ -199,15 +199,18 @@ reports it is usually already testing somebody else's commit. `git push
   finish in half a minute; `--exclude-group=NAME` is how a later broad run
   covers what an earlier focused one did not. `--list-suites` prints what a
   selection would run without running it.
-- Run the suites that cover what changed, not the whole suite. Documentation
-  generation is `doctest`, and the same holds elsewhere: match the suites to
-  the area. The full suite is for changes that reach broadly — the checker, the
-  compiler pipeline, the runtime — or when a focused run is not obviously
-  enough. Running it on a change it cannot reach spends ten minutes to learn
-  nothing, and its unrelated pre-existing failures then have to be sorted out
-  from the ones the change caused.
-- CSS or styling-only changes do not require the test suite. Verify the
-  affected generated site or assets instead.
+- Run the suites that cover what changed, not the whole suite. Changes to the
+  documentation generator are covered by `doctest`; match other suites to the
+  area in the same way. The full suite is for changes that reach broadly — the
+  checker, the compiler pipeline, the runtime — or when a focused run is not
+  obviously enough. Running it on a change it cannot reach spends ten minutes
+  to learn nothing, and its unrelated pre-existing failures then have to be
+  sorted out from the ones the change caused.
+- For Markdown and CSS changes, verify the affected content or styling directly.
+  Do not run `doctest` unless the documentation generator or its behavior changed.
+  If a documentation command starts rebuilding the compiler solely to verify
+  Markdown or CSS, stop it and use an existing build or inspect the source and
+  assets. Report any verification you could not complete.
 - `./bin/nupp fixpoint` verifies that the compiler rebuilds byte-identically,
   starting from the pinned stage zero.
 - What CI runs for a change is decided by `.github/scripts/classify-changes.lua`
