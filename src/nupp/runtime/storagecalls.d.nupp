@@ -37,6 +37,11 @@ local record storagecalls
 
     --- The kind of `storage`'s elements.
     elementkind: function(borrows storage: any): integer
+
+    --- The kind a table's array part is packed as (uint8 through float64
+    --- as for `allocate`, 11 for booleans), or 0 when it is general or
+    --- `value` is not a table: what a test of the representation reads.
+    packedkind: function(borrows value: any): integer
 end
 
 local calls: storagecalls

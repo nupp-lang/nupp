@@ -1820,6 +1820,7 @@ local coreLibrary: {[string]: boolean} = {
     ["storagecalls.fromstring"] = true,
     ["storagecalls.elements"] = true,
     ["storagecalls.elementkind"] = true,
+    ["storagecalls.packedkind"] = true,
     ["math.u32.wrap"] = true,
     ["math.i32.wrap"] = true,
     assert = true,

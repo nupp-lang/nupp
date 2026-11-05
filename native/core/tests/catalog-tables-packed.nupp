@@ -1,0 +1,262 @@
+module nupp.core.catalogtablespacked
+
+-- Packed array parts (runtime Decision 15): a table made for a checked
+-- `{T}` of integers, floats or booleans keeps its elements raw, and
+-- storagecalls.packedkind reads which kind (8 integer, 10 float, 11
+-- boolean; 0 once general). Typed code keeps it packed; a write of another
+-- type through `any`, a hole or a key past the end switches it to the
+-- general representation once, keeping every element, `#` and the order
+-- `next` visits them in. The table library works on a packed table as on
+-- any, frozen ones included, and the collector keeps what a switched table
+-- boxed through every collection after.
+local calls = require("nupp.runtime.storagecalls")
+
+-- Its argument as `any`, which the checker follows no further: a write
+-- through it is untyped.
+local function erase(t: any): any
+    return t
+end
+
+local score = 0
+
+-- The keys `next` visits, in order, joined.
+local function keys(t: any): string
+    local seen: {string} = {}
+    local k = next(t)
+    while k ~= nil do
+        seen[#seen + 1] = tostring(k)
+        k = next(t, k)
+    end
+
+    return table.concat(seen, ",")
+end
+
+-- Each kind packs, reads its elements back and stays packed under typed
+-- writes: appending at #t + 1, replacing, and removing the last.
+local ints: {integer} = {1, 2, 3}
+ints[4] = 4
+ints[2] = math.maxinteger
+ints[3] = math.mininteger
+local wide = ints[2] == math.maxinteger and ints[3] == math.mininteger
+ints[2] = 20
+ints[3] = 30
+local floats: {float} = {1.5, -0.0, 2.5}
+floats[4] = 0.0 / 0.0
+local flags: {boolean} = {true, false, true}
+flags[4] = false
+if calls.packedkind(ints) == 8
+    and calls.packedkind(floats) == 10
+    and calls.packedkind(flags) == 11
+    and wide
+    and ints[1] + ints[2] + ints[3] + ints[4] == 55
+    and #ints == 4
+    and 1 / floats[2] < 0
+    and floats[4] ~= floats[4]
+    and #floats == 4
+    and flags[2] == false
+    and flags[4] == false
+    and #flags == 4
+    and keys(flags) == "1,2,3,4"
+then
+    score = score + 1
+end
+
+-- An empty constructor packs by the type it is made for; one that holds
+-- integers and floats ({number}) and one of strings do not.
+local empty: {integer} = {}
+local mixed: {number} = {1, 2.5}
+local names: {string} = {"a"}
+local plain = {}
+if calls.packedkind(empty) == 8
+    and calls.packedkind(mixed) == 0
+    and calls.packedkind(names) == 0
+    and calls.packedkind(plain) == 0
+    and calls.packedkind(3) == 0
+then
+    score = score + 2
+end
+
+-- Removing the last element keeps it packed and moves the border; writing
+-- nil past the end changes nothing.
+local shrink: {integer} = {1, 2, 3}
+local loose: any = erase(shrink)
+loose[3] = nil
+loose[7] = nil
+if calls.packedkind(shrink) == 8 and #shrink == 2 and shrink[3] == nil and keys(shrink) == "1,2" then
+    score = score + 4
+end
+
+-- A value of another type through `any` switches it, keeping the rest.
+local strung: {integer} = {1, 2, 3}
+loose = erase(strung)
+loose[2] = "two"
+local floated: {integer} = {1, 2, 3}
+loose = erase(floated)
+loose[1] = 2.0
+local inted: {float} = {1.5, 2.5}
+loose = erase(inted)
+loose[2] = 3
+local truthy: {boolean} = {true}
+loose = erase(truthy)
+loose[2] = 1
+if calls.packedkind(strung) == 0
+    and loose[2] == 1
+    and erase(strung)[2] == "two"
+    and strung[3] == 3
+    and #strung == 3
+    and keys(strung) == "1,2,3"
+    and calls.packedkind(floated) == 0
+    and math.type(erase(floated)[1]) == "float"
+    and calls.packedkind(inted) == 0
+    and math.type(erase(inted)[2]) == "integer"
+    and calls.packedkind(truthy) == 0
+    and #truthy == 2
+then
+    score = score + 8
+end
+
+-- A hole inside switches it; so does a key past the end.
+local holed: {integer} = {1, 2, 3, 4}
+loose = erase(holed)
+loose[2] = nil
+local far: {integer} = {1, 2, 3}
+loose = erase(far)
+loose[10] = 10
+if calls.packedkind(holed) == 0
+    and holed[2] == nil
+    and holed[3] == 3
+    and keys(holed) == "1,3,4"
+    and calls.packedkind(far) == 0
+    and far[10] == 10
+    and #far == 3
+    and keys(far) == "1,2,3,10"
+then
+    score = score + 16
+end
+
+-- Keys that are not positive integers go to the hash part and keep it
+-- packed; a float key with an integral value is the integer it equals.
+local keyed: {integer} = {1, 2, 3}
+loose = erase(keyed)
+loose.name = 5
+loose[0] = 6
+loose[-1] = 7
+loose[1.5] = 8
+loose[2.0] = 20
+loose[4.0] = 40
+if calls.packedkind(keyed) == 8
+    and keyed[2] == 20
+    and keyed[4] == 40
+    and loose[3.0] == 3
+    and #keyed == 4
+    and loose.name == 5
+    and loose[0] == 6
+    and loose[1.5] == 8
+    and keys(keyed) == "1,2,3,4,name,0,-1,1.5"
+then
+    score = score + 32
+end
+
+-- The table library over packed tables, which stay packed.
+local list: {integer} = {5, 3, 8}
+table.insert(list, 1)
+table.insert(list, 1, 9)
+local removed = table.remove(list, 2)
+local last = table.remove(list)
+table.sort(list)
+local copy: {integer} = {}
+table.move(list, 1, #list, 1, copy)
+table.move(copy, 1, 2, 2)
+local a, b, c = table.unpack(list)
+local reals: {float} = {2.5, 0.5, 1.5}
+table.sort(reals, function(x: float, y: float): boolean
+    return x > y
+end)
+if calls.packedkind(list) == 8
+    and calls.packedkind(copy) == 8
+    and calls.packedkind(reals) == 10
+    and removed == 5
+    and last == 1
+    and table.concat(list, " ") == "3 8 9"
+    and table.concat(copy, " ") == "3 3 8"
+    and a + b + c == 20
+    and table.concat(reals, ",") == "2.5,1.5,0.5"
+    and rawget(list, 2) == 8
+    and rawequal(list, list)
+then
+    score = score + 64
+end
+rawset(list, 4, 10)
+rawset(list, 1, 1)
+local summed = 0
+for _, v in ipairs(list) do
+    summed = summed + v
+end
+local paired = 0
+for k, v in pairs(list) do
+    paired = paired + k * v
+end
+if calls.packedkind(list) == 8 and summed == 28 and paired == 1 + 16 + 27 + 40 and #list == 4 then
+    score = score + 128
+end
+
+-- A frozen packed table stays packed and refuses every write.
+local function refused(f: function(): nil): boolean
+    local ok, problem = pcall(f)
+    return not ok and tostring(problem):find("attempt to modify a readonly table", 1, true) ~= nil
+end
+
+local still: {integer} = table.freeze({4, 5, 6})
+if calls.packedkind(still) == 8 and refused(function(): nil
+    still[1] = 1
+end) and refused(function(): nil
+    erase(still)[2] = "x"
+end) and refused(function(): nil
+    table.insert(still, 7)
+end) and refused(function(): nil
+    rawset(still, 4, 7)
+end) and calls.packedkind(still) == 8 and table.concat(still, ",") == "4,5,6" then
+    score = score + 256
+end
+
+-- Wide integers a switch boxes survive the collections that follow, and so
+-- do the young ones an old table took as it switched.
+local big: {integer} = {}
+for i = 1, 200 do
+    big[i] = math.maxinteger - i
+end
+local churn: {[integer]: {integer}} = {}
+for i = 1, 2000 do
+    churn[i % 64] = {i}
+end
+loose = erase(big)
+loose[201] = "end"
+for i = 1, 4000 do
+    churn[i % 64] = {i, i}
+end
+local intact = calls.packedkind(big) == 0 and #big == 201
+for i = 1, 200 do
+    intact = intact and big[i] == math.maxinteger - i
+end
+if intact then
+    score = score + 512
+end
+
+-- A packed table's elements hold no references: a long one survives and
+-- reads back after much allocation.
+local long: {integer} = {}
+for i = 1, 20000 do
+    long[i] = i * 3
+end
+for i = 1, 3000 do
+    churn[i % 64] = {i}
+end
+local total = 0
+for i = 1, #long do
+    total = total + long[i]
+end
+if calls.packedkind(long) == 8 and total == 3 * 20000 * 20001 // 2 then
+    score = score + 1024
+end
+
+export = score

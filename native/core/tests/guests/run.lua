@@ -156,6 +156,10 @@ local CASES = {
     {"modulesqualified", 0x7FFF0000000000E6},
     {"callsoverflow", 0x7FFF000000000003},
     {"tablesfrozen", 0x7FFF000000000FFF},
+    -- Packed array parts (runtime Decision 15): kinds, switches, the table
+    -- library and the collector; then what Lua sees of them, as a checksum.
+    {"tablespacked", 0x7FFF0000000007FF},
+    {"tablespackedsemantics", 0x7FFF00000DEDBD01},
     {"serdejson", 0x7FFF000000000003},
     {"modulesretry", 0x7FFF00000000007F},
     {"errorsruntime", 0x7FFF00000000001F},
@@ -210,6 +214,8 @@ local STRESS = {
     ownerreinit = true,
     coreforms = true,
     tablesfrozen = true,
+    tablespacked = true,
+    tablespackedsemantics = true,
     serdejson = true,
     functionsmany = true,
     callsdeep = true,
@@ -296,7 +302,8 @@ local NUMERIC = {
     libraryvalues = "catalog-library-values",
     callsoverflow = "catalog-calls-overflow",
     modulesretry = "catalog-modules-retry",
-    errorsruntime = "catalog-errors-runtime"
+    errorsruntime = "catalog-errors-runtime",
+    tablespackedsemantics = "catalog-tables-packed-semantics"
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -605,7 +612,9 @@ local function stage()
             "catalog-core-forms",
             "catalog-storage-basics",
             "catalog-storage-provider",
-            "catalog-tables-frozen"
+            "catalog-tables-frozen",
+            "catalog-tables-packed",
+            "catalog-tables-packed-semantics"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",

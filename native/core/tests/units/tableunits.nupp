@@ -284,3 +284,269 @@ export function traversal(count: uint64): uint64
 
     return answer
 end
+
+-- ---- packed array parts (runtime Decision 15) -------------------------------
+
+const childwalk = require("nupp.runtime.vm.childwalk")
+const corestorage = require("nupp.runtime.core.corestorage")
+const ints = require("nupp.runtime.core.coreintegers")
+
+-- One when a check fails.
+local function miss(ok: boolean): uint64
+    if ok then
+        return 0ULL
+    end
+
+    return 1ULL
+end
+
+-- The children the collector would visit in table `t`: its array part, its
+-- hash part's keys and values, and its metatable.
+local function children(t: uint64): uint64
+    @unsafe do
+        local state = new childwalk.Cursor(0ULL, 0ULL, values.NIL)
+        local cursor = state as childwalk.Cursor*
+        local count: uint64 = 0ULL
+        while childwalk.childNext(native.pointer(t) as heap.Header*, cursor) ~= 0ULL do
+            count = count + 1ULL
+        end
+        return count
+    end
+end
+
+-- A packed table of `kind`, rooted.
+local function packed(borrows a: arena.Arena*, h: heap.Heap*, kind: uint64, capacity: uint64): uint64
+    @unsafe do
+        local t = tables.createpacked(h, kind, capacity)
+        native.store64(native.pointer(root(a, h)), 0, values.TAG_OBJ | t)
+
+        return t
+    end
+end
+
+-- The value element i (from 1) of a `kind` table holds in `packedround`:
+-- each kind's range crossed both ways, wide integers for the 64-bit kinds.
+local function sample(h: heap.Heap*, kind: uint64, i: uint64): uint64
+    if kind == tables.PACKED_BOOLEAN then
+        if i % 3ULL == 0ULL then
+            return values.TRUE
+        end
+        return values.FALSE
+    elseif kind == corestorage.FLOAT64 then
+        return native.bits(
+            native.toFloat(
+                native.index(i)
+            ) * native.fromBits(0x3fd0000000000000ULL) - native.fromBits(0x4059000000000000ULL)
+        )
+    elseif kind == corestorage.FLOAT32 then
+        return native.bits(native.toFloat(native.index(i)) * native.fromBits(0x3fe0000000000000ULL))
+    end
+    local width = corestorage.elementwidth(kind) * 8ULL
+    -- Signed kinds are the even ones below UINT64, and INT64.
+    local signed = kind == corestorage.INT64 or kind < corestorage.UINT64 and kind % 2ULL == 0ULL
+    local bits = i * 0x9e3779b97f4a7c15ULL
+    if width < 64ULL then
+        bits = bits & ((1ULL << width) - 1ULL)
+        if signed and bits >= 1ULL << (width - 1ULL) then
+            bits = bits | ~((1ULL << width) - 1ULL)
+        end
+    end
+
+    return ints.make(h, bits)
+end
+
+-- Every packed kind: `count` elements appended through `set`, replaced
+-- once, then read back through `get` and `nextKey`, the last two removed.
+-- Answers the kinds still packed with the right length, plus a thousand per
+-- element read back wrong.
+export function packedround(count: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local kept: uint64 = 0ULL
+            local wrong: uint64 = 0ULL
+            local kind: uint64 = 1ULL
+            while kind <= tables.PACKED_BOOLEAN do
+                local t = packed(a, h, kind, 0ULL)
+                local i: uint64 = 1ULL
+                while i <= count do
+                    wrong = wrong + put(h, t, int(i), sample(h, kind, i + 7ULL))
+                    i = i + 1ULL
+                end
+                i = 1ULL
+                while i <= count do
+                    wrong = wrong + put(h, t, int(i), sample(h, kind, i))
+                    i = i + 1ULL
+                end
+                local key = tables.nextKey(t, values.NIL)
+                i = 1ULL
+                while i <= count do
+                    wrong = wrong + miss(tables.get(t, int(i)) == sample(h, kind, i) and key == int(i))
+                    key = tables.nextKey(t, key)
+                    i = i + 1ULL
+                end
+                wrong = wrong + miss(key == values.NIL)
+                put(h, t, int(count), values.NIL)
+                put(h, t, int(count - 1ULL), values.NIL)
+                if tables.packedkind(t) == kind and tables.length(t) == count - 2ULL then
+                    kept = kept + 1ULL
+                end
+                kind = kind + 1ULL
+            end
+            answer = kept + wrong * 1000ULL
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- One trigger of the switch to the general representation on an integer
+-- table of `count` elements 10, 20, ...: 0 a value of another type (a
+-- table), 1 a hole at 2, 2 a key past the end, 3 an integral float; 4 a
+-- string-free key (0) and 5 removing the last, which keep it packed. Answers
+-- 1000 when it switched, plus the elements read back as they were, plus a
+-- million per check that failed.
+export function packedswitch(trigger: uint64, count: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local t = packed(a, h, corestorage.INT64, count)
+            local i: uint64 = 1ULL
+            while i <= count do
+                put(h, t, int(i), int(i * 10ULL))
+                i = i + 1ULL
+            end
+            local wrong: uint64 = 0ULL
+            if trigger == 0ULL then
+                local other = tables.create(h)
+                wrong = wrong + put(h, t, int(count + 1ULL), values.TAG_OBJ | other)
+                wrong = wrong + miss(tables.get(t, int(count + 1ULL)) == values.TAG_OBJ | other)
+                wrong = wrong + miss(tables.length(t) == count + 1ULL)
+            elseif trigger == 1ULL then
+                wrong = wrong + put(h, t, int(2ULL), values.NIL)
+                wrong = wrong + miss(tables.get(t, int(2ULL)) == values.NIL)
+                wrong = wrong + miss(tables.nextKey(t, int(1ULL)) == int(3ULL))
+            elseif trigger == 2ULL then
+                wrong = wrong + put(h, t, int(count + 2ULL), int(7ULL))
+                wrong = wrong + miss(tables.get(t, int(count + 2ULL)) == int(7ULL))
+                wrong = wrong + miss(tables.length(t) == count)
+            elseif trigger == 3ULL then
+                wrong = wrong + put(h, t, int(1ULL), 0x4024000000000000ULL)
+                wrong = wrong + miss(tables.get(t, int(1ULL)) == 0x4024000000000000ULL)
+            elseif trigger == 4ULL then
+                wrong = wrong + put(h, t, int(0ULL), int(5ULL))
+                wrong = wrong + miss(tables.get(t, int(0ULL)) == int(5ULL))
+                wrong = wrong + miss(children(t) == 2ULL)
+            else
+                wrong = wrong + put(h, t, int(count), values.NIL)
+                wrong = wrong + miss(tables.length(t) == count - 1ULL)
+            end
+            local same: uint64 = 0ULL
+            i = 2ULL
+            while i < count do
+                if tables.get(t, int(i)) == int(i * 10ULL) then
+                    same = same + 1ULL
+                end
+                i = i + 1ULL
+            end
+            if tables.packedkind(t) == 0ULL then
+                answer = 1000ULL
+            end
+            answer = answer + same + wrong * 1000000ULL
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- What the collector visits in a packed table: nothing of its `count`
+-- elements, and all of them once it switches. A full collection with the
+-- oracle checking it runs on each side. Answers a million times the
+-- children before the switch plus the children after, plus a billion per
+-- disagreement.
+export function packedskip(count: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local h = heap.create(a)
+            h.automatic = false
+            local t = packed(a, h, corestorage.FLOAT64, 0ULL)
+            local i: uint64 = 1ULL
+            while i <= count do
+                put(h, t, int(i), native.bits(native.toFloat(native.index(i))))
+                i = i + 1ULL
+            end
+            collector.fullCycle(h)
+            tables.drain(h)
+            local failures = collector.checkOracle(h, true)
+            local before = children(t)
+            put(h, t, int(count + 1ULL), values.TRUE)
+            collector.fullCycle(h)
+            tables.drain(h)
+            failures = failures + collector.checkOracle(h, true)
+            answer = before * 1000000ULL + children(t) + failures * BILLION
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- A switch boxes wide integers, which collects: `count` elements beyond the
+-- immediate range in a packed table switch as a fresh table goes in last,
+-- with `stress` 1 collecting at every allocation, and generations on. Then
+-- collections run and every element is read back. Answers 1 when it
+-- switched, plus a thousand per element read back wrong, plus a billion per
+-- disagreement of the oracle.
+export function packedboxes(count: uint64, stress: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local h = heap.create(a)
+            h.generational = 1ULL
+            local t = packed(a, h, corestorage.INT64, 0ULL)
+            local i: uint64 = 1ULL
+            while i <= count do
+                put(h, t, int(i), ints.make(h, 0x7fffffffffffffffULL - i))
+                i = i + 1ULL
+            end
+            -- Old before it switches, so the boxes are young in an old table.
+            collector.minorcycle(h)
+            collector.minorcycle(h)
+            tables.drain(h)
+            h.stress = stress == 1ULL
+            local wrong = put(h, t, int(count + 1ULL), values.TAG_OBJ | tables.create(h))
+            h.stress = false
+            collector.minorcycle(h)
+            local failures = collector.checkOracle(h, false)
+            collector.minorcycle(h)
+            collector.fullCycle(h)
+            tables.drain(h)
+            failures = failures + collector.checkOracle(h, true)
+            i = 1ULL
+            while i <= count do
+                if ints.bitsOf(tables.get(t, int(i))) ~= 0x7fffffffffffffffULL - i then
+                    wrong = wrong + 1ULL
+                end
+                i = i + 1ULL
+            end
+            if tables.packedkind(t) == 0ULL then
+                answer = 1ULL
+            end
+            answer = answer + wrong * 1000ULL + failures * BILLION
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end

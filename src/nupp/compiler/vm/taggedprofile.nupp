@@ -153,6 +153,7 @@ local stringLibrary: {[string]: {integer}} = {
     ["storagecalls.fromstring"] = {100, 1, 1},
     ["storagecalls.elements"] = {101, 1, 1},
     ["storagecalls.elementkind"] = {102, 1, 1},
+    ["storagecalls.packedkind"] = {117, 1, 1},
     ["math.i32.wrap"] = {93, 1, 1},
     rawequal = {88, 2, 2},
     next = {89, 1, 2},
@@ -406,6 +407,43 @@ local function typeKind(t: any): string
         t = t.tag == "literal" and t.base or t.inner
     end
     return t and t.tag or "missing"
+end
+
+-- The kinds of packed table array parts (coretables): corestorage's element
+-- kinds by the checked element type, and booleans.
+local packedkinds: {
+    [string]: integer
+} = {
+    uint8 = 1,
+    int8 = 2,
+    uint16 = 3,
+    int16 = 4,
+    uint32 = 5,
+    int32 = 6,
+    uint64 = 7,
+    int64 = 8,
+    float32 = 9,
+    float64 = 10,
+    boolean = 11
+}
+
+-- The packed kind of the array a table constructor makes, by its checked
+-- type or, for one written empty, the type it is made for; nil when the
+-- type is not an array of a packable element (`{number}` holds two
+-- subtypes, and an optional element holds nil).
+local function packedkind(node: any): integer?
+    local t = node.inferredType
+    if typeKind(t) ~= "array" then
+        t = node.expectedResult
+    end
+    if typeKind(t) ~= "array" then
+        return nil
+    end
+    while t.tag == "literal" or t.tag == "const" do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+
+    return packedkinds[typeKind(t.elem)]
 end
 
 -- Whether a value of type `t` is an interface's: a table its fields are
@@ -1913,7 +1951,21 @@ function tagged.forVersion(version: integer): any
                     return nil as any
                 end
             end
-            local result = ctx.emit(node, "NewTable", {}, "tagged")
+            -- A checked `{T}` whose elements pack is made packed, with room
+            -- for its positional entries (runtime Decision 15).
+            local packed = packedkind(node)
+            local result = packed
+                and ctx.emit(
+                    node,
+                    "LibCall",
+                    {
+                        116,
+                        ctx.emit(node, "K", {pool(ctx, "int64", tostring(packed))}, "tagged"),
+                        ctx.emit(node, "K", {pool(ctx, "int64", tostring(position))}, "tagged")
+                    },
+                    "tagged"
+                )
+                or ctx.emit(node, "NewTable", {}, "tagged")
             for _, key in ipairs(keys) do
                 local k = key.at and values[key.at] or ctx.emit(node, "K", {pool(ctx, key.kind, key.text)}, "tagged")
                 ctx.emit(node, "SetIdx", {result, k, values[key.valueAt]}, nil)
