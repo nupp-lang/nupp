@@ -362,7 +362,7 @@ function M.applicationImportsCannotReachBuiltinImplementationContracts()
         "nupp.compression.contracts",
         "serde.json.internal.contracts",
         "io.internal.contracts",
-        "io.files.internal.contracts",
+        "io.internal.files.contracts",
         "io.net.internal.contracts",
         "nupp.io.net.contracts",
         "nupp.io.http.contracts",

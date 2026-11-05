@@ -4,7 +4,7 @@ local packs = require("tests.integration.simd.native-packs")
 local runner = require("tests.integration.simd.runner")
 local wasmtime = require("tests.integration.simd.wasmtime")
 local fs = require("nupp.compiler.fs")
-local files = require("io.files")
+local files = require("io.internal.files")
 local M = {}
 
 local function exists(path)

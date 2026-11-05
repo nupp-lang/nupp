@@ -75,7 +75,7 @@ intrinsic namespaces and the declared modules:
 - [](io) owns byte buffers, readers, writers, and typed scalar reads and writes
   over them. [](io.Bytes) shares immutable engine storage across workers and
   lends byte views without copying.
-- [](io.files) owns filesystem metadata and directories.
+- [](os) owns the filesystem: metadata, directories, links, temporary paths, and app storage roots.
 - [](io.net) owns listeners, plain connections, and TLS sessions.
 - [](io) models filesystem paths and resource identifiers.
 - [](debug.log) owns leveled logging over a swappable destination.

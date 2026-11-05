@@ -315,7 +315,7 @@ local function run(options: any): integer
 
     if values.gpuCosts ~= nil then
         local directory = require("nupp.compiler.fs").dirname(values.gpuCosts)
-        local made, makeErr = require("io.files").mkdir(directory)
+        local made, makeErr = require("io.internal.files").mkdir(directory)
         if not made then
             io.stderr:write(errors.message(makeErr) .. "\n")
             return 1

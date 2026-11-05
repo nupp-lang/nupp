@@ -184,6 +184,7 @@ typedef struct {
 #define NUPP_NATIVE_FILES_KIND_DIRECTORY 2u
 #define NUPP_NATIVE_FILES_KIND_OTHER 3u
 #define NUPP_NATIVE_FILES_KIND_SYMLINK 4u
+#define NUPP_NATIVE_FILES_ABSENT (-1)
 
 /* nuppNativeFilesApplicationBase kinds. */
 #define NUPP_NATIVE_FILES_BASE_CONFIG 0u
@@ -227,6 +228,16 @@ NUPP_NATIVE_EXPORT int32_t nuppNativeFilesReadLink(
     NuppNativeFilesSlice path, uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesList(
     NuppNativeFilesSlice path, uint64_t *output);
+/* Zero when the path resolves, NUPP_NATIVE_FILES_ABSENT when it does not,
+ * and a failure status when the lookup cannot tell. */
+NUPP_NATIVE_EXPORT int32_t nuppNativeFilesExists(NuppNativeFilesSlice path);
+/* Batched directory reading: each next call writes a byte handle holding up
+ * to 256 entries encoded as a listing is, and an empty batch ends it. */
+NUPP_NATIVE_EXPORT int32_t nuppNativeFilesListOpen(
+    NuppNativeFilesSlice path, uint64_t *output);
+NUPP_NATIVE_EXPORT int32_t nuppNativeFilesListNext(
+    uint64_t listing, uint64_t *output);
+NUPP_NATIVE_EXPORT int32_t nuppNativeFilesListClose(uint64_t listing);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesGlob(
     NuppNativeFilesSlice pattern, uint64_t *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeFilesCreateTemporary(

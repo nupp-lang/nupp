@@ -391,11 +391,11 @@ function M.recordsNamingStagedStandardModulesAreReused()
     write(
         directory .. "/src/clock.nupp",
         [[
-local files = require("io.files")
+local files = require("io.http")
 local time = require("coroutine")
 
 local function stamp(path: string): number
-    if files.exists(path) then
+    if files.file(path) ~= nil then
         return os.monotonic()
     end
     return 0
@@ -410,15 +410,15 @@ return {stamp = stamp}
             (
                 [[
 local clock = require("clock")
-local files = require("io.files")
+local files = require("io.http")
 local time = require("coroutine")
 
 local function value(path: string): number
-    local exists = files.exists(path) and 1 or 0
+    local exists = files.file(path) ~= nil and 1 or 0
     return clock.stamp(path) + os.monotonic() + exists + %d
 end
 
-local function described(info: files.Info?): boolean
+local function described(info: files.FileBody?): boolean
     return info ~= nil
 end
 
@@ -453,7 +453,7 @@ function M.aStandardGenericFillsAFieldInEitherSchedule()
         [[
 const {type Observers} = require("events")
 local events = require("events")
-local files = require("io.files")
+local files = require("io.http")
 
 local record World
     observers: Observers<integer>
@@ -470,7 +470,7 @@ local function fresh(): Observers<integer>
 end
 
 local function count(path: string): integer
-    return files.exists(path) and newWorld().observers.count or fresh().count
+    return files.file(path) ~= nil and newWorld().observers.count or fresh().count
 end
 
 return {count = count}
@@ -482,10 +482,10 @@ return {count = count}
             (
                 [[
 local world = require("world")
-local files = require("io.files")
+local files = require("io.http")
 
 local function value(path: string): integer
-    return world.count(path) + (files.exists(path) and %d or 0)
+    return world.count(path) + (files.file(path) ~= nil and %d or 0)
 end
 
 return {value = value}

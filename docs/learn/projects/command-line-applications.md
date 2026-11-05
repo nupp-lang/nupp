@@ -147,11 +147,10 @@ local record Files
         request: cli.CompletionRequest
     ): {cli.CompletionCandidate}
         local out: {cli.CompletionCandidate} = {}
-        local entries = io.files.list(request.cwd) or {}
-        for _, entry in ipairs(entries) do
-            if entry.name:sub(1, #request.prefix) == request.prefix then
+        for name in os.list(request.cwd) do
+            if name:sub(1, #request.prefix) == request.prefix then
                 out[#out + 1] = cli.CompletionCandidate(
-                    value = entry.name,
+                    value = name,
                     kind = "file"
                 )
             end

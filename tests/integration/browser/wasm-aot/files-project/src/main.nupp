@@ -1,10 +1,8 @@
-const files = io.files
-
-files.setappid("nupp", "browser-files-test")
-local root, rootReason = files.datapath()
+os.setappid("nupp", "browser-files-test")
+local root, rootReason = os.appdir("data")
 assert(root, rootReason)
 os.remove(root, true)
-local created, createReason = files.mkdir(root)
+local created, createReason = os.mkdir(root)
 assert(created, createReason)
 local path = root:join("save.bin")
 do
@@ -87,18 +85,22 @@ do
     reopened = file:seek("end") == 12
 end
 
-local entries, listReason = files.list(root)
-assert(entries, listReason)
-local symlink = files.issymlink(path)
-local persistent = files.requestpersistentstorage()
-local capabilities = files.capabilities()
+local listed = false
+for name, kind in os.list(root) do
+    listed = listed or (name == "save.bin" and kind == "file")
+end
+local linkKind = os.lstat(path)
+local present = os.exists(path)
+local persistent = os.persiststorage()
+local capabilities = os.fscaps()
 do
     local file = assert(io.open(path, "rb"))
     local final, finalReason = file:read("*a")
     assert(final == "abc\0def:tail", finalReason)
 end
-assert(entries[1].name == "save.bin")
-assert(symlink == false and not capabilities.symlinks)
+assert(listed)
+assert(present == true)
+assert(linkKind == "file" and not capabilities.symlinks)
 assert(capabilities.available and not capabilities.arbitrarypaths and not capabilities.concurrentopenhandles)
 assert(type(persistent) == "boolean")
 local removed, removeReason = os.remove(root, true)

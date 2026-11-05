@@ -1,5 +1,5 @@
 @!internal
-module io.files.internal.path
+module io.internal.files.path
 
 const assert2 = require("assert")
 
@@ -23,10 +23,10 @@ local descriptors: {[any]: any} = setmetatable({}, {__mode = "k"})
 
 local function validText(value: any, what: string, level: integer): string
     if type(value) ~= "string" or value == "" then
-        error("nupp: io.files " .. what .. " must be a non-empty string", level)
+        error("nupp: os " .. what .. " must be a non-empty string", level)
     end
     if not utf8.isvalid(value as string) then
-        error("nupp: io.files " .. what .. " must be valid UTF-8", level)
+        error("nupp: os " .. what .. " must be valid UTF-8", level)
     end
 
     return value as string
@@ -80,18 +80,18 @@ end
 local function component(value: any, level: integer): string
     local text = validText(value, "AppPath component", level + 1)
     if text == "." or text == ".." then
-        error("nupp: io.files AppPath component must not be '.' or '..'", level)
+        error("nupp: os AppPath component must not be '.' or '..'", level)
     end
     if text:sub(-1) == "." or text:sub(-1) == " " then
-        error("nupp: io.files AppPath component must not end in a dot or space", level)
+        error("nupp: os AppPath component must not end in a dot or space", level)
     end
     if text:find("[/\\]", 1) or text:find('[<>:"|?*]') or reservedDevice(text) then
-        error("nupp: io.files AppPath component is not portable", level)
+        error("nupp: os AppPath component is not portable", level)
     end
     for index = 1, #text do
         local byte = text:byte(index) as integer
         if byte < 32 or byte == 127 then
-            error("nupp: io.files AppPath component contains a control byte", level)
+            error("nupp: os AppPath component contains a control byte", level)
         end
     end
 
@@ -160,5 +160,5 @@ export function is(value: any): boolean
 end
 
 export function descriptor(value: AppPath): any
-    return (assert2(descriptors[value], "io.files: path is not an AppPath"))
+    return (assert2(descriptors[value], "os: path is not an AppPath"))
 end

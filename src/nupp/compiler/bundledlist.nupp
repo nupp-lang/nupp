@@ -4,7 +4,7 @@ module nupp.compiler.bundledlist
 -- in-memory compiler can read embedded declarations without importing host I/O.
 
 local bundled = require("nupp.compiler.bundled")
-local files = require("io.files")
+const files = require("io.internal.files")
 local resource: any = {source = bundled.source,}
 
 function resource.list(prefix: string): {string}
@@ -25,12 +25,15 @@ function resource.list(prefix: string): {string}
     local found, pending = {}, {prefix}
     while #pending > 0 do
         local relative = table.remove(pending) as string
-        for _, entry in ipairs(files.list(bundled.moduleDir() .. relative) or {}) do
-            local child = relative .. "/" .. entry.name
-            if entry.kind == "directory" then
-                pending[#pending + 1] = child
-            elseif entry.kind == "file" then
-                found[#found + 1] = child
+        local entries = files.list(bundled.moduleDir() .. relative)
+        if entries then
+            for name, kind in entries do
+                local child = relative .. "/" .. name
+                if kind == "directory" then
+                    pending[#pending + 1] = child
+                elseif kind == "file" then
+                    found[#found + 1] = child
+                end
             end
         end
     end

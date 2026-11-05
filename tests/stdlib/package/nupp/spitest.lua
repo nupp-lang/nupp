@@ -677,9 +677,9 @@ function M.hostAndVmBindingsIgnoreAdvertisedOverrides()
             browser = "nupp.runtime.browser.uri"
         },
         {
-            module = "io.files",
+            module = "nupp.runtime.bindings.files",
             binding = "nupp.runtime.bindings.files",
-            interface = "io.files.spi.Provider",
+            interface = "io.internal.files.contracts.Provider",
             native = "nupp.runtime.provider.nativefiles",
             browser = "nupp.runtime.browser.files",
             member = "capabilities"
@@ -922,8 +922,8 @@ function M.memoizedAppPathsAreRecreated()
     local files = require("helpers.providerstate").load("files", provider)
     files.setappid("example", "application-path-test")
 
-    assert(files.datapath() == root)
-    assert(files.datapath() == root)
+    assert(files.appdir("data") == root)
+    assert(files.appdir("data") == root)
     assert(resolved == 1, "the platform root is resolved once")
     assert(created == 1, "a cached root is recreated if the caller removed it")
 end

@@ -27,7 +27,7 @@ it looks a lexer up by asking `loadfile` for it and reading the answer.
 ]]
 module nupp.tools.doc.highlight
 
-const files = require("io.files")
+const files = require("io.internal.files")
 
 local lexer = require("nupp.compiler.syntax.lexer")
 local parser = require("nupp.compiler.syntax.parser")
@@ -224,7 +224,7 @@ export function configureScintillua(root: string?, settings: Settings?): nil
         local custom = join(root, lexerDir)
         -- Opening a directory happens to succeed on Unix and fails on Windows;
         -- ask the filesystem the question that is actually being answered.
-        if files.isdirectory(custom) then
+        if files.stat(custom) == "directory" then
             searchPath = custom .. ";" .. base
         end
     end

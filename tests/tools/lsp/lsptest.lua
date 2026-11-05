@@ -4229,7 +4229,7 @@ end
 function M.rangeFormattingKeepsQualifiedReferencesBound()
     local projectDir = makeDir()
     local uri = fileUri(projectDir .. "/imports.nupp")
-    local source = '-- imports stay outside the selection\n\nreturn io.files.exists(  "a"  )\n'
+    local source = '-- imports stay outside the selection\n\nreturn io.http.file(  "a"  )\n'
     local out = runSession(
         {
             {jsonrpc = "2.0", id = 1, method = "initialize", params = {}},
@@ -4256,7 +4256,7 @@ function M.rangeFormattingKeepsQualifiedReferencesBound()
     os.execute("rm -rf '" .. projectDir .. "'")
     local edits = responseWithId(out, 10).result
     assert(#edits == 1, "range receives its layout edit")
-    assert(edits[1].newText == 'return io.files.exists("a")\n', "reference keeps its module path")
+    assert(edits[1].newText == 'return io.http.file("a")\n', "reference keeps its module path")
 end
 
 function M.formattingHonorsAManifestThatTurnsMethodParensOff()

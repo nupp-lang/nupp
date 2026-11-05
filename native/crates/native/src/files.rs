@@ -297,18 +297,121 @@ pub unsafe extern "C" fn nuppNativeFilesList(input: FilesSlice, output: *mut u64
             Ok(value) => value,
             Err(error) => return io_failed(error),
         };
-        let mut encoded = Vec::new();
-        for entry in entries {
-            encoded.push(match entry.kind {
-                filesystem::FileKind::File => b'f',
-                filesystem::FileKind::Directory => b'd',
-                filesystem::FileKind::Symlink => b'l',
-                filesystem::FileKind::Other => b'o',
-            });
-            encoded.extend_from_slice(&entry.name);
-            encoded.push(0);
+        store(encode_entries(entries), output, "directory listing output is null")
+    })
+}
+
+/// What `nuppNativeFilesExists` returns for a name that does not resolve. It
+/// is negative so that it never collides with a failure status.
+const ABSENT: i32 = -1;
+
+/// Entries handed back by one `nuppNativeFilesListNext` call.
+const LIST_BATCH: usize = 256;
+
+fn listings() -> &'static Mutex<Arena<filesystem::Listing>> {
+    static LISTINGS: OnceLock<Mutex<Arena<filesystem::Listing>>> = OnceLock::new();
+    LISTINGS.get_or_init(|| Mutex::new(Arena::new()))
+}
+
+fn encode_entries(entries: Vec<filesystem::DirectoryEntry>) -> Vec<u8> {
+    let mut encoded = Vec::new();
+    for entry in entries {
+        encoded.push(match entry.kind {
+            filesystem::FileKind::File => b'f',
+            filesystem::FileKind::Directory => b'd',
+            filesystem::FileKind::Symlink => b'l',
+            filesystem::FileKind::Other => b'o',
+        });
+        encoded.extend_from_slice(&entry.name);
+        encoded.push(0);
+    }
+    encoded
+}
+
+#[unsafe(no_mangle)]
+/// Reports whether a path resolves, following symbolic links: zero when it
+/// does, `NUPP_NATIVE_FILES_ABSENT` when it does not, and a failure status
+/// when the lookup cannot tell.
+///
+/// # Safety
+/// The path must remain readable for this call.
+pub unsafe extern "C" fn nuppNativeFilesExists(input: FilesSlice) -> i32 {
+    boundary(|| {
+        let path = match unsafe { path(input, "path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        match filesystem::exists(&path) {
+            Ok(true) => Status::Ok.code(),
+            Ok(false) => ABSENT,
+            Err(error) => io_failed(error),
         }
-        store(encoded, output, "directory listing output is null")
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Opens a directory for batched reading and writes its handle.
+///
+/// # Safety
+/// The path must remain readable and output must be writable for this call.
+pub unsafe extern "C" fn nuppNativeFilesListOpen(input: FilesSlice, output: *mut u64) -> i32 {
+    boundary(|| {
+        if output.is_null() {
+            return super::failed(Status::InvalidArgument, "directory handle output is null");
+        }
+        let path = match unsafe { path(input, "path") } {
+            Ok(value) => value,
+            Err(status) => return status,
+        };
+        let listing = match filesystem::Listing::open(&path) {
+            Ok(value) => value,
+            Err(error) => return io_failed(error),
+        };
+        let handle = match listings().lock() {
+            Ok(mut arena) => match arena.insert(listing) {
+                Ok(handle) => handle,
+                Err(status) => {
+                    return super::failed(status, "directory handle capacity is exhausted");
+                }
+            },
+            Err(_) => return super::failed(Status::Internal, "directory store is poisoned"),
+        };
+        // SAFETY: output was checked above.
+        unsafe { output.write(handle.raw()) };
+        Status::Ok.code()
+    })
+}
+
+#[unsafe(no_mangle)]
+/// Writes a byte handle holding the next batch of entries, encoded as a
+/// listing is. An empty batch means the directory is exhausted.
+///
+/// # Safety
+/// Output must be writable for this call.
+pub unsafe extern "C" fn nuppNativeFilesListNext(raw: u64, output: *mut u64) -> i32 {
+    boundary(|| {
+        let batch = match listings().lock() {
+            Ok(mut arena) => match arena.get_mut(Handle::from_raw(raw)) {
+                Ok(listing) => listing.next_batch(LIST_BATCH),
+                Err(status) => return super::failed(status, "directory handle is stale"),
+            },
+            Err(_) => return super::failed(Status::Internal, "directory store is poisoned"),
+        };
+        match batch {
+            Ok(entries) => store(encode_entries(entries), output, "directory batch output is null"),
+            Err(error) => io_failed(error),
+        }
+    })
+}
+
+#[unsafe(no_mangle)]
+pub extern "C" fn nuppNativeFilesListClose(raw: u64) -> i32 {
+    boundary(|| match listings().lock() {
+        Ok(mut arena) => match arena.remove(Handle::from_raw(raw)) {
+            Ok(_) => Status::Ok.code(),
+            Err(status) => super::failed(status, "directory handle is stale"),
+        },
+        Err(_) => super::failed(Status::Internal, "directory store is poisoned"),
     })
 }
 

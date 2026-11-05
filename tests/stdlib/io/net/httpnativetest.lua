@@ -98,7 +98,7 @@ function M.beforeAll()
     process = require("io")
     http = require("io.http")
     buffers = require("io")
-    files = require("io.files")
+    files = require("io.internal.files")
     port, unavailable = startServer()
 end
 

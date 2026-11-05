@@ -258,7 +258,7 @@ local function cleanupTempNames()
     if #remaining == 0 then
         return
     end
-    local loaded, files = pcall(require, "io.files")
+    local loaded, files = pcall(require, "io.internal.files")
     if not loaded then
         return
     end
@@ -1550,21 +1550,21 @@ local function readJson(path)
 end
 
 local function fixtureManifest(root)
-    local files = require("io.files")
+    local files = require("io.internal.files")
     local manifest = {}
 
     local function walk(directory, prefix)
-        for _, entry in ipairs(files.list(directory) or {}) do
-            local relative = prefix == "" and entry.name or prefix .. "/" .. entry.name
-            local path = directory .. "/" .. entry.name
+        for name, kind in files.list(directory) or function() end do
+            local relative = prefix == "" and name or prefix .. "/" .. name
+            local path = directory .. "/" .. name
             if relative ~= ".nupp-fixture.json" then
-                if entry.kind == "directory" then
+                if kind == "directory" then
                     manifest[#manifest + 1] = {path = relative, kind = "directory"}
                     local ok, problem = walk(path, relative)
                     if not ok then
                         return nil, problem
                     end
-                elseif entry.kind == "file" then
+                elseif kind == "file" then
                     local file, problem = io.open(path, "rb")
                     if not file then
                         return nil, tostring(problem)
@@ -1680,7 +1680,7 @@ local function resolveFixture(key, produce)
         error("content-addressed fixtures require exclusive file creation on this runtime", 2)
     end
 
-    local files = require("io.files")
+    local files = require("io.internal.files")
     local made, makeProblem = files.mkdir(fixtureRoot)
     if not made then
         error("cannot create fixture store: " .. tostring(makeProblem), 2)
@@ -1850,20 +1850,20 @@ end
 -- producer alone however long it has been working.
 if not queueDir and #shard == 0 then
     pcall(function()
-        local files = require("io.files")
-        for _, entry in ipairs(files.list(fixtureRoot) or {}) do
-            if entry.name:match("%.failed%.json$") then
-                os.remove(fixtureRoot .. "/" .. entry.name)
-            elseif entry.name:match("%.lock$") then
-                local path = fixtureRoot .. "/" .. entry.name
+        local files = require("io.internal.files")
+        for name in files.list(fixtureRoot) or function() end do
+            if name:match("%.failed%.json$") then
+                os.remove(fixtureRoot .. "/" .. name)
+            elseif name:match("%.lock$") then
+                local path = fixtureRoot .. "/" .. name
                 local stamp = lockStamp(path)
                 local created = stamp and stamp.created
                 local cutoff = os.time() - FIXTURE_LEASE_SECONDS
-                local information = not created and files.info(path) or nil
+                local modified = not created and select(3, files.stat(path)) or nil
                 local known = stamp ~= nil and stamp.holder ~= nil and processAlive ~= nil
                 local stale = holderExited(stamp)
                     or not known and created and created <= cutoff
-                    or not known and information ~= nil and tonumber(information.modified) / 1000 <= cutoff
+                    or not known and modified ~= nil and tonumber(modified) / 1000 <= cutoff
                 if stale then
                     fixtureSerial = fixtureSerial + 1
                     local claimed = path .. ".stale-" .. shardSalt .. "-" .. fixtureSerial

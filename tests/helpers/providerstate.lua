@@ -58,7 +58,7 @@ local function instance(owned, replacements, preloads, globals)
 end
 
 function M.load(kind, provider)
-    local facade = kind == "files" and "io.files" or kind == "process" and "io.internal.process" or "nupp.io." .. kind
+    local facade = kind == "files" and "io.internal.files" or kind == "process" and "io.internal.process" or "nupp.io." .. kind
     setmetatable(provider, {
         __index = function(_, name)
             if name == "priority" then

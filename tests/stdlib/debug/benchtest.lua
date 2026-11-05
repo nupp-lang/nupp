@@ -21,7 +21,7 @@ local optimize = require("nupp.compiler.lua.optimize")
 local check = require("helpers.fragment")
 local envMod = require("nupp.compiler.project.env")
 local json = require("testjson")
-local files = require("io.files")
+local files = require("io.internal.files")
 
 local HERE = require("helpers.paths").tests
 local env = envMod.new(HERE .. "/..")

@@ -11,7 +11,7 @@ module nupp.tools.build.modules
 
 const assert2 = require("assert")
 
-const files = require("io.files")
+const files = require("io.internal.files")
 local fileops = require("nupp.runtime.standardos")
 const {type Target as Target2} = require("nupp.tools.build.manifest")
 const {type Inc} = require("nupp.compiler.project.incremental")
@@ -134,8 +134,7 @@ local function selectedSourceFiles(root: string, target: Target): ({string}?, st
         end
         local candidates: {string} = {}
         for _, matched in ipairs(matches) do
-            local info = files.info(matched)
-            if info and info.kind == "directory" then
+            if files.stat(matched) == "directory" then
                 for _, path in ipairs(fs.listFiles(matched, hiddenDirectory)) do
                     candidates[#candidates + 1] = path
                 end

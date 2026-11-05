@@ -710,6 +710,21 @@ async function performFilesEffectNow(effect, options) {
     await directoryAt(state, parts, true);
     return {created: true};
   }
+  if (effect.operation === "exists") {
+    // Only a missing name is an answer; any other failure stays a failure.
+    try {
+      const directory = await directoryAt(state, parts, false, parts.length - 1);
+      try {
+        await directory.getFileHandle(parts[parts.length - 1]);
+      } catch (error) {
+        if (error?.name !== "TypeMismatchError") throw error;
+      }
+      return {exists: true};
+    } catch (error) {
+      if (error?.name === "NotFoundError") return {exists: false};
+      throw error;
+    }
+  }
   const parent = await directoryAt(state, parts, false, parts.length - 1);
   const name = parts[parts.length - 1];
   if (effect.operation === "open") {

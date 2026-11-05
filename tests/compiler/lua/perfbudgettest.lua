@@ -87,7 +87,7 @@ local M = {}
 -- directories were listed.
 function M.theProjectWalkNeverListsTheOutputDirectory()
     local envMod = require("nupp.compiler.project.env")
-    local files = require("io.files")
+    local files = require("io.internal.files")
     local dir = temporary()
     writeFile(dir .. "/src/main.nupp", "module main\nexport = true\n")
     writeFile(dir .. "/top.nupp", "module top\nexport = true\n")

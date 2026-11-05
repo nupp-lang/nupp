@@ -21,7 +21,7 @@ const terminal = require("io.cli")
 local json = require("serde.json")
 
 local buildProcess = require("nupp.compiler.process")
-local files = require("io.files")
+local files = require("io.internal.files")
 local process = require("nupp.runtime.standardio")
 local random = require("math.internal.random")
 local statistics = require("nupp.bench.internal.statistics")

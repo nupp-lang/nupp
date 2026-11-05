@@ -31,7 +31,7 @@ untracked files for the two definitions to disagree about anyway.
 ]]
 module nupp.tools.template
 
-const files2 = require("io.files")
+const files2 = require("io.internal.files")
 const fileops = require("nupp.runtime.standardos")
 
 local bundled = require("nupp.compiler.bundledlist")
@@ -316,22 +316,22 @@ local function walk(root: string): {string}?, string?
         local relative = table.remove(pending) as string
         local entries, listErr = files2.list(join(root, relative))
         if not entries then
-            return nil, "cannot read " .. join(root, relative) .. ": " .. tostring(listErr)
+            return nil, "cannot read " .. tostring(listErr)
         end
-        for _, entry in ipairs(entries) do
-            local child = relative == "" and entry.name or relative .. "/" .. entry.name
-            if entry.kind == "symlink" then
+        for name, kind in entries do
+            local child = relative == "" and name or relative .. "/" .. name
+            if kind == "symlink" then
                 return nil, child .. " is a symbolic link, which a template may not contain"
 
-            elseif entry.kind == "directory" then
+            elseif kind == "directory" then
                 -- Pruned by name at any depth: the root store a clone leaves, and
                 -- a submodule's, are the same problem and neither belongs in a
                 -- scaffolded project.
-                if entry.name ~= ".git" then
+                if name ~= ".git" then
                     pending[#pending + 1] = child
                 end
 
-            elseif entry.kind == "file" then
+            elseif kind == "file" then
                 if child ~= "template.lua" then
                     found[#found + 1] = child
                 end
@@ -794,8 +794,8 @@ local function destinationIsFree(destination: string): boolean, string?
     if not entries then
         return true
     end
-    for _, entry in ipairs(entries) do
-        if entry.name ~= ".git" then
+    for name in entries do
+        if name ~= ".git" then
             return false, destination .. " is not empty"
         end
     end

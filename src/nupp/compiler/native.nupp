@@ -38,6 +38,36 @@ type native.Feature = {
     [string]: any
 }
 
+-- Every `os` function that reaches the filesystem provider. Reading any of them
+-- carries the provider; a program that only reads the clock carries none of it.
+local FILESYSTEM_FUNCTIONS = {
+    "remove",
+    "rename",
+    "exists",
+    "stat",
+    "lstat",
+    "readlink",
+    "mkdir",
+    "list",
+    "glob",
+    "copy",
+    "symlink",
+    "writeatomic",
+    "mktemp",
+    "mktempdir",
+    "setappid",
+    "appid",
+    "appdir",
+    "fscaps",
+    "persiststorage",
+}
+local FILESYSTEM_GLOBALS: {string} = {}
+local FILESYSTEM_EXPORTS: {string} = {}
+for _, name in ipairs(FILESYSTEM_FUNCTIONS) do
+    FILESYSTEM_GLOBALS[#FILESYSTEM_GLOBALS + 1] = "os." .. name
+    FILESYSTEM_EXPORTS[#FILESYSTEM_EXPORTS + 1] = "nupp.runtime.standardos." .. name
+end
+
 local FEATURES: {[string]: native.Feature} = {
     [
         "runtime.structpool"
@@ -73,10 +103,10 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.files"
     ] = {
         name = "files_runtime",
-        module = "io.files",
-        globals = {"os.remove", "os.rename"},
-        exports = {"nupp.runtime.standardos.remove", "nupp.runtime.standardos.rename"},
-        runtimeModule = "io.files",
+        module = "io.internal.files",
+        globals = FILESYSTEM_GLOBALS,
+        exports = FILESYSTEM_EXPORTS,
+        runtimeModule = "io.internal.files",
         portableRuntime = true,
         requires = {
             "runtime.files_messages",
@@ -87,12 +117,14 @@ local FEATURES: {[string]: native.Feature} = {
             "stdlib.io",
         }
     },
-    ["runtime.files_messages"] = {name = "files_messages", runtimeModule = "io.files.messages", portableRuntime = true},
+    [
+        "runtime.files_messages"
+    ] = {name = "files_messages", runtimeModule = "io.internal.files.messages", portableRuntime = true},
     [
         "runtime.files_path"
     ] = {
         name = "files_path",
-        runtimeModule = "io.files.internal.path",
+        runtimeModule = "io.internal.files.path",
         portableRuntime = true,
         requires = {"runtime.path", "stdlib.io"},
     },
@@ -100,7 +132,7 @@ local FEATURES: {[string]: native.Feature} = {
         "runtime.files_spi"
     ] = {
         name = "files_spi",
-        runtimeModule = "io.files.internal.contracts",
+        runtimeModule = "io.internal.files.contracts",
         portableRuntime = true,
         requires = {"runtime.files_messages", "runtime.files_path", "stdlib.io"},
     },

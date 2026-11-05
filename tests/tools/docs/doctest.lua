@@ -2492,10 +2492,10 @@ function M.standardIOApiHasCompleteDocumentation()
             "src/io/internal/uritypes.nupp"
         ] = {types = {URI = true,}, functions = {}, overview = "src/nupp/runtime/standardio.nupp",},
         [
-            "src/io/files/init.nupp"
+            "src/nupp/runtime/standardos.nupp"
         ] = {
-            types = {TemporaryPath = true, Info = true, Entry = true,},
-            functions = {info = true, glob = true, writeatomic = true,},
+            types = {TemporaryPath = true, FileKind = true, FsCaps = true, Path = true, AppPath = true,},
+            functions = {stat = true, lstat = true, exists = true, list = true, glob = true, writeatomic = true,},
         },
     }
     for relative, expected in pairs(modules) do
@@ -2623,7 +2623,7 @@ function M.hostBoundariesDeclareThemselvesInternal()
     local boundaries = {
         "src/nupp/workers/native.d.nupp",
         "src/binary/_representation.nupp",
-        "src/io/files/messages.nupp",
+        "src/io/internal/files/messages.nupp",
     }
     for _, relative in ipairs(boundaries) do
         local source = readFile(HERE .. "/../" .. relative)

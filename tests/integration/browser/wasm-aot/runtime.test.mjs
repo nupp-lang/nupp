@@ -145,13 +145,15 @@ function fakeOpfs() {
     async getDirectoryHandle(name, {create = false} = {}) {
       let child = this.children.get(name);
       if (!child && create) { child = new DirectoryHandle(name); this.children.set(name, child); }
-      if (!child || child.kind !== "directory") throw new Error("directory does not exist");
+      if (!child) throw new DOMException("directory does not exist", "NotFoundError");
+      if (child.kind !== "directory") throw new DOMException("entry is a file", "TypeMismatchError");
       return child;
     }
     async getFileHandle(name, {create = false} = {}) {
       let child = this.children.get(name);
       if (!child && create) { child = new FileHandle(name); this.children.set(name, child); }
-      if (!child || child.kind !== "file") throw new Error("file does not exist");
+      if (!child) throw new DOMException("file does not exist", "NotFoundError");
+      if (child.kind !== "file") throw new DOMException("entry is a directory", "TypeMismatchError");
       return child;
     }
     async removeEntry(name, {recursive = false} = {}) {
@@ -180,6 +182,11 @@ test("browser file effects acquire OPFS paths and retain synchronous handles", a
     return result.responses[0];
   };
   assert.equal((await request(1, "create-directory")).ok, true);
+  const present = async (id, parts) => (await request(id, "exists", parts)).value.exists;
+  assert.equal(await present(101, ["data", "nupp", "example"]), true);
+  assert.equal(await present(102, ["data", "nupp", "example", "absent.bin"]), false);
+  assert.equal(await present(103, ["data", "nupp", "missing", "deeper.bin"]), false);
+  assert.equal((await request(104, "exists", ["data"])).ok, false, "a path outside an app root is refused");
   const opened = await request(2, "open", ["data", "nupp", "example", "save.bin"], {mode: "w+"});
   assert.equal(opened.ok, true);
   assert.equal(files.handles.get(opened.value.handle).writable, true);

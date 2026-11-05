@@ -78,7 +78,7 @@ local FORMER_DROP_OWNERS = {
     "local destination = io.Buffer.create(); local owner = destination:writer():scalar()",
     "local owner = io.Reader.of('one'):lines()",
     "local owner = assert(io.open('input.bin'))",
-    "local owner = assert(io.files.tmpfile())",
+    "local owner = assert(os.mktemp())",
     "local owner = nupp.heap.alloc(ffi.typeof<int32>(), 4)",
     "local struct Row\n    x: int32\nend\nlocal owner = nupp.soa.alloc(ffi.typeof<Row>(), 4)",
 }
@@ -537,7 +537,7 @@ function M.browserFilesUseEffectsAndRejectMalformedBoundaries()
     end
     local ok, problem = pcall(function()
         local browser = require("helpers.providerstate").browserFiles(memory)
-        local paths = require("io.files.internal.path")
+        local paths = require("io.internal.files.path")
         local path = paths.browser("data", "nupp", "files-test"):join("value.bin")
 
         local before = #calls
@@ -847,18 +847,17 @@ function M.gpuAvailabilityAnswersWithoutRaising()
     testAssert.eq(host.closed.payload.operation, "runtime-close", "the probe closes the device it opened")
 end
 
-function M.filesystemNamesAreFilesPathsEverywhere()
+function M.filesystemNamesAreOsPathsEverywhere()
     -- http file bodies, socket paths and a child's working directory take the same
-    -- io.files.Path the files facade does, application paths included.
+    -- os.Path the filesystem functions do, application paths included.
     assertClean(
         table.concat(
             {
-                "const files = require(\"io.files\")",
                 "const http = require(\"io.http\")",
                 "const net = require(\"io.net\")",
                 "const paths = require('io')",
                 "const process = require('io')",
-                "local function send(where: files.Path): nil",
+                "local function send(where: os.Path): nil",
                 "    local body = http.file(where)",
                 "    local listener = net.listen({path = where})",
                 "    local stream = net.connect({path = where})",
@@ -867,7 +866,7 @@ function M.filesystemNamesAreFilesPathsEverywhere()
                 "end",
                 "send('/tmp/x')",
                 "send(paths.Path.of('/tmp/x'))",
-                "send((assert(files.datapath())))",
+                "send((assert(os.appdir('data'))))",
             },
             "\n"
         )
@@ -2558,29 +2557,28 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
                 "local buffer = io.Buffer.create()",
                 "local reader = io.Reader.of('abc')",
                 "local moved: integer? = reader:readinto(buffer)",
-                "const files = require(\"io.files\")",
-                "local info = files.info('x')",
-                "local size: integer? = info and info.size",
+                "local kind, size = os.stat('x')",
+                "local bytes: integer? = kind and size",
             },
             "\n"
         )
     )
 
-    testAssert.eq((diagsOf("io.files.read('x')")), "NUPP2004:1")
-    testAssert.eq((diagsOf("io.files.write('x', 'bytes')")), "NUPP2004:1")
-    testAssert.eq((diagsOf("io.files.append('x', 'bytes')")), "NUPP2004:1")
-    assertClean("const files = require(\"io.files\")\nlocal paths: {io.Path} = assert(files.glob('src/**/*.nupp'))")
+    testAssert.eq((diagsOf("os.read('x')")), "NUPP2004:1")
+    testAssert.eq((diagsOf("os.write('x', 'bytes')")), "NUPP2004:1")
+    testAssert.eq((diagsOf("os.append('x', 'bytes')")), "NUPP2004:1")
+    assertClean("local paths: {io.Path} = assert(os.glob('src/**/*.nupp'))")
     testAssert.eq(
-        (diagsOf("const files = require(\"io.files\")\nfiles.glob(io.Path.of('src'))")),
-        "NUPP2006:2",
+        (diagsOf("os.glob(io.Path.of('src'))")),
+        "NUPP2006:1",
         "a glob takes a pattern, not a path"
     )
-    assertClean("const files = require(\"io.files\")\nlocal link: boolean = files.issymlink('x')")
-    testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.info(42)")), "NUPP2006:2")
+    assertClean("local kind: os.FileKind? = os.lstat('x')")
+    testAssert.eq((diagsOf("os.stat(42)")), "NUPP2006:1")
     testAssert.eq((diagsOf("io.open('x')")), "NUPP2605:1")
-    testAssert.eq((diagsOf("io.files.open('x')")), "NUPP2004:1")
-    testAssert.eq((diagsOf("io.files.lines('x')")), "NUPP2004:1")
-    testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.tmpfile()")), "NUPP2605:2")
+    testAssert.eq((diagsOf("os.open('x')")), "NUPP2004:1")
+    testAssert.eq((diagsOf("os.lines('x')")), "NUPP2004:1")
+    testAssert.eq((diagsOf("os.mktemp()")), "NUPP2605:1")
 end
 
 function M.luaFilesAndPublicResourcesUseAffineConstructors()
@@ -3578,16 +3576,16 @@ end
         "nupp.io.internal.bytes",
         "nupp.io.internal.scalars",
         "nupp.io.http.internal.transport",
-        "io.files.messages"
+        "io.internal.files.messages"
     }) do
         local diagnostics = diagsOf(('local hidden = require(%q)'):format(name))
         assert(diagnostics:find("NUPP2144", 1, true), name .. " must reject application imports: " .. diagnostics)
     end
 end
 
-function M.filesystemMetadataIsPublicOnlyThroughFiles()
-    assertClean("local function expose(value: io.files.Info): io.files.Info\nreturn value\nend")
-    local diagnostics = diagsOf("local function expose(value: io.files.messages.Info): nil\nend")
+function M.filesystemTypesArePublicOnlyThroughOs()
+    assertClean("local function expose(value: os.FsCaps): os.FsCaps\nreturn value\nend")
+    local diagnostics = diagsOf("local function expose(value: io.internal.files.messages.FsCaps): nil\nend")
     assert(
         diagnostics:find("NUPP2144", 1, true),
         "filesystem declarations reject qualified application access: " .. diagnostics
@@ -3622,9 +3620,9 @@ function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()
     testAssert.eq(scalar.readUint32, nil)
     testAssert.eq(scalar:readuint32(), 1)
     scalar:close()
-    local files, path = require("io.files"), require("io.internal.path")
+    local files, path = require("nupp.runtime.standardos"), require("io.internal.path")
     testAssert.eq(type(files.mkdir), "function")
-    testAssert.eq(type(files.tmpfile), "function")
+    testAssert.eq(type(files.mktemp), "function")
     testAssert.eq(files.createdirectory, nil)
     testAssert.eq(files.createtemporaryfile, nil)
     testAssert.eq(type(path.cwd), "function")

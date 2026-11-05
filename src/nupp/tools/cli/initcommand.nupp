@@ -16,7 +16,7 @@ const terminal2 = require("io.cli")
 
 const terminal = require("io.cli")
 
-local files = require("io.files")
+local files = require("io.internal.files")
 local fileops = require("nupp.runtime.standardos")
 local usageError = require("nupp.tools.cli.error").forCommand("init")
 local cliModule = require("io.cli")
@@ -349,7 +349,7 @@ local function run(options: any): integer
     -- refused confirmation, a tree that turns out not to be a template, and a
     -- finished scaffold all leave the same nothing behind. One creation and one
     -- close, with the work between them, because the handle is affine.
-    local owned, scratchErr = files.tmpdirectory({prefix = "nupp-template-"} as files.TemporaryOptions)
+    local owned, scratchErr = files.mktempdir("nupp-template-")
     if not owned then
         return fail("cannot create a temporary directory: " .. tostring(scratchErr), values.format == "json")
     end

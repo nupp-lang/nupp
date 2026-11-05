@@ -36,7 +36,7 @@ local scalarAdapters = require("nupp.io.internal.scalars")
 const {type Reader} = require("nupp.io")
 const {type Writer} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
-const {type Path} = require("io.files")
+const {type Path} = require("io.internal.files.path")
 
 local suspension = require("nupp.suspension")
 local span = require("binary.span")
@@ -77,7 +77,7 @@ export type ListenOptions = {
     port: integer?,
 
     --- A filesystem name to bind instead, for a Unix domain socket, as anything
-    --- [](io.files) accepts.
+    --- [](os.Path) names.
     ---
     --- The name is not removed when the listener closes. A caller that binds a
     --- path owns that path, and unlinking a file this process may not have
@@ -106,7 +106,7 @@ export type ConnectOptions = {
     port: integer?,
 
     --- A filesystem name to reach instead, for a Unix domain socket, as anything
-    --- [](io.files) accepts. Nothing is resolved for one, so a connect to a
+    --- [](os.Path) names. Nothing is resolved for one, so a connect to a
     --- path starts at the handshake.
     path: Path?,
 

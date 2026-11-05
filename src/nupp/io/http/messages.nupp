@@ -2,7 +2,7 @@
 
 module nupp.io.http.messages
 
-const {type Path} = require("io.files")
+const {type Path} = require("io.internal.files.path")
 const uri = require("io.internal.uri")
 
 --- A portable byte source for an HTTP upload, with consuming teardown.
@@ -121,7 +121,7 @@ end
 --- Built by [](io.http.file). The path must name a regular file: a device,
 --- FIFO or directory has no length to send, and the native transport refuses it.
 export record FileBody
-    --- The file to send, named as anything [](io.files) accepts: text, a
+    --- The file to send, named as anything [](os.Path) names: text, a
     --- [](io.Path), or an application path.
     path: Path
 

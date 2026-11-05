@@ -15,7 +15,7 @@ Processes expose their individual streams; network connections, TLS sessions,
 and HTTP bodies use the [](io.Reader) and [](io.Writer) interfaces. A parser
 written against either contract accepts those views and streams.
 
-See [](io.files) for the filesystem, [](io.popen) for child processes,
+See [](os.stat) and the other `os` functions for the filesystem, [](io.popen) for child processes,
 [](io.net) for plain and encrypted connections, and [](io.http) for the HTTP
 client.
 
@@ -34,8 +34,8 @@ Filesystem path operations and network, TLS, and HTTP operations return
 `kind` and the platform's `message`:
 
 ```nupp
-local info, err = io.files.info("settings.json")
-if info == nil and err ~= nil and err.kind == "notfound" then
+local kind, _, _, _, err = os.stat("settings.json")
+if kind == nil and err ~= nil and err.kind == "notfound" then
     print("No settings file")
 end
 ```
@@ -65,7 +65,7 @@ export const Bytes = immutable.Bytes
 
 local source1 = require("nupp.io")
 const {type Path as NativePath} = require("io.internal.pathtypes")
-const {type AppPath} = require("io.files")
+const {type AppPath} = require("io.internal.files.path")
 local uriTypes = require("io.internal.uritypes")
 
 --- An immutable absolute URI with normalized components.
@@ -427,7 +427,7 @@ end
 --- ```
 ---
 --- Native hosts accept a filename or `io.Path`; browser hosts accept an app path
---- from [](io.files). Byte-stream views from `reader` and `writer` share the file
+--- from [](os.appdir). Byte-stream views from `reader` and `writer` share the file
 --- cursor and borrow its lifetime. Closing a view leaves the file open.
 ---
 --- @param path the filename, native path, or browser app path to open

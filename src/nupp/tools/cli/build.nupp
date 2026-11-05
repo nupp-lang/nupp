@@ -8,7 +8,7 @@ rather than resolved.
 ]]
 module nupp.tools.cli.build
 
-const files = require("io.files")
+const files = require("io.internal.files")
 
 local usageError = require("nupp.tools.cli.error").forCommand("build")
 local cliModule = require("io.cli")
@@ -288,7 +288,7 @@ local function run(options: any): integer
     -- rather than several steps later, where the manifest is out of reach and all that
     -- is left to report is that a directory did not read as a module.
     for _, path in ipairs(paths) do
-        if not files.isfile(path) and configuredTarget(path) then
+        if files.stat(path) ~= "file" and configuredTarget(path) then
             return usageError(
                 ("%s names a build target rather than a source file; build it with --target %s"):format(path, path)
             )

@@ -589,7 +589,7 @@ function M.aTaskCancelledInAFileOperationSettlesCancelled()
             local child
             scoped(tasks, function(scope)
                 child = scope:spawn(function()
-                    seen.value, seen.reason = files.info(path)
+                    seen.value, seen.reason = files.stat(path, true)
                     seen.returned = true
                 end)
                 scope:spawn(function()
@@ -604,6 +604,58 @@ function M.aTaskCancelledInAFileOperationSettlesCancelled()
     check.eq(ok, true, tostring(status))
     check.eq(seen.returned, nil, "the cancelled read returned " .. tostring(seen.reason))
     check.eq(status, "cancelled", "a cancelled task finished as if nothing happened")
+end
+
+function M.browserFilesAnswerExistenceKindsAndListingsThroughTheHost()
+    local app = application({
+        owned = {"nupp.runtime.browser.files"},
+        handlers = {
+            files = function(request)
+                if request.operation == "create-directory" then
+                    return 0, {ok = true, value = {created = true}}
+                elseif request.operation == "exists" then
+                    return 0, {ok = true, value = {exists = request.parts[#request.parts] == "here"}}
+                elseif request.operation == "info" then
+                    return 0, {ok = true, value = {kind = "file", size = 3, modified = 2}}
+                elseif request.operation == "list" then
+                    return 0, {ok = true, value = {{name = "a", kind = "file"}, {name = "b", kind = "directory"}}}
+                elseif request.operation == "capabilities" then
+                    return 0, {ok = true, value = {available = true, persistentAvailable = false}}
+                end
+                return 0, {ok = false, error = "unexpected " .. tostring(request.operation)}
+            end,
+        },
+    })
+    local files = app.load("nupp.runtime.browser.files")
+    local seen = {}
+    local ok, problem = app.run(
+        function()
+            local root = assert(files.apppath("data", "org", "app"))
+            seen.present = files.exists(root:join("here"))
+            seen.absent, seen.reason = files.exists(root:join("gone"))
+            seen.kind, seen.size, seen.modified, seen.readonly = files.stat(root:join("here"), false)
+            seen.names = {}
+            for name, kind in assert(files.list(root)) do
+                seen.names[#seen.names + 1] = name .. ":" .. kind
+            end
+            seen.caps = files.capabilities()
+            seen.again = files.capabilities()
+        end,
+        20
+    )
+    check.eq(ok, true, tostring(problem))
+    check.eq(seen.present, true)
+    check.eq(seen.absent, false)
+    check.eq(seen.reason, nil, "absence is an answer")
+    check.eq(seen.kind, "file")
+    check.eq(seen.size, 3)
+    check.eq(seen.modified, 2000, "the host's seconds become milliseconds")
+    check.eq(seen.readonly, false)
+    check.eq(table.concat(seen.names, ","), "a:file,b:directory")
+    check.eq(seen.caps.available, true)
+    check.eq(seen.caps.persist, false)
+    check.eq(seen.caps.glob, false)
+    assert(rawequal(seen.caps, seen.again), "the report is asked for once")
 end
 
 function M.canonicalProviderKeysRetireTheirPrecedingContractNames()

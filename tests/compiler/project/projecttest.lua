@@ -1182,7 +1182,7 @@ function M.browserHostsCannotSelectNativeDistributionPlatforms()
     local status, output = process.capture({root .. "/bin/nupp", "build", "--host", "browser"}, {cwd = dir})
     testAssert.eq(status, 1, "the command-line host override is also rejected\n" .. output)
     assert(output:find('platforms selects native binary hosts', 1, true), output)
-    assert(not require("io.files").isdirectory(dir .. "/out"), "rejection writes no build output")
+    assert(require("io.internal.files").stat(dir .. "/out") ~= "directory", "rejection writes no build output")
     remove(dir)
 end
 
@@ -3108,8 +3108,7 @@ function M.standaloneBinaryLinksRustFilesystemIntoItsOwnHost()
         [
             "src/main.nupp"
         ] = [[
-const files = require("io.files")
-assert(files.isfile("Cargo.toml"))
+assert(os.stat("Cargo.toml") == "file")
 local file = assert(io.open("Cargo.toml", "rb"))
 local contents = assert(file:read("*a"))
 assert(contents:find("[workspace]", 1, true))

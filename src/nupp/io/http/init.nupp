@@ -94,9 +94,9 @@ module nupp.io.http
 
 local contracts = require("nupp.io.http.contracts")
 local messages = require("nupp.io.http.messages")
-const {type Path} = require("io.files")
+const {type Path} = require("io.internal.files.path")
 const paths = require("io.internal.path")
-const appPaths = require("io.files.internal.path")
+const appPaths = require("io.internal.files.path")
 local provider: contracts.Provider = require("nupp.runtime.bindings.http")
 local http = {}
 
@@ -175,7 +175,7 @@ end
 --- The path must name a regular file when the request is sent. A device, FIFO or
 --- directory has no length to send, and the native transport refuses it.
 ---
---- @param path the file to send, as anything [](io.files) accepts
+--- @param path the file to send, as anything [](os.Path) names
 --- @param contenttype the `content-type` to send, unless the request names one
 --- @return the request body
 --- @raises string when path is neither a string nor a path, or contenttype is not a
