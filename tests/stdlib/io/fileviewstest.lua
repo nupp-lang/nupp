@@ -1,11 +1,21 @@
 require("nupp.runtime.standardio")
 local test = require("assert")
-local ffi = require("ffi")
 local span = require("binary.span")
 local views = require("io.internal.fileviews")
 local M = {}
 
+-- Byte views share their Lua file's cursor, so they need a file that seeks.
+local function requireseek()
+    local path = os.tmpname()
+    local probe = assert(io.open(path, "w+b"))
+    local seekable = type(probe.seek) == "function"
+    probe:close()
+    os.remove(path)
+    test.suite.requirecapability("io.file.seek", seekable)
+end
+
 local function withFile(text, body)
+    requireseek()
     local path = os.tmpname()
     local file = assert(io.open(path, "w+b"))
     local ok, problem = pcall(function()
@@ -53,10 +63,12 @@ end
 function M.spanAndBufferReadsShareTheNativeCursorAndPreserveOtherBytes()
     withFile("abcdefghi", function(file)
         local reader = views.reader(file)
-        local storage = ffi.new("uint8_t[4]")
-        local writable = span.writecarray(storage, 4)
-        test.eq(reader:readspan(writable), 4)
-        test.eq(ffi.string(storage, 4), "abcd")
+        local storage = io.newbuffer(4)
+        local lease = storage:reservewrite(4, 4)
+        test.eq(reader:readspan(lease:span()), 4)
+        lease:commit(4)
+        test.eq(storage:getstring(), "abcd")
+        storage:close()
         local destination = io.newbuffer("--------")
         test.eq(reader:readinto(destination, 2, 3), 3)
         test.eq(destination:getstring(), "--efg---")
@@ -132,6 +144,7 @@ function M.closedParentsReturnByteErrorsRatherThanLuaClosedFileRaises()
 end
 
 function M.aHeldViewKeepsItsNativeParentAliveAcrossCollection()
+    requireseek()
     local path = os.tmpname()
     local weak = setmetatable({}, {__mode = "v"})
     local reader

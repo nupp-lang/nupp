@@ -295,6 +295,8 @@ end
 
 function M.defaultInputReadsAndIteratesAProcess()
     local public = ready()
+    -- A process becomes the default input through the host's `io.input`.
+    test.suite.requirecapability("io.input", (pcall(io.input)))
     local child = assert(public.popen(shell("printf 'first\nsecond\nthird\n'")))
     local previous = io.input()
     local ok, reason = pcall(function()
@@ -331,6 +333,7 @@ end
 
 function M.defaultOutputWritesFlushesAndClosesAProcess()
     local public = ready()
+    test.suite.requirecapability("io.output", (pcall(io.output)))
     local child = assert(public.popen(shell('IFS= read -r line; test "$line" = output42'), "w"))
     local previous = io.output()
     local result

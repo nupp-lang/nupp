@@ -38,7 +38,9 @@ local function same(expected, actual)
     end
 end
 
+-- The reference is the host's own Lua file, which needs `io.tmpfile`.
 local function reference(text, action)
+    testAssert.suite.requirecapability("io.tmpfile", rawtmpfile ~= nil)
     local raw = assert(rawtmpfile())
     assert(raw:write(text))
     assert(raw:seek("set"))
