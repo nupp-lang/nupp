@@ -237,6 +237,10 @@ nuppNativeCompressionDecoderRelease
 nuppNativeFilesInfo
 nuppNativeFilesReadLink
 nuppNativeFilesList
+nuppNativeFilesExists
+nuppNativeFilesListOpen
+nuppNativeFilesListNext
+nuppNativeFilesListClose
 nuppNativeFilesGlob
 nuppNativeFilesCreateTemporary
 nuppNativeFilesCurrentDirectory
