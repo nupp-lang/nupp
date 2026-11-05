@@ -1982,7 +1982,7 @@ end
 local function streams(borrows input: Process.Reader, borrows output: Process.Writer, interest: Process.Interest): nil
     print(input:isended(), output:isreleased(), #interest.read)
 end
-print(address:host(), io.isuri(address), valid, reason, kind, options.stderr, communication.maxoutputbytes, stream)
+print(address:host(), address is io.URI, valid, reason, kind, options.stderr, communication.maxoutputbytes, stream)
 ]=]
     )
     for _, name in ipairs({
@@ -2011,7 +2011,18 @@ print(address:host(), io.isuri(address), valid, reason, kind, options.stderr, co
     print(value:resolve())]]
     )
     assert(not other["runtime.uri"], "an unrelated method does not select URI parsing")
-    local pure = effectsOf("local parts = io.URI.Components(scheme = 'https')\nprint(io.isuri(parts))")
+    local pure = effectsOf(
+        [[
+local parts = io.URI.Components(scheme = "https")
+local function host(value: unknown): string?
+    if value is io.URI then
+        return value:host()
+    end
+    return nil
+end
+print(host(parts))
+]]
+    )
     assert(
         not pure["runtime.uri"] and not pure["runtime.uri_provider"],
         "component construction and identity tests select no parser"

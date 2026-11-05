@@ -6,7 +6,6 @@ local provider = require("nupp.io.uri.provider")
 
 export type URI = uriTypes.URI
 export const URI = uriTypes.URI
-export const isuri = uriTypes.isuri
 
 local function fromComponents(components: any): (string?, string?)
     if type(components) ~= "table" then

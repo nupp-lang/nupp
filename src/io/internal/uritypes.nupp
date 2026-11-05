@@ -397,10 +397,3 @@ end;
 (URI as {[string]: any}).__eq = function(left: URI, right: URI): boolean
     return left:tostring() == right:tostring()
 end
-
---- Reports whether a value has the canonical URI identity.
---- @param value the value to test
---- @return whether it is a URI
-export function isuri(value: any): boolean
-    return type(value) == "table" and getmetatable(value) == URI
-end

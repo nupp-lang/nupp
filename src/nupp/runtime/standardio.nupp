@@ -73,11 +73,6 @@ export type URI = uriTypes.URI
 
 export const URI = uriTypes.URI
 
---- Reports whether a value is a URI rather than URI text or component data.
---- @param value the value to test
---- @return whether it is a URI
-export const isuri = uriTypes.isuri
-
 --- An immutable filesystem path with platform-specific joining and splitting.
 ---
 --- Reach for it when a program builds a filesystem name or takes one apart,
@@ -569,7 +564,6 @@ end
 export const value: table = do
     original.Bytes = Bytes
     original.URI = URI
-    original.isuri = isuri
     original.validateuri = validateuri
     original.cwd = cwd
     original.sep = sep

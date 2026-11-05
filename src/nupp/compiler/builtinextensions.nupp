@@ -19,7 +19,6 @@ local ROOTS = {
             Path = true,
             Buffer = true,
             Bytes = true,
-            isuri = true,
             validateuri = true,
             cwd = true,
             sep = true,

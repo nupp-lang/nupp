@@ -2486,7 +2486,7 @@ function M.standardIOApiHasCompleteDocumentation()
         ] = {types = {Path = true,}, functions = {}, overview = "src/nupp/runtime/standardio.nupp",},
         [
             "src/io/internal/uritypes.nupp"
-        ] = {types = {URI = true,}, functions = {isuri = true,}, overview = "src/nupp/runtime/standardio.nupp",},
+        ] = {types = {URI = true,}, functions = {}, overview = "src/nupp/runtime/standardio.nupp",},
         [
             "src/io/files/init.nupp"
         ] = {
