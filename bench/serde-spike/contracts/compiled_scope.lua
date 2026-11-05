@@ -6,6 +6,7 @@ local plans = require("nupp.serde.internal.json.plan")
 local cursors = require("nupp.serde.internal.json.syntax")
 local inputs = require("nupp.serde.internal.json.reader")
 local failures = require("nupp.serde.internal.errors")
+local byteio = require("nupp.io")
 
 -- What a codec plans for a binding, without the cache in front of it.
 local function inspect(binding, factory)
@@ -176,7 +177,7 @@ for _, invalid in ipairs({
 end
 
 -- Cached writers retain the same dynamic paths and transactional output.
-local buffer = require("io").Buffer.create()
+local buffer = byteio.Buffer.create()
 buffer:setstring("prefix:", buffer:len())
 value.rows[2].value = -1
 local ok, failure = pcall(json.encodeinto, fixture.collectionsBinding, value, buffer)
@@ -198,7 +199,7 @@ assert(buffer:getstring() == "prefix:")
 
 -- An io.Buffer decodes through the string route, reading its text once, and fails
 -- at the same path and byte as the string it holds.
-local inputBuffer = require("io").Buffer.create('{"name":"buffer","child":{"value":"nested"}}')
+local inputBuffer = byteio.Buffer.create('{"name":"buffer","child":{"value":"nested"}}')
 local facade = json.codec()
 assert(facade:decodebuffer(fixture.recordBinding, inputBuffer).name == "buffer")
 inputBuffer:clear()
