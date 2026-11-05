@@ -4,7 +4,7 @@ local core = require("nupp.serde.internal.value")
 local errors = require("nupp.serde.internal.errors")
 local plans = require("nupp.serde.internal.json.plan")
 local json = require("nupp.serde.internal.json.values")
-local binary = require("binary")
+local encoding = require("nupp.util.internal.encoding")
 local numbers = require("nupp.serde.internal.numbers")
 local identities = require("nupp.serde.internal.json.document")
 local extensions = require("nupp.serde.internal.json.extensions")
@@ -270,7 +270,7 @@ export record Output<M is core.Member> is core.Writer<M>
         self:live()
         self:select(member)
         self:position(member)
-        self.sink:write(binary.base64encode(value))
+        self.sink:write(encoding.base64encode(value))
     end
 
     function writetimestamp(exclusive self, member: M, borrows value: core.Timestamp): nil
