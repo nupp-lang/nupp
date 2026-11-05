@@ -344,16 +344,33 @@ end
 
 function M.uuidUsesItsContractWithoutNativeCompilerServices()
     local env = envMod.new(".", {memoryOnly = true, nativeCompilerServices = false, typeRoots = {},})
-    local result = parser.parse("return os.uuid(4), os.uuid(7)", "uuid-contract.nupp")
+    local result = parser.parse(
+        "local function make(version: 4 | 7): string return os.uuid(version) end\nreturn make(4), make(7)",
+        "uuid-contract.nupp"
+    )
     testAssert.eq(#result.errors, 0)
     local diagnostics = check.check(result, "uuid-contract.nupp", env)
     testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local uuid = env.globals.os.t
     testAssert.eq(uuid.byname.uuid.tag, "func", "uuid has a checked function signature")
-    testAssert.eq(uuid.byname.uuid.params[1], T.integer, "uuid takes an integer version")
+    testAssert.eq(T.tostring(uuid.byname.uuid.params[1]), "4 | 7", "uuid accepts only supported versions")
     testAssert.eq(uuid.byname.uuid.rets[1].tag, "string", "uuid returns a string")
     testAssert.eq(uuid.byname.uuid4, nil, "the retired version 4 entry is absent")
     testAssert.eq(uuid.byname.uuid7, nil, "the retired version 7 entry is absent")
+    for _, source in ipairs({
+        "return os.uuid(5)",
+        "return os.uuid(4.5)",
+        'return os.uuid("4")',
+        "local function make(version: integer): string return os.uuid(version) end\nreturn make(4)",
+    }) do
+        local refused = parser.parse(source, "uuid-invalid-version.nupp")
+        testAssert.eq(#refused.errors, 0)
+        local rejected = false
+        for _, diagnostic in ipairs(check.check(refused, "uuid-invalid-version.nupp", env)) do
+            rejected = rejected or diagnostic.code == "NUPP2006"
+        end
+        assert(rejected, "unsupported UUID version type was accepted: " .. source)
+    end
     local exports = assert(env.resolveModuleExports(env, "os"))
     testAssert.eq(exports.values.uuid, uuid.byname.uuid, "module and export resolution agree")
     testAssert.eq(

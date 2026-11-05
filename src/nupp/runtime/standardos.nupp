@@ -431,7 +431,7 @@ const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.util.internal.uuid"
 --- @param version the UUID version, either 4 or 7
 --- @return the UUID in its canonical lowercase, hyphenated text form
 --- @raises string when the version is invalid or the host service fails
-export function uuid(version: integer): string
+export function uuid(version: 4 | 7): string
     if version == 4 then
         return implementation("nupp.util.internal.uuid").uuid4()
     elseif version == 7 then
