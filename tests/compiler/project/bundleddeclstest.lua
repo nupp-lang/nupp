@@ -576,6 +576,31 @@ return m
     testAssert.eq(found, true, "an exported signature mentioning any is still reported")
 end
 
+function M.anEmbeddedCompilerDoesNotProbeDiskForMissingDeclarations()
+    local instances = require("helpers.providerstate")
+    local host = {
+        open = function(path)
+            error("embedded declaration lookup reached disk: " .. path)
+        end
+    }
+    for _, prefix in ipairs({"/compiler", "/nupp/compiler"}) do
+        local load = instances.instance(
+            {["nupp.compiler.bundled"] = true},
+            {["nupp.runtime.standardio"] = {value = host},},
+            {
+                ["nupp.embedded"] = function()
+                    return {[prefix .. "/coroutine.nupp"] = "module coroutine"}
+                end,
+            },
+            {io = host}
+        )
+        local bundled = load("nupp.compiler.bundled")
+        testAssert.eq(bundled.source("/coroutine/init.nupp"), nil)
+        testAssert.eq(bundled.source("/coroutine.nupp"), "module coroutine")
+        testAssert.eq(bundled.source("/missing.nupp"), nil)
+    end
+end
+
 -- A declaration the build copied beside the compiled modules goes stale the moment
 -- `src` changes it, and the compiler then checks today's source against yesterday's
 -- interface. That surfaces as an ordinary type error about a field that is plainly
@@ -851,7 +876,10 @@ function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()
     package.loaded["nupp.compiler.project.env"] = nil
     local ok, problem = pcall(function()
         local fresh = require("nupp.compiler.project.env")
-        local env = fresh.new("/private/tmp", {config = {include = {"no-bundled-layout-fixture"}}, cache = false})
+        local env = fresh.new("/private/tmp/nupp-bundled-privacy-consumer", {
+            config = {include = {"src"}},
+            cache = false
+        })
         local ioModule = env.loadBundledModule("nupp.io")
         assert(ioModule and ioModule.exports.types.Token)
         testAssert.eq(ioModule.exports.types.Token.moduleName, "nupp.io")

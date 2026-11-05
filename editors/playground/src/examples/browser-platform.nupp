@@ -1,15 +1,11 @@
 -- Browser providers keep the Nupp API in checked source. Their work crosses
 -- one suspension boundary to the application Worker and its browser APIs.
 
-local time = require("coroutine")
-local mac = require("binary").Mac
-local digests = require("binary").Digest
-
-time.sleep(10)
-local key = os.uuid4()
-local digest = digests.computehex("sha256", os.randombytes(32))
+coroutine.sleep(10)
+local key = os.uuid(4)
+local digest = binary.Digest.computehex("sha256", os.randombytes(32))
 print(key, digest)
-print(mac.computehex("hmac-sha256", "key", "browser message"))
+print(binary.Mac.computehex("hmac-sha256", "key", "browser message"))
 
 -- try breaking it: pass a negative count to randombytes and read the checked
 -- provider error
