@@ -418,7 +418,7 @@ export function list(path: string | paths.Path): (Entries?, string?)
     if found == nil then
         return nil, reason
     end
-    local index = 0
+    local index: integer = 0
 
     return function(): (string?, FileKind)
         index = index + 1
@@ -515,7 +515,12 @@ export function createTemporary(
     within: any?
 ): (affine(TemporaryPath?), string?)
     local root = within ~= nil and named(within, "temporary directory", 2) or ""
-    local text, reason = host.createTemporary(root, fragment(prefix, "prefix", 2), fragment(suffix, "suffix", 2), directory)
+    local text, reason = host.createTemporary(
+        root,
+        fragment(prefix, "prefix", 2),
+        fragment(suffix, "suffix", 2),
+        directory
+    )
     if text == nil then
         return nil, reason
     end

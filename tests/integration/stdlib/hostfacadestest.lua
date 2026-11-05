@@ -165,7 +165,7 @@ function M.hostAndVmBindingsSelectTheTargetImplementationOnce()
             browser = "nupp.runtime.browser.uri"
         },
         {
-            module = "io.files",
+            module = "io.internal.files",
             binding = "nupp.runtime.bindings.files",
             native = "nupp.runtime.provider.nativefiles",
             browser = "nupp.runtime.browser.files",

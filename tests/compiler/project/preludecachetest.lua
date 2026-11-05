@@ -303,7 +303,7 @@ function M.aStoredPreludeIsNotRestoredOverAnotherIdentity()
             "no two interned types share an id:\n  " .. table.concat(shared, "\n  ", 1, math.min(#shared, 10))
         )
 
-        local source = "local function poll(): debug.ReloadPoll\n"
+        local source = "local function poll(): debug.reload.ReloadPoll\n"
             .. "    return debug.reload.poll()\n"
             .. "end\n"
             .. "return poll\n"

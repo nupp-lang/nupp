@@ -1,10 +1,9 @@
 module demo.process
 
-local files = require("io.files")
 local api = {}
 
 function api.run(): integer
-    local directory = assert(files.tmpdirectory())
+    local directory = assert(os.mktempdir())
     local output = directory:tostring() .. "/result"
     local child, spawnError = io.popen({args = {"/bin/sh", "-c", "cat; printf problem >&2; exit 7"}, timeoutms = 5000,})
     if not child then
@@ -19,9 +18,11 @@ function api.run(): integer
     local file = assert(io.open(output, "wb"))
     file:write("written")
     file:close()
-    assert(files.read(output) == "written")
+    local check = assert(io.open(output, "rb"))
+    assert(check:read("a") == "written")
+    check:close()
     directory:close()
-    assert(not files.exists(output))
+    assert(not os.exists(output))
 
     return 42
 end

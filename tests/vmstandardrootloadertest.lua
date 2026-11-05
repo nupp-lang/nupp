@@ -38,7 +38,7 @@ function M.finalStandardRootsUseTheExistingCompilerSourceLoader()
             end
         end,
         function(loaders)
-            for _, name in ipairs({"types", "own", "utf8", "io.files", "binary.digest"}) do
+            for _, name in ipairs({"types", "own", "utf8", "io.internal.files", "binary.digest"}) do
                 local loader = loaders[#loaders](name)
                 test.eq(type(loader), "function", name)
                 test.eq(loader(), marker, name)
@@ -114,13 +114,14 @@ function M.coldExternalProjectsRetainDeclaredStandardLibraryTypes()
             [[
 module coldlibraries
 const digest = require("binary.digest")
-const compression = require("binary.compress")
+const gzip = binary.compression("gzip")
 local main = {}
 function main.run(): integer
+    assert(gzip ~= nil)
     local facts = os.info()
     assert(facts.pointerbits == 32 or facts.pointerbits == 64)
     assert(facts.parallelism >= 1)
-    local bytes = io.newbuffer("abc")
+    local bytes = io.Buffer.create("abc")
     local reader: io.Reader = bytes:reader()
     assert(reader:read(3) == "abc")
     local algorithm = digest.algorithm("sha256")

@@ -452,4 +452,3 @@ table.clear(buffer)
 metatable. A value that is itself a table stays shared, and `__index` is not
 consulted, so the copy holds what `next` would have walked and inherits the
 rest the same way the original did.
-
