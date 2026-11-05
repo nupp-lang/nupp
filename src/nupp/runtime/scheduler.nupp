@@ -692,12 +692,13 @@ calls.install({__index = methods}, closetask)
 -- keeps a completion that came first for that park to answer at once.
 local arming: any = nil
 
-local function iowaker(): any
+local function iowaker(): reactor.Waker?
     if current() == nil then
         return nil
     end
     local box: any = {waiter = nil, done = false, value = nil}
     arming = box
+
     return function(completion: any): nil
         if box.waiter ~= nil then
             wake(box.waiter, completion)
@@ -708,7 +709,7 @@ local function iowaker(): any
     end
 end
 
-local function iopark(): any
+local function iopark(): reactor.Completion
     local box = arming
     arming = nil
     if box.done then
@@ -723,7 +724,7 @@ local function iopark(): any
     )
 end
 
-reactor.install({waker = iowaker, park = iopark} as any)
+reactor.install(new reactor.Parker(waker = iowaker, park = iopark))
 
 export const functions: {
     [string]: any
