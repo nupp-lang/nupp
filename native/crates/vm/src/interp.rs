@@ -1195,6 +1195,8 @@ impl Interp {
         let co_tag=self.new_table();self.registered.push(co_tag);self.loaded.insert("nupp.vm.coroutineTag".into(),co_tag);
         let co=self.new_table();self.registered.push(co);
         for (name,b) in [("create","tasks.coCreate"),("wrap","tasks.coWrap"),("isyieldable","tasks.coIsYieldable"),("resume","tasks.coResume"),("yield","tasks.coYield"),("status","tasks.coStatus"),("running","tasks.coRunning"),("close","tasks.coClose")]{let k=self.intern(name);self.set_index(co,k,Value::builtin(crate::builtins::id_of(b).unwrap()));}
+        // The metatable every coroutine shares: its __index is the library.
+        let thread_meta=self.new_table();self.registered.push(thread_meta);let k=self.intern("__index");self.set_index(thread_meta,k,co);self.loaded.insert("nupp.vm.threadMeta".into(),thread_meta);
         self.loaded.insert("coroutine".into(),co);self.loaded.insert("nupp.vm.coroutines".into(),coroutines);self.loaded.insert("nupp.vm.coroutines.api".into(),co);self.loaded.insert("nupp.vm.coroutine".into(),co);
         let parents = self.new_table(); self.registered.push(parents); self.loaded.insert("nupp.vm.taskHandles".into(), parents);
         let tag=self.new_table(); self.registered.push(tag); self.loaded.insert("nupp.vm.affineTag".into(),tag);

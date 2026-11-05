@@ -685,6 +685,15 @@ export function install(c: state.Checker): Ops
             -- string values carry the string library as methods
             return c.env.stringLib.byname[name]
         end
+        -- Threads share a metatable whose __index is the coroutine library
+        -- (Decision 18), so `co:status()` is `coroutine.status(co)`.
+        if t == T.thread or t.tag == "protocolThread" then
+            local library = c.env and c.env.globals and c.env.globals.coroutine
+            local shape = library and rawType(library.t)
+            if shape and shape.tag == "shape" then
+                return shape.byname[name]
+            end
+        end
 
         local entry = members.lookup(t, name)
         if entry and entry.readType then
