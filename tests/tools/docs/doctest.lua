@@ -154,6 +154,8 @@ export record Catalog
     function zetaMethod(self): nil end
     function alphaMethod(self, value: string): nil end
     function alphaMethod(self, value: number): nil end
+    function zetaStatic(): Catalog end
+    function alphaStatic(value: Catalog): Catalog end
     metamethod __call: function(self): integer
     type Mode = "small" | "large"
     record Entry
@@ -168,7 +170,7 @@ end
     local markdown = doc.markdown({module})
     local overview = assert(markdown:match("#### Members\n\n(::: api%-overview.-\n:::)"), markdown)
     local last = 0
-    for _, title in ipairs({"Methods", "Constructors", "Metamethods", "Types", "Fields"}) do
+    for _, title in ipairs({"Instance methods", "Static methods", "Constructors", "Metamethods", "Types", "Fields"}) do
         local position = assert(overview:find("**" .. title:lower() .. "**", 1, true), title)
         assert(position > last, "member groups out of order")
         last = position
@@ -186,6 +188,10 @@ end
         "methods must be alphabetized"
     )
     assert(overview:find("[`alpha`]", 1, true) < overview:find("[`zeta`]", 1, true), "fields must be alphabetized")
+    assert(
+        overview:find("[`alphaStatic`]", 1, true) < overview:find("[`zetaStatic`]", 1, true),
+        "static methods must be alphabetized"
+    )
     assert(overview:find("- [`Entry`](#catalog.Catalog.Entry)\n", 1, true), overview)
     assert(overview:find("- [`Mode`](#catalog.Catalog.Mode)\n", 1, true), overview)
     assert(overview:find("[`__call`](#catalog.Catalog.__call)", 1, true), overview)
@@ -195,10 +201,87 @@ end
     assert(not rendered:find("<hr%s*/?>"), "type overviews must not add horizontal rules")
     assert(
         rendered:find('class="nuppdoc-overview nuppdoc-overview-2"', 1, true),
-        "nine members must use the shared two-column layout"
+        "eleven members must use the shared two-column layout"
     )
     assert(rendered:find('href="#catalog.Catalog.alphaMethod-overload-2"', 1, true), rendered)
     assert(rendered:find('<a href="#catalog.Catalog.__call"><code>__call</code></a>', 1, true), rendered)
+end
+
+function M.typeOverviewsDistinguishReceiverFormsFromStatics()
+    local module, errors = doc.extract(
+        [[
+module widgets
+export record Widget<T>
+    named: function(self: any)
+    typed: function(Widget<T>)
+    readonly: function(value: const Widget<T>)
+    owned: function(affine(Widget<T>))
+    implicit: function(self)
+    optional: function(Widget<T>?)
+    unrelated: function(elsewhere.Widget<T>)
+    shadowed: function<Widget>(value: Widget)
+    variadic: function(...: Widget<T>)
+    overloaded: function(self, value: string) & function(self, value: number)
+    mixed: function(self) & function(value: string)
+    function create(value: Widget<T>): Widget<T> end
+    function get(self): T end
+    interface Nested<U>
+        read: function(receiver: const Widget.Nested<U>): U
+        function create(): Nested<U> end
+    end
+end
+export record External end
+function widgets.External:read(): string return "" end
+function widgets.External.stop(takes self: External): nil end
+function widgets.External.create(): External end
+export struct Native
+    function read(): integer return 1 end
+end
+]],
+        "src/widgets.nupp",
+        "widgets"
+    )
+    assert(module, errors and errors[1] and errors[1].msg)
+    assert(#errors == 0)
+    local items = {}
+    for _, item in ipairs(module.items) do
+        items[item.name] = item
+    end
+    local api = require("nupp.tools.doc.api")
+    local expected = {
+        named = true,
+        typed = true,
+        readonly = true,
+        owned = true,
+        implicit = true,
+        optional = false,
+        unrelated = false,
+        shadowed = false,
+        overloaded = true,
+        mixed = false,
+        create = false,
+        get = true,
+        variadic = false,
+    }
+    for _, member in ipairs(items.Widget.members) do
+        if expected[member.name] ~= nil then
+            assert(api.isInstanceMethod(member) == expected[member.name], member.name)
+        end
+    end
+    assert(api.isInstanceMethod(items.Native.members[1]))
+    local markdown = require("nupp.tools.doc.markdown").items({items.Widget})
+    local overview = assert(markdown:match("#### Members\n\n(::: api%-overview.-\n:::)"), markdown)
+    local instance = assert(overview:match("%*%*instance methods%*%*\n\n(.-)\n\n%*%*static methods%*%*"), overview)
+    local static = assert(overview:match("%*%*static methods%*%*\n\n(.-)\n\n%*%*types%*%*"), overview)
+    for name, receiver in pairs(expected) do
+        assert((receiver and instance or static):find("[`" .. name .. "`]", 1, true), name .. "\n" .. overview)
+        assert(not (receiver and static or instance):find("[`" .. name .. "`]", 1, true), name .. "\n" .. overview)
+    end
+    assert(markdown:find("**instance methods**\n\n- [`read`](#widgets.Widget.Nested.read)", 1, true), markdown)
+    assert(markdown:find("**static methods**\n\n- [`create`](#widgets.Widget.Nested.create)", 1, true), markdown)
+    local external = require("nupp.tools.doc.markdown").items({items.External})
+    assert(external:find("**instance methods**\n\n- [`read`](#widgets.External.read)", 1, true), external)
+    assert(external:find("**static methods**\n\n- [`create`](#widgets.External.create)", 1, true), external)
 end
 
 function M.extractsStructuredDocsFromTheParserCST()
@@ -1248,7 +1331,7 @@ function M.documentsFunctionTypedRecordFieldsAsMethods()
     assert(html:find("How much to add.", 1, true) and html:find("The counter itself.", 1, true), html)
     local markdown = doc.markdown({module})
     assert(markdown:find("#### Members", 1, true), "member overview missing")
-    assert(markdown:find("**methods**\n\n- [`step`](#num.Counter.step)", 1, true), markdown)
+    assert(markdown:find("**instance methods**\n\n- [`step`](#num.Counter.step)", 1, true), markdown)
     assert(markdown:find("**fields**\n\n- [`count`](#num.Counter.count)", 1, true), markdown)
     assert(markdown:find("#### `step` _method_", 1, true), "method sub-heading missing")
     assert(markdown:find("##### Arguments", 1, true), "method arguments missing")
@@ -1484,7 +1567,7 @@ function M.documentsNestedTypesAsTheirOwnSubHeadingWithMembers()
     assert(markdown:find("#### `Settings` _record_", 1, true), "nested type heading missing")
     assert(markdown:find("##### Members", 1, true), "nested type's own overview missing")
     assert(
-        markdown:find("**methods**\n\n- [`apply`](#config.Config.Settings.apply)", 1, true),
+        markdown:find("**instance methods**\n\n- [`apply`](#config.Config.Settings.apply)", 1, true),
         "nested type's own method list missing"
     )
     assert(markdown:find("##### `enabled` _field_", 1, true), "nested type's own field sub-heading missing")
@@ -5422,9 +5505,7 @@ function M.userAnnotationDefinitionsHaveTheSameDeclarationKind()
 end
 
 function M.exportedTablesUseCanonicalPublicNamesInEveryOutput()
-    local examples = {
-        {path = "src/io/cli.nupp", name = "io.cli", member = "application", hidden = "cliModule."},
-    }
+    local examples = {{path = "src/io/cli.nupp", name = "io.cli", member = "application", hidden = "cliModule."},}
     for _, example in ipairs(examples) do
         local source = readFile(HERE .. "/../" .. example.path)
         local module, errors = doc.extract(source, example.path, example.name)

@@ -6,6 +6,8 @@ module nupp.tools.doc.api
 local extractMod = require("nupp.tools.doc.extract")
 local lexer = require("nupp.compiler.syntax.lexer")
 local formatter = require("nupp.tools.fmt")
+local parser = require("nupp.compiler.syntax.parser")
+local cst = require("nupp.compiler.syntax.cst")
 
 export type ItemGroup = {
     title: string,
@@ -53,6 +55,64 @@ export function memberKind(member: extractMod.Member): string
     end
 
     return "field"
+end
+
+local function hasReceiver(params: {extractMod.Param}, path: string, typeargs: {extractMod.TypeArg}?): boolean
+    local first = params[1]
+    if not first or first.name == "..." then
+        return false
+    end
+    if first.name == "self" then
+        return true
+    end
+    local parsed = parser.parse("local receiver: " .. first.type)
+    if #parsed.errors > 0 then
+        return false
+    end
+    local statement = parsed.root.blocks[1].stats[1]
+    if statement.kind ~= "localStmt" then
+        return false
+    end
+    local node = statement.types[1]
+    while node do
+        if node.kind == "tconst" or node.kind == "tparen" then
+            node = node.inner
+        elseif node.kind == "ttypecall" then
+            local callee = node.callee
+            local wrapper = callee and callee.kind == "tname" and callee.base and callee.base.text
+            if wrapper ~= "affine" and wrapper ~= "borrowed" and wrapper ~= "pinned" then
+                break
+            end
+            node = node.arguments[1]
+        else
+            break
+        end
+    end
+    if not node or node.kind ~= "tname" then
+        return false
+    end
+    local name = cst.textOf(node):gsub("%s+", ""):match("^[%w_%.]+")
+    for _, generic in ipairs(typeargs or {}) do
+        if name == generic.name then
+            return false
+        end
+    end
+    local owner = path:match("^(.*)%.[^.]+$")
+
+    return name == "self" or owner ~= nil and name ~= nil and (owner == name or owner:sub(-#name - 1) == "." .. name)
+end
+
+export function isInstanceMethod(member: extractMod.Member): boolean
+    if member.instanceMethod ~= nil then
+        return member.instanceMethod
+    end
+    for _, form in ipairs(member.forms or {}) do
+        if not hasReceiver(form.params, member.path, form.typeargs) then
+            return false
+        end
+    end
+
+    return member.forms ~= nil and #member.forms > 0 or hasReceiver(member.params, member.path, member.typeargs)
 end
 
 export function hasReturns(returns: {extractMod.Result}): boolean

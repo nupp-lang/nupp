@@ -320,6 +320,7 @@ function doc.json(modules: {extractMod.Module}, annotationItems: {extractMod.Ite
             forms = value.forms and array(value.forms, form) or nil,
             raises = array(value.raises, raise),
             isFunction = value.isFunction,
+            instanceMethod = value.instanceMethod,
             isMetamethod = value.isMetamethod,
             isType = value.isType,
             signature = value.signature,

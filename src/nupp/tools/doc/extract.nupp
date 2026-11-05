@@ -72,6 +72,7 @@ export record Member
     raises: {docblock.Raise}
     lua: boolean?
     isFunction: boolean?
+    instanceMethod: boolean?
     isMetamethod: boolean?
     isType: boolean?
     signature: string?
@@ -1305,7 +1306,8 @@ local function buildMembers(
     basePath: string,
     includePrivate: boolean,
     fieldTextOverrides: {[string]: string}?,
-    receiver: string?
+    receiver: string?,
+    implicitReceiver: boolean?
 ): {Member}
     local members = {}
     for _, entry in ipairs(entries or {}) do
@@ -1370,6 +1372,11 @@ local function buildMembers(
                 returns = details.returns,
                 raises = methodInfo.raises,
                 isFunction = true,
+                instanceMethod = implicitReceiver
+                or entry.body.params[1] ~= nil
+                and entry.body.params[1].name ~= nil
+                and entry.body.params[1].name.text == "self"
+                or false,
                 annotations = annotationsOf(entry)
             )
         elseif entry.kind == "constructorDecl" and entryVisible then
@@ -1417,7 +1424,8 @@ local function buildMembers(
                     nestedPath,
                     includePrivate,
                     entryInfo.fields,
-                    receiverName(nestedPath, entry.generics)
+                    receiverName(nestedPath, entry.generics),
+                    entry.declKind == "struct"
                 ),
                 annotations = annotationsOf(entry)
             )
@@ -1760,7 +1768,8 @@ declarationItem = function(
             item.path,
             includePrivate,
             info.fields,
-            receiverName(item.path, stat.generics)
+            receiverName(item.path, stat.generics),
+            stat.declKind == "struct"
         )
     end
     if item.annotation then
@@ -1888,6 +1897,9 @@ local function foldMethods(
                     forms = item.forms,
                     raises = item.raises,
                     isFunction = true,
+                    instanceMethod = item.kind == "method"
+                    or item.params[1] ~= nil and item.params[1].name == "self"
+                    or false,
                     annotations = item.annotations,
                     comptimeKind = item.comptimeKind
                 )

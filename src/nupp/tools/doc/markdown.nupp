@@ -357,7 +357,8 @@ local function markdownMemberSummary(out, members, heading, title, path, superty
         title: string,
         entries: {OverviewMember}
     }} = {
-        {title = "Methods", entries = {}},
+        {title = "Instance methods", entries = {}},
+        {title = "Static methods", entries = {}},
         {title = "Constructors", entries = {}},
         {title = "Metamethods", entries = {}},
         {title = "Types", entries = {}},
@@ -366,15 +367,15 @@ local function markdownMemberSummary(out, members, heading, title, path, superty
     local seen = {}
     for index, member in ipairs(members) do
         local path = overloadAnchor(member.path, seen)
-        local group = groups[5]
+        local group = groups[6]
         if member.isType or member.isAlias then
-            group = groups[4]
+            group = groups[5]
         elseif member.isMetamethod then
-            group = groups[3]
+            group = groups[4]
         elseif member.name == "constructor" then
-            group = groups[2]
+            group = groups[3]
         elseif member.isFunction then
-            group = groups[1]
+            group = groups[apiMod.isInstanceMethod(member) and 1 or 2]
         end
         group.entries[
             #group.entries + 1
