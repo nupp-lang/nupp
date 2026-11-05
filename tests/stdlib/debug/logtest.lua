@@ -169,6 +169,24 @@ end
 -- Logging is an ordinary module, so the view is reached through `require` and there
 -- is no installer to be ordered against. What used to be an ordering rule is now
 -- Lua's own module loading.
+function M.loadingTheLoggerDoesNotInitializeByteIO()
+    local load = require("helpers.providerstate").instance(
+        {["debug.log"] = true},
+        nil,
+        {
+            ["nupp.io.internal.bytes"] = function()
+                error("loading the logger initialized byte I/O", 0)
+            end,
+            ["nupp.io.internal.scalars"] = function()
+                error("loading the logger initialized scalar adapters", 0)
+            end
+        },
+        {nupp = {}}
+    )
+    local log = load("debug.log")
+    testAssert.eq(type(log.sink()), "function", "the default sink needs no byte writer")
+end
+
 function M.theLoggingViewIsBoundThroughRequire()
     local code = compile("debug.log.warn('m')", "amb")
     assert(code:find('require("debug.log").formodule(', 1, true) ~= nil, "the module view is bound through require")

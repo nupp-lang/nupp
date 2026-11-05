@@ -8,7 +8,6 @@ const digest2 = require("binary").Digest
 -- and grade whether an agent can rediscover the implementation without editing
 -- the specification.
 
-local files = require("io.files")
 local harness = require("harness")
 
 local tier2 = {}
@@ -155,14 +154,14 @@ function tier2.prepare(repo: string, commit: string, at: string): tier2.Prepared
 
     local rocks = harness.join(repo, ".rocks")
     local stagedRocks = harness.join(at, ".rocks")
-    if files.exists(rocks) and not files.exists(stagedRocks) then
-        local linked, linkErr = files.symlink(rocks, stagedRocks, "directory")
+    if os.exists(rocks) and not os.exists(stagedRocks) then
+        local linked, linkErr = os.symlink(rocks, stagedRocks, "directory")
         if not linked then
             error("cannot link the dependency tree: " .. tostring(linkErr), 2)
         end
     end
     local cache = harness.join(repo, "build", "cache")
-    if files.isdirectory(cache) then
+    if os.stat(cache) == "directory" then
         harness.copyTree(cache, harness.join(at, "build", "cache"))
     end
     local reverted: {string} = {}
@@ -179,7 +178,7 @@ function tier2.digests(at: string, paths: {string}): {[string]: string}
     local digests: {[string]: string} = {}
     for _, path in ipairs(paths) do
         local target = harness.join(at, path)
-        if files.exists(target) then
+        if os.exists(target) then
             digests[path] = digest2.computehex("sha256", harness.read(target))
         end
     end
@@ -262,15 +261,15 @@ function tier2.repairDiff(repo: string, commit: string, at: string, reverted: {s
     local ok, answer = pcall(function(): string
         local before = harness.join(root, "before")
         local after = harness.join(root, "after")
-        assert2(files.mkdir(before))
-        assert2(files.mkdir(after))
+        assert2(os.mkdir(before))
+        assert2(os.mkdir(after))
         for _, path in ipairs(reverted) do
             local prior = harness.run({"git", "-C", repo, "show", commit .. "^:" .. path})
             if prior.returncode == 0 then
                 harness.write(harness.join(before, path), prior.stdout)
             end
             local current = harness.join(at, path)
-            if files.exists(current) then
+            if os.exists(current) then
                 harness.write(harness.join(after, path), harness.read(current))
             end
         end
