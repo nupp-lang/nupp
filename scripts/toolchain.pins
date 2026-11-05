@@ -40,6 +40,6 @@ LUAROCKS_DIRECTORY='luarocks-${LUAROCKS_VERSION}'
 # who runs `nupp fixpoint --emit-stage0` there. `scripts/toolchain stage0-image`
 # verifies it after decompressing and before installing, and an offline builder
 # may supply either spelling.
-STAGE0_IMAGE_TAG=v0.0.15-vm.2
-STAGE0_IMAGE_SHA256=6bc9b250b40ab3d34803d022159678c342cfee9fb93272ef3f2855e994bb3ba9
+STAGE0_IMAGE_TAG=v0.0.15-native-api-seed.5
+STAGE0_IMAGE_SHA256=3e17ec95db4d9ccfeac0247455c2654e48674a55635dd9ff312f37fdbe9468bd
 STAGE0_IMAGE_URL='https://github.com/nupp-lang/nupp/releases/download/${STAGE0_IMAGE_TAG}/nupp-stage0-${STAGE0_IMAGE_TAG}.image.gz'

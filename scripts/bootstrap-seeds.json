@@ -2,10 +2,10 @@
   "format": "nupp-bootstrap-seed-1",
   "hosts": {
     "aarch64-apple-darwin": {
-      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.4/nupp-seed-aarch64-apple-darwin-507e8e4c08cf85cf10b2b237c420588093303682.tar.gz",
-      "sha256": "519bfbeeae132f3071629efa57dfd95720464ba8249b5d4cb4852e14ccfa2b77",
+      "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.5/nupp-seed-aarch64-apple-darwin-49b98a8f7bd9d9de7be7cef889d19fab30b29343.tar.gz",
+      "sha256": "4c38bc7cd281f20b735fb7927ec9c1e7b4b79587128e86dad228c553259e8739",
       "runtimeSha256": "023c81cffa4c108a3ac846c869e1084db4eebaf8b7a16b9a34f7a0ae88cc6fec",
-      "imageSha256": "7c83dcdd6f82df5ea7c015408643903b0439f3d5393693485e7305041542ac89"
+      "imageSha256": "3e17ec95db4d9ccfeac0247455c2654e48674a55635dd9ff312f37fdbe9468bd"
     },
     "x86_64-unknown-linux-gnu": {
       "url": "https://github.com/nupp-lang/nupp/releases/download/v0.0.15-native-api-seed.4/nupp-seed-x86_64-unknown-linux-gnu-507e8e4c08cf85cf10b2b237c420588093303682.tar.gz",
