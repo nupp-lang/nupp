@@ -2395,6 +2395,9 @@ function M.digestAndMacSurfacesAreBundledOutsideThisCheckout()
     testAssert.eq(#result.errors, 0, "the external consumer parses")
     local diags = check.check(result, "outside.nupp", isolated)
     testAssert.eq(#diags, 0, "the shipped streaming hash source supplies its typed surface")
+    local catalog = isolated.bundled["nupp.digest.internal.catalog"]
+    assert(catalog and catalog.exports, "the compiler registers its shared digest catalog")
+    assert(isolated.bundled["nupp.digest.internal.catalog"] == catalog, "the catalog keeps its warm identity")
 end
 
 function M.serdeHelpersAreBundledOutsideThisCheckout()
@@ -2417,6 +2420,15 @@ assert(json:decodebuffer(binding, buffer).text == "buffer")
     testAssert.eq(#result.errors, 0, "the external serde consumer parses")
     local diagnostics = check.check(result, "outside.nupp", isolated)
     testAssert.eq(#diagnostics, 0, "the shipped serde source resolves its private shared helpers")
+    for _, name in ipairs({
+        "nupp.codec.json.internal.writerprotocol",
+        "nupp.serde.internal.aggregate",
+        "nupp.serde.internal.readplan",
+    }) do
+        local helper = isolated.bundled[name]
+        assert(helper and helper.exports, "the compiler registers " .. name)
+        assert(isolated.bundled[name] == helper, "the helper keeps its warm identity: " .. name)
+    end
 end
 
 function M.optimizedDeadCodeDropsItsNativeFeatures()
