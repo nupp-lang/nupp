@@ -169,7 +169,12 @@ end
 -- The graph's signatures, native contracts, call contracts, verifier, passes and
 -- lowering, each its subject module's.
 export const closureTarget = graphsignatures.closureTarget
-export const nativeLeafDeclaration = graphnative.nativeLeafDeclaration
+-- A function, not a constant: native modules that graph reaches back through
+-- read it before graph's constants are bound.
+export function nativeLeafDeclaration(fn: any, context: any?, call: any?, caller: any?, serviceSignature: any?): any
+    return graphnative.nativeLeafDeclaration(fn, context, call, caller, serviceSignature)
+end
+
 export const omits = graphcalls.omits
 export const checking = graphcalls.checking
 export const libraryValue = graphcalls.libraryValue
