@@ -1,0 +1,61 @@
+module nupp.runtime.core.guestreport
+
+-- An error no protected call takes ends the program, which says so as the
+-- command line does (nupp.tools.cli.run): on standard error, `nupp: ` and
+-- the error's text, unless the text names the command line already
+-- (reportprefix), then a newline. The text is Lua's tostring without a
+-- __tostring, which would run guest code after the program has ended.
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const strings = require("nupp.runtime.core.corestrings")
+const guestvalues = require("nupp.runtime.core.guestvalues")
+const reportprefix = require("nupp.runtime.core.reportprefix")
+
+const STANDARD_ERROR: uint64 = 2ULL
+-- "nupp: " and "\n" as little-endian byte words.
+const PREFIX: uint64 = 0x203a7070756eULL
+const PREFIX_BYTES: uint64 = 6ULL
+const NEWLINE: uint64 = 10ULL
+const NEWLINE_BYTES: uint64 = 1ULL
+
+-- Writes the `length` bytes at `base` to standard error, as far as it
+-- takes them.
+local function write(base: uint64, length: uint64): nil
+    local done: uint64 = 0ULL
+    while done < length do
+        local written = os.fileWrite(STANDARD_ERROR, native.pointer(base + done), length - done)
+        if written <= 0 then
+            return
+        end
+        done = done + native.word(written)
+    end
+end
+
+-- Reports `value`, the error that ended the program: `nupp: `, its text and
+-- a newline, built whole and written from past the prefix when the text
+-- names the command line already. When there is no room to build it, a
+-- string's bytes are written as they are.
+export function uncaught(ctx: voidptr, value: uint64): nil
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = guestvalues.guestheap(ctx)
+        local builder = state as strings.Builder*
+        if strings.appendWord(h, builder, PREFIX, PREFIX_BYTES) ~= 0ULL
+            or guestvalues.appendtext(h, builder, value) ~= 0ULL
+            or strings.appendWord(h, builder, NEWLINE, NEWLINE_BYTES) ~= 0ULL
+        then
+            strings.release(builder)
+            local s = strings.header(value)
+            if s ~= 0ULL then
+                write(strings.bytes(s), strings.length(s))
+            end
+            return
+        end
+        local from: uint64 = 0ULL
+        if reportprefix.present(builder.base + PREFIX_BYTES, builder.length - PREFIX_BYTES) then
+            from = PREFIX_BYTES
+        end
+        write(builder.base + from, builder.length - from)
+        strings.release(builder)
+    end
+end

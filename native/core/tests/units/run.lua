@@ -501,6 +501,28 @@ local function pack(text, words)
     return result
 end
 
+-- Error texts the core reports, and whether each names the command line
+-- already: what nupp.tools.cli.error's `message` decides, checked here with
+-- its own patterns.
+local NAMED = {
+    "nupp: no benchmark named x",
+    "nupp:",
+    "nupp",
+    "boom",
+    "a.lua:2: boom",
+    "a.lua:12: nupp: failed",
+    "a.lua:: nupp: x",
+    "a.lua:2:nupp: x",
+    "x\na.lua:2: nupp: y",
+    "a:b:3: nupp: z",
+    " nupp: x",
+    ""
+}
+
+local function namedExpected(text)
+    return (text:find("^nupp:") or text:find("^[^\n]-:%d+: nupp:")) and 1 or 0
+end
+
 -- What lstrlib's gmatch_aux yields, measured as the unit does: matches
 -- times a million, matched bytes times a hundred, plus captures seen.
 local function gmatchExpected(subject, pattern)
@@ -539,13 +561,20 @@ local GMATCH = {
 
 UNITS[#UNITS + 1] = {
     name = "stringunits",
-    modules = {"stringunits", "unitentry", "nupp.runtime.core.corestrings", "nupp.runtime.core.corepattern"},
+    modules = {
+        "stringunits",
+        "unitentry",
+        "nupp.runtime.core.corestrings",
+        "nupp.runtime.core.corepattern",
+        "nupp.runtime.core.reportprefix"
+    },
     paths = {
         ["nupp.runtime.core.corestrings"] = ROOT .. "/native/core/src/nupp/runtime/core/corestrings.nupp",
-        ["nupp.runtime.core.corepattern"] = ROOT .. "/native/core/src/nupp/runtime/core/corepattern.nupp"
+        ["nupp.runtime.core.corepattern"] = ROOT .. "/native/core/src/nupp/runtime/core/corepattern.nupp",
+        ["nupp.runtime.core.reportprefix"] = ROOT .. "/native/core/src/nupp/runtime/core/reportprefix.nupp"
     },
     include = "native/core/src",
-    entries = {{"stringunits", "basics", 3}, {"stringunits", "gmatch", 6}},
+    entries = {{"stringunits", "basics", 3}, {"stringunits", "gmatch", 6}, {"stringunits", "named", 4}},
     cases = function()
         local cases = {{"basics", {pack("abc", 1)[1], pack("ab", 1)[1], pack("c", 1)[1]}, 15}}
         for _, case in ipairs(GMATCH) do
@@ -553,6 +582,10 @@ UNITS[#UNITS + 1] = {
             cases[
                 #cases + 1
             ] = {"gmatch", {s[1], s[2], s[3], p[1], p[2], #case[1] | (#case[2] << 8)}, gmatchExpected(case[1], case[2])}
+        end
+        for _, text in ipairs(NAMED) do
+            local w = pack(text, 3)
+            cases[#cases + 1] = {"named", {w[1], w[2], w[3], #text}, namedExpected(text)}
         end
 
         return cases

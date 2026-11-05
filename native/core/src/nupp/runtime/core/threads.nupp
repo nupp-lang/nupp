@@ -31,6 +31,7 @@ const librarycalls = require("nupp.runtime.core.librarycalls")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const guestlanding = require("nupp.runtime.core.guestlanding")
 const guestreplay = require("nupp.runtime.core.guestreplay")
+const guestreport = require("nupp.runtime.core.guestreport")
 
 -- The body: heap.ThreadBody's words first, then the control only this
 -- module reads.
@@ -995,7 +996,8 @@ end
 -- The entry's recovery: guestscope's, and when nothing in the running
 -- thread takes the error, the thread dies and its resumer takes it, as
 -- resume's false and the error or raised again for a wrapped thread's call.
--- Answers the pc to continue at, or 0 when the error ends the entry.
+-- Answers the pc to continue at, or 0 when the error ends the entry, which
+-- then reports it (guestreport).
 export function recover(ctx: voidptr): uint64
     local at = guestlanding.recoverEntry(ctx)
     while at == 0ULL and running(ctx) ~= 0ULL and guestlanding.failing(ctx) == 1ULL do
@@ -1020,6 +1022,11 @@ export function recover(ctx: voidptr): uint64
             native.load64(frame, native.fieldOffset<frames.Frame>("resumePC")) - 1ULL
         )
         at = guestlanding.recoverEntry(ctx)
+    end
+    if at == 0ULL and guestlanding.failing(ctx) == 1ULL then
+        -- No protected call took it: the program ends, and says why.
+        guestreport.uncaught(ctx, guestscope.lastError(ctx))
+        native.store64(ctx, context.STATUS, context.GUEST_ERROR_STATUS)
     end
 
     return at

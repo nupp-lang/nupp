@@ -190,6 +190,9 @@ local CASES = {
     {"processlayer", 0x7FFF000000FFFFFF},
     -- os.exit(3): the program ends there, publishing nothing (EXITS).
     {"processexit", 0},
+    -- An error no protected call takes: reported on standard error, and
+    -- the program ends with status 1, publishing nothing (EXITS).
+    {"errorsuncaught", 0},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -243,6 +246,12 @@ OUTPUT.benchworkloads = function(printed)
         and case.rounds == 7
         and case.checksum == "6765"
         and type(case.medianMs) == "number"
+end
+
+-- The uncaught error's report names its chunk as the core does: a long
+-- path, shortened as Lua shortens one.
+OUTPUT.errorsuncaught = function(printed)
+    return printed:find("^before error\nprinted\t1\nnupp: [^\n]*catalogerrorsuncaught%.nupp:9: boom\n$") ~= nil
 end
 
 -- Whether `printed` is what case `name` prints.
@@ -319,7 +328,8 @@ local STRESS = {
     processpopen = true,
     processhandle = true,
     processlayer = true,
-    processexit = true
+    processexit = true,
+    errorsuncaught = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
@@ -433,12 +443,24 @@ local NUMERIC = {
     processexecute = "catalog-process-execute",
     processpopen = "catalog-process-popen"
 }
--- Cases whose program ends through os.exit with this status, publishing no
--- result: their bridge runs are checked for the status and what they
--- printed, and their twins against reference Lua the same way; the ABI
+-- The status a program ends with when an error no protected call takes
+-- ends it, as the command line's: the bridge exits so once the program has
+-- reported the error.
+local RAISED = 1
+-- Cases whose program ends through os.exit, or an error no protected call
+-- takes, with this status, publishing no result: their bridge runs are
+-- checked for the status and what they printed, output and errors
+-- together, and their twins against reference Lua the same way; the ABI
 -- guard, which runs the entry inside a test, is not run.
-local EXITS = {processexit = 3}
+local EXITS = {processexit = 3, errorsuncaught = RAISED}
+-- Further runs of a case's program, with these arguments, that an error no
+-- protected call takes ends: each ends with status RAISED, publishes
+-- nothing and prints this. The bench entry asked for a case it does not
+-- have reports it as `nupp bench` does.
 local EXITTWINS = {processexit = "catalog-process-exit"}
+local RAISES = {
+    benchworkloads = {"--case '^fib$' --json --out /dev/null", "nupp: no benchmark named ^fib$\n"}
+}
 -- The twins that run commands: the reference interpreter they run under is
 -- built with LUA_USE_POSIX (see `posixreference`).
 local POSIXTWINS = {
@@ -771,6 +793,7 @@ local function stage()
             "catalog-process-popen",
             "catalog-process-handle",
             "catalog-process-exit",
+            "catalog-errors-uncaught",
             "catalog-process-layer"
         }) do
             write(
@@ -1262,6 +1285,22 @@ local function main()
             check(version == (profile >= 3 and profile or modules), label .. " descriptor version")
             local bundle = OUT .. "/" .. label .. ".bundle"
             write(bundle, bundleBytes)
+            local raise = RAISES[name]
+            if raise then
+                local output = OUT .. "/" .. label .. "-raises.out"
+                write(output, sentinel)
+                defer(
+                    "bridge raise",
+                    (SETUP[name] or "")
+                    .. GUEST_ENV
+                    .. ("%s %s %s %s %s"):format(quote(bridge), quote(bundle), quote(empty), quote(output), raise[1]),
+                    function(status, printed)
+                        check(status == RAISED, ("%s raises: exit status %s"):format(label, tostring(status)))
+                        check(printed == raise[2], label .. " raises: printed " .. printed)
+                        check(read(output) == sentinel, label .. " raises: published nothing")
+                    end
+                )
+            end
             if STATUS[name] then
                 refuses(label, bundle, empty)
                 guarded(label, bundle, empty, highWater, nil, STATUS[name])

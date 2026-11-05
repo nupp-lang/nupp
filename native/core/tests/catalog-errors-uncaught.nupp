@@ -1,0 +1,19 @@
+module nupp.core.catalogerrorsuncaught
+
+-- An error no protected call takes ends the program as the command line
+-- ends one: what was written before it reaches the output, the error's
+-- positioned text follows `nupp: ` on standard error, the program ends
+-- with status 1 and nothing after it runs.
+local function fails(n: integer): integer
+    if n > 0 then
+        error("boom")
+    end
+    return n
+end
+
+io.write("before error\n")
+print("printed", 1)
+fails(1)
+print("never")
+
+export = 0
