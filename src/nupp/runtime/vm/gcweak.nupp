@@ -155,7 +155,7 @@ export function weakCycleClearNext(h: heap.Heap*, cursor: ClearCursor*): uint64
 end
 
 export function clear(h: heap.Heap*): nil
-    local state = new ClearCursor(0ULL, 0ULL, 0ULL)
+    local state = ClearCursor(0ULL, 0ULL, 0ULL)
     local cursor = state as ClearCursor*
     while weakCycleClearNext(h, cursor) ~= 0ULL do
     end

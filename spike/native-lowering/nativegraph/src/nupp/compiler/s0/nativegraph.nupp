@@ -167,7 +167,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
     for index, kind in ipairs(g.native.params) do
         parameters[index] = ir.kind(machineKind(kind))
     end
-    local signature = new ir.Signature(
+    local signature = ir.Signature(
         params = parameters,
         results = g.native.result == "nil" and {} or {ir.kind(machineKind(g.native.result))},
         convention = ir.INTERNAL
@@ -351,7 +351,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                     end
                     local imported: integer? = imports[symbol]
                     if not imported then
-                        local sig = new ir.Signature(
+                        local sig = ir.Signature(
                             params = kinds,
                             results = declaration.result == "nil" and {} or {ir.kind(machineKind(declaration.result))},
                             convention = ir.INTERNAL
@@ -390,7 +390,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
                         end
                         f.signatures[
                             #f.signatures + 1
-                        ] = new ir.Signature(
+                        ] = ir.Signature(
                             params = kinds,
                             results = {ir.kind(machineKind(declaration.result))},
                             convention = ir.C
@@ -826,7 +826,7 @@ local function lower(bound: any, name: string, unbound: boolean, resolved: any?,
         f.blockEnd[bi] = #f.op
     end
 
-    return new sink.Result(
+    return sink.Result(
         machine = f,
         body = bound.body,
         pc = bound.pc,

@@ -1121,7 +1121,7 @@ function checkMod.check(
         moduleExports = opts and opts.initialExports
         or {types = {}, typeDefs = {}, values = {}, valueDefs = {}, comptimeFunctions = {}, callGuarantees = {},},
         seenDefinitions = {},
-        scope = new state.Scope(
+        scope = state.Scope(
             vars = {},
             types = {},
             packTypes = {},
@@ -1485,7 +1485,7 @@ function checkMod.check(
     -- there is enough; the stack keeps nested scopes independent, and an inner capture
     -- is recorded for every enclosing scope it also escapes.
     c.pushScope = function()
-        c.scope = new state.Scope(
+        c.scope = state.Scope(
             vars = {},
             types = {},
             packTypes = {},
@@ -1775,7 +1775,7 @@ function checkMod.check(
                 def.kind = kind
             end
         end
-        local entry = new state.Binding(
+        local entry = state.Binding(
             t = t,
             ann = annotated ~= nil and annotated or old and old.ann or false,
             constant = constant == true or (tok == nil and old and old.constant) or false,
@@ -3172,7 +3172,7 @@ function checkMod.check(
                     if aliased then
                         c.pushScope()
                         for name, module in pairs(hoisted.bound) do
-                            c.scope.vars[name] = new state.Binding(t = T.any, requiredModule = module or nil)
+                            c.scope.vars[name] = state.Binding(t = T.any, requiredModule = module or nil)
                         end
                     end
                     local nested = #hoisted.owners > 0
@@ -3243,11 +3243,11 @@ function checkMod.check(
             local outer = c.scope
             local vars: {[string]: state.Binding} = {}
             for name, module in pairs(earlier) do
-                vars[name] = new state.Binding(t = T.any, requiredModule = module or nil)
+                vars[name] = state.Binding(t = T.any, requiredModule = module or nil)
             end
             local types: {[string]: Type} = setmetatable({}, {__index = selectedField("types")})
             local typeDefs: {[string]: any} = setmetatable({}, {__index = selectedField("typeDefs")})
-            c.scope = new state.Scope(
+            c.scope = state.Scope(
                 vars = vars,
                 types = types,
                 packTypes = {},

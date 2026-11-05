@@ -548,7 +548,7 @@ function lower.emit(
     local functions: {Fn} = {}
 
     local function newFn(name: string, parent: Fn?): Fn
-        local f = new lowerstate.Fn(
+        local f = lowerstate.Fn(
             id = #functions,
             name = name,
             module = currentModule,
@@ -2931,7 +2931,7 @@ function lower.emit(
             f:op("Nil", dst)
             f:push()
             local selectorName = "\0switch" .. subject
-            f.scopes[#f.scopes][selectorName] = new lowerstate.Binding(reg = subject, class = "v")
+            f.scopes[#f.scopes][selectorName] = lowerstate.Binding(reg = subject, class = "v")
             local selector = {kind = "name", token = {text = selectorName}}
             local mark, fmark = f.nregs, f.nfregs
             local done = f:label()
@@ -3368,7 +3368,8 @@ function lower.emit(
             end
             f:place(skip)
         elseif k == "newExpr" or construction.bare(node) then
-            -- `new R(...)` wraps the construction call; `R(...)` is the call.
+            -- A synthesized `newExpr` wraps the construction call; `R(...)` is the
+            -- call.
             local call = k == "newExpr" and node.call or node
             if call.constructorCall then
                 local lowered = {}
@@ -4083,7 +4084,7 @@ function lower.emit(
     local function loopBegin(f: Fn)
         f.breaks[
             #f.breaks + 1
-        ] = new lowerstate.Loop(exit = f:label(), next = f:label(), cleanupDepth = f.cleanupDepth or 0)
+        ] = lowerstate.Loop(exit = f:label(), next = f:label(), cleanupDepth = f.cleanupDepth or 0)
     end
 
     -- Where `continue` lands: the loop's own next-round step, after the body.

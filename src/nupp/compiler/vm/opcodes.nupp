@@ -295,7 +295,7 @@ local function parseOperand(name: string, text: string): opcodes.Operand
         mode = "use"
     end
 
-    return new opcodes.Operand(class = class, mode = mode, kind = kind, optional = optional)
+    return opcodes.Operand(class = class, mode = mode, kind = kind, optional = optional)
 end
 
 local byName: {[string]: opcodes.Opcode} = {}
@@ -328,7 +328,7 @@ for _, row in ipairs(ROWS) do
     end
     byName[
         name
-    ] = new opcodes.Opcode(
+    ] = opcodes.Opcode(
         name = name,
         flow = flow,
         operands = operands,

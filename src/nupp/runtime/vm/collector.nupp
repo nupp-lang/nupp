@@ -233,7 +233,7 @@ end
 --- Visits every child in the canonical object order.
 export function eachChild(h: heap.Heap*, o: heap.Header*, stack: heap.Words*?): nil
     @unsafe do
-        local state = new childwalk.Cursor(0ULL, 0ULL, values.NIL)
+        local state = childwalk.Cursor(0ULL, 0ULL, values.NIL)
         local cursor = state as childwalk.Cursor*
         while childwalk.childNext(o, cursor) ~= 0ULL do
             if childwalk.candidate(o, cursor) then
@@ -837,7 +837,7 @@ end
 --- Sweeps up to `work` objects; answers whether the sweep finished.
 local function sweepSome(h: heap.Heap*, work: uint64): boolean
     @unsafe do
-        local state = new objectwalk.Cursor(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+        local state = objectwalk.Cursor(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
         local result = state as objectwalk.Cursor*
         local left = work
         while left > 0ULL do
@@ -981,7 +981,7 @@ end
 --- next minor collection still has to reach through it.
 local function holdsfresh(o: heap.Header*): boolean
     @unsafe do
-        local state = new childwalk.Cursor(0ULL, 0ULL, values.NIL)
+        local state = childwalk.Cursor(0ULL, 0ULL, values.NIL)
         local cursor = state as childwalk.Cursor*
         while childwalk.childNext(o, cursor) ~= 0ULL do
             if fresh(cursor.value) then

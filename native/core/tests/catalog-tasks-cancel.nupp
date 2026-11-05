@@ -60,9 +60,9 @@ local caught = "none"
 do
     local scope = coroutine.scope()
     const sleeper = scope:spawn(function(): integer
-        const outer = new Guard("task")
+        const outer = Guard("task")
         local inner = coroutine.wrap(function(): nil
-            const held = new Guard("generator")
+            const held = Guard("generator")
             coroutine.sleep(1000)
             @unsafe coroutine.yield(1)
         end)
@@ -93,7 +93,7 @@ cleaned = {}
 do
     local scope = coroutine.scope()
     scope:spawn(function(): nil
-        const guard = new Guard("victim")
+        const guard = Guard("victim")
         victim = coroutine.running()
         coroutine.sleep(1000)
     end)

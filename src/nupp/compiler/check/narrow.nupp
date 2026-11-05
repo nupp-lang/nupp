@@ -1218,7 +1218,7 @@ export function install(c: state.Checker): Ops
                     c.scope.vars[
                         coroutineName
                     ] = carryFixedWidth(
-                        new state.Binding(
+                        state.Binding(
                             t = entry.t,
                             narrowing = true,
                             ann = entry.ann or false,
@@ -1246,7 +1246,7 @@ export function install(c: state.Checker): Ops
                     moved, ownershipOrigin = false, nil
                 end
                 local shadow = carryFixedWidth(
-                    new state.Binding(
+                    state.Binding(
                         t = t,
                         narrowing = true, -- shadows a declaration; not one itself
                         -- a narrowed copy still came from where it came from, or the

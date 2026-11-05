@@ -97,7 +97,7 @@ end
 
 export function wordGrowthOverflow(): uint64
     @unsafe do
-        local words = new heap.Words(0ULL, MAX_WORDS, MAX_WORDS)
+        local words = heap.Words(0ULL, MAX_WORDS, MAX_WORDS)
         heap.wordsPush(words, 1ULL)
         return 1ULL
     end
@@ -105,7 +105,7 @@ end
 
 export function wordMappingOverflow(): uint64
     @unsafe do
-        local words = new heap.Words(0ULL, MAX_WORDS - 1ULL, MAX_WORDS - 1ULL)
+        local words = heap.Words(0ULL, MAX_WORDS - 1ULL, MAX_WORDS - 1ULL)
         heap.wordsPush(words, 1ULL)
         return 1ULL
     end
@@ -113,7 +113,7 @@ end
 
 export function wordInvalidCapacity(): uint64
     @unsafe do
-        local words = new heap.Words(0ULL, 0ULL, MAXIMUM)
+        local words = heap.Words(0ULL, 0ULL, MAXIMUM)
         heap.wordsPush(words, 1ULL)
         return 1ULL
     end
@@ -121,7 +121,7 @@ end
 
 export function wordInvalidCount(): uint64
     @unsafe do
-        local words = new heap.Words(0ULL, 1ULL, 0ULL)
+        local words = heap.Words(0ULL, 1ULL, 0ULL)
         heap.wordsPush(words, 1ULL)
         return 1ULL
     end
@@ -129,7 +129,7 @@ end
 
 export function setGrowthOverflow(): uint64
     @unsafe do
-        local words = new heap.WordSet(0ULL, 0ULL, MAX_WORDS - 1ULL)
+        local words = heap.WordSet(0ULL, 0ULL, MAX_WORDS - 1ULL)
         heap.setAdd(words, 1ULL)
         return 1ULL
     end
@@ -137,7 +137,7 @@ end
 
 export function setInvalidMask(): uint64
     @unsafe do
-        local words = new heap.WordSet(0ULL, MAX_WORDS, 0ULL)
+        local words = heap.WordSet(0ULL, MAX_WORDS, 0ULL)
         heap.setAdd(words, 1ULL)
         return 1ULL
     end

@@ -37,7 +37,7 @@ end
 -- 1 the same bytes intern to one string, 2 "ab" .. "c" is "abc", 4 the
 -- decimal text of -1234567 and 0 builds "-12345670", 8 lengths agree.
 export function basics(abc: uint64, ab: uint64, c: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     local answer: uint64 = 0ULL
     do
         local a = arena.open(16777216ULL)
@@ -75,7 +75,7 @@ end
 -- same scan as lstrlib's gmatch_aux. Answers matches times a million, plus
 -- the matched bytes times a hundred, plus the captures seen.
 export function gmatch(s1: uint64, s2: uint64, s3: uint64, p1: uint64, p2: uint64, lengths: uint64): uint64
-    local state = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local state = patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     local answer: uint64 = 0ULL
     do
         local a = arena.open(16777216ULL)

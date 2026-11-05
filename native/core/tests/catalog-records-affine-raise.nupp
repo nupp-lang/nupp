@@ -20,7 +20,7 @@ local record File
 end
 
 local function raising(n: integer): integer
-    local f = new File(n)
+    local f = File(n)
     if n > 2 then
         error("too big")
     end
@@ -29,7 +29,7 @@ local function raising(n: integer): integer
 end
 
 local function libraryraising(code: integer): string
-    local g = new File(4)
+    local g = File(4)
     return string.char(code) .. tostring(g.id)
 end
 
@@ -55,7 +55,7 @@ local record Faulty
 end
 
 local function leaving(): integer
-    const f = new Faulty()
+    const f = Faulty()
     return 1
 end
 
@@ -67,7 +67,7 @@ end
 -- A wrapped thread's error, raised again at the call of its function, lands
 -- in the calling function, which destroys its owners.
 local function resuming(): integer
-    local f = new File(6)
+    local f = File(6)
     const id = f.id
     local inner = coroutine.wrap(function(): integer
         if id > 0 then

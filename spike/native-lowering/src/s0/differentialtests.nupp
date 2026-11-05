@@ -37,8 +37,8 @@ export function prepare(directory: string, digest: string): string
         local result = oracle.run(
             f,
             args,
-            new oracle.Memory(bytes = bytes, stackBase = 64),
-            new oracle.Hooks(call = nil, fma64 = nil),
+            oracle.Memory(bytes = bytes, stackBase = 64),
+            oracle.Hooks(call = nil, fma64 = nil),
             10000
         )
         assert(result.status == oracle.OK, "oracle refused " .. name .. ": " .. tostring(result.status))

@@ -36,7 +36,7 @@ end
 -- string nor a number raises once the values before it are written, as
 -- Lua's does.
 export function write(ctx: voidptr, items: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     guestscope.nameLibrary(ctx, texts.NAME_WRITE)
     @unsafe do
         local services = native.loadPointer(ctx, context.SERVICE_SCOPE)

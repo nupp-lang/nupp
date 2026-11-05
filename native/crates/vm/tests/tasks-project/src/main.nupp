@@ -13,7 +13,7 @@ function main.checkpointStart(): number
             local host = require("coroutine.sus.host")
             local time = require("coroutine")
             local clock = require("nupp.vm.clock")
-            local handler = new host.Handler(
+            local handler = host.Handler(
                 canpark = function(_: host.Handler): boolean
                     return true
                 end,
@@ -106,7 +106,7 @@ local record Resource is own.Closeable
 end
 
 local function resource(state: any): affine(Resource)
-    return new Resource(state = state)
+    return Resource(state = state)
 end
 
 function main.run(): number
@@ -334,7 +334,7 @@ local record Pair
 end
 
 local function conditional(flag: boolean, state: any): nil
-    local pair = new Pair(left = resource(state), right = resource(state))
+    local pair = Pair(left = resource(state), right = resource(state))
     if flag then
         own.drop(pair.left)
     end

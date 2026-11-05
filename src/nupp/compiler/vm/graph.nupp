@@ -2452,7 +2452,7 @@ function graph.protectedInvokeContract(call: any): any
     return contract
 end
 
--- The contract of `new R(...)`'s call of R's constructor `owner`.
+-- The contract of `R(...)`'s call of R's constructor `owner`.
 function graph.constructContract(owner: any, call: any): any
     local contract = {
         owner = owner,

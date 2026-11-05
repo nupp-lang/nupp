@@ -1214,8 +1214,8 @@ local function retaining(cursor: Cursor*, owner: Owner*): uint64
 end
 local function localBorrow(seed: uint64): uint64
     @unsafe do
-        local first = new Cursor(seed)
-        local second = new Cursor(seed + 1ULL)
+        local first = Cursor(seed)
+        local second = Cursor(seed + 1ULL)
         local firstPointer = first as Cursor*
         local secondPointer = second as Cursor*
         return borrowed(firstPointer) + secondPointer.value
@@ -1223,7 +1223,7 @@ local function localBorrow(seed: uint64): uint64
 end
 local function localEscape(owner: Owner*, seed: uint64): uint64
     @unsafe do
-        local state = new Cursor(seed)
+        local state = Cursor(seed)
         local pointer = state as Cursor*
         return retaining(pointer, owner)
     end
@@ -1289,7 +1289,7 @@ local function borrowedRaw(borrows cursor: Cursor*, raw: voidptr): voidptr
 end
 local function localRawResult(seed: uint64, raw: voidptr): voidptr
     @unsafe do
-        local state = new Cursor(seed)
+        local state = Cursor(seed)
         return borrowedRaw(state as Cursor*, raw)
     end
 end
@@ -1360,7 +1360,7 @@ end
         [[
 local struct Cursor value: uint64 end
 local function offsetLocal(seed: uint64): uint64
-    local state = new Cursor(seed)
+    local state = Cursor(seed)
     local cursor = state as Cursor*
     return native.address(native.offset(cursor as voidptr, 0))
 end

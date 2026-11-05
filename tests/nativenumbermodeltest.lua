@@ -119,7 +119,7 @@ local record Pair
     y: number
 end
 local exact: integer = 0x7fffffffffffffff
-local pair = new Pair(x = exact, y = 2.0)
+local pair = Pair(x = exact, y = 2.0)
 assert(math.type(pair.x) == "integer" and pair.x == exact)
 assert(math.type(pair.y) == "float")
 pair.x = 3
@@ -188,7 +188,7 @@ local random = require("math.random")
 local binary = require("binary")
 local json = require("serde.json")
 local codec = require("serde.codec")
-local generator = new random.Xoshiro128(12345)
+local generator = random.Xoshiro128(12345)
 for _ = 1, 32 do
     local index: integer = generator:integer(1, 10)
     assert(index >= 1 and index <= 10 and math.type(index) == "integer")
@@ -200,7 +200,7 @@ for _, value in ipairs(values) do
     sum += value
 end
 assert(sum == 10)
-local set = new binary.Bitset(65)
+local set = binary.Bitset(65)
 set:set(64)
 assert(set:get(64) and set:count() == 1)
 local array: any = {}

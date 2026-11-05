@@ -73,7 +73,7 @@ function api.run(): number
         return 3, 4
     end
 
-    local present: Probe? = new Probe(name = "p", items = {7}, step = function(n: number): number
+    local present: Probe? = Probe(name = "p", items = {7}, step = function(n: number): number
         return n + 1
     end)
     local absent: Probe? = nil
@@ -99,7 +99,7 @@ function api.run(): number
         return self.start + by
     end
 
-    local counter = new Counter(start = 4)
+    local counter = Counter(start = 4)
     local erased: any = counter
     assert(getmetatable(erased) == Counter and getmetatable({}) == nil)
     assert(erased.bump(counter, 2) == 6 and counter:bump(1) == 5)

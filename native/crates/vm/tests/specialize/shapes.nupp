@@ -55,12 +55,12 @@ end
 local function makeShape(i: number, kinds: number): Shape
     local k = i % kinds
     if k == 0 then
-        return new Circle(name = "circle", r = i % 5)
+        return Circle(name = "circle", r = i % 5)
     elseif k == 1 then
-        return new Rect(name = "rect", w = i % 7, h = 2)
+        return Rect(name = "rect", w = i % 7, h = 2)
     end
 
-    return new Square(name = "square", side = i % 3)
+    return Square(name = "square", side = i % 3)
 end
 
 local function total(shapes: {Shape}): number

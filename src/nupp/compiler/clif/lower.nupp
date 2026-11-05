@@ -1513,11 +1513,13 @@ local function compileDirectFunction(fn: Fn, options: any): string
             return {kind = loadedKind(element.kind), value = load(element.kind, element.address), type = element.type}
         elseif construction.of(n) then
             -- A struct value: a stack slot of its layout, zeroed, with the fields
-            -- the construction names stored into it. `new S(...)` wraps the call
-            -- and `S(...)` is the call.
+            -- the construction names stored into it.
             local call = construction.of(n).call
             local struct = raw(n.inferredType or call.inferredType or call.signatureType)
-            need(struct and struct.tag == "nominal" and struct.declKind == "struct", "new builds a struct here")
+            need(
+                struct and struct.tag == "nominal" and struct.declKind == "struct",
+                "the construction builds a struct here"
+            )
             local size, alignment = sizeOf(struct)
             local address = emit("stack_addr.i64 " .. declareSlot(size, alignment))
             zeroBytes(address, size)
@@ -2334,7 +2336,7 @@ local function describe(fnName: string, node: any, body: any, scope: Scope, hand
         )
     end
 
-    return new Fn(
+    return Fn(
         name = fnName,
         node = node,
         body = body,
@@ -2352,7 +2354,7 @@ end
 -- One module's functions, from its checked tree. Requires are validated once
 -- every module of the set is known.
 local function describeModule(parsed: any, path: string, handlers: boolean): (Scope, {any})
-    local scope = new Scope(
+    local scope = Scope(
         name = "",
         path = path,
         functions = {},

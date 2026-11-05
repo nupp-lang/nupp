@@ -776,7 +776,7 @@ function M.fragmentRuntimeIdentitiesBelongToTheCheckedModule()
 local struct Value
     x: int32
 end
-local original = new Value(7)
+local original = Value(7)
 local function read(): int32
     return original.x
 end

@@ -207,7 +207,7 @@ function ir.condition(name: string): integer
 end
 
 function ir.new(name: string, signature: ir.Signature): ir.Function
-    return new ir.Function(
+    return ir.Function(
         name = name,
         signature = signature,
         signatures = {},

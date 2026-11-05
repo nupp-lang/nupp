@@ -54,7 +54,7 @@ local function roots(borrows left: Chunk*, borrows right: Chunk*, choice: uint64
 end
 local function localOptional(seed: uint64): uint64
     @unsafe do
-        local state = new Cursor(seed)
+        local state = Cursor(seed)
         local pointer = state as Cursor*
         local optional: Cursor*? = pointer
         if seed == 0ULL then optional = pointer end
@@ -64,8 +64,8 @@ local function localOptional(seed: uint64): uint64
 end
 local function locals(seed: uint64): uint64
     @unsafe do
-        local first = new Cursor(seed)
-        local second = new Cursor(seed + 1ULL)
+        local first = Cursor(seed)
+        local second = Cursor(seed + 1ULL)
         local left = first as Cursor*
         local right = second as Cursor*
         local result = 0ULL

@@ -20,12 +20,12 @@ local record File
 end
 
 do
-    local a = new File(1)
-    local b = new File(2)
+    local a = File(1)
+    local b = File(2)
 end
 
 local function scoped(n: integer): integer
-    local f = new File(n)
+    local f = File(n)
     return f.id * 2
 end
 

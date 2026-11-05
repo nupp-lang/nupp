@@ -338,7 +338,7 @@ function M.rawReturnDoesNotErasePhysicalLocalLifetime()
         [[
 local struct Cursor value: uint64 end
 export function escape(seed: uint64): voidptr
-    local cursor = new Cursor(seed)
+    local cursor = Cursor(seed)
     return (cursor as Cursor*) as voidptr
 end
 ]],

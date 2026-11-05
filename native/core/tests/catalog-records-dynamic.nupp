@@ -15,7 +15,7 @@ local record Point
     end
 end
 
-local p = new Point(5)
+local p = Point(5)
 local loose: any = p
 local score = loose.x * 100 + loose.y
 loose.y = 9

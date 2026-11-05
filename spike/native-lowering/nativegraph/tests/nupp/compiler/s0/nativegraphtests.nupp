@@ -205,7 +205,7 @@ local function exact(a: any, b: any, path: any): any
 end
 
 local function builderCases(): nil
-    local signature = new ir.Signature(params = {}, results = {}, convention = ir.INTERNAL)
+    local signature = ir.Signature(params = {}, results = {}, convention = ir.INTERNAL)
     local old, direct = ir.new("builder", signature), ir.new("builder", signature)
     ir.instruction(old, ir.OP_ICONST, 1, ir.I64, {}, 17, 0)
     ir.instructionRange(direct, ir.OP_ICONST, 1, ir.I64, nil, nil, nil, 1, 0, 17, 0)

@@ -17,7 +17,7 @@ end
 local rows = carray(Position, 128)
 
 function fixture.scalar(): number
-    local point = new Position(0, 0, 0)
+    local point = Position(0, 0, 0)
     for _ = 1, 20000 do
         point.x = point.x + 0.25
         point.y = point.y - 0.5
@@ -30,7 +30,7 @@ function fixture.scalar(): number
 end
 
 function fixture.wide(): boolean
-    local point = new Counter(9007199254740993LL, 9223372036854775808ULL, 0)
+    local point = Counter(9007199254740993LL, 9223372036854775808ULL, 0)
     for _ = 1, 20000 do
         point.signed = point.signed + 1LL
         point.unsigned = point.unsigned + 1ULL
@@ -67,7 +67,7 @@ function fixture.rows(): number
 end
 
 function fixture.dynamic(): number
-    local point: any = new Position(0, 0, 0)
+    local point: any = Position(0, 0, 0)
     for _ = 1, 20000 do
         point.x = point.x + 0.25
         point.y = point.y - 0.5

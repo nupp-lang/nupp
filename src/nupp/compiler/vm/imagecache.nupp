@@ -364,7 +364,7 @@ function imagecache.open(
         stats.stores = stats.stores + 1
     end
 
-    return new imagecache.Entry(lookup = lookup, store = store)
+    return imagecache.Entry(lookup = lookup, store = store)
 end
 
 export = imagecache

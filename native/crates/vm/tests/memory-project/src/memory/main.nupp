@@ -103,7 +103,7 @@ local function soaSlabs(): nil
             rows[index].position.x = index
         end
         rows[2].mass += 10
-        rows[3] = new Body(new Vector(7, 8), 0.5, 9, 3)
+        rows[3] = Body(Vector(7, 8), 0.5, 9, 3)
         do
             local masses = rows.mass;
             assert2(#masses == 4 and masses[2] == 13)

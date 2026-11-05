@@ -36,8 +36,8 @@ end
 if pick(true) == 1 and pick(false) == 2 then
     score = score + 16
 end
-local a = new Settings()
-local b = new Settings()
+local a = Settings()
+local b = Settings()
 if a.width == 2.5 and a.label == nil and #a.tags == 2 and a.tags ~= b.tags then
     score = score + 32
 end

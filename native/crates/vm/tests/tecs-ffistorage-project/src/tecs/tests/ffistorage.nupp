@@ -26,16 +26,16 @@ end
 local struct SignedValue
     serial: int64
 end
-const pointStorage = ffistorage.new(new Point(), true)
-const arrayStorage = ffistorage.new(new ArrayValue())
-const pointLayout: any = native.layout(new Point())
+const pointStorage = ffistorage.new(Point(), true)
+const arrayStorage = ffistorage.new(ArrayValue())
+const pointLayout: any = native.layout(Point())
 
 function suite.rawStorageRelocatesWithABulkCopy(): nil
     const storage = pointStorage
     const source = ffistorage.allocate(storage, 2) as Point[?]
     @unsafe do
-        source[1] = new Point(13, 17)
-        source[2] = new Point(19, 23)
+        source[1] = Point(13, 17)
+        source[2] = Point(19, 23)
     end
     const target = ffistorage.resize(storage, source, 2, 100) as Point[?]
     @unsafe do
@@ -113,7 +113,7 @@ function suite.rawResizeAndIntegerDecodingRejectOverflow(): nil
 end
 
 function suite.customBackingIsRootedAndUsedAgainOnGrowth(): nil
-    const storage = ffistorage.new(new Point())
+    const storage = ffistorage.new(Point())
     local allocations: integer = 0
     ffistorage.setAllocator(storage, function(bytes: integer, alignment: integer): (any, any)
         allocations = allocations + 1
@@ -139,7 +139,7 @@ function suite.customBackingIsRootedAndUsedAgainOnGrowth(): nil
 end
 
 function suite.codecsAndStagingPreserveValues(): nil
-    const original = new ArrayValue()
+    const original = ArrayValue()
     original.values[0] = 1
     original.values[1] = 2
     original.values[2] = 3
@@ -161,17 +161,17 @@ function suite.codecsAndStagingPreserveValues(): nil
     test(arrayStorage.rawCodec)
     test(not pointStorage.rawCodec)
     test.eq(pointStorage.fingerprint, "x:double,y:double|16")
-    const signed = ffistorage.new(new SignedValue())
+    const signed = ffistorage.new(SignedValue())
     const minimum = ffistorage.deserialize(signed, {serial = "-9223372036854775808"}) as SignedValue
     test(minimum.serial == -9223372036854775808LL)
     test.eq(ffistorage.serialize(signed, minimum).serial, "-9223372036854775808")
     test.raises(
         function(): nil
-            ffistorage.new(new NestedValue())
+            ffistorage.new(NestedValue())
         end,
         "require paired snapshot codecs"
     )
-    const owned = new Point(19, 23)
+    const owned = Point(19, 23)
     test(rawequal(ffistorage.capture(pointStorage, owned), owned))
     const rows: any = ffistorage.allocate(pointStorage, 2)
     rows[1] = owned

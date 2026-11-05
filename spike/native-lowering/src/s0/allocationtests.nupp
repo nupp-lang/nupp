@@ -14,7 +14,7 @@ local function target(tiny: boolean): allocate.Target
         preserved[r] = true
     end
 
-    return new allocate.Target(
+    return allocate.Target(
         integerRegisters = tiny and {1, 25}
         or {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 25, 26, 27, 28, 29},
         floatRegisters = tiny and {65, 73} or {65, 66, 67, 68, 69, 70, 71, 72, 73, 74, 75, 76, 77, 78, 79, 80},

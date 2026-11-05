@@ -226,7 +226,7 @@ export record Fn
         if known then
             return known
         end
-        self.consts[#self.consts + 1] = new Const(kind = kind, value = value)
+        self.consts[#self.consts + 1] = Const(kind = kind, value = value)
         self.constIndex[key] = #self.consts - 1
 
         return #self.consts - 1
@@ -236,7 +236,7 @@ export record Fn
     function block(self): Block
         local current = self.current
         if current == nil then
-            current = new Block(index = 1)
+            current = Block(index = 1)
             self.blocks[1] = current
             self.current = current
         end
@@ -264,7 +264,7 @@ export record Fn
         local current = self:block()
         if flow == "stop" then
             current.ends, current.ret = "return", ins
-            self:place(new Block())
+            self:place(Block())
         elseif flow ~= "next" then
             error("a jump is lowered by jump or branch, not " .. tostring(ins[1]), 2)
         else
@@ -276,7 +276,7 @@ export record Fn
 
     --- A label: a block jumps may name before it is placed.
     function label(self): Block
-        return new Block()
+        return Block()
     end
 
     --- Makes `b` the block code goes to; the block before falls into it.
@@ -298,7 +298,7 @@ export record Fn
     function jump(self, b: Block): nil
         local current = self:block()
         current.ends, current.target = "jump", b
-        self:place(new Block())
+        self:place(Block())
     end
 
     --- Ends the block with a branch on `reg` to `b`, by `op`: JmpIf when the
@@ -306,7 +306,7 @@ export record Fn
     --- integer register is zero. Code continues where the branch is not taken.
     function branch(self, op: string, reg: integer, b: Block): nil
         local current = self:block()
-        local fall = new Block()
+        local fall = Block()
         current.ends, current.branchOp, current.branchReg, current.target, current.fall = "branch", op, reg, b, fall
         self:place(fall)
     end
@@ -314,7 +314,7 @@ export record Fn
     function dispatch(self, reg: integer, targets: {Block}): nil
         local current = self:block()
         current.ends, current.branchReg, current.switchTargets = "switch", reg, targets
-        self:place(new Block())
+        self:place(Block())
     end
 
     --- Forgets every block, for a body lowered again from nothing.
@@ -371,13 +371,13 @@ export record Fn
             local count = (self.spillCount or 0) + 1
             self.spillCount = count
             local key = name .. "#" .. count
-            self.scopes[#self.scopes][name] = new Binding(class = "v", cell = self.captured[name] or nil, spill = key)
+            self.scopes[#self.scopes][name] = Binding(class = "v", cell = self.captured[name] or nil, spill = key)
             return nil, self.captured[name] or nil, key
         end
         if self.captured[name] then
             local r = self:reg()
             self.declTop = math.max(self.declTop or 0, r + 1)
-            self.scopes[#self.scopes][name] = new Binding(reg = r, class = "v", cell = true)
+            self.scopes[#self.scopes][name] = Binding(reg = r, class = "v", cell = true)
             return r, true
         end
         local r = (class == "f" or class == "i") and self:freg() or self:reg()
@@ -386,7 +386,7 @@ export record Fn
         else
             self.declTop = math.max(self.declTop or 0, r + 1)
         end
-        self.scopes[#self.scopes][name] = new Binding(reg = r, class = class or "v")
+        self.scopes[#self.scopes][name] = Binding(reg = r, class = class or "v")
 
         return r
     end
@@ -481,19 +481,19 @@ export record Fn
                 return nil
             end
             assert(pcell, "captured spilled local " .. name .. " is not a cell in " .. parent.name)
-            source = new SpillUpvalue(kind = "spill", key = pspill)
+            source = SpillUpvalue(kind = "spill", key = pspill)
         elseif preg then
             if speculative and not pcell then
                 return nil
             end
             assert(pcell, "captured local " .. name .. " is not a cell in " .. parent.name)
-            source = new LocalUpvalue(kind = "local", reg = preg)
+            source = LocalUpvalue(kind = "local", reg = preg)
         else
             local pi = parent:upvalue(name, speculative)
             if not pi then
                 return nil
             end
-            source = new OuterUpvalue(kind = "upval", index = pi)
+            source = OuterUpvalue(kind = "upval", index = pi)
         end
         self.upvals[#self.upvals + 1] = source
         self.upvalIndex[name] = #self.upvals - 1

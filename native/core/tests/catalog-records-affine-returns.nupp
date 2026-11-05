@@ -18,17 +18,17 @@ local record File
 end
 
 local function pair(): (integer, integer)
-    local f = new File(1)
+    local f = File(1)
     return f.id * 10, 20
 end
 
 local function three(): (integer, integer, integer)
-    local f = new File(2)
+    local f = File(2)
     return 5, pair()
 end
 
 local function echo(...: integer): (integer, integer)
-    local f = new File(3)
+    local f = File(3)
     return ...
 end
 

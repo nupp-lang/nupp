@@ -56,7 +56,7 @@ local function graphs(): nil
             end,
         },
     }
-    local sound = new Sound(name = "theme", volume = 3, cache = 1, self = player)
+    local sound = Sound(name = "theme", volume = 3, cache = 1, self = player)
     local policies: {snapshot.Policy} = {
         {
             shape = sound,
@@ -104,7 +104,7 @@ local function graphs(): nil
     assert2(restored == 3 and discarded == 2)
 
     -- loadInto is all or nothing: a failing hook leaves the target untouched
-    local target = new Sound(name = "old", volume = 1, cache = 0, self = nil)
+    local target = Sound(name = "old", volume = 1, cache = 0, self = nil)
     local broken: {snapshot.Policy} = {
         {
             shape = sound,
@@ -161,7 +161,7 @@ local hookRuns = 0
 local function durable(): nil
     local directory = scratch()
     local path = directory .. "/slot1.save"
-    local game = new Save(level = 4, inventory = {"sword", "map"}, secret = "debug")
+    local game = Save(level = 4, inventory = {"sword", "map"}, secret = "debug")
     local policies: {snapshot.Policy} = {
         {
             shape = game,

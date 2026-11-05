@@ -17,7 +17,7 @@ local record Counter
     end
 
     function make(step: integer): Counter
-        return new Counter(count = 0, step = step)
+        return Counter(count = 0, step = step)
     end
 end
 

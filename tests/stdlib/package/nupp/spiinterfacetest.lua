@@ -183,7 +183,7 @@ local record Reader
     function read(self, value: Left): string return "left" end
     function read(self, value: Right): string return "right" end
 end
-local reader = new Reader()
+local reader = Reader()
 return reader:read({} as any as Left) .. reader:read({} as any as Right)
 ]]
         )

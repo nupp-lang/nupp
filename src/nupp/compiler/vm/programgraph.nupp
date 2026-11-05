@@ -737,9 +737,9 @@ function program.describe(modules: {any}, entryModule: string): any
         then
             cleanupToken(node, node.ownerType, cst.firstToken(node))
         end
-        -- `new R(...)` and `R(...)` are one construction, the call `new` wraps.
+        -- `R(...)` is lowered through its construction wrapper.
         local built = construction.of(node)
-        -- `new R(...)` of a plain record builds its value in place, so the
+        -- `R(...)` of a plain record builds its value in place, so the
         -- record's name is a type use there, not a read of its runtime value.
         if built and built.call.recordFields and not built.call.constructorEntry then
             loopForms[built.call] = true
@@ -751,7 +751,7 @@ function program.describe(modules: {any}, entryModule: string): any
                 collect(built.call.obj, owner)
             end
         end
-        -- `new R(...)` with a constructor calls it, the fresh instance first,
+        -- `R(...)` with a constructor calls it, the fresh instance first,
         -- through the table R's name holds.
         local entry = built and built.call.constructorEntry
         local declaration = entry and entry.declaration
@@ -761,7 +761,7 @@ function program.describe(modules: {any}, entryModule: string): any
             and inlineRecords[declaration].definition.filename ~= owner.scope.path
         if foreignRecord then
             -- A record another module declares is that module's export:
-            -- `new m.R(...)` reads R's table through m's, which the caller
+            -- `m.R(...)` reads R's table through m's, which the caller
             -- references as it does any value.
             need(
                 built.call.obj and built.call.obj.kind ~= "name",

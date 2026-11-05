@@ -35,10 +35,10 @@ end
 local Make: Type<Point> = Point
 local a = Point(x = 3)
 local b = Make(x = 5, y = 1)
-local c = new Point(x = 1)
+local c = Point(x = 1)
 local d = Counter(5)
 d:bump()
-local e = new Counter(1)
+local e = Counter(1)
 local box = shapes.Box(3, 4)
 local same = getmetatable(box) == getmetatable(shapes.square(2)) and 1 or 0
 export = made

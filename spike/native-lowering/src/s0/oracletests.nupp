@@ -28,11 +28,11 @@ local function memory(): oracle.Memory
         bytes[i] = 0
     end
 
-    return new oracle.Memory(bytes = bytes, stackBase = 64)
+    return oracle.Memory(bytes = bytes, stackBase = 64)
 end
 
 local function hooks(): oracle.Hooks
-    return new oracle.Hooks(call = nil, fma64 = nil)
+    return oracle.Hooks(call = nil, fma64 = nil)
 end
 
 local function operation(row: {integer}): ir.Function
@@ -41,7 +41,7 @@ local function operation(row: {integer}): ir.Function
     for i = 1, argc do
         params[i] = operand
     end
-    local f = ir.new("vector", new ir.Signature(params = params, results = {kind}, convention = ir.INTERNAL))
+    local f = ir.new("vector", ir.Signature(params = params, results = {kind}, convention = ir.INTERNAL))
     f.blockStart[1], f.firstParam[1], f.nparams[1] = 1, 1, argc
     for i = 1, argc do
         ir.value(f, i, operand, -1);
@@ -203,7 +203,7 @@ end
 export function random(path: string): string
     local functions = reader.read(read(path .. "/random.clif"))
     local index: integer = 0
-    local target = new allocation.Target(
+    local target = allocation.Target(
         integerRegisters = {1, 25},
         floatRegisters = {65, 73},
         preservedInternal = {},

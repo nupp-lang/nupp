@@ -141,7 +141,7 @@ local record Resource
 end
 local function close(takes value: Resource): nil end
 local function open(value: integer): affine(Resource, close)
-    return new Resource(value = value)
+    return Resource(value = value)
 end
 local taken = open(7)
 local borrowed = open(5)
@@ -198,7 +198,7 @@ local record Resource
 end
 local function close(takes value: Resource): nil end
 local function open(value: integer): affine(Resource, close)
-    return new Resource(value = value)
+    return Resource(value = value)
 end
 local function answer(): nil
     local resource = open(7)

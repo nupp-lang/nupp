@@ -78,7 +78,7 @@ function ssa.new(): ssa.Builder
     end
 
     local function newBlock(): ssa.Block
-        local block = new ssa.Block(
+        local block = ssa.Block(
             id = #blocks,
             params = {},
             paramTypes = {},
@@ -418,7 +418,7 @@ function ssa.new(): ssa.Builder
         return text
     end
 
-    b = new ssa.Builder(
+    b = ssa.Builder(
         current = nil,
         fresh = fresh,
         newBlock = newBlock,

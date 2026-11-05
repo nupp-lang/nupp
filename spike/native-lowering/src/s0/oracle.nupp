@@ -164,7 +164,7 @@ function oracle.run(
     local steps: integer = 0
 
     local function finish(status: integer, word: integer, word2: integer?): oracle.Result
-        return new oracle.Result(status = status, word = word, word2 = word2 or 0, steps = steps)
+        return oracle.Result(status = status, word = word, word2 = word2 or 0, steps = steps)
     end
 
     if #args ~= f.nparams[1] or memory.stackBase < 0 or memory.stackBase > #memory.bytes then

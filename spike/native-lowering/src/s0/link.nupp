@@ -51,10 +51,10 @@ function link.build(functions: {ir.Function}, entry: string, spill: boolean, bin
     if binding then
         if binding == "C:nupp_os_page_size" then
             boundHost = "nupp_os_page_size"
-            boundSignature = new ir.Signature(params = {}, results = {ir.I64}, convention = ir.C)
+            boundSignature = ir.Signature(params = {}, results = {ir.I64}, convention = ir.C)
         elseif binding == "C:nupp_rt_power" then
             boundHost = "nupp_rt_power"
-            boundSignature = new ir.Signature(params = {ir.F64, ir.F64}, results = {ir.F64}, convention = ir.C)
+            boundSignature = ir.Signature(params = {ir.F64, ir.F64}, results = {ir.F64}, convention = ir.C)
         else
             local name = assert(binding:match("^N:([%w_]+)$"), "S0 link: unknown indirect binding")
             boundTarget = assert(named[name], "S0 link: missing indirect target")
@@ -269,7 +269,7 @@ function link.build(functions: {ir.Function}, entry: string, spill: boolean, bin
         end
     end
 
-    return new link.Image(words = words, imports = imports, entry = 0, arenaBytes = arenaBytes)
+    return link.Image(words = words, imports = imports, entry = 0, arenaBytes = arenaBytes)
 end
 
 function link.bundle(

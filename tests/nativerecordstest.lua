@@ -34,7 +34,7 @@ local record Item
     end
 end
 local record Other value: number end
-local item = new Item(value = -0.0, label = 'retained')
+local item = Item(value = -0.0, label = 'retained')
 local alias = item
 local before = 1 / item.value
 item:replace(17.5)
@@ -59,7 +59,7 @@ local struct Scalars
     flag: boolean
     fractional: float64
 end
-local value = new Scalars(-127, 65535, 18446744073709551615ULL, true, -0.0)
+local value = Scalars(-127, 65535, 18446744073709551615ULL, true, -0.0)
 value.small = -23
 value.unsigned = 50000
 value.wide = 9223372036854775809ULL
@@ -79,7 +79,7 @@ function M.physicalFloatWritesReadBackThroughTypedFields()
     local first, second = run(
         [[
 local struct Pair x: float32 y: float64 end
-local value = new Pair(1.25, -3.5)
+local value = Pair(1.25, -3.5)
 local alias = value
 value.x = 4.5
 value.y = 9.25

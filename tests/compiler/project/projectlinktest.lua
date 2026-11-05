@@ -1391,7 +1391,7 @@ local record Person is greet.Greeter
     name: string
 end
 
-local person = new Person(name = "Ada")
+local person = Person(name = "Ada")
 return person:hello()
 ]],
         },

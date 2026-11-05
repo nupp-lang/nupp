@@ -117,7 +117,7 @@ end
 --- @param fn computes the value for a key
 --- @param eq decides "did the value really change", for the early cutoff
 function Q:define(name: string, fn: function(q: any, key: any): any, eq: (function(a: any, b: any): boolean)?)
-    self.defs[name] = new Def(fn = fn, eq = eq)
+    self.defs[name] = Def(fn = fn, eq = eq)
 end
 
 --- Sets an input, which bumps the revision and so invalidates whatever depended on it.
@@ -125,7 +125,7 @@ function Q:setInput(name: string, key: any, value: any)
     self.revision = self.revision + 1
     local byName = self.inputs[name] or {}
     self.inputs[name] = byName
-    byName[key] = new Input(value = value, changedAt = self.revision)
+    byName[key] = Input(value = value, changedAt = self.revision)
 end
 
 --- Removes an overlay, so a derived definition (a disk read, say) takes over again.
@@ -150,7 +150,7 @@ local depChangedAt: function(self: Q, name: string, key: any): integer
 local function record(self: Q, name: string, key: any)
     local top = self.stack[#self.stack]
     if top then
-        top.deps[#top.deps + 1] = new Dep(name = name, key = key)
+        top.deps[#top.deps + 1] = Dep(name = name, key = key)
     end
 end
 
@@ -203,7 +203,7 @@ function Q:get(name: string, key: any): any
         -- entry again, and again, until the stack runs out. With it, the re-entrant
         -- edge reports what this entry last changed at, which is the same rule the
         -- computation path resolves a cycle by.
-        self.stack[#self.stack + 1] = new Frame(deps = {})
+        self.stack[#self.stack + 1] = Frame(deps = {})
         active = active or {}
         self.active[name] = active
         active[key] = true
@@ -233,7 +233,7 @@ function Q:get(name: string, key: any): any
     active = active or {}
     self.active[name] = active
     active[key] = true
-    self.stack[#self.stack + 1] = new Frame(deps = {})
+    self.stack[#self.stack + 1] = Frame(deps = {})
     local ok, value = pcall(def.fn, self, key)
     local frame = self.stack[#self.stack]
     self.stack[#self.stack] = nil
@@ -256,7 +256,7 @@ function Q:get(name: string, key: any): any
             value = entry.value
         end
     end
-    m[key] = new Memo(value = value, changedAt = changedAt, verifiedAt = self.revision, deps = frame.deps)
+    m[key] = Memo(value = value, changedAt = changedAt, verifiedAt = self.revision, deps = frame.deps)
     record(self, name, key)
 
     return value

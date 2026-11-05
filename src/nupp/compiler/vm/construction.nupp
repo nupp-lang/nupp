@@ -1,24 +1,25 @@
 --[[
-Checked constructions in both spellings.
+Checked constructions, as the lowerings see them.
 
 The checker marks every call that builds a record or a struct with
-`construction`. `new R(...)` wraps that call in a `newExpr`; calling the
-declaration, `R(...)`, is the call alone. Lowerings are written against the
-wrapped form, so a bare construction is handed to them through one stable
-wrapper per call, built here and never written into the checked tree.
+`construction`: calling the declaration, `R(...)`, is the call alone. The
+lowerings are written against a `newExpr` wrapping that call, the form the
+compiler's own synthesized constructors also build, so a checked construction
+is handed to them through one stable wrapper per call, built here and never
+written into the checked tree.
 ]]
 module nupp.compiler.vm.construction
 
 local wrappers: any = setmetatable({}, {__mode = "k"})
 
---- Whether a node is a construction call no `new` wraps.
+--- Whether a node is a checked construction call.
 export function bare(node: any): boolean
-    return type(node) == "table" and node.kind == "call" and node.construction == true and node.wrapped ~= true
+    return type(node) == "table" and node.kind == "call" and node.construction == true
 end
 
---- The `newExpr` a construction is lowered as: the node itself when `new`
---- spelled it, the one wrapper of a bare construction call, or nil for anything
---- else, the call a `new` wraps among them.
+--- The `newExpr` a construction is lowered as: the node itself when it already
+--- is one, the one wrapper of a checked construction call, or nil for anything
+--- else.
 export function of(node: any): any
     if type(node) ~= "table" then
         return nil
@@ -39,8 +40,7 @@ export function of(node: any): any
 end
 
 --- Whether a construction call is plain: built from its fields, with no
---- declared constructor to run, which is what `isNew` says of the call a `new`
---- wraps.
+--- declared constructor to run.
 export function plain(call: any): boolean
     return type(call) == "table" and call.construction == true and not call.constructorCall
 end

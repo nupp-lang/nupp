@@ -24,10 +24,10 @@ end
 const Position = components.newFFIComponent({
     name = "test.VMSnapshotCodec.Position",
     construct = function(x: number, y: number): Point
-        return new Point(x, y)
+        return Point(x, y)
     end,
     default = function(): Point
-        return new Point(0, 0)
+        return Point(0, 0)
     end,
 })
 
@@ -41,15 +41,15 @@ end
 
 function suite.run(): number
     const source = archetype.new(1, {Position as components.Component})
-    archetype.append(source, 1, {[Position.componentId] = new Point(1.5, 2.5)})
-    archetype.append(source, 2, {[Position.componentId] = new Point(3.5, 4.5)})
+    archetype.append(source, 1, {[Position.componentId] = Point(1.5, 2.5)})
+    archetype.append(source, 2, {[Position.componentId] = Point(3.5, 4.5)})
     const output = text.newbuffer()
     const prelude = codec.write(
         {source},
         query.new(),
         nil,
         3,
-        {new codec.Data(key = "custom", value = {answer = 42})},
+        {codec.Data(key = "custom", value = {answer = 42})},
         output
     )
     assert(prelude.entityCount == 2 and prelude.archetypeCount == 1)
@@ -71,7 +71,7 @@ function suite.run(): number
     assert(target.columns[Position.componentId][1].x == 1.5)
     assert(target.columns[Position.componentId][2].y == 4.5)
     local saved = persist.loadData(bytes)
-    const oldValue = new OldPoint()
+    const oldValue = OldPoint()
     oldValue.y, oldValue.x = 12.5, 11.5
     @unsafe do
         oldValue.extra[0], oldValue.extra[1] = 7, 8

@@ -30,14 +30,14 @@ end
 
 -- A struct value built in the frame, read through its own fields.
 local function lengthSquared(x: float64, y: float64, z: float64): float64
-    local v = new Vec3(x, y, z)
+    local v = Vec3(x, y, z)
 
     return dot(v, v)
 end
 
 -- Built empty, every field is zero.
 local function partial(x: float64): float64
-    local v = new Vec3()
+    local v = Vec3()
     v.x = x
 
     return v.x + v.y + v.z
@@ -46,8 +46,8 @@ end
 -- A struct copied by value into a field of another, in the caller's buffer.
 local function step(base: voidptr, dt: float64): float64
     local body = base as Body*
-    local position = new Vec3(1, 2, 3)
-    local velocity = new Vec3(10, 20, 30)
+    local position = Vec3(1, 2, 3)
+    local velocity = Vec3(10, 20, 30)
     @unsafe do
         body.position = position
         body.velocity = velocity
@@ -66,9 +66,9 @@ end
 local function perimeter(base: voidptr): float64
     local mesh = base as Mesh*
     @unsafe do
-        mesh.corners[0] = new Vec3(0, 0, 0)
-        mesh.corners[1] = new Vec3(3, 0, 0)
-        mesh.corners[2] = new Vec3(3, 4, 0)
+        mesh.corners[0] = Vec3(0, 0, 0)
+        mesh.corners[1] = Vec3(3, 0, 0)
+        mesh.corners[2] = Vec3(3, 4, 0)
         mesh.corners[3].x = 0
         mesh.corners[3].y = 4
         mesh.count = 4
@@ -104,7 +104,7 @@ end
 
 -- Byte spans: checked access traps outside the span; unchecked trusts.
 local function checksum(base: voidptr, count: uint64): uint64
-    local span = new bytes.Span(base as bytes.Byte*, count)
+    local span = bytes.Span(base as bytes.Byte*, count)
     local i: uint64 = 0
     while i < count do
         bytes.put(span, i, math.u32.wrap(native.index(i * 7)))
@@ -115,13 +115,13 @@ local function checksum(base: voidptr, count: uint64): uint64
 end
 
 local function outside(base: voidptr, count: uint64): uint32
-    local span = new bytes.Span(base as bytes.Byte*, count)
+    local span = bytes.Span(base as bytes.Byte*, count)
 
     return bytes.at(span, count)
 end
 
 local function filled(base: voidptr, count: uint64, value: uint32): uint64
-    local span = new bytes.Span(base as bytes.Byte*, count)
+    local span = bytes.Span(base as bytes.Byte*, count)
     bytes.fill(span, value)
 
     return bytes.sum(span)

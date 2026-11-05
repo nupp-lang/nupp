@@ -27,7 +27,7 @@ local record Overloads
 end
 
 function tests.run(): integer
-    local methods = new Overloads()
+    local methods = Overloads()
     assert(methods:choose(41) == 42 and methods:choose("test") == 4)
     assert(Overloads.convert(40) == 42 and Overloads.convert("test") == 7)
     local ok, problem = uuid.test(nativeUuid)

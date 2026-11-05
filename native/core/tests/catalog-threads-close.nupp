@@ -23,13 +23,13 @@ local score = 0
 
 -- Owners in the yielding frame and in the frame waiting on it.
 local function nested(): nil
-    local f = new File(2)
+    local f = File(2)
     @unsafe coroutine.yield()
     order = order * 10 + 8
 end
 
 local co = coroutine.create(function(): nil
-    local f = new File(1)
+    local f = File(1)
     nested()
     order = order * 10 + 9
 end)
@@ -46,7 +46,7 @@ end
 -- A protected call around the yield lets the closing pass.
 order = 0
 local guarded = coroutine.create(function(): nil
-    local f = new File(3)
+    local f = File(3)
     pcall(function(): nil
         @unsafe coroutine.yield()
     end)
@@ -66,7 +66,7 @@ local function plain(): nil
 end
 
 local waiting = coroutine.create(function(): nil
-    local f = new File(4)
+    local f = File(4)
     plain()
 end)
 coroutine.resume(waiting)
@@ -131,7 +131,7 @@ local function closeself(): nil
 end
 
 local selfish = coroutine.create(function(): integer
-    local f = new File(5)
+    local f = File(5)
     closeself()
     return 7
 end)

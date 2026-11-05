@@ -169,7 +169,7 @@ local function apply(exclusive values: span.WriteSpan<Cell>, trace: {number}): n
     values[index(1)].value, values[index(2)].value = value(3), value(4)
 end
 local function run(trace: {number}): number
-    const storage = array.newarray(new Cell(0), 1)
+    const storage = array.newarray(Cell(0), 1)
     const values = storage:write()
     apply(values, trace)
     own.drop(values)

@@ -270,8 +270,8 @@ end
 
 export function fields(n: number): number
     local t: any = {x = 0, y = 1}
-    local p: any = new Pair(x = 1, y = 2)
-    local q: any = new Triple(x = 3, y = 4, z = 5)
+    local p: any = Pair(x = 1, y = 2)
+    local q: any = Triple(x = 3, y = 4, z = 5)
     for i = 1, n do
         t.x = t.x + i
         p.x = p.x + t.y
@@ -286,7 +286,7 @@ export function fields(n: number): number
 end
 
 export function slots(n: number): number
-    local p = new Pair(x = 1, y = 2)
+    local p = Pair(x = 1, y = 2)
     local total = 0
     for i = 1, n do
         total = total + p.x + p.y
@@ -297,8 +297,8 @@ export function slots(n: number): number
 end
 
 export function mixedSlots(n: number): number
-    local p: any = new Pair(x = 1, y = 2)
-    local q: any = new Triple(x = 3, y = 4, z = 5)
+    local p: any = Pair(x = 1, y = 2)
+    local q: any = Triple(x = 3, y = 4, z = 5)
     local total = 0
     for i = 1, n do
         local r = p as Pair
@@ -327,7 +327,7 @@ export function arrayMiss(n: integer): number
 end
 
 local function deoptimizedRepeat(n: number): number
-    local object: any = new Triple(x = 3, y = 4, z = 5)
+    local object: any = Triple(x = 3, y = 4, z = 5)
     local p = object as Pair
     local total = 0
     repeat

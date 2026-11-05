@@ -176,7 +176,7 @@ export function appendText(h: heap.Heap*, b: strings.Builder*, value: uint64): u
 end
 
 local function tostring(ctx: voidptr, value: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
         if strings.header(value) ~= 0ULL then
@@ -420,8 +420,8 @@ end
 
 -- string.format's values are a, b and c, or with `pack` that pack's.
 local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: uint64, c: uint64, pack: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
-    local pieceState = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
+    local pieceState = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
         local f = strings.header(fmt)
@@ -775,7 +775,7 @@ end
 
 -- table.concat(t, sep) over t[1..#t], whose elements are strings or numbers.
 local function concat(ctx: voidptr, count: uint64, list: uint64, separator: uint64, first: uint64, last: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
         if list & values.TAG_MASK ~= values.TAG_OBJ then
@@ -822,7 +822,7 @@ end
 -- with byte offsets: finds the next match as lstrlib's gmatch_aux does and
 -- stores its captures (or the whole match) from key 5. Answers true or false.
 local function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
-    local ms0 = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local ms0 = patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
         local state = stateValue & values.PAYLOAD
@@ -879,7 +879,7 @@ end
 
 -- a .. b over strings and numbers.
 local function concat2(ctx: voidptr, a: uint64, b: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
         local builder = state as strings.Builder*
@@ -1008,7 +1008,7 @@ end
 
 -- math.type: "integer", "float", or nil for anything else.
 local function mathType(ctx: voidptr, a: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         if not ints.isInteger(a) and not isFloat(a) then
             return values.NIL
@@ -1111,7 +1111,7 @@ end
 -- value or text that is not a numeral. Other text, a decimal past int64
 -- included, is read as a float by C's strtod through the host.
 export function tonumber(ctx: voidptr, value: uint64): uint64
-    local cell = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local cell = strings.Builder(0ULL, 0ULL, 0ULL)
     if ints.isInteger(value) or floatOf(value) ~= values.NIL then
         return value
     end
@@ -1205,7 +1205,7 @@ end
 -- value is copied into a builder sized by a first call, then once more if it
 -- did not fit.
 local function getenv(ctx: voidptr, name: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     local s = strings.header(name)
     if s == 0ULL then
         texts.argumentError(ctx, 1ULL, texts.TEXT_STRING, 0ULL, name)
@@ -1362,7 +1362,7 @@ end
 
 -- string.char(n): one byte, 0 to 255.
 local function char(ctx: voidptr, a: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local n = integerArgument(ctx, a, -1, 1ULL)
         if n < 0 or n > 255 then
@@ -1380,7 +1380,7 @@ end
 
 -- string.rep(s, n): n copies, empty for n <= 0.
 local function rep(ctx: voidptr, value: uint64, a: uint64, separator: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local s = stringArgument(ctx, value, 1ULL)
         local n = integerArgument(ctx, a, 0, 2ULL)
@@ -1416,7 +1416,7 @@ end
 
 -- string.reverse(s): its bytes in reverse order.
 local function reverse(ctx: voidptr, value: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local s = stringArgument(ctx, value, 1ULL)
         local h = guestHeap(ctx)
@@ -1441,7 +1441,7 @@ end
 
 -- string.upper and string.lower over ASCII, as the C locale maps them.
 local function casing(ctx: voidptr, value: uint64, upper: boolean): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local s = stringArgument(ctx, value, 1ULL)
         local h = guestHeap(ctx)
@@ -1507,7 +1507,7 @@ local function search(
     matching: boolean,
     all: boolean
 ): uint64
-    local ms0 = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local ms0 = patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     @unsafe do
         local pack: uint64 = 0ULL
         if all then
@@ -1710,8 +1710,8 @@ end
 -- string.gsub(s, pattern, repl [, n]) with a string, number or table
 -- replacement: the new string, and with `all` a pack of it and the count.
 local function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64, maxValue: uint64, all: boolean): uint64
-    local ms0 = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local ms0 = patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local pack: uint64 = 0ULL
         if all then
@@ -2300,7 +2300,7 @@ end
 -- with the captures at state[9] (its answer goes to state[10]), false once
 -- the subject is done.
 local function gsubStep(ctx: voidptr, value: uint64): uint64
-    local ms0 = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
+    local ms0 = patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
         local st = value & values.PAYLOAD
@@ -2414,7 +2414,7 @@ end
 -- gsub's result once its step answers false: the pieces joined, alone or
 -- with `all` in a pack with the count of matches.
 local function gsubFinish(ctx: voidptr, value: uint64, all: boolean): uint64
-    local buffer = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local buffer = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local pack: uint64 = 0ULL
         if all then
@@ -2451,7 +2451,7 @@ end
 -- print(...) over a pack {[0] = n, ...}: each value's text, separated by
 -- tabs, and a newline, written to the host's output at once.
 local function printValues(ctx: voidptr, packValue: uint64): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
         local pack = packValue & values.PAYLOAD
@@ -2505,7 +2505,7 @@ end
 
 -- {...}: a fresh table holding a variadic pack's values at 1..n.
 local function packCopy(ctx: voidptr, packValue: uint64, named: boolean): uint64
-    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    local state = strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
         local h = guestHeap(ctx)
         local pack = packValue & values.PAYLOAD

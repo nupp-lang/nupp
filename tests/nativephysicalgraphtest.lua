@@ -475,7 +475,7 @@ function M.localCursorFieldReceiverSurvivesNominalCopiesAndJoin()
         [[
 local struct Cursor value: uint64 end
 local function read(seed: uint64): uint64
-    local state = new Cursor(seed)
+    local state = Cursor(seed)
     local cursor = state as Cursor*
     @unsafe do
         cursor.value = native.asWord(seed == 0ULL or seed == 1ULL)
