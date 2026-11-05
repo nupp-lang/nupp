@@ -1,6 +1,6 @@
 local parser = require("nupp.compiler.syntax.parser")
 local check = require("helpers.fragment")
-local gen = require("nupp.compiler.lua.gen")
+local program = require("program")
 local env = require("nupp.compiler.project.env").new(require("helpers.paths").tests .. "/..")
 
 local function compile(source)
@@ -17,15 +17,21 @@ local function compile(source)
     return parsed, errors
 end
 
-local function run(source)
-    local parsed, errors = compile(source)
-    assert(#errors == 0, table.concat(errors, "\n"))
-    local code, diagnostics = gen.generate(parsed, "callable")
-    assert(#diagnostics == 0, diagnostics[1] and diagnostics[1].msg)
-    local chunk, reason = loadstring(code, "@callable")
-    assert(chunk, tostring(reason) .. "\n" .. code)
+-- Each program is its own module, so declarations two programs share a name
+-- in stay distinct.
+local programs = 0
 
-    return chunk()
+local function run(source)
+    programs = programs + 1
+    local name = "callable" .. programs
+    local parsed = parser.parse(source, name .. ".nupp")
+    assert(#parsed.errors == 0, parsed.errors[1] and parsed.errors[1].msg)
+    local diagnostics = check.check(parsed, name .. ".nupp", env, {moduleName = name})
+    for _, diagnostic in ipairs(diagnostics) do
+        assert(diagnostic.severity == "warning", diagnostic.code .. ": " .. diagnostic.msg)
+    end
+
+    return program.run(parsed, name)
 end
 
 local suite = {}
@@ -300,11 +306,14 @@ function suite.largeGeneratedConstructorsStayWithinLuaLocalLimit()
         fields[index] = "f" .. index .. ": integer?"
     end
     local Large = run("local record Large " .. table.concat(fields, " ") .. " end return Large")
+    -- A call passes at most 128 values on the VM; the handler still reads every
+    -- declared field, and the ones past the arguments stay nil.
     local args = {}
-    for index = 1, 220 do
+    for index = 1, 128 do
         args[index] = index
     end
-    assert(Large(unpack(args)).f220 == 220)
+    local built = Large(table.unpack(args))
+    assert(built.f128 == 128 and built.f220 == nil)
 end
 
 function suite.constructorsInitializeReadonlyFieldsOnlyThroughTheirReceiver()
@@ -347,8 +356,7 @@ end
     local value = assert(parsed.moduleExports.values.Factory)
     assert(value.tag == "metatable", "an exported interface value is its declaration namespace")
     assert(value.of.staticByname.of, "the namespace carries its factory")
-    local code = gen.generate(parsed, "callable")
-    local factory = assert(loadstring(code))().Factory
+    local factory = program.run(parsed, "callable").Factory
     local make = factory.of
     assert(make("held factory") == "held factory")
 end

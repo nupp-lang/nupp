@@ -6,6 +6,7 @@ const assert2 = require("assert")
 -- Recipes and descriptors come from semantic analysis, never generated Lua.
 local metadata = {}
 local numbertext = require("nupp.compiler.numbertext")
+local callable = require("nupp.compiler.vm.callable")
 
 -- Declaration keys are spelled independently of the checkout's location.
 local portable = require("nupp.compiler.reflection").portableKey
@@ -661,21 +662,32 @@ local function constructors(declaration, identity, statements)
                     call = {recordFields = {}, args = {exprs = {}}, vmStructWitness = identity}
                 })
             }
+            local spread = false
             for position, parameter in ipairs(entry.body.params or {}) do
                 if position > 1 then
-                    assert2(not parameter.vararg and not parameter.namedVararg, "constructor varargs are not supported")
-                    parameters[#parameters + 1] = parameter.name.text
-                    arguments[#arguments + 1] = name(parameter.name.text)
+                    assert2(not parameter.namedVararg, "named constructor varargs are not supported")
+                    if parameter.vararg then
+                        -- The trailing pack passes through to the initializer.
+                        spread = true
+                        arguments[#arguments + 1] = node("vararg")
+                    else
+                        parameters[#parameters + 1] = parameter.name.text
+                        arguments[#arguments + 1] = name(parameter.name.text)
+                    end
                 end
+            end
+            local forward = body(parameters, {
+                node("returnStmt", {
+                    exprs = {call(field(identity, initializer), arguments)}
+                })
+            })
+            if spread then
+                forward.params[#forward.params + 1] = {vararg = true}
             end
             statements[#statements + 1] = assign(
                 field(identity, "__nuppCtor" .. index),
                 node("funcExpr", {
-                    body = body(parameters, {
-                        node("returnStmt", {
-                            exprs = {call(field(identity, initializer), arguments)}
-                        })
-                    })
+                    body = forward
                 })
             )
         end
@@ -687,7 +699,27 @@ function metadata.declaration(declaration, identity)
     local recipe = declaration.deriveRecipe
     local nominal = declaration.resolvedType
     constructors(declaration, identity, statements)
-    if declaration.declKind == "struct" then
+    -- A record's declaration, and a struct's with constructors, is callable at
+    -- run time: from Lua, or through a value typed `any`. The handler is
+    -- protected, as the checker holds every checked replacement to be.
+    local handler = callable.of({node = node, data = data}, nominal)
+    if handler then
+        statements[#statements + 1] = invoke(name("setmetatable"), {
+            identity,
+            node("tableExpr", {
+                fields = {
+                    node("fieldBracket", {
+                        key = data("__call"),
+                        value = handler
+                    }),
+                    node("fieldBracket", {
+                        key = data("__metatable"),
+                        value = data(false)
+                    })
+                }
+            })
+        })
+    elseif declaration.declKind == "struct" then
         -- A struct's declaration is callable, as a LuaJIT ctype is: `T(...)`
         -- initializes a native value of it.
         local construct = body({"self"}, {

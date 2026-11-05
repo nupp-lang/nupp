@@ -190,6 +190,23 @@ local function predicate(t: any, expression: string, moduleName: string?): strin
     return "(" .. table.concat(tests, " or ") .. ")"
 end
 
+-- What a runtime call must match to reach each constructor: its arity bounds
+-- and, per parameter, the domains a value may fall in. A backend renders the
+-- tests; `dispatch` is the Lua one.
+function api.plan(nominal: any): {any}
+    local plan = {}
+    for index, signature in ipairs(nominal.constructors or {}) do
+        local minimum, maximum = arity(signature)
+        local params = {}
+        for j, param in ipairs(signature.params) do
+            params[j] = domains(param)
+        end
+        plan[index] = {index = index, min = minimum, max = maximum, params = params}
+    end
+
+    return plan
+end
+
 function api.dispatch(nominal: any, owner: string, moduleName: string?): string
     local signatures = nominal.constructors or {}
     if #signatures == 1 then

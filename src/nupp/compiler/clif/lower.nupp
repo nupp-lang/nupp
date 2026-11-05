@@ -33,6 +33,7 @@ local trivia = require("nupp.compiler.syntax.triviaarena")
 local provider = require("nupp.compiler.syntax.triviaarena.table")
 local targetLayout = require("nupp.compiler.targetlayout")
 local nativelayout = require("nupp.compiler.vm.nativelayout")
+local construction = require("nupp.compiler.vm.construction")
 local ssa = require("nupp.compiler.clif.ssa")
 local json = require("nupp.serde.internal.json.values")
 local helpercontract = require("nupp.compiler.vm.helpercontract")
@@ -1510,10 +1511,11 @@ local function compileDirectFunction(fn: Fn, options: any): string
                 return {kind = element.kind, value = element.address, type = element.type}
             end
             return {kind = loadedKind(element.kind), value = load(element.kind, element.address), type = element.type}
-        elseif n.kind == "newExpr" then
+        elseif construction.of(n) then
             -- A struct value: a stack slot of its layout, zeroed, with the fields
-            -- the construction names stored into it.
-            local call = n.call
+            -- the construction names stored into it. `new S(...)` wraps the call
+            -- and `S(...)` is the call.
+            local call = construction.of(n).call
             local struct = raw(n.inferredType or call.inferredType or call.signatureType)
             need(struct and struct.tag == "nominal" and struct.declKind == "struct", "new builds a struct here")
             local size, alignment = sizeOf(struct)

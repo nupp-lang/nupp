@@ -568,6 +568,10 @@ interface cst.Hints
     --- an ordinary call reaching `__call` or a ctype.
     isNew: boolean?
 
+    --- Set with `isNew`, and kept when a declared constructor clears it: the call is
+    --- the one a `new` wraps, not a construction of its own.
+    wrapped: boolean?
+
     -- Resolved construction, independent of the compatibility keyword.
     construction: boolean?
 

@@ -147,10 +147,13 @@ end
 -- both directions and integer/float operands. A pinned historical compiler
 -- measured frames 40 -> 62, presize 97 -> 145, soa 744 -> 1075, and
 -- trivia-record 243 -> 315. These four ceilings keep the same ~10% margin.
+-- optparser moved on 2026-11-04 with no edit to it: a record's declaration is
+-- callable at run time, through a construction handler built once in the
+-- module chunk (about 20 instructions for each of its two records).
 local BYTECODE = {
     ["aos"] = 508,
     ["frames"] = 69,
-    ["optparser"] = 685,
+    ["optparser"] = 800,
     ["presize"] = 160,
     ["soa"] = 1183,
     ["trivia-record"] = 347,

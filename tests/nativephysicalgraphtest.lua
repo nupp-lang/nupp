@@ -499,6 +499,28 @@ end
     G.verify(g)
 end
 
+function M.callableLocalStructIsTheSamePhysicalLocal()
+    -- Calling the declaration builds the local `new` builds.
+    local g = compile(
+        [[
+local struct Cursor value: uint64 end
+local function read(seed: uint64): uint64
+    local state = Cursor(seed)
+    local cursor = state as Cursor*
+    @unsafe do
+        cursor.value = seed + 1ULL
+        return cursor.value
+    end
+end
+]]
+    )
+    local _, _, localArgs = operation(g, "NativeLocal")
+    local _, _, store = operation(g, "NativeStore")
+    assert(physical.localOrigin(store[4].field.receiver) == localArgs[1])
+    G.prune(g)
+    G.verify(g)
+end
+
 function M.capturedFieldReceiverRejectsAnotherSameLayoutPointerAtJoin()
     local g = compile(
         [[

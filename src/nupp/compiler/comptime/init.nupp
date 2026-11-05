@@ -1531,6 +1531,9 @@ end
 --- The whole value sequence a call produces, which the single-value paths then
 --- truncate.
 evalMulti = function(state, node)
+    if node.construction then
+        unsupported(node, "a construction")
+    end
     local kind = node.kind
     local values
     local comptimeIntrinsic, intrinsicQualified = nil, false

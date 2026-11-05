@@ -4,6 +4,7 @@ const assert2 = require("assert")
 
 local physical = require("nupp.compiler.vm.nativephysical")
 local cst = require("nupp.compiler.syntax.cst")
+local construction = require("nupp.compiler.vm.construction")
 local unit = {}
 local owners: any = setmetatable({}, {__mode = "k"})
 local options: any = setmetatable({}, {__mode = "k"})
@@ -660,8 +661,9 @@ function unit.borrowFrom(fn: any, call: any): boolean
     return true
 end
 
--- A plain struct constructor is lowered through its newExpr parent, not an
--- ordinary call edge. Physical localRecipe retains layout/storage admission.
+-- A plain struct constructor is lowered through its newExpr parent, or the
+-- wrapper of a bare `S(...)`, not an ordinary call edge. Physical localRecipe
+-- retains layout/storage admission.
 function unit.localConstructionChild(fn: any, call: any): boolean
     unit.occurrence(fn, call)
     local held = owners[fn]
@@ -673,12 +675,15 @@ function unit.localConstructionChild(fn: any, call: any): boolean
         and call.constructorEntry == saved.constructorEntry,
         "checked construction call changed"
     )
-    if saved.isNew ~= true then
+    if saved.isNew ~= true and not construction.bare(call) then
         return false
     end
-    local parent = saved.parent
-    unit.occurrence(fn, parent)
-    local checked = held.occurrences[parent].inferredType
+    local parent, checked = construction.of(call), saved.inferredType
+    if parent == nil then
+        parent = saved.parent
+        unit.occurrence(fn, parent)
+        checked = held.occurrences[parent].inferredType
+    end
     need(
         parent.kind == "newExpr"
         and parent.call == call

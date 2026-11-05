@@ -3,6 +3,7 @@ module nupp.compiler.vm.programgraph
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local graph = require("nupp.compiler.vm.graph")
+local construction = require("nupp.compiler.vm.construction")
 local opcodes = require("nupp.compiler.vm.opcodes")
 local graphimage = require("nupp.compiler.vm.graphimage")
 local graphemit = require("nupp.compiler.vm.graphemit")
@@ -736,21 +737,23 @@ function program.describe(modules: {any}, entryModule: string): any
         then
             cleanupToken(node, node.ownerType, cst.firstToken(node))
         end
+        -- `new R(...)` and `R(...)` are one construction, the call `new` wraps.
+        local built = construction.of(node)
         -- `new R(...)` of a plain record builds its value in place, so the
         -- record's name is a type use there, not a read of its runtime value.
-        if node.kind == "newExpr" and node.call and node.call.recordFields and not node.call.constructorEntry then
-            loopForms[node.call] = true
+        if built and built.call.recordFields and not built.call.constructorEntry then
+            loopForms[built.call] = true
             -- Construction reads the record's table, its instances' metatable:
             -- by its name, or through the module that declares it.
-            if node.call.obj and node.call.obj.kind == "name" then
-                reference(node.call.obj.token, owner)
-            elseif node.call.obj then
-                collect(node.call.obj, owner)
+            if built.call.obj and built.call.obj.kind == "name" then
+                reference(built.call.obj.token, owner)
+            elseif built.call.obj then
+                collect(built.call.obj, owner)
             end
         end
         -- `new R(...)` with a constructor calls it, the fresh instance first,
         -- through the table R's name holds.
-        local entry = node.kind == "newExpr" and node.call and node.call.constructorEntry
+        local entry = built and built.call.constructorEntry
         local declaration = entry and entry.declaration
         local foreignRecord = declaration
             and declaration.coreDefinition
@@ -761,20 +764,20 @@ function program.describe(modules: {any}, entryModule: string): any
             -- `new m.R(...)` reads R's table through m's, which the caller
             -- references as it does any value.
             need(
-                node.call.obj and node.call.obj.kind ~= "name",
+                built.call.obj and built.call.obj.kind ~= "name",
                 "another module's record is constructed through its module"
             )
             local item = {
                 id = #p.calls,
                 owner = owner.id,
-                node = node.call,
+                node = built.call,
                 definition = declaration.coreDefinition,
                 construct = true,
-                classExpr = node.call.obj
+                classExpr = built.call.obj
             }
-            p.calls[#p.calls + 1], p.callByNode[node.call] = item, item
-            loopForms[node.call] = true
-            collect(node.call.obj, owner)
+            p.calls[#p.calls + 1], p.callByNode[built.call] = item, item
+            loopForms[built.call] = true
+            collect(built.call.obj, owner)
         elseif declaration and declaration.coreDefinition and inlineRecords[declaration] then
             local base = inlineRecords[declaration]
             local classToken: any = {
@@ -790,13 +793,13 @@ function program.describe(modules: {any}, entryModule: string): any
             local item = {
                 id = #p.calls,
                 owner = owner.id,
-                node = node.call,
+                node = built.call,
                 definition = declaration.coreDefinition,
                 construct = true,
                 classToken = classToken
             }
-            p.calls[#p.calls + 1], p.callByNode[node.call] = item, item
-            loopForms[node.call] = true
+            p.calls[#p.calls + 1], p.callByNode[built.call] = item, item
+            loopForms[built.call] = true
         end
         if node.kind == "name" then
             reference(node.token, owner)
