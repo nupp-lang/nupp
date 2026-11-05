@@ -879,6 +879,11 @@ function lower.emit(
         while node.kind == "paren" do
             node = node.expr
         end
+        -- A construction is spelled as a call but builds its instance first and
+        -- then reads its fields, as a table constructor does.
+        if construction.bare(node) then
+            return false
+        end
         if node.kind == "binop" then
             local op = tokText(node.op);
             return op ~= "and" and op ~= "or" and op ~= "??" and op ~= ".."
