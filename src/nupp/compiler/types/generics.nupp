@@ -1858,10 +1858,17 @@ local function fillInstantiationMap(into: {[string]: T.Type}, source: {[string]:
     return fill
 end
 
+local function defaultMetadata(inst: T.Nominal, declaration: T.Nominal): nil
+    inst.defaults = declaration.defaults
+    inst.defaultEntries = declaration.defaultEntries
+    inst.inheritedDefaults = declaration.inheritedDefaults
+end
+
 --- Copies the declaration's current member surface onto an instantiation. A generic
 --- can instantiate itself while its declaration is still being populated; revisiting
 --- that cached identity must therefore pick up members declared afterward.
 local function fillInstantiationMembers(inst: T.Nominal, declaration: T.Nominal, map: Bindings)
+    defaultMetadata(inst, declaration)
     local outer = fillDependencies
     local dependencies: {FillDependency} = {}
     fillDependencies = dependencies
@@ -1957,6 +1964,7 @@ local function fillCurrent(
     if not fill or fill.declaration ~= declaration then
         return false
     end
+    defaultMetadata(inst, declaration)
     local count: integer = 0
     for binder, stands in pairs(map) do
         if fill.map[binder] ~= stands then
@@ -2128,6 +2136,9 @@ instantiateNominal = function(n: T.Nominal, map: Bindings): T.Nominal
     local refreshed = refreshingInstantiations or {}
     refreshingInstantiations = refreshed
     local cached = instantiations[key]
+    if cached then
+        defaultMetadata(cached, n)
+    end
     if cached and pendingInstantiations[cached] then
         pendingInstantiations[cached] = nil
     elseif cached then

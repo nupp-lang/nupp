@@ -422,4 +422,39 @@ end
     )
 end
 
+function M.appliedGenericInterfacesKeepTheirRuntimeDefaults()
+    local value, code = runs(
+        [[
+local interface Accessor<T>
+    value: T
+    function get(self): T
+        return self.value
+    end
+end
+local interface Forward<T> is Accessor<T>
+end
+local record Holder<T> is Forward<T>
+    value: T
+end
+local record Replaced is Accessor<string>
+    value: string
+    @override
+    function get(self): string
+        return "override"
+    end
+end
+local text = Holder<string>(value = "ok")
+local number = Holder<integer>(value = 7)
+return text:get() .. ":" .. Replaced(value = "x"):get() .. ":" .. tostring(number:get())
+]],
+        "generic interface defaults"
+    )
+    testAssert.eq(value, "ok:override:7")
+    assert(
+        code:find("Forward.get = Accessor.get", 1, true),
+        "generic interface did not retain its parent implementation"
+    )
+    assert(code:find("Holder.get = Forward.get", 1, true), "generic record did not attach the inherited body directly")
+end
+
 return M
