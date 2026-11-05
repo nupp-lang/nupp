@@ -3551,19 +3551,22 @@ function M.reloadDocsDescribeThePublicWatchBoundary()
         end
         assert(module.name ~= "nupp.hotreload", "the retired public route is absent")
     end
-    assert(reload and #reload.items == 2, "reload publishes generation and poll")
+    assert(reload and #reload.items == 3, "reload publishes generation, poll, and its result type")
     local names = {}
     for _, item in ipairs(reload.items) do
         names[item.name] = item.kind
     end
     assert(names.generation == "function" and names.poll == "function")
     local pollType
-    for _, item in ipairs(assert(debugModule).items) do
-        if item.path == "debug.ReloadPoll" then
+    for _, item in ipairs(reload.items) do
+        if item.path == "debug.reload.ReloadPoll" then
             pollType = item
         end
     end
     assert(pollType and #pollType.members == 6, "the poll result has one documented public contract")
+    for _, item in ipairs(assert(debugModule).items) do
+        assert(item.name ~= "ReloadPoll", "the poll result belongs to debug.reload")
+    end
 end
 
 function M.aRotatedCallSurfaceIsPrintedInCallOrder()
@@ -4017,6 +4020,63 @@ local function aliasModel(files)
     end
 
     return byName
+end
+
+function M.directRequireMemberAliasesKeepFunctionContracts()
+    local modules = aliasModel({
+        [
+            "src/encoding.nupp"
+        ] = [[
+module encoding
+--- Encodes bytes as text.
+export const encode = require("internal.encoding").encode
+]],
+        [
+            "src/internal/encoding.nupp"
+        ] = [[
+@!internal
+module internal.encoding
+export function encode(bytes: string): string
+    return bytes
+end
+]],
+    })
+    local item = assert(modules.encoding.items[1])
+    assert(item.kind == "function", "a direct require member retains its callable category")
+    assert(item.params[1].name == "bytes" and item.params[1].type == "string")
+    assert(item.returns[1].type == "string")
+    assert(item.doc.text == "Encodes bytes as text.")
+end
+
+function M.ambientNamespaceSelfAliasesKeepTheirDeclarations()
+    local modules = aliasModel({
+        ["src/schema/reflect.nupp"] = [[
+module schema.reflect
+export type Node = schema.reflect.Node
+]],
+        [
+            "src/internal/prelude.d.nupp"
+        ] = [[
+--- @namespace schema
+local schema: {
+    --- Describes schema types.
+    --- @namespace schema.reflect
+    reflect: schema.Reflection
+}
+record schema.Reflection
+    --- A node in the schema graph.
+    record Node
+        --- The node category.
+        kind: string
+    end
+end
+]],
+    })
+    local item = assert(modules["schema.reflect"].items[1])
+    assert(item.kind == "record", "an ambient record replaces the facade's self-alias")
+    assert(item.name == "Node" and item.path == "schema.reflect.Node")
+    assert(item.members[1].name == "kind" and item.members[1].type == "string")
+    assert(item.doc.text == "A node in the schema graph.")
 end
 
 -- `export const phases = phasevalues` publishes `game.phases.First`, which the checker

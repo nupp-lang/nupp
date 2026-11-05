@@ -46,6 +46,10 @@ ordinary loop targets, and an [exit suffix](exit-suffixes.md) inside a do
 expression takes the same targets the written statements would. Cleanup runs when any of these exits leaves its region.
 A nested function cannot yield to a surrounding expression.
 
+A [comptime block](comptime.md) written `comptime do ... end` is a separate
+construct: `return` supplies its compile-time result. An ordinary `do`
+expression nested inside that block still uses `yield`.
+
 ```nupp:fragment
 local selected = do
     for _, candidate in ipairs(candidates) do

@@ -93,7 +93,7 @@ function M.thePublicReloadNamespaceKeepsItsWatchContract()
     checked(
         [[
 local generation: integer = debug.reload.generation()
-local outcome: debug.ReloadPoll = debug.reload.poll()
+local outcome: debug.reload.ReloadPoll = debug.reload.poll()
 local kind: string = outcome.kind
 local previous: integer? = outcome.basegeneration
 assert(previous == nil or previous >= 0)

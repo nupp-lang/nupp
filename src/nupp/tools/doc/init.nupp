@@ -484,6 +484,23 @@ local function loadModules(root, config, settings, requested)
                 if not held then
                     into.items[#into.items + 1] = item
                     byPath[item.path] = item
+                elseif held.kind == "type"
+                    and held.aliasSource
+                    and held.aliasSource:match("^([%w_%.]+)") == held.path
+                    and item.kind ~= "type"
+                then
+                    -- A facade can alias the ambient declaration at its own public
+                    -- path. Keep that declaration's structure, not the self-alias.
+                    if held.doc.text ~= "" then
+                        item.doc = held.doc
+                    end
+                    for index, existing in ipairs(into.items) do
+                        if existing == held then
+                            into.items[index] = item
+                            break
+                        end
+                    end
+                    byPath[item.path] = item
                 elseif held.doc.text == "" then
                     held.doc = item.doc
                 end
@@ -690,6 +707,10 @@ local function loadModules(root, config, settings, requested)
 
     local function aliasTarget(item: any, module: any): any
         local aliasText = item.aliasSource and "= " .. item.aliasSource or item.signature
+        local required, selected = aliasText:match("=%s*require%s*%(%s*['\"]([^'\"]+)['\"]%s*%)%.([%w_%.]+)%s*$")
+        if required and selected then
+            return byPath[required .. "." .. selected]
+        end
         local path = aliasText:match("=%s*([%w_%.]+)%s*$") or aliasText:match("=%s*([%w_%.]+)%b<>%s*$")
         local direct = path and reference(path, module)
         if direct then

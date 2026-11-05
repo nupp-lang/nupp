@@ -558,6 +558,7 @@ local types: {
     derive: types.derive,
 
     --- Semantic reflection and reflection-driven field codecs.
+    --- @namespace types.reflect
     reflect: types.reflect
 }
 
