@@ -477,6 +477,35 @@ function M.cdefStructRuntime()
     )
 end
 
+function M.cdefDeclarationsConstructThroughTypedReferences()
+    testAssert.eq(
+        run(
+            [[
+cdef struct nuppCallablePoint
+    x: int32
+end
+local Make: Type<nuppCallablePoint> = nuppCallablePoint
+local function build(make: Type<nuppCallablePoint>): nuppCallablePoint
+    return make(7)
+end
+local first = Make(5)
+return assert(tonumber(first.x)) + assert(tonumber(build(Make).x))
+]]
+        ),
+        12
+    )
+    testAssert.eq(
+        (diagsOf([[
+cdef struct nuppNonCallablePoint
+    x: int32
+end
+local point = nuppNonCallablePoint(1)
+point()
+]])),
+        "NUPP2005:5"
+    )
+end
+
 function M.cdefUnionsAndBitfieldsKeepTheirCLayout()
     testAssert.eq(
         run(
