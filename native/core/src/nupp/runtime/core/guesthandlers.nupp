@@ -25,6 +25,7 @@ const corestorage = require("nupp.runtime.core.corestorage")
 const modules = require("nupp.runtime.core.modules")
 const texts = require("nupp.runtime.core.guesttexts")
 const librarycalls = require("nupp.runtime.core.librarycalls")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 
 -- The closed checked producer binds these program/slot reads to corebytecode's
@@ -1514,12 +1515,12 @@ export function LibCall(
     local base = program.readByte(pc, 2)
     -- The argument count carries the method-form flag, for the call's errors.
     local counted = native.word(program.readByte(pc, 3))
-    local count = counted & librarycalls.COUNT_MASK
+    local count = counted & librarylayouts.COUNT_MASK
     local libraryId = native.word(program.readSigned32(pc, 4))
     local valueCount = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
     if native.word(dst) >= valueCount
         or count < 1ULL
-        or count > librarycalls.ARGUMENTS
+        or count > librarylayouts.ARGUMENTS
         or native.word(base) + count >= valueCount
     then
         ops.fail(ctx, frame, pc, ops.INVALID)
@@ -1629,7 +1630,7 @@ export function LibCall(
         end
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
-    guestscope.librarySite(ctx, frame, pc, count, counted >> librarycalls.METHOD_SHIFT)
+    guestscope.librarySite(ctx, frame, pc, count, counted >> librarylayouts.METHOD_SHIFT)
     -- The coroutine library. Resume and yield switch threads: the context
     -- then runs the other thread, from its active frame.
     if libraryId >= librarycalls.COROUTINES_FIRST and libraryId <= librarycalls.COROUTINES_LAST then

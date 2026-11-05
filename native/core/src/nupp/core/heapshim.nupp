@@ -4,6 +4,7 @@ local arm = require("s0.arm64")
 local literal = require("s0.literal")
 local unit = require("nupp.compiler.vm.nativeunit")
 local linker = require("nupp.core.link")
+local nativeos = require("nupp.compiler.vm.nativeos")
 local contract = require("nupp.compiler.vm.nativeframecontract")
 local sink = require("nupp.compiler.s0.nativegraph")
 local targetLayout = require("nupp.compiler.targetlayout")
@@ -256,7 +257,7 @@ function shim.build(source: any, selected: {[string]: any}, stress: boolean, sce
         {0, 1, 1},
         {32, descriptorBytes, 1},
         {48, scratchBytes, 3},
-        {64, 18, 3},
+        {64, nativeos.importCount(), 3},
         {80, 0, 1},
         {88, 1, 3}
     }) do

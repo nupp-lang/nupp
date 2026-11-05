@@ -31,6 +31,7 @@ local service = require("nupp.compiler.vm.nativeservice")
 -- An opcode listed under `terminators` never appears inside a block: the
 -- terminator records produce it. Graph-only macros expand when lowered.
 local opcodes = require("nupp.compiler.vm.opcodes")
+local corelibrary = require("nupp.compiler.vm.corelibrary")
 
 -- A signature spells one instruction's operands in order, a letter each: a
 -- register of class v, i, f or x, uppercase where the instruction defines
@@ -1834,12 +1835,6 @@ local coreLibrary: {[string]: boolean} = {
     collectgarbage = true,
     ["hostcalls.arguments"] = true,
     ["hostcalls.setcleanup"] = true,
-    ["filecalls.open"] = true,
-    ["filecalls.read"] = true,
-    ["filecalls.write"] = true,
-    ["filecalls.seek"] = true,
-    ["filecalls.close"] = true,
-    ["filecalls.reason"] = true,
     pcall = true,
     xpcall = true,
     error = true,
@@ -1899,6 +1894,14 @@ local coreLibrary: {[string]: boolean} = {
     -- `require` of a computed name, or through `_G`.
     ["require.dynamic"] = true
 }
+
+-- The file operations (the file calls and the reactor's) are core library
+-- calls too.
+for _, group in ipairs(corelibrary.operationgroups()) do
+    for _, operation in ipairs(group.operations) do
+        coreLibrary[operation.library] = true
+    end
+end
 
 local function preludeName(node: any): boolean
     local definition = node and node.kind == "name" and node.token and node.token.definition
@@ -2048,9 +2051,11 @@ local corecallmodules: {
     [string]: string
 } = {
     ["nupp.runtime.storagecalls"] = "storagecalls",
-    ["nupp.runtime.hostcalls"] = "hostcalls",
-    ["nupp.runtime.filecalls"] = "filecalls"
+    ["nupp.runtime.hostcalls"] = "hostcalls"
 }
+for name, short in pairs(corelibrary.operationmodules()) do
+    corecallmodules[name] = short
+end
 
 function graph.corecallmodule(name: string?): boolean
     return name ~= nil and corecallmodules[name] ~= nil

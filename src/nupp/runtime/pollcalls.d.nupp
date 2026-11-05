@@ -1,0 +1,30 @@
+@!internal
+
+--- The readiness system calls under the native core's reactor, as its host
+--- answers them: kqueue on macOS and epoll on Linux, behind one shape. A call
+--- of one is the core's own library call, and requiring this module loads
+--- nothing: it exists only on the core, for `nupp.runtime.reactor`. Each
+--- answers what the system call did, or the negated error number.
+local record pollcalls
+    --- A new poller's descriptor.
+    open: function(): integer
+
+    --- Sets the readiness `poller` waits for on `descriptor` to `interest`:
+    --- 1 readable and 2 writable, added together, or 0 for none. Interest
+    --- lasts for one event; after it the descriptor is armed again. 0 when
+    --- it is set.
+    arm: function(poller: integer, descriptor: integer, interest: integer): integer
+
+    --- Waits at most `nanos` nanoseconds, or without limit when it is -1, for
+    --- one event: its descriptor times 16, plus 1 readable, 2 writable, 4
+    --- hung up and 8 failed; 0 when the time passed first or a signal
+    --- interrupted the wait.
+    wait: function(poller: integer, nanos: integer): integer
+
+    --- A pipe whose ends are nonblocking and close on exec: the read end's
+    --- descriptor plus the write end's times 2^32.
+    pipe: function(): integer
+end
+
+local calls: pollcalls
+return calls

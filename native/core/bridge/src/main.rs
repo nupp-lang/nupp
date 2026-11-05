@@ -1,6 +1,8 @@
 //! Standalone, opaque native-code transport. Nupp owns all execution semantics.
 mod files;
 mod platform;
+mod poll;
+mod pool;
 
 #[cfg(all(test, target_arch = "aarch64"))]
 #[path = "../tests/support/abi.rs"]
@@ -132,6 +134,15 @@ fn execute(bundle: &Path, words: &[u64]) -> Result<Vec<u64>, String> {
         files::file_seek as *const () as u64,
         files::file_close as *const () as u64,
         files::error_text as *const () as u64,
+        poll::poll_open as *const () as u64,
+        poll::poll_arm as *const () as u64,
+        poll::poll_wait as *const () as u64,
+        poll::pipe_open as *const () as u64,
+        pool::pool_start as *const () as u64,
+        pool::pool_submit as *const () as u64,
+        pool::pool_take as *const () as u64,
+        pool::pool_finish as *const () as u64,
+        pool::pool_cancel as *const () as u64,
     ];
     let packet = [
         1,

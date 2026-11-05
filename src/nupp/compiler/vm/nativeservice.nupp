@@ -62,7 +62,16 @@ local osNames = {
     fileWrite = true,
     fileSeek = true,
     fileClose = true,
-    errorText = true
+    errorText = true,
+    pollOpen = true,
+    pollArm = true,
+    pollWait = true,
+    pipeOpen = true,
+    poolStart = true,
+    poolSubmit = true,
+    poolTake = true,
+    poolFinish = true,
+    poolCancel = true
 }
 
 local function need(ok: any, message: string): any

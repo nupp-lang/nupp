@@ -17,6 +17,7 @@ const texts = require("nupp.runtime.core.guesttexts")
 const ints = require("nupp.runtime.core.coreintegers")
 const os = require("nupp.runtime.vm.os")
 const librarycalls = require("nupp.runtime.core.librarycalls")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 
 local function integerValue(value: uint64): int64
@@ -550,7 +551,7 @@ export function reachesmeta(id: uint64, a: uint64, b: uint64): boolean
     -- A comparator's step reaches the list its state holds.
     local state = guestscope.tableof(a)
     if id == librarycalls.TABLE_SORT_STEP and state ~= 0ULL then
-        return guestscope.metatabled(tables.get(state, values.TAG_INTEGER | native.word(librarycalls.SORT_LIST)))
+        return guestscope.metatabled(tables.get(state, values.TAG_INTEGER | native.word(librarylayouts.SORT_LIST)))
     end
     local pack = guestscope.tableof(b)
     if id == librarycalls.TABLE_MOVE_PACK and pack ~= 0ULL then
@@ -632,13 +633,13 @@ local function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
     @unsafe do
         local h = guestHeap(ctx)
         local state = stateValue & values.PAYLOAD
-        local s = strings.header(tables.get(state, values.TAG_INTEGER | librarycalls.GMATCH_SUBJECT))
-        local p = strings.header(tables.get(state, values.TAG_INTEGER | librarycalls.GMATCH_PATTERN))
+        local s = strings.header(tables.get(state, values.TAG_INTEGER | librarylayouts.GMATCH_SUBJECT))
+        local p = strings.header(tables.get(state, values.TAG_INTEGER | librarylayouts.GMATCH_PATTERN))
         if s == 0ULL or p == 0ULL then
             error("bad argument to 'gmatch' (string expected)")
         end
-        local src = native.word(integerValue(tables.get(state, values.TAG_INTEGER | librarycalls.GMATCH_SOURCE)))
-        local last = tables.get(state, values.TAG_INTEGER | librarycalls.GMATCH_LAST)
+        local src = native.word(integerValue(tables.get(state, values.TAG_INTEGER | librarylayouts.GMATCH_SOURCE)))
+        local last = tables.get(state, values.TAG_INTEGER | librarylayouts.GMATCH_LAST)
         local ms = ms0 as patterns.MatchState*
         local subject = strings.bytes(s)
         local pattern = strings.bytes(p)
@@ -652,11 +653,11 @@ local function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
         while at <= finish do
             local e = patterns.match(h, ms, at, pattern)
             if e ~= 0ULL and (last == values.NIL or e ~= subject + native.word(integerValue(last))) then
-                tables.set(h, state, values.TAG_INTEGER | librarycalls.GMATCH_SOURCE, values.TAG_INTEGER | (e - subject))
-                tables.set(h, state, values.TAG_INTEGER | librarycalls.GMATCH_LAST, values.TAG_INTEGER | (e - subject))
+                tables.set(h, state, values.TAG_INTEGER | librarylayouts.GMATCH_SOURCE, values.TAG_INTEGER | (e - subject))
+                tables.set(h, state, values.TAG_INTEGER | librarylayouts.GMATCH_LAST, values.TAG_INTEGER | (e - subject))
                 local captures = patterns.level(ms)
                 if captures == 0ULL then
-                    tables.set(h, state, values.TAG_INTEGER | librarycalls.GMATCH_CAPTURES, values.TAG_OBJ | strings.make(h, at, e - at))
+                    tables.set(h, state, values.TAG_INTEGER | librarylayouts.GMATCH_CAPTURES, values.TAG_OBJ | strings.make(h, at, e - at))
                 end
                 local i: uint64 = 0ULL
                 while i < captures do
@@ -666,7 +667,7 @@ local function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
                     if size ~= patterns.POSITION then
                         value = values.TAG_OBJ | strings.make(h, start, size)
                     end
-                    tables.set(h, state, values.TAG_INTEGER | (librarycalls.GMATCH_CAPTURES + i), value)
+                    tables.set(h, state, values.TAG_INTEGER | (librarylayouts.GMATCH_CAPTURES + i), value)
                     i = i + 1ULL
                 end
                 answer = values.TRUE
@@ -676,7 +677,7 @@ local function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
         end
         patterns.release(ms)
         if answer == values.FALSE then
-            tables.set(h, state, values.TAG_INTEGER | librarycalls.GMATCH_SOURCE, values.TAG_INTEGER | (strings.length(s) + 1ULL))
+            tables.set(h, state, values.TAG_INTEGER | librarylayouts.GMATCH_SOURCE, values.TAG_INTEGER | (strings.length(s) + 1ULL))
         end
 
         return answer
@@ -877,13 +878,13 @@ local function nextStep(ctx: voidptr, stateValue: uint64): uint64
     @unsafe do
         local h = guestHeap(ctx)
         local state = stateValue & values.PAYLOAD
-        local subject = tables.get(state, values.TAG_INTEGER | librarycalls.PAIRS_TABLE)
+        local subject = tables.get(state, values.TAG_INTEGER | librarylayouts.PAIRS_TABLE)
         if subject & values.TAG_MASK ~= values.TAG_OBJ then
             error("bad argument #1 to 'for iterator' (table expected)")
         end
         local t = subject & values.PAYLOAD
         -- A record instance's fields go by name (guestscope.slotname).
-        local after = guestscope.slotkey(ctx, t, tables.get(state, values.TAG_INTEGER | librarycalls.PAIRS_AFTER))
+        local after = guestscope.slotkey(ctx, t, tables.get(state, values.TAG_INTEGER | librarylayouts.PAIRS_AFTER))
         local key = tables.nextKey(t, after)
         if key == values.TRUE then
             texts.libraryError(ctx, librarytexts.TEXT_NEXT_KEY)
@@ -892,9 +893,9 @@ local function nextStep(ctx: voidptr, stateValue: uint64): uint64
             return values.FALSE
         end
         local name = guestscope.slotname(ctx, t, key)
-        tables.set(h, state, values.TAG_INTEGER | librarycalls.PAIRS_AFTER, name)
-        tables.set(h, state, values.TAG_INTEGER | librarycalls.PAIRS_KEY, name)
-        tables.set(h, state, values.TAG_INTEGER | librarycalls.PAIRS_VALUE, tables.get(t, key))
+        tables.set(h, state, values.TAG_INTEGER | librarylayouts.PAIRS_AFTER, name)
+        tables.set(h, state, values.TAG_INTEGER | librarylayouts.PAIRS_KEY, name)
+        tables.set(h, state, values.TAG_INTEGER | librarylayouts.PAIRS_VALUE, tables.get(t, key))
         return values.TRUE
     end
 end
@@ -1843,26 +1844,26 @@ end
 -- The merge of runs [lo, lo + width - 1] and [lo + width, hi], the second
 -- cut short by the list's end.
 local function sortAt(h: heap.Heap*, st: uint64, lo: int64, width: int64): nil
-    local n = sortGet(st, librarycalls.SORT_N)
+    local n = sortGet(st, librarylayouts.SORT_N)
     local hi = lo + 2 * width - 1
     if hi > n then
         hi = n
     end
-    sortPut(h, st, librarycalls.SORT_WIDTH, width)
-    sortPut(h, st, librarycalls.SORT_LO, lo)
-    sortPut(h, st, librarycalls.SORT_MID, lo + width - 1)
-    sortPut(h, st, librarycalls.SORT_HI, hi)
-    sortPut(h, st, librarycalls.SORT_I, lo)
-    sortPut(h, st, librarycalls.SORT_J, lo + width)
-    sortPut(h, st, librarycalls.SORT_K, lo)
+    sortPut(h, st, librarylayouts.SORT_WIDTH, width)
+    sortPut(h, st, librarylayouts.SORT_LO, lo)
+    sortPut(h, st, librarylayouts.SORT_MID, lo + width - 1)
+    sortPut(h, st, librarylayouts.SORT_HI, hi)
+    sortPut(h, st, librarylayouts.SORT_I, lo)
+    sortPut(h, st, librarylayouts.SORT_J, lo + width)
+    sortPut(h, st, librarylayouts.SORT_K, lo)
 end
 
 -- The next pair of runs to merge, doubling the width once a pass ends.
 -- False once one run spans the list.
 local function sortRuns(h: heap.Heap*, st: uint64): boolean
-    local n = sortGet(st, librarycalls.SORT_N)
-    local width = sortGet(st, librarycalls.SORT_WIDTH)
-    local lo = sortGet(st, librarycalls.SORT_LO) + 2 * width
+    local n = sortGet(st, librarylayouts.SORT_N)
+    local width = sortGet(st, librarylayouts.SORT_WIDTH)
+    local lo = sortGet(st, librarylayouts.SORT_LO) + 2 * width
     if lo + width > n then
         width = width * 2
         lo = 1
@@ -1898,8 +1899,8 @@ export function copystate(ctx: voidptr, id: uint64, from: uint64, to: uint64): n
     end
     @unsafe do
         local h = guestHeap(ctx)
-        local key: int64 = librarycalls.SORT_LIST
-        while key <= librarycalls.SORT_PENDING do
+        local key: int64 = librarylayouts.SORT_LIST
+        while key <= librarylayouts.SORT_PENDING do
             storeAt(h, target, key, loadAt(source, key))
             key = key + 1
         end
@@ -1919,14 +1920,14 @@ local function sortBegin(ctx: voidptr, list: uint64, less: uint64): uint64
         local buffer = guestscope.newTable(ctx)
         guestscope.release(ctx)
         local h = guestHeap(ctx)
-        storeAt(h, state, librarycalls.SORT_LIST, list)
-        storeAt(h, state, librarycalls.SORT_LESS, less)
-        storeAt(h, state, librarycalls.SORT_BUFFER, values.TAG_OBJ | buffer)
+        storeAt(h, state, librarylayouts.SORT_LIST, list)
+        storeAt(h, state, librarylayouts.SORT_LESS, less)
+        storeAt(h, state, librarylayouts.SORT_BUFFER, values.TAG_OBJ | buffer)
         local n = lengthof(ctx, t)
-        sortPut(h, state, librarycalls.SORT_N, n)
-        sortPut(h, state, librarycalls.SORT_PENDING, RUNNING)
+        sortPut(h, state, librarylayouts.SORT_N, n)
+        sortPut(h, state, librarylayouts.SORT_PENDING, RUNNING)
         if n < 2 or guestscope.suspended(ctx) then
-            sortPut(h, state, librarycalls.SORT_PENDING, FINISHED)
+            sortPut(h, state, librarylayouts.SORT_PENDING, FINISHED)
         else
             sortAt(h, state, 1, 1)
         end
@@ -1942,22 +1943,22 @@ local function sortStep(ctx: voidptr, value: uint64): uint64
     @unsafe do
         local h = guestHeap(ctx)
         local st = value & values.PAYLOAD
-        local pending = sortGet(st, librarycalls.SORT_PENDING)
+        local pending = sortGet(st, librarylayouts.SORT_PENDING)
         if pending == FINISHED then
             return values.FALSE
         end
-        local t = loadAt(st, librarycalls.SORT_LIST) & values.PAYLOAD
-        local buffer = loadAt(st, librarycalls.SORT_BUFFER) & values.PAYLOAD
-        local less = loadAt(st, librarycalls.SORT_LESS)
-        local mid = sortGet(st, librarycalls.SORT_MID)
-        local hi = sortGet(st, librarycalls.SORT_HI)
-        local i = sortGet(st, librarycalls.SORT_I)
-        local j = sortGet(st, librarycalls.SORT_J)
-        local k = sortGet(st, librarycalls.SORT_K)
+        local t = loadAt(st, librarylayouts.SORT_LIST) & values.PAYLOAD
+        local buffer = loadAt(st, librarylayouts.SORT_BUFFER) & values.PAYLOAD
+        local less = loadAt(st, librarylayouts.SORT_LESS)
+        local mid = sortGet(st, librarylayouts.SORT_MID)
+        local hi = sortGet(st, librarylayouts.SORT_HI)
+        local i = sortGet(st, librarylayouts.SORT_I)
+        local j = sortGet(st, librarylayouts.SORT_J)
+        local k = sortGet(st, librarylayouts.SORT_K)
         if pending == WAITING then
             -- The right element goes first only when it sorts before the left,
             -- which keeps equal elements in order.
-            local answer = loadAt(st, librarycalls.SORT_ANSWER)
+            local answer = loadAt(st, librarylayouts.SORT_ANSWER)
             if answer ~= values.NIL and answer ~= values.FALSE then
                 storeAt(h, buffer, k, guestscope.geti(ctx, t, j))
                 j = j + 1
@@ -1974,19 +1975,19 @@ local function sortStep(ctx: voidptr, value: uint64): uint64
             if i <= mid and j <= hi then
                 -- Kept in the state while left is read: a packed table's
                 -- wide integer is a fresh box, which that read could collect.
-                storeAt(h, st, librarycalls.SORT_A, guestscope.geti(ctx, t, j))
+                storeAt(h, st, librarylayouts.SORT_A, guestscope.geti(ctx, t, j))
                 local left = guestscope.geti(ctx, t, i)
-                local right = loadAt(st, librarycalls.SORT_A)
+                local right = loadAt(st, librarylayouts.SORT_A)
                 if guestscope.suspended(ctx) then
                     return values.FALSE
                 end
                 if less ~= values.NIL then
-                    storeAt(h, st, librarycalls.SORT_A, right)
-                    storeAt(h, st, librarycalls.SORT_B, left)
-                    sortPut(h, st, librarycalls.SORT_I, i)
-                    sortPut(h, st, librarycalls.SORT_J, j)
-                    sortPut(h, st, librarycalls.SORT_K, k)
-                    sortPut(h, st, librarycalls.SORT_PENDING, WAITING)
+                    storeAt(h, st, librarylayouts.SORT_A, right)
+                    storeAt(h, st, librarylayouts.SORT_B, left)
+                    sortPut(h, st, librarylayouts.SORT_I, i)
+                    sortPut(h, st, librarylayouts.SORT_J, j)
+                    sortPut(h, st, librarylayouts.SORT_K, k)
+                    sortPut(h, st, librarylayouts.SORT_PENDING, WAITING)
                     tables.drain(h)
                     return values.TRUE
                 end
@@ -2009,21 +2010,21 @@ local function sortStep(ctx: voidptr, value: uint64): uint64
                     j = j + 1
                     k = k + 1
                 end
-                local at = sortGet(st, librarycalls.SORT_LO)
+                local at = sortGet(st, librarylayouts.SORT_LO)
                 while at <= hi do
                     guestscope.seti(ctx, t, at, loadAt(buffer, at))
                     at = at + 1
                 end
                 if not sortRuns(h, st) then
-                    sortPut(h, st, librarycalls.SORT_PENDING, FINISHED)
+                    sortPut(h, st, librarylayouts.SORT_PENDING, FINISHED)
                     tables.drain(h)
                     return values.FALSE
                 end
-                mid = sortGet(st, librarycalls.SORT_MID)
-                hi = sortGet(st, librarycalls.SORT_HI)
-                i = sortGet(st, librarycalls.SORT_I)
-                j = sortGet(st, librarycalls.SORT_J)
-                k = sortGet(st, librarycalls.SORT_K)
+                mid = sortGet(st, librarylayouts.SORT_MID)
+                hi = sortGet(st, librarylayouts.SORT_HI)
+                i = sortGet(st, librarylayouts.SORT_I)
+                j = sortGet(st, librarylayouts.SORT_J)
+                k = sortGet(st, librarylayouts.SORT_K)
             end
         end
 
@@ -2044,10 +2045,10 @@ local function gsubPiece(h: heap.Heap*, st: uint64, subject: uint64, from: int64
         if to <= from then
             return
         end
-        local count = sortGet(st, librarycalls.GSUB_COUNT) + 1
+        local count = sortGet(st, librarylayouts.GSUB_COUNT) + 1
         local piece = strings.make(h, subject + native.word(from), native.word(to - from))
-        storeAt(h, loadAt(st, librarycalls.GSUB_PIECES) & values.PAYLOAD, count, values.TAG_OBJ | piece)
-        sortPut(h, st, librarycalls.GSUB_COUNT, count)
+        storeAt(h, loadAt(st, librarylayouts.GSUB_PIECES) & values.PAYLOAD, count, values.TAG_OBJ | piece)
+        sortPut(h, st, librarylayouts.GSUB_COUNT, count)
     end
 end
 
@@ -2062,23 +2063,23 @@ local function gsubBegin(ctx: voidptr, value: uint64, pv: uint64, fn: uint64, ma
         guestscope.hold(ctx, values.TAG_OBJ | state)
         local pieces = guestscope.newTable(ctx)
         local h = guestHeap(ctx)
-        storeAt(h, state, librarycalls.GSUB_SUBJECT, value)
-        storeAt(h, state, librarycalls.GSUB_PATTERN, pv)
-        storeAt(h, state, librarycalls.GSUB_FUNCTION, fn)
-        storeAt(h, state, librarycalls.GSUB_PIECES, values.TAG_OBJ | pieces)
-        sortPut(h, state, librarycalls.GSUB_SRC, 0)
-        sortPut(h, state, librarycalls.GSUB_LAST, 0)
-        sortPut(h, state, librarycalls.GSUB_N, 0)
-        sortPut(h, state, librarycalls.GSUB_LIMIT, 0)
+        storeAt(h, state, librarylayouts.GSUB_SUBJECT, value)
+        storeAt(h, state, librarylayouts.GSUB_PATTERN, pv)
+        storeAt(h, state, librarylayouts.GSUB_FUNCTION, fn)
+        storeAt(h, state, librarylayouts.GSUB_PIECES, values.TAG_OBJ | pieces)
+        sortPut(h, state, librarylayouts.GSUB_SRC, 0)
+        sortPut(h, state, librarylayouts.GSUB_LAST, 0)
+        sortPut(h, state, librarylayouts.GSUB_N, 0)
+        sortPut(h, state, librarylayouts.GSUB_LIMIT, 0)
         if limit > 0 then
-            sortPut(h, state, librarycalls.GSUB_LIMIT, limit)
+            sortPut(h, state, librarylayouts.GSUB_LIMIT, limit)
         end
-        sortPut(h, state, librarycalls.GSUB_PENDING, RUNNING)
+        sortPut(h, state, librarylayouts.GSUB_PENDING, RUNNING)
         local anchor = strings.length(p) > 0ULL
             and native.word(native.load8(native.pointer(strings.bytes(p)), 0)) == 94ULL
-        sortPut(h, state, librarycalls.GSUB_ANCHOR, native.index(native.asWord(anchor)))
-        sortPut(h, state, librarycalls.GSUB_COPY, 0)
-        sortPut(h, state, librarycalls.GSUB_COUNT, 0)
+        sortPut(h, state, librarylayouts.GSUB_ANCHOR, native.index(native.asWord(anchor)))
+        sortPut(h, state, librarylayouts.GSUB_COPY, 0)
+        sortPut(h, state, librarylayouts.GSUB_COUNT, 0)
         tables.drain(h)
         return values.TAG_OBJ | state
     end
@@ -2092,25 +2093,25 @@ local function gsubStep(ctx: voidptr, value: uint64): uint64
     @unsafe do
         local h = guestHeap(ctx)
         local st = value & values.PAYLOAD
-        local pending = sortGet(st, librarycalls.GSUB_PENDING)
+        local pending = sortGet(st, librarylayouts.GSUB_PENDING)
         if pending == FINISHED then
             return values.FALSE
         end
-        local s = strings.header(loadAt(st, librarycalls.GSUB_SUBJECT))
-        local p = strings.header(loadAt(st, librarycalls.GSUB_PATTERN))
+        local s = strings.header(loadAt(st, librarylayouts.GSUB_SUBJECT))
+        local p = strings.header(loadAt(st, librarylayouts.GSUB_PATTERN))
         local subject = strings.bytes(s)
         local length = native.index(strings.length(s))
-        local anchor = sortGet(st, librarycalls.GSUB_ANCHOR) == 1
-        local src = sortGet(st, librarycalls.GSUB_SRC)
-        local last = sortGet(st, librarycalls.GSUB_LAST)
+        local anchor = sortGet(st, librarylayouts.GSUB_ANCHOR) == 1
+        local src = sortGet(st, librarylayouts.GSUB_SRC)
+        local last = sortGet(st, librarylayouts.GSUB_LAST)
         local finished = false
         if pending == WAITING then
             -- The function's answer replaces the match: false or nil keeps it,
             -- a string or number is its text.
-            local at = sortGet(st, librarycalls.GSUB_AT)
-            local e = sortGet(st, librarycalls.GSUB_END)
-            gsubPiece(h, st, subject, sortGet(st, librarycalls.GSUB_COPY), at)
-            local answer = loadAt(st, librarycalls.GSUB_ANSWER)
+            local at = sortGet(st, librarylayouts.GSUB_AT)
+            local e = sortGet(st, librarylayouts.GSUB_END)
+            gsubPiece(h, st, subject, sortGet(st, librarylayouts.GSUB_COPY), at)
+            local answer = loadAt(st, librarylayouts.GSUB_ANSWER)
             if answer == values.NIL or answer == values.FALSE then
                 gsubPiece(h, st, subject, at, e)
             elseif strings.header(answer) ~= 0ULL or ints.isInteger(answer) or isFloat(answer) then
@@ -2118,9 +2119,9 @@ local function gsubStep(ctx: voidptr, value: uint64): uint64
                 if strings.header(answer) == 0ULL then
                     text = tostring(ctx, answer)
                 end
-                local count = sortGet(st, librarycalls.GSUB_COUNT) + 1
-                storeAt(h, loadAt(st, librarycalls.GSUB_PIECES) & values.PAYLOAD, count, text)
-                sortPut(h, st, librarycalls.GSUB_COUNT, count)
+                local count = sortGet(st, librarylayouts.GSUB_COUNT) + 1
+                storeAt(h, loadAt(st, librarylayouts.GSUB_PIECES) & values.PAYLOAD, count, text)
+                sortPut(h, st, librarylayouts.GSUB_COUNT, count)
             elseif objectKind(answer) == heap.KIND_TABLE then
                 texts.replacementError(ctx, answer)
             elseif objectKind(answer) == heap.KIND_CLOSURE then
@@ -2128,7 +2129,7 @@ local function gsubStep(ctx: voidptr, value: uint64): uint64
             else
                 texts.replacementError(ctx, answer)
             end
-            sortPut(h, st, librarycalls.GSUB_COPY, e)
+            sortPut(h, st, librarylayouts.GSUB_COPY, e)
             src = e
             last = e + 1
             finished = anchor
@@ -2144,8 +2145,8 @@ local function gsubStep(ctx: voidptr, value: uint64): uint64
                 patterns.release(ms)
                 error("not enough memory")
             end
-            local n = sortGet(st, librarycalls.GSUB_N)
-            local limit = sortGet(st, librarycalls.GSUB_LIMIT)
+            local n = sortGet(st, librarylayouts.GSUB_N)
+            local limit = sortGet(st, librarylayouts.GSUB_LIMIT)
             while n < limit do
                 local e = patterns.match(h, ms, subject + native.word(src), pattern)
                 if e ~= 0ULL and (last == 0 or e ~= subject + native.word(last - 1)) then
@@ -2172,13 +2173,13 @@ local function gsubStep(ctx: voidptr, value: uint64): uint64
                     end
                     packed(h, pack, level, values.NIL)
                     patterns.release(ms)
-                    storeAt(h, st, librarycalls.GSUB_CAPTURES, values.TAG_OBJ | pack)
-                    sortPut(h, st, librarycalls.GSUB_N, n + 1)
-                    sortPut(h, st, librarycalls.GSUB_AT, src)
-                    sortPut(h, st, librarycalls.GSUB_END, native.index(e - subject))
-                    sortPut(h, st, librarycalls.GSUB_SRC, src)
-                    sortPut(h, st, librarycalls.GSUB_LAST, last)
-                    sortPut(h, st, librarycalls.GSUB_PENDING, WAITING)
+                    storeAt(h, st, librarylayouts.GSUB_CAPTURES, values.TAG_OBJ | pack)
+                    sortPut(h, st, librarylayouts.GSUB_N, n + 1)
+                    sortPut(h, st, librarylayouts.GSUB_AT, src)
+                    sortPut(h, st, librarylayouts.GSUB_END, native.index(e - subject))
+                    sortPut(h, st, librarylayouts.GSUB_SRC, src)
+                    sortPut(h, st, librarylayouts.GSUB_LAST, last)
+                    sortPut(h, st, librarylayouts.GSUB_PENDING, WAITING)
                     tables.drain(h)
                     return values.TRUE
                 elseif src < length then
@@ -2192,8 +2193,8 @@ local function gsubStep(ctx: voidptr, value: uint64): uint64
             end
             patterns.release(ms)
         end
-        gsubPiece(h, st, subject, sortGet(st, librarycalls.GSUB_COPY), length)
-        sortPut(h, st, librarycalls.GSUB_PENDING, FINISHED)
+        gsubPiece(h, st, subject, sortGet(st, librarylayouts.GSUB_COPY), length)
+        sortPut(h, st, librarylayouts.GSUB_PENDING, FINISHED)
         tables.drain(h)
         return values.FALSE
     end
@@ -2212,8 +2213,8 @@ local function gsubFinish(ctx: voidptr, value: uint64, all: boolean): uint64
         end
         local h = guestHeap(ctx)
         local st = value & values.PAYLOAD
-        local pieces = loadAt(st, librarycalls.GSUB_PIECES) & values.PAYLOAD
-        local count = sortGet(st, librarycalls.GSUB_COUNT)
+        local pieces = loadAt(st, librarylayouts.GSUB_PIECES) & values.PAYLOAD
+        local count = sortGet(st, librarylayouts.GSUB_COUNT)
         local builder = buffer as strings.Builder*
         local refused: uint64 = 0ULL
         local i: int64 = 1
@@ -2228,7 +2229,7 @@ local function gsubFinish(ctx: voidptr, value: uint64, all: boolean): uint64
         local result = values.TAG_OBJ | strings.finish(h, builder)
         if pack ~= 0ULL then
             packPut(h, pack, 1ULL, result)
-            packPut(h, pack, 2ULL, values.TAG_INTEGER | native.word(sortGet(st, librarycalls.GSUB_N)))
+            packPut(h, pack, 2ULL, values.TAG_INTEGER | native.word(sortGet(st, librarylayouts.GSUB_N)))
         end
         tables.drain(h)
 

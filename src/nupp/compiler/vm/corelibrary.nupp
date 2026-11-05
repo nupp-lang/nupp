@@ -308,17 +308,46 @@ local subjects: {corelibrary.Subject} = {
     }
 }
 
--- The file calls (nupp.runtime.filecalls): the operation HOST_FILES takes
--- first, and how many arguments follow it.
+-- The operations HOST_FILES takes first, and how many arguments follow
+-- each: the file calls' (nupp.runtime.filecalls), then the reactor's, the
+-- poller's (nupp.runtime.pollcalls) and the blocking-work pool's
+-- (nupp.runtime.poolcalls), which guestreactor answers. Each group's
+-- operations are consecutive, its bounds `<GROUP>_FIRST` and `<GROUP>_LAST`;
+-- requiring one of its declaration modules loads nothing.
 type corelibrary.FileOperation = {name: string, library: string, operation: integer, arguments: integer}
 
-local fileoperations: {corelibrary.FileOperation} = {
-    {name = "FILE_OPEN", library = "filecalls.open", operation = 1, arguments = 2},
-    {name = "FILE_READ", library = "filecalls.read", operation = 2, arguments = 2},
-    {name = "FILE_WRITE", library = "filecalls.write", operation = 3, arguments = 3},
-    {name = "FILE_SEEK", library = "filecalls.seek", operation = 4, arguments = 3},
-    {name = "FILE_CLOSE", library = "filecalls.close", operation = 5, arguments = 1},
-    {name = "FILE_REASON", library = "filecalls.reason", operation = 6, arguments = 1}
+type corelibrary.OperationGroup = {name: string, modules: {string}, operations: {corelibrary.FileOperation}}
+
+local operationgroups: {corelibrary.OperationGroup} = {
+    {
+        name = "FILES",
+        modules = {"filecalls"},
+        operations = {
+            {name = "FILE_OPEN", library = "filecalls.open", operation = 1, arguments = 2},
+            {name = "FILE_READ", library = "filecalls.read", operation = 2, arguments = 2},
+            {name = "FILE_WRITE", library = "filecalls.write", operation = 3, arguments = 3},
+            {name = "FILE_SEEK", library = "filecalls.seek", operation = 4, arguments = 3},
+            {name = "FILE_CLOSE", library = "filecalls.close", operation = 5, arguments = 1},
+            {name = "FILE_REASON", library = "filecalls.reason", operation = 6, arguments = 1}
+        }
+    },
+    {
+        name = "REACTOR",
+        modules = {"pollcalls", "poolcalls"},
+        operations = {
+            {name = "POLL_OPEN", library = "pollcalls.open", operation = 7, arguments = 0},
+            {name = "POLL_ARM", library = "pollcalls.arm", operation = 8, arguments = 3},
+            {name = "POLL_WAIT", library = "pollcalls.wait", operation = 9, arguments = 2},
+            {name = "POLL_PIPE", library = "pollcalls.pipe", operation = 10, arguments = 0},
+            {name = "POOL_START", library = "poolcalls.start", operation = 11, arguments = 1},
+            {name = "POOL_OPEN", library = "poolcalls.open", operation = 12, arguments = 2},
+            {name = "POOL_READ", library = "poolcalls.read", operation = 13, arguments = 2},
+            {name = "POOL_WRITE", library = "poolcalls.write", operation = 14, arguments = 3},
+            {name = "POOL_TAKE", library = "poolcalls.take", operation = 15, arguments = 0},
+            {name = "POOL_FINISH", library = "poolcalls.finish", operation = 16, arguments = 2},
+            {name = "POOL_CANCEL", library = "poolcalls.cancel", operation = 17, arguments = 1}
+        }
+    }
 }
 
 -- The state tables some calls keep between steps, which the compiler reads
@@ -440,10 +469,14 @@ do
         assert(not subject.range or high - low + 1 == #subject.calls, "core library range has a gap: " .. subject.name)
     end
     local operations: {[integer]: boolean} = {}
-    for _, operation in ipairs(fileoperations) do
-        assert(not operations[operation.operation], "file operation taken twice: " .. operation.name)
-        operations[operation.operation] = true
-        files[operation.library] = operation
+    for _, group in ipairs(operationgroups) do
+        local first = group.operations[1].operation
+        for index, operation in ipairs(group.operations) do
+            assert(not operations[operation.operation], "file operation taken twice: " .. operation.name)
+            assert(operation.operation == first + index - 1, "file operation group has a gap: " .. group.name)
+            operations[operation.operation] = true
+            files[operation.library] = operation
+        end
     end
 end
 
@@ -574,16 +607,36 @@ function corelibrary.subjects(): {corelibrary.Subject}
     return result
 end
 
--- A copy of the file operations, for the generator.
-function corelibrary.fileoperations(): {corelibrary.FileOperation}
+-- A copy of the file operation groups, for the generator.
+function corelibrary.operationgroups(): {corelibrary.OperationGroup}
     local result = {}
-    for index, operation in ipairs(fileoperations) do
-        result[index] = {
-            name = operation.name,
-            library = operation.library,
-            operation = operation.operation,
-            arguments = operation.arguments
-        }
+    for index, group in ipairs(operationgroups) do
+        local operations, modules = {}, {}
+        for at, operation in ipairs(group.operations) do
+            operations[at] = {
+                name = operation.name,
+                library = operation.library,
+                operation = operation.operation,
+                arguments = operation.arguments
+            }
+        end
+        for at, name in ipairs(group.modules) do
+            modules[at] = name
+        end
+        result[index] = {name = group.name, modules = modules, operations = operations}
+    end
+
+    return result
+end
+
+-- The declaration modules whose calls are file operations, by module name,
+-- and the name a call of each is spelled with.
+function corelibrary.operationmodules(): {[string]: string}
+    local result = {}
+    for _, group in ipairs(operationgroups) do
+        for _, name in ipairs(group.modules) do
+            result["nupp.runtime." .. name] = name
+        end
     end
 
     return result

@@ -1,0 +1,183 @@
+module nupp.core.catalogreactorfiles
+
+-- The reactor's blocking-work pool: a task's regular-file opens, reads and
+-- writes go to the pool's threads and park the task while others run; a
+-- task's own operations keep their order, as do Lua's io calls over them;
+-- pool jobs cancelled before or after a worker takes them leave nothing
+-- open; and many jobs wait at once, with a collection while they do. Each
+-- check is a bit of the score. Files go under NUPP_GUEST_TEMP.
+const reactor = require("nupp.runtime.reactor")
+const files = require("nupp.runtime.files")
+const driver = require("nupp.core.catalogreactordriver")
+
+local base = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/reactor-" .. tostring(math.random(1, 1 << 40))
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local CREATE = files.WRITING | files.CREATING | files.TRUNCATING
+
+-- An open in a task parks it: the other task runs before the open returns.
+-- Outside a task the same calls complete where they stand.
+do
+    local log: {string} = {}
+    local path = base .. "-park"
+    driver.spawn(function(): nil
+        log[#log + 1] = "open"
+        local opened = files.open(path, CREATE)
+        log[#log + 1] = "opened"
+        check(opened.value >= 0 and reactor.parks())
+        check(files.write(opened.value, "pooled bytes", 1).value == 12)
+        check(files.close(opened.value).value == 0)
+    end)
+    driver.spawn(function(): nil
+        log[#log + 1] = "other"
+    end)
+    driver.run()
+    check(table.concat(log, ",") == "open,other,opened" and reactor.pending() == 0)
+    check(not reactor.parks())
+    local again = files.open(path, files.READING)
+    check(files.read(again.value, 64).text == "pooled bytes")
+    files.close(again.value)
+    local missing = files.open(base .. "-missing", files.READING)
+    check(missing.value == -1 and missing.code == 2)
+end
+
+-- Each task's writes land in its order, two tasks writing two files at
+-- once, through Lua's io and the file layer; reading back answers them.
+do
+    local expected: {string} = {"", ""}
+    for which = 1, 2 do
+        driver.spawn(function(): nil
+            local path = base .. "-order" .. tostring(which)
+            local f = assert(io.open(path, "w"))
+            for line = 1, 50 do
+                local text = tostring(which) .. ":" .. tostring(line) .. "\n"
+                f:write(text)
+                expected[which] = expected[which] .. text
+            end
+            f:close()
+        end)
+    end
+    local back: {string} = {"", ""}
+    driver.run()
+    for which = 1, 2 do
+        driver.spawn(function(): nil
+            local f = assert(io.open(base .. "-order" .. tostring(which), "r"))
+            back[which] = f:read("a") as string
+            f:close()
+        end)
+    end
+    driver.run()
+    check(#expected[1] > 0 and back[1] == expected[1] and back[2] == expected[2])
+
+    -- Reads in one task keep their order across the pool.
+    local pieces: {string} = {}
+    driver.spawn(function(): nil
+        local opened = files.open(base .. "-order1", files.READING)
+        for index = 1, 4 do
+            pieces[index] = files.read(opened.value, 3).text
+        end
+        files.close(opened.value)
+    end)
+    driver.run()
+    check(table.concat(pieces) == string.sub(expected[1], 1, 12))
+end
+
+-- Pool jobs cancelled: a read answers no one, opens leave no descriptor
+-- behind (the runner allows 64), and the reactor is idle once they drain.
+do
+    local opened = files.open(base .. "-order2", files.READING)
+    local heard = 0
+    local withdrawn = true
+    for _ = 1, 20 do
+        local id = reactor.submit(
+            new reactor.Operation(kind = reactor.READ, descriptor = opened.value, count = 8),
+            function(_: reactor.Completion): nil
+                heard = heard + 1
+            end
+        )
+        withdrawn = withdrawn and reactor.cancel(id)
+    end
+    check(withdrawn)
+    for index = 1, 100 do
+        local id = reactor.submit(
+            new reactor.Operation(
+                kind = reactor.OPEN,
+                path = base .. "-cancelled" .. tostring(index % 3),
+                flags = CREATE
+            ),
+            function(_: reactor.Completion): nil
+                heard = heard + 1
+            end
+        )
+        reactor.cancel(id)
+        reactor.wait(os.monotonic())
+    end
+    check(heard == 0 and reactor.pending() == 0)
+    for _ = 1, 20 do
+        reactor.wait(os.monotonic() + 2)
+    end
+    files.close(opened.value)
+    local held: {integer} = {}
+    driver.spawn(function(): nil
+        for index = 1, 50 do
+            held[index] = files.open(base .. "-order2", files.READING).value
+        end
+    end)
+    driver.run()
+    local fine = true
+    for index = 1, 50 do
+        fine = fine and held[index] >= 0
+        files.close(held[index])
+    end
+    check(fine)
+end
+
+-- Many jobs at once: thirty tasks each write, reopen and read a file of
+-- their own, with a collection while their jobs wait.
+do
+    local count: integer = 30
+    local matched = 0
+    for index = 1, count do
+        driver.spawn(function(): nil
+            local path = base .. "-many" .. tostring(index)
+            local text = string.rep(tostring(index) .. ",", index * 10)
+            local out = files.open(path, CREATE)
+            local at: integer = 1
+            while at <= #text do
+                at = at + files.write(out.value, text, at).value
+            end
+            files.close(out.value)
+            local into = files.open(path, files.READING)
+            local back = ""
+            while true do
+                local got = files.read(into.value, 100)
+                if got.text == "" then
+                    break
+                end
+                back = back .. got.text
+            end
+            files.close(into.value)
+            if back == text then
+                matched = matched + 1
+            end
+        end)
+    end
+    local waiting = 0
+    driver.spawn(function(): nil
+        waiting = reactor.pending()
+        collectgarbage()
+        collectgarbage()
+    end)
+    driver.run()
+    check(matched == count and waiting > 0 and reactor.pending() == 0)
+end
+
+export = score

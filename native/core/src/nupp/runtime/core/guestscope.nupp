@@ -24,6 +24,7 @@ const guestentry = require("nupp.runtime.core.guestentry")
 const instances = require("nupp.runtime.core.instances")
 const stacks = require("nupp.runtime.core.stacks")
 const librarycalls = require("nupp.runtime.core.librarycalls")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
 
 -- The scope comes first, so a Services address is also its scope's address.
 export struct Services
@@ -1915,13 +1916,13 @@ local function selfLanding(ctx: voidptr, state: voidptr, owner: uint64, index: u
         local check = index + 1ULL
         local found = false
         while not found and check < count and check <= index + 4ULL do
-            local at = native.offset(code, native.index(check * librarycalls.INSTRUCTION_BYTES))
+            local at = native.offset(code, native.index(check * librarylayouts.INSTRUCTION_BYTES))
             local op = native.word(native.load8(at, 0))
-            if op == librarycalls.OPCODE_LIBCALL
-                and native.word(native.load32(at, native.index(librarycalls.ID_OFFSET))) == librarycalls.LANDED
+            if op == librarylayouts.OPCODE_LIBCALL
+                and native.word(native.load32(at, native.index(librarylayouts.ID_OFFSET))) == librarycalls.LANDED
             then
                 found = true
-            elseif op == librarycalls.OPCODE_MOVE or op == librarycalls.OPCODE_NIL then
+            elseif op == librarylayouts.OPCODE_MOVE or op == librarylayouts.OPCODE_NIL then
                 check = check + 1ULL
             else
                 return 0ULL

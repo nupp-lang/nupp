@@ -1,8 +1,9 @@
 module nupp.runtime.core.guestio
 
 -- The host's services a program reaches through the core's library calls:
--- the file system calls under the program's file layer (filecalls), the
--- monotonic clock, the collector's controls and the program's arguments.
+-- the file system calls under the program's file layer (filecalls) and its
+-- reactor (pollcalls, poolcalls), the monotonic clock, the collector's
+-- controls and the program's arguments.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
@@ -15,9 +16,9 @@ const guestscope = require("nupp.runtime.core.guestscope")
 const guestlib = require("nupp.runtime.core.guestlib")
 const texts = require("nupp.runtime.core.guesttexts")
 const collector = require("nupp.runtime.vm.collector")
-const librarycalls = require("nupp.runtime.core.librarycalls")
+const guestreactor = require("nupp.runtime.core.guestreactor")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
-
 
 local function heapOf(ctx: voidptr): heap.Heap*
     @unsafe do
@@ -101,15 +102,18 @@ end
 -- number, as the bridge's system call answered it.
 export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64): uint64
     local operation = integerOf(op)
+    if operation >= librarylayouts.REACTOR_FIRST and operation <= librarylayouts.REACTOR_LAST then
+        return guestreactor.call(ctx, operation, a, b, c)
+    end
     @unsafe do
         local h = heapOf(ctx)
-        if operation == librarycalls.FILE_OPEN then
+        if operation == librarylayouts.FILE_OPEN then
             local s = stringOf(a)
             local fd = os.fileOpen(native.pointer(strings.bytes(s)), strings.length(s), integerOf(b))
             return ints.make(h, native.word(fd))
-        elseif operation == librarycalls.FILE_READ then
+        elseif operation == librarylayouts.FILE_READ then
             return readText(ctx, integerOf(a), integerOf(b))
-        elseif operation == librarycalls.FILE_WRITE then
+        elseif operation == librarylayouts.FILE_WRITE then
             -- The text's bytes from `first`, 1-based as Lua's strings count.
             local s = stringOf(b)
             local first = integerOf(c)
@@ -123,11 +127,11 @@ export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64)
                 length - (first - 1ULL)
             )
             return ints.make(h, native.word(written))
-        elseif operation == librarycalls.FILE_SEEK then
+        elseif operation == librarylayouts.FILE_SEEK then
             return ints.make(h, native.word(os.fileSeek(integerOf(a), integerOf(b), integerOf(c))))
-        elseif operation == librarycalls.FILE_CLOSE then
+        elseif operation == librarylayouts.FILE_CLOSE then
             return ints.make(h, native.word(os.fileClose(integerOf(a))))
-        elseif operation == librarycalls.FILE_REASON then
+        elseif operation == librarylayouts.FILE_REASON then
             return reasonText(ctx, integerOf(a))
         end
     end

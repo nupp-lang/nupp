@@ -1,0 +1,212 @@
+module nupp.core.catalogreactorpipes
+
+-- The reactor's readiness side: reads and writes on nonblocking pipes park
+-- their task until the poller reports the descriptor ready, timers wake
+-- tasks at their deadlines, a parked read is cancelled without taking what
+-- arrives after it, many operations wait at once, and a collection runs
+-- while they do. Each check is a bit of the score.
+const reactor = require("nupp.runtime.reactor")
+const files = require("nupp.runtime.files")
+const driver = require("nupp.core.catalogreactordriver")
+
+local score = 0
+local bit = 1
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+-- A read parks until a task woken by a timer writes.
+do
+    local reader, writer = reactor.pipe()
+    check(reader >= 0 and writer >= 0 and reactor.pollable(reader) and reactor.pollable(writer))
+    local log: {string} = {}
+    driver.spawn(function(): nil
+        log[#log + 1] = "read"
+        local got = files.read(reader, 64)
+        log[#log + 1] = "got " .. got.text
+    end)
+    driver.spawn(function(): nil
+        log[#log + 1] = "sleep"
+        driver.sleep(20)
+        log[#log + 1] = "write"
+        local wrote = files.write(writer, "hello", 1)
+        log[#log + 1] = "wrote " .. tostring(wrote.value)
+    end)
+    local began = os.monotonic()
+    driver.run()
+    check(#log == 5 and log[1] == "read" and log[2] == "sleep" and log[3] == "write")
+    check(
+        log[4] ~= log[5]
+        and (log[4] == "got hello" or log[4] == "wrote 5")
+        and (log[5] == "got hello" or log[5] == "wrote 5")
+    )
+    check(os.monotonic() - began >= 20 and reactor.pending() == 0)
+
+    -- Closing the write end: the read end reads its end, "".
+    files.close(writer)
+    check(not reactor.pollable(writer))
+    local ended = ""
+    driver.spawn(function(): nil
+        ended = files.read(reader, 8).text
+    end)
+    driver.run()
+    check(ended == "")
+    files.close(reader)
+end
+
+-- Timers wake their tasks in deadline order, whatever order they were set.
+do
+    local order: {integer} = {}
+    for _, millis in ipairs({30, 10, 20}) do
+        driver.spawn(function(): nil
+            driver.sleep(millis)
+            order[#order + 1] = millis
+        end)
+    end
+    driver.run()
+    check(#order == 3 and order[1] == 10 and order[2] == 20 and order[3] == 30)
+end
+
+-- A parked read cancelled: its task raises, nothing is pending, and the
+-- bytes written after it are there for the next read.
+do
+    local reader, writer = reactor.pipe()
+    local outcome = ""
+    local victim = driver.spawn(function(): nil
+        local ok, problem = pcall(files.read, reader, 16)
+        outcome = ok and "read" or tostring(problem)
+    end)
+    driver.spawn(function(): nil
+        driver.sleep(10)
+        driver.cancel(victim)
+    end)
+    driver.run()
+    check(outcome == "cancelled" and reactor.pending() == 0)
+    -- Outside any task, a wait drives the reactor where it stands.
+    check(files.write(writer, "kept", 1).value == 4)
+    check(files.read(reader, 16).text == "kept")
+    files.close(reader)
+    files.close(writer)
+end
+
+-- Submitted directly: the receiver hears from a later wait, never from the
+-- submit; cancel answers whether it was still pending; and a wait with
+-- nothing pending returns at its deadline, or at once without one.
+do
+    local reader, writer = reactor.pipe()
+    local heard: {string} = {}
+    local first = reactor.submit(
+        new reactor.Operation(
+            kind = reactor.READ,
+            descriptor = reader,
+            count = 4
+        ),
+        function(done: reactor.Completion): nil
+            heard[#heard + 1] = "first " .. done.text
+        end
+    )
+    local second = reactor.submit(
+        new reactor.Operation(
+            kind = reactor.READ,
+            descriptor = reader,
+            count = 4
+        ),
+        function(done: reactor.Completion): nil
+            heard[#heard + 1] = "second " .. done.text
+        end
+    )
+    check(#heard == 0 and reactor.pending() == 2)
+    check(reactor.cancel(first) and not reactor.cancel(first) and reactor.pending() == 1)
+    local written = reactor.submit(
+        new reactor.Operation(kind = reactor.WRITE, descriptor = writer, text = "abcdef", first = 3),
+        function(done: reactor.Completion): nil
+            heard[#heard + 1] = "wrote " .. tostring(done.value)
+        end
+    )
+    check(written > second and #heard == 0)
+    while reactor.pending() > 0 do
+        reactor.wait(nil)
+    end
+    check(#heard == 2 and heard[1] == "wrote 4" and heard[2] == "second cdef")
+    check(not reactor.cancel(second))
+    local began = os.monotonic()
+    check(reactor.wait(began + 15) == 0 and os.monotonic() - began >= 15)
+    check(reactor.wait(began) == 0 and reactor.wait(nil) == 0)
+    files.close(reader)
+    files.close(writer)
+end
+
+-- Many reads parked at once on many pipes, answered in the reverse of the
+-- order they parked, with a collection while they wait.
+do
+    local count: integer = 40
+    local readers: {integer} = {}
+    local writers: {integer} = {}
+    local got: {string} = {}
+    for index = 1, count do
+        local reader, writer = reactor.pipe()
+        readers[index] = reader
+        writers[index] = writer
+        driver.spawn(function(): nil
+            got[index] = files.read(reader, 32).text
+        end)
+    end
+    local collected = false
+    driver.spawn(function(): nil
+        driver.sleep(5)
+        collected = reactor.pending() == count
+        collectgarbage()
+        collectgarbage()
+        for index = count, 1, -1 do
+            files.write(writers[index], "pipe " .. tostring(index), 1)
+        end
+    end)
+    driver.run()
+    local all = true
+    for index = 1, count do
+        all = all and got[index] == "pipe " .. tostring(index)
+        files.close(readers[index])
+        files.close(writers[index])
+    end
+    check(collected and all and reactor.pending() == 0)
+end
+
+-- A write larger than the pipe holds parks until a reader makes room, and
+-- every byte arrives in order.
+do
+    local reader, writer = reactor.pipe()
+    local chunk = string.rep("0123456789abcdef", 1024)
+    local total: integer = 0
+    local sent: integer = 0
+    driver.spawn(function(): nil
+        local text = string.rep(chunk, 16)
+        local at: integer = 1
+        while at <= #text do
+            local wrote = files.write(writer, text, at)
+            at = at + wrote.value
+        end
+        sent = at - 1
+        files.close(writer)
+    end)
+    local same = true
+    driver.spawn(function(): nil
+        while true do
+            local got = files.read(reader, 4096)
+            if got.text == "" then
+                break
+            end
+            local offset = total % #chunk
+            same = same and string.sub(chunk .. chunk, offset + 1, offset + #got.text) == got.text
+            total = total + #got.text
+        end
+    end)
+    driver.run()
+    check(sent == 16 * #chunk and total == sent and same)
+    files.close(reader)
+end
+
+export = score

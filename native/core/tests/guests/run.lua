@@ -175,6 +175,8 @@ local CASES = {
     {"benchforms", 0x7FFF00000000003F},
     {"iofiles", 0x7FFF07FFFFFFFFFF},
     {"iostandard", 0x7FFF00000000000F},
+    {"reactorpipes", 0x7FFF00000007FFFF},
+    {"reactorfiles", 0x7FFF000000001FFF},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -280,12 +282,15 @@ local STRESS = {
     hostlibrary = true,
     benchforms = true,
     iofiles = true,
-    iostandard = true
+    iostandard = true,
+    reactorpipes = true,
+    reactorfiles = true
 }
--- Shell statements a case's runs start with: the io case may hold 64
--- descriptors, so a handle its owner left open would exhaust them; the bench
--- entry measures fib(20), BENCH_SCALE adding to 29.
-local SETUP = {iofiles = "ulimit -n 64; ", benchworkloads = "export BENCH_SCALE=-9; "}
+-- Shell statements a case's runs start with: the io and pool cases may hold
+-- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
+-- would exhaust them; the bench entry measures fib(20), BENCH_SCALE adding to
+-- 29.
+local SETUP = {iofiles = "ulimit -n 64; ", reactorfiles = "ulimit -n 64; ", benchworkloads = "export BENCH_SCALE=-9; "}
 -- The program arguments a case is run with, after the bridge's own.
 -- The bench entry measures one case, writes its record as JSON on standard
 -- output, and writes the record file it always writes nowhere.
@@ -696,7 +701,10 @@ local function stage()
             "catalog-host-library",
             "catalog-output-write",
             "catalog-io-files",
-            "catalog-io-standard"
+            "catalog-io-standard",
+            "catalog-reactor-driver",
+            "catalog-reactor-pipes",
+            "catalog-reactor-files"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",

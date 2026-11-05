@@ -2,13 +2,12 @@ module nupp.core.librarycallsgen
 
 local corelibrary = require("nupp.compiler.vm.corelibrary")
 local coretexts = require("nupp.compiler.vm.coretexts")
-local bytecode = require("nupp.compiler.vm.corebytecode")
 local generator = {}
 
--- The runtime's constants for the core's library calls, from the one table
+-- The runtime's ids for the core's library calls, from the one table
 -- (nupp.compiler.vm.corelibrary): each call's id, a range subject's bounds,
--- the file operations, the LibCall instruction's layout, and the text each
--- call's errors name it by.
+-- and the text each call's errors name it by. The layouts the calls share
+-- with the compiler are librarylayoutsgen's.
 function generator.source(): string
     local lines = {
         "module nupp.runtime.core.librarycalls",
@@ -22,31 +21,6 @@ function generator.source(): string
     local function constant(name: string, value: integer): nil
         lines[#lines + 1] = "export const " .. name .. ": uint64 = " .. tostring(value) .. "ULL"
     end
-
-    -- The instruction: its opcode, the bytes its id and its argument count
-    -- are at, and the count byte's method-form flag. A landing check reads
-    -- past the Move and Nil before it.
-    local libcall = bytecode.describe("LibCall")
-    local idField, countField = libcall.fields[2], libcall.fields[4]
-    assert(idField.class == "n" and countField.class == "n", "LibCall layout")
-    lines[#lines + 1] = ""
-    lines[#lines + 1] = "-- The LibCall instruction and the two a landing check reads past."
-    constant("OPCODE_LIBCALL", libcall.id as integer)
-    constant("OPCODE_MOVE", bytecode.describe("Move").id as integer)
-    constant("OPCODE_NIL", bytecode.describe("Nil").id as integer)
-    constant("INSTRUCTION_BYTES", libcall.bytes as integer)
-    constant("ID_OFFSET", idField.offset as integer)
-    constant("COUNT_OFFSET", countField.offset as integer)
-    lines[#lines + 1] = "-- A call in method form: its argument count carries this flag."
-    constant("METHOD_FORM", corelibrary.COUNT_METHOD_FORM)
-    constant("COUNT_MASK", corelibrary.COUNT_METHOD_FORM - 1)
-    local shift: integer = 0
-    while 1 << shift < corelibrary.COUNT_METHOD_FORM do
-        shift += 1
-    end
-    assert(1 << shift == corelibrary.COUNT_METHOD_FORM, "the method-form flag is one bit")
-    constant("METHOD_SHIFT", shift)
-    constant("ARGUMENTS", corelibrary.ARGUMENTS)
 
     local texts = {}
     for _, entry in ipairs(coretexts.all()) do
@@ -69,22 +43,6 @@ function generator.source(): string
         if subject.range then
             constant(subject.name:upper() .. "_FIRST", low)
             constant(subject.name:upper() .. "_LAST", high)
-        end
-    end
-
-    lines[#lines + 1] = ""
-    lines[#lines + 1] = "-- The file operations HOST_FILES takes first."
-    for _, operation in ipairs(corelibrary.fileoperations()) do
-        constant(operation.name, operation.operation)
-    end
-
-    lines[#lines + 1] = ""
-    lines[#lines + 1] = "-- The keys of the state tables some calls keep between steps."
-    for _, layout in ipairs(corelibrary.layouts()) do
-        local suffix = layout.kind == "uint64" and "ULL" or ""
-        for index, field in ipairs(layout.fields) do
-            lines[#lines + 1] = "export const " .. layout.name .. "_" .. field .. ": " .. layout.kind .. " = "
-                .. tostring(index) .. suffix
         end
     end
 

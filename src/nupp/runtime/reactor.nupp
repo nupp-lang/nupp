@@ -1,0 +1,604 @@
+@!internal
+
+--[[
+The native core's reactor (Decision 8): an operation that waits on the
+operating system is submitted here and answered by one completion, whatever
+waited for it. Every completion crosses `deliver`, the one boundary where the
+loop's state can be captured and its I/O recorded.
+
+- Readiness. A pipe or socket is nonblocking and a readiness source here; an
+  operation on one waits in its descriptor's queue until the poller (kqueue
+  on macOS, epoll on Linux, through `pollcalls`) reports the descriptor
+  ready, and the loop then makes the nonblocking call itself. Interest lasts
+  one event and is armed again while operations wait, so the two pollers
+  behave alike.
+- The blocking-work pool. A regular file is always "ready", so its opens,
+  reads and writes go to the host's pool (`poolcalls`): threads that make the
+  raw system call and post its result, running no Nupp code. The pool's wake
+  descriptor is one more readiness source.
+- Deadlines. Timers are the scheduler's deadline heap; `wait` takes the
+  nearest deadline and waits for the poller no longer than that.
+
+A scheduler drives the reactor with four calls: `submit` an operation with
+the function its completion is handed to, `cancel` one that has not
+completed, `wait` until something completes or a deadline passes, and
+`pending` to tell idle from waiting. A task waits through `await`, which
+parks it with the `Parker` the scheduler installs; with none installed, or
+on a thread it cannot park, `await` drives the reactor where it stands until
+its operation completes.
+]]
+module nupp.runtime.reactor
+
+const pollcalls = require("nupp.runtime.pollcalls")
+const poolcalls = require("nupp.runtime.poolcalls")
+const filecalls = require("nupp.runtime.filecalls")
+
+--- What an operation does.
+export const OPEN = 1
+
+export const READ = 2
+export const WRITE = 3
+export const SEEK = 4
+export const CLOSE = 5
+
+--- One operation, as it is submitted: what it does, to which descriptor, and
+--- what that kind of operation takes.
+export record Operation
+    kind: integer
+    descriptor: integer = -1
+
+    --- An open's file and access.
+    path: string = ""
+
+    flags: integer = 0
+
+    --- A write's bytes, from byte `first` of `text`.
+    text: string = ""
+
+    first: integer = 1
+
+    --- The most bytes a read asks for.
+    count: integer = 0
+
+    --- A seek's offset and where it counts from.
+    offset: integer = 0
+
+    whence: integer = 0
+end
+
+--- What an operation completed with.
+export record Completion
+    --- The descriptor an open made, the bytes a write wrote, which may be
+    --- fewer than it was given, or the position a seek reached; 0 for a read
+    --- or a close, and -1 when the operation failed.
+    value: integer
+
+    --- The bytes a read read, "" at the end of the file.
+    text: string = ""
+
+    --- 0, or the system's error number when the operation failed.
+    code: integer = 0
+end
+
+--- What makes a parked task runnable, its park to answer the completion it
+--- is given.
+export type Waker = function(Completion): nil
+
+--- The scheduler's side of a wait, which it installs with `install`.
+export record Parker
+    --- The waker of the task a wait would park now, or nil where the caller
+    --- cannot park: there a wait drives the reactor on the calling thread.
+    waker: function(): Waker?
+
+    --- Parks the current task until its waker is called, answering the
+    --- completion it was given. A task cancelled while parked raises here,
+    --- and the reactor cancels its operation.
+    park: function(): Completion
+end
+
+-- Interest and readiness, as `pollcalls` encodes them.
+const READABLE = 1
+
+const WRITABLE = 2
+const HUNGUP = 4
+const FAILED = 8
+
+-- An event is its descriptor above these four readiness bits.
+const EVENTBITS = 4
+
+const READINESS = 15
+
+-- A pipe is its read end below bit 32 and its write end above.
+const ENDBITS = 32
+
+const READEND = 0xffffffff
+
+-- What `poolcalls.finish` takes as the room of a job that read nothing.
+const NOTREAD = -1
+
+-- The bytes the pool's wake descriptor is emptied by at a time.
+const DRAIN = 64
+
+-- Nanoseconds in a millisecond, and the wait without a limit.
+const NANOS = 1000000
+
+const FOREVER = -1
+
+-- The pool's threads.
+const THREADS = 4
+
+-- The most events one wait takes from the poller before it delivers.
+const BATCH = 64
+
+-- The error numbers the reactor reads, by the platforms the bridge's poller
+-- runs on: EBADF (`closed`), what an operation on a descriptor closed under
+-- it answers, and EAGAIN (`again`), what a nonblocking call answers when its
+-- descriptor is not ready.
+local type ErrorNumbers = {closed: integer, again: integer}
+
+local ERRNO: {macos: ErrorNumbers, linux: ErrorNumbers} = {
+    macos = {closed = 9, again = 35},
+    linux = {closed = 9, again = 11}
+}
+
+-- EBADF is the same number on each.
+const CLOSED = ERRNO.macos.closed
+
+assert(ERRNO.linux.closed == CLOSED, "EBADF differs between platforms")
+
+-- The program cannot tell which platform answered, so either platform's
+-- EAGAIN means not ready: neither answers the other's number (EDEADLK) from
+-- a read or write.
+local function notready(result: integer): boolean
+    return result == -ERRNO.macos.again or result == -ERRNO.linux.again
+end
+
+-- One submitted operation, until it completes or is cancelled.
+local record Waiter
+    id: integer
+    operation: Operation
+    done: function(Completion): nil
+
+    --- Its pool job's ticket, or 0 while it waits for readiness.
+    ticket: integer = 0
+end
+
+-- A readiness source and the operations waiting on it, oldest first.
+local record Source
+    descriptor: integer
+    reads: {Waiter}
+    writes: {Waiter}
+end
+
+local poller: integer = -1
+
+-- The readiness sources by descriptor.
+local sources: {[integer]: Source} = {}
+
+-- Every operation submitted and not yet delivered or cancelled, by id, and
+-- their number.
+local waiters: {[integer]: Waiter} = {}
+
+local count: integer = 0
+local last: integer = 0
+
+-- Completions delivered so far, which tells a wait what it delivered.
+local delivered: integer = 0
+
+-- Pool jobs by ticket; the kinds of those cancelled after a worker took them,
+-- whose results are collected and dropped; and the tickets the pool still
+-- owes, of either.
+local jobs: {[integer]: Waiter} = {}
+
+local abandoned: {[integer]: integer} = {}
+local owed: integer = 0
+
+-- The pool's wake descriptor, and whether the poller watches it.
+local wake: integer = -1
+
+local wakearmed = false
+
+local parker: Parker? = nil
+
+local function answer(result: integer): Completion
+    if result < 0 then
+        return new Completion(value = -1, code = -result)
+    end
+
+    return new Completion(value = result)
+end
+
+local function failure(code: integer): Completion
+    return new Completion(value = -1, code = code)
+end
+
+local function openpoller(): integer
+    if poller < 0 then
+        local made = pollcalls.open()
+        if made < 0 then
+            error("reactor: no poller: " .. filecalls.reason(-made), 0)
+        end
+        poller = made
+    end
+
+    return poller
+end
+
+-- Hands `completion` to what `waiter` was submitted with: the one place a
+-- completion crosses into the program.
+local function deliver(waiter: Waiter, completion: Completion): nil
+    waiters[waiter.id] = nil
+    count = count - 1
+    delivered = delivered + 1
+    waiter.done(completion)
+end
+
+-- Arms `source` for what its waiting operations need, or fails them when
+-- the poller cannot watch it.
+local function rearm(source: Source): nil
+    local interest: integer = 0
+    if #source.reads > 0 then
+        interest = interest | READABLE
+    end
+    if #source.writes > 0 then
+        interest = interest | WRITABLE
+    end
+    local status = pollcalls.arm(openpoller(), source.descriptor, interest)
+    if status < 0 then
+        local failed: {Waiter} = {}
+        for _, waiter in ipairs(source.reads) do
+            failed[#failed + 1] = waiter
+        end
+        for _, waiter in ipairs(source.writes) do
+            failed[#failed + 1] = waiter
+        end
+        source.reads = {}
+        source.writes = {}
+        for _, waiter in ipairs(failed) do
+            deliver(waiter, failure(-status))
+        end
+    end
+end
+
+-- Makes the nonblocking call `operation` waits to make: its completion, or
+-- nil when its descriptor was not ready after all.
+local function attempt(operation: Operation): Completion?
+    if operation.kind == READ then
+        local got = filecalls.read(operation.descriptor, operation.count)
+        if type(got) == "string" then
+            return new Completion(value = 0, text = got as string)
+        elseif notready(got as integer) then
+            return nil
+        end
+        return answer(got as integer)
+    end
+    local wrote = filecalls.write(operation.descriptor, operation.text, operation.first)
+    if notready(wrote) then
+        return nil
+    end
+
+    return answer(wrote)
+end
+
+-- Completes the operations at the head of `queue` while their descriptor
+-- stays ready.
+local function drain(queue: {Waiter}): nil
+    while #queue > 0 do
+        local waiter = queue[1]
+        local completion = attempt(waiter.operation)
+        if completion == nil then
+            return
+        end
+        table.remove(queue, 1)
+        deliver(waiter, completion)
+    end
+end
+
+local function armwake(): nil
+    if owed > 0 and not wakearmed then
+        local status = pollcalls.arm(openpoller(), wake, READABLE)
+        if status < 0 then
+            error("reactor: cannot watch the pool: " .. filecalls.reason(-status), 0)
+        end
+        wakearmed = true
+    end
+end
+
+-- Collects what the pool finished. The wake descriptor is emptied before the
+-- jobs are taken, so a job finished after the taking leaves a byte behind.
+local function collect(): nil
+    wakearmed = false
+    while true do
+        local got = filecalls.read(wake, DRAIN)
+        if type(got) ~= "string" or got == "" then
+            break
+        end
+    end
+    while true do
+        local ticket = poolcalls.take()
+        if ticket <= 0 then
+            break
+        end
+        owed = owed - 1
+        local waiter = jobs[ticket]
+        if waiter ~= nil then
+            jobs[ticket] = nil
+            local operation = waiter.operation
+            if operation.kind == READ then
+                local got = poolcalls.finish(ticket, operation.count)
+                if type(got) == "string" then
+                    deliver(waiter, new Completion(value = 0, text = got as string))
+                else
+                    deliver(waiter, answer(got as integer))
+                end
+            else
+                deliver(waiter, answer(poolcalls.finish(ticket, NOTREAD) as integer))
+            end
+        else
+            -- Cancelled after a worker took it: a descriptor it opened is
+            -- closed, and what it read is dropped.
+            local kind = abandoned[ticket]
+            abandoned[ticket] = nil
+            local result = poolcalls.finish(ticket, NOTREAD) as integer
+            if kind == OPEN and result >= 0 then
+                filecalls.close(result)
+            end
+        end
+    end
+    armwake()
+end
+
+-- Handles one event from the poller.
+local function dispatch(event: integer): nil
+    local descriptor = event >> EVENTBITS
+    local bits = event & READINESS
+    if descriptor == wake then
+        collect()
+        return
+    end
+    local source = sources[descriptor]
+    if source == nil then
+        return
+    end
+    if bits & (READABLE | HUNGUP | FAILED) ~= 0 then
+        drain(source.reads)
+    end
+    if bits & (WRITABLE | HUNGUP | FAILED) ~= 0 then
+        drain(source.writes)
+    end
+    -- A completion's receiver may have forgotten the descriptor.
+    if sources[descriptor] == source then
+        rearm(source)
+    end
+end
+
+--- Installs `scheduler` as what parks and wakes the tasks that wait, or with
+--- nil removes it: waits then drive the reactor where they stand.
+export function install(scheduler: Parker?): nil
+    parker = scheduler
+end
+
+--- Makes nonblocking `descriptor` a readiness source: an operation on it
+--- waits for the poller to report it ready rather than going to the pool.
+export function watch(descriptor: integer): nil
+    if sources[descriptor] == nil then
+        sources[descriptor] = new Source(descriptor = descriptor, reads = {}, writes = {})
+    end
+end
+
+--- Whether `descriptor` is a readiness source.
+export function pollable(descriptor: integer): boolean
+    return sources[descriptor] ~= nil
+end
+
+--- Stops watching `descriptor`, which is about to close: what waits on it
+--- completes with EBADF, as a call on a closed descriptor would.
+export function forget(descriptor: integer): nil
+    local source = sources[descriptor]
+    if source == nil then
+        return
+    end
+    sources[descriptor] = nil
+    if poller >= 0 then
+        pollcalls.arm(poller, descriptor, 0)
+    end
+    for _, waiter in ipairs(source.reads) do
+        deliver(waiter, failure(CLOSED))
+    end
+    for _, waiter in ipairs(source.writes) do
+        deliver(waiter, failure(CLOSED))
+    end
+end
+
+--- A pipe whose ends are nonblocking readiness sources: its read end and
+--- its write end, or -1 and the system's error number.
+export function pipe(): (integer, integer)
+    local ends = pollcalls.pipe()
+    if ends < 0 then
+        return -1, -ends
+    end
+    local reader = ends & READEND
+    local writer = ends >> ENDBITS
+    watch(reader)
+    watch(writer)
+
+    return reader, writer
+end
+
+--- Submits `operation`, whose completion is handed to `done` from a later
+--- `wait`, never from this call: a read or write on a readiness source waits
+--- for it, and an open, or a read or write on anything else, goes to the
+--- pool. Answers its id, which `cancel` takes.
+export function submit(operation: Operation, done: function(Completion): nil): integer
+    local kind = operation.kind
+    if kind ~= OPEN and kind ~= READ and kind ~= WRITE then
+        error("reactor: an operation of kind " .. tostring(kind) .. " does not wait", 2)
+    end
+    last = last + 1
+    local waiter = new Waiter(id = last, operation = operation, done = done)
+    local source = kind ~= OPEN and sources[operation.descriptor] or nil
+    if source ~= nil then
+        local queue = kind == READ and source.reads or source.writes
+        if #queue == 0 then
+            local interest = kind == READ and READABLE or WRITABLE
+            if #(kind == READ and source.writes or source.reads) > 0 then
+                interest = READABLE | WRITABLE
+            end
+            local status = pollcalls.arm(openpoller(), operation.descriptor, interest)
+            if status < 0 then
+                error(
+                    "reactor: cannot watch descriptor " .. tostring(
+                        operation.descriptor
+                    ) .. ": " .. filecalls.reason(-status),
+                    2
+                )
+            end
+        end
+        queue[#queue + 1] = waiter
+        waiters[waiter.id] = waiter
+        count = count + 1
+        return waiter.id
+    end
+    if wake < 0 then
+        local started = poolcalls.start(THREADS)
+        if started < 0 then
+            error("reactor: no blocking-work pool: " .. filecalls.reason(-started), 2)
+        end
+        wake = started
+    end
+    local ticket = 0
+    if kind == OPEN then
+        ticket = poolcalls.open(operation.path, operation.flags)
+    elseif kind == READ then
+        ticket = poolcalls.read(operation.descriptor, operation.count)
+    else
+        ticket = poolcalls.write(operation.descriptor, operation.text, operation.first)
+    end
+    if ticket <= 0 then
+        error("reactor: the pool refused a job: " .. filecalls.reason(-ticket), 2)
+    end
+    waiter.ticket = ticket
+    jobs[ticket] = waiter
+    owed = owed + 1
+    waiters[waiter.id] = waiter
+    count = count + 1
+    armwake()
+
+    return waiter.id
+end
+
+--- Cancels the operation `id` names, which then never completes: true, or
+--- false when it already completed or was cancelled. A readiness operation
+--- has done nothing yet; a pool job a worker has started finishes there, and
+--- its result is dropped (a descriptor it opened, closed).
+export function cancel(id: integer): boolean
+    local waiter = waiters[id]
+    if waiter == nil then
+        return false
+    end
+    waiters[id] = nil
+    count = count - 1
+    local ticket = waiter.ticket
+    if ticket ~= 0 then
+        jobs[ticket] = nil
+        if poolcalls.cancel(ticket) == 1 then
+            owed = owed - 1
+        else
+            abandoned[ticket] = waiter.operation.kind
+        end
+        return true
+    end
+    local source = sources[waiter.operation.descriptor]
+    if source ~= nil then
+        local queue = waiter.operation.kind == READ and source.reads or source.writes
+        for index, queued in ipairs(queue) do
+            if queued == waiter then
+                table.remove(queue, index)
+                break
+            end
+        end
+        rearm(source)
+    end
+
+    return true
+end
+
+--- The operations submitted and not yet completed or cancelled.
+export function pending(): integer
+    return count
+end
+
+--- Waits until an operation completes or `deadline` passes, a time on
+--- `os.monotonic`'s clock in milliseconds; without a deadline, until an
+--- operation completes, or not at all when none is pending. Completions are
+--- handed to their receivers here. Answers how many were; a deadline that
+--- has passed makes this one turn that does not wait.
+export function wait(deadline: number?): integer
+    local before = delivered
+    local descriptor = openpoller()
+    while true do
+        local nanos: integer = FOREVER
+        if deadline ~= nil then
+            local left = deadline - os.monotonic()
+            nanos = 0
+            if left > 0 then
+                -- A deadline past what nanoseconds count is none.
+                nanos = math.tointeger(math.ceil(left * NANOS)) or FOREVER
+            end
+        elseif count == 0 then
+            return 0
+        end
+        local event = pollcalls.wait(descriptor, nanos)
+        if event < 0 then
+            error("reactor: the poller failed: " .. filecalls.reason(-event), 0)
+        end
+        local taken = 0
+        while event > 0 and taken < BATCH do
+            dispatch(event)
+            taken = taken + 1
+            if taken < BATCH then
+                event = pollcalls.wait(descriptor, 0)
+            end
+        end
+        if delivered > before or nanos == 0 then
+            return delivered - before
+        end
+    end
+end
+
+--- Whether a wait now would park a task, rather than drive the reactor on
+--- the calling thread.
+export function parks(): boolean
+    local scheduler = parker
+    return scheduler ~= nil and scheduler.waker() ~= nil
+end
+
+--- Submits `operation` and answers its completion. The calling task parks
+--- until then and others run; where nothing can park it, this drives the
+--- reactor until the operation completes. A task cancelled while it waits
+--- cancels the operation and raises what its park raised.
+export function await(operation: Operation): Completion
+    local scheduler = parker
+    local waker: Waker? = nil
+    if scheduler ~= nil then
+        waker = scheduler.waker()
+    end
+    if scheduler == nil or waker == nil then
+        local result: Completion? = nil
+        submit(operation, function(completion: Completion): nil
+            result = completion
+        end)
+        while result == nil do
+            wait(nil)
+        end
+        return result as Completion
+    end
+    local id = submit(operation, waker as Waker)
+    local ok, got = pcall(scheduler.park)
+    if not ok then
+        cancel(id)
+        error(got, 0)
+    end
+
+    return got as Completion
+end
