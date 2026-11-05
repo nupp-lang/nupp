@@ -30,7 +30,6 @@ local ROOTS = {
             popen = true,
             Reader = true,
             Writer = true,
-            readall = true,
         }
     },
     coroutine = {

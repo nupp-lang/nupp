@@ -2018,6 +2018,9 @@ details.nuppdoc-admonition>.nuppdoc-admonition-body {
     right: -1px;
     border-top: 1px solid var(--nuppdoc-border);
 }
+.nuppdoc-api-item .nuppdoc-overview-section::before {
+    content: none;
+}
 .nuppdoc-content .nuppdoc-overview-section > .nuppdoc-overview-title {
     display: table;
     max-width: calc(100% - 1rem);

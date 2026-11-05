@@ -230,7 +230,7 @@ export type Level = "off" | "error" | "warn" | "info" | "debug"
 export type LevelOverride = Level | "inherit"
 
 --- A level as a sink sees it: 1 error, 2 warn, 3 info, 4 debug.
-export type Severity = integer
+export type Severity = 1 | 2 | 3 | 4
 
 --- Receives an emitted line, already formatted.
 ---
@@ -705,7 +705,7 @@ end
 ---
 --- @param severity the numeric level a sink received
 --- @return the level's name
-export function levelname(severity: Severity): Level
+export function levelname(severity: integer): Level
     return (NAMES[severity] or "off") as Level
 end
 
@@ -780,13 +780,13 @@ local function logdebug<F is string>(fmt: F, ...: unpackof __NuppFormatArguments
 end
 
 --- Logs at error. Accepts `string.format` directives.
-export const error = logerror
+export const error: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil = logerror
 
 --- Logs at warn. Accepts `string.format` directives.
-export const warn = logwarn
+export const warn: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil = logwarn
 
 --- Logs at info. Accepts `string.format` directives.
-export const info = loginfo
+export const info: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil = loginfo
 
 --- Logs at debug. Accepts `string.format` directives.
-export const debug = logdebug
+export const debug: function<F is string>(fmt: F, ...: unpackof __NuppFormatArguments(F, types.Debug)): nil = logdebug

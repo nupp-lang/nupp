@@ -233,7 +233,6 @@ export type Writer = source1.Writer
 export const Writer = source1.Writer
 
 export const Error = source1.Error
-export const readall = source1.readAll
 
 const {type Process as ChildProcess} = require("io.internal.process")
 
@@ -585,7 +584,6 @@ export const value: table = do
     original.Buffer = Buffer
     original.Reader = Reader
     original.Writer = Writer
-    original.readall = readall
     decorateFile(original.stdin)
     decorateFile(original.stdout)
     decorateFile(original.stderr)

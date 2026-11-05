@@ -49,6 +49,11 @@ end
 
 local M = {}
 
+function M.severityContainsOnlyEmittedLevels()
+    testAssert.eq(codesOf("local level: debug.log.Severity = 4"), "")
+    assert(codesOf("local level: debug.log.Severity = 5"):find("NUPP2001"))
+end
+
 function M.formatDirectivesAreCheckedAtTheCallSite()
     testAssert.eq(codesOf("debug.log.error('id %d', 3)"), "", "a well-formed call is clean")
     testAssert.eq(codesOf("debug.log.error('id %d')"), "NUPP2006", "a directive with no argument is reported")

@@ -495,6 +495,12 @@ local function renderMarkdownItem(out, item, level, bodyOnly, path)
         out[#out + 1] = prose(item.doc.text);
         out[#out + 1] = ""
     end
+    local wrapped = item.kind == "type" and item.signature:match("=%s*affine%s*%(%s*([%a_][%w_%.]*)") or nil
+    local linked = wrapped and typeSpan(wrapped) or nil
+    if linked and linked:find("](", 1, true) then
+        out[#out + 1] = "See " .. linked .. " for the wrapped type's operations."
+        out[#out + 1] = ""
+    end
     if item.forms then
         markdownForms(out, item.forms, item.name, path or item.path, level + 1, item.lua)
     else

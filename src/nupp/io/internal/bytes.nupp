@@ -475,6 +475,7 @@ local readThrough: function(
     count: integer?
 ): (integer?, string?)
 local transferThrough: function(exclusive source: Reader, exclusive destination: Writer): (integer?, string?)
+local readAll: function(takes source: Reader, maxbytes: integer?): (string?, string?)
 
 --- A forward-only byte source.
 ---
@@ -542,6 +543,18 @@ export interface Reader is own.Closeable
     --- @return why it could not, when unsuccessful
     function transferto(exclusive self, exclusive destination: Writer): (integer?, string?)
         return transferThrough(self, destination)
+    end
+
+    --- Takes this reader and returns its remaining bytes as a string.
+    ---
+    --- The reader closes on success or failure. A limit is checked as bytes arrive.
+    --- @param self the reader to drain
+    --- @param maxbytes the most bytes to accept, or no limit
+    --- @return the bytes, or nil when the reader failed or exceeded the limit
+    --- @return why it could not read, when unsuccessful
+    --- @raises string when maxbytes is not a positive integer
+    function readall(takes self, maxbytes: integer?): (string?, string?)
+        return readAll(self, maxbytes)
     end
 
     --- Takes this reader and separates its bytes into lines.
@@ -1489,21 +1502,10 @@ end
 
 rawset(Writer, "of", openWriter)
 
---- Reads a reader to its end and returns everything it held as a string.
----
---- The reader is taken, and closed on every way out. A limit is checked as the
---- bytes arrive, so a source larger than it returns a reason having read at
---- most one window past the limit rather than holding the whole of it.
---- @param reader the reader to drain
---- @param maxbytes the most bytes to accept, or no limit
---- @return the bytes, or nil when the reader failed or held more than the limit
---- @return why it could not, when unsuccessful
---- @raises string when maxbytes is not a positive integer
---- @export
-export function readAll(takes reader: Reader, maxbytes: integer?): (string?, string?)
+readAll = function(takes reader: Reader, maxbytes: integer?): (string?, string?)
     local limit: integer? = nil
     if maxbytes ~= nil then
-        limit = positive(maxbytes, "io.readall maxbytes", 2)
+        limit = positive(maxbytes, "Reader:readall maxbytes", 2)
     end
     local parts: {string} = {}
     local total: integer = 0

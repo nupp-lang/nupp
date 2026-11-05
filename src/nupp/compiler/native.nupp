@@ -470,7 +470,7 @@ local FEATURES: {[string]: native.Feature} = {
             "io.Writer.of",
             "io.Reader.scalar",
             "io.Writer.scalar",
-            "io.readall",
+            "io.Reader.readall",
         },
         modules = {"nupp.io"},
         runtimeModule = "nupp.io",

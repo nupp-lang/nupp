@@ -827,7 +827,14 @@ local function loadModules(root, config, settings, requested)
     end
 
     local function publicName(source: any, module: any): string?
-        local names = publicNames[original(source, {})]
+        source = original(source, {})
+        local names = publicNames[source]
+        local canonical = source.name:match("([%w_]+)$")
+        for _, item in ipairs(names or {}) do
+            if declaringModule[item] == module and item.name == canonical then
+                return item.name
+            end
+        end
         for _, item in ipairs(names or {}) do
             if declaringModule[item] == module then
                 return item.name

@@ -13,6 +13,7 @@ assert(value == "ready" and gap == nil and count == 2)
 module assert
 
 --- Callable assertions and test-suite operations.
+--- @internal
 export type Assertion = assert.Assertion
 
 local type Callable = Assertion

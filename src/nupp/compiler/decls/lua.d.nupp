@@ -153,6 +153,7 @@ local setmetatable: function<T>(takes t: T, mt: metatable<T>?): T preserves t
 local getmetatable: function<T>(v: T): metatable<T>?
 
 --- Callable assertions and test-suite operations.
+--- @internal
 interface assert.Assertion
     eq: function(any, any, string?): any
     ne: function(any, any, string?): any
@@ -1417,6 +1418,7 @@ local io: {
     popen: function(cmd: string, mode: string?): (affine(io.File, __nuppCloseFile)?, string?),
 
     --- Opens a temporary file in update mode, removed when the program ends.
+    --- See [](os.mktemp) for an owned temporary path.
     ---
     --- @return the file handle
     tmpfile: function(): affine(io.File, __nuppCloseFile)?,

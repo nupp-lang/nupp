@@ -4123,6 +4123,41 @@ local function aliasModel(files)
     return byName
 end
 
+function M.affineAliasesLinkToTheGenericWrappedType()
+    local modules = aliasModel({
+        [
+            "src/binary/span.nupp"
+        ] = [[
+module binary.span
+local source = require("internal.span")
+export type ByteSpan = source.ByteSpan
+export type Span<T> = source.Span<T>
+export type Writable<T> = source.Writable<T>
+]],
+        [
+            "src/internal/span.nupp"
+        ] = [[
+@!internal
+module internal.span
+export interface Span<T>
+    get: function(self: Span<T>, index: integer): T
+end
+export type ByteSpan = Span<uint8>
+export type Writable<T> = affine(Span<T>)
+]],
+    })
+    local module = assert(modules["binary.span"])
+    local writable
+    for _, item in ipairs(module.items) do
+        if item.name == "Writable" then
+            writable = item
+        end
+    end
+    assert(writable and writable.signature:find("affine(Span<T>)", 1, true), writable and writable.signature)
+    local rendered = doc.markdown({module})
+    assert(rendered:find("[`Span`](#binary.span.Span)", 1, true), rendered)
+end
+
 function M.directRequireMemberAliasesKeepFunctionContracts()
     local modules = aliasModel({
         [
@@ -5990,7 +6025,6 @@ function M.stdlibTypesBelongToTheirNamespaces()
     for _, contract in ipairs({
         {"types", "types.Layout", "types.Layout.Field"},
         {"io", "io.File"},
-        {"assert", "assert.Assertion"},
         {"os", "os.DateFields"},
     }) do
         local rendered = require("nupp.tools.doc").markdown({assert(libraries[contract[1]])})
@@ -5998,9 +6032,43 @@ function M.stdlibTypesBelongToTheirNamespaces()
             assert(rendered:find('<a id="' .. contract[index] .. '"></a>', 1, true), "missing " .. contract[index])
         end
     end
+    if libraries.assert then
+        local rendered = require("nupp.tools.doc").markdown({libraries.assert})
+        assert(not rendered:find('id="assert.Assertion"', 1, true), "assertion type is internal")
+    end
     for _, name in ipairs({"Layout", "LayoutField", "LuaFile", "Assertion", "DateFields"}) do
         assert(not page.symbols[name], "retired global type " .. name)
     end
+end
+
+function M.logSeverityCallsRenderAsFunctions()
+    local source = readFile(HERE .. "/../src/debug/log.nupp")
+    local module = assert(doc.extract(source, "src/debug/log.nupp", "debug.log"))
+    local found = {}
+    for _, item in ipairs(module.items) do
+        found[item.name] = item.kind
+    end
+    for _, name in ipairs({"debug", "info", "warn", "error"}) do
+        assert(found[name] == "function", name .. " must render as a function")
+    end
+end
+
+function M.affineAliasesLinkToTheirWrappedType()
+    local module = assert(
+        doc.extract(
+            [[
+module example
+export interface Handle<T>
+    close: function(takes self: Handle<T>): nil
+end
+export type Owned<T> = affine(Handle<T>, close)
+]],
+            "src/example.nupp",
+            "example"
+        )
+    )
+    local rendered = doc.markdown({module})
+    assert(rendered:find("See [`Handle`](#example.Handle) for the wrapped type's operations.", 1, true), rendered)
 end
 
 -- A global's anchor is the name a program writes. `print` is not a member of the file

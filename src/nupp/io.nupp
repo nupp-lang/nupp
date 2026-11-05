@@ -33,7 +33,8 @@ const bytes = require("nupp.io.internal.bytes")
 --- `readinto(buffer, offset, count)` returns zero at EOF and reads 64 KiB when
 --- given no count; an explicit count must be positive. A failed or EOF read
 --- does not extend the destination. `transferto(writer)` copies the entire
---- remaining source and returns the byte count.
+--- remaining source and returns the byte count. `readall(maxbytes)` takes the
+--- reader, closes it, and returns its remaining bytes as a string.
 ---
 --- A read moves the reader's cursor as a write moves a writer's, so all four
 --- take the reader exclusively. Two readers over one cursor, such as a stream
@@ -476,23 +477,3 @@ export const newWriter = bytes.newWriter
 --- @raises string when source is not a byte queue
 --- @export
 export const newQueueReader = bytes.newQueueReader
-
---- Reads a reader to its end and returns everything it held as a string.
----
---- The reader is taken, and closed on every way out. A limit is checked as the
---- bytes arrive, so a source larger than it returns a reason rather than being
---- held whole.
----
---- ```nupp
---- assert(io.readall(io.Reader.of("whole")) == "whole")
---- local text, reason = io.readall(io.Reader.of("too long"), 3)
---- assert(text == nil and reason ~= nil)
---- ```
----
---- @param reader the reader to drain
---- @param maxbytes the most bytes to accept, or no limit
---- @return the bytes, or nil when the reader failed or held more than the limit
---- @return why it could not, when unsuccessful
---- @raises string when maxbytes is not a positive integer
---- @export
-export const readAll = bytes.readAll
