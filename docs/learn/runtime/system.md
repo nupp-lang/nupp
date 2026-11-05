@@ -35,13 +35,13 @@ can move it backward, so use the monotonic clock for elapsed time and deadlines.
 
 ## UUIDs
 
-`os.uuid4()` returns a random version 4 UUID. `os.uuid7()` returns a version 7
+`os.uuid(4)` returns a random version 4 UUID. `os.uuid(7)` returns a version 7
 UUID ordered by its millisecond timestamp; identifiers made in the same
 millisecond can compare in either order.
 
 ```nupp
-print(os.uuid4())
-print(os.uuid7())
+print(os.uuid(4))
+print(os.uuid(7))
 ```
 
 Both return lowercase, hyphenated strings and raise when the selected host

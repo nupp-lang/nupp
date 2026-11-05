@@ -93,12 +93,13 @@ local corpora = {
 }
 local bytes = {}
 local accepted = true
-local out = require("string.buffer").new()
+local out = io.Buffer.create()
 for index, value in ipairs(corpora) do
     local writer = typedJSON.Writer.of(out)
     typedJSON.writevalue(serde.binding(ModuleCache), value, writer)
     writer:close()
-    bytes[index] = out:get()
+    bytes[index] = out:getstring()
+    out:clear()
     local decoded, why = decode(serde.binding(ModuleCache), bytes[index])
     accepted = accepted and decoded ~= nil and why == nil
         and (decoded as ModuleCache).sourceHash == value.sourceHash
@@ -157,12 +158,13 @@ local corpus = {
 }
 local bytes, debugged = {}, {}
 local accepted = true
-local out = require("string.buffer").new()
+local out = io.Buffer.create()
 for index, request in ipairs(corpus) do
     local writer = typedJSON.Writer.of(out)
     typedJSON.writevalue(serde.binding(TecsMCPRequest), request, writer)
     writer:close()
-    bytes[index] = out:get()
+    bytes[index] = out:getstring()
+    out:clear()
     debugged[index] = request:debug()
     local decoded, why = decode(serde.binding(TecsMCPRequest), bytes[index])
     accepted = accepted and decoded ~= nil and why == nil

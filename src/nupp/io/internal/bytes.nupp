@@ -78,6 +78,7 @@ local function range(length: integer, offset: any, count: any, what: string, lev
 end
 
 const _SCALAR_REQUIRES = "@requires-dynamically nupp.io.internal.scalars"
+const _FILE_REQUIRES = "@requires-dynamically io.internal.fileviews"
 local scalarModule: any = nil
 
 local function scalarImplementation(name: string): any
@@ -85,6 +86,11 @@ local function scalarImplementation(name: string): any
         scalarModule = require(name)
     end
     return scalarModule
+end
+
+-- The file views need native storage, so they load only when a file is adapted.
+local function fileImplementation(name: string): any
+    return require(name)
 end
 
 --- Reads fixed-width numbers from a source of bytes.
@@ -393,6 +399,14 @@ export interface Writer is own.Closeable
         return writeBuffer(destination)
     end
 
+    --- Takes an open file as a byte sink. Closing the writer closes the file.
+    function of(takes file: io.File): affine(Writer)
+        local create: function(
+            takes file: io.File
+        ): affine(Writer) = fileImplementation("io.internal.fileviews").ownedwriter
+        return create(file)
+    end
+
     --- Appends bytes.
     --- @param self this writer
     --- @param bytes the bytes to append
@@ -454,6 +468,13 @@ export sealed interface Lines is own.Closeable
 end
 
 local makeLines: function(takes source: Reader, limit: integer?): affine(Lines)
+local readThrough: function(
+    exclusive source: Reader,
+    exclusive destination: Buffer,
+    offset: integer?,
+    count: integer?
+): (integer?, string?)
+local transferThrough: function(exclusive source: Reader, exclusive destination: Writer): (integer?, string?)
 
 --- A forward-only byte source.
 ---
@@ -492,26 +513,36 @@ export interface Reader is own.Closeable
 
     --- Reads into a buffer.
     ---
-    --- A zero answer is the end.
+    --- A zero answer is the end. The offset and count are checked before anything
+    --- is read, so a malformed call consumes no input. This default reads through
+    --- `read` and copies; a reader that can fill the buffer directly overrides it.
     --- @param self this reader
     --- @param destination the buffer to write into
     --- @param offset where in the destination to start, or the beginning
     --- @param count the most bytes to read
     --- @return how many bytes were read, or nil when the reader is closed
     --- @return why it could not read, when unsuccessful
-    readinto: function(
-        exclusive self: Reader,
+    --- @raises string when offset is negative or count is not a positive integer
+    function readinto(
+        exclusive self,
         exclusive destination: Buffer,
         offset: integer?,
         count: integer?
     ): (integer?, string?)
+        return readThrough(self, destination, offset, count)
+    end
 
     --- Writes everything left to a writer.
+    ---
+    --- This default moves the bytes through `read` and `write`; a reader holding
+    --- them in memory overrides it to hand over spans instead.
     --- @param self this reader
     --- @param destination the writer to fill
     --- @return how many bytes moved, or nil on failure
     --- @return why it could not, when unsuccessful
-    transferto: function(exclusive self: Reader, exclusive destination: Writer): (integer?, string?)
+    function transferto(exclusive self, exclusive destination: Writer): (integer?, string?)
+        return transferThrough(self, destination)
+    end
 
     --- Takes this reader and separates its bytes into lines.
     ---
@@ -1446,6 +1477,19 @@ end
 
 writeBuffer = newWriter
 
+-- Both `Writer.of` forms share one runtime entry: a file is taken and closed with the
+-- writer, and anything else is a buffer borrowed for the writer's life.
+local function openWriter(destination: any): any
+    const publicIo: any = rawget(_G, "io")
+    if publicIo ~= nil and publicIo.type(destination) ~= nil then
+        return fileImplementation("io.internal.fileviews").ownedwriter(destination)
+    end
+
+    return destination:writer()
+end
+
+rawset(Writer, "of", openWriter)
+
 --- Reads a reader to its end and returns everything it held as a string.
 ---
 --- The reader is taken, and closed on every way out. A limit is checked as the
@@ -1598,4 +1642,56 @@ makeLines = function(takes source: Reader, limit: integer?): affine(Lines)
     const bound = positive(limit or 65536, "io.Reader:lines limit", 2)
 
     return LineReader(_source = source, _held = "", _at = 0, _limit = bound, _closed = false, _ended = false)
+end
+
+-- The default `readinto`: checked before reading, so a malformed call consumes no
+-- input. Level 4 names whoever called `readinto`.
+readThrough = function(
+    exclusive source: Reader,
+    exclusive destination: Buffer,
+    offset: integer?,
+    count: integer?
+): (integer?, string?)
+    const from = integer_(offset or 0, "Reader:readinto offset", 4)
+    const wanted = positive(count or DEFAULT_READ, "Reader:readinto count", 4)
+    sizeSum(from, wanted, "Reader:readinto range", 4)
+    const chunk, why = source:read(wanted)
+    if chunk == nil then
+        return nil, why
+    end
+    const landed = #chunk as integer
+    if landed > 0 then
+        const input = span.fromstring(chunk)
+        const lease = destination:reservewrite(from, landed)
+        do
+            const output = lease:span()
+            for index = 1, landed do
+                output[index] = input[index]
+            end
+            own.drop(output)
+        end
+        lease:commit(landed)
+    end
+
+    return landed, nil
+end
+
+-- The default `transferto`.
+transferThrough = function(exclusive source: Reader, exclusive destination: Writer): (integer?, string?)
+    const size = DEFAULT_READ as integer
+    local moved: integer = 0
+    while true do
+        const chunk, why = source:read(size)
+        if chunk == nil then
+            return nil, why
+        end
+        if #chunk == 0 then
+            return moved, nil
+        end
+        const wrote, failure = destination:write(chunk)
+        if not wrote then
+            return nil, failure
+        end
+        moved = moved + (#chunk as integer)
+    end
 end

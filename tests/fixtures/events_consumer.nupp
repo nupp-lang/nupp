@@ -30,7 +30,7 @@ bus:observe(
     7,
     Damage,
     |event| -> do
-        seen[#seen + 1] = ("damage %s %s %s %d"):format(event.amount, event.source, event.kind, bus.observers.count)
+        seen[#seen + 1] = ("damage %s %s %s %d"):format(event.amount, event.source, event.kind, bus:count())
         event.amount = event.amount + 1
     end,
     "first"
@@ -60,11 +60,5 @@ seen[
     #seen + 1
 ] = (
     "%s %d %d %s %d"
-):format(
-    tostring(bus:contains(7, Damage)),
-    events.id(Damage),
-    events.id(Contact),
-    events.name(Heal),
-    bus.observers.count
-)
+):format(tostring(bus:contains(7, Damage)), events.id(Damage), events.id(Contact), events.name(Heal), bus:count())
 print(table.concat(seen, "\n"))

@@ -3,15 +3,14 @@ local core = require("serde")
 local documents = require("serde.document")
 local codec = require("serde.json")
 local model = require("example.richmodel")
-local text = require("string.buffer")
 
 local binding = documents.adapter():contents()
 local profile = model.policy(true)
 local profileJson = codec.codec(profile)
-local buffer = text.new()
-buffer:put("prefix:")
+local buffer = io.Buffer.create()
+buffer:setstring("prefix:", buffer:len())
 profileJson:encodeinto(binding, documents.string("ok"), buffer)
-assert(buffer:tostring() == 'prefix:"ok"')
+assert(buffer:getstring() == 'prefix:"ok"')
 local record Unsupported is core.Atom
     @readonly family: table
     function snapshot(borrows self): core.Atom
@@ -20,18 +19,14 @@ local record Unsupported is core.Atom
 end
 local value = documents.list({documents.string("already written"), documents.atom(Unsupported(family = {}))})
 
-local function write(): nil
-    profileJson:encodeinto(binding, value, buffer)
-end
-
-assert(not pcall(write))
-assert(buffer:tostring() == 'prefix:"ok"')
+assert(not pcall(profileJson.encodeinto, profileJson, binding, value, buffer))
+assert(buffer:getstring() == 'prefix:"ok"')
 profileJson:encodeinto(binding, documents.null(), buffer)
-assert(buffer:tostring() == 'prefix:"ok"null')
+assert(buffer:getstring() == 'prefix:"ok"null')
 print("direct Buffer output rolls back partial writes and remains reusable")
 
 local syntax = require("serde.json")
-local embedded = text.new()
+local embedded = io.Buffer.create()
 local sink = syntax.Writer.of(embedded)
 sink:startobject()
 sink:key("items")
@@ -41,4 +36,4 @@ codec.codec():writevalue(binding, documents.null(), sink)
 sink:endarray()
 sink:endobject()
 sink:close()
-assert(embedded:tostring() == '{"items":["one",null]}')
+assert(embedded:getstring() == '{"items":["one",null]}')

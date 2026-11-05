@@ -328,7 +328,7 @@ export function route<E is events.Emittable>(
     if selected ~= "latest" and selected ~= "dropoldest" then
         error("nupp: an inbound host stream cannot block the host; route it latest or dropoldest", 2)
     end
-    local emit = events.emit as any
+    local emit = bus.emit as any
 
     local function deliver(...: any): nil
         emit(bus, address, event, ...)

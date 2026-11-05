@@ -1511,7 +1511,8 @@ export function run(options: Options): integer
         if options.gpuCostsDir == "" then
             return refuse("NUPP0001", "--gpu-costs needs an output directory")
         end
-        gpuCostsDirectory = options.gpuCostsDir .. "/" .. os.uuid4()
+        local uuid = require("nupp.util.internal.uuid")
+        gpuCostsDirectory = options.gpuCostsDir .. "/" .. uuid.uuid4()
         local made, madeProblem = files.mkdir(gpuCostsDirectory)
         if not made then
             return refuse("NUPP0001", "cannot create GPU cost directory: " .. tostring(madeProblem), gpuCostsDirectory)

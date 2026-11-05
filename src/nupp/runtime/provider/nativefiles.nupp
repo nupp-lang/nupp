@@ -20,7 +20,6 @@ export type FileKind = messages.FileKind
 export type Mode = messages.Mode
 export type Origin = messages.Origin
 
-const READ_SIZE = 65536
 const MAX_EXACT_INTEGER = 9007199254740991
 local MODES: {[string]: boolean} = {r = true, w = true, a = true, ["r+"] = true, ["w+"] = true, ["a+"] = true,}
 local ORIGINS: {[string]: string} = {set = "set", current = "current", ["end"] = "end",}
@@ -51,15 +50,6 @@ local function whole(value: any, what: string, level: integer): integer
         or math.abs(value as number) > MAX_EXACT_INTEGER
     then
         error("nupp: io " .. what .. " must be an integer", level)
-    end
-
-    return value as integer
-end
-
---- @raises string when value is not a non-negative integer
-local function counted(value: any, what: string, level: integer): integer
-    if whole(value, what, level + 1) < 0 then
-        error("nupp: io " .. what .. " must not be negative", level)
     end
 
     return value as integer
@@ -125,64 +115,11 @@ export record File is io.Reader, io.Writer
         return #(chunk as string), nil
     end
 
-    --- Reads into a buffer at an offset, answering how many bytes landed.
-    --- @raises string when the offset or count is malformed
-    function readinto(
-        exclusive self,
-        exclusive destination: io.Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
-        if self._closed then
-            return nil, "the file is closed"
-        end
-        local from = counted(offset or 0, "File:readinto offset", 2)
-        local wanted = positive(count or READ_SIZE, "File:readinto count", 2)
-        local chunk, failure = self:read(wanted)
-        if chunk == nil then
-            return nil, failure
-        end
-        local taking = #(chunk as string)
-        if taking == 0 then
-            return 0, nil
-        end
-        local input = span.fromstring(chunk as string)
-        local lease = destination:reservewrite(from, wanted)
-        do
-            local output = lease:span()
-            for index = 1, taking do
-                output[index] = input[index]
-            end
-            own.drop(output)
-        end
-        lease:commit(taking)
-
-        return taking, nil
-    end
-
-    --- Copies the rest of the file to a writer, answering the bytes moved.
-    function transferto(exclusive self, exclusive destination: io.Writer): (integer?, string?)
-        if self._closed then
-            return nil, "the file is closed"
-        end
-        local total: integer = 0
-        while true do
-            local chunk, why = self:read(READ_SIZE)
-            if chunk == nil then
-                return nil, why
-            end
-            if #(chunk as string) == 0 then
-                return total, nil
-            end
-            local wrote, failure = destination:write(chunk as string)
-            if not wrote then
-                return nil, failure
-            end
-            total = total + #(chunk as string)
-        end
-    end
-
-    --- Writes all of `bytes` at the cursor.
+    --- Writes bytes at the cursor.
+    --- @param self this file
+    --- @param bytes the bytes to write
+    --- @return whether they were written
+    --- @return why they were not, when unsuccessful
     --- @raises string when bytes is not a string
     function write(exclusive self, bytes: string): (boolean, string?)
         if self._closed then

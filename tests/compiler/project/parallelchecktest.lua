@@ -542,7 +542,7 @@ end
 -- Staging a runtime's carried source checks the modules that name it again, from
 -- the same parse. A call's destination stored on the tree by the first check named
 -- that check's copy of a standard type, and the second check's copy of the callee
--- could not unify with it: serially, `newObservers()` into an `Observers<integer>`
+-- could not unify with it: serially, `newBus()` into a `MessageBus<integer>`
 -- field lost its binder, while a worker, which stages nothing, inferred it.
 function M.aStandardGenericFillsAFieldInEitherSchedule()
     local directory = os.tmpname()
@@ -551,26 +551,26 @@ function M.aStandardGenericFillsAFieldInEitherSchedule()
     write(
         directory .. "/src/world.nupp",
         [[
-const {type Observers} = require("events")
+const {type MessageBus} = require("events")
 local events = require("events")
 local files = require("io.http")
 
 local record World
-    observers: Observers<integer>
+    bus: MessageBus<integer>
 end
 
 local function newWorld(): World
-    local world = World(observers = events.Observers())
-    world.observers = events.Observers()
+    local world = World(bus = events.MessageBus())
+    world.bus = events.MessageBus()
     return world
 end
 
-local function fresh(): Observers<integer>
-    return events.Observers()
+local function fresh(): MessageBus<integer>
+    return events.MessageBus()
 end
 
 local function count(path: string): integer
-    return files.file(path) ~= nil and newWorld().observers.count or fresh().count
+    return files.file(path) ~= nil and newWorld().bus:count() or fresh():count()
 end
 
 return {count = count}

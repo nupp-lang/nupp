@@ -32,16 +32,36 @@ function M.nullDropsOrUsesTheSuppliedValue()
     )
 end
 
+-- The public writer appends to an io.Buffer; a provider's own writer to a string.buffer.
+local function outputFor(provider, prefix)
+    if provider == json then
+        return require("io").Buffer.create(prefix)
+    end
+    local output = require("string.buffer").new()
+    if prefix ~= nil then
+        output:put(prefix)
+    end
+
+    return output
+end
+
+local function textOf(output)
+    if output.getstring ~= nil then
+        return output:getstring()
+    end
+
+    return output:tostring()
+end
+
 function M.abortingWritersDiscardsOnlyUnpublishedBytes()
     for _, provider in ipairs({json, require("nupp.runtime.provider.lunajson"), require("nupp.codec.json.aot")}) do
-        local output = require("string.buffer").new()
-        output:put("prefix")
+        local output = outputFor(provider, "prefix")
         local writer = (provider == json and json.Writer.of or provider.newwriter)(output)
         writer:startarray():write(1)
         writer:abort()
         writer:abort()
         writer:close()
-        assert(output:tostring() == "prefix")
+        assert(textOf(output) == "prefix")
         assert(not pcall(writer.write, writer, 2))
         writer = (provider == json and json.Writer.of or provider.newwriter)(output)
         writer:startarray():write(1)
@@ -49,7 +69,7 @@ function M.abortingWritersDiscardsOnlyUnpublishedBytes()
         writer:write(2)
         writer:abort()
         writer:close()
-        assert(output:tostring() == "prefix[1")
+        assert(textOf(output) == "prefix[1")
     end
 end
 
@@ -87,11 +107,11 @@ function M.exactNumberFragmentsPreserveTokensAcrossProviders()
             local fragment = (provider == json and provider.numbertoken or provider.numbertoken)(token)
             local encode = provider == json and provider.encodevalue or provider.encode
             assert(encode(fragment) == token)
-            local output = require("string.buffer").new()
+            local output = outputFor(provider)
             local writer = (provider == json and json.Writer.of or provider.newwriter)(output)
             writer:startarray():write(fragment):endarray()
             writer:close()
-            assert(output:tostring() == "[" .. token .. "]")
+            assert(textOf(output) == "[" .. token .. "]")
         end
         for _, token in ipairs({
             "",
@@ -190,13 +210,13 @@ function M.portableEncodingRejectsInvalidUtf8Everywhere()
         assert(not pcall(json.encodevalue, {[value] = 1}), "the encoder accepted an invalid UTF-8 key")
         assert(not pcall(json.encodedstring, value), "encodedstring accepted invalid UTF-8")
     end
-    local output = require("string.buffer").new()
+    local output = require("io").Buffer.create()
     local writer = json.Writer.of(output)
     writer:startobject()
     assert(not pcall(writer.key, writer, "\255"), "the writer accepted an invalid UTF-8 key")
     writer:key("valid"):write(1):endobject()
     writer:close()
-    assert(output:tostring() == [[{"valid":1}]], "a rejected key changed the writer")
+    assert(output:getstring() == [[{"valid":1}]], "a rejected key changed the writer")
 end
 
 function M.arrayMarkersRequireEveryConsecutiveIndex()

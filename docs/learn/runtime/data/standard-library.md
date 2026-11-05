@@ -65,7 +65,7 @@ intrinsic namespaces and the declared modules:
 - [](types.Store) is a bag of values indexed by the typed keys [](types.Key)
   creates.
 - `os.info()` reports execution platform, architecture, endianness, pointer
-  width and available parallelism. `os.uuid4()` and `os.uuid7()` generate
+  width and available parallelism. `os.uuid(4)` and `os.uuid(7)` generate
   identifiers; `os.monotonic()` and `os.walltime()` read the host clocks. See
   [System services](../system.md) for their contracts.
 - [](os.host) asks whatever runs the program, a page or an embedding
@@ -113,8 +113,8 @@ A member's implementation is emitted only when checked source resolves that
 member, and an alias stays as precise as the name it came from:
 
 ```nupp
-const uuid4 = os.uuid4
-print(uuid4()) -- selects UUID support
+const uuid = os.uuid
+print(uuid(4))
 ```
 
 A `binary` target's runtime links a native facility, such as compression or

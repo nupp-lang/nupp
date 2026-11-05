@@ -1367,16 +1367,16 @@ function M.stagingACarriedModuleChecksNothingAgain()
     file:write(
         table.concat(
             {
-                "const {type Observers} = require('events')",
+                "const {type MessageBus} = require('events')",
                 "local events = require('events')",
                 "local http = require(\"io.http\")",
                 "local m = {}",
                 "record m.Holder",
-                "   observers: Observers<integer>",
+                "   bus: MessageBus<integer>",
                 "end",
                 "function m.build(path: string): m.Holder",
                 "   print(http.file(path))",
-                "   return m.Holder(observers = events.Observers())",
+                "   return m.Holder(bus = events.MessageBus())",
                 "end",
                 "return m",
             },

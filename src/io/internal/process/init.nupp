@@ -247,57 +247,6 @@ record process.Reader is byteio.Reader
         return #chunk
     end
 
-    --- @raises string when offset is negative or count is not a positive integer
-    function readinto(
-        exclusive self,
-        exclusive destination: Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
-        local at = offset or 0
-        if at < 0 or at ~= math.floor(at) then
-            error("nupp: process reader destination offset must be a non-negative integer", 2)
-        end
-        local wanted = positive(count or READ_LIMIT, "process reader count", 2)
-        local chunk, reason = self:read(wanted)
-        if chunk == nil then
-            return nil, reason
-        end
-        if #chunk == 0 then
-            return 0
-        end
-        local input = span.fromstring(chunk)
-        local lease = destination:reservewrite(at, wanted)
-        do
-            local output = lease:span()
-            for index = 1, #chunk do
-                output[index] = input[index]
-            end
-            own.drop(output)
-        end
-        lease:commit(#chunk)
-
-        return #chunk
-    end
-
-    function transferto(exclusive self, exclusive destination: Writer2): (integer?, string?)
-        local total: integer = 0
-        while true do
-            local chunk, reason = self:read(READ_LIMIT)
-            if chunk == nil then
-                return nil, reason
-            end
-            if #chunk == 0 then
-                return total
-            end
-            local wrote, failure = destination:write(chunk)
-            if not wrote then
-                return nil, failure
-            end
-            total = total + #chunk
-        end
-    end
-
     --- Borrows this stream through the shared completion-oriented contract.
     function asreader(borrows self): Reader2 borrows (self)
         return self

@@ -125,6 +125,32 @@ function M.aReaderViewReadsARealConnection()
     listener:close()
 end
 
+function M.aMalformedReadIntoConsumesNothingFromAConnection()
+    local listener, client, served = pair()
+    assert(client:write("kept bytes"), "the client writes")
+    local destination = io_.Buffer.create()
+    test.raises(
+        function()
+            served:readinto(destination, -1, 4)
+        end,
+        "offset"
+    )
+    local reader = served:asreader()
+    test.raises(
+        function()
+            reader:readinto(destination, 0.5, 4)
+        end,
+        "offset"
+    )
+    testAssert.eq(reader:readinto(destination, 0, 64), 10, "the shared default reads what arrived")
+    testAssert.eq(destination:getstring(), "kept bytes", "nothing was lost to the malformed calls")
+    reader:close()
+    destination:close()
+    served:close()
+    client:close()
+    listener:close()
+end
+
 function M.closingTheWriterViewEndsOneDirection()
     local listener, client, served = pair()
     local writer = client:aswriter()

@@ -307,17 +307,17 @@ function M.bufferAndEmbeddedWriterKeepTheirBoundaries()
         .. [[
 local record User id: integer end
 local binding = serde.binding(User)
-local buffer = require("string.buffer").new()
-buffer:put("prefix:")
+local buffer = io.Buffer.create("prefix:")
 json.encodeinto(binding, User(id = 7), buffer)
-local first = buffer:get()
+local first = buffer:getstring()
+buffer:clear()
 local writer = json.Writer.of(buffer)
 writer:startarray()
 json.writevalue(binding, User(id = 8), writer)
 json.writevalue(binding, User(id = 9), writer)
 writer:endarray()
 writer:close()
-return {first = first, embedded = buffer:get()}
+return {first = first, embedded = buffer:getstring()}
 ]]
     )
     assert(result.first == 'prefix:{"id":7}' and result.embedded == '[{"id":8},{"id":9}]')

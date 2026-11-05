@@ -93,7 +93,7 @@ building a Lua table or a complete result string. `endarray()` and
 leaving the document open, and consuming `close()` requires one complete root:
 
 ```nupp
-local out = string.buffer.new()
+local out = io.Buffer.create()
 local writer = serde.json.Writer.of(out)
 writer:startobject():key("items"):startarray():write(1):write(2):endarray():endobject()
 writer:close()
@@ -182,6 +182,14 @@ local record Write<T, M is core.Member> is WriteOperation<T>
         return buffer:tostring()
     end
 end
+
+-- Writes a value straight into a caller's byte buffer in the writer's batches.
+local function appendTo<T>(selected: WriteOperation<T>, borrows value: T, exclusive buffer: io.Buffer): nil
+    const sink = json.newBufferWriter(buffer)
+    selected:writeValue(value, sink)
+    sink:close()
+end
+
 local record SelectWrite<T> is core.Consumer<T, nil, nil>
     @readonly factory: plans.PolicyFactory
     @readonly cache: extensions.Scope
@@ -198,7 +206,6 @@ end
 
 local interface ReadOperation<T>
     read: function(self, bytes: string, context: core.Context?): T
-    readBuffer: function(self, exclusive input: Buffer, context: core.Context?): T
 end
 local record Read<T, M is core.Member> is ReadOperation<T>
     @readonly binding: core.Binding<T>
@@ -206,15 +213,6 @@ local record Read<T, M is core.Member> is ReadOperation<T>
     @readonly adapter: core.Adapter<T, M>
     @readonly factory: plans.PolicyFactory
     @readonly operation: extensions.Operation<T, M>
-    function readBuffer(self, exclusive input: Buffer, context: core.Context?): T
-        local native = self.native
-        if native ~= nil and native:acceptsBuffer(input) then
-            return native:decodeBuffer(input)
-        end
-
-        return self:read(input:tostring(), context)
-    end
-
     function read(self, bytes: string, context: core.Context?): T
         local operation = self.operation
         local native = self.native
@@ -296,13 +294,13 @@ export interface Codec
     encode: function<T>(self, binding: core.Binding<T>, borrows value: T): string
 
     --- Appends a value to a buffer. See [](encodeinto).
-    encodeinto: function<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: Buffer): nil
+    encodeinto: function<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
 
     --- Decodes a value. See [](decode).
     decode: function<T>(self, binding: core.Binding<T>, bytes: string, context: core.Context?): T
 
     --- Decodes a value from a buffer. See [](decodebuffer).
-    decodebuffer: function<T>(self, binding: core.Binding<T>, exclusive input: Buffer, context: core.Context?): T
+    decodebuffer: function<T>(self, binding: core.Binding<T>, exclusive input: io.Buffer, context: core.Context?): T
 
     --- Forgets every binding's selections.
     clear: function(self): nil
@@ -351,14 +349,12 @@ local record Cached is Codec
         return self:writing(binding):encode(value)
     end
 
-    function encodeinto<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: Buffer): nil
-        local selected = self:writing(binding)
-        local mark = #buffer
-        local ok, problem = pcall(selected.append, selected, value, buffer)
+    function encodeinto<T>(self, binding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
+        const mark = buffer:len()
+        const ok, problem = pcall(appendTo, self:writing(binding), value, buffer)
         if not ok then
-            -- Rollback alone copies the old prefix; successful writes append.
-            local prefix = buffer:tostring():sub(1, mark)
-            buffer:set(prefix)
+            -- Batches may already have landed; cut back to what the buffer held.
+            buffer:resize(mark)
             error(problem, 0)
         end
     end
@@ -380,7 +376,7 @@ local record Cached is Codec
         return selected:read(bytes, context)
     end
 
-    function decodebuffer<T>(self, binding: core.Binding<T>, exclusive input: Buffer, context: core.Context?): T
+    function decodebuffer<T>(self, binding: core.Binding<T>, exclusive input: io.Buffer, context: core.Context?): T
         self:observeBinding(binding)
         local selected: ReadOperation<T>
         if self.lastRead ~= nil then
@@ -394,7 +390,7 @@ local record Cached is Codec
             self.lastReadBinding, self.lastRead = binding, selected
         end
 
-        return selected:readBuffer(input, context)
+        return selected:read(input:getstring(), context)
     end
 
     function clear(self): nil
@@ -516,15 +512,15 @@ export function encode<T>(binding: core.Binding<T>, borrows value: T): string
     return shared:encode(binding, value)
 end
 
---- Appends a value's JSON text to a caller-owned Buffer.
+--- Appends a value's JSON text to an [](io.Buffer).
 ---
---- On failure the buffer is restored to what it held before the call.
+--- On failure the buffer is left as it was.
 ---
 --- @param binding the value's binding
 --- @param value the value
 --- @param buffer the buffer to append to
 --- @raises serde.Error when a value cannot be represented, at its path
-export function encodeinto<T>(binding: core.Binding<T>, borrows value: T, exclusive buffer: Buffer): nil
+export function encodeinto<T>(binding: core.Binding<T>, borrows value: T, exclusive buffer: io.Buffer): nil
     shared:encodeinto(binding, value, buffer)
 end
 
@@ -552,14 +548,14 @@ export function decode<T>(binding: core.Binding<T>, bytes: string, context: core
     return shared:decode(binding, bytes, context)
 end
 
---- Decodes a caller-owned Buffer, reading it in place when the provider can.
+--- Decodes the JSON text an [](io.Buffer) holds.
 ---
 --- @param binding the binding to construct through
 --- @param input the buffer holding the JSON text
 --- @param context a parent for the context the decoder attaches, or nil
 --- @return the value
 --- @raises serde.Error with the path and byte offset of the failure
-export function decodebuffer<T>(binding: core.Binding<T>, exclusive input: Buffer, context: core.Context?): T
+export function decodebuffer<T>(binding: core.Binding<T>, exclusive input: io.Buffer, context: core.Context?): T
     return shared:decodebuffer(binding, input, context)
 end
 
@@ -571,13 +567,13 @@ end
 --- local record Tag
 ---     name: string
 --- end
---- local buffer = string.buffer.new()
+--- local buffer = io.Buffer.create()
 --- local writer = json.Writer.of(buffer)
 --- writer:startarray()
 --- json.writevalue(serde.binding(Tag), Tag(name = "x"), writer)
 --- writer:endarray()
 --- writer:close()
---- assert(buffer:tostring() == '[{"name":"x"}]')
+--- assert(buffer:getstring() == '[{"name":"x"}]')
 --- ```
 ---
 --- @param binding the value's binding
@@ -645,28 +641,28 @@ export type JSONEncodable = json.JSONEncodable
 --- A checked incremental JSON writer, created by `Writer.of`.
 ---
 --- ```nupp
---- local out = string.buffer.new()
+--- local out = io.Buffer.create()
 --- local writer = serde.json.Writer.of(out)
 --- writer:startobject():key("ok"):write(true):endobject()
 --- writer:close()
---- assert(out:tostring() == [[{"ok":true}]])
+--- assert(out:getstring() == [[{"ok":true}]])
 --- ```
 --- @export
 export interface Writer is json.Writer
     --- Adapts caller-owned output storage for incremental JSON writing.
     ---
     --- ```nupp
-    --- local out = string.buffer.new()
+    --- local out = io.Buffer.create()
     --- local writer = serde.json.Writer.of(out)
     --- writer:write(true)
     --- writer:close()
-    --- assert(out:tostring() == "true")
+    --- assert(out:getstring() == "true")
     --- ```
     --- @param out the output storage borrowed until the writer closes
     --- @param nullvalue the value to encode as JSON null
     --- @return the incremental JSON writer
-    function of(exclusive out: Buffer, nullvalue: any?): Writer
-        return json.newWriter(out, nullvalue)
+    function of(exclusive out: io.Buffer, nullvalue: any?): affine(Writer) borrows (out)
+        return json.newBufferWriter(out, nullvalue)
     end
 end
 
