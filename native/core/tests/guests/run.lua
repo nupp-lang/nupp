@@ -206,6 +206,10 @@ local CASES = {
     -- Pattern anchors in find, match, gmatch and gsub, and where `^` and `$`
     -- are literal.
     {"stringsanchors", 0x7FFF0005D99B5B1C},
+    -- Recursive local functions called by name: declared, inferred and
+    -- unannotated, variadic with several results, nested, mutually recursive
+    -- and through a forward-declared local (255 * 10^6 + 1,617).
+    {"callsrecursive", 0x7FFF00000F330411},
     -- 260 modules whose chunk depths sum to 4,421 frames: every one ran.
     {"modulesmany", 0x7FFB000000000000}
 }
@@ -304,6 +308,7 @@ local STRESS = {
     callsdeep = true,
     callsmany = true,
     stringsanchors = true,
+    callsrecursive = true,
     callsResults = true,
     callsVariadic = true,
     callsSpread = true,
@@ -430,6 +435,7 @@ local NUMERIC = {
     callsoverflow = "catalog-calls-overflow",
     callsmany = "catalog-calls-many",
     stringsanchors = "catalog-strings-anchors",
+    callsrecursive = "catalog-calls-recursive",
     modulesretry = "catalog-modules-retry",
     errorsruntime = "catalog-errors-runtime",
     tablespackedsemantics = "catalog-tables-packed-semantics",

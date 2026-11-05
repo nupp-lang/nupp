@@ -499,6 +499,52 @@ function M.anExtraParametersModeIsMootAgainstAnAnyTail()
     )
 end
 
+-- A recursive local function's name is typed by its declared signature inside
+-- its own body, a plain `...` and several results included, so a call it
+-- makes to itself is checked as any other call is.
+function M.aRecursiveLocalFunctionCallsItselfThroughItsSignature()
+    local spread = {
+        "local function spread(n: integer, ...: integer): (integer, integer)",
+        "    if n == 0 then",
+        "        return 0, 0",
+        "    end",
+    }
+    local function body(lines)
+        local source = {}
+        for _, line in ipairs(spread) do
+            source[#source + 1] = line
+        end
+        for _, line in ipairs(lines) do
+            source[#source + 1] = line
+        end
+        source[#source + 1] = "end"
+        source[#source + 1] = "return spread"
+        return table.concat(source, "\n")
+    end
+    assertClean(body({"    local count, total = spread(n - 1, n, ...)", "    return count + 1, total + n"}))
+    testAssert.eq(diagsOf(body({"    local count = spread(n - 1, \"x\", ...)", "    return count, n"})), "NUPP2006:5")
+    testAssert.eq(diagsOf(body({"    local count: string = spread(n - 1, n, ...)", "    return n, n"})), "NUPP2001:5")
+    -- An untyped `...` is declared as well: its values are anything.
+    testAssert.eq(
+        diagsOf(
+            table.concat(
+                {
+                    "local function count(n: integer, ...): integer",
+                    "    if n == 0 then",
+                    "        return 0",
+                    "    end",
+                    "    local text: string = count(n - 1, n, ...)",
+                    "    return 1",
+                    "end",
+                    "return count",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2001:5"
+    )
+end
+
 -- An argument nobody passes reads nil, which is what an optional parameter's
 -- type already says, so a trailing parameter that admits nil may be left
 -- unsupplied by the target; one that does not still may not.

@@ -58,12 +58,15 @@ end
 
 local invokeScalar: function(any): nil
 
--- The signature a call to `owner` is checked through. A generic function
--- calling itself is typed `any` inside its own body; the call names that
--- function by definition, so its declared signature is the call's.
+-- The signature a call to `owner` is checked through. A function calling
+-- itself is typed `any` inside its own body when the checker has no
+-- signature for it before the body is checked: a generic one, one whose
+-- results the body infers, one with modes or a named or generic `...`. The
+-- call names its function by definition, so the owner's signature is the
+-- call's.
 local function callsignatureof(owner: any, call: any): any
     local called = call.calleeType or call.signatureType
-    if type(called) == "table" and called.tag == "any" and owner.signature and owner.signature.typeParams then
+    if type(called) == "table" and called.tag == "any" and owner.signature then
         return owner.signature
     end
 
