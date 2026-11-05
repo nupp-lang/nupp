@@ -2,6 +2,8 @@
 
 module nupp.runtime.provider.lunajson
 
+local utf8 = require("utf8")
+
 local numberSyntax = require("nupp.codec.json.number")
 
 --[[
@@ -36,43 +38,6 @@ local ARRAY_MARKER, OBJECT_MARKER, ARRAY_SHAPE = {}, {}, {}
 local ENCODED_VALUE, ENCODED_STRING = {}, {}
 local encodedStrings: any = setmetatable({}, {__mode = "v"})
 local verifiedStrings: any = setmetatable({}, {__mode = "v"})
-
-local function validUtf8(text: string): boolean
-    local at, length = 1, #text
-    while at <= length do
-        local first = text:byte(at) as integer
-        if first < 128 then
-            at = at + 1
-        else
-            local count = first >= 194 and first <= 223 and 1
-                or first >= 224 and first <= 239 and 2
-                or first >= 240 and first <= 244 and 3
-                or 0
-            if count == 0 or at + count > length then
-                return false
-            end
-            local second = text:byte(at + 1) as integer
-            if second < 128
-                or second > 191
-                or first == 224 and second < 160
-                or first == 237 and second > 159
-                or first == 240 and second < 144
-                or first == 244 and second > 143
-            then
-                return false
-            end
-            for offset = 2, count do
-                local continuation = text:byte(at + offset) as integer
-                if continuation < 128 or continuation > 191 then
-                    return false
-                end
-            end
-            at = at + count + 1
-        end
-    end
-
-    return true
-end
 
 json.NULL = {}
 json.EMPTY_ARRAY = setmetatable({}, ARRAY_MARKER)
@@ -207,7 +172,7 @@ local function encodeValue(value: any, nullValue: any?, visiting: {[any]: boolea
         return "null"
     end
     if type(value) ~= "table" then
-        if type(value) == "string" and not validUtf8(value) then
+        if type(value) == "string" and not utf8.isvalid(value) then
             error("cannot encode invalid UTF-8 as JSON", 0)
         end
         return core.encode(value, json.NULL)
@@ -230,7 +195,7 @@ local function encodeValue(value: any, nullValue: any?, visiting: {[any]: boolea
             if type(key) ~= "string" then
                 error("JSON object keys must be strings", 0)
             end
-            if not validUtf8(key) then
+            if not utf8.isvalid(key) then
                 error("cannot encode invalid UTF-8 as JSON", 0)
             end
             parts[#parts + 1] = core.encode(key) .. ":" .. encodeValue(child, nullValue, visiting, depth + 1)
@@ -252,7 +217,7 @@ function json.encode(value: any, nullvalue: any?): string
 end
 
 function json.decode(text: string, nullvalue: any?): any
-    if not validUtf8(text) then
+    if not utf8.isvalid(text) then
         error("invalid UTF-8 in JSON", 0)
     end
     local ok, value = pcall(core.decode, text, nil, nullvalue, true)
@@ -332,7 +297,7 @@ function json.encodedString(value: string): any
     if prior ~= nil then
         return prior
     end
-    if not validUtf8(value) then
+    if not utf8.isvalid(value) then
         error("cannot encode invalid UTF-8 as JSON", 0)
     end
     local encoded = setmetatable({bytes = core.encode(value),}, ENCODED_STRING)
@@ -431,7 +396,7 @@ function json.newWriter(exclusive out: Buffer, nullvalue: any?): any
             if type(name) ~= "string" then
                 error("JSON object keys must be strings", 2)
             end
-            if not validUtf8(name) then
+            if not utf8.isvalid(name) then
                 error("cannot encode invalid UTF-8 as JSON", 0)
             end
             encoded = core.encode(name)

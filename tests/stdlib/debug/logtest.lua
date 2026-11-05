@@ -412,6 +412,38 @@ function M.aFileLikeTargetRendersThroughTheFormatter()
     assert(written[2]:find("<2|amb|13|again|>", 1, true) ~= nil, "an installed formatter owns the line")
 end
 
+function M.theDefaultSinkPreservesFormattingWhenRestored()
+    local previousLog, previousError = package.loaded["debug.log"], io.stderr
+    package.loaded["debug.log"] = nil
+    local ok, problem = pcall(function()
+        local log = runtime()
+        local written = {}
+        io.stderr = {
+            write = function(_, bytes)
+                written[#written + 1] = bytes
+                return true
+            end
+        }
+        log.settimestampformat("")
+        local default = log.sink()
+        assert(type(default) == "function", "the default destination uses the callback contract")
+        log.emit(2, "sample", 7, "first")
+        testAssert.eq(written[1], "warn sample:7: first\n")
+        log.setsink(function()
+        end)
+        log.setformatter(function(_, _, _, message)
+            return "formatted " .. message
+        end)
+        log.emit(2, "sample", 0, "discarded")
+        log.setsink(default)
+        log.emit(2, "sample", 0, "restored")
+        testAssert.eq(#written, 2)
+        testAssert.eq(written[2], "formatted restored\n")
+    end)
+    io.stderr, package.loaded["debug.log"] = previousError, previousLog
+    assert(ok, problem)
+end
+
 function M.aWriterTargetReceivesEachRenderedLine()
     local log = runtime()
     local buffer = require("io").Buffer.create()

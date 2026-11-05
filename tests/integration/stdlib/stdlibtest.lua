@@ -2978,6 +2978,24 @@ function M.utf8ValidationCoversEveryShape()
     end
 end
 
+function M.portableJsonAndUriRejectTheSameMalformedUtf8()
+    local json = require("nupp.runtime.provider.lunajson")
+    local uri = require("nupp.io.uri.whatwg")
+    for _, case in ipairs(UTF8_SHAPES) do
+        local value, valid = case[1], case[2]
+        local what = case[3] or ("%q"):format(value)
+        testAssert.eq(pcall(json.encode, value), valid, "portable JSON value: " .. what)
+        testAssert.eq(pcall(json.encode, {[value] = 1}), valid, "portable JSON key: " .. what)
+        local encoded = case[4] or ('"' .. value .. '"')
+        testAssert.eq(pcall(json.decode, encoded), valid, "portable JSON input: " .. what)
+        local parsed, problem = uri.parse("https://example.com/" .. value)
+        testAssert.eq(parsed ~= nil, valid, "portable URI: " .. what)
+        if not valid then
+            testAssert.eq(problem, "URI is not valid UTF-8", what)
+        end
+    end
+end
+
 function M.nativeProvidersOpenOnlyWhenTheirModuleLoads()
     local bootstrap = stdlib.bootstrap({["native.path"] = true})
     assert(not bootstrap:find("__nuppIO", 1, true), "the bootstrap no longer reserves an io namespace")

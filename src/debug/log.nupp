@@ -172,7 +172,8 @@ local _ = debug.log.setsink(io.Writer.of(file))
 The target is taken: the log holds it from then on, so `io.Writer.of` hands it
 the file as well. `setsink` hands back the target it replaced, owned like any
 writer; bind it to keep it for restoring, or to `_` to let it close. `sink()`
-reads which target is in force; standard error is the default.
+reads which target is in force. The default is a built-in callback that renders
+lines to standard error using the current formatter.
 
 A writer target renders through the formatter, which is replaceable on its
 own:
@@ -238,8 +239,8 @@ export type Severity = integer
 --- that wants one asks.
 export type Sink = function(level: Severity, module: string, line: integer, message: string): nil
 
---- Renders a line for a writer. Only consulted when the target is a writer; a sink
---- function formats however it likes.
+--- Renders a line for a writer or the default standard-error sink.
+--- Custom sink functions format their own lines.
 export type Formatter = function(level: Severity, module: string, line: integer, message: string, stamp: string): string
 
 --- Where lines go: a sink function, or a writer each rendered line is written to.
@@ -266,46 +267,6 @@ export record Logger
 
     --- Whether this logger would emit at `level`.
     enabled: function(self: Logger, level: Level): boolean
-end
-
--- Standard error as a writer: the destination until `setsink` replaces it. It is
--- written in plain Lua so a program that logs carries no file-view machinery.
-local record StandardError is io.Writer
-    function write(exclusive self, bytes: string): (boolean, string?)
-        local wrote, reason = io.stderr:write(bytes)
-        if wrote == nil then
-            return false, reason
-        end
-
-        return true, nil
-    end
-
-    function writespan(exclusive self, borrows source: binary.span.ByteSpan): (integer?, string?)
-        local bytes: {string} = {}
-        for index = 1, #source do
-            bytes[index] = string.char(source[index])
-        end
-        local wrote, reason = self:write(table.concat(bytes))
-        if not wrote then
-            return nil, reason
-        end
-
-        return #source, nil
-    end
-
-    function flush(self): (boolean, string?)
-        local flushed, reason = io.stderr:flush()
-        if flushed == nil then
-            return false, reason
-        end
-
-        return true, nil
-    end
-
-    -- Standard error belongs to the process, so letting go of it closes nothing.
-    function close(takes self): nil
-        local _ = @unsafe own.release(self)
-    end
 end
 
 local NAMES = {"error", "warn", "info", "debug",}
@@ -342,8 +303,8 @@ end
 -- severity functions, which would shadow Lua's `error` and `debug`, are bound at the
 -- end.
 local threshold: integer = 2
-local target: any = @unsafe own.release(StandardError())
-local tosink = false
+local target: any = nil
+local tosink = true
 local fmtr: any = nil
 local datefmt = "%Y-%m-%d %H:%M:%S "
 local lasttick: any = -1
@@ -391,21 +352,31 @@ local function stamp(): string
     return laststamp
 end
 
+local function renderline(severity: integer, module: string, line: integer, message: string): string
+    local at = stamp()
+    if fmtr then
+        return fmtr(severity, module, line, message, at) .. "\n"
+    end
+    if line > 0 then
+        return at .. NAMES[severity] .. " " .. module .. ":" .. line .. ": " .. message .. "\n"
+    end
+
+    return at .. NAMES[severity] .. " " .. module .. ": " .. message .. "\n"
+end
+
+-- A callback keeps the default destination independent of byte-storage adapters.
+target = function(severity: integer, module: string, line: integer, message: string): nil
+    local _ = io.stderr:write(renderline(severity, module, line, message))
+end
+
 --- Emits a line. Lowering calls it behind a level test.
 --- @internal
 export function emit(severity: integer, module: string, line: integer, message: string): any
     if tosink then
         return target(severity, module, line, message)
     end
-    local at = stamp()
-    if fmtr then
-        return target:write(fmtr(severity, module, line, message, at) .. "\n")
-    end
-    if line > 0 then
-        return target:write(at .. NAMES[severity] .. " " .. module .. ":" .. line .. ": " .. message .. "\n")
-    end
 
-    return target:write(at .. NAMES[severity] .. " " .. module .. ": " .. message .. "\n")
+    return target:write(renderline(severity, module, line, message))
 end
 
 local function flagsfor(name: string): {boolean}
