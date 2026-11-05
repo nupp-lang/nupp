@@ -6,6 +6,13 @@ local cleanup = require("nupp.compiler.vm.functioncleanup")
 local construction = require("nupp.compiler.vm.construction")
 local frontend = {}
 
+-- Whether `node` is a call whose fresh affine result owns a cleanup until a
+-- local, an argument or a field takes it. A construction is not one: the
+-- local or argument that receives the instance owns it from the start.
+local function freshOwner(node: any): boolean
+    return node.kind == "call" and not construction.bare(node) and cleanup.type(node.inferredType) ~= nil
+end
+
 local function need(ok: any, message: string): any
     assert(ok, "function graph: " .. message)
     return ok
@@ -531,11 +538,8 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         -- A fresh result owns its cleanup before a later initializer/argument
         -- can fail. Publishing it as a local owner or taking it consumes
         -- this temporary, never the original owner's obligation twice.
-        if cleanupEnabled and block and node.kind == "call" and not construction.bare(node) then
-            local t = cleanup.type(node.inferredType)
-            if t then
-                registerCleanup(node, node.statementOwner or node, t, value)
-            end
+        if cleanupEnabled and block and freshOwner(node) then
+            registerCleanup(node, node.statementOwner or node, cleanup.type(node.inferredType), value)
         end
         -- The value written into a moved (or never filled) owner takes over
         -- that owner's cleanup from here: a later failure destroys it.
@@ -715,7 +719,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         end
         if source.automaticOwnerMove then
             return cleanup.move(source.automaticOwnerMove)
-        elseif source.kind == "call" and not construction.bare(source) and cleanup.type(source.inferredType) then
+        elseif freshOwner(source) then
             return source.statementOwner or source
         end
 
@@ -765,11 +769,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
         local modes = t and t.tag == "func" and t.paramPack and (t.paramPack.modes or {}) or nil
         for index, argument in ipairs(node.args.exprs) do
             local source = cleanup.source(argument)
-            if source
-                and source.kind == "call"
-                and not construction.bare(source)
-                and cleanup.type(source.inferredType)
-            then
+            if source and freshOwner(source) then
                 need(modes ~= nil, "an owning argument to a call with no checked closed signature")
                 if modes[index] == "takes" then
                     transfer(source, source.statementOwner or source)
@@ -780,11 +780,7 @@ local function compileOwner(fn: any, options: any, profile: any, site: any): any
                 need(modes ~= nil and modes[index] == "takes", "an affine aggregate must be taken")
                 for _, field in ipairs(source.fields) do
                     local value = cleanup.source(field.value)
-                    if value
-                        and value.kind == "call"
-                        and not construction.bare(value)
-                        and cleanup.type(value.inferredType)
-                    then
+                    if value and freshOwner(value) then
                         transfer(value, value.statementOwner or value)
                     end
                 end
