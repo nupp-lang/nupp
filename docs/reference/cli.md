@@ -21,6 +21,7 @@ The commands, in the order `nupp help` lists them:
 - [`aot`](#aot): show what the `@aot` functions in a file compile to
 - [`bc`](#bc): show the bytecode a Nupp file compiles to
 - [`check`](#check): type-check source without emitting Lua
+- [`duplicates`](#duplicates): find repeated statements across project sources
 - [`fmt`](#fmt): format Nupp source
 - [`build`](#build): build source files or a configured project target
 - [`clean`](#clean): remove build outputs configured in `nupp.lua`
@@ -820,6 +821,91 @@ no account of itself to give.
 - [build.md](../learn/projects/build.md#cache-and-failure-behavior) for what the build
   cache holds between runs
 :::
+
+### `duplicates`
+
+```text [nupp duplicates --help]
+Finds repeated statements across project sources, including function sections.
+
+Reports candidates for review without changing source. Renamed matching
+ignores local names but preserves members, globals, types, and literals.
+Findings do not fail the command; incomplete audits do.
+
+Examples:
+
+    nupp duplicates
+    nupp duplicates --json --min-tokens=60 --min-lines=6
+    nupp duplicates --mode=exact src/first.nupp src/second.nupp
+
+Usage:
+  nupp duplicates [options] [FILE...]
+
+Arguments:
+  FILE  Files to compare; defaults to project include roots.
+
+Options:
+  --mode VALUE        Matching policy for local bindings.
+  --ignore-literals   Matches numeric and string literals by token kind instead
+                      of value.
+  --min-tokens VALUE  Minimum tokens in a matching statement sequence.
+  --min-lines VALUE   Minimum token-bearing lines in every occurrence.
+  --max-groups VALUE  Maximum groups included in the report, largest first.
+  --budget VALUE      Maximum work units before reporting an incomplete audit.
+  --format FORMAT, --json, --text
+                      Output format.
+  --schema            Prints the JSON report schema.
+  -h, --help          Show this help
+  --color[=WHEN]      When to color output: always, never, or auto
+  --no-color          Never color output
+```
+
+`nupp duplicates` finds repeated sequences of complete statements across a
+project, including sections inside larger functions. Use it when reviewing
+new code or auditing a module for implementations that could share a helper.
+
+```bash
+nupp duplicates
+nupp duplicates --json --min-tokens=60 --min-lines=6
+nupp duplicates --mode=exact src/first.nupp src/second.nupp
+```
+
+With no files, the command scans `.nupp` sources under the project's include
+roots, excluding declaration files and build outputs. Naming files compares
+those files with one another. The scan parses source without executing it or
+requiring a successful type check.
+
+The default `renamed` mode ignores whitespace, comments, and consistent changes
+to local binding names. It respects lexical scopes and preserves member names,
+global names, type names, and literals. `--mode=exact` also preserves local
+names. `--ignore-literals` matches string and numeric literals by kind, useful
+for finding repeated code that differs only in constants.
+
+A match must contain at least 80 tokens and eight token-bearing lines in every
+occurrence. `--min-tokens` and `--min-lines` change these thresholds. Matches
+start and end at statement boundaries; statements from separate function
+bodies are never joined. Repeated member sequences inside records, structs, and interfaces are also
+reported, even when the declarations have different names. The detector does
+not find reordered statements or
+copies with inserted or deleted statements inside the matching section.
+
+Reports group the copies with their file ranges, enclosing function names,
+and token counts. Larger matches come first, and a contained match is omitted
+only when all its occurrences are covered by a larger group. JSON also includes
+a representative source snippet, capped at 2,000 bytes, and marks snippets
+that were shortened. Positions are one-based byte line, column, and offset;
+range ends are exclusive. `--schema` prints the report schema.
+
+`--max-groups` defaults to 100; `truncated` says more groups were found. The
+`--budget` work limit defaults to 50 million units. Exhausting it, encountering
+unreadable files, or finding syntax errors sets `complete` and `ok` to false
+and exits with status 1. A completed audit exits with status 0 even when it
+finds duplicates. Invalid options exit with status 2.
+
+These are candidates for review, not proof that a shared implementation would
+preserve behavior. Similar code can have different ownership, error, or
+performance contracts. For AI-assisted changes, run the report before adding
+an implementation and again after the change, then inspect the contracts of
+each copy before extracting anything.
 
 ### `fmt`
 
@@ -2398,6 +2484,8 @@ Commands:
   aot              Show what the @aot functions in a file compile to.
   bc               Show the bytecode a Nupp file compiles to.
   check            Type-check source without emitting Lua.
+  duplicates       Finds repeated statements across project sources, including
+                   function sections.
   fmt              Format Nupp source.
   build            Build source files or a configured project target.
   clean            Remove build outputs configured in nupp.lua.

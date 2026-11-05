@@ -1,0 +1,611 @@
+--[[ Finds repeated statement sequences without checking or executing a project. ]]
+module nupp.tools.duplicates
+
+local parser = require("nupp.compiler.syntax.parser")
+local cst = require("nupp.compiler.syntax.cst")
+
+local duplicates = {}
+
+--- Validates audit options and supplies defaults.
+function duplicates.options(given: any): (any, string?)
+    if given == nil then
+        given = {}
+    end
+    if type(given) ~= "table" then
+        return nil, "options must be an object"
+    end
+    local options: any = {
+        mode = "renamed",
+        ignoreLiterals = false,
+        minTokens = 80,
+        minLines = 8,
+        maxGroups = 100,
+        budget = 50000000,
+    }
+    for name in pairs(options) do
+        if given[name] ~= nil then
+            options[name] = given[name]
+        end
+    end
+    if options.mode ~= "exact" and options.mode ~= "renamed" then
+        return nil, "mode must be exact or renamed"
+    end
+    if type(options.ignoreLiterals) ~= "boolean" then
+        return nil, "ignoreLiterals must be a boolean"
+    end
+    for _, name in ipairs({"minTokens", "minLines", "maxGroups", "budget"}) do
+        local value = options[name]
+        if type(value) ~= "number" or value < 1 or value > 1000000000 or value ~= math.floor(value) then
+            return nil, name .. " must be a positive integer no greater than 1000000000"
+        end
+    end
+
+    return options, nil
+end
+
+-- Binding identities belong to scopes, not spellings. Only value locals are
+-- normalized; member names, type names, and unbound/global names stay literal.
+local function indexFile(file, checkpoint)
+    local tokens, index, bindings, regions = file.result.tokens, {}, {}, {}
+    for i, token in ipairs(tokens) do
+        index[token] = i
+    end
+    local nextBinding = 0
+
+    local function scope(parent)
+        return {parent = parent, names = {}}
+    end
+
+    local function bind(token, current, preserve)
+        if not token then
+            return
+        end
+        nextBinding = nextBinding + 1
+        current.names[token.text] = nextBinding
+        if not preserve then
+            bindings[token] = nextBinding
+        end
+    end
+
+    local function lookup(current, name)
+        while current do
+            if current.names[name] then
+                return current.names[name]
+            end
+            current = current.parent
+        end
+    end
+
+    local bounds = {}
+
+    local function span(node)
+        if cst.isToken(node) then
+            return index[node], index[node]
+        end
+        if bounds[node] then
+            return bounds[node][1], bounds[node][2]
+        end
+        local first, last
+        for _, child in ipairs(node) do
+            local a, b = span(child)
+            first, last = first or a, b or last
+        end
+        bounds[node] = {first, last}
+
+        return first, last
+    end
+
+    local walk
+
+    local function children(node, current, owner)
+        for _, child in ipairs(node) do
+            if not cst.isToken(child) then
+                walk(child, current, owner)
+            end
+        end
+    end
+
+    walk = function(node, current, owner, functionBody)
+        checkpoint()
+        local kind = node.kind
+        if kind == "name" then
+            if node.token then
+                bindings[node.token] = lookup(current, node.token.text)
+            end
+        elseif kind == "block" then
+            local inner = scope(current)
+            local first, last = span(node)
+            local region
+            for _, stat in ipairs(node.stats) do
+                local a, b = span(stat)
+                local declaration = stat
+                while declaration.kind == "pragmaStmt" or declaration.kind == "exportStmt" do
+                    if not declaration.stat then
+                        break
+                    end
+                    declaration = declaration.stat
+                end
+                if declaration.kind == "localFuncStmt" or declaration.kind == "funcStmt" then
+                    region = nil
+                elseif a and b and stat.kind ~= "emptyStmt" then
+                    if not region then
+                        region = {
+                            first = a,
+                            last = b,
+                            starts = {},
+                            ends = {},
+                            functionName = owner,
+                            functionBody = false
+                        }
+                        regions[#regions + 1] = region
+                    end
+                    region.last = b
+                    region.starts[#region.starts + 1], region.ends[b] = a, true
+                    region.functionBody = functionBody and region.first == first and b == last or false
+                end
+                walk(stat, inner, owner)
+            end
+            return inner
+        elseif kind == "recordDecl" then
+            local region = {starts = {}, ends = {}, declarationName = node.name and node.name.text}
+            for _, entry in ipairs(node.entries) do
+                local a, b = span(entry)
+                if a and b then
+                    region.first, region.last = region.first or a, b
+                    region.starts[#region.starts + 1], region.ends[b] = a, true
+                end
+            end
+            if region.first then
+                regions[#regions + 1] = region
+            end
+            children(node, current, owner)
+        elseif kind == "repeatStmt" then
+            local inner = walk(node.body, current, owner)
+            walk(node.cond, inner, owner)
+        elseif kind == "localStmt" then
+            -- Initializers see the previous binding, including `local x = x`.
+            children(node, current, owner)
+            for _, token in ipairs(node.names or {}) do
+                bind(token, current)
+            end
+            for _, entry in ipairs(node.pattern or {}) do
+                -- A shorthand field is both a key and a binder. Keep its key.
+                bind(entry.alias or entry.sourceName, current, not entry.alias)
+            end
+        elseif kind == "localFuncStmt" then
+            bind(node.name, current)
+            if node.body then
+                walk(node.body, current, node.name and node.name.text or owner)
+            else
+                children(node, current, owner)
+            end
+        elseif kind == "funcbody" or kind == "shortfn" then
+            local inner = scope(current)
+            for _, param in ipairs(node.params or {}) do
+                bind(param.name, inner)
+            end
+            for _, child in ipairs(node) do
+                if not cst.isToken(child) then
+                    walk(child, inner, owner or "<anonymous>", child == node.body)
+                end
+            end
+        elseif kind == "fornumStmt" or kind == "forinStmt" then
+            local inner = scope(current)
+            if node.var then
+                bind(node.var, inner)
+            end
+            for _, token in ipairs(node.names or {}) do
+                bind(token, inner)
+            end
+            for _, child in ipairs(node) do
+                if not cst.isToken(child) then
+                    walk(child, child == node.body and inner or current, owner)
+                end
+            end
+        elseif kind == "funcStmt" or kind == "inlineMethod" or kind == "constructorDecl" or kind == "funcExpr" then
+            local name = "<anonymous>"
+            if kind == "constructorDecl" then
+                name = "constructor"
+            elseif node.name then
+                name = cst.isToken(node.name) and node.name.text or cst.textOf(node.name):gsub("%s+", "")
+            end
+            for _, child in ipairs(node) do
+                if not cst.isToken(child) then
+                    walk(child, current, name)
+                end
+            end
+        else
+            children(node, current, owner)
+        end
+    end
+    walk(file.result.root, scope(nil), nil)
+    file.bindings, file.regions = bindings, regions
+end
+
+--- Reports repeated complete statements across the supplied source snapshots.
+---
+--- Each source has a `file` path and `text`, or an `error` if reading failed.
+--- Locations use one-based byte positions with exclusive ends. Findings are
+--- syntactic candidates for review, not proof that extraction preserves behavior.
+---
+--- @raises any if options are invalid or the checkpoint raises, including cancellation.
+function duplicates.scan(sources: {any}, given: any, checkpoint: any): any
+    local options, problem = duplicates.options(given)
+    assert(options, problem)
+    checkpoint = checkpoint or function()
+    end
+    local report = {
+        schemaVersion = 1,
+        ok = true,
+        complete = true,
+        truncated = false,
+        options = options,
+        filesScanned = 0,
+        candidateCount = 0,
+        comparisons = 0,
+        groups = {},
+        diagnostics = {},
+    }
+    local exhausted = {}
+
+    local function tick()
+        report.comparisons = report.comparisons + 1
+        if report.comparisons % 4096 == 0 then
+            checkpoint()
+        end
+        if report.comparisons > options.budget then
+            error(exhausted)
+        end
+    end
+
+    local function diagnostic(file, message, detail)
+        local position = detail and {line = detail.line, column = detail.col, offset = detail.offset}
+        report.diagnostics[
+            #report.diagnostics + 1
+        ] = {
+            file = file,
+            message = message,
+            severity = "error",
+            code = detail and detail.code or (file and "NUPP0001" or "NUPP0004"),
+            range = position and {start = position, ["end"] = position},
+            fixes = {},
+            notes = {},
+            related = {},
+        }
+        report.ok, report.complete = false, false
+    end
+
+    local seen = {}
+    local sorted = {}
+    for _, source in ipairs(sources) do
+        sorted[#sorted + 1] = source
+    end
+    table.sort(sorted, function(a, b)
+        return a.file < b.file
+    end)
+    local buckets, keys, interned, nextId = {}, {}, {}, 0
+
+    local function intern(value)
+        if not interned[value] then
+            nextId = nextId + 1
+            interned[value] = nextId
+        end
+
+        return interned[value]
+    end
+
+    -- Each candidate is a suffix of one block, beginning at a statement. A
+    -- fresh numbering of binding identities makes renamed suffixes comparable.
+    local function iterator(candidate)
+        local position, names, count = candidate.first, {}, 0
+        return function()
+            if position > candidate.region.last then
+                return nil
+            end
+            tick()
+            local value = candidate.file.values[position]
+            position = position + 1
+            if value < 0 then
+                if not names[value] then
+                    count = count + 1;
+                    names[value] = -count
+                end
+                return names[value]
+            end
+
+            return value
+        end
+    end
+
+    -- A Lua merge sort permits cooperative cancellation inside comparisons.
+    -- table.sort invokes its comparator across a non-yielding C boundary.
+    local function sortSuffixes(values, less)
+        local width, count, scratch = 1, #values, {}
+        while width < count do
+            for first = 1, count, width * 2 do
+                local middle = math.min(first + width, count + 1)
+                local limit = math.min(first + width * 2, count + 1)
+                local left, right = first, middle
+                for at = first, limit - 1 do
+                    if left < middle and (right >= limit or not less(values[right], values[left])) then
+                        scratch[at] = values[left]
+                        left = left + 1
+                    else
+                        scratch[at] = values[right]
+                        right = right + 1
+                    end
+                end
+            end
+            for i = 1, count do
+                values[i] = scratch[i]
+            end
+            width = width * 2
+        end
+    end
+
+    local function suffixLess(a, b)
+        if a == b then
+            return false
+        end
+        local left, right = iterator(a), iterator(b)
+        while true do
+            local x, y = left(), right()
+            if x ~= y then
+                return x == nil or (y ~= nil and x < y)
+            end
+            if x == nil then
+                if a.file.path ~= b.file.path then
+                    return a.file.path < b.file.path
+                end
+                return a.first < b.first
+            end
+        end
+    end
+
+    local rawGroups = {}
+
+    local function process()
+        for _, source in ipairs(sorted) do
+            checkpoint()
+            if not seen[source.file] then
+                seen[source.file] = true
+                if not source.text then
+                    diagnostic(source.file, source.error or "could not read source")
+                else
+                    local result = parser.parse(source.text, source.file)
+                    if #result.errors > 0 then
+                        for _, err in ipairs(result.errors) do
+                            diagnostic(source.file, err.msg, err)
+                        end
+                    else
+                        local file = {path = source.file, text = source.text, result = result}
+                        indexFile(file, tick)
+                        report.filesScanned = report.filesScanned + 1
+                        file.values, file.codeLines = {}, {}
+                        local lineCount, previousLine = 0, 0
+                        for i, token in ipairs(result.tokens) do
+                            if token.line ~= previousLine then
+                                lineCount = lineCount + 1;
+                                previousLine = token.line
+                            end
+                            file.codeLines[i] = lineCount
+                            local binding = options.mode == "renamed" and file.bindings[token]
+                            local value = token.text
+                            if options.ignoreLiterals and (token.kind == "string" or token.kind == "number") then
+                                value = ""
+                            end
+                            file.values[i] = binding and -binding or intern(token.kind .. ":" .. value)
+                        end
+                        file.bindings = nil
+                        file.result = {tokens = result.tokens}
+                        for _, region in ipairs(file.regions) do
+                            for _, first in ipairs(region.starts) do
+                                if region.last - first + 1 >= options.minTokens then
+                                    local candidate = {file = file, region = region, first = first}
+                                    local nextValue, seed = iterator(candidate), {}
+                                    for i = 1, options.minTokens do
+                                        seed[i] = tostring(nextValue())
+                                    end
+                                    local key = table.concat(seed, ",")
+                                    if not buckets[key] then
+                                        buckets[key] = {};
+                                        keys[#keys + 1] = key
+                                    end
+                                    local bucket = buckets[key]
+                                    bucket[#bucket + 1] = candidate
+                                    report.candidateCount = report.candidateCount + 1
+                                end
+                            end
+                        end
+                    end
+                end
+            end
+        end
+        table.sort(keys)
+        for _, key in ipairs(keys) do
+            local bucket = buckets[key]
+            if #bucket > 1 then
+                -- Adjacent suffixes suffice: a common prefix occupies one
+                -- contiguous interval in lexical order. No all-pairs search.
+                sortSuffixes(bucket, suffixLess)
+                local stack = {}
+                for i = 2, #bucket + 1 do
+                    local length = 0
+                    if i <= #bucket then
+                        local a, b = bucket[i - 1], bucket[i]
+                        local left, right, matched = iterator(a), iterator(b), 0
+                        while true do
+                            local x, y = left(), right()
+                            if not x or x ~= y then
+                                break
+                            end
+                            matched = matched + 1
+                            if a.region.ends[a.first + matched - 1] and b.region.ends[b.first + matched - 1] then
+                                length = matched
+                            end
+                        end
+                    end
+                    local first = i - 1
+                    while #stack > 0 and stack[#stack].length > length do
+                        local top = table.remove(stack)
+                        rawGroups[
+                            #rawGroups + 1
+                        ] = {bucket = bucket, first = top.first, last = i - 1, length = top.length}
+                        first = top.first
+                    end
+                    if length >= options.minTokens and (#stack == 0 or stack[#stack].length < length) then
+                        stack[#stack + 1] = {first = first, length = length}
+                    end
+                end
+            end
+        end
+    end
+
+    local function occurrenceLess(a, b)
+        if a.file ~= b.file then
+            return a.file < b.file
+        end
+        return a.range.start.offset < b.range.start.offset
+    end
+
+    local function finish()
+        local groups, signatures = {}, {}
+        for _, raw in ipairs(rawGroups) do
+            checkpoint()
+            local occurrences = {}
+            for i = raw.first, raw.last do
+                tick()
+                local candidate = raw.bucket[i]
+                local file, first, last = candidate.file, candidate.first, candidate.first + raw.length - 1
+                if candidate.region.ends[last] then
+                    local tokens = file.result.tokens
+                    local codeLines = file.codeLines[last] - file.codeLines[first] + 1
+                    if codeLines >= options.minLines then
+                        local a, b = tokens[first], tokens[last]
+                        local _, newlines = b.text:gsub("\n", "")
+                        local endColumn = newlines == 0 and b.col + #b.text
+                            or #b.text - (b.text:match(".*()\n") or 0) + 1
+                        occurrences[
+                            #occurrences + 1
+                        ] = {
+                            file = file.path,
+                            functionName = candidate.region.functionName,
+                            declarationName = candidate.region.declarationName,
+                            kind = candidate.region.declarationName and "members"
+                            or candidate.region.functionBody
+                            and first == candidate.region.first
+                            and last == candidate.region.last
+                            and "function"
+                            or "block",
+                            codeLines = codeLines,
+                            range = {
+                                start = {line = a.line, column = a.col, offset = a.offset},
+                                ["end"] = {offset = b.offset + #b.text, line = b.line + newlines, column = endColumn},
+                            },
+                            source = file,
+                        }
+                    end
+                end
+            end
+            table.sort(occurrences, occurrenceLess)
+            local kept, signature = {}, {}
+            for _, occurrence in ipairs(occurrences) do
+                local previous = kept[#kept]
+                if not previous
+                    or previous.file ~= occurrence.file
+                    or previous.range["end"].offset <= occurrence.range.start.offset
+                then
+                    kept[#kept + 1] = occurrence
+                    signature[
+                        #signature + 1
+                    ] = occurrence.file .. ":" .. occurrence.range.start.offset .. ":" .. occurrence.range["end"].offset
+                end
+            end
+            local key = table.concat(signature, "\n")
+            if #kept > 1 and not signatures[key] then
+                signatures[key] = true
+                groups[#groups + 1] = {tokenCount = raw.length, occurrences = kept, key = key}
+            end
+        end
+        table.sort(groups, function(a, b)
+            if a.tokenCount ~= b.tokenCount then
+                return a.tokenCount > b.tokenCount
+            end
+            return a.key < b.key
+        end)
+        -- A shorter group is redundant only when every one of its copies is
+        -- covered. A third copy elsewhere must not disappear with a nested pair.
+        local covering = {}
+        for _, group in ipairs(groups) do
+            checkpoint()
+            local covered = false
+            for _, larger in ipairs(covering) do
+                local all = true
+                for _, occurrence in ipairs(group.occurrences) do
+                    local found = false
+                    for _, outer in ipairs(larger.occurrences) do
+                        tick()
+                        if outer.file == occurrence.file
+                            and outer.range.start.offset <= occurrence.range.start.offset
+                            and outer.range["end"].offset >= occurrence.range["end"].offset
+                        then
+                            found = true;
+                            break
+                        end
+                    end
+                    if not found then
+                        all = false;
+                        break
+                    end
+                end
+                if all then
+                    covered = true;
+                    break
+                end
+            end
+            if not covered then
+                covering[#covering + 1] = group
+                if #report.groups < options.maxGroups then
+                    local representative = group.occurrences[1]
+                    local source = representative.source.text
+                    local from, to = representative.range.start.offset, representative.range["end"].offset
+                    local limit = math.min(to, from + 2000)
+                    -- The byte limit must not split a UTF-8 code point in an LSP
+                    -- response, whose JSON strings must remain valid Unicode.
+                    while limit < to do
+                        local byte = source:byte(limit)
+                        if byte < 128 or byte >= 192 then
+                            break
+                        end
+                        limit = limit - 1
+                    end
+                    group.snippet = source:sub(from, limit - 1)
+                    group.snippetTruncated = limit < to
+                    group.key = nil
+                    for _, occurrence in ipairs(group.occurrences) do
+                        occurrence.source = nil
+                    end
+                    report.groups[#report.groups + 1] = group
+                else
+                    report.truncated = true
+                end
+            end
+        end
+
+    end
+
+    local success, failure = pcall(function()
+        process()
+        finish()
+    end)
+    if not success then
+        if failure ~= exhausted then
+            error(failure)
+        end
+        diagnostic(nil, "work budget exhausted; increase --budget to finish the audit")
+    end
+
+    return report
+end
+
+export = duplicates

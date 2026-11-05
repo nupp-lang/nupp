@@ -43,6 +43,7 @@ function Root.subcommands(): {cliModule.CommandType}
         require("nupp.tools.cli.aot").commandType,
         require("nupp.tools.cli.bc").commandType,
         require("nupp.tools.cli.check").commandType,
+        require("nupp.tools.cli.duplicates").commandType,
         require("nupp.tools.cli.fmt").commandType,
         require("nupp.tools.cli.build").commandType,
         require("nupp.tools.cli.clean").commandType,
