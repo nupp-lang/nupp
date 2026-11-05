@@ -68,7 +68,11 @@ def archive(cache, record):
             else:
                 mirror = os.environ.get('NUPP_HOST_SOURCE_BASE_URL')
                 url = mirror.rstrip('/') + '/' + target.name if mirror else record['url']
-                subprocess.run(['curl', '--fail', '--location', '--silent', '--show-error', url, '-o', str(staged)], check=True)
+                subprocess.run([
+                    'curl', '--fail', '--location', '--silent', '--show-error',
+                    '--retry', '3', '--retry-all-errors', '--retry-max-time', '120',
+                    '--connect-timeout', '30', url, '-o', str(staged),
+                ], check=True)
             if digest(staged) != record['sha256']:
                 raise RuntimeError(f'digest mismatch for {target.name}; refusing to extract it')
             staged.replace(target)
