@@ -183,7 +183,7 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = guestarith.arithmetic(guestarith.ADD, left, right)
     if result == values.NIL then
-        result = guestarith.wideResult(ctx, guestarith.ADD, left, right)
+        result = guestarith.wideresult(ctx, guestarith.ADD, left, right)
     end
     -- Storage plus a count of elements is a view from there on.
     if result == values.TRUE and corestorage.isstorage(left) then
@@ -266,7 +266,7 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = guestarith.arithmetic(guestarith.SUB, left, right)
     if result == values.NIL then
-        result = guestarith.wideResult(ctx, guestarith.SUB, left, right)
+        result = guestarith.wideresult(ctx, guestarith.SUB, left, right)
     end
     -- Arithmetic on a non-number calls a table operand's metamethod, or is a
     -- guest error, as Lua raises one.
@@ -334,7 +334,7 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = guestarith.arithmetic(guestarith.MUL, left, right)
     if result == values.NIL then
-        result = guestarith.wideResult(ctx, guestarith.MUL, left, right)
+        result = guestarith.wideresult(ctx, guestarith.MUL, left, right)
     end
     -- Arithmetic on a non-number calls a table operand's metamethod, or is a
     -- guest error, as Lua raises one.
@@ -402,7 +402,7 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = guestarith.arithmetic(guestarith.MOD, left, right)
     if result == values.NIL then
-        result = guestarith.wideResult(ctx, guestarith.MOD, left, right)
+        result = guestarith.wideresult(ctx, guestarith.MOD, left, right)
     end
     -- Arithmetic on a non-number calls a table operand's metamethod, or is a
     -- guest error, as Lua raises one.
@@ -470,10 +470,10 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = guestarith.compare(false, left, right)
     if result > 1ULL then
-        result = guestarith.wideOrder(false, left, right)
+        result = guestarith.wideorder(false, left, right)
     end
     if result > 1ULL then
-        result = guestarith.stringOrder(false, left, right)
+        result = guestarith.strorder(false, left, right)
     end
     if result > 1ULL then
         -- A table operand's __lt decides, as a boolean.
@@ -531,10 +531,10 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     local left, right = slots.readValue(frame, regs, lhs), slots.readValue(frame, regs, rhs)
     local result = guestarith.compare(true, left, right)
     if result > 1ULL then
-        result = guestarith.wideOrder(true, left, right)
+        result = guestarith.wideorder(true, left, right)
     end
     if result > 1ULL then
-        result = guestarith.stringOrder(true, left, right)
+        result = guestarith.strorder(true, left, right)
     end
     if result > 1ULL then
         -- A table operand's __le decides, as a boolean.
@@ -1347,7 +1347,9 @@ export function LibCall(
     guestscope.librarySite(ctx, frame, pc, count, counted >> librarylayouts.METHOD_SHIFT)
     -- The coroutine library. Resume and yield switch threads: the context
     -- then runs the other thread, from its active frame.
-    if libraryId >= librarycalls.COROUTINES_FIRST and libraryId <= librarycalls.COROUTINES_LAST or libraryId == librarycalls.TASKS then
+    if libraryId >= librarycalls.COROUTINES_FIRST and libraryId <= librarycalls.COROUTINES_LAST
+        or libraryId == librarycalls.TASKS
+    then
         guestscope.nameLibrary(ctx, librarycalls.libraryname(libraryId))
         local switched = true
         if libraryId == librarycalls.COROUTINE_CLOSE and threads.istask(a) and tasks.closer(ctx) ~= 0ULL then

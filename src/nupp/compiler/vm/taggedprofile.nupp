@@ -1432,9 +1432,9 @@ function tagged.forVersion(version: integer): any
                     },
                     "tagged"
                 ) as integer
-            elseif corelibrary.fileoperation(library) then
+            elseif corelibrary.operation(library) then
                 -- The file calls are one library call, the operation first.
-                local spec = need(corelibrary.fileoperation(library), "file call")
+                local spec = need(corelibrary.operation(library), "file call")
                 local args = node.args.exprs or {}
                 need(#args == spec.arguments, tostring(library) .. " argument count is not admitted")
                 local kinds = {}
@@ -1446,7 +1446,7 @@ function tagged.forVersion(version: integer): any
                     return nil as any
                 end
                 local operation = ctx.emit(node, "K", {pool(ctx, "int64", tostring(spec.operation))}, "tagged")
-                local operands: {any} = {corelibrary.operationcall(library as string), operation}
+                local operands: {any} = {corelibrary.opcall(library as string), operation}
                 for _, value in ipairs(evaluated) do
                     operands[#operands + 1] = value
                 end
@@ -1550,7 +1550,11 @@ function tagged.forVersion(version: integer): any
                 end
                 local value = ctx.readHeld(held)
                 ctx.release(held)
-                return landed(ctx, node, ctx.emit(node, "LibCall", {corelibrary.id("COROUTINE_CREATE"), value, pack}, "tagged")) as integer
+                return landed(
+                    ctx,
+                    node,
+                    ctx.emit(node, "LibCall", {corelibrary.id("COROUTINE_CREATE"), value, pack}, "tagged")
+                ) as integer
             elseif stringSpec(library) then
                 local spec: {integer} = need(stringSpec(library), "string library call")
                 local count = #(node.args.exprs or {})

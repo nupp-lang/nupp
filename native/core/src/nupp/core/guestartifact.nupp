@@ -103,7 +103,7 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
             assert(literal.integer(text) == call.id, "guest library call " .. call.name .. " differs from corelibrary")
         end
     end
-    for _, row in ipairs(corelibrary.elementkinds()) do
+    for _, row in ipairs(corelibrary.elements()) do
         local owner = assert(scopes["nupp.runtime.core." .. row.module], "guest element kinds " .. row.module)
         local text = assert(owner.exportedConstants[row.name], "guest element kind " .. row.name)
         assert(literal.integer(text) == row.kind, "guest element kind " .. row.name .. " differs from corelibrary")

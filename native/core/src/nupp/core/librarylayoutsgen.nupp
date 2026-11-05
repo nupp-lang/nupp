@@ -47,7 +47,7 @@ function generator.source(): string
 
     lines[#lines + 1] = ""
     lines[#lines + 1] = "-- The operations HOST_FILES takes first, by group."
-    for _, group in ipairs(corelibrary.operationgroups()) do
+    for _, group in ipairs(corelibrary.groups()) do
         for _, operation in ipairs(group.operations) do
             constant(operation.name, operation.operation)
         end
@@ -60,8 +60,11 @@ function generator.source(): string
     for _, layout in ipairs(corelibrary.layouts()) do
         local suffix = layout.kind == "uint64" and "ULL" or ""
         for index, field in ipairs(layout.fields) do
-            lines[#lines + 1] = "export const " .. layout.name .. "_" .. field .. ": " .. layout.kind .. " = "
-                .. tostring(index) .. suffix
+            lines[
+                #lines + 1
+            ] = "export const " .. layout.name .. "_" .. field .. ": " .. layout.kind .. " = " .. tostring(
+                index
+            ) .. suffix
         end
     end
 

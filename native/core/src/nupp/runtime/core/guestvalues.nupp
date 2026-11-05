@@ -16,7 +16,7 @@ const os = require("nupp.runtime.vm.os")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const guesterrors = require("nupp.runtime.core.guesterrors")
 
-export function integerValue(value: uint64): int64
+export function intvalue(value: uint64): int64
     local payload = value & values.PAYLOAD
     if payload & 0x0000800000000000ULL ~= 0ULL then
         payload = payload | 0xffff000000000000ULL
@@ -25,11 +25,7 @@ export function integerValue(value: uint64): int64
     return native.index(payload)
 end
 
-local function isInteger(value: uint64): boolean
-    return value & 0xffff000000000000ULL == values.TAG_INTEGER
-end
-
-export function guestHeap(ctx: voidptr): heap.Heap*
+export function guestheap(ctx: voidptr): heap.Heap*
     @unsafe do
         local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
         return native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
@@ -39,7 +35,7 @@ end
 -- Appends Lua's tostring of `value`: strings as they are, integers in
 -- decimal, booleans and nil by name, and tables, functions, threads and
 -- userdata by type and address. A __tostring is the caller's to call.
-export function appendText(h: heap.Heap*, b: strings.Builder*, value: uint64): uint64
+export function appendtext(h: heap.Heap*, b: strings.Builder*, value: uint64): uint64
     local s = strings.header(value)
     if s ~= 0ULL then
         return strings.appendString(h, b, s)
@@ -82,12 +78,12 @@ end
 export function tostring(ctx: voidptr, value: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        local h = guestHeap(ctx)
+        local h = guestheap(ctx)
         if strings.header(value) ~= 0ULL then
             return value
         end
         local builder = state as strings.Builder*
-        if appendText(h, builder, value) ~= 0ULL then
+        if appendtext(h, builder, value) ~= 0ULL then
             strings.release(builder)
             error("not enough memory")
         end
@@ -97,7 +93,7 @@ end
 
 -- An integer argument as Lua reads one: an integer, or a float with an exact
 -- integer value; `absent` when the argument is nil.
-export function integerArgument(ctx: voidptr, value: uint64, absent: int64, position: uint64): int64
+export function intarg(ctx: voidptr, value: uint64, absent: int64, position: uint64): int64
     if value == values.NIL then
         return absent
     end
@@ -116,7 +112,7 @@ export function integerArgument(ctx: voidptr, value: uint64, absent: int64, posi
 end
 
 -- A number's float bits, or NIL bits for anything else.
-export function floatOf(value: uint64): uint64
+export function floatof(value: uint64): uint64
     if ints.isInteger(value) then
         return ints.toFloatBits(ints.bitsOf(value))
     end
@@ -128,7 +124,7 @@ export function floatOf(value: uint64): uint64
 end
 
 -- A float result as a value: NaNs collapse to the one quiet NaN.
-export function floatValue(bits: uint64): uint64
+export function floatvalue(bits: uint64): uint64
     local x = native.fromBits(bits)
     if x ~= x then
         return values.QNAN
@@ -137,13 +133,13 @@ export function floatValue(bits: uint64): uint64
     return bits
 end
 
-export function isFloat(value: uint64): boolean
+export function isfloat(value: uint64): boolean
     return value & values.QNAN ~= values.QNAN or value == values.QNAN
 end
 
 -- The number a math function takes, raising as Lua does for anything else.
-export function numberArgument(ctx: voidptr, value: uint64, position: uint64): uint64
-    if not ints.isInteger(value) and not isFloat(value) then
+export function numarg(ctx: voidptr, value: uint64, position: uint64): uint64
+    if not ints.isInteger(value) and not isfloat(value) then
         texts.argumentError(ctx, position, librarytexts.TEXT_NUMBER, 0ULL, value)
     end
 
@@ -151,10 +147,10 @@ export function numberArgument(ctx: voidptr, value: uint64, position: uint64): u
 end
 
 -- The string header of an argument, raising when it is not a string.
-export function stringArgument(ctx: voidptr, value: uint64, position: uint64): uint64
+export function strarg(ctx: voidptr, value: uint64, position: uint64): uint64
     local s = strings.header(value)
     -- A number is its text, as Lua's string arguments take one.
-    if s == 0ULL and (ints.isInteger(value) or floatOf(value) ~= values.NIL) then
+    if s == 0ULL and (ints.isInteger(value) or floatof(value) ~= values.NIL) then
         s = strings.header(tostring(ctx, value))
     end
     if s == 0ULL then
@@ -165,7 +161,7 @@ export function stringArgument(ctx: voidptr, value: uint64, position: uint64): u
 end
 
 -- Stores the `index`-th value of a pack under construction.
-export function packPut(h: heap.Heap*, pack: uint64, index: uint64, value: uint64): nil
+export function packput(h: heap.Heap*, pack: uint64, index: uint64, value: uint64): nil
     if value ~= values.NIL and tables.set(h, pack, values.TAG_INTEGER | index, value) == tables.NO_MEMORY then
         error("not enough memory")
     end
@@ -185,7 +181,7 @@ export function packed(h: heap.Heap*, pack: uint64, n: uint64, single: uint64): 
 end
 
 -- The heap kind of an object value, or 0 for an immediate.
-export function objectKind(value: uint64): uint64
+export function objkind(value: uint64): uint64
     if value & values.TAG_MASK ~= values.TAG_OBJ then
         return 0ULL
     end
@@ -197,21 +193,21 @@ export function objectKind(value: uint64): uint64
 end
 
 -- The table a library argument names, raising as Lua does when it is not one.
-export function tableArgument(ctx: voidptr, value: uint64, position: uint64): uint64
-    if objectKind(value) ~= heap.KIND_TABLE then
+export function tablearg(ctx: voidptr, value: uint64, position: uint64): uint64
+    if objkind(value) ~= heap.KIND_TABLE then
         texts.argumentError(ctx, position, librarytexts.TEXT_TABLE, 0ULL, value)
     end
 
     return value & values.PAYLOAD
 end
 
-export function storeAt(h: heap.Heap*, t: uint64, index: int64, value: uint64): nil
+export function storeat(h: heap.Heap*, t: uint64, index: int64, value: uint64): nil
     if tables.set(h, t, values.TAG_INTEGER | native.word(index), value) == tables.NO_MEMORY then
         error("not enough memory")
     end
 end
 
-export function loadAt(t: uint64, index: int64): uint64
+export function loadat(t: uint64, index: int64): uint64
     return tables.get(t, values.TAG_INTEGER | native.word(index))
 end
 
@@ -224,10 +220,10 @@ export const FINISHED: int64 = 2
 -- table.sort's state, a table keyed by the SORT layout (corelibrary): the
 -- list and comparator, the pair awaiting the comparator's answer and the
 -- answer, then where the merge sort stands.
-export function sortGet(st: uint64, key: int64): int64
-    return native.index(loadAt(st, key) & values.PAYLOAD)
+export function stateget(st: uint64, key: int64): int64
+    return native.index(loadat(st, key) & values.PAYLOAD)
 end
 
-export function sortPut(h: heap.Heap*, st: uint64, key: int64, n: int64): nil
-    storeAt(h, st, key, values.TAG_INTEGER | native.word(n))
+export function stateput(h: heap.Heap*, st: uint64, key: int64, n: int64): nil
+    storeat(h, st, key, values.TAG_INTEGER | native.word(n))
 end

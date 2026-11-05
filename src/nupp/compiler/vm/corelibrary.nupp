@@ -19,9 +19,8 @@ module nupp.compiler.vm.corelibrary
 --
 -- A subject marked `range` keeps its ids consecutive, so the runtime tells
 -- its calls apart by `<SUBJECT>_FIRST` and `<SUBJECT>_LAST`.
-local corelibrary = {}
 
-type corelibrary.Call = {
+export type Call = {
     name: string,
     id: integer,
     text: string?,
@@ -32,20 +31,24 @@ type corelibrary.Call = {
     meta: boolean?
 }
 
-type corelibrary.Subject = {name: string, range: boolean, calls: {corelibrary.Call}}
+export type Subject = {
+    name: string,
+    range: boolean,
+    calls: {Call}
+}
 
 -- Ids are below this, so the graph's immediate can carry the method-form flag
 -- above every id.
-corelibrary.LIMIT = 65536
+export const LIMIT = 65536
 -- A call in method form (`s:rep(n)`): its errors count arguments from the one
 -- after self, as Lua's do. The graph's LibCall immediate adds this to the id;
 -- the instruction carries it as COUNT_METHOD_FORM in its argument-count byte.
-corelibrary.METHOD_FORM = 65536
-corelibrary.COUNT_METHOD_FORM = 128
+export const METHOD_FORM = 65536
+export const COUNT_METHOD_FORM = 128
 -- The most arguments a library call stages.
-corelibrary.ARGUMENTS = 4
+export const ARGUMENTS = 4
 
-local subjects: {corelibrary.Subject} = {
+local subjectrows: {Subject} = {
     {
         name = "basic",
         range = false,
@@ -321,16 +324,21 @@ local subjects: {corelibrary.Subject} = {
 -- (nupp.runtime.poolcalls), which guestreactor answers. Each group's
 -- operations are consecutive, its bounds `<GROUP>_FIRST` and `<GROUP>_LAST`;
 -- requiring one of its declaration modules loads nothing.
-type corelibrary.FileOperation = {name: string, library: string, operation: integer, arguments: integer}
+export type Operation = {
+    name: string,
+    library: string,
+    operation: integer,
+    arguments: integer
+}
 
-type corelibrary.OperationGroup = {
+export type Group = {
     name: string,
     call: string,
     modules: {string},
-    operations: {corelibrary.FileOperation}
+    operations: {Operation}
 }
 
-local operationgroups: {corelibrary.OperationGroup} = {
+local grouprows: {Group} = {
     {
         name = "FILES",
         call = "HOST_FILES",
@@ -390,9 +398,13 @@ local operationgroups: {corelibrary.OperationGroup} = {
 -- The state tables some calls keep between steps, which the compiler reads
 -- and writes too: each field's key, from 1, and the width the runtime reads
 -- the key at.
-type corelibrary.Layout = {name: string, kind: string, fields: {string}}
+export type Layout = {
+    name: string,
+    kind: string,
+    fields: {string}
+}
 
-local layouts: {corelibrary.Layout} = {
+local layoutrows: {Layout} = {
     -- `for ... in s:gmatch(p)`: the subject, the pattern, and the byte offsets
     -- the next search starts at and the last match ended at; the match's
     -- captures (or the whole match) from CAPTURES on.
@@ -453,9 +465,14 @@ local layouts: {corelibrary.Layout} = {
 -- The element kinds of storage (corestorage) and of a packed table's array
 -- part (coretables), by the checked element type: the runtime's constant
 -- names each, which the guest artifact producer holds to this table.
-type corelibrary.ElementKind = {name: string, module: string, element: string, kind: integer}
+export type Element = {
+    name: string,
+    module: string,
+    element: string,
+    kind: integer
+}
 
-local elementkinds: {corelibrary.ElementKind} = {
+local elementrows: {Element} = {
     {name = "UINT8", module = "corestorage", element = "uint8", kind = 1},
     {name = "INT8", module = "corestorage", element = "int8", kind = 2},
     {name = "UINT16", module = "corestorage", element = "uint16", kind = 3},
@@ -471,10 +488,10 @@ local elementkinds: {corelibrary.ElementKind} = {
 }
 
 local ids: {[string]: integer} = {}
-local single: {[string]: corelibrary.Call} = {}
-local packed: {[string]: integer} = {}
-local meta: {[integer]: boolean} = {}
-local files: {[string]: corelibrary.FileOperation} = {}
+local singles: {[string]: Call} = {}
+local packs: {[string]: integer} = {}
+local metas: {[integer]: boolean} = {}
+local files: {[string]: Operation} = {}
 -- The call each operation's library function rides.
 local calls: {[string]: integer} = {}
 
@@ -482,10 +499,10 @@ local calls: {[string]: integer} = {}
 -- consecutive.
 do
     local taken: {[integer]: string} = {}
-    for _, subject in ipairs(subjects) do
-        local low: integer, high: integer = corelibrary.LIMIT, 0
+    for _, subject in ipairs(subjectrows) do
+        local low: integer, high: integer = LIMIT, 0
         for _, entry in ipairs(subject.calls) do
-            assert(entry.id >= 1 and entry.id < corelibrary.LIMIT, "core library id out of range: " .. entry.name)
+            assert(entry.id >= 1 and entry.id < LIMIT, "core library id out of range: " .. entry.name)
             assert(taken[entry.id] == nil, "core library id " .. entry.id .. " taken twice: " .. entry.name)
             assert(ids[entry.name] == nil, "core library call named twice: " .. entry.name)
             taken[entry.id] = entry.name
@@ -493,40 +510,43 @@ do
             low = math.min(low, entry.id) as integer
             high = math.max(high, entry.id) as integer
             if entry.call then
-                assert(single[entry.call] == nil, "core library function answered twice: " .. entry.call)
-                assert(entry.min and entry.max and entry.min >= 1 and entry.max >= entry.min, "core library arity: " .. entry.name)
-                single[entry.call] = entry
+                assert(singles[entry.call] == nil, "core library function answered twice: " .. entry.call)
+                assert(
+                    entry.min and entry.max and entry.min >= 1 and entry.max >= entry.min,
+                    "core library arity: " .. entry.name
+                )
+                singles[entry.call] = entry
             end
             if entry.packs then
-                assert(packed[entry.packs] == nil, "core library pack answered twice: " .. entry.packs)
-                packed[entry.packs] = entry.id
+                assert(packs[entry.packs] == nil, "core library pack answered twice: " .. entry.packs)
+                packs[entry.packs] = entry.id
             end
             if entry.meta then
-                meta[entry.id] = true
+                metas[entry.id] = true
             end
         end
         assert(not subject.range or high - low + 1 == #subject.calls, "core library range has a gap: " .. subject.name)
     end
     -- Operations are numbered within the call they ride.
     local operations: {[string]: {[integer]: boolean}} = {}
-    for _, group in ipairs(operationgroups) do
+    for _, group in ipairs(grouprows) do
         assert(ids[group.call], "operation group of no call: " .. group.name)
         local taken: {[integer]: boolean} = operations[group.call] or {}
         operations[group.call] = taken
         local first = group.operations[1].operation
-        for index, operation in ipairs(group.operations) do
-            assert(not taken[operation.operation], "operation taken twice: " .. operation.name)
-            assert(operation.operation == first + index - 1, "operation group has a gap: " .. group.name)
-            taken[operation.operation] = true
-            files[operation.library] = operation
-            calls[operation.library] = ids[group.call] as integer
+        for index, row in ipairs(group.operations) do
+            assert(not taken[row.operation], "operation taken twice: " .. row.name)
+            assert(row.operation == first + index - 1, "operation group has a gap: " .. group.name)
+            taken[row.operation] = true
+            files[row.library] = row
+            calls[row.library] = ids[group.call] as integer
         end
     end
 end
 
 -- The key of field `field` in state layout `layout`.
-function corelibrary.key(layout: string, field: string): integer
-    for _, row in ipairs(layouts) do
+export function key(layout: string, field: string): integer
+    for _, row in ipairs(layoutrows) do
         if row.name == layout then
             for index, name in ipairs(row.fields) do
                 if name == field then
@@ -539,9 +559,9 @@ function corelibrary.key(layout: string, field: string): integer
 end
 
 -- A copy of the state layouts, for the generator.
-function corelibrary.layouts(): {corelibrary.Layout}
+export function layouts(): {Layout}
     local result = {}
-    for index, row in ipairs(layouts) do
+    for index, row in ipairs(layoutrows) do
         local fields = {}
         for at, name in ipairs(row.fields) do
             fields[at] = name
@@ -554,8 +574,8 @@ end
 
 -- The kind a packed array part of checked element type `element` takes, or
 -- nil when that type does not pack.
-function corelibrary.packedkind(element: string): integer?
-    for _, row in ipairs(elementkinds) do
+export function packedkind(element: string): integer?
+    for _, row in ipairs(elementrows) do
         if row.element == element then
             return row.kind
         end
@@ -565,9 +585,9 @@ function corelibrary.packedkind(element: string): integer?
 end
 
 -- A copy of the element kinds, for the producer's check.
-function corelibrary.elementkinds(): {corelibrary.ElementKind}
+export function elements(): {Element}
     local result = {}
-    for index, row in ipairs(elementkinds) do
+    for index, row in ipairs(elementrows) do
         result[index] = {name = row.name, module = row.module, element = row.element, kind = row.kind}
     end
 
@@ -575,33 +595,33 @@ function corelibrary.elementkinds(): {corelibrary.ElementKind}
 end
 
 -- A call's id, by its name; an unknown name is an error.
-function corelibrary.id(name: string): integer
-    local id = ids[name]
-    assert(id ~= nil, "no core library call " .. name)
+export function id(name: string): integer
+    local found = ids[name]
+    assert(found ~= nil, "no core library call " .. name)
 
-    return id
+    return found
 end
 
 -- The call answering library function `library` with one result, or nil.
-function corelibrary.single(library: string?): corelibrary.Call?
+export function single(library: string?): Call?
     if library == nil then
         return nil
     end
 
-    return single[library]
+    return singles[library]
 end
 
 -- The id of the call answering every result of `library` as a pack, or nil.
-function corelibrary.packed(library: string?): integer?
+export function packed(library: string?): integer?
     if library == nil then
         return nil
     end
 
-    return packed[library]
+    return packs[library]
 end
 
 -- The operation library function `library` stands for, or nil.
-function corelibrary.fileoperation(library: string?): corelibrary.FileOperation?
+export function operation(library: string?): Operation?
     if library == nil then
         return nil
     end
@@ -610,39 +630,41 @@ function corelibrary.fileoperation(library: string?): corelibrary.FileOperation?
 end
 
 -- The id of the call operation library function `library` rides.
-function corelibrary.operationcall(library: string): integer
-    local id = calls[library]
-    assert(id ~= nil, "no operation " .. library)
+export function opcall(library: string): integer
+    local found = calls[library]
+    assert(found ~= nil, "no operation " .. library)
 
-    return id
+    return found
 end
 
--- Whether call `id`'s operands may call a metamethod in its place.
-function corelibrary.meta(id: integer): boolean
-    return meta[id] == true
+-- Whether call `call`'s operands may call a metamethod in its place.
+export function meta(call: integer): boolean
+    return metas[call] == true
 end
 
--- The graph immediate of call `id`, in method form or not.
-function corelibrary.immediate(id: integer, method: boolean): integer
-    return method and id + corelibrary.METHOD_FORM or id
+-- The graph immediate of call `call`, in method form or not.
+export function immediate(call: integer, method: boolean): integer
+    return method and call + METHOD_FORM or call
 end
 
--- The id and the method form a graph immediate carries.
-function corelibrary.split(immediate: integer): (integer, boolean)
-    if immediate >= corelibrary.METHOD_FORM then
-        return immediate - corelibrary.METHOD_FORM, true
+-- The id and the method form a graph immediate `word` carries.
+export function split(word: integer): (integer, boolean)
+    if word >= METHOD_FORM then
+        return word - METHOD_FORM, true
     end
 
-    return immediate, false
+    return word, false
 end
 
 -- A copy of the subjects, for the generator.
-function corelibrary.subjects(): {corelibrary.Subject}
+export function subjects(): {Subject}
     local result = {}
-    for index, subject in ipairs(subjects) do
+    for index, subject in ipairs(subjectrows) do
         local calls = {}
         for at, entry in ipairs(subject.calls) do
-            calls[at] = {
+            calls[
+                at
+            ] = {
                 name = entry.name,
                 id = entry.id,
                 text = entry.text,
@@ -660,17 +682,14 @@ function corelibrary.subjects(): {corelibrary.Subject}
 end
 
 -- A copy of the file operation groups, for the generator.
-function corelibrary.operationgroups(): {corelibrary.OperationGroup}
+export function groups(): {Group}
     local result = {}
-    for index, group in ipairs(operationgroups) do
+    for index, group in ipairs(grouprows) do
         local operations, modules = {}, {}
-        for at, operation in ipairs(group.operations) do
-            operations[at] = {
-                name = operation.name,
-                library = operation.library,
-                operation = operation.operation,
-                arguments = operation.arguments
-            }
+        for at, row in ipairs(group.operations) do
+            operations[
+                at
+            ] = {name = row.name, library = row.library, operation = row.operation, arguments = row.arguments}
         end
         for at, name in ipairs(group.modules) do
             modules[at] = name
@@ -683,9 +702,9 @@ end
 
 -- The declaration modules whose calls are file operations, by module name,
 -- and the name a call of each is spelled with.
-function corelibrary.operationmodules(): {[string]: string}
+export function callmodules(): {[string]: string}
     local result = {}
-    for _, group in ipairs(operationgroups) do
+    for _, group in ipairs(grouprows) do
         for _, name in ipairs(group.modules) do
             result["nupp.runtime." .. name] = name
         end
@@ -693,5 +712,3 @@ function corelibrary.operationmodules(): {[string]: string}
 
     return result
 end
-
-export = corelibrary

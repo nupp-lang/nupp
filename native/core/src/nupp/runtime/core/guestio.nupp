@@ -241,7 +241,7 @@ local function numberText(ctx: voidptr, value: uint64): uint64
     @unsafe do
         local h = heapOf(ctx)
         local builder = state as strings.Builder*
-        if guestvalues.appendText(h, builder, value) ~= 0ULL then
+        if guestvalues.appendtext(h, builder, value) ~= 0ULL then
             strings.release(builder)
             error("not enough memory")
         end

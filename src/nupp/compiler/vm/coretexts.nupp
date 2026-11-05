@@ -7,16 +7,15 @@ module nupp.compiler.vm.coretexts
 -- (native/core/src/nupp/runtime/core/librarytexts.nupp) from this table, which
 -- the native units harness holds to exactly what the generator writes; a core
 -- library call's `text` (corelibrary) names one of these.
-local coretexts = {}
 
-type coretexts.Text = {
+export type Text = {
     name: string,
     id: integer,
     text: string
 }
 
 local texts: {
-    coretexts.Text
+    Text
 } = {
     {name = "TEXT_BAD", id = 1, text = "bad argument #"},
     {name = "TEXT_TO", id = 2, text = " to '"},
@@ -139,7 +138,7 @@ local texts: {
     {name = "TEXT_RESUME_TASK", id = 120, text = "cannot resume a scheduled coroutine"}
 }
 
-local byName: {[string]: coretexts.Text} = {}
+local byName: {[string]: Text} = {}
 
 -- Every id is one text's, and every name one id's.
 do
@@ -156,12 +155,12 @@ do
 end
 
 -- A text's id, by its name; an unknown name is an error.
-function coretexts.id(name: string): integer
+export function id(name: string): integer
     return assert(byName[name], "no core text " .. name).id
 end
 
 -- A copy of the texts, for the generator.
-function coretexts.all(): {coretexts.Text}
+export function all(): {Text}
     local result = {}
     for index, entry in ipairs(texts) do
         result[index] = {name = entry.name, id = entry.id, text = entry.text}
@@ -169,5 +168,3 @@ function coretexts.all(): {coretexts.Text}
 
     return result
 end
-
-export = coretexts

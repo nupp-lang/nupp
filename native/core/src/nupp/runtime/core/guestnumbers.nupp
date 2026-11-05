@@ -25,14 +25,14 @@ export function negate(ctx: voidptr, a: uint64): uint64
     if ints.isInteger(a) then
         return guestscope.integer(ctx, 0ULL - ints.bitsOf(a))
     end
-    local x = guestvalues.floatOf(a)
+    local x = guestvalues.floatof(a)
     if x == values.NIL then
         texts.faultError(ctx, guestscope.FAULT_ARITH, a, a)
     end
 
     -- Times -1.0 (its bits, since a leaf has no unary minus), as Lua negates.
 
-    return guestvalues.floatValue(native.bits(native.fromBits(x) * native.fromBits(0xbff0000000000000ULL)))
+    return guestvalues.floatvalue(native.bits(native.fromBits(x) * native.fromBits(0xbff0000000000000ULL)))
 end
 
 -- An integral float as the integer it equals when one does, else nil.
@@ -40,7 +40,7 @@ export function integral(ctx: voidptr, value: uint64): uint64
     if ints.isInteger(value) then
         return value
     end
-    if guestvalues.isFloat(value) and ints.integralFloat(value) then
+    if guestvalues.isfloat(value) and ints.integralFloat(value) then
         return guestscope.integer(ctx, ints.floatToBits(value))
     end
 
@@ -49,7 +49,7 @@ end
 
 -- math.abs: integers wrap at the minimum, as Lua's do.
 export function mathAbs(ctx: voidptr, a: uint64): uint64
-    guestvalues.numberArgument(ctx, a, 1ULL)
+    guestvalues.numarg(ctx, a, 1ULL)
     if ints.isInteger(a) then
         local bits = ints.bitsOf(a)
         if bits >> 63ULL == 1ULL then
@@ -58,17 +58,17 @@ export function mathAbs(ctx: voidptr, a: uint64): uint64
         return a
     end
 
-    return guestvalues.floatValue(a & 0x7fffffffffffffffULL)
+    return guestvalues.floatvalue(a & 0x7fffffffffffffffULL)
 end
 
 -- math.ceil: an integer when the result fits one, else the float.
 export function mathCeil(ctx: voidptr, a: uint64): uint64
-    guestvalues.numberArgument(ctx, a, 1ULL)
+    guestvalues.numarg(ctx, a, 1ULL)
     if ints.isInteger(a) then
         return a
     end
     local minusOne = native.fromBits(0xbff0000000000000ULL)
-    local ceiled = guestvalues.floatValue(native.bits(native.floor(native.fromBits(a) * minusOne) * minusOne))
+    local ceiled = guestvalues.floatvalue(native.bits(native.floor(native.fromBits(a) * minusOne) * minusOne))
     local exact = integral(ctx, ceiled)
     if exact ~= values.NIL then
         return exact
@@ -83,7 +83,7 @@ local function numberLess(a: uint64, b: uint64): boolean
         return native.index(ints.bitsOf(a)) < native.index(ints.bitsOf(b))
     end
 
-    return native.fromBits(guestvalues.floatOf(a)) < native.fromBits(guestvalues.floatOf(b))
+    return native.fromBits(guestvalues.floatof(a)) < native.fromBits(guestvalues.floatof(b))
 end
 
 -- math.max and math.min over one to four numbers: the first extreme one, as
@@ -100,7 +100,7 @@ export function mathExtreme(
     if count == 0ULL then
         texts.argumentError(ctx, 1ULL, librarytexts.TEXT_NUMBER, 0ULL, values.NIL)
     end
-    local best = guestvalues.numberArgument(ctx, a, 1ULL)
+    local best = guestvalues.numarg(ctx, a, 1ULL)
     local i: uint64 = 2ULL
     while i <= count do
         local next = b
@@ -109,7 +109,7 @@ export function mathExtreme(
         elseif i == 4ULL then
             next = d
         end
-        guestvalues.numberArgument(ctx, next, i)
+        guestvalues.numarg(ctx, next, i)
         if largest and numberLess(best, next) or not largest and numberLess(next, best) then
             best = next
         end
@@ -123,10 +123,10 @@ end
 export function mathType(ctx: voidptr, a: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        if not ints.isInteger(a) and not guestvalues.isFloat(a) then
+        if not ints.isInteger(a) and not guestvalues.isfloat(a) then
             return values.NIL
         end
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local builder = state as strings.Builder*
         local refused: uint64 = 0ULL
         if ints.isInteger(a) then
@@ -146,13 +146,13 @@ end
 
 -- Lua's /: always float.
 export function divide(ctx: voidptr, a: uint64, b: uint64): uint64
-    local x = guestvalues.floatOf(a)
-    local y = guestvalues.floatOf(b)
+    local x = guestvalues.floatof(a)
+    local y = guestvalues.floatof(b)
     if x == values.NIL or y == values.NIL then
         texts.faultError(ctx, guestscope.FAULT_ARITH, a, b)
     end
 
-    return guestvalues.floatValue(native.bits(native.fromBits(x) / native.fromBits(y)))
+    return guestvalues.floatvalue(native.bits(native.fromBits(x) / native.fromBits(y)))
 end
 
 -- Lua's //: floor division, integer for integers (raising for zero) and
@@ -169,13 +169,13 @@ export function floorDivide(ctx: voidptr, a: uint64, b: uint64): uint64
         end
         return guestscope.integer(ctx, native.word(x // y))
     end
-    local x = guestvalues.floatOf(a)
-    local y = guestvalues.floatOf(b)
+    local x = guestvalues.floatof(a)
+    local y = guestvalues.floatof(b)
     if x == values.NIL or y == values.NIL then
         texts.faultError(ctx, guestscope.FAULT_ARITH, a, b)
     end
 
-    return guestvalues.floatValue(native.bits(native.floor(native.fromBits(x) / native.fromBits(y))))
+    return guestvalues.floatvalue(native.bits(native.floor(native.fromBits(x) / native.fromBits(y))))
 end
 
 local function space(c: uint64): boolean
@@ -200,7 +200,7 @@ end
 -- included, is read as a float by C's strtod through the host.
 export function tonumber(ctx: voidptr, value: uint64): uint64
     local cell = new strings.Builder(0ULL, 0ULL, 0ULL)
-    if ints.isInteger(value) or guestvalues.floatOf(value) ~= values.NIL then
+    if ints.isInteger(value) or guestvalues.floatof(value) ~= values.NIL then
         return value
     end
     local s = strings.header(value)
@@ -262,7 +262,7 @@ export function tonumber(ctx: voidptr, value: uint64): uint64
             if negative then
                 bits = 0ULL - bits
             end
-            return ints.make(guestvalues.guestHeap(ctx), bits)
+            return ints.make(guestvalues.guestheap(ctx), bits)
         end
         -- Otherwise a float numeral by C's strtod, as Lua's l_str2d reads one;
         -- like it, text holding an n or N (inf, nan) is refused first.
@@ -275,7 +275,7 @@ export function tonumber(ctx: voidptr, value: uint64): uint64
         end
         -- The bits land in a builder's word backing.
         local slot = cell as strings.Builder*
-        if strings.reserve(guestvalues.guestHeap(ctx), slot, 8ULL) ~= 0ULL then
+        if strings.reserve(guestvalues.guestheap(ctx), slot, 8ULL) ~= 0ULL then
             error("not enough memory")
         end
         local parsed = os.parseNumber(native.pointer(strings.bytes(s)), strings.length(s), native.pointer(slot.base))
@@ -285,7 +285,7 @@ export function tonumber(ctx: voidptr, value: uint64): uint64
             return values.NIL
         end
 
-        return guestvalues.floatValue(bits)
+        return guestvalues.floatvalue(bits)
     end
 end
 
@@ -305,12 +305,12 @@ const C_FMOD: uint64 = 11ULL
 
 -- C's math function `op` of the numbers a and b, as a float.
 export function hostMath(op: uint64, a: uint64, b: uint64): uint64
-    return guestvalues.floatValue(os.mathFunction(op, guestvalues.floatOf(a), guestvalues.floatOf(b)))
+    return guestvalues.floatvalue(os.mathFunction(op, guestvalues.floatof(a), guestvalues.floatof(b)))
 end
 
 -- a ^ b: always a float, by C's pow.
 export function power(ctx: voidptr, a: uint64, b: uint64): uint64
-    if guestvalues.floatOf(a) == values.NIL or guestvalues.floatOf(b) == values.NIL then
+    if guestvalues.floatof(a) == values.NIL or guestvalues.floatof(b) == values.NIL then
         texts.faultError(ctx, guestscope.FAULT_ARITH, a, b)
     end
 
@@ -320,28 +320,28 @@ end
 -- math.log(x [, base]): base 2 and 10 by their own functions, any other as
 -- a quotient of natural logarithms.
 export function mathLog(ctx: voidptr, count: uint64, x: uint64, base: uint64): uint64
-    local value = guestvalues.numberArgument(ctx, x, 1ULL)
+    local value = guestvalues.numarg(ctx, x, 1ULL)
     if count < 2ULL then
         return hostMath(C_LOG, value, value)
     end
     -- 2.0 and 10.0 by their bits.
-    local b = guestvalues.floatOf(guestvalues.numberArgument(ctx, base, 2ULL))
+    local b = guestvalues.floatof(guestvalues.numarg(ctx, base, 2ULL))
     if b == 0x4000000000000000ULL then
         return hostMath(C_LOG2, value, value)
     elseif b == 0x4024000000000000ULL then
         return hostMath(C_LOG10, value, value)
     end
-    local numerator = native.fromBits(os.mathFunction(C_LOG, guestvalues.floatOf(value), 0ULL))
-    local denominator = native.fromBits(os.mathFunction(C_LOG, guestvalues.floatOf(base), 0ULL))
+    local numerator = native.fromBits(os.mathFunction(C_LOG, guestvalues.floatof(value), 0ULL))
+    local denominator = native.fromBits(os.mathFunction(C_LOG, guestvalues.floatof(base), 0ULL))
 
-    return guestvalues.floatValue(native.bits(numerator / denominator))
+    return guestvalues.floatvalue(native.bits(numerator / denominator))
 end
 
 -- math.fmod(a, b): for integers, the remainder of truncated division (an
 -- error for zero); otherwise C's fmod.
 export function mathFmod(ctx: voidptr, a: uint64, b: uint64): uint64
-    local x = guestvalues.numberArgument(ctx, a, 1ULL)
-    local y = guestvalues.numberArgument(ctx, b, 2ULL)
+    local x = guestvalues.numarg(ctx, a, 1ULL)
+    local y = guestvalues.numarg(ctx, b, 2ULL)
     if ints.isInteger(x) and ints.isInteger(y) then
         local n = ints.bitsOf(x)
         local d = ints.bitsOf(y)
@@ -453,18 +453,18 @@ export function mathRandom(ctx: voidptr, count: uint64, a: uint64, b: uint64): u
     local rv = nextRandom(s)
     if count == 0ULL then
         local scaled = native.fromBits(ints.toFloatBits(rv >> 11ULL)) * native.fromBits(0x3ca0000000000000ULL)
-        return guestvalues.floatValue(native.bits(scaled))
+        return guestvalues.floatvalue(native.bits(scaled))
     end
     local low: int64 = 1
     local up: int64 = 0
     if count == 1ULL then
-        up = guestvalues.integerArgument(ctx, a, 0, 1ULL)
+        up = guestvalues.intarg(ctx, a, 0, 1ULL)
         if up == 0 then
             return guestscope.integer(ctx, rv)
         end
     else
-        low = guestvalues.integerArgument(ctx, a, 0, 1ULL)
-        up = guestvalues.integerArgument(ctx, b, 0, 2ULL)
+        low = guestvalues.intarg(ctx, a, 0, 1ULL)
+        up = guestvalues.intarg(ctx, b, 0, 2ULL)
     end
     if low > up then
         texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_EMPTY_INTERVAL, a)
@@ -482,8 +482,8 @@ export function mathRandomseed(ctx: voidptr, count: uint64, a: uint64, b: uint64
         n1 = os.randomSeed()
         n2 = nextRandom(randomState(ctx))
     else
-        n1 = native.word(guestvalues.integerArgument(ctx, a, 0, 1ULL))
-        n2 = native.word(guestvalues.integerArgument(ctx, b, 0, 2ULL))
+        n1 = native.word(guestvalues.intarg(ctx, a, 0, 1ULL))
+        n2 = native.word(guestvalues.intarg(ctx, b, 0, 2ULL))
     end
     seedRandom(randomBase(ctx), n1, n2)
 
@@ -530,7 +530,7 @@ export function tonumberbase(ctx: voidptr, value: uint64, base: uint64): uint64
         return tonumber(ctx, value)
     end
     guestscope.nameLibrary(ctx, librarytexts.NAME_TONUMBER)
-    local radix = native.word(guestvalues.integerArgument(ctx, base, 0, 2ULL))
+    local radix = native.word(guestvalues.intarg(ctx, base, 0, 2ULL))
     local s = strings.header(value)
     if s == 0ULL then
         texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, value)
@@ -658,12 +658,12 @@ end
 -- math.i32.wrap) of `a`.
 export function widthcall(ctx: voidptr, id: uint64, a: uint64): uint64
     if id == librarycalls.MATH_F32_NARROW then
-        return guestvalues.floatValue(corestorage.narrow(guestvalues.floatOf(guestvalues.numberArgument(ctx, a, 1ULL))))
+        return guestvalues.floatvalue(corestorage.narrow(guestvalues.floatof(guestvalues.numarg(ctx, a, 1ULL))))
     end
     if a == values.NIL then
         texts.argumentError(ctx, 1ULL, librarytexts.TEXT_NUMBER, 0ULL, a)
     end
-    local low = native.word(guestvalues.integerArgument(ctx, a, 0, 1ULL)) & 0xffffffffULL
+    local low = native.word(guestvalues.intarg(ctx, a, 0, 1ULL)) & 0xffffffffULL
     if id == librarycalls.MATH_I32_WRAP and low >= 0x80000000ULL then
         low = low | 0xffffffff00000000ULL
     end

@@ -102,7 +102,7 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     local pieceState = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local f = strings.header(fmt)
         if f == 0ULL then
             texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, fmt)
@@ -192,7 +192,7 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
                 local prefix: uint64 = 0ULL
                 local numeric = true
                 if directive == 100ULL or directive == 105ULL then
-                    local n = guestvalues.integerArgument(ctx, argument, 0, next)
+                    local n = guestvalues.intarg(ctx, argument, 0, next)
                     local magnitude = native.word(n)
                     if n < 0 then
                         refused = refused | strings.appendWord(h, piece, 45ULL, 1ULL)
@@ -211,7 +211,7 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
                     end
                     refused = refused | appendRadix(h, piece, magnitude, 10ULL, false, digits)
                 elseif directive == 120ULL or directive == 88ULL or directive == 111ULL then
-                    local n = native.word(guestvalues.integerArgument(ctx, argument, 0, next))
+                    local n = native.word(guestvalues.intarg(ctx, argument, 0, next))
                     local radix: uint64 = 16ULL
                     if directive == 111ULL then
                         radix = 8ULL
@@ -244,7 +244,7 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
                 then
                     -- A float conversion is C's: its spec, rebuilt from what was
                     -- read, goes to the host with the number, which pads it too.
-                    local bits = guestvalues.floatOf(argument)
+                    local bits = guestvalues.floatof(argument)
                     if bits == values.NIL then
                         strings.release(builder)
                         strings.release(piece)
@@ -295,12 +295,12 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
                         | strings.appendWord(
                             h,
                             piece,
-                            native.word(guestvalues.integerArgument(ctx, argument, 0, next)) & 255ULL,
+                            native.word(guestvalues.intarg(ctx, argument, 0, next)) & 255ULL,
                             1ULL
                         )
                 elseif directive == 115ULL then
                     numeric = false
-                    refused = refused | guestvalues.appendText(h, piece, argument)
+                    refused = refused | guestvalues.appendtext(h, piece, argument)
                     if precise and piece.length > precision then
                         piece.length = precision
                     end
@@ -324,7 +324,7 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
                         else
                             refused = refused | strings.appendInteger(h, piece, native.index(n))
                         end
-                    elseif guestvalues.floatOf(argument) ~= values.NIL then
+                    elseif guestvalues.floatof(argument) ~= values.NIL then
                         -- Hexadecimal, which reads back exactly; infinities
                         -- and NaN as the expressions that make them.
                         local x = native.fromBits(argument)
@@ -353,7 +353,7 @@ export function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: u
                             end
                         end
                     elseif argument == values.NIL or argument == values.TRUE or argument == values.FALSE then
-                        refused = refused | guestvalues.appendText(h, piece, argument)
+                        refused = refused | guestvalues.appendtext(h, piece, argument)
                     else
                         strings.release(builder)
                         strings.release(piece)
@@ -406,7 +406,7 @@ end
 export function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
     local ms0 = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     @unsafe do
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local state = stateValue & values.PAYLOAD
         local s = strings.header(tables.get(state, values.TAG_INTEGER | librarylayouts.GMATCH_SUBJECT))
         local p = strings.header(tables.get(state, values.TAG_INTEGER | librarylayouts.GMATCH_PATTERN))
@@ -414,7 +414,7 @@ export function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
             error("bad argument to 'gmatch' (string expected)")
         end
         local src = native.word(
-            guestvalues.integerValue(tables.get(state, values.TAG_INTEGER | librarylayouts.GMATCH_SOURCE))
+            guestvalues.intvalue(tables.get(state, values.TAG_INTEGER | librarylayouts.GMATCH_SOURCE))
         )
         local last = tables.get(state, values.TAG_INTEGER | librarylayouts.GMATCH_LAST)
         local ms = ms0 as patterns.MatchState*
@@ -429,7 +429,7 @@ export function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
         local answer = values.FALSE
         while at <= finish do
             local e = patterns.match(h, ms, at, pattern)
-            if e ~= 0ULL and (last == values.NIL or e ~= subject + native.word(guestvalues.integerValue(last))) then
+            if e ~= 0ULL and (last == values.NIL or e ~= subject + native.word(guestvalues.intvalue(last))) then
                 tables.set(
                     h,
                     state,
@@ -485,15 +485,15 @@ end
 export function concat2(ctx: voidptr, a: uint64, b: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local builder = state as strings.Builder*
         if strings.header(a) == 0ULL and not ints.isInteger(a)
             or strings.header(b) == 0ULL and not ints.isInteger(b)
         then
             error("attempt to concatenate a value the core cannot yet convert")
         end
-        guestvalues.appendText(h, builder, a)
-        guestvalues.appendText(h, builder, b)
+        guestvalues.appendtext(h, builder, a)
+        guestvalues.appendtext(h, builder, b)
         return values.TAG_OBJ | strings.finish(h, builder)
     end
 end
@@ -527,10 +527,10 @@ end
 -- string.sub(s, i [, j]).
 export function sub(ctx: voidptr, value: uint64, a: uint64, b: uint64): uint64
     @unsafe do
-        local s = guestvalues.stringArgument(ctx, value, 1ULL)
+        local s = guestvalues.strarg(ctx, value, 1ULL)
         local length = native.index(strings.length(s))
-        local i = startPosition(guestvalues.integerArgument(ctx, a, 1, 2ULL), length)
-        local j = endPosition(guestvalues.integerArgument(ctx, b, -1, 3ULL), length)
+        local i = startPosition(guestvalues.intarg(ctx, a, 1, 2ULL), length)
+        local j = endPosition(guestvalues.intarg(ctx, b, -1, 3ULL), length)
         if i > j then
             return values.TAG_OBJ | guestscope.makeString(ctx, strings.bytes(s), 0ULL)
         end
@@ -549,11 +549,11 @@ export function bytes(ctx: voidptr, value: uint64, a: uint64, b: uint64, all: bo
             pack = guestscope.newTable(ctx)
             guestscope.hold(ctx, values.TAG_OBJ | pack)
         end
-        local h = guestvalues.guestHeap(ctx)
-        local s = guestvalues.stringArgument(ctx, value, 1ULL)
+        local h = guestvalues.guestheap(ctx)
+        local s = guestvalues.strarg(ctx, value, 1ULL)
         local length = native.index(strings.length(s))
-        local i = startPosition(guestvalues.integerArgument(ctx, a, 1, 2ULL), length)
-        local j = endPosition(guestvalues.integerArgument(ctx, b, i, 3ULL), length)
+        local i = startPosition(guestvalues.intarg(ctx, a, 1, 2ULL), length)
+        local j = endPosition(guestvalues.intarg(ctx, b, i, 3ULL), length)
         if i > j then
             return guestvalues.packed(h, pack, 0ULL, values.NIL)
         end
@@ -564,7 +564,7 @@ export function bytes(ctx: voidptr, value: uint64, a: uint64, b: uint64, all: bo
         end
         local k = i
         while k <= j do
-            guestvalues.packPut(
+            guestvalues.packput(
                 h,
                 pack,
                 native.word(k - i + 1),
@@ -581,11 +581,11 @@ end
 export function char(ctx: voidptr, a: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        local n = guestvalues.integerArgument(ctx, a, -1, 1ULL)
+        local n = guestvalues.intarg(ctx, a, -1, 1ULL)
         if n < 0 or n > 255 then
             texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_VALUE_RANGE, a)
         end
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local builder = state as strings.Builder*
         if strings.appendWord(h, builder, native.word(n), 1ULL) ~= 0ULL then
             strings.release(builder)
@@ -599,14 +599,14 @@ end
 export function rep(ctx: voidptr, value: uint64, a: uint64, separator: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        local s = guestvalues.stringArgument(ctx, value, 1ULL)
-        local n = guestvalues.integerArgument(ctx, a, 0, 2ULL)
+        local s = guestvalues.strarg(ctx, value, 1ULL)
+        local n = guestvalues.intarg(ctx, a, 0, 2ULL)
         -- The separator goes between copies.
         local sep: uint64 = 0ULL
         if separator ~= values.NIL then
-            sep = guestvalues.stringArgument(ctx, separator, 3ULL)
+            sep = guestvalues.strarg(ctx, separator, 3ULL)
         end
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local builder = state as strings.Builder*
         local each = strings.length(s)
         if sep ~= 0ULL then
@@ -635,8 +635,8 @@ end
 export function reverse(ctx: voidptr, value: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        local s = guestvalues.stringArgument(ctx, value, 1ULL)
-        local h = guestvalues.guestHeap(ctx)
+        local s = guestvalues.strarg(ctx, value, 1ULL)
+        local h = guestvalues.guestheap(ctx)
         local builder = state as strings.Builder*
         local at = strings.bytes(s)
         local i = strings.length(s)
@@ -660,8 +660,8 @@ end
 export function casing(ctx: voidptr, value: uint64, upper: boolean): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        local s = guestvalues.stringArgument(ctx, value, 1ULL)
-        local h = guestvalues.guestHeap(ctx)
+        local s = guestvalues.strarg(ctx, value, 1ULL)
+        local h = guestvalues.guestheap(ctx)
         local builder = state as strings.Builder*
         if strings.appendString(h, builder, s) ~= 0ULL then
             strings.release(builder)
@@ -732,11 +732,11 @@ export function search(
             pack = guestscope.newTable(ctx)
             guestscope.hold(ctx, values.TAG_OBJ | pack)
         end
-        local h = guestvalues.guestHeap(ctx)
-        local s = guestvalues.stringArgument(ctx, value, 1ULL)
-        local p = guestvalues.stringArgument(ctx, pv, 2ULL)
+        local h = guestvalues.guestheap(ctx)
+        local s = guestvalues.strarg(ctx, value, 1ULL)
+        local p = guestvalues.strarg(ctx, pv, 2ULL)
         local length = native.index(strings.length(s))
-        local init = startPosition(guestvalues.integerArgument(ctx, a, 1, 3ULL), length)
+        local init = startPosition(guestvalues.intarg(ctx, a, 1, 3ULL), length)
         if init > length + 1 then
             return guestvalues.packed(h, pack, 1ULL, values.NIL)
         end
@@ -760,8 +760,8 @@ export function search(
                 if k == strings.length(p) then
                     local start = values.TAG_INTEGER | (at - subject + 1ULL)
                     if pack ~= 0ULL then
-                        guestvalues.packPut(h, pack, 1ULL, start)
-                        guestvalues.packPut(h, pack, 2ULL, values.TAG_INTEGER | (at - subject + strings.length(p)))
+                        guestvalues.packput(h, pack, 1ULL, start)
+                        guestvalues.packput(h, pack, 2ULL, values.TAG_INTEGER | (at - subject + strings.length(p)))
                     end
                     return guestvalues.packed(h, pack, 2ULL, start)
                 end
@@ -788,17 +788,17 @@ export function search(
                 if pack ~= 0ULL then
                     n = 0ULL
                     if not matching then
-                        guestvalues.packPut(h, pack, 1ULL, values.TAG_INTEGER | (at - subject + 1ULL))
-                        guestvalues.packPut(h, pack, 2ULL, values.TAG_INTEGER | (e - subject))
+                        guestvalues.packput(h, pack, 1ULL, values.TAG_INTEGER | (at - subject + 1ULL))
+                        guestvalues.packput(h, pack, 2ULL, values.TAG_INTEGER | (e - subject))
                         n = 2ULL
                     elseif patterns.level(ms) == 0ULL then
-                        guestvalues.packPut(h, pack, 1ULL, values.TAG_OBJ | strings.make(h, at, e - at))
+                        guestvalues.packput(h, pack, 1ULL, values.TAG_OBJ | strings.make(h, at, e - at))
                         n = 1ULL
                     end
                     local i: uint64 = 0ULL
                     while i < patterns.level(ms) do
                         n = n + 1ULL
-                        guestvalues.packPut(h, pack, n, capture(h, ms, subject, i))
+                        guestvalues.packput(h, pack, n, capture(h, ms, subject, i))
                         i = i + 1ULL
                     end
                 elseif not matching then
@@ -832,7 +832,7 @@ local function replacementCapture(
     at: uint64,
     e: uint64
 ): uint64
-    local h = guestvalues.guestHeap(ctx)
+    local h = guestvalues.guestheap(ctx)
     if l >= patterns.level(ms) then
         if l ~= 0ULL then
             texts.indexedError(ctx, librarytexts.TEXT_CAPTURE_INDEX, native.index(l + 1ULL), 0ULL)
@@ -862,8 +862,8 @@ local function appendReplacement(
     e: uint64
 ): uint64
     @unsafe do
-        local h = guestvalues.guestHeap(ctx)
-        if guestvalues.objectKind(replValue) == heap.KIND_TABLE then
+        local h = guestvalues.guestheap(ctx)
+        if guestvalues.objkind(replValue) == heap.KIND_TABLE then
             local key = replacementCapture(ctx, ms, subject, 0ULL, at, e)
             local value = tables.lookup(h, replValue & values.PAYLOAD, key)
             if value == values.NIL or value == values.FALSE then
@@ -872,7 +872,7 @@ local function appendReplacement(
             if strings.header(value) == 0ULL and not ints.isInteger(value) and value & values.QNAN == values.QNAN then
                 texts.replacementError(ctx, value)
             end
-            return guestvalues.appendText(h, b, value)
+            return guestvalues.appendtext(h, b, value)
         end
         local repl = strings.header(replValue)
         local r = strings.bytes(repl)
@@ -899,7 +899,7 @@ local function appendReplacement(
                         return 1ULL
                     end
                 elseif d >= 49ULL and d <= 57ULL then
-                    if guestvalues.appendText(h, b, replacementCapture(ctx, ms, subject, d - 49ULL, at, e)) ~= 0ULL then
+                    if guestvalues.appendtext(h, b, replacementCapture(ctx, ms, subject, d - 49ULL, at, e)) ~= 0ULL then
                         return 1ULL
                     end
                 else
@@ -924,12 +924,12 @@ export function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64,
             pack = guestscope.newTable(ctx)
             guestscope.hold(ctx, values.TAG_OBJ | pack)
         end
-        local h = guestvalues.guestHeap(ctx)
-        local s = guestvalues.stringArgument(ctx, value, 1ULL)
-        local p = guestvalues.stringArgument(ctx, pv, 2ULL)
+        local h = guestvalues.guestheap(ctx)
+        local s = guestvalues.strarg(ctx, value, 1ULL)
+        local p = guestvalues.strarg(ctx, pv, 2ULL)
         -- A number replacement is its text; a table is read per match.
         local repl = replValue
-        local kind = guestvalues.objectKind(replValue)
+        local kind = guestvalues.objkind(replValue)
         if strings.header(replValue) ~= 0ULL or ints.isInteger(replValue) or replValue & values.QNAN ~= values.QNAN then
             repl = guestvalues.tostring(ctx, replValue)
         elseif kind == heap.KIND_TABLE then
@@ -940,7 +940,7 @@ export function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64,
             texts.argumentError(ctx, 3ULL, librarytexts.TEXT_REPLACEMENT_KINDS, 0ULL, replValue)
         end
         local length = native.index(strings.length(s))
-        local limit = guestvalues.integerArgument(ctx, maxValue, length + 1, 4ULL)
+        local limit = guestvalues.intarg(ctx, maxValue, length + 1, 4ULL)
         local subject = strings.bytes(s)
         local pattern = strings.bytes(p)
         local pEnd = pattern + strings.length(p)
@@ -984,8 +984,8 @@ export function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64,
         end
         local result = values.TAG_OBJ | strings.finish(h, builder)
         if pack ~= 0ULL then
-            guestvalues.packPut(h, pack, 1ULL, result)
-            guestvalues.packPut(h, pack, 2ULL, values.TAG_INTEGER | native.word(n))
+            guestvalues.packput(h, pack, 1ULL, result)
+            guestvalues.packput(h, pack, 2ULL, values.TAG_INTEGER | native.word(n))
         end
         tables.drain(h)
 
@@ -999,46 +999,46 @@ local function gsubPiece(h: heap.Heap*, st: uint64, subject: uint64, from: int64
         if to <= from then
             return
         end
-        local count = guestvalues.sortGet(st, librarylayouts.GSUB_COUNT) + 1
+        local count = guestvalues.stateget(st, librarylayouts.GSUB_COUNT) + 1
         local piece = strings.make(h, subject + native.word(from), native.word(to - from))
-        guestvalues.storeAt(
+        guestvalues.storeat(
             h,
-            guestvalues.loadAt(st, librarylayouts.GSUB_PIECES) & values.PAYLOAD,
+            guestvalues.loadat(st, librarylayouts.GSUB_PIECES) & values.PAYLOAD,
             count,
             values.TAG_OBJ | piece
         )
-        guestvalues.sortPut(h, st, librarylayouts.GSUB_COUNT, count)
+        guestvalues.stateput(h, st, librarylayouts.GSUB_COUNT, count)
     end
 end
 
 -- gsub(s, p, f [, n])'s state, before its first match.
 export function gsubBegin(ctx: voidptr, value: uint64, pv: uint64, fn: uint64, maxValue: uint64): uint64
     @unsafe do
-        local s = guestvalues.stringArgument(ctx, value, 1ULL)
-        local p = guestvalues.stringArgument(ctx, pv, 2ULL)
-        local limit = guestvalues.integerArgument(ctx, maxValue, native.index(strings.length(s)) + 1, 4ULL)
+        local s = guestvalues.strarg(ctx, value, 1ULL)
+        local p = guestvalues.strarg(ctx, pv, 2ULL)
+        local limit = guestvalues.intarg(ctx, maxValue, native.index(strings.length(s)) + 1, 4ULL)
         local state = guestscope.newTable(ctx)
         -- The state is held while the pieces table is made.
         guestscope.hold(ctx, values.TAG_OBJ | state)
         local pieces = guestscope.newTable(ctx)
-        local h = guestvalues.guestHeap(ctx)
-        guestvalues.storeAt(h, state, librarylayouts.GSUB_SUBJECT, value)
-        guestvalues.storeAt(h, state, librarylayouts.GSUB_PATTERN, pv)
-        guestvalues.storeAt(h, state, librarylayouts.GSUB_FUNCTION, fn)
-        guestvalues.storeAt(h, state, librarylayouts.GSUB_PIECES, values.TAG_OBJ | pieces)
-        guestvalues.sortPut(h, state, librarylayouts.GSUB_SRC, 0)
-        guestvalues.sortPut(h, state, librarylayouts.GSUB_LAST, 0)
-        guestvalues.sortPut(h, state, librarylayouts.GSUB_N, 0)
-        guestvalues.sortPut(h, state, librarylayouts.GSUB_LIMIT, 0)
+        local h = guestvalues.guestheap(ctx)
+        guestvalues.storeat(h, state, librarylayouts.GSUB_SUBJECT, value)
+        guestvalues.storeat(h, state, librarylayouts.GSUB_PATTERN, pv)
+        guestvalues.storeat(h, state, librarylayouts.GSUB_FUNCTION, fn)
+        guestvalues.storeat(h, state, librarylayouts.GSUB_PIECES, values.TAG_OBJ | pieces)
+        guestvalues.stateput(h, state, librarylayouts.GSUB_SRC, 0)
+        guestvalues.stateput(h, state, librarylayouts.GSUB_LAST, 0)
+        guestvalues.stateput(h, state, librarylayouts.GSUB_N, 0)
+        guestvalues.stateput(h, state, librarylayouts.GSUB_LIMIT, 0)
         if limit > 0 then
-            guestvalues.sortPut(h, state, librarylayouts.GSUB_LIMIT, limit)
+            guestvalues.stateput(h, state, librarylayouts.GSUB_LIMIT, limit)
         end
-        guestvalues.sortPut(h, state, librarylayouts.GSUB_PENDING, guestvalues.RUNNING)
+        guestvalues.stateput(h, state, librarylayouts.GSUB_PENDING, guestvalues.RUNNING)
         local anchor = strings.length(p) > 0ULL
             and native.word(native.load8(native.pointer(strings.bytes(p)), 0)) == 94ULL
-        guestvalues.sortPut(h, state, librarylayouts.GSUB_ANCHOR, native.index(native.asWord(anchor)))
-        guestvalues.sortPut(h, state, librarylayouts.GSUB_COPY, 0)
-        guestvalues.sortPut(h, state, librarylayouts.GSUB_COUNT, 0)
+        guestvalues.stateput(h, state, librarylayouts.GSUB_ANCHOR, native.index(native.asWord(anchor)))
+        guestvalues.stateput(h, state, librarylayouts.GSUB_COPY, 0)
+        guestvalues.stateput(h, state, librarylayouts.GSUB_COUNT, 0)
         tables.drain(h)
         return values.TAG_OBJ | state
     end
@@ -1050,45 +1050,45 @@ end
 export function gsubStep(ctx: voidptr, value: uint64): uint64
     local ms0 = new patterns.MatchState(0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL, 0ULL)
     @unsafe do
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local st = value & values.PAYLOAD
-        local pending = guestvalues.sortGet(st, librarylayouts.GSUB_PENDING)
+        local pending = guestvalues.stateget(st, librarylayouts.GSUB_PENDING)
         if pending == guestvalues.FINISHED then
             return values.FALSE
         end
-        local s = strings.header(guestvalues.loadAt(st, librarylayouts.GSUB_SUBJECT))
-        local p = strings.header(guestvalues.loadAt(st, librarylayouts.GSUB_PATTERN))
+        local s = strings.header(guestvalues.loadat(st, librarylayouts.GSUB_SUBJECT))
+        local p = strings.header(guestvalues.loadat(st, librarylayouts.GSUB_PATTERN))
         local subject = strings.bytes(s)
         local length = native.index(strings.length(s))
-        local anchor = guestvalues.sortGet(st, librarylayouts.GSUB_ANCHOR) == 1
-        local src = guestvalues.sortGet(st, librarylayouts.GSUB_SRC)
-        local last = guestvalues.sortGet(st, librarylayouts.GSUB_LAST)
+        local anchor = guestvalues.stateget(st, librarylayouts.GSUB_ANCHOR) == 1
+        local src = guestvalues.stateget(st, librarylayouts.GSUB_SRC)
+        local last = guestvalues.stateget(st, librarylayouts.GSUB_LAST)
         local finished = false
         if pending == guestvalues.WAITING then
             -- The function's answer replaces the match: false or nil keeps it,
             -- a string or number is its text.
-            local at = guestvalues.sortGet(st, librarylayouts.GSUB_AT)
-            local e = guestvalues.sortGet(st, librarylayouts.GSUB_END)
-            gsubPiece(h, st, subject, guestvalues.sortGet(st, librarylayouts.GSUB_COPY), at)
-            local answer = guestvalues.loadAt(st, librarylayouts.GSUB_ANSWER)
+            local at = guestvalues.stateget(st, librarylayouts.GSUB_AT)
+            local e = guestvalues.stateget(st, librarylayouts.GSUB_END)
+            gsubPiece(h, st, subject, guestvalues.stateget(st, librarylayouts.GSUB_COPY), at)
+            local answer = guestvalues.loadat(st, librarylayouts.GSUB_ANSWER)
             if answer == values.NIL or answer == values.FALSE then
                 gsubPiece(h, st, subject, at, e)
-            elseif strings.header(answer) ~= 0ULL or ints.isInteger(answer) or guestvalues.isFloat(answer) then
+            elseif strings.header(answer) ~= 0ULL or ints.isInteger(answer) or guestvalues.isfloat(answer) then
                 local text = answer
                 if strings.header(answer) == 0ULL then
                     text = guestvalues.tostring(ctx, answer)
                 end
-                local count = guestvalues.sortGet(st, librarylayouts.GSUB_COUNT) + 1
-                guestvalues.storeAt(h, guestvalues.loadAt(st, librarylayouts.GSUB_PIECES) & values.PAYLOAD, count, text)
-                guestvalues.sortPut(h, st, librarylayouts.GSUB_COUNT, count)
-            elseif guestvalues.objectKind(answer) == heap.KIND_TABLE then
+                local count = guestvalues.stateget(st, librarylayouts.GSUB_COUNT) + 1
+                guestvalues.storeat(h, guestvalues.loadat(st, librarylayouts.GSUB_PIECES) & values.PAYLOAD, count, text)
+                guestvalues.stateput(h, st, librarylayouts.GSUB_COUNT, count)
+            elseif guestvalues.objkind(answer) == heap.KIND_TABLE then
                 texts.replacementError(ctx, answer)
-            elseif guestvalues.objectKind(answer) == heap.KIND_CLOSURE then
+            elseif guestvalues.objkind(answer) == heap.KIND_CLOSURE then
                 texts.replacementError(ctx, answer)
             else
                 texts.replacementError(ctx, answer)
             end
-            guestvalues.sortPut(h, st, librarylayouts.GSUB_COPY, e)
+            guestvalues.stateput(h, st, librarylayouts.GSUB_COPY, e)
             src = e
             last = e + 1
             finished = anchor
@@ -1104,8 +1104,8 @@ export function gsubStep(ctx: voidptr, value: uint64): uint64
                 patterns.release(ms)
                 error("not enough memory")
             end
-            local n = guestvalues.sortGet(st, librarylayouts.GSUB_N)
-            local limit = guestvalues.sortGet(st, librarylayouts.GSUB_LIMIT)
+            local n = guestvalues.stateget(st, librarylayouts.GSUB_N)
+            local limit = guestvalues.stateget(st, librarylayouts.GSUB_LIMIT)
             while n < limit do
                 local e = patterns.match(h, ms, subject + native.word(src), pattern)
                 if e ~= 0ULL and (last == 0 or e ~= subject + native.word(last - 1)) then
@@ -1116,7 +1116,7 @@ export function gsubStep(ctx: voidptr, value: uint64): uint64
                     guestscope.hold(ctx, values.TAG_OBJ | pack)
                     local level = patterns.level(ms)
                     if level == 0ULL then
-                        guestvalues.packPut(
+                        guestvalues.packput(
                             h,
                             pack,
                             1ULL,
@@ -1126,19 +1126,19 @@ export function gsubStep(ctx: voidptr, value: uint64): uint64
                     else
                         local i: uint64 = 0ULL
                         while i < level do
-                            guestvalues.packPut(h, pack, i + 1ULL, capture(h, ms, subject, i))
+                            guestvalues.packput(h, pack, i + 1ULL, capture(h, ms, subject, i))
                             i = i + 1ULL
                         end
                     end
                     guestvalues.packed(h, pack, level, values.NIL)
                     patterns.release(ms)
-                    guestvalues.storeAt(h, st, librarylayouts.GSUB_CAPTURES, values.TAG_OBJ | pack)
-                    guestvalues.sortPut(h, st, librarylayouts.GSUB_N, n + 1)
-                    guestvalues.sortPut(h, st, librarylayouts.GSUB_AT, src)
-                    guestvalues.sortPut(h, st, librarylayouts.GSUB_END, native.index(e - subject))
-                    guestvalues.sortPut(h, st, librarylayouts.GSUB_SRC, src)
-                    guestvalues.sortPut(h, st, librarylayouts.GSUB_LAST, last)
-                    guestvalues.sortPut(h, st, librarylayouts.GSUB_PENDING, guestvalues.WAITING)
+                    guestvalues.storeat(h, st, librarylayouts.GSUB_CAPTURES, values.TAG_OBJ | pack)
+                    guestvalues.stateput(h, st, librarylayouts.GSUB_N, n + 1)
+                    guestvalues.stateput(h, st, librarylayouts.GSUB_AT, src)
+                    guestvalues.stateput(h, st, librarylayouts.GSUB_END, native.index(e - subject))
+                    guestvalues.stateput(h, st, librarylayouts.GSUB_SRC, src)
+                    guestvalues.stateput(h, st, librarylayouts.GSUB_LAST, last)
+                    guestvalues.stateput(h, st, librarylayouts.GSUB_PENDING, guestvalues.WAITING)
                     tables.drain(h)
                     return values.TRUE
                 elseif src < length then
@@ -1152,8 +1152,8 @@ export function gsubStep(ctx: voidptr, value: uint64): uint64
             end
             patterns.release(ms)
         end
-        gsubPiece(h, st, subject, guestvalues.sortGet(st, librarylayouts.GSUB_COPY), length)
-        guestvalues.sortPut(h, st, librarylayouts.GSUB_PENDING, guestvalues.FINISHED)
+        gsubPiece(h, st, subject, guestvalues.stateget(st, librarylayouts.GSUB_COPY), length)
+        guestvalues.stateput(h, st, librarylayouts.GSUB_PENDING, guestvalues.FINISHED)
         tables.drain(h)
         return values.FALSE
     end
@@ -1170,15 +1170,15 @@ export function gsubFinish(ctx: voidptr, value: uint64, all: boolean): uint64
             pack = guestscope.newTable(ctx)
             guestscope.hold(ctx, values.TAG_OBJ | pack)
         end
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local st = value & values.PAYLOAD
-        local pieces = guestvalues.loadAt(st, librarylayouts.GSUB_PIECES) & values.PAYLOAD
-        local count = guestvalues.sortGet(st, librarylayouts.GSUB_COUNT)
+        local pieces = guestvalues.loadat(st, librarylayouts.GSUB_PIECES) & values.PAYLOAD
+        local count = guestvalues.stateget(st, librarylayouts.GSUB_COUNT)
         local builder = buffer as strings.Builder*
         local refused: uint64 = 0ULL
         local i: int64 = 1
         while i <= count do
-            refused = refused | strings.appendString(h, builder, strings.header(guestvalues.loadAt(pieces, i)))
+            refused = refused | strings.appendString(h, builder, strings.header(guestvalues.loadat(pieces, i)))
             i = i + 1
         end
         if refused ~= 0ULL then
@@ -1187,12 +1187,12 @@ export function gsubFinish(ctx: voidptr, value: uint64, all: boolean): uint64
         end
         local result = values.TAG_OBJ | strings.finish(h, builder)
         if pack ~= 0ULL then
-            guestvalues.packPut(h, pack, 1ULL, result)
-            guestvalues.packPut(
+            guestvalues.packput(h, pack, 1ULL, result)
+            guestvalues.packput(
                 h,
                 pack,
                 2ULL,
-                values.TAG_INTEGER | native.word(guestvalues.sortGet(st, librarylayouts.GSUB_N))
+                values.TAG_INTEGER | native.word(guestvalues.stateget(st, librarylayouts.GSUB_N))
             )
         end
         tables.drain(h)

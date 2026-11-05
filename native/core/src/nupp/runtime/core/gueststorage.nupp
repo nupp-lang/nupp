@@ -50,7 +50,7 @@ export function storageget(ctx: voidptr, subject: uint64, key: uint64): uint64
         return values.TRUE
     end
     @unsafe do
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local value = corestorage.readelement(h, object, index)
         tables.drain(h)
         return value
@@ -97,7 +97,7 @@ export function allocate(ctx: voidptr, kind: uint64, n: uint64): uint64
         texts.argumentError(ctx, 2ULL, librarytexts.TEXT_NUMBER, 0ULL, n)
     end
     @unsafe do
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local made = corestorage.newstorage(h, ints.bitsOf(kind), ints.bitsOf(n))
         if made == 0ULL then
             error("not enough memory")
@@ -129,7 +129,7 @@ end
 -- given `n` arguments.
 export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
     @unsafe do
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         if id == librarycalls.STORAGE_FROMSTRING then
             local s = strings.header(a)
             if s == 0ULL then
@@ -222,7 +222,7 @@ export function storageoffset(ctx: voidptr, subject: uint64, step: uint64): uint
     local n = ints.bitsOf(step)
     local kind = corestorage.elementkind(object)
     @unsafe do
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local made = corestorage.newview(h, object, kind, n * corestorage.elementwidth(kind), count - n)
         if made == 0ULL then
             error("not enough memory")

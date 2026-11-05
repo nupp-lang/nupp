@@ -626,7 +626,7 @@ local coreLibrary: {[string]: boolean} = {
 
 -- The file operations (the file calls and the reactor's) are core library
 -- calls too.
-for _, group in ipairs(corelibrary.operationgroups()) do
+for _, group in ipairs(corelibrary.groups()) do
     for _, operation in ipairs(group.operations) do
         coreLibrary[operation.library] = true
     end
@@ -823,7 +823,7 @@ local corecallmodules: {
     [string]: string
 } = {["nupp.runtime.storagecalls"] = "storagecalls", ["nupp.runtime.hostcalls"] = "hostcalls"}
 
-for name, short in pairs(corelibrary.operationmodules()) do
+for name, short in pairs(corelibrary.callmodules()) do
     corecallmodules[name] = short
 end
 

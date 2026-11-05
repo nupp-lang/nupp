@@ -29,7 +29,7 @@ const guestmeta = require("nupp.runtime.core.guestmeta")
 -- advances key and stores the pair at 3 and 4. Answers true or false.
 local function nextStep(ctx: voidptr, stateValue: uint64): uint64
     @unsafe do
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local state = stateValue & values.PAYLOAD
         local subject = tables.get(state, values.TAG_INTEGER | librarylayouts.PAIRS_TABLE)
         if subject & values.TAG_MASK ~= values.TAG_OBJ then
@@ -63,7 +63,7 @@ local function getenv(ctx: voidptr, name: uint64): uint64
         texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, name)
     end
     @unsafe do
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local builder = state as strings.Builder*
         if strings.reserve(h, builder, 256ULL) ~= 0ULL then
             error("not enough memory")
@@ -111,9 +111,9 @@ end
 local function printValues(ctx: voidptr, packValue: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local pack = packValue & values.PAYLOAD
-        local n = native.word(guestvalues.integerValue(tables.get(pack, values.TAG_INTEGER)))
+        local n = native.word(guestvalues.intvalue(tables.get(pack, values.TAG_INTEGER)))
         local builder = state as strings.Builder*
         local refused: uint64 = 0ULL
         local i: uint64 = 1ULL
@@ -121,7 +121,7 @@ local function printValues(ctx: voidptr, packValue: uint64): uint64
             if i > 1ULL then
                 refused = refused | strings.appendWord(h, builder, 9ULL, 1ULL)
             end
-            refused = refused | guestvalues.appendText(h, builder, tables.get(pack, values.TAG_INTEGER | i))
+            refused = refused | guestvalues.appendtext(h, builder, tables.get(pack, values.TAG_INTEGER | i))
             i = i + 1ULL
         end
         refused = refused | strings.appendWord(h, builder, 10ULL, 1ULL)
@@ -145,7 +145,7 @@ local function select(ctx: voidptr, packValue: uint64, index: uint64): uint64
     @unsafe do
         local pack = packValue & values.PAYLOAD
         local n = native.index(ints.bitsOf(tables.get(pack, values.TAG_INTEGER)))
-        local i = guestvalues.integerArgument(ctx, index, 0, 1ULL)
+        local i = guestvalues.intarg(ctx, index, 0, 1ULL)
         if i < 0 then
             i = n + i + 1
             if i < 1 then
@@ -165,7 +165,7 @@ end
 local function packCopy(ctx: voidptr, packValue: uint64, named: boolean): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     @unsafe do
-        local h = guestvalues.guestHeap(ctx)
+        local h = guestvalues.guestheap(ctx)
         local pack = packValue & values.PAYLOAD
         local n = ints.bitsOf(tables.get(pack, values.TAG_INTEGER))
         local t = guestscope.newTable(ctx)
@@ -227,25 +227,25 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == librarycalls.POW then
         return guestnumbers.power(ctx, a, b)
     elseif id == librarycalls.MATH_EXP then
-        return guestnumbers.hostMath(guestnumbers.C_EXP, guestvalues.numberArgument(ctx, a, 1ULL), a)
+        return guestnumbers.hostMath(guestnumbers.C_EXP, guestvalues.numarg(ctx, a, 1ULL), a)
     elseif id == librarycalls.MATH_LOG then
         return guestnumbers.mathLog(ctx, count, a, b)
     elseif id == librarycalls.MATH_SIN then
-        return guestnumbers.hostMath(guestnumbers.C_SIN, guestvalues.numberArgument(ctx, a, 1ULL), a)
+        return guestnumbers.hostMath(guestnumbers.C_SIN, guestvalues.numarg(ctx, a, 1ULL), a)
     elseif id == librarycalls.MATH_COS then
-        return guestnumbers.hostMath(guestnumbers.C_COS, guestvalues.numberArgument(ctx, a, 1ULL), a)
+        return guestnumbers.hostMath(guestnumbers.C_COS, guestvalues.numarg(ctx, a, 1ULL), a)
     elseif id == librarycalls.MATH_TAN then
-        return guestnumbers.hostMath(guestnumbers.C_TAN, guestvalues.numberArgument(ctx, a, 1ULL), a)
+        return guestnumbers.hostMath(guestnumbers.C_TAN, guestvalues.numarg(ctx, a, 1ULL), a)
     elseif id == librarycalls.MATH_ASIN then
-        return guestnumbers.hostMath(guestnumbers.C_ASIN, guestvalues.numberArgument(ctx, a, 1ULL), a)
+        return guestnumbers.hostMath(guestnumbers.C_ASIN, guestvalues.numarg(ctx, a, 1ULL), a)
     elseif id == librarycalls.MATH_ACOS then
-        return guestnumbers.hostMath(guestnumbers.C_ACOS, guestvalues.numberArgument(ctx, a, 1ULL), a)
+        return guestnumbers.hostMath(guestnumbers.C_ACOS, guestvalues.numarg(ctx, a, 1ULL), a)
     elseif id == librarycalls.MATH_ATAN then
         local x = values.TAG_INTEGER | 1ULL
         if count >= 2ULL then
-            x = guestvalues.numberArgument(ctx, b, 2ULL)
+            x = guestvalues.numarg(ctx, b, 2ULL)
         end
-        return guestnumbers.hostMath(guestnumbers.C_ATAN2, guestvalues.numberArgument(ctx, a, 1ULL), x)
+        return guestnumbers.hostMath(guestnumbers.C_ATAN2, guestvalues.numarg(ctx, a, 1ULL), x)
     elseif id == librarycalls.MATH_FMOD then
         return guestnumbers.mathFmod(ctx, a, b)
     elseif id == librarycalls.MATH_RANDOM then
@@ -261,7 +261,7 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == librarycalls.STRING_FORMAT_PACK then
         -- The pack holds its count at key 0.
         local pack = b & values.PAYLOAD
-        local n = native.word(guestvalues.integerValue(tables.get(pack, values.TAG_INTEGER)))
+        local n = native.word(guestvalues.intvalue(tables.get(pack, values.TAG_INTEGER)))
         return gueststrings.format(ctx, n + 1ULL, a, values.NIL, values.NIL, values.NIL, pack)
     elseif id == librarycalls.TABLE_CONCAT then
         return guesttables.concat(ctx, count, a, b, c, d)
@@ -296,7 +296,7 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == librarycalls.STRING_LOWER then
         return gueststrings.casing(ctx, a, false)
     elseif id == librarycalls.STRING_LEN then
-        return values.TAG_INTEGER | strings.length(guestvalues.stringArgument(ctx, a, 1ULL))
+        return values.TAG_INTEGER | strings.length(guestvalues.strarg(ctx, a, 1ULL))
     elseif id == librarycalls.STRING_FIND then
         return gueststrings.search(ctx, a, b, c, d, false, false)
     elseif id == librarycalls.STRING_MATCH then
@@ -366,8 +366,8 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
     elseif id == librarycalls.MATH_TYPE then
         return guestnumbers.mathType(ctx, a)
     elseif id == librarycalls.MATH_SQRT then
-        return guestvalues.floatValue(
-            native.bits(native.sqrt(native.fromBits(guestvalues.floatOf(guestvalues.numberArgument(ctx, a, 1ULL)))))
+        return guestvalues.floatvalue(
+            native.bits(native.sqrt(native.fromBits(guestvalues.floatof(guestvalues.numarg(ctx, a, 1ULL)))))
         )
     elseif id == librarycalls.LANDED then
         return guestlanding.takeLanded(ctx)
@@ -391,7 +391,7 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         return packCopy(ctx, a, true)
     elseif id == librarycalls.PACK_APPEND then
         @unsafe do
-            local h = guestvalues.guestHeap(ctx)
+            local h = guestvalues.guestheap(ctx)
             local t = a & values.PAYLOAD
             local pack = b & values.PAYLOAD
             local n = ints.bitsOf(tables.get(pack, values.TAG_INTEGER))

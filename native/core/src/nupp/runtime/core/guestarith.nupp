@@ -204,7 +204,7 @@ end
 -- The wide path of arithmetic: integers wider than the immediates wrap in
 -- int64 and are boxed; a boxed integer meeting a float becomes its float.
 -- Answers as arithmetic does (TRUE not a number, FALSE modulo by zero).
-export function wideResult(ctx: voidptr, operation: uint64, left: uint64, right: uint64): uint64
+export function wideresult(ctx: voidptr, operation: uint64, left: uint64, right: uint64): uint64
     if wide.isInteger(left) and wide.isInteger(right) then
         if operation == MOD and wide.bitsOf(right) == 0ULL then
             return values.FALSE
@@ -224,7 +224,7 @@ export function wideResult(ctx: voidptr, operation: uint64, left: uint64, right:
 end
 
 -- Comparisons with a boxed integer: 1 true, 0 false, 2 not numbers.
-export function wideOrder(orEqual: boolean, left: uint64, right: uint64): uint64
+export function wideorder(orEqual: boolean, left: uint64, right: uint64): uint64
     local li = wide.isInteger(left)
     local ri = wide.isInteger(right)
     if li and ri then
@@ -246,7 +246,7 @@ export function wideOrder(orEqual: boolean, left: uint64, right: uint64): uint64
 end
 
 -- Comparisons of two strings, byte by byte: 1 true, 0 false, 2 not strings.
-export function stringOrder(orEqual: boolean, left: uint64, right: uint64): uint64
+export function strorder(orEqual: boolean, left: uint64, right: uint64): uint64
     local a = strings.header(left)
     local b = strings.header(right)
     if a == 0ULL or b == 0ULL then
