@@ -27,6 +27,6 @@ return json.encodevalue({
     crc32c = checksum.compute("crc32c", "123456789") == 0xe3069283ULL,
     crc64 = checksum.compute("crc64-ecma", "123456789") == 0x6c40df5f0b497347ULL,
     hmac = mac.computehex("hmac-sha256", "key", "abc"),
-    uuid4 = uuid.uuid4(),
-    uuid7 = uuid.uuid7(),
+    uuid4 = uuid.uuid(4),
+    uuid7 = uuid.uuid(7),
 })

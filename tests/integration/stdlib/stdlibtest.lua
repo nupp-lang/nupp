@@ -2163,7 +2163,7 @@ function M.nativeFeaturesAreResolvedEffects()
         ["math.quat.len(0, 0, 0, 1)"] = "stdlib.math",
         ["io.sep()"] = "runtime.path",
         ["io.URI.of('https://example.com')"] = "runtime.uri",
-        ["os.uuid7()"] = "runtime.uuid",
+        ["os.uuid(7)"] = "runtime.uuid",
         ["os.info()"] = "runtime.system",
         ["os.host.attached()"] = "runtime.host",
     }
@@ -2399,7 +2399,7 @@ end
 
 function M.optimizedDeadCodeDropsItsNativeFeatures()
     local source = table.concat(
-        {"if false then", "    print(os.info().parallelism)", "else", "    print(os.uuid4())", "end",},
+        {"if false then", "    print(os.info().parallelism)", "else", "    print(os.uuid(4))", "end",},
         "\n"
     )
     local result = parser.parse(source, "dead-native-feature")
@@ -2413,7 +2413,7 @@ end
 
 function M.generatedBootstrapFollowsWhatCodegenEmits()
     local source = table.concat(
-        {"if false then", "    print(os.info().parallelism)", "else", "    print(os.uuid4())", "end",},
+        {"if false then", "    print(os.info().parallelism)", "else", "    print(os.uuid(4))", "end",},
         "\n"
     )
     local result = parser.parse(source, "generated-runtime-features")
@@ -2432,7 +2432,7 @@ function M.generatedBootstrapFollowsWhatCodegenEmits()
         "generation reports only features whose consumers it wrote"
     )
     assert(not code:find("parallelism", 1, true), "the dead system branch loses its member access")
-    assert(code:find("uuid4", 1, true), "the live UUID branch keeps its member access")
+    assert(code:find("uuid", 1, true), "the live UUID branch keeps its member access")
 end
 
 function M.compilerProvidedPureLibraries()
@@ -2474,8 +2474,8 @@ function M.compilerProvidedPureLibraries()
       assert(checksum.compute("crc32", "123456789") == 3421780262ULL)
       assert(digest.computehex("sha256", "abc") ==
          "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
-      local uuid4 = os.uuid4()
-      local uuid7 = os.uuid7()
+      local uuid4 = os.uuid(4)
+      local uuid7 = os.uuid(7)
       assert(uuid4:match("^[0-9a-f]+%-[0-9a-f]+%-4[0-9a-f]+%-[89ab][0-9a-f]+%-[0-9a-f]+$")
          and #uuid4 == 36)
       assert(uuid7:match("^[0-9a-f]+%-[0-9a-f]+%-7[0-9a-f]+%-[89ab][0-9a-f]+%-[0-9a-f]+$")
@@ -2565,11 +2565,7 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     testAssert.eq((diagsOf("os.write('x', 'bytes')")), "NUPP2004:1")
     testAssert.eq((diagsOf("os.append('x', 'bytes')")), "NUPP2004:1")
     assertClean("local paths: {io.Path} = assert(os.glob('src/**/*.nupp'))")
-    testAssert.eq(
-        (diagsOf("os.glob(io.Path.of('src'))")),
-        "NUPP2006:1",
-        "a glob takes a pattern, not a path"
-    )
+    testAssert.eq((diagsOf("os.glob(io.Path.of('src'))")), "NUPP2006:1", "a glob takes a pattern, not a path")
     assertClean("local kind: os.FileKind? = os.lstat('x')")
     testAssert.eq((diagsOf("os.stat(42)")), "NUPP2006:1")
     testAssert.eq((diagsOf("io.open('x')")), "NUPP2605:1")

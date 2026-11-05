@@ -427,16 +427,17 @@ const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.util.internal.uuid"
 
 -- UUID features carry the helper; clocks and system facts do not need it.
 
---- Generates a random version 4 UUID using the retained host service.
---- @return the UUID in its canonical text form
-export function uuid4(): string
-    return implementation("nupp.util.internal.uuid").uuid4()
-end
-
---- Generates a time-ordered version 7 UUID using the retained host service.
---- @return the UUID in its canonical text form
-export function uuid7(): string
-    return implementation("nupp.util.internal.uuid").uuid7()
+--- Generates a random version 4 or time-ordered version 7 UUID.
+--- @param version the UUID version, either 4 or 7
+--- @return the UUID in its canonical lowercase, hyphenated text form
+--- @raises string when the version is invalid or the host service fails
+export function uuid(version: integer): string
+    if version == 4 then
+        return implementation("nupp.util.internal.uuid").uuid4()
+    elseif version == 7 then
+        return implementation("nupp.util.internal.uuid").uuid7()
+    end
+    error("nupp: UUID version must be 4 or 7", 2)
 end
 
 --- Returns cryptographically secure random bytes from the selected host.
@@ -471,8 +472,9 @@ export const value: table = do
     original.info = info
     original.monotonic = monotonic
     original.walltime = walltime
-    original.uuid4 = uuid4
-    original.uuid7 = uuid7
+    original.uuid = uuid
+    original.uuid4 = nil
+    original.uuid7 = nil
     original.randombytes = randombytes
     yield original
 end

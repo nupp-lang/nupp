@@ -2830,9 +2830,10 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
         "public type aliases retain their source contract members"
     )
     assert(not ioItems.value and not osItems.value, "private host-table values do not become public API")
-    for _, name in ipairs({"Info", "info", "monotonic", "walltime", "uuid4", "uuid7"}) do
+    for _, name in ipairs({"Info", "info", "monotonic", "walltime", "uuid"}) do
         assert(osItems[name], "the system member is missing: " .. name)
     end
+    assert(not osItems.uuid4 and not osItems.uuid7, "retired UUID names stay out of the API")
     local fields = {}
     for _, field in ipairs(osItems.Info.members) do
         fields[field.name] = true

@@ -65,7 +65,7 @@ export interface ClockProvider
     @readonly sleepuntil: function(deadline: number): nil
 end
 
---- Canonical lowercase, hyphenated UUID generation for [](os.uuid4) and [](os.uuid7).
+--- Canonical lowercase, hyphenated UUID generation for [](os.uuid).
 ---
 --- Version 4 provides random UUIDs and version 7 provides time-ordered UUIDs.
 --- Version and variant bits must be correct; randomness failures must be reported.

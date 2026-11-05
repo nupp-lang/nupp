@@ -958,7 +958,7 @@ local function choose(flag: boolean)
    elseif flag then
       return true and {value = 1}
    elseif true then
-      return false and {}, os.uuid4()
+      return false and {}, os.uuid(4)
    else
       return {}, os.info().parallelism
    end

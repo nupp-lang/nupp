@@ -99,15 +99,30 @@ function M.preservesTheHostTableAndQueriesParallelismPerCall()
     test.eq(original.monotonic, monotonic)
     test.eq(original.walltime, walltime)
     test.eq(uuidLoads, 0, "system and clock queries do not select a UUID provider")
-    local random, ordered = original.uuid4, original.uuid7
-    test.eq(random, surface.uuid4, "the public table and exported function share one callable")
-    test.eq(ordered, surface.uuid7)
-    test.eq(original.uuid4, random, "repeated public reads retain their callable identity")
-    test.eq(original.uuid7, ordered)
-    test.eq(random(), valid4)
-    test.eq(original.uuid4(), valid4)
-    test.eq(ordered(), valid7)
-    test.eq(surface.uuid7(), valid7)
+    local make = original.uuid
+    test.eq(make, surface.uuid, "the public table and exported function share one callable")
+    test.eq(original.uuid, make, "repeated public reads retain their callable identity")
+    test.eq(original.uuid4, nil)
+    test.eq(original.uuid7, nil)
+    for _, invalid in ipairs({0, 1, 5, 6, 8, 4.5, "4", true}) do
+        test.raises(
+            function()
+                make(invalid)
+            end,
+            "UUID version must be 4 or 7"
+        )
+    end
+    test.raises(
+        function()
+            make()
+        end,
+        "UUID version must be 4 or 7"
+    )
+    test.eq(uuidLoads, 0, "invalid versions do not select a UUID provider")
+    test.eq(make(4), valid4)
+    test.eq(original.uuid(4), valid4)
+    test.eq(make(7), valid7)
+    test.eq(surface.uuid(7), valid7)
     test.eq(uuidLoads, 1, "both UUID versions retain the same selected provider")
     test.eq(calls4, 2, "each public version 4 call invokes its provider exactly once")
     test.eq(calls7, 2, "each public version 7 call invokes its provider exactly once")
@@ -129,8 +144,8 @@ local function describe(value: os.Info): string return value.platform end
 local facts: os.Info = os.info()
 local monotonic: number = os.monotonic()
 local wall: number = os.walltime()
-local random: string = os.uuid4()
-local ordered: string = os.uuid7()
+local random: string = os.uuid(4)
+local ordered: string = os.uuid(7)
 local bytes: string = os.randombytes(7)
 return describe(facts), monotonic, wall, random, ordered, bytes
 ]]
@@ -207,12 +222,12 @@ function M.directAndAliasedUuidCallsCarryTheHelperAndProvider()
     local native = require("nupp.compiler.native")
     local root = require("helpers.paths").tests .. "/.."
     local sources = {
-        "print(os.uuid4())",
-        "local make = os.uuid4\nprint(make())",
-        "local system = os\nprint(system.uuid7())",
-        "local system = require('os')\nprint(system.uuid4())",
-        "module nupp.uuidfixture\nlocal system = require('nupp.runtime.standardos')\nprint(system.uuid7())",
-        "module nupp.uuidfixture\nlocal system = require('nupp.runtime.standardos')\nlocal make = system.uuid4\nprint(make())",
+        "print(os.uuid(4))",
+        "local make = os.uuid\nprint(make(4))",
+        "local system = os\nprint(system.uuid(7))",
+        "local system = require('os')\nprint(system.uuid(4))",
+        "module nupp.uuidfixture\nlocal system = require('nupp.runtime.standardos')\nprint(system.uuid(7))",
+        "module nupp.uuidfixture\nlocal system = require('nupp.runtime.standardos')\nlocal make = system.uuid\nprint(make(4))",
     }
     for _, source in ipairs(sources) do
         local path = source:match("^module nupp%.uuidfixture") and root .. "/src/nupp/uuidfixture.nupp"
@@ -382,13 +397,13 @@ function M.filesystemFunctionsTypeAsTheirTuplesAndIterators()
     local root = require("helpers.paths").tests .. "/.."
     local accepted = {
         'local kind, size, modified, readonly, err = os.stat("a")\n'
-            .. "if kind ~= nil then\n"
-            .. "    local k: os.FileKind = kind\n"
-            .. "    print(k, size, modified, readonly)\n"
-            .. "else\n"
-            .. "    local e: io.Error? = err\n"
-            .. "    print(e)\n"
-            .. "end",
+        .. "if kind ~= nil then\n"
+        .. "    local k: os.FileKind = kind\n"
+        .. "    print(k, size, modified, readonly)\n"
+        .. "else\n"
+        .. "    local e: io.Error? = err\n"
+        .. "    print(e)\n"
+        .. "end",
         'for name, kind in os.list("src") do\n    local n: string = name\n    local k: os.FileKind = kind\n    print(n, k)\nend',
         'local present: boolean?, err: io.Error? = os.exists("a")\nprint(present, err)',
         'local matches: {io.Path}? = os.glob("src/*.nupp")\nprint(matches)',

@@ -3181,11 +3181,10 @@ function M.uuidBinaryStagesItsHelperAndSelectedProvider()
         [
             "src/main.nupp"
         ] = [[
-local random = os.uuid4
-local ordered = os.uuid7
-local first = os.uuid4()
-local second = random()
-local third = ordered()
+local make = os.uuid
+local first = os.uuid(4)
+local second = make(4)
+local third = make(7)
 assert(#first == 36 and first:sub(15, 15) == "4")
 assert(#second == 36 and second:sub(15, 15) == "4")
 assert(#third == 36 and third:sub(15, 15) == "7")

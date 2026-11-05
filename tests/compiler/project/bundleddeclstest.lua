@@ -343,29 +343,19 @@ return version, report.aborts
 end
 
 function M.uuidUsesItsContractWithoutNativeCompilerServices()
-    local relations = require("nupp.compiler.types.relations")
     local env = envMod.new(".", {memoryOnly = true, nativeCompilerServices = false, typeRoots = {},})
-    local result = parser.parse("return os.uuid4", "uuid-contract.nupp")
+    local result = parser.parse("return os.uuid(4), os.uuid(7)", "uuid-contract.nupp")
     testAssert.eq(#result.errors, 0)
     local diagnostics = check.check(result, "uuid-contract.nupp", env)
     testAssert.eq(#diagnostics, 0, diagnostics[1] and diagnostics[1].msg)
     local uuid = env.globals.os.t
-    local provider = assert(env.resolveModule(env, "nupp.runtime.uuidprovider"))
-    testAssert.eq(uuid.byname.uuid4.tag, "func", "uuid4 has a checked function signature")
-    testAssert.eq(uuid.byname.uuid4.rets[1].tag, "string", "uuid4 returns a string")
-    testAssert.eq(
-        relations.isA(uuid.byname.uuid4, provider.byname.uuid4),
-        true,
-        "uuid4 satisfies the canonical contract signature"
-    )
-    testAssert.eq(
-        relations.isA(uuid.byname.uuid7, provider.byname.uuid7),
-        true,
-        "uuid7 satisfies the canonical contract signature"
-    )
-    testAssert.eq(uuid.byname.randomBytes, nil, "unrelated operations are absent")
+    testAssert.eq(uuid.byname.uuid.tag, "func", "uuid has a checked function signature")
+    testAssert.eq(uuid.byname.uuid.params[1], T.integer, "uuid takes an integer version")
+    testAssert.eq(uuid.byname.uuid.rets[1].tag, "string", "uuid returns a string")
+    testAssert.eq(uuid.byname.uuid4, nil, "the retired version 4 entry is absent")
+    testAssert.eq(uuid.byname.uuid7, nil, "the retired version 7 entry is absent")
     local exports = assert(env.resolveModuleExports(env, "os"))
-    testAssert.eq(exports.values.uuid4, uuid.byname.uuid4, "module and export resolution agree")
+    testAssert.eq(exports.values.uuid, uuid.byname.uuid, "module and export resolution agree")
     testAssert.eq(
         rawget(env.bundled, "nupp.runtime.provider.nativeuuid"),
         nil,
