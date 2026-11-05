@@ -581,8 +581,9 @@ export const open = openFile as function(
 
 --- Iterates over a named file, closing it at EOF, or reads the default input.
 --- @param path the filename or path, or nil for the default input
+--- @param ... the formats each step reads, as `read` takes them, a line by default
 --- @return an iterator yielding one line at a time
-export const lines = fileLines as function(path: (string | Path)?): @nosuspend function(): string?
+export const lines = fileLines as function(path: (string | Path)?, ...: any): @nosuspend function(): string?
 
 --- Returns or sets the default input file.
 --- @param file a file handle, filename, or path, or nil to return the current file

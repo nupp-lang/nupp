@@ -9,6 +9,8 @@ function here under its name, which makes that call. A program's image carries
 this module when it takes a library function as a value.
 ]]
 
+local hostcalls = require("nupp.runtime.hostcalls")
+
 export const functions: {[string]: any} = {
     -- The ambient `package` table: its `loaded` and `preload` as Lua's, empty
     -- because the image holds the modules, and fields a program sets on it.
@@ -178,6 +180,8 @@ for name, value in pairs(functions) do
     end
 end
 globals._G = globals
+-- `arg`: the program's arguments, as Lua's standalone interpreter sets it.
+globals.arg = hostcalls.arguments()
 -- `nupp`: the runtime's namespace, which reflection and derive install
 -- into, as the VM's globals carry it.
 globals.nupp = {}

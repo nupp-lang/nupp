@@ -690,6 +690,47 @@ local function recordSlot(ctx: voidptr, t: uint64, key: uint64): uint64
     return tables.get(fields, key)
 end
 
+-- A traversal of a record instance names its fields, as one of a table of
+-- fields does, though the instance keeps them in slots: the field name slot
+-- `key` of `t` holds, or `key` itself when `t` is no record instance or
+-- `key` none of its slots. A table holding the name itself, as a copy of an
+-- instance given the record's metatable does, keeps its own keys.
+export function slotname(ctx: voidptr, t: uint64, key: uint64): uint64
+    if not ints.isInteger(key) then
+        return key
+    end
+    local fields = tableOf(metaField(ctx, t, META_FIELDS))
+    if fields == 0ULL then
+        return key
+    end
+    local name = tables.nextKey(fields, values.NIL)
+    while name ~= values.NIL and name ~= values.TRUE do
+        if tables.get(fields, name) == key then
+            if tables.get(t, name) ~= values.NIL then
+                return key
+            end
+            return name
+        end
+        name = tables.nextKey(fields, name)
+    end
+
+    return key
+end
+
+-- The key a traversal of `t` resumes after: the slot a field name `key`
+-- stands for in a record instance, else `key` itself.
+export function slotkey(ctx: voidptr, t: uint64, key: uint64): uint64
+    if strings.header(key) == 0ULL or tables.get(t, key) ~= values.NIL then
+        return key
+    end
+    local slot = recordSlot(ctx, t, key)
+    if slot == values.NIL then
+        return key
+    end
+
+    return slot
+end
+
 -- Lua's t[k]: the raw value, else through the metatable's __index while it
 -- names a table. An __index function is noted (`takeMeta`) for the handler
 -- to call, and nil answered meanwhile.
@@ -747,8 +788,9 @@ export function tableSet(ctx: voidptr, table: uint64, key: uint64, value: uint64
         local t = table
         local depth: uint64 = 0ULL
         -- A record instance's field written by name is its slot, which it
-        -- holds itself.
-        if tables.meta(t) ~= values.NIL and strings.header(key) ~= 0ULL then
+        -- holds itself; a table holding the name as its own key, as a copy
+        -- of an instance given the record's metatable does, keeps it there.
+        if tables.meta(t) ~= values.NIL and strings.header(key) ~= 0ULL and tables.lookup(h, t, key) == values.NIL then
             local slot = recordSlot(ctx, t, key)
             if slot ~= values.NIL then
                 if tables.frozen(t) then

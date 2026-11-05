@@ -1,0 +1,112 @@
+module nupp.core.catalogbenchforms
+
+-- Forms the bench harness's entry needed of the core: comptime helpers the
+-- program never sees, pcall of a function leaving optional parameters off,
+-- a field read through a borrowed type parameter, a record declared into a
+-- table, and traversal of a record instance by its field names.
+local score = 0
+
+-- Helpers only the compiler runs, one calling the other, as io.cli's do.
+@comptime
+local function doubled(n: integer): integer
+    return n * 2
+end
+
+@comptime
+local function quadrupled(n: integer): integer
+    return doubled(doubled(n))
+end
+
+local function twice(n: integer): integer
+    return n * 2
+end
+
+if twice(21) == 42 then
+    score = score + 1
+end
+
+local function joined(a: string, b: string?): string
+    return a .. (b or "-")
+end
+
+local ok, text = pcall(joined, "x")
+local handled, other = xpcall(
+    joined,
+    function(problem: any): any
+        return problem
+    end,
+    "y"
+)
+if ok and text == "x-" and handled and other == "y-" then
+    score = score + 2
+end
+
+local interface Named
+    family: string
+end
+
+local record Tag is Named
+    family: string
+    label: string
+end
+
+local function familyOf<A is Named>(borrows value: A): string
+    return value.family
+end
+
+if familyOf(new Tag(family = "f", label = "l")) == "f" then
+    score = score + 4
+end
+
+local shapes = {}
+
+record shapes.Point
+    x: number
+    y: number
+end
+
+function shapes.Point:sum(): number
+    return self.x + self.y
+end
+
+local point = new shapes.Point(x = 3, y = 4)
+if point:sum() == 7 and getmetatable(point) == shapes.Point then
+    score = score + 8
+end
+
+record shapes.Pair
+    x: number
+    y: number
+end
+
+-- pairs names the fields; a copy given the record's metatable keeps its own.
+local pair = new shapes.Pair(x = 3, y = 4)
+local seen: {[string]: number} = {}
+local count = 0
+for key, value in pairs(pair as any) do
+    seen[key as string] = value as number
+    count = count + 1
+end
+if count == 2 and seen.x == 3 and seen.y == 4 then
+    score = score + 16
+end
+local copy: any = {}
+for key, value in pairs(pair as any) do
+    copy[key] = value
+end
+setmetatable(copy, getmetatable(pair))
+copy.x = nil
+local left = 0
+for key in pairs(copy) do
+    if key == "y" then
+        left = left + 1
+    end
+    left = left + 10
+end
+local first = next(pair as any)
+local second = next(pair as any, first)
+local fields = first == "x" and second == "y" or first == "y" and second == "x"
+if left == 11 and fields and next(pair as any, second) == nil then
+    score = score + 32
+end
+export = score

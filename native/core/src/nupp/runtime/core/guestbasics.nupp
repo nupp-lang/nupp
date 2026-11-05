@@ -43,7 +43,10 @@ export const LIB_CLEANUPGET: uint64 = 105ULL
 -- storagecalls.packedkind(t): that kind, 0 once the table is general (or for
 -- a value that is not a table).
 export const LIB_NEWARRAY: uint64 = 116ULL
-export const LIB_PACKEDKIND: uint64 = 117ULL
+export const LIB_PACKEDKIND: uint64 = 122ULL
+-- A protected call's results in a pack its list takes all of
+-- (`print(x, pcall(f))`): the count the call gives.
+export const LIB_PROTECTEDCOUNT: uint64 = 121ULL
 
 -- No index: an error was raised instead.
 const NOINDEX: uint64 = 0xffffffffffffffffULL
@@ -64,12 +67,17 @@ export function rawnext(ctx: voidptr, subject: uint64, after: uint64, all: boole
         if t == 0ULL then
             texts.argumentError(ctx, 1ULL, texts.TEXT_TABLE, 0ULL, subject)
         end
-        local key = tables.nextKey(t, after)
+        -- A record instance's fields go by name (guestscope.slotname).
+        local key = tables.nextKey(t, guestscope.slotkey(ctx, t, after))
         if key == values.TRUE then
             texts.libraryError(ctx, texts.TEXT_NEXT_KEY)
         end
+        local name = key
+        if key ~= values.NIL then
+            name = guestscope.slotname(ctx, t, key)
+        end
         if not all then
-            return key
+            return name
         end
         local pack = guestscope.newTable(ctx)
         -- Held while a packed table boxes a wide integer, which can collect.
@@ -79,7 +87,7 @@ export function rawnext(ctx: voidptr, subject: uint64, after: uint64, all: boole
             tables.set(h, pack, values.TAG_INTEGER | 1ULL, values.NIL)
         else
             tables.set(h, pack, values.TAG_INTEGER, values.TAG_INTEGER | 2ULL)
-            tables.set(h, pack, values.TAG_INTEGER | 1ULL, key)
+            tables.set(h, pack, values.TAG_INTEGER | 1ULL, name)
             tables.set(h, pack, values.TAG_INTEGER | 2ULL, tables.get(t, key))
         end
         tables.drain(h)
@@ -333,5 +341,23 @@ export function cleanupget(ctx: voidptr, key: uint64): uint64
         end
 
         return tables.get(registry & values.PAYLOAD, key)
+    end
+end
+
+-- Sets the count of `pack`, whose protected call's status is at `status`
+-- and whose count is the call's on success: a failure gives its status and
+-- the error alone, so the error is last.
+export function protectedcount(ctx: voidptr, pack: uint64, status: uint64): uint64
+    @unsafe do
+        local t = pack & values.PAYLOAD
+        if tables.get(t, status) == values.FALSE then
+            local h = heapof(ctx)
+            if tables.set(h, t, values.TAG_INTEGER, status + 1ULL) ~= tables.OK then
+                error("not enough memory")
+            end
+            tables.drain(h)
+        end
+
+        return values.NIL
     end
 end

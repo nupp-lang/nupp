@@ -1,0 +1,44 @@
+module nupp.core.cataloghostlibrary
+
+-- os.monotonic, collectgarbage and the program's arguments on the core. The
+-- runner passes the arguments alpha and beta.
+local score = 0
+local started = os.monotonic()
+local later = os.monotonic()
+if math.type(started) == "float" and later >= started then
+    score = score + 1
+end
+if collectgarbage() == 0 and collectgarbage("collect") == 0 then
+    score = score + 2
+end
+local count = collectgarbage("count")
+if math.type(count) == "float" and count > 0 then
+    score = score + 4
+end
+if collectgarbage("isrunning") == true and collectgarbage("stop") == 0 and collectgarbage("isrunning") == false then
+    score = score + 8
+end
+-- Garbage made while collection is stopped is still collected after it.
+local kept: {string} = {}
+for i = 1, 200 do
+    kept[#kept + 1] = ("item %d"):format(i)
+end
+kept = {}
+if collectgarbage("restart") == 0 and collectgarbage("isrunning") == true then
+    score = score + 16
+end
+if type(collectgarbage("step")) == "boolean" and collectgarbage("count") <= count + 64 then
+    score = score + 32
+end
+local option: any = "bogus"
+local ok, message = pcall(function(): number
+    return collectgarbage(option as "count")
+end)
+if not ok and string.find(tostring(message), "bad argument #1 to 'collectgarbage' (invalid option 'bogus')", 1, true) then
+    score = score + 64
+end
+local arguments: any = rawget(_G, "arg")
+if type(arguments[0]) == "string" and arguments[1] == "alpha" and arguments[2] == "beta" and arguments[3] == nil then
+    score = score + 128
+end
+export = score

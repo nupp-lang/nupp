@@ -1,7 +1,8 @@
 module nupp.runtime.core.guestio
 
--- io.write on the core: its values written to the host's standard output
--- as they are, strings raw and numbers as tostring writes them.
+-- The host's services a program reaches through the core's library calls:
+-- the file system calls under the program's file layer (filecalls), the
+-- monotonic clock, the collector's controls and the program's arguments.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
@@ -13,54 +14,296 @@ const ints = require("nupp.runtime.core.coreintegers")
 const guestscope = require("nupp.runtime.core.guestscope")
 const guestlib = require("nupp.runtime.core.guestlib")
 const texts = require("nupp.runtime.core.guesttexts")
+const collector = require("nupp.runtime.vm.collector")
 
--- io.write's LibCall id: its values in one pack.
-export const LIB_WRITE: uint64 = 83ULL
+-- The file calls' LibCall id: the operation first, then its arguments.
+export const LIB_FILES: uint64 = 120ULL
 
--- Writes the builder's bytes and empties it.
-local function flush(b: strings.Builder*): nil
+-- The operations, as filecalls names them.
+const FILE_OPEN: uint64 = 1ULL
+const FILE_READ: uint64 = 2ULL
+const FILE_WRITE: uint64 = 3ULL
+const FILE_SEEK: uint64 = 4ULL
+const FILE_CLOSE: uint64 = 5ULL
+const FILE_REASON: uint64 = 6ULL
+
+local function heapOf(ctx: voidptr): heap.Heap*
     @unsafe do
-        if b.length == 0ULL then
-            return
-        end
-        local written = os.writeOutput(native.pointer(b.base), b.length)
-        local length = b.length
-        strings.release(b)
-        if written < 0 or native.word(written) ~= length then
-            error("cannot write output")
-        end
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        return native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
     end
 end
 
--- io.write(...) with the values of the pack `items`. A value neither a
--- string nor a number raises once the values before it are written, as
--- Lua's does.
-export function write(ctx: voidptr, items: uint64): uint64
+-- The int64 bits of an integer argument. The program's file layer passes
+-- checked integers; anything else is the layer's mistake.
+local function integerOf(value: uint64): uint64
+    if not ints.isInteger(value) then
+        error("file calls: an integer argument was expected")
+    end
+
+    return ints.bitsOf(value)
+end
+
+-- The header of a string argument.
+local function stringOf(value: uint64): uint64
+    local s = strings.header(value)
+    if s == 0ULL then
+        error("file calls: a string argument was expected")
+    end
+
+    return s
+end
+
+-- At most `room` bytes read from descriptor `fd` as a new string, "" at
+-- the end, or the negated error number the read answered.
+local function readText(ctx: voidptr, fd: uint64, room: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
-    guestscope.nameLibrary(ctx, texts.NAME_WRITE)
     @unsafe do
-        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
-        local h = native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
-        local pack = items & values.PAYLOAD
-        local n = ints.bitsOf(tables.get(pack, values.TAG_INTEGER))
-        guestscope.countlibrary(ctx, n)
+        local h = heapOf(ctx)
         local builder = state as strings.Builder*
-        local i: uint64 = 1ULL
-        while i <= n do
-            local value = tables.get(pack, values.TAG_INTEGER | i)
-            local number = ints.isInteger(value) or value & values.QNAN ~= values.QNAN or value == values.QNAN
-            if strings.header(value) == 0ULL and not number then
-                flush(builder)
-                texts.argumentError(ctx, i, texts.TEXT_STRING, 0ULL, value)
-            end
-            if guestlib.appendText(h, builder, value) ~= 0ULL then
+        local wanted = room
+        if wanted == 0ULL then
+            wanted = 1ULL
+        end
+        if strings.reserve(h, builder, wanted) ~= 0ULL then
+            error("not enough memory")
+        end
+        local count = os.fileRead(fd, native.pointer(builder.base), room)
+        if count < 0 then
+            strings.release(builder)
+            return ints.make(h, native.word(count))
+        end
+        builder.length = native.word(count)
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- The system's text for error number `code`, sized by a first call.
+local function reasonText(ctx: voidptr, code: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = heapOf(ctx)
+        local builder = state as strings.Builder*
+        if strings.reserve(h, builder, 128ULL) ~= 0ULL then
+            error("not enough memory")
+        end
+        local length = os.errorText(code, native.pointer(builder.base), builder.capacity)
+        if length < 0 then
+            strings.release(builder)
+            error("file calls: the host has no text for an error")
+        end
+        if native.word(length) > builder.capacity then
+            if strings.reserve(h, builder, native.word(length)) ~= 0ULL then
                 strings.release(builder)
                 error("not enough memory")
             end
-            i = i + 1ULL
+            length = os.errorText(code, native.pointer(builder.base), builder.capacity)
         end
-        flush(builder)
-
-        return values.NIL
+        builder.length = native.word(length)
+        return values.TAG_OBJ | strings.finish(h, builder)
     end
+end
+
+-- filecalls' operation `op` with its arguments a, b and c (filecalls.d.nupp):
+-- a count, descriptor or position, the bytes read, or the negated error
+-- number, as the bridge's system call answered it.
+export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64): uint64
+    local operation = integerOf(op)
+    @unsafe do
+        local h = heapOf(ctx)
+        if operation == FILE_OPEN then
+            local s = stringOf(a)
+            local fd = os.fileOpen(native.pointer(strings.bytes(s)), strings.length(s), integerOf(b))
+            return ints.make(h, native.word(fd))
+        elseif operation == FILE_READ then
+            return readText(ctx, integerOf(a), integerOf(b))
+        elseif operation == FILE_WRITE then
+            -- The text's bytes from `first`, 1-based as Lua's strings count.
+            local s = stringOf(b)
+            local first = integerOf(c)
+            local length = strings.length(s)
+            if first < 1ULL or first > length + 1ULL then
+                error("file calls: a write starts past its text")
+            end
+            local written = os.fileWrite(
+                integerOf(a),
+                native.pointer(strings.bytes(s) + first - 1ULL),
+                length - (first - 1ULL)
+            )
+            return ints.make(h, native.word(written))
+        elseif operation == FILE_SEEK then
+            return ints.make(h, native.word(os.fileSeek(integerOf(a), integerOf(b), integerOf(c))))
+        elseif operation == FILE_CLOSE then
+            return ints.make(h, native.word(os.fileClose(integerOf(a))))
+        elseif operation == FILE_REASON then
+            return reasonText(ctx, integerOf(a))
+        end
+    end
+    error("file calls: no such operation")
+
+    return values.NIL
+end
+
+-- os.monotonic(), collectgarbage(opt, arg) and the program's arguments
+-- (hostcalls.arguments, which `arg` holds): their LibCall ids.
+export const LIB_MONOTONIC: uint64 = 117ULL
+export const LIB_COLLECTGARBAGE: uint64 = 118ULL
+export const LIB_ARGUMENTS: uint64 = 119ULL
+
+-- A float's value word, from its bits: NaN as the canonical one.
+local function floatValue(bits: uint64): uint64
+    local x = native.fromBits(bits)
+    if x ~= x then
+        return values.QNAN
+    end
+
+    return bits
+end
+
+-- os.monotonic(): milliseconds on the host's monotonic clock, from an
+-- unspecified origin, as a float.
+export function monotonic(): uint64
+    local nanos = native.fromBits(ints.toFloatBits(os.monotonicNanos()))
+
+    return floatValue(native.bits(nanos / native.fromBits(0x412e848000000000ULL)))
+end
+
+-- The program argument at `index` as a string, nil past the last: copied
+-- as os.getenv's value is, into a builder sized by a first call.
+local function argumentText(h: heap.Heap*, index: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local builder = state as strings.Builder*
+        if strings.reserve(h, builder, 256ULL) ~= 0ULL then
+            error("not enough memory")
+        end
+        local length = os.argument(index, native.pointer(builder.base), builder.capacity)
+        if length < 0 then
+            strings.release(builder)
+            return values.NIL
+        end
+        if native.word(length) > builder.capacity then
+            if strings.reserve(h, builder, native.word(length)) ~= 0ULL then
+                strings.release(builder)
+                error("not enough memory")
+            end
+            length = os.argument(index, native.pointer(builder.base), builder.capacity)
+            if length < 0 or native.word(length) > builder.capacity then
+                strings.release(builder)
+                error("arg: the program's arguments changed while they were read")
+            end
+        end
+        builder.length = native.word(length)
+        return values.TAG_OBJ | strings.finish(h, builder)
+    end
+end
+
+-- hostcalls.arguments(): the program's arguments as Lua's `arg` holds them,
+-- the program at 0 and then its arguments from 1, in a new table.
+export function arguments(ctx: voidptr): uint64
+    @unsafe do
+        local h = heapOf(ctx)
+        local t = guestscope.newTable(ctx)
+        -- Held while its strings are made.
+        guestscope.hold(ctx, values.TAG_OBJ | t)
+        local index: uint64 = 0ULL
+        while true do
+            local text = argumentText(h, index)
+            if text == values.NIL then
+                break
+            end
+            if tables.set(h, t, values.TAG_INTEGER | index, text) == tables.NO_MEMORY then
+                error("not enough memory")
+            end
+            index = index + 1ULL
+        end
+        tables.drain(h)
+        guestscope.release(ctx)
+
+        return values.TAG_OBJ | t
+    end
+end
+
+-- Whether the string at header `s` is the `length` bytes packed in `low`
+-- and then `high`, least significant byte first.
+local function spelled(s: uint64, length: uint64, low: uint64, high: uint64): boolean
+    if strings.length(s) ~= length then
+        return false
+    end
+    @unsafe do
+        local base = native.pointer(strings.bytes(s))
+        local k: uint64 = 0ULL
+        while k < length do
+            local word = native.chooseWord(k < 8ULL, low, high)
+            if native.word(native.load8(base, native.index(k))) ~= (word >> ((k & 7ULL) * 8ULL)) & 0xffULL then
+                return false
+            end
+            k = k + 1ULL
+        end
+    end
+
+    return true
+end
+
+-- The header of a new string holding a number's text, as tostring writes it.
+local function numberText(ctx: voidptr, value: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = heapOf(ctx)
+        local builder = state as strings.Builder*
+        if guestlib.appendText(h, builder, value) ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        return strings.finish(h, builder)
+    end
+end
+
+-- collectgarbage(opt): "collect", the default, runs a whole collection;
+-- "count" answers the kilobytes in use; "stop" and "restart" turn automatic
+-- collection off and on; "isrunning" answers whether it is on; "step" runs a
+-- whole collection, which finishes a cycle. Lua 5.5's other options are not
+-- the core's yet, and raise as an unknown one does. A number names the
+-- option its text spells, as Lua's string arguments take one.
+export function collectgarbage(ctx: voidptr, option: uint64): uint64
+    guestscope.nameLibrary(ctx, texts.NAME_COLLECTGARBAGE)
+    local s: uint64 = 0ULL
+    if option ~= values.NIL then
+        s = strings.header(option)
+        if s == 0ULL and (ints.isInteger(option) or option & values.QNAN ~= values.QNAN or option == values.QNAN) then
+            s = numberText(ctx, option)
+        end
+        if s == 0ULL then
+            texts.argumentError(ctx, 1ULL, texts.TEXT_STRING, 0ULL, option)
+        end
+    end
+    @unsafe do
+        local h = heapOf(ctx)
+        if s == 0ULL or spelled(s, 7ULL, 0x7463656c6c6f63ULL, 0ULL) then
+            collector.fullCycle(h)
+            tables.drain(h)
+            return values.TAG_INTEGER
+        elseif spelled(s, 5ULL, 0x746e756f63ULL, 0ULL) then
+            local bytes = native.fromBits(ints.toFloatBits(h.liveBytes))
+            return floatValue(native.bits(bytes / native.fromBits(0x4090000000000000ULL)))
+        elseif spelled(s, 4ULL, 0x706f7473ULL, 0ULL) then
+            h.automatic = false
+            return values.TAG_INTEGER
+        elseif spelled(s, 7ULL, 0x74726174736572ULL, 0ULL) then
+            h.automatic = true
+            return values.TAG_INTEGER
+        elseif spelled(s, 9ULL, 0x6e696e6e75727369ULL, 0x67ULL) then
+            if h.automatic then
+                return values.TRUE
+            end
+            return values.FALSE
+        elseif spelled(s, 4ULL, 0x70657473ULL, 0ULL) then
+            collector.fullCycle(h)
+            tables.drain(h)
+            return values.TRUE
+        end
+    end
+    texts.optionError(ctx, 1ULL, values.TAG_OBJ | s)
+
+    return values.NIL
 end

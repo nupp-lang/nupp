@@ -110,7 +110,7 @@ local function assemble(
             )
             if code.fixupKind[at] == selector.IMPORT_LOAD then
                 local index = assert(imports and imports[code])[code.fixupName[at]]
-                assert(index ~= nil and index >= 0 and index < 10 and index % 1 == 0, "core link OS import index")
+                assert(index ~= nil and index >= 0 and index < 18 and index % 1 == 0, "core link OS import index")
                 local base, slot, importIndex = offset as integer, word as integer, index as integer
                 words[base // 4 + slot] = arm.ldr(8, 16, 22, importIndex * 8)
             else

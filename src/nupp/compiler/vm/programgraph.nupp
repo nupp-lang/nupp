@@ -301,10 +301,29 @@ function program.describe(modules: {any}, entryModule: string): any
 
     -- The record name each method written in a record body belongs to.
     local inlineRecords: {[any]: any} = {}
+    -- The declarations of comptime helpers, which the program never sees.
+    local erasedDefinitions: {[any]: boolean} = {}
     local discover: function(any, any): nil
     discover = function(node: any, owner: any): nil
         if cst.isToken(node) then
             binding(node, owner)
+            return
+        end
+        if graph.erased(node) then
+            -- What it declares exists only while compiling.
+            local function forget(item: any): nil
+                if cst.isToken(item) then
+                    if item.definition then
+                        erasedDefinitions[item.definition] = true
+                    end
+                    return
+                end
+                for _, child in ipairs(item) do
+                    forget(child)
+                end
+            end
+
+            forget(node)
             return
         end
         if node.kind == "recordDecl" then
@@ -419,7 +438,7 @@ function program.describe(modules: {any}, entryModule: string): any
         discover(module.parsed.root, p.owners[module.chunk + 1])
         for _, definition in ipairs(module.parsed.symbols) do
             need(
-                not definition.lexical or p.byDefinition[definition] ~= nil,
+                not definition.lexical or p.byDefinition[definition] ~= nil or erasedDefinitions[definition],
                 "checked declaration outside ordered syntax is unsupported"
             )
         end
@@ -540,7 +559,7 @@ function program.describe(modules: {any}, entryModule: string): any
 
     local collect: function(any, any): nil
     collect = function(node: any, owner: any): nil
-        if cst.isToken(node) or typeSyntax[node.kind] then
+        if cst.isToken(node) or typeSyntax[node.kind] or graph.erased(node) then
             return
         end
         local bodyOwner = p.byBody[node]
@@ -548,16 +567,18 @@ function program.describe(modules: {any}, entryModule: string): any
             owner = bodyOwner
         end
         -- A library function taken as a value: the function the image's
-        -- `nupp.runtime.libraryvalues` carries under its name, read through a
-        -- require of that module.
+        -- `nupp.runtime.libraryvalues` carries under its name (`io`, the one
+        -- `nupp.runtime.luaio` carries), read through a require of that
+        -- module.
         local libraryValue = graph.libraryValue(node)
-        local values = moduleNames["nupp.runtime.libraryvalues"]
+        local valuesModule = libraryValue and graph.libraryModule(libraryValue)
+        local values = valuesModule and moduleNames[valuesModule]
         if libraryValue and values then
             local item = {
                 id = #p.requires,
                 owner = owner.id,
                 node = node,
-                module = "nupp.runtime.libraryvalues",
+                module = valuesModule,
                 typeOnly = false,
                 target = values.chunk,
                 qualified = true,
@@ -799,6 +820,9 @@ function program.describe(modules: {any}, entryModule: string): any
         end
         if node.kind == "name" then
             reference(node.token, owner)
+        elseif node.kind == "recordDecl" and node.qualifiers and node.qualifiers[1].definition then
+            -- `record t.R` stores its table in the table `t` names.
+            reference(node.qualifiers[1], owner)
         elseif node.kind == "funcname" then
             -- A qualified declaration reads its receiver, whereas a plain
             -- function declaration introduces its own checked binding.
@@ -838,7 +862,7 @@ function program.describe(modules: {any}, entryModule: string): any
         local throughValue = node.kind == "call"
             and node.obj.kind == "name"
             and graph.libraryValue(node.obj) ~= nil
-            and moduleNames["nupp.runtime.libraryvalues"] ~= nil
+            and moduleNames[graph.libraryModule(graph.libraryValue(node.obj) as string)] ~= nil
         if node.kind == "call"
             and node.obj.kind == "name"
             and not throughValue
@@ -887,7 +911,16 @@ function program.describe(modules: {any}, entryModule: string): any
             and not target.node.inlineStatic
             and inlineRecords[target.node]
             or nil
-        if base and base.definition.filename ~= owner.scope.path then
+        -- `function t.R:m()` names its record through the table `t`, which
+        -- holds it: its table is the receiver's metatable, as for another
+        -- module's record.
+        local nested = false
+        if target and target.node.kind == "funcStmt" and target.node.name.method then
+            for _, part in ipairs(target.node.name) do
+                nested = nested or cst.isToken(part) and part.kind == "."
+            end
+        end
+        if base and (nested or base.definition.filename ~= owner.scope.path) then
             -- Another module's record: its table is the receiver's metatable.
             local item = {
                 id = #p.calls,

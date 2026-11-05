@@ -483,6 +483,14 @@ export function install(c: state.Checker): state.ExprHandlers
             end
         end
         if kind == "dotIndex" and memberName == "C" and holderName == "ffi" then
+            -- `ffi` is resolved for its own sake, as it is for `ffi.new`: the
+            -- read is recorded, and a backend reading the binding finds it.
+            local entry = c.lookupEntry(holderName)
+            local holder: any = target
+            if entry and entry.definition then
+                c.markToken(holder.token, entry.definition, entry.t, entry.definition.kind)
+                holder.inferredType = entry.t
+            end
             return c.cNamespaceType()
         end
         if kind == "dotIndex" and not node.writeContext then

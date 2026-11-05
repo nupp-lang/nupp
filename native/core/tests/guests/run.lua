@@ -51,7 +51,12 @@ local SCALED = {
 }
 -- The environment every bridge and guard run sees, which environmentRead
 -- reads back; the long value needs a second copy past the first 256 bytes.
-local GUEST_ENV = "NUPP_GUEST_PROBE=core-environment NUPP_GUEST_SCALE=3 NUPP_GUEST_LONG=" .. string.rep("x", 300) .. " "
+local GUEST_ENV = "NUPP_GUEST_PROBE=core-environment NUPP_GUEST_SCALE=3 NUPP_GUEST_LONG="
+    .. string.rep("x", 300)
+    .. " NUPP_GUEST_TEMP="
+    .. OUT
+    .. "/temp"
+    .. " "
 
 local CASES = {
     {"boolean", 0x7FFB000000000000},
@@ -166,6 +171,14 @@ local CASES = {
     {"serdejson", 0x7FFF000000000003},
     {"modulesretry", 0x7FFF00000000007F},
     {"errorsruntime", 0x7FFF00000000001F},
+    {"hostlibrary", 0x7FFF0000000000FF},
+    {"benchforms", 0x7FFF00000000003F},
+    {"iofiles", 0x7FFF07FFFFFFFFFF},
+    {"iostandard", 0x7FFF00000000000F},
+    -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
+    -- debug.bench), measuring fib: its record is checked (OUTPUT); the
+    -- entry exports nothing.
+    {"benchworkloads", 0x7FF9000000000000},
     -- 600 functions, past the 256 owners the graph schema once admitted.
     {"functionsmany", 0x7FFF00000002C04C},
     -- Recursion to 150,000 frames and an overflow at 200,000 (7 * 10^6 +
@@ -183,17 +196,56 @@ local OUTPUT = {
     callsExpand = "1\t2\nx\t1\t2\n",
     outputwrite = "hello 42 1.5\n3.0 -0.0 9.223372036854776e18\nab\nx7\np\n",
     libraryspread = "1\t2\t3\n3\t3\n97\t98\t99\n2\t3\ntrue\t1\t2\n",
-    moduleslazy = "main start\nshapes loading\ncounter loading\nmain required\n"
+    moduleslazy = "main start\nshapes loading\ncounter loading\nmain required\n",
+    iostandard = "a1 b\t2.5\ne\nc\n1\ttrue\t7\tx\nfalse\tboom\ntail\ttrue\nw\n"
 }
--- Heap-using cases that also run with a whole collection at every
--- allocation. records and strings allocate per iteration, which makes their
--- full-scale workloads quadratic there; stringsBasic and tablesBasic stand in.
+-- The bench entry's record, which holds times: its shape and fib(20)'s
+-- checksum (SETUP) are what is checked, not what it measured.
+OUTPUT.benchworkloads = function(printed)
+    local ok, record = pcall(json.decodevalue, printed)
+    local case = ok and type(record) == "table" and type(record.cases) == "table" and record.cases[1]
+    if type(case) ~= "table" or #record.cases ~= 1 or type(record.schema) ~= "number" then
+        return false
+    end
+    local samples = case.samplesMs
+    if type(samples) ~= "table" or #samples ~= case.rounds then
+        return false
+    end
+    for _, sample in ipairs(samples) do
+        if type(sample) ~= "number" or sample < 0 then
+            return false
+        end
+    end
+
+    return case.name == "fib"
+        and case.kind == "case"
+        and case.n == 1
+        and case.rounds == 7
+        and case.checksum == "6765"
+        and type(case.medianMs) == "number"
+end
+
+-- Whether `printed` is what case `name` prints.
+local function printedAs(name, printed)
+    local expected = OUTPUT[name]
+    if type(expected) == "function" then
+        return expected(printed)
+    end
+
+    return printed == (expected or "")
+end
+-- Heap-using cases that also run with a collection at every allocation, and
+-- with interleaved incremental collection. Full cycles under stress are
+-- spaced by a share of what lives, so the full-scale workloads stay linear;
+-- records and strings, at seconds a run there, run so in normal mode alone.
 local STRESS = {
     callsNumeric = true,
     workloadFib = true,
     tablesBasic = true,
     workloadClosures = true,
     workloadTables = true,
+    workloadRecords = "normal",
+    workloadStrings = "normal",
     stringsBasic = true,
     integersWide = true,
     threadsbasic = true,
@@ -224,8 +276,22 @@ local STRESS = {
     functionsmany = true,
     callsdeep = true,
     modulesretry = true,
-    errorsruntime = true
+    errorsruntime = true,
+    hostlibrary = true,
+    benchforms = true,
+    iofiles = true,
+    iostandard = true
 }
+-- Shell statements a case's runs start with: the io case may hold 64
+-- descriptors, so a handle its owner left open would exhaust them; the bench
+-- entry measures fib(20), BENCH_SCALE adding to 29.
+local SETUP = {iofiles = "ulimit -n 64; ", benchworkloads = "export BENCH_SCALE=-9; "}
+-- The program arguments a case is run with, after the bridge's own.
+-- The bench entry measures one case, writes its record as JSON on standard
+-- output, and writes the record file it always writes nowhere.
+local ARGUMENTS = {hostlibrary = "alpha beta", benchworkloads = "--case fib --json --out /dev/null"}
+-- Cases whose program the core refuses to compile, and what it says.
+local REFUSED = {}
 -- What stress cases see in place of their full size under collection at
 -- every allocation and interleaved collection, which keeps every freed
 -- object as a tombstone: there a collection runs between any two
@@ -313,7 +379,9 @@ local NUMERIC = {
     callsoverflow = "catalog-calls-overflow",
     modulesretry = "catalog-modules-retry",
     errorsruntime = "catalog-errors-runtime",
-    tablespackedsemantics = "catalog-tables-packed-semantics"
+    tablespackedsemantics = "catalog-tables-packed-semantics",
+    iofiles = "catalog-io-files",
+    iostandard = "catalog-io-standard"
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -624,7 +692,11 @@ local function stage()
             "catalog-storage-provider",
             "catalog-tables-frozen",
             "catalog-tables-packed",
-            "catalog-tables-packed-semantics"
+            "catalog-tables-packed-semantics",
+            "catalog-host-library",
+            "catalog-output-write",
+            "catalog-io-files",
+            "catalog-io-standard"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",
@@ -902,6 +974,8 @@ local function main()
     if not os.getenv("NUPP_GUEST_SHARD") then
         functionsmany()
         modulesmany()
+        -- And the directory the io cases write their files in, afresh.
+        os.execute("rm -rf " .. quote(OUT .. "/temp") .. " && mkdir -p " .. quote(OUT .. "/temp"))
     end
     -- The cases named, in the order named, or every case.
     local selectedCases = {}
@@ -986,9 +1060,13 @@ local function main()
     local function bridgeRun(label, bundle, input, output, expectedStatus, environment, after)
         local kind = label:match(" (%a+)") or "bridge"
         local phase = label:match("^audit") and "audit bridge" or ("bridge " .. kind)
+        local arguments = ARGUMENTS[label:match("^(%w+)")]
         defer(
             phase,
-            (environment or GUEST_ENV) .. ("%s %s %s %s"):format(quote(bridge), quote(bundle), quote(input), quote(output)),
+            (SETUP[label:match("^(%w+)")] or "")
+            .. (environment or GUEST_ENV)
+            .. ("%s %s %s %s"):format(quote(bridge), quote(bundle), quote(input), quote(output))
+            .. (arguments and " " .. arguments or ""),
             function(status, printed)
                 check((status == 0) == (expectedStatus == 0), label .. " bridge status")
                 if after then
@@ -1002,9 +1080,13 @@ local function main()
         if QUICK or HEAVY[label:match("^(%w+)")] then
             return
         end
-        local env = GUEST_ENV .. (
+        local env = (SETUP[label:match("^(%w+)")] or "") .. GUEST_ENV .. (
             "CORE_TEST_BUNDLE=%s CORE_TEST_INPUT=%s CORE_TEST_HIGH_WATER=%d "
         ):format(quote(bundle), quote(input), highWater)
+        local arguments = ARGUMENTS[label:match("^(%w+)")]
+        if arguments then
+            env = env .. "CORE_TEST_ARGUMENTS=" .. quote(arguments) .. " "
+        end
         local test = "abi::generated_entry_preserves_c_abi_and_output"
         if status then
             env = env .. "CORE_TEST_STATUS=" .. status .. " "
@@ -1033,7 +1115,17 @@ local function main()
 
     for _, case in ipairs(selectedCases) do
         local name, expectedWord = case[1], case[2]
-        for _, mode in ipairs({"normal", "spill"}) do
+        if REFUSED[name] then
+            timing.case, timing.phase = name, "select"
+            local began = os.time()
+            local compiled, problem = pcall(guestbuild.program, name)
+            account(os.time() - began)
+            check(
+                not compiled and tostring(problem):find(REFUSED[name]) ~= nil,
+                name .. " refusal: " .. tostring(problem)
+            )
+        end
+        for _, mode in ipairs(REFUSED[name] and {} or {"normal", "spill"}) do
             local label = name .. "-" .. mode
             timing.case = name
             local selected = selection(name, mode)
@@ -1065,11 +1157,11 @@ local function main()
                 os.remove(output)
                 bridgeRun(label, bundle, empty, output, 0, nil, function(printed)
                     check(read(output) == u64(expectedWord), ("%s result %016x"):format(label, expectedWord))
-                    check(printed == (OUTPUT[name] or ""), label .. " printed output")
+                    check(printedAs(name, printed), label .. " printed output")
                 end)
                 guarded(label, bundle, empty, highWater, expected)
-                -- The same result with a whole collection at every allocation.
-                if STRESS[name] and UNITS then
+                -- The same result with a collection at every allocation.
+                if UNITS and (STRESS[name] == true or STRESS[name] == mode) then
                     local input = OUT .. "/" .. label .. "-stress.bin"
                     write(input, u64(-1) .. u64(0) .. u64(1))
                     local stressed = OUT .. "/" .. label .. "-stress.out"
@@ -1077,7 +1169,7 @@ local function main()
                     local environment = STRESS_ENV[name] and GUEST_ENV .. STRESS_ENV[name]
                     bridgeRun(label .. " stress", bundle, input, stressed, 0, environment, function(again)
                         check(
-                            again == (OUTPUT[name] or ""),
+                            printedAs(name, again),
                             label .. " printed output under collect-at-every-allocation"
                         )
                         check(read(stressed) == u64(expectedWord), label .. " result under collect-at-every-allocation")
@@ -1090,7 +1182,7 @@ local function main()
                     os.remove(steppedOut)
                     bridgeRun(label .. " interleaved", bundle, stepped, steppedOut, 0, environment, function(printedStepped)
                         check(
-                            printedStepped == (OUTPUT[name] or ""),
+                            printedAs(name, printedStepped),
                             label .. " printed output under interleaved collection"
                         )
                         check(read(steppedOut) == u64(expectedWord), label .. " result under interleaved collection")

@@ -1,0 +1,35 @@
+-- Lua twin of catalog-io-standard.nupp.
+
+-- The standard files on the core beside print: io.write, io.stdout and
+-- io.stderr keep their order with print's, io.write answers the file it
+-- wrote, and print and a call take all of a protected call's results.
+io.write("a", 1, " ")
+print("b", 2.5)
+io.stderr:write("e\n")
+io.stdout:write("c\n")
+print(1, pcall(function()
+    return 7, "x"
+end))
+print(pcall(error, "boom", 0))
+print("tail", pcall(function()
+end))
+local function count(...)
+    return select("#", ...)
+end
+local score = 0
+if count(1, pcall(function()
+    return 1, 2
+end)) == 4 then
+    score = score + 1
+end
+if count(pcall(error, {})) == 2 then
+    score = score + 2
+end
+if io.write("w") == io.stdout then
+    score = score + 4
+end
+io.write("\n")
+if io.output() == io.stdout and io.input() == io.stdin and io.stdout:flush() == true then
+    score = score + 8
+end
+return score

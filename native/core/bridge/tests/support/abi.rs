@@ -50,6 +50,18 @@ fn generated_entry_preserves_c_abi_and_output() {
     let words = input(&required("CORE_TEST_INPUT")).expect("read input artifact");
     let expected =
         input(&required("CORE_TEST_EXPECTED")).expect("read independent expected output");
+    // The program's arguments after its own, as the bridge takes them.
+    if let Some(extra) = std::env::var_os("CORE_TEST_ARGUMENTS") {
+        let mut program = vec![bundle.clone().into_os_string()];
+        program.extend(
+            extra
+                .to_string_lossy()
+                .split(' ')
+                .filter(|s| !s.is_empty())
+                .map(Into::into),
+        );
+        let _ = super::platform::ARGUMENTS.set(program);
+    }
     let actual = execute(&bundle, &words).expect("invoke Nupp-produced entry through ABI checker");
     assert_eq!(actual, expected, "exact entry output");
 }

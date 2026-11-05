@@ -1076,15 +1076,18 @@ local function nextStep(ctx: voidptr, stateValue: uint64): uint64
             error("bad argument #1 to 'for iterator' (table expected)")
         end
         local t = subject & values.PAYLOAD
-        local key = tables.nextKey(t, tables.get(state, values.TAG_INTEGER | 2ULL))
+        -- A record instance's fields go by name (guestscope.slotname).
+        local after = guestscope.slotkey(ctx, t, tables.get(state, values.TAG_INTEGER | 2ULL))
+        local key = tables.nextKey(t, after)
         if key == values.TRUE then
             texts.libraryError(ctx, texts.TEXT_NEXT_KEY)
         end
         if key == values.NIL then
             return values.FALSE
         end
-        tables.set(h, state, values.TAG_INTEGER | 2ULL, key)
-        tables.set(h, state, values.TAG_INTEGER | 3ULL, key)
+        local name = guestscope.slotname(ctx, t, key)
+        tables.set(h, state, values.TAG_INTEGER | 2ULL, name)
+        tables.set(h, state, values.TAG_INTEGER | 3ULL, name)
         tables.set(h, state, values.TAG_INTEGER | 4ULL, tables.get(t, key))
         return values.TRUE
     end

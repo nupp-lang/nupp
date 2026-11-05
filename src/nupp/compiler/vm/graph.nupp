@@ -1659,7 +1659,7 @@ local function invokeContract(contract: any): nil
             given == #called.params
             or called.vararg and given > #called.params
             or given > 0 and graph.spreadsLast(call)
-            or not protected and graph.omits(called, given),
+            or graph.omits(called, given),
             "invoke checked call arity differs"
         )
         for index, argument in ipairs(call.args.exprs) do
@@ -1830,6 +1830,16 @@ local coreLibrary: {[string]: boolean} = {
     tonumber = true,
     select = true,
     ["os.getenv"] = true,
+    ["os.monotonic"] = true,
+    collectgarbage = true,
+    ["hostcalls.arguments"] = true,
+    ["hostcalls.setcleanup"] = true,
+    ["filecalls.open"] = true,
+    ["filecalls.read"] = true,
+    ["filecalls.write"] = true,
+    ["filecalls.seek"] = true,
+    ["filecalls.close"] = true,
+    ["filecalls.reason"] = true,
     pcall = true,
     xpcall = true,
     error = true,
@@ -1886,7 +1896,6 @@ local coreLibrary: {[string]: boolean} = {
     ["coroutine.running"] = true,
     ["coroutine.isyieldable"] = true,
     ["coroutine.close"] = true,
-    ["io.write"] = true,
     -- `require` of a computed name, or through `_G`.
     ["require.dynamic"] = true
 }
@@ -1942,7 +1951,8 @@ local libraryValues: {
     ["string.reverse"] = true,
     ["string.byte"] = true,
     ["os.getenv"] = true,
-    debug = true
+    debug = true,
+    io = true
 }
 
 -- The library name `node` reads when it names a library function, `tostring`
@@ -1956,6 +1966,40 @@ function graph.libraryValue(node: any): string?
     end
 
     return name and libraryValues[name] and name or nil
+end
+
+-- The module whose `functions` carries library value `name`: Lua's `io`, the
+-- library itself, is `nupp.runtime.luaio`; the others are
+-- `nupp.runtime.libraryvalues`.
+function graph.libraryModule(name: string): string
+    if name == "io" then
+        return "nupp.runtime.luaio"
+    end
+
+    return "nupp.runtime.libraryvalues"
+end
+
+-- Whether an unchecked tree may read Lua's `io`: a name spelled `io`
+-- anywhere, `io.open(...)` and `io.cli` alike. A builder reads it to carry
+-- `nupp.runtime.luaio`; carrying it needlessly costs nothing.
+function graph.mayUseIo(root: any): boolean
+    local found = false
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if found or type(node) ~= "table" then
+            return
+        end
+        if node.kind == "name" and node.token and node.token.text == "io" then
+            found = true
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+
+    return found
 end
 
 -- Whether an unchecked tree may take a library function as a value: a name
@@ -2000,10 +2044,33 @@ end
 -- The declaration modules whose functions the core implements as library
 -- calls: a call of one is that call, and requiring the module loads
 -- nothing.
-local corecallmodules: {[string]: string} = {["nupp.runtime.storagecalls"] = "storagecalls"}
+local corecallmodules: {
+    [string]: string
+} = {
+    ["nupp.runtime.storagecalls"] = "storagecalls",
+    ["nupp.runtime.hostcalls"] = "hostcalls",
+    ["nupp.runtime.filecalls"] = "filecalls"
+}
 
 function graph.corecallmodule(name: string?): boolean
     return name ~= nil and corecallmodules[name] ~= nil
+end
+
+-- Whether a statement is a comptime helper the checker ran while compiling,
+-- or the `@comptime` pragma before one: the program never sees it, as the
+-- VM's lowering leaves it out.
+function graph.erased(node: any): boolean
+    local kind = node.kind
+    if kind == "pragmaStmt" and node.name and node.name.text == "comptime" and node.stat then
+        local target = node.stat
+        while target.kind == "exportStmt" and target.stat do
+            target = target.stat
+        end
+        return graph.erased(target)
+    end
+
+    return (kind == "localStmt" or kind == "localFuncStmt" or kind == "funcStmt")
+        and (node.comptimeFunction ~= nil or node.comptimeTok ~= nil)
 end
 
 -- The image module the core answers a host module's `require` with: the
@@ -2311,12 +2378,14 @@ function graph.expandsResults(expr: any): boolean
 end
 
 -- Whether a call's last argument spreads a pack: `...`, or a call whose
--- results it takes all of.
+-- results it takes all of, pcall's and xpcall's among them.
 function graph.spreadsLast(call: any): boolean
     local exprs = call.args and call.args.exprs or {}
     local last = exprs[#exprs]
+    local library = last ~= nil and last.kind == "call" and graph.coreLibraryCall(last) or nil
 
-    return last ~= nil and (last.kind == "vararg" or graph.expandsResults(last))
+    return last ~= nil
+        and (last.kind == "vararg" or graph.expandsResults(last) or library == "pcall" or library == "xpcall")
 end
 
 -- The argument a library call calls back, by its index among the call's
@@ -3039,15 +3108,16 @@ function graph.verify(g: any): nil
         end
         -- Parameters a call leaves off are passed as nil. A declared
         -- method's function type leaves out its receiver; a dynamic one's
-        -- signature is the call's own.
+        -- signature is the call's own. xpcall's handler follows the callee's
+        -- arguments.
         local method = term.contract.call.kind == "methodCall"
+        local handler: integer = term.contract.protected and term.contract.handled == true and 1 or 0
         if (term.contract.call.kind == "call" or method and not term.contract.dynamic)
             and not term.spread
-            and not term.contract.protected
             and not term.contract.construct
-            and graph.omits(term.contract.callSignature, method and count - 1 or count)
+            and graph.omits(term.contract.callSignature, (method and count - 1 or count) - handler)
         then
-            count = #term.contract.callSignature.params + (method and 1 or 0)
+            count = #term.contract.callSignature.params + (method and 1 or 0) + handler
         end
 
         return count

@@ -58,6 +58,13 @@ export const CARD_MINIMUM: uint64 = 256ULL
 --- minor collections before each incremental cycle.
 const STRESS_MINORS: uint64 = 15ULL
 
+--- Under stress, the share of the live objects that the minor collections
+--- between full ones also number, when that is more: a full cycle costs
+--- what lives, so spacing them by a fixed count made a growing heap
+--- quadratic, where spacing them by a share of it keeps it linear. A heap of
+--- fewer than `STRESS_MINORS` shares runs one every `STRESS_MINORS` still.
+const STRESS_SHARE: uint64 = 64ULL
+
 const INTERLEAVED_MINORS: uint64 = 8ULL
 
 --- The least allocation between minor collections.
@@ -992,29 +999,6 @@ local function holdsfresh(o: heap.Header*): boolean
     end
 end
 
---- After marking, the remembered list keeps an object only while it holds
---- a fresh one (as Lua 5.4's touched objects stay gray for two cycles), and
---- an old thread always, since its frames change without the barrier.
-local function rememberkeep(h: heap.Heap*): nil
-    @unsafe do
-        local list = h.remembered
-        local kept: uint64 = 0ULL
-        local i: uint64 = 0ULL
-        while i < list.count do
-            local address = heap.wordAt(list, i)
-            local o = native.pointer(address) as heap.Header*
-            if o.kind as uint64 == heap.KIND_THREAD or holdsfresh(o) then
-                heap.setWordAt(list, kept, address)
-                kept = kept + 1ULL
-            else
-                setflags(o, flagsof(o) & ~heap.F_TOUCHED)
-            end
-            i = i + 1ULL
-        end
-        list.count = kept
-    end
-end
-
 --- The array slots of card `card`: shaded when `scan`, else whether one of
 --- them holds a fresh object.
 local function arrayslots(h: heap.Heap*, t: heap.TableBody*, card: uint64, scan: boolean): boolean
@@ -1063,6 +1047,65 @@ local function hashslots(h: heap.Heap*, t: heap.TableBody*, card: uint64, scan: 
             b = b + 1ULL
         end
         return false
+    end
+end
+
+--- Moves a remembered table that carries cards onto them: each card over a
+--- fresh object is marked, so the table need not stay remembered. A table
+--- remembered while it was small, and stored into between every two minor
+--- collections, would otherwise stay remembered as it grows, and be scanned
+--- whole by every one of them. False when the cards have no room.
+local function cardover(h: heap.Heap*, o: heap.Header*): boolean
+    @unsafe do
+        local r = cardrecord(h, o)
+        if r == NONE then
+            return false
+        end
+        local t = tableof(o)
+        local card: uint64 = 0ULL
+        while card * CARD_SLOTS < t.arrayLen do
+            if arrayslots(h, t, card, false) and not markarray(h, r, card * CARD_SLOTS) then
+                return false
+            end
+            card = card + 1ULL
+        end
+        card = 0ULL
+        while card * CARD_SLOTS < t.hashCap do
+            if hashslots(h, t, card, false) and not markhash(h, r, o, card * CARD_SLOTS) then
+                return false
+            end
+            card = card + 1ULL
+        end
+        return true
+    end
+end
+
+--- After marking, the remembered list keeps an object only while it holds
+--- a fresh one (as Lua 5.4's touched objects stay gray for two cycles), and
+--- an old thread always, since its frames change without the barrier. A
+--- table that carries cards leaves it for them.
+local function rememberkeep(h: heap.Heap*): nil
+    @unsafe do
+        local list = h.remembered
+        local kept: uint64 = 0ULL
+        local i: uint64 = 0ULL
+        while i < list.count do
+            local address = heap.wordAt(list, i)
+            local o = native.pointer(address) as heap.Header*
+            if o.kind as uint64 == heap.KIND_THREAD then
+                heap.setWordAt(list, kept, address)
+                kept = kept + 1ULL
+            elseif cardable(o) and cardover(h, o) then
+                setflags(o, flagsof(o) & ~heap.F_TOUCHED)
+            elseif holdsfresh(o) then
+                heap.setWordAt(list, kept, address)
+                kept = kept + 1ULL
+            else
+                setflags(o, flagsof(o) & ~heap.F_TOUCHED)
+            end
+            i = i + 1ULL
+        end
+        list.count = kept
     end
 end
 
@@ -1279,7 +1322,8 @@ end
 --- incremental cycle, exactness after the atomic one that follows).
 ---
 --- With generations (Decision 20) stress runs a minor collection every time
---- and a whole cycle after every `STRESS_MINORS` of them; interleaved,
+--- and a whole cycle after every `STRESS_MINORS` of them, or after a
+--- `STRESS_SHARE`th of the live objects when that is more; interleaved,
 --- `INTERLEAVED_MINORS` minor collections come before each incremental
 --- cycle, the oracle checking safety after each. Otherwise, as Lua 5.4's
 --- generational mode is paced, a minor collection runs once allocation
@@ -1291,7 +1335,10 @@ export function safepoint(h: heap.Heap*): nil
             return
         end
         if h.stress then
-            if h.generational ~= 0ULL and h.phase == heap.PHASE_IDLE and h.sincefull < STRESS_MINORS then
+            if h.generational ~= 0ULL
+                and h.phase == heap.PHASE_IDLE
+                and (h.sincefull < STRESS_MINORS or h.sincefull < h.liveCount // STRESS_SHARE)
+            then
                 minorcycle(h)
                 if h.oracle then
                     checkOracle(h, false)

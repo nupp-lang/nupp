@@ -1,0 +1,184 @@
+-- Lua twin of catalog-io-files.nupp.
+
+-- Lua's io on the core, as reference Lua 5.5 answers it: io.open's modes,
+-- results and errors; reads in every format; writes; seek positions; lines;
+-- setvbuf, flush and close; and an io.open handle closed as its owner leaves
+-- scope. Each check is a bit of the score. Files go under NUPP_GUEST_TEMP.
+local base = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/io-" .. tostring(math.random(1, 1 << 40))
+local score = 0
+local bit = 1
+local path = base .. "-text"
+local numbers = base .. "-numbers"
+
+local function check(ok)
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local function ends(text, suffix)
+    return type(text) == "string" and string.sub(text, -#suffix) == suffix
+end
+
+-- Writing: strings and numbers, the file answered.
+do
+    local f = assert(io.open(path, "w"))
+    local written = f:write("alpha\n", 42, " ", 1.5, "\nbeta\r\n\ngamma")
+    check(io.type(written) == "file" and tostring(written) == tostring(f))
+    check(f:close() == true and tostring(f) == "file (closed)")
+    local closedOk, closedMessage = pcall(function()
+        return f:read("a")
+    end)
+    check(not closedOk and ends(closedMessage, ":31: attempt to use a closed file"))
+end
+
+-- Reading every format; "n" leaves the byte it stopped at.
+do
+    local r = assert(io.open(path, "r"))
+    check(r:read("l") == "alpha" and r:read("L") == "42 1.5\n")
+    check(r:read("n") == nil and r:read("l") == "beta\r" and r:read("l") == "")
+    check(r:read(2) == "ga" and r:read(0) == "" and r:read("a") == "mma")
+    check(r:read("a") == "" and r:read("l") == nil and r:read(0) == nil and r:read(1) == nil)
+    local endOne, endTwo = r:read("l", "l")
+    check(endOne == nil and endTwo == nil)
+
+    -- Seek positions count what was read, not what was read ahead.
+    check(r:seek("set", 2) == 2 and r:read(3) == "pha" and r:seek() == 5)
+    check(r:seek("cur", -1) == 4 and r:read(1) == "a" and r:seek("end") == 25)
+    check(r:seek("end", -5) == 20 and r:read("a") == "gamma")
+    local nowhere, invalid, einval = r:seek("set", -1)
+    check(nowhere == nil and invalid == "Invalid argument" and einval == 22)
+    check(r:close() == true)
+end
+
+-- Numbers as Lua's read_number takes them.
+do
+    local nf = assert(io.open(numbers, "w"))
+    nf:write("  0x1F -3.5e2 .5 12abc 0x 1e+ 123456789012 0x1p4\n-")
+    nf:close()
+    local nr = assert(io.open(numbers, "r"))
+    local a, b, c = nr:read("n", "n", "n")
+    check(a == 31 and math.type(a) == "integer" and b == -350.0 and c == 0.5)
+    check(nr:read("n") == 12 and nr:read("n") == nil and nr:read(3) == "abc")
+    check(nr:read("n") == nil and nr:read("n") == nil)
+    local big = nr:read("n")
+    check(big == 123456789012 and math.type(big) == "integer" and nr:read("n") == 16.0)
+    check(nr:read("n") == nil and nr:read("a") == "")
+    nr:close()
+end
+
+-- Lines, with formats, and io.lines's own four values.
+do
+    local count = 0
+    for line in io.lines(path) do
+        count = count + 1
+        if count == 4 then
+            check(line == "")
+        end
+    end
+    check(count == 5)
+    local pairsRead = {}
+    for x in io.lines(path, 2) do
+        pairsRead[#pairsRead + 1] = tostring(x)
+    end
+    check(table.concat(pairsRead, ",") == "al,ph,a\n,42, 1,.5,\nb,et,a\r,\n\n,ga,mm,a")
+    local _, _, _, closer = io.lines(path)
+    check(io.type(closer) == "file" and closer:close() == true)
+    local missingOk, missingMessage = pcall(function()
+        return io.lines(base .. "-missing")
+    end)
+    check(not missingOk and ends(missingMessage, "-missing' (No such file or directory)"))
+    local fl = assert(io.open(numbers, "r"))
+    local found = {}
+    for value in fl:lines("n") do
+        found[#found + 1] = value
+    end
+    check(#found == 4 and found[1] == 31 and found[4] == 12 and string.match(tostring(fl), "^file %(0x%x+%)$") ~= nil)
+    fl:close()
+end
+
+-- Errors: Lua's results, then its argument errors.
+do
+    local none, noneMessage, noneCode = io.open(base .. "-dir/missing", "r")
+    check(none == nil and noneMessage == base .. "-dir/missing: No such file or directory" and noneCode == 2)
+    local directory, directoryMessage, directoryCode = io.open(os.getenv("NUPP_GUEST_TEMP") or "/tmp", "w")
+    check(directory == nil and ends(directoryMessage, ": Is a directory") and directoryCode == 21)
+    local modeOk, modeMessage = pcall(function()
+        local _ = io.open(path, "rw")
+    end)
+    check(not modeOk and ends(modeMessage, "bad argument #2 to 'open' (invalid mode)"))
+    local formats = assert(io.open(path, "r"))
+    local formatOk, formatMessage = pcall(function()
+        return formats:read("x")
+    end)
+    check(not formatOk and ends(formatMessage, "bad argument #1 to 'read' (invalid format)"))
+    local whenceOk, whenceMessage = pcall(function()
+        local _ = formats:seek("bogus")
+    end)
+    check(not whenceOk and ends(whenceMessage, "bad argument #1 to 'seek' (invalid option 'bogus')"))
+    local vbufOk, vbufMessage = pcall(function()
+        local _ = formats:setvbuf("bogus")
+    end)
+    check(not vbufOk and ends(vbufMessage, "bad argument #1 to 'setvbuf' (invalid option 'bogus')"))
+    local writeOk, writeMessage = pcall(function()
+        local _ = formats:write({})
+    end)
+    check(not writeOk and ends(writeMessage, "bad argument #1 to 'write' (string expected, got table)"))
+    local nothing, badMessage, badCode, badCount = formats:write("x")
+    check(nothing == nil and badMessage == "Bad file descriptor" and badCode == 9 and badCount == 0)
+    formats:close()
+    local writeOnly = assert(io.open(base .. "-only", "w"))
+    local unread, readMessage, readCode = writeOnly:read("a")
+    check(unread == nil and readMessage == "Bad file descriptor" and readCode == 9)
+    check(writeOnly:setvbuf("no") == true and writeOnly:setvbuf("full", 1024) == true and writeOnly:flush() == true)
+    writeOnly:close()
+end
+
+-- Appending, and updating where the reading stopped.
+do
+    local appended = assert(io.open(path, "a"))
+    appended:write("\ndelta")
+    appended:close()
+    local updated = assert(io.open(path, "r+"))
+    check(updated:read(5) == "alpha" and updated:seek("cur") == 5)
+    updated:write("X")
+    updated:seek("set", 0)
+    check(updated:read("l") == "alphaX42 1.5" and updated:seek("end", -5) == 26 and updated:read("a") == "delta")
+    updated:close()
+end
+
+-- The default files.
+do
+    local out = base .. "-out"
+    check(io.type(io.output(out)) == "file")
+    check(io.type(io.write("x", 1, "\n")) == "file")
+    io.output():close()
+    io.output(io.stdout)
+    io.input(out)
+    check(io.read("l") == "x1" and io.read("l") == nil)
+    io.input():close()
+    local inputOk, inputMessage = pcall(function()
+        return io.read("l")
+    end)
+    check(not inputOk and ends(inputMessage, "default input file is closed"))
+    io.input(io.stdin)
+    local standard, standardMessage = io.stdout:close()
+    check(standard == nil and standardMessage == "cannot close standard file" and io.type(io.stdout) == "file")
+    check(io.type(42) == nil and io.type(io.stderr) == "file" and getmetatable(io.stdin).__name == "FILE*")
+end
+
+-- An io.open handle its owner leaves open is closed as the owner leaves
+-- scope: a hundred of them, past the 64 descriptors the runner allows.
+local function peek(name)
+    local handle <close> = assert(io.open(name, "r"))
+    return handle:read("l")
+end
+local kept = 0
+for _ = 1, 100 do
+    if peek(path) == "alphaX42 1.5" then
+        kept = kept + 1
+    end
+end
+check(kept == 100)
+return score
