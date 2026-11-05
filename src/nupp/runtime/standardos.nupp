@@ -17,12 +17,16 @@ See [system services](docs/learn/runtime/system.md) for facts, clocks, and UUIDs
 module nupp.runtime.standardos
 
 local system = require("nupp.runtime.system")
-local clocks = require("nupp.runtime.clocks").selected
+local clocks = require("nupp.runtime.timeprovider").provider
 local entropy = require("nupp.runtime.entropy")
 
 local host: any = rawget(_G, "os")
 local luaRemove = host.remove
 local luaRename = host.rename
+
+local function missingClock(): never
+    error("nupp.time: no clock provider is available", 2)
+end
 
 --- Returns a filename for a temporary file that the caller removes explicitly.
 ---
@@ -128,10 +132,10 @@ export function info(): Info
 end
 
 --- Returns monotonic milliseconds with the host's unspecified origin.
-export const monotonic: function(): number = clocks.now
+export const monotonic: function(): number = clocks and clocks.now or missingClock
 
 --- Returns milliseconds since the Unix epoch.
-export const walltime: function(): number = clocks.walltime
+export const walltime: function(): number = clocks and clocks.walltime or missingClock
 
 const _DYNAMIC_REQUIRES = "@requires-dynamically nupp.util.internal.uuid"
 

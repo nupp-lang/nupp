@@ -2,6 +2,38 @@ local test = require("assert")
 local providerstate = require("helpers.providerstate")
 local M = {}
 
+function M.fileOperationsRemainUsableWithoutAClockProvider()
+    local removed, renamed
+    local host = {
+        remove = function(path)
+            removed = path
+            return true
+        end,
+        rename = function(from, to)
+            renamed = {from, to}
+            return true
+        end,
+    }
+    local load = providerstate.instance(
+        {["nupp.runtime.standardos"] = true},
+        {["nupp.runtime.timeprovider"] = {}, ["nupp.runtime.system"] = {}, ["nupp.runtime.entropy"] = {},},
+        {
+            ["nupp.runtime.clocks"] = function()
+                error("nupp.time: no clock provider is available")
+            end,
+        },
+        {os = host}
+    )
+    local surface = load("nupp.runtime.standardos")
+    test.eq(surface.value, host)
+    test.eq(host.remove("temporary"), true)
+    test.eq(host.rename("before", "after"), true)
+    test.eq(removed, "temporary")
+    test.deepeq(renamed, {"before", "after"})
+    test.raises(host.monotonic, "no clock provider is available")
+    test.raises(host.walltime, "no clock provider is available")
+end
+
 function M.preservesTheHostTableAndQueriesParallelismPerCall()
     local count, queries = 2, 0
     local uuidLoads, calls4, calls7 = 0, 0, 0
@@ -40,7 +72,7 @@ function M.preservesTheHostTableAndQueriesParallelismPerCall()
                     return count
                 end,
             },
-            ["nupp.runtime.clocks"] = {selected = {now = monotonic, walltime = walltime}},
+            ["nupp.runtime.timeprovider"] = {provider = {now = monotonic, walltime = walltime}},
             ["nupp.runtime.entropy"] = {randombytes = randombytes},
         },
         {
@@ -210,7 +242,7 @@ local function fileSurface(host, provider, browser)
         {["nupp.runtime.standardos"] = true},
         {
             ["nupp.runtime.system"] = {},
-            ["nupp.runtime.clocks"] = {selected = {}},
+            ["nupp.runtime.timeprovider"] = {},
             ["nupp.runtime.entropy"] = {},
             ["nupp.runtime.bindings.files"] = provider,
         },
