@@ -348,13 +348,3 @@ later fulfillment point. The bit-operator contracts (`__band`, `__bor`,
 the LuaJIT 2.1 backport does not dispatch them. `__gc` and `__close` are not
 contracts either, since deterministic cleanup is
 [ownership](../../runtime/ownership/borrowing.md).
-
-::: seealso
-- [refinements.md](refinements.md) for the `satisfies` test an interface may
-  carry
-- [properties.md](properties.md) for `@readonly` and `@writeonly` members
-- [metamethods.md](../metamethods.md) for generic indexing, runtime
-  fulfillment, `metatable<T>`, and the full set of exclusions
-- [overloads.md](overloads.md#default-implementations-and-override) for
-  `@override` against an overload set
-:::

@@ -564,10 +564,3 @@ appends the same document as NDJSON once every selected benchmark reported.
 those programs. Neither replaces an application's own hot loop, such as a
 game's frame or a server's request path with its real asset load and trace
 population.
-
-::: seealso
-- [profiling.md](profiling.md) for where the time went, and whether it compiled
-- [jit-trace-checking.md](jit-trace-checking.md) for finding recorder blockers
-  without running anything
-- [index.md](index.md) for the optimizer whose account a record carries
-:::

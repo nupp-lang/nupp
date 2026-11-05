@@ -245,13 +245,3 @@ The rest of the arrangements it reports:
 Plucking from an owned or borrowed operand is reported instead: an owned or
 borrowed container cannot be plucked from. See [ownership.md](../runtime/ownership/index.md) for
 what a capability permits.
-
-::: seealso
-- [diagnostics.md](../../reference/diagnostics.md) for the code behind every
-  arrangement this page refuses
-- [Type cases, binding, and
-  destructuring](switch-expressions.md#type-cases-binding-and-destructuring)
-  for the brace form a switch arm uses
-- [records.md](types/records-and-structs.md) for the field declarations a pluck
-  reads
-:::

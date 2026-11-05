@@ -357,9 +357,3 @@ or the project's own deployment process.
 The provider is intentionally generic: future readers can use the same
 `kind = "types"` lifecycle and select their representation through `format`.
 Today, `luacats` is the supported format.
-
-::: seealso
-- [Build dependencies](../build.md#type-dependencies) for the manifest
-  contract shared by every type provider
-- [LÖVE](love.md) for a host integration using the pinned LuaCATS definitions
-:::

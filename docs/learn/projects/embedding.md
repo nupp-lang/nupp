@@ -767,12 +767,3 @@ The current embedding release has these deliberate limits:
 - a reload session and native workers are mutually exclusive in one Lua state.
 
 The current C header remains the authority for the implemented ABI.
-
-::: seealso
-- [c-interop.md](../runtime/c-interop/index.md#type-mapping) for how C types cross
-  into checked Nupp source
-- [build.md](build.md#compiler-native-features) for what a component target
-  stages beside the payload
-- [distribution.md](../../reference/distribution.md#payload) for the container a
-  stamped binary uses instead
-:::

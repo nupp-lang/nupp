@@ -489,11 +489,3 @@ return decodeDynamic("ready")
 That dispatcher exists because the program asked for a dynamic facade. Typed
 method calls do not pay for it. See [Escape hatches](index.md#escape-hatches)
 for the rest of what crosses that boundary.
-
-::: seealso
-- [intersections.md](intersections.md) for the intersection relation a callable
-  contract is written in, and for provable emptiness
-- [interfaces.md](interfaces.md) for contracts, defaults, and what `is` claims
-- [records.md](records-and-structs.md) for constructors and inline methods
-- [packs.md](packs.md) for the argument pack selection runs against
-:::

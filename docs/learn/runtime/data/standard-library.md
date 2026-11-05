@@ -175,10 +175,3 @@ because a local leaves scope.
 A writer that buffers output reports delivery failures through `flush`. Check
 that result before closing when delivery matters. See
 [ownership.md](../ownership/index.md) for affine ownership and borrowing.
-
-::: seealso
-- [](io) for buffers, readers, writers, and byte views
-- [ownership.md](../ownership/index.md) for the affine results these modules return
-- [build.md](../../projects/build.md#compiler-native-features) for native feature
-  detection and its override
-:::

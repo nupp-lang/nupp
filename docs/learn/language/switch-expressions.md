@@ -470,14 +470,3 @@ statement. The selector-closing `do` stays on the selector's final logical line,
 and formatting never separates contextual `yield` from the first token of its
 operand. See [fmt.md](../tooling/formatter.md#formatting-rules) for the rest of the
 formatter's rules.
-
-::: seealso
-- [performance.md](../performance/index.md#switch-dispatch) for the table-read
-  plans and the conditions that keep ordered branches
-- [narrowing.md](types/narrowing.md#switch-arm-narrowing) for what a
-  type case proves inside its arm
-- [unions.md](types/unions.md#exhaustiveness) for the union shapes a
-  switch covers without `else`
-- [ownership.md](../runtime/ownership/borrowing.md#ownership-in-switch-patterns) for
-  what a pattern binding does to an affine selector
-:::

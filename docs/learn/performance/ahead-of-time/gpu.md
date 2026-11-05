@@ -253,12 +253,3 @@ GPU kernels cannot allocate Lua values, suspend, call dynamic functions, or use
 unproved storage. Native workgroup and tensor facilities require the native GPU
 provider selected by the built target. Browser availability is checked by the
 host before dispatch.
-
-::: seealso
-- [`@aot`](../../../api.md#annotation-aot)
-  for the exact `@aot` arguments
-- [build-and-artifacts.md](build-and-artifacts.md) for AOT target policies and
-  artifact caching
-- [](io.gpu) for the generated binding and resident-buffer API
-- [](io.gpu.Layout) for layout construction and transformations
-:::

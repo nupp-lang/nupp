@@ -142,12 +142,3 @@ accepts the pack, and reported differently when several do.
 Everything else about overloading has a page of its own. See [Overloads and
 overrides](overloads.md) for repeated method bodies, generic entries,
 constructors, `@override`, and the diagnostics each of them reports.
-
-::: seealso
-- [overloads.md](overloads.md) for calling a callable intersection and for
-  every other form of overload
-- [interfaces.md](interfaces.md) for the named alternative to composing types
-  at a use site
-- [properties.md](properties.md) for the read and write capabilities an
-  intersection composes
-:::

@@ -1437,9 +1437,3 @@ These terms connect the processor model to the Nupp operations.
   as NEON, AVX2, or SIMD128.
 - *Widen* and *narrow*: moving lanes to the next larger or smaller
   element type with the same lane count.
-
-::: seealso
-- [](simd) for the complete vector API
-- [cpu-kernels.md](cpu-kernels.md) for bounds proofs, ownership, and
-  inspecting generated code
-:::

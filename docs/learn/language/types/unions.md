@@ -313,13 +313,3 @@ What the alternatives carry decides which of the two you want:
 - The alternatives carry different data: a tagged union of records.
 - The alternatives are unrelated existing types, told apart by `is`: a plain
   union, no tag needed.
-
-::: seealso
-- [narrowing.md](narrowing.md) for the tests that take a union apart
-- [switch-expressions.md](../switch-expressions.md) for dispatching on
-  one as an expression
-- [intersections.md](intersections.md) for `&`, which composes types rather
-  than offering a choice between them
-- [primitives.md](primitives.md#literal-types) for the literal types a closed
-  union is built from
-:::

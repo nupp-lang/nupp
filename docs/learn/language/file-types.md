@@ -120,12 +120,3 @@ const Vec2 = ffi.metatype(ffi.typeof("struct { float x; float y; }"), __nuppMt_V
 
 See [Structs](types/records-and-structs.md#structs) for the layout rules that
 lowering follows.
-
-::: seealso
-- [type-system/overview.md](types/index.md) for what the checker
-  infers before any annotation is written
-- [syntax.md](syntax.md) for the typed layer a `.nupp` file may use
-- [c-interop.md](../runtime/c-interop/index.md) for the declarations that survive erasure
-- [diagnostics.md](../../reference/diagnostics.md) for every code the checker
-  reports
-:::

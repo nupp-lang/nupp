@@ -143,14 +143,3 @@ Publishing a library and distributing an application are separate operations. A
 modules build uses the project-local rock tree. A bundle or stamped binary has
 no tree, so the dependency's `bundle` globs select the Lua modules carried into
 `package.preload`.
-
-::: seealso
-- [build.md](../build.md#carrying-a-rock-into-a-bundle) for choosing what a bundle
-  carries out of a rock tree
-- [portable-libraries.md](../portability/libraries.md#dependency-providers)
-  for shipping runtime providers and their checked declarations
-- [cli.md](../../../reference/cli.md#rock) for every `nupp rock` subcommand and its
-  options
-- [distribution.md](../../../reference/distribution.md#limits) for what a stamped
-  binary cannot carry
-:::

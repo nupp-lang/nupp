@@ -437,11 +437,3 @@ In a strict file, an exported function whose signature mentions `any` anywhere
 is treated as unannotated, and is reported. `any` is the absence of a
 checked type at that boundary, not a way to satisfy the annotation requirement.
 A function returning nothing still states `: nil`.
-
-::: seealso
-- [overview.md](index.md#escape-hatches) for how `any` and `as`
-  opt out of checking
-- [records.md](records-and-structs.md) for the nominal types built out of these
-- [narrowing.md](narrowing.md) for the tests that turn a union back into one
-  member
-:::

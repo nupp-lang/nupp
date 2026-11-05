@@ -624,11 +624,3 @@ end
 still participates in normal move, borrow, and lexical-destruction checks, and
 `@unsafe own.release` consumes an obligation without running its terminal, which
 makes the caller responsible for the resource from that line on.
-
-::: seealso
-- [ownership.md](index.md) for the annotations a caller writes
-- [affine-types.md](affine-types.md) for constructing the types this page moves
-  around
-- [c-interop.md](../c-interop/index.md#describe-lifetime-behavior) for the
-  native side of a lifetime contract
-:::

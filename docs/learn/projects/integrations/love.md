@@ -55,9 +55,3 @@ Keep existing files as `.lua` while you migrate. Nupp reads their LuaCATS
 comments, and a file moves to `.nupp` when it is ready for typed syntax. The
 generated game can continue to require ordinary
 Lua modules and use LuaJIT's FFI APIs.
-
-::: seealso
-- [LuaCATS definitions](luacats.md) for pinning or updating the API source
-- [File types](../../language/file-types.md) for the file-by-file migration
-- [Build targets](../build.md#targets-and-outputs)
-:::

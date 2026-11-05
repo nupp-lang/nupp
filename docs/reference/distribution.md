@@ -442,11 +442,3 @@ A distributed binary is deliberately none of these things.
   resource owners are Rust. LuaJIT, LPeg, protected VM shims, and compiled AOT
   code remain deliberate native boundaries; the complete ownership and support
   matrix is in [Native runtime and support](native-runtime.md).
-
-::: seealso
-- [build.md](../learn/projects/build.md#rock-dependencies) for the targets and rock
-  globs a payload is assembled from
-- [embedding.md](../learn/projects/embedding.md) for running Nupp inside a host you own
-  rather than one the packager stamps
-- [native-runtime.md](native-runtime.md) for the exact Rust/native boundary
-:::

@@ -370,10 +370,3 @@ The language server implements `textDocument/formatting` and
 Range formatting formats the whole document and then keeps the edits that fall
 inside the requested range. It leaves import spelling alone so a selection
 cannot shorten a reference without inserting its binding.
-
-::: seealso
-- [lsp.md](language-server.md#lsp-features) for the rest of what the language server answers
-- [editors.md](editors.md) for connecting an editor to it
-- [diagnostics.md](../../reference/diagnostics.md#diagnostic-index) for what the
-  formatter reports, and every other code
-:::

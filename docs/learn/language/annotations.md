@@ -404,11 +404,3 @@ Compiler integrations add definitions directly through the extensible
 `nupp.compiler.annotations` registry. Source declarations are the normal
 language-facing mechanism, and direct registration remains useful for built-ins
 and compiler extensions.
-
-::: seealso
-- [lints.md](../../reference/lints.md) for the lints `@allow` reaches and how a project moves
-  their levels
-- [derives.md](../../reference/derives.md) for what `@derive` and `@debug` generate
-- [effects.md](effects.md) for the `@effects` vocabulary in full
-- [diagnostics.md](../../reference/diagnostics.md) for every code an annotation can report
-:::

@@ -280,6 +280,14 @@
   border-image: var(--nuppdoc-section-rule) 1;
 }
 
+.nuppdoc-overview-section::before {
+  border-image: var(--nuppdoc-section-rule) 1;
+}
+
+.nuppdoc-overview-section:has(> h2)::before {
+  border-top-width: 3px;
+}
+
 .nuppdoc-content h3:not(:first-child),
 .nuppdoc-api-group:has(> #types) > .nuppdoc-api-item + .nuppdoc-api-item > h3 {
   margin-top: 2.5rem;

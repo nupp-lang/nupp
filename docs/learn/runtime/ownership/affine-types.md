@@ -180,11 +180,3 @@ stores its argument preserves the capability into the unique `T` component of
 the result. See [generic
 preservation](borrowing.md#generic-preservation) for the complete set of shapes
 it follows and the ambiguity it refuses.
-
-::: seealso
-- [ownership.md](borrowing.md) for moves, borrows, pins, and lexical
-  destruction
-- [ownership.md](index.md) for the annotations a caller writes
-- [c-interop.md](../c-interop/index.md#describe-lifetime-behavior) for
-  stating an imported function's lifetime behavior
-:::

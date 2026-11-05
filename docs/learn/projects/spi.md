@@ -161,9 +161,3 @@ Builtin implementation contracts are private runtime interfaces.
 A worker receives the artifact's immutable index and loads its own module
 instances in its own Lua state. Provider objects and closures do not cross a
 worker boundary.
-
-::: seealso
-- [standard-library.md](../runtime/data/standard-library.md) for builtin
-  availability and initialization
-- [libraries.md](portability/libraries.md) for which operations vary by host
-:::

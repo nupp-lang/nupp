@@ -145,9 +145,3 @@ limits.perTurn.maxEffects (256)", naming the limit and its value; a guest past
 {limits})` layers its tables over the manifest's key by key, so
 `{perRun: {deadlineMs: 60000}}` bounds a run without restating the rest. A key
 outside the two tables is refused.
-
-::: seealso
-- [Ahead-of-time compilation](index.md) for the admitted kernel subset
-- [Workers](../../runtime/concurrency/workers.md) for browser worker tasks
-- [WebGPU](gpu.md#browser-gpu-kernels) for admitted GPU maps
-:::

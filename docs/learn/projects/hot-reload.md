@@ -249,10 +249,3 @@ The guarantees on this page are indexed to executable compiler-session, runtime,
 and standalone-command cases in `tests/integration/reload/hotreloadguaranteetest.lua`. The
 standalone cases edit a required module, a header, and a temporary native
 library inside `nupp run --watch` processes.
-
-::: seealso
-- [profiling.md](../performance/profiling.md) for finding where a running program spends time
-- [build.md](build.md) for the ordinary optimized build that ships
-- [c-interop.md](../runtime/c-interop/index.md) for the C declarations a watch
-  session tracks
-:::
