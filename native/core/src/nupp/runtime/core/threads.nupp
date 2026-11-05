@@ -1,21 +1,23 @@
 module nupp.runtime.core.threads
 
 -- Coroutines on the core. A thread is a KIND_THREAD heap object whose body
--- holds a frame State and Segment of its own, the segment in pages it maps
--- when it first runs. Resuming one points the context's STATE at its state,
+-- holds a frame State of its own, and a stack of frames in chunks
+-- (`stacks`) that starts at a page or so when it first runs and grows as
+-- its calls nest. Resuming one points the context's STATE at its state,
 -- so the handlers run its frames as they run any; yielding, returning or
 -- failing points it back at the resumer's. A switch is a few stores and a
 -- dispatch: no native stack is involved.
 --
 -- The threads running form a stack, main at the bottom: each resumed the
--- next. Their frames are roots for as long as they run (a registered range,
+-- next. Their frames are roots for as long as they run (a registered chain,
 -- popped as they stop), and a suspended thread's frames are traced through
--- its object, so one nothing reaches is collected with them.
+-- its object, so one nothing reaches is collected with them. A thread that
+-- finishes gives its stack back then, for the next thread to reuse; one
+-- never resumed again, when it is collected.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
 const collector = require("nupp.runtime.vm.collector")
-const os = require("nupp.runtime.vm.os")
 const arena = require("nupp.runtime.core.arena")
 const frames = require("nupp.runtime.core.frames")
 const context = require("nupp.runtime.core.context")
@@ -24,6 +26,7 @@ const guestscope = require("nupp.runtime.core.guestscope")
 const texts = require("nupp.runtime.core.guesttexts")
 const tables = require("nupp.runtime.core.coretables")
 const ints = require("nupp.runtime.core.coreintegers")
+const stacks = require("nupp.runtime.core.stacks")
 
 -- The body: heap.ThreadBody's words first, then the control only this
 -- module reads.
@@ -48,7 +51,6 @@ export struct Thread
     -- The slot the pending yield's results land in when it is resumed.
     yieldslot: uint64
     mark: arena.Mark
-    stack: arena.Segment
     state: frames.State
 end
 
@@ -104,6 +106,22 @@ end
 
 local function running(ctx: voidptr): uint64
     return native.load64(services(ctx), native.fieldOffset<guestscope.Services>("running"))
+end
+
+-- The first chunks kept for the next thread (`stacks.first`).
+local function chunkcache(ctx: voidptr): voidptr
+    return native.offset(services(ctx), native.fieldOffset<guestscope.Services>("chunks"))
+end
+
+-- Gives back the stack of `t`, a thread done with it.
+local function release(ctx: voidptr, t: voidptr): nil
+    native.store64(t, native.fieldOffset<Thread>("segment"), 0ULL)
+    local pages = native.load64(t, native.fieldOffset<Thread>("pages"))
+    if pages ~= 0ULL then
+        native.store64(t, native.fieldOffset<Thread>("pages"), 0ULL)
+        native.store64(t, native.fieldOffset<Thread>("pagebytes"), 0ULL)
+        stacks.release(chunkcache(ctx), pages)
+    end
 end
 
 -- The body of a thread value, or 0 for anything else.
@@ -336,7 +354,7 @@ local function switchin(ctx: voidptr, frame: voidptr, pc: voidptr, thread: uint6
         native.store64(frame, native.fieldOffset<frames.Frame>("resumePC"), (native.address(pc) - code) // 16ULL + 1ULL)
         native.store64(services(ctx), native.fieldOffset<guestscope.Services>("running"), thread)
         -- Its frames, as far as they reach.
-        collector.registerSegment(h, native.address(native.offset(t, native.fieldOffset<Thread>("stack"))))
+        collector.registerChain(h, native.load64(t, native.fieldOffset<Thread>("segment")))
         native.store64(ctx, context.STATE, native.address(native.offset(t, native.fieldOffset<Thread>("state"))))
     end
 end
@@ -401,19 +419,12 @@ local function deliver(t: voidptr, result: uint64): nil
     )
 end
 
--- Maps a fresh thread's frame pages and makes its bottom frame, calling its
--- function with the values of the pack `args`. Answers 1, or 0 when the
+-- Takes a fresh thread's first chunk and makes its bottom frame, calling
+-- its function with the values of the pack `args`. Answers 1, or 0 when the
 -- frames are not as expected.
 local function start(ctx: voidptr, thread: uint64, t: voidptr, args: uint64): uint64
     @unsafe do
         local outer = native.pointer(native.load64(ctx, context.STATE))
-        local outerstack = native.loadPointer(outer, native.fieldOffset<frames.State>("segment"))
-        local bytes = native.load64(
-            outerstack,
-            native.fieldOffset<arena.Segment>("limit")
-        ) - native.load64(outerstack, native.fieldOffset<arena.Segment>("base"))
-        local page = os.pageSize()
-        local mapped = (bytes + page - 1ULL) // page * page
         local fn = native.load64(t, native.fieldOffset<Thread>("body"))
         local id = target(fn) - 1ULL
         local c = native.loadPointer(ctx, context.CATALOG)
@@ -469,18 +480,26 @@ local function start(ctx: voidptr, thread: uint64, t: voidptr, args: uint64): ui
                 extra = values.TAG_OBJ | t2
             end
         end
-        local base = os.mapPages(mapped)
-        if base == nil then
+        local plan = native.offset(
+            native.loadPointer(c, native.fieldOffset<catalog.Catalog>("plans")),
+            native.index(id * native.sizeOf<frames.WindowPlan>())
+        )
+        local stack = stacks.first(
+            chunkcache(ctx),
+            native.load64(plan, native.fieldOffset<frames.WindowPlan>("bytes")),
+            heapof(ctx)
+        )
+        if stack == 0ULL then
             error("not enough memory")
         end
-        native.store64(t, native.fieldOffset<Thread>("pages"), native.address(base as voidptr))
-        native.store64(t, native.fieldOffset<Thread>("pagebytes"), mapped)
-        local stack = native.offset(t, native.fieldOffset<Thread>("stack"))
-        if arena.initialize(stack, native.address(base as voidptr), mapped) == 0ULL then
-            return 0ULL
-        end
+        native.store64(t, native.fieldOffset<Thread>("pages"), stack)
+        native.store64(
+            t,
+            native.fieldOffset<Thread>("pagebytes"),
+            native.load64(native.pointer(stack), native.fieldOffset<frames.Chunk>("bytes"))
+        )
         local state = native.offset(t, native.fieldOffset<Thread>("state"))
-        native.store64(state, native.fieldOffset<frames.State>("segment"), native.address(stack))
+        native.store64(state, native.fieldOffset<frames.State>("segment"), stack)
         native.store64(
             state,
             native.fieldOffset<frames.State>("limit"),
@@ -496,14 +515,10 @@ local function start(ctx: voidptr, thread: uint64, t: voidptr, args: uint64): ui
             native.fieldOffset<frames.State>("helperBytes"),
             native.load64(outer, native.fieldOffset<frames.State>("helperBytes"))
         )
-        native.store64(t, native.fieldOffset<Thread>("segment"), native.address(stack))
+        native.store64(t, native.fieldOffset<Thread>("segment"), stack)
         local info = native.offset(
             native.loadPointer(c, native.fieldOffset<catalog.Catalog>("infos")),
             native.index(id * native.sizeOf<frames.FunctionInfo>())
-        )
-        local plan = native.offset(
-            native.loadPointer(c, native.fieldOffset<catalog.Catalog>("plans")),
-            native.index(id * native.sizeOf<frames.WindowPlan>())
         )
         local mark = native.offset(t, native.fieldOffset<Thread>("mark"))
         local frame = frames.beginthread(state, mark, info, plan, fn, thread & values.PAYLOAD)
@@ -619,6 +634,8 @@ export function yield(ctx: voidptr, frame: voidptr, pc: voidptr, slot: uint64, a
     if native.load64(t, native.fieldOffset<Thread>("mode")) ~= MODE_CALL then
         result = packed(ctx, 1ULL, values.TRUE, 0ULL, args & values.PAYLOAD)
     end
+    -- A suspended thread keeps no more of its stack than its frames need.
+    stacks.trim(native.offset(t, native.fieldOffset<Thread>("state")))
     switchout(ctx, thread, t, SUSPENDED)
     deliver(t, result)
 
@@ -635,12 +652,7 @@ local function retire(ctx: voidptr, thread: uint64, t: voidptr): uint64
     end
     switchout(ctx, thread, t, DEAD)
     guestscope.replaydrop(ctx, thread)
-    native.store64(t, native.fieldOffset<Thread>("segment"), 0ULL)
-    local pages = native.load64(t, native.fieldOffset<Thread>("pages"))
-    if pages ~= 0ULL then
-        os.unmapPages(native.pointer(pages), native.load64(t, native.fieldOffset<Thread>("pagebytes")))
-        native.store64(t, native.fieldOffset<Thread>("pages"), 0ULL)
-    end
+    release(ctx, t)
 
     return 1ULL
 end
@@ -840,12 +852,7 @@ export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, 
             if frames.endthread(threadstate, native.offset(body, native.fieldOffset<Thread>("mark"))) ~= 1ULL then
                 return BROKEN
             end
-            native.store64(body, native.fieldOffset<Thread>("segment"), 0ULL)
-            local pages = native.load64(body, native.fieldOffset<Thread>("pages"))
-            if pages ~= 0ULL then
-                os.unmapPages(native.pointer(pages), native.load64(body, native.fieldOffset<Thread>("pagebytes")))
-                native.store64(body, native.fieldOffset<Thread>("pages"), 0ULL)
-            end
+            release(ctx, body)
         end
         native.store64(body, native.fieldOffset<Thread>("status"), DEAD)
         native.store64(window, native.index(slot * 8ULL), result)

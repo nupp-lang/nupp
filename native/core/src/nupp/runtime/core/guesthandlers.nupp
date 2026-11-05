@@ -1973,8 +1973,7 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         pc,
         callee,
         native.word(base),
-        native.word(nargs),
-        native.chooseWord(wanted == 0, 1ULL, native.word(wanted)),
+        native.word(nargs) | native.chooseWord(wanted == 0, 1ULL, native.word(wanted)) << 32ULL,
         hint
     )
     if child == 0ULL then
@@ -2297,8 +2296,7 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         pc,
         callee,
         native.word(base),
-        total,
-        native.chooseWord(wanted == 0, 1ULL, native.word(wanted)),
+        total | native.chooseWord(wanted == 0, 1ULL, native.word(wanted)) << 32ULL,
         hint
     )
     if child == 0ULL then
@@ -2521,7 +2519,15 @@ export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     local s = native.pointer(ops.state(ctx))
     local resumePC = ops.resume(ctx, frame, pc)
     ops.checkpoint(ctx, frame, pc)
-    local child = ops.prepare(ctx, frame, pc, callee, native.word(base), native.word(nargs), native.word(wanted), hint)
+    local child = ops.prepare(
+        ctx,
+        frame,
+        pc,
+        callee,
+        native.word(base),
+        native.word(nargs) | native.word(wanted) << 32ULL,
+        hint
+    )
     if child == 0ULL then
         -- No room for another frame is Lua's "stack overflow", which a
         -- protected call can take.

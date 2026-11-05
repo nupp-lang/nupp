@@ -10,6 +10,9 @@ const arena = require("nupp.runtime.vm.arena")
 const heap = require("nupp.runtime.vm.heap")
 const collector = require("nupp.runtime.vm.collector")
 const values = require("nupp.runtime.vm.values")
+const segments = require("nupp.runtime.core.arena")
+const frames = require("nupp.runtime.core.frames")
+const stacks = require("nupp.runtime.core.stacks")
 
 const ORACLE: uint64 = 1000000000ULL
 
@@ -127,6 +130,136 @@ export function segmentRoots(below: uint64, above: uint64, unset: uint64): uint6
             end
             collector.fullCycle(h)
             answer = verdict(h)
+            heap.destroy(h)
+        end
+    end
+
+    return answer
+end
+
+-- 1 when the core's stack chunk and the collector's reading of one agree.
+export function chunkLayout(): uint64
+    if native.fieldOffset<frames.Chunk>("tag") == heap.STACK_TAG
+        and native.fieldOffset<frames.Chunk>("above") == heap.STACK_ABOVE
+        and native.fieldOffset<frames.Chunk>("bytes") == heap.STACK_BYTES
+        and frames.CHUNK == heap.STACK_CHUNK
+    then
+        return 1ULL
+    end
+
+    return 0ULL
+end
+
+-- A frame of `bytes` reserved under `mark` above the top of the stack
+-- `state` runs, as a call's frame is (frames.prepareFixed, then stacks.grow):
+-- in the chunk holding the top frame, the chunk above it, or one mapped.
+local function push(state: voidptr, bytes: uint64, mark: voidptr): uint64
+    local segment = native.loadPointer(state, native.fieldOffset<frames.State>("segment"))
+    local chunk = native.address(segment)
+    if segments.reserve(segment, bytes, 16ULL, mark) == 0ULL then
+        chunk = heap.chunkAbove(native.address(segment))
+        if chunk == 0ULL or segments.reserve(native.pointer(chunk), bytes, 16ULL, mark) == 0ULL then
+            if stacks.grow(state, bytes) == 0ULL then
+                return 0ULL
+            end
+            chunk = heap.chunkAbove(native.address(segment))
+            if segments.reserve(native.pointer(chunk), bytes, 16ULL, mark) == 0ULL then
+                return 0ULL
+            end
+        end
+    end
+    native.store64(state, native.fieldOffset<frames.State>("segment"), chunk)
+    native.store64(
+        state,
+        native.fieldOffset<frames.State>("depth"),
+        native.load64(state, native.fieldOffset<frames.State>("depth")) + 1ULL
+    )
+
+    return native.load64(mark, native.fieldOffset<segments.Mark>("payload"))
+end
+
+-- Releases the top frame, reserved under `mark`, as a return does: a chunk
+-- it empties leaves the chunk below holding the top frame.
+local function pop(state: voidptr, mark: voidptr): nil
+    local segment = native.loadPointer(state, native.fieldOffset<frames.State>("segment"))
+    if segments.release(segment, mark) == 0ULL then
+        error("gc units: a frame does not release")
+    end
+    local below = native.load64(segment, native.fieldOffset<frames.Chunk>("below"))
+    if native.load64(segment, native.fieldOffset<segments.Segment>("top")) == 0ULL and below ~= 0ULL then
+        native.store64(state, native.fieldOffset<frames.State>("segment"), below)
+    end
+    native.store64(
+        state,
+        native.fieldOffset<frames.State>("depth"),
+        native.load64(state, native.fieldOffset<frames.State>("depth")) - 1ULL
+    )
+end
+
+-- A coroutine-sized stack (stacks.first) recursing `count` frames of
+-- `bytes`, each holding a node, then returning to `keep` of them, and a
+-- collection. Answers the live nodes, plus a million when the collection
+-- gave back mapped bytes and two million when what it kept is the chunks
+-- holding frames and one above them.
+export function stackChain(count: uint64, bytes: uint64, keep: uint64): uint64
+    local answer: uint64 = 0ULL
+    do
+        local a = arena.open(16777216ULL)
+        @unsafe do
+            local h = heap.create(a)
+            local cache = rootsIn(a, 2ULL)
+            setRoot(cache, 0ULL, 0ULL)
+            setRoot(cache, 1ULL, 0ULL)
+            local state = rootsIn(a, native.sizeOf<frames.State>() // 8ULL)
+            local at: uint64 = 0ULL
+            while at < native.sizeOf<frames.State>() // 8ULL do
+                setRoot(state, at, 0ULL)
+                at = at + 1ULL
+            end
+            local marks = rootsIn(a, count * (native.sizeOf<segments.Mark>() // 8ULL))
+            local first = stacks.first(native.pointer(cache), bytes, native.address(h as voidptr))
+            if first == 0ULL then
+                error("gc units: no first chunk")
+            end
+            native.store64(native.pointer(state), native.fieldOffset<frames.State>("segment"), first)
+            native.store64(native.pointer(state), native.fieldOffset<frames.State>("limit"), count + 1ULL)
+            collector.registerChain(h, first)
+            local i: uint64 = 0ULL
+            while i < count do
+                local payload = push(
+                    native.pointer(state),
+                    bytes,
+                    native.pointer(marks + i * native.sizeOf<segments.Mark>())
+                )
+                if payload == 0ULL then
+                    error("gc units: no room for a frame")
+                end
+                native.store64(native.pointer(payload), 0, values.NIL)
+                native.store64(native.pointer(payload), 0, node(h, 1ULL))
+                i = i + 1ULL
+            end
+            local peak = stacks.mapped(first)
+            while i > keep do
+                i = i - 1ULL
+                pop(native.pointer(state), native.pointer(marks + i * native.sizeOf<segments.Mark>()))
+            end
+            -- The chunks up to the one holding the top frame, and one more.
+            local current = native.load64(native.pointer(state), native.fieldOffset<frames.State>("segment"))
+            local holding = stacks.count(first) - stacks.count(current) + 1ULL
+            local expected = holding
+            if stacks.count(current) > 1ULL then
+                expected = holding + 1ULL
+            end
+            collector.fullCycle(h)
+            answer = verdict(h)
+            if stacks.mapped(first) < peak then
+                answer = answer + 1000000ULL
+            end
+            if stacks.count(first) == expected then
+                answer = answer + 2000000ULL
+            end
+            stacks.release(native.pointer(cache), first)
+            stacks.drain(native.pointer(cache))
             heap.destroy(h)
         end
     end

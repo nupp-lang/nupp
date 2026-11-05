@@ -29,9 +29,11 @@ export struct Binding
     codeBytes: uint64
 end
 
+-- `segment` is the first chunk of the initializer's frame stack, over the
+-- pool; chunks the stack grows into are mapped above it (`stacks`).
 export struct Storage
     state: frames.State
-    segment: arena.Segment
+    segment: frames.Chunk
     root: frames.RootControl
     registry: instances.Registry
 end
@@ -205,6 +207,10 @@ export function start(binding: voidptr, ordinal: uint64): uint64
     if arena.initialize(segment, base(binding, 4ULL), extent(binding, 4ULL)) == 0ULL then
         return 0ULL
     end
+    native.store64(segment, native.fieldOffset<frames.Chunk>("tag"), frames.CHUNK)
+    native.store64(segment, native.fieldOffset<frames.Chunk>("below"), 0ULL)
+    native.store64(segment, native.fieldOffset<frames.Chunk>("above"), 0ULL)
+    native.store64(segment, native.fieldOffset<frames.Chunk>("bytes"), 0ULL)
     native.store64(state, native.fieldOffset<frames.State>("segment"), native.address(segment))
     native.store64(
         state,

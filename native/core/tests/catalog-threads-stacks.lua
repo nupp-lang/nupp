@@ -1,0 +1,93 @@
+-- Lua twin of catalog-threads-stacks.nupp.
+
+-- Coroutine stacks start small and grow as calls nest: many coroutines
+-- made between collections, finished or left suspended, recursion deep
+-- inside one, a yield from deep inside, and a stack overflow in one.
+local score = 0
+
+-- 100,000 unless the run asks for fewer: a run that collects at every
+-- allocation needs no more to collect between them.
+local many = math.tointeger(tonumber(os.getenv("NUPP_GUEST_COROUTINES") or "100000") or 100000) or 100000
+
+-- `many` coroutines that each run to their end.
+local finished = 0
+for i = 1, many do
+    local co = coroutine.create(function(n)
+        return n + 1
+    end)
+    local ok, value = coroutine.resume(co, i)
+    if ok and value == i + 1 then
+        finished = finished + 1
+    end
+end
+if finished == many then
+    score = score + 1
+end
+
+-- `many` generators, each left suspended after its first value.
+local drawn = 0
+for i = 1, many do
+    local gen = coroutine.wrap(function()
+        coroutine.yield(i)
+        coroutine.yield(i + 1)
+    end)
+    drawn = drawn + (gen() or 0)
+end
+if drawn == many * (many + 1) // 2 then
+    score = score + 2
+end
+
+local function down(n)
+    if n == 0 then
+        return 0
+    end
+    return down(n - 1) + 1
+end
+
+-- Recursion 150,000 frames deep inside a coroutine, which then yields and,
+-- resumed, recurses again.
+local deep = coroutine.create(function(n)
+    local first = down(n)
+    coroutine.yield(first)
+    return down(n // 2) + down(n)
+end)
+local ok1, a = coroutine.resume(deep, 150000)
+local ok2, b = coroutine.resume(deep)
+if ok1 and a == 150000 and ok2 and b == 225000 and coroutine.status(deep) == "dead" then
+    score = score + 4
+end
+
+-- A yield 20,000 frames deep: they stay where they are while it waits.
+local function dive(n)
+    if n == 0 then
+        local given = coroutine.yield(0)
+        return given
+    end
+    return dive(n - 1) + 1
+end
+local diver = coroutine.wrap(function()
+    return dive(20000)
+end)
+diver()
+if diver(5) == 20005 then
+    score = score + 8
+end
+
+-- A stack overflow in a coroutine is an error its resumer gets.
+local function forever(n)
+    return forever(n + 1) + 1
+end
+local ok3, err = coroutine.resume(coroutine.create(forever), 1)
+if not ok3 and string.sub(tostring(err), -14) == "stack overflow" then
+    score = score + 16
+end
+
+-- And the main stack, past its first chunk and back, many times.
+local again = 0
+for _ = 1, 20 do
+    again = again + down(30000)
+end
+if again == 600000 then
+    score = score + 32
+end
+return score

@@ -89,6 +89,25 @@ export struct State
     helperBytes: uint64
 end
 
+-- A frame stack that grows: a chain of chunks, each a segment and its links
+-- (the collector's `heap.STACK_CHUNK` layout). Frames fill the chunks from
+-- the first up and never move; a call that finds no room in the chunk
+-- holding its caller takes the chunk above when it fits, and its owner maps
+-- one otherwise (`stacks`). A return that empties a chunk goes back to the
+-- chunk below, keeping the emptied one for the next call. `bytes` is what
+-- the chunk maps from its descriptor on, or 0 for a first chunk its owner
+-- mapped elsewhere.
+export struct Chunk
+    segment: arena.Segment
+    tag: uint64
+    below: uint64
+    above: uint64
+    bytes: uint64
+end
+
+-- A Chunk's tag; a plain segment is followed by anything else.
+export const CHUNK: uint64 = 0x4b4e554843ULL
+
 -- Entry retains this storage outside every logical reservation and helper span.
 -- Fresh storage is zeroed. Only beginRoot reuses a retired control; serials come
 -- from the segment and remain monotonic across reservation reuse.
@@ -628,6 +647,40 @@ local function initializeFrame(
     return payload
 end
 
+-- Reserves `bytes` for a child under `mark`: in the chunk holding the top
+-- frame, or else in the empty chunk above it when that one fits, which then
+-- holds the top frame. Answers 1, or 0 with nothing written.
+local function reserveChild(state: voidptr, bytes: uint64, mark: voidptr): uint64
+    local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
+    if arena.reserve(segment, bytes, 16ULL, mark) == 1ULL then
+        return 1ULL
+    end
+    if native.load64(segment, native.fieldOffset<Chunk>("tag")) ~= CHUNK then
+        return 0ULL
+    end
+    local above = native.load64(segment, native.fieldOffset<Chunk>("above"))
+    if above == 0ULL or arena.reserve(native.pointer(above), bytes, 16ULL, mark) == 0ULL then
+        return 0ULL
+    end
+    native.store64(state, native.fieldOffset<State>("segment"), above)
+
+    return 1ULL
+end
+
+-- After a release from `segment`: when it emptied a chunk above the first,
+-- the chunk below holds the top frame again.
+local function settle(state: voidptr, segment: voidptr): nil
+    if native.load64(segment, native.fieldOffset<arena.Segment>("top")) ~= 0ULL
+        or native.load64(segment, native.fieldOffset<Chunk>("tag")) ~= CHUNK
+    then
+        return
+    end
+    local below = native.load64(segment, native.fieldOffset<Chunk>("below"))
+    if below ~= 0ULL then
+        native.store64(state, native.fieldOffset<State>("segment"), below)
+    end
+end
+
 -- The canonical call policy must check work/cancellation and resolve the actual
 -- callee before this service. A function-id hint alone is not a target proof.
 -- Success returns the unpublished child address; refusal returns zero. From
@@ -665,7 +718,6 @@ export function prepareFixed(
     if resultSlot >= count or argumentBase >= count or supplied > count - argumentBase - 1ULL then
         return 0ULL
     end
-    local segment = native.loadPointer(state, native.fieldOffset<State>("segment"))
     local callerBytes = native.load64(caller, native.fieldOffset<Frame>("reservationBytes"))
     if overlaps(native.address(info), native.sizeOf<FunctionInfo>(), native.address(caller), callerBytes)
         or overlaps(native.address(plan), native.sizeOf<WindowPlan>(), native.address(caller), callerBytes)
@@ -680,7 +732,7 @@ export function prepareFixed(
     end
     local mark = native.offset(caller, native.fieldOffset<Frame>("childMark"))
     local bytes = native.load64(plan, native.fieldOffset<WindowPlan>("bytes"))
-    if arena.reserve(segment, bytes, 16ULL, mark) == 0ULL then
+    if reserveChild(state, bytes, mark) == 0ULL then
         return 0ULL
     end
     local payload = initializeFrame(caller, info, plan, mark, closure, resultSlot)
@@ -839,6 +891,7 @@ export function abortPrepared(state: voidptr, caller: voidptr, child: voidptr): 
     if arena.release(segment, mark) == 0ULL then
         return 0ULL
     end
+    settle(state, segment)
     -- No child pointer is dereferenced after retirement.
     native.store64(caller, native.fieldOffset<Frame>("child"), 0ULL)
 
@@ -875,6 +928,7 @@ export function abortActive(state: voidptr, callee: voidptr): uint64
     if arena.release(segment, mark) == 0ULL then
         return 0ULL
     end
+    settle(state, segment)
     -- Never dereference callee after release, or write the parent's result slot.
     native.store64(parent, native.fieldOffset<Frame>("child"), 0ULL)
     native.store64(parent, native.fieldOffset<Frame>("phase"), ACTIVE)
@@ -918,6 +972,7 @@ local function retire(state: voidptr, parent: voidptr, count: uint64): uint64
     if arena.release(segment, mark) == 0ULL then
         return 0ULL
     end
+    settle(state, segment)
     -- No callee pointer is dereferenced after retirement. The caller's saved
     -- logical PC is consumed by a future canonical transfer, not by this helper.
     native.store64(parent, native.fieldOffset<Frame>("child"), 0ULL)

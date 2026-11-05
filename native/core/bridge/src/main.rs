@@ -15,8 +15,13 @@ use std::io::Read;
 use std::path::Path;
 
 const HEADER: usize = 72;
-const MAX_REGION: u64 = 64 * 1024 * 1024;
-const MAX_TOTAL: u64 = 128 * 1024 * 1024;
+/// The most bytes a guest artifact holds: `schema.artifactBytes()` in
+/// src/nupp/compiler/vm/coregraphschema.nupp, which a test holds this to. A region (code, data or scratch) may be as large; the data
+/// region carries the artifact.
+const ARTIFACT: u64 = 1024 * 1024 * 1024;
+const MAX_REGION: u64 = ARTIFACT;
+/// Code, data and scratch together: the artifact and as much again.
+const MAX_TOTAL: u64 = 2 * ARTIFACT;
 const MAX_WORDS: u64 = 1024 * 1024;
 
 #[derive(Debug)]
@@ -253,6 +258,40 @@ mod tests {
             bytes[8 + field * 8..16 + field * 8].copy_from_slice(&MAX_REGION.to_le_bytes());
         }
         assert!(header(&bytes, 2 * MAX_REGION + HEADER as u64).is_err());
+    }
+
+    /// A header whose code is 4 bytes, data `data` and scratch `scratch`.
+    fn sized(data: u64, scratch: u64) -> [u8; HEADER] {
+        let mut bytes = valid();
+        bytes[8 + 4 * 8..16 + 4 * 8].copy_from_slice(&data.to_le_bytes());
+        bytes[8 + 5 * 8..16 + 5 * 8].copy_from_slice(&scratch.to_le_bytes());
+        bytes
+    }
+
+    #[test]
+    fn admits_an_artifact_at_the_budget_and_refuses_one_past() {
+        let file = |data: u64| 4 + data + HEADER as u64;
+        let spec = header(&sized(ARTIFACT, 0), file(ARTIFACT)).unwrap();
+        assert_eq!(spec.data as u64, ARTIFACT);
+        assert!(header(&sized(ARTIFACT + 1, 0), file(ARTIFACT + 1)).is_err());
+        // The total: an artifact and scratch up to it, and one byte past.
+        let rest = MAX_TOTAL - ARTIFACT - 4;
+        assert!(header(&sized(ARTIFACT, rest), file(ARTIFACT)).is_ok());
+        assert!(header(&sized(ARTIFACT, rest + 1), file(ARTIFACT)).is_err());
+    }
+
+    #[test]
+    fn artifact_budget_is_the_schema_bound() {
+        let schema = include_str!("../../../../src/nupp/compiler/vm/coregraphschema.nupp");
+        let start = schema
+            .find("function schema.artifactBytes(): integer")
+            .expect("schema artifact bound");
+        let value = schema[start..]
+            .lines()
+            .find_map(|line| line.trim().strip_prefix("return "))
+            .expect("schema artifact literal");
+        let value: u64 = value.parse().expect("integer bound");
+        assert_eq!(value, ARTIFACT);
     }
 
     #[test]

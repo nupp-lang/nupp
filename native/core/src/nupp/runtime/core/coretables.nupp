@@ -15,7 +15,6 @@ const values = require("nupp.runtime.vm.values")
 const arrays = require("nupp.runtime.vm.valuearray")
 const hashes = require("nupp.runtime.vm.objecttable")
 const ints = require("nupp.runtime.core.coreintegers")
-const os = require("nupp.runtime.vm.os")
 const corestorage = require("nupp.runtime.core.corestorage")
 
 export const OK: uint64 = 0ULL
@@ -307,7 +306,7 @@ export function drain(h: heap.Heap*): nil
             elseif o.aux as uint64 == heap.KIND_THREAD then
                 local thread = native.pointer(address + heap.HEADER_BYTES) as heap.ThreadBody*
                 if thread.pages ~= 0ULL then
-                    os.unmapPages(native.pointer(thread.pages), thread.pagebytes)
+                    heap.releaseChunks(thread.pages)
                     thread.pages = 0ULL
                 end
             end

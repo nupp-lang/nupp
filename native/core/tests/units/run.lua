@@ -128,7 +128,9 @@ local UNITS = {
             {"gcunits", "fanOut", 2},
             {"gcunits", "barrier", 1},
             {"gcunits", "initializedBlack", 1},
-            {"gcunits", "segmentRoots", 3}
+            {"gcunits", "segmentRoots", 3},
+            {"gcunits", "chunkLayout", 0},
+            {"gcunits", "stackChain", 3}
         },
         cases = function()
             -- Counts from tests/nativeheaptest.lua, computed there independently.
@@ -146,7 +148,15 @@ local UNITS = {
                 -- A frame stack's roots end at its cursor.
                 {"segmentRoots", {40, 25, 0}, 40},
                 {"segmentRoots", {0, 25, 0}, 0},
-                {"segmentRoots", {40, 25, 1}, 0}
+                {"segmentRoots", {40, 25, 1}, 0},
+                -- A stack in chunks: deep, then back to ten frames and a
+                -- collection, which gives back the chunks past the one above
+                -- the top; not unwound, nothing given back; a frame larger
+                -- than a first chunk.
+                {"chunkLayout", {}, 1},
+                {"stackChain", {2000, 512, 10}, 3000010},
+                {"stackChain", {2000, 512, 2000}, 2002000},
+                {"stackChain", {60, 40000, 1}, 3000001}
             }
         end
     }

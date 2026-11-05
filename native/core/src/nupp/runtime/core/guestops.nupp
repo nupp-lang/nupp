@@ -9,6 +9,7 @@ const values = require("nupp.runtime.vm.values")
 const heap = require("nupp.runtime.vm.heap")
 const guestscope = require("nupp.runtime.core.guestscope")
 const threads = require("nupp.runtime.core.threads")
+const stacks = require("nupp.runtime.core.stacks")
 
 export const INVALID: uint64 = 4ULL
 export const RESOURCE: uint64 = 5ULL
@@ -284,16 +285,19 @@ end
 -- The callee is the actual registry handle loaded from a live slot. Hint alone
 -- cannot select a body. Canonical byte fields must also match this PC's retained
 -- checked callsite, its target signature and each canonical scalar argument.
+-- `counts` holds the argument count in its low half and the results wanted
+-- in its high half.
 export function prepare(
     ctx: voidptr,
     frame: voidptr,
     pc: voidptr,
     callee: uint64,
     base: uint64,
-    nargs: uint64,
-    wanted: uint64,
+    counts: uint64,
     hint: uint64
 ): uint64
+    local nargs = counts & 0xffffffffULL
+    local wanted = counts >> 32ULL
     local found = current(ctx, frame, pc)
     if found == 0ULL or nargs > 63ULL or wanted == 0ULL or wanted > frames.MAX_RESULTS then
         return 0ULL
@@ -404,17 +408,16 @@ export function prepare(
         native.loadPointer(c, native.fieldOffset<catalog.Catalog>("plans")),
         native.index(actual * native.sizeOf<frames.WindowPlan>())
     )
+    local s = native.loadPointer(ctx, context.STATE)
+    local child = frames.prepareFixed(s, frame, info, callee, base, nargs, base + 1ULL, plan)
+    -- No room for the frame: its stack grows a chunk.
+    if child == 0ULL
+        and stacks.grow(s, native.load64(plan, native.fieldOffset<frames.WindowPlan>("bytes"))) == 1ULL
+    then
+        child = frames.prepareFixed(s, frame, info, callee, base, nargs, base + 1ULL, plan)
+    end
 
-    return frames.prepareFixed(
-        native.loadPointer(ctx, context.STATE),
-        frame,
-        info,
-        callee,
-        base,
-        nargs,
-        base + 1ULL,
-        plan
-    )
+    return child
 end
 
 -- After prepare: a variadic callee's pack {[0] = n, ...} of the arguments
@@ -637,6 +640,11 @@ export function metaPrepare(
     local s = native.loadPointer(ctx, context.STATE)
     checkpoint(ctx, frame, pc)
     local child = frames.prepareFixed(s, frame, info, callee, base, taken, resultSlot, plan)
+    if child == 0ULL
+        and stacks.grow(s, native.load64(plan, native.fieldOffset<frames.WindowPlan>("bytes"))) == 1ULL
+    then
+        child = frames.prepareFixed(s, frame, info, callee, base, taken, resultSlot, plan)
+    end
     if child == 0ULL then
         failure(ctx, RESOURCE)
         return 0ULL

@@ -1,0 +1,242 @@
+module nupp.runtime.core.stacks
+
+-- Frame stacks that grow in chunks (`frames.Chunk`). Frames never move, as
+-- frames, marks and the handlers' registers hold their addresses, so a
+-- stack grows by mapping a chunk above the one holding its top frame, each
+-- twice the size of the last or as large as a frame needs. A stack starts
+-- small: a coroutine's first chunk is a page or so, the main stack's what
+-- the entry maps for it. The depth limit, not the mappings, decides when a
+-- call raises "stack overflow".
+--
+-- A return that empties a chunk keeps it for the next call (`frames`);
+-- chunks past that one are given back at the next collection
+-- (`collector`'s frame chains), when a coroutine yields, and when the
+-- stack grows again. A finished coroutine's chunks go back as it finishes.
+const native = require("nupp.runtime.vm.intrinsics")
+const os = require("nupp.runtime.vm.os")
+const heap = require("nupp.runtime.vm.heap")
+const arena = require("nupp.runtime.core.arena")
+const frames = require("nupp.runtime.core.frames")
+
+-- The bytes a coroutine's first chunk maps at least.
+export const FIRST: uint64 = 16384ULL
+-- The most bytes a chunk maps unless one frame needs more.
+const LARGEST: uint64 = 67108864ULL
+-- The most bytes one chunk may map: past every frame a catalog admits.
+const BOUND: uint64 = 1073741824ULL
+-- How many first chunks a cache keeps for the next coroutine.
+const CACHED: uint64 = 8ULL
+
+local function roundUp(value: uint64, alignment: uint64): uint64
+    return (value + (alignment - 1ULL)) & ~(alignment - 1ULL)
+end
+
+-- Where a chunk's frames start, past its descriptor.
+local function header(): uint64
+    return roundUp(native.sizeOf<frames.Chunk>(), 16ULL)
+end
+
+-- The bytes a first chunk maps: FIRST, in whole pages.
+local function firstBytes(): uint64
+    return roundUp(FIRST, os.pageSize())
+end
+
+-- Makes the `mapped` bytes at `chunk` a chunk with nothing below or above
+-- it and its frames past its descriptor. Answers 1, or 0 when they cannot.
+local function fresh(chunk: uint64, mapped: uint64): uint64
+    local descriptor = native.pointer(chunk)
+    local at: uint64 = 0ULL
+    while at < header() do
+        native.store64(descriptor, native.index(at), 0ULL)
+        at = at + 8ULL
+    end
+    if arena.initialize(descriptor, chunk + header(), mapped - header()) == 0ULL then
+        return 0ULL
+    end
+    native.store64(descriptor, native.fieldOffset<frames.Chunk>("tag"), frames.CHUNK)
+    native.store64(descriptor, native.fieldOffset<frames.Chunk>("bytes"), mapped)
+
+    return 1ULL
+end
+
+-- A chunk mapping `bytes`, in whole pages; 0 when the mapping is refused.
+local function map(bytes: uint64): uint64
+    if bytes <= header() or bytes > BOUND then
+        return 0ULL
+    end
+    local mapped = roundUp(bytes, os.pageSize())
+    local base = os.mapPages(mapped)
+    if base == nil then
+        return 0ULL
+    end
+    local chunk = native.address(base as voidptr)
+    if fresh(chunk, mapped) == 0ULL then
+        os.unmapPages(base as voidptr, mapped)
+        return 0ULL
+    end
+
+    return chunk
+end
+
+-- The bytes the chunks from `chunk` up map: a stack's, from its first.
+export function mapped(chunk: uint64): uint64
+    local total: uint64 = 0ULL
+    local at = chunk
+    while at ~= 0ULL do
+        total = total + native.load64(native.pointer(at), native.fieldOffset<frames.Chunk>("bytes"))
+        at = heap.chunkAbove(at)
+    end
+
+    return total
+end
+
+-- How many chunks there are from `chunk` up.
+export function count(chunk: uint64): uint64
+    local total: uint64 = 0ULL
+    local at = chunk
+    while at ~= 0ULL do
+        total = total + 1ULL
+        at = heap.chunkAbove(at)
+    end
+
+    return total
+end
+
+-- A coroutine's first chunk, with room for a `bytes` frame: one `cache`
+-- keeps (its first word the first chunk kept, the next their count, the
+-- chunks linked through `below`), or a fresh mapping, which counts as
+-- allocation on the heap at `h`, so that many coroutines left suspended
+-- bring a collection on. Answers it, or 0 when the mapping is refused.
+export function first(cache: voidptr, bytes: uint64, h: uint64): uint64
+    local need = header() + roundUp(bytes, 16ULL)
+    local kept = native.load64(cache, 0)
+    if kept ~= 0ULL and need <= firstBytes() then
+        native.store64(cache, 0, native.load64(native.pointer(kept), native.fieldOffset<frames.Chunk>("below")))
+        native.store64(cache, 8, native.load64(cache, 8) - 1ULL)
+        if fresh(kept, firstBytes()) == 0ULL then
+            os.unmapPages(native.pointer(kept), firstBytes())
+            return 0ULL
+        end
+        return kept
+    end
+    local size = firstBytes()
+    if need > size then
+        size = need
+    end
+    local chunk = map(size)
+    if chunk ~= 0ULL then
+        @unsafe do
+            local owner = native.pointer(h) as heap.Heap*
+            owner.debt = owner.debt + native.load64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("bytes"))
+        end
+    end
+
+    return chunk
+end
+
+-- Gives back a coroutine's stack, its first chunk `chunk`: that one to
+-- `cache` when it is a first chunk's size and the cache has room, every
+-- other unmapped.
+export function release(cache: voidptr, chunk: uint64): nil
+    local above = heap.chunkAbove(chunk)
+    if above ~= 0ULL then
+        heap.releaseChunks(above)
+    end
+    local bytes = native.load64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("bytes"))
+    if bytes == firstBytes() and native.load64(cache, 8) < CACHED then
+        native.store64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("above"), 0ULL)
+        native.store64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("below"), native.load64(cache, 0))
+        native.store64(cache, 0, chunk)
+        native.store64(cache, 8, native.load64(cache, 8) + 1ULL)
+        return
+    end
+    if bytes ~= 0ULL then
+        os.unmapPages(native.pointer(chunk), bytes)
+    end
+end
+
+-- Unmaps the chunks `cache` keeps.
+export function drain(cache: voidptr): nil
+    local chunk = native.load64(cache, 0)
+    while chunk ~= 0ULL do
+        local below = native.load64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("below"))
+        os.unmapPages(
+            native.pointer(chunk),
+            native.load64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("bytes"))
+        )
+        chunk = below
+    end
+    native.store64(cache, 0, 0ULL)
+    native.store64(cache, 8, 0ULL)
+end
+
+-- Unmaps the chunks of the stack `state` runs past the one above the chunk
+-- holding its top frame.
+export function trim(state: voidptr): nil
+    local spare = heap.chunkAbove(native.load64(state, native.fieldOffset<frames.State>("segment")))
+    if spare == 0ULL then
+        return
+    end
+    local past = heap.chunkAbove(spare)
+    if past ~= 0ULL then
+        native.store64(native.pointer(spare), native.fieldOffset<frames.Chunk>("above"), 0ULL)
+        heap.releaseChunks(past)
+    end
+end
+
+-- Maps a chunk above the one holding the top frame of the stack `state`
+-- runs, for a `bytes` frame neither that chunk nor the one above it has
+-- room for: twice the size of the chunk below it, at most LARGEST, or as
+-- large as the frame needs. It replaces the chunk above. Answers 1, or 0
+-- when the stack is as deep as it may be, has room, is not in chunks, or
+-- the mapping is refused.
+export function grow(state: voidptr, bytes: uint64): uint64
+    if native.load64(
+        state,
+        native.fieldOffset<frames.State>("depth")
+    ) >= native.load64(state, native.fieldOffset<frames.State>("limit")) then
+        return 0ULL
+    end
+    local segment = native.loadPointer(state, native.fieldOffset<frames.State>("segment"))
+    if native.load64(segment, native.fieldOffset<frames.Chunk>("tag")) ~= frames.CHUNK then
+        return 0ULL
+    end
+    local base = native.load64(segment, native.fieldOffset<arena.Segment>("base"))
+    local limit = native.load64(segment, native.fieldOffset<arena.Segment>("limit"))
+    local cursor = native.load64(segment, native.fieldOffset<arena.Segment>("cursor"))
+    local need = roundUp(bytes, 16ULL)
+    if limit - roundUp(cursor, 16ULL) >= need then
+        return 0ULL
+    end
+    local above = native.load64(segment, native.fieldOffset<frames.Chunk>("above"))
+    if above ~= 0ULL
+        and native.load64(
+            native.pointer(above),
+            native.fieldOffset<arena.Segment>("limit")
+        ) - native.load64(native.pointer(above), native.fieldOffset<arena.Segment>("base")) >= need
+    then
+        return 0ULL
+    end
+    local size = native.load64(segment, native.fieldOffset<frames.Chunk>("bytes"))
+    if size == 0ULL then
+        size = limit - base
+    end
+    size = size * 2ULL
+    if size > LARGEST then
+        size = LARGEST
+    end
+    if size < header() + need then
+        size = header() + need
+    end
+    local chunk = map(size)
+    if chunk == 0ULL then
+        return 0ULL
+    end
+    if above ~= 0ULL then
+        heap.releaseChunks(above)
+    end
+    native.store64(native.pointer(chunk), native.fieldOffset<frames.Chunk>("below"), native.address(segment))
+    native.store64(segment, native.fieldOffset<frames.Chunk>("above"), chunk)
+
+    return 1ULL
+end

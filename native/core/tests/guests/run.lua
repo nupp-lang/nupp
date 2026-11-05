@@ -136,6 +136,9 @@ local CASES = {
     {"threadsclose", 0x7FFF00000000007F},
     {"threadsiterate", 0x7FFF00000000001F},
     {"threadsmeta", 0x7FFF000000105C53},
+    -- 200,000 coroutines between collections, recursion 150,000 frames deep
+    -- in one, a yield 20,000 deep and an overflow in one.
+    {"threadsstacks", 0x7FFF00000000003F},
     {"outputwrite", 0x7FFF000000000001},
     {"libraryspread", 0x7FFF000000000C8D},
     {"tableslibrarymeta", 0x7FFF000000000007},
@@ -251,6 +254,7 @@ local STRESS = {
     libraryspread = true,
     threadsiterate = true,
     threadsmeta = true,
+    threadsstacks = true,
     textbuffer = true,
     stringbuffer = true,
     librarybasics = true,
@@ -282,6 +286,11 @@ local SETUP = {iofiles = "ulimit -n 64; ", benchworkloads = "export BENCH_SCALE=
 local ARGUMENTS = {hostlibrary = "alpha beta", benchworkloads = "--case fib --json --out /dev/null"}
 -- Cases whose program the core refuses to compile, and what it says.
 local REFUSED = {}
+-- What stress cases see in place of their full size under collection at
+-- every allocation and interleaved collection, which keeps every freed
+-- object as a tombstone: there a collection runs between any two
+-- coroutines however few they are.
+local STRESS_ENV = {threadsstacks = "NUPP_GUEST_COROUTINES=4000 "}
 -- These refuse at run time and must publish nothing: Lua 5.5 raises for the
 -- first; the second's result is a boxed integer, which cannot be published.
 local STATUS = {numericModZero = 6, numericOverflow = 5}
@@ -348,6 +357,7 @@ local NUMERIC = {
     threadsclose = "catalog-threads-close",
     threadsiterate = "catalog-threads-iterate",
     threadsmeta = "catalog-threads-meta",
+    threadsstacks = "catalog-threads-stacks",
     outputwrite = "catalog-output-write",
     libraryspread = "catalog-library-spread",
     tableslibrarymeta = "catalog-tables-library-meta",
@@ -1147,7 +1157,8 @@ local function main()
                     write(input, u64(-1) .. u64(0) .. u64(1))
                     local stressed = OUT .. "/" .. label .. "-stress.out"
                     os.remove(stressed)
-                    bridgeRun(label .. " stress", bundle, input, stressed, 0, nil, function(again)
+                    local environment = STRESS_ENV[name] and GUEST_ENV .. STRESS_ENV[name]
+                    bridgeRun(label .. " stress", bundle, input, stressed, 0, environment, function(again)
                         check(
                             printedAs(name, again),
                             label .. " printed output under collect-at-every-allocation"
@@ -1160,7 +1171,7 @@ local function main()
                     write(stepped, u64(-1) .. u64(0) .. u64(2))
                     local steppedOut = OUT .. "/" .. label .. "-interleaved.out"
                     os.remove(steppedOut)
-                    bridgeRun(label .. " interleaved", bundle, stepped, steppedOut, 0, nil, function(printedStepped)
+                    bridgeRun(label .. " interleaved", bundle, stepped, steppedOut, 0, environment, function(printedStepped)
                         check(
                             printedAs(name, printedStepped),
                             label .. " printed output under interleaved collection"

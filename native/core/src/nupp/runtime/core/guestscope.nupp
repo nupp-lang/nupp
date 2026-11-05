@@ -22,6 +22,7 @@ const frames = require("nupp.runtime.core.frames")
 const access = require("nupp.runtime.core.frameaccess")
 const guestentry = require("nupp.runtime.core.guestentry")
 const instances = require("nupp.runtime.core.instances")
+const stacks = require("nupp.runtime.core.stacks")
 
 -- The scope comes first, so a Services address is also its scope's address.
 export struct Services
@@ -112,6 +113,15 @@ export struct Services
     storagebytes: uint64
     pool: uint64
     poolbytes: uint64
+    -- The initializers' storage, its stride and their count: their frame
+    -- stacks' chunks past the pool, which close unmaps.
+    stacks: uint64
+    stride: uint64
+    slots: uint64
+    -- First chunks of finished coroutines' stacks, kept for the next ones,
+    -- and how many (`stacks.first`).
+    chunks: uint64
+    chunkcount: uint64
 end
 
 -- tableSet's answer when a __newindex function is to be called instead.
@@ -161,6 +171,11 @@ export function prepare(base: voidptr, bytes: uint64): uint64
     native.store64(services, native.fieldOffset<Services>("storagebytes"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("pool"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("poolbytes"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("stacks"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("stride"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("slots"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("chunks"), 0ULL)
+    native.store64(services, native.fieldOffset<Services>("chunkcount"), 0ULL)
 
     return native.address(services)
 end
@@ -180,8 +195,9 @@ local function mapEntry(services: voidptr, field: int64, bytes: uint64): uint64
 end
 
 -- Maps the heap's arena and creates the heap in it; maps the frame pool,
--- `poolBytes` that grow into pages only as frames reach them (none when 0:
--- the pool lies in scratch), and, when
+-- `poolBytes`, the first chunk of each initializer's frame stack, which
+-- grows past it in chunks of its own (none when 0: the pool lies in
+-- scratch, as deep as the program's calls nest), and, when
 -- `storage` is 0, the storage of `slots` initializers `stride` bytes apart,
 -- which otherwise lies at `storage` in scratch. The module world and each
 -- initializer's frame stack, up to its cursor, become root ranges: their
@@ -199,10 +215,10 @@ export function open(
     if slots == 0ULL or stride == 0ULL then
         return 0ULL
     end
-    local stacks = storage
-    if stacks == 0ULL then
-        stacks = mapEntry(services, native.fieldOffset<Services>("storage"), slots * stride)
-        if stacks == 0ULL then
+    local slotstorage = storage
+    if slotstorage == 0ULL then
+        slotstorage = mapEntry(services, native.fieldOffset<Services>("storage"), slots * stride)
+        if slotstorage == 0ULL then
             return 0ULL
         end
     end
@@ -231,11 +247,14 @@ export function open(
         local h = heap.create(a)
         -- Generations (Decision 20) are kept from the first allocation on.
         h.generational = collector.GENERATIONAL
+        native.store64(services, native.fieldOffset<Services>("stacks"), slotstorage)
+        native.store64(services, native.fieldOffset<Services>("stride"), stride)
+        native.store64(services, native.fieldOffset<Services>("slots"), slots)
         local slot: uint64 = 0ULL
         while slot < slots do
-            collector.registerSegment(
+            collector.registerChain(
                 h,
-                stacks + slot * stride + native.word(native.fieldOffset<guestentry.Storage>("segment"))
+                slotstorage + slot * stride + native.word(native.fieldOffset<guestentry.Storage>("segment"))
             )
             slot = slot + 1ULL
         end
@@ -296,8 +315,27 @@ local function unmapEntry(services: voidptr, field: int64): nil
     end
 end
 
--- Destroys the heap and unmaps its arena, then the frame pool and storage;
--- nothing when open never ran.
+-- Unmaps the chunks the initializers' frame stacks grew into past the pool,
+-- and the coroutines' first chunks kept for reuse.
+local function releaseStacks(services: voidptr): nil
+    local slotstorage = native.load64(services, native.fieldOffset<Services>("stacks"))
+    local stride = native.load64(services, native.fieldOffset<Services>("stride"))
+    local slot: uint64 = 0ULL
+    while slotstorage ~= 0ULL and slot < native.load64(services, native.fieldOffset<Services>("slots")) do
+        local first = slotstorage + slot * stride + native.word(native.fieldOffset<guestentry.Storage>("segment"))
+        local above = heap.chunkAbove(first)
+        if above ~= 0ULL then
+            native.store64(native.pointer(first), native.fieldOffset<frames.Chunk>("above"), 0ULL)
+            heap.releaseChunks(above)
+        end
+        slot = slot + 1ULL
+    end
+    native.store64(services, native.fieldOffset<Services>("stacks"), 0ULL)
+    stacks.drain(native.offset(services, native.fieldOffset<Services>("chunks")))
+end
+
+-- Destroys the heap and unmaps its arena, then the frame stacks, pool and
+-- storage; nothing when open never ran.
 export function close(services: voidptr): nil
     local address = native.load64(services, native.fieldOffset<Services>("heap"))
     if address == 0ULL then
@@ -324,6 +362,7 @@ export function close(services: voidptr): nil
     end
     native.store64(services, native.fieldOffset<Services>("heap"), 0ULL)
     native.store64(services, native.fieldOffset<Services>("arena"), 0ULL)
+    releaseStacks(services)
     unmapEntry(services, native.fieldOffset<Services>("pool"))
     unmapEntry(services, native.fieldOffset<Services>("storage"))
 end
