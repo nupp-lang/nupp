@@ -1,0 +1,95 @@
+module nupp.compiler.aot.sharedanalysis
+
+local scalarIR = require("nupp.compiler.aot.scalar")
+local visit = require("nupp.compiler.aot.visit")
+
+export function indexRange(value: scalarIR.Expr, localCount: integer?): (number?, number?)
+    local op = value.op
+    if op == "constant" or op == "constant_i32" then
+        local constant = tonumber((value as any).value)
+        if constant ~= nil and constant == math.floor(constant as number) and constant >= 0 then
+            return constant, constant
+        end
+    elseif op == "local_index" then
+        if localCount ~= nil then
+            return 0, (localCount as integer) - 1
+        end
+    elseif op == "numeric_cast" or op == "int_to_f64" then
+        return indexRange((value as scalarIR.Convert).value, localCount)
+    elseif op == "u32_add" or op == "u32_mul" then
+        local pair = value as scalarIR.Fixed
+        local leftMin, leftMax = indexRange(pair.left, localCount)
+        local rightMin, rightMax = indexRange(pair.right, localCount)
+        if leftMin ~= nil and leftMax ~= nil and rightMin ~= nil and rightMax ~= nil then
+            local low = op == "u32_add" and (leftMin as number) + (rightMin as number)
+                or (leftMin as number) * (rightMin as number)
+            local high = op == "u32_add" and (leftMax as number) + (rightMax as number)
+                or (leftMax as number) * (rightMax as number)
+            if high <= 4294967295 then
+                return low, high
+            end
+        end
+    elseif op == "u32_div" or op == "u32_mod" then
+        local pair = value as scalarIR.Fixed
+        local leftMin, leftMax = indexRange(pair.left, localCount)
+        local rightMin, rightMax = indexRange(pair.right, localCount)
+        if leftMin ~= nil and leftMax ~= nil and rightMin ~= nil and rightMin == rightMax and rightMin > 0 then
+            if op == "u32_div" then
+                return math.floor(
+                    (leftMin as number) / (rightMin as number)
+                ), math.floor((leftMax as number) / (rightMin as number))
+            end
+            return 0, math.min(leftMax as number, (rightMin as number) - 1)
+        end
+    end
+
+    return nil, nil
+end
+
+export function phaseAccesses(statements: {scalarIR.Statement}): ({[string]: boolean}, {[string]: boolean})
+    local written: {[string]: boolean} = {}
+    local crossRead: {[string]: boolean} = {}
+    local inspectExpression: function(scalarIR.Expr): nil
+    inspectExpression = function(value: scalarIR.Expr): nil
+        if value.op == "shared_load" then
+            local load = value as scalarIR.SharedLoad
+            if load.index.op ~= "local_index" then
+                crossRead[load.shared] = true
+            end
+        end
+        visit.expressionChildren(value, function(child: scalarIR.Expr): scalarIR.Expr
+            inspectExpression(child)
+            return child
+        end)
+    end
+    local inspectBlock: function({scalarIR.Statement}): nil
+    inspectBlock = function(body: {scalarIR.Statement}): nil
+        for _, statement in ipairs(body) do
+            if statement.op == "shared_store" then
+                written[(statement as scalarIR.SharedStore).shared] = true
+            end
+            if (statement as any).conditionBody ~= nil then
+                inspectBlock((statement as any).conditionBody)
+            end
+            visit.statementExpressions(statement, function(value: scalarIR.Expr): scalarIR.Expr
+                inspectExpression(value)
+                return value
+            end)
+            if statement.op == "if" then
+                for _, clause in ipairs((statement as scalarIR.If).clauses) do
+                    inspectBlock(clause.body)
+                end
+                inspectBlock((statement as scalarIR.If).elseBody or {})
+            elseif statement.op == "while"
+                or statement.op == "repeat"
+                or statement.op == "fornum"
+                or statement.op == "block"
+            then
+                inspectBlock((statement as any).body as {scalarIR.Statement})
+            end
+        end
+    end
+    inspectBlock(statements)
+
+    return written, crossRead
+end

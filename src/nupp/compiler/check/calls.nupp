@@ -50,6 +50,24 @@ local function substType(t: Type, map: {[any]: any}, erased: {string}?, control:
     return found.type
 end
 
+local function substituteSignature(
+    params: {Type},
+    rets: {Type},
+    map: {[any]: any},
+    control: any?
+): ({Type}, {Type}, {string})
+    local p2, r2 = {}, {}
+    local erased: {string} = {}
+    for index, value in ipairs(params) do
+        p2[index] = substType(value, map, erased, control)
+    end
+    for index, value in ipairs(rets) do
+        r2[index] = substType(value, map, erased, control)
+    end
+
+    return p2, r2, erased
+end
+
 --- Reports what a specialization erased, once per call and member.
 ---
 --- Before any argument or result is compared, because a parameter erased to `any`
@@ -1366,14 +1384,7 @@ export function install(c: state.Checker): Ops
                 end
             end
             ops.validateTypeBounds(ft.typeParams, ft.typeBounds, map, site)
-            local p2, r2 = {}, {}
-            local erasedProjections: {string} = {}
-            for j, p in ipairs(params) do
-                p2[j] = substType(p, map, erasedProjections, c.reductionControl)
-            end
-            for j, r in ipairs(rets) do
-                r2[j] = substType(r, map, erasedProjections, c.reductionControl)
-            end
+            local p2, r2, erasedProjections = substituteSignature(params, rets, map, c.reductionControl)
             params, rets = p2, r2
             paramPack, retPack = substPack(paramPack, map), substPack(retPack, map)
             if varargType then
@@ -2687,14 +2698,7 @@ export function install(c: state.Checker): Ops
                 end
             end
             ops.validateTypeBounds(calleeT.typeParams, calleeT.typeBounds, map, node)
-            local p2, r2 = {}, {}
-            local erasedProjections: {string} = {}
-            for j, p in ipairs(params) do
-                p2[j] = substType(p, map, erasedProjections, c.reductionControl)
-            end
-            for j, r in ipairs(rets) do
-                r2[j] = substType(r, map, erasedProjections, c.reductionControl)
-            end
+            local _, _, erasedProjections = substituteSignature(params, rets, map, c.reductionControl)
             -- The packs are authoritative: materialized once, evaluated once, and the
             -- scalar views derived from what came back. Deriving first and evaluating
             -- the views would lose whatever a homogeneous or computed tail said, and

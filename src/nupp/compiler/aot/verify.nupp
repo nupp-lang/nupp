@@ -35,6 +35,7 @@ local reducers = require("nupp.compiler.aot.reducers")
 local effects = require("nupp.compiler.aot.effects")
 local relations = require("nupp.compiler.aot.relations")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local sharedAnalysis = require("nupp.compiler.aot.sharedanalysis")
 local simdbounds = require("nupp.compiler.aot.simdbounds")
 local simdindices = require("nupp.compiler.aot.simdindices")
 local simdcast = require("nupp.compiler.aot.simdcast")
@@ -1317,51 +1318,7 @@ scalarWalk = function(node: scalarIR.Expr, values: {[string]: string}, scope: ve
         )
         holds(load.index.type == "u32", "workgroup scratch index is not uint32")
 
-        local function indexRange(value: scalarIR.Expr): (number?, number?)
-            local operation = value.op
-            if operation == "constant" or operation == "constant_i32" then
-                local constant = tonumber((value as any).value)
-                if constant ~= nil and constant == math.floor(constant as number) and constant >= 0 then
-                    return constant, constant
-                end
-            elseif operation == "local_index" then
-                local count = counts[load.shared]
-                if count ~= nil then
-                    return 0, count - 1
-                end
-            elseif operation == "numeric_cast" or operation == "int_to_f64" then
-                return indexRange((value as scalarIR.Convert).value)
-            elseif operation == "u32_add" or operation == "u32_mul" then
-                local pair = value as scalarIR.Fixed
-                local leftMin, leftMax = indexRange(pair.left)
-                local rightMin, rightMax = indexRange(pair.right)
-                if leftMin ~= nil and leftMax ~= nil and rightMin ~= nil and rightMax ~= nil then
-                    local low = operation == "u32_add" and (leftMin as number) + (rightMin as number)
-                        or (leftMin as number) * (rightMin as number)
-                    local high = operation == "u32_add" and (leftMax as number) + (rightMax as number)
-                        or (leftMax as number) * (rightMax as number)
-                    if high <= 4294967295 then
-                        return low, high
-                    end
-                end
-            elseif operation == "u32_div" or operation == "u32_mod" then
-                local pair = value as scalarIR.Fixed
-                local leftMin, leftMax = indexRange(pair.left)
-                local rightMin, rightMax = indexRange(pair.right)
-                if leftMin ~= nil and leftMax ~= nil and rightMin ~= nil and rightMin == rightMax and rightMin > 0 then
-                    if operation == "u32_div" then
-                        return math.floor(
-                            (leftMin as number) / (rightMin as number)
-                        ), math.floor((leftMax as number) / (rightMin as number))
-                    end
-                    return 0, math.min(leftMax as number, (rightMin as number) - 1)
-                end
-            end
-
-            return nil, nil
-        end
-
-        local minimum, maximum = indexRange(load.index)
+        local minimum, maximum = sharedAnalysis.indexRange(load.index, counts[load.shared])
         local constant = load.index.op == "constant_i32" and tonumber((load.index as scalarIR.IntConstant).value) or nil
         local offset: number? = nil
         local back: number? = nil
@@ -2521,49 +2478,7 @@ local function block(
         elseif statement.op == "phase" then
             holds(scope.workgroup == true and scope.inPhase ~= true, "nested workgroup phase")
             local phase = statement as scalarIR.Phase
-            local written: {[string]: boolean} = {}
-            local crossRead: {[string]: boolean} = {}
-            local inspectExpression: function(scalarIR.Expr): nil
-            inspectExpression = function(value: scalarIR.Expr): nil
-                if value.op == "shared_load" then
-                    local load = value as scalarIR.SharedLoad
-                    if load.index.op ~= "local_index" then
-                        crossRead[load.shared] = true
-                    end
-                end
-                visit.expressionChildren(value, function(child: scalarIR.Expr): scalarIR.Expr
-                    inspectExpression(child)
-                    return child
-                end)
-            end
-            local inspectBlock: function({scalarIR.Statement}): nil
-            inspectBlock = function(body: {scalarIR.Statement}): nil
-                for _, nested in ipairs(body) do
-                    if nested.op == "shared_store" then
-                        written[(nested as scalarIR.SharedStore).shared] = true
-                    end
-                    if (nested as any).conditionBody ~= nil then
-                        inspectBlock((nested as any).conditionBody)
-                    end
-                    visit.statementExpressions(nested, function(value: scalarIR.Expr): scalarIR.Expr
-                        inspectExpression(value)
-                        return value
-                    end)
-                    if nested.op == "if" then
-                        for _, clause in ipairs((nested as scalarIR.If).clauses) do
-                            inspectBlock(clause.body)
-                        end
-                        inspectBlock((nested as scalarIR.If).elseBody or {})
-                    elseif nested.op == "while"
-                        or nested.op == "repeat"
-                        or nested.op == "fornum"
-                        or nested.op == "block"
-                    then
-                        inspectBlock((nested as any).body as {scalarIR.Statement})
-                    end
-                end
-            end
-            inspectBlock(phase.body)
+            local written, crossRead = sharedAnalysis.phaseAccesses(phase.body)
 
             local function fixedTreeShared(): string?
                 if #phase.body ~= 1 or phase.body[1].op ~= "if" then

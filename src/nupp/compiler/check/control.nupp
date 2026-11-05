@@ -10,6 +10,7 @@ so the ownership questions are asked here too.
 module nupp.compiler.check.control
 
 local T = require("nupp.compiler.types")
+local moduleSurface = require("nupp.compiler.check.modulesurface")
 local relations = require("nupp.compiler.types.relations")
 local narrowing = require("nupp.compiler.types.narrowing")
 local generics = require("nupp.compiler.types.generics")
@@ -1212,21 +1213,7 @@ export function install(c: state.Checker): state.StatHandlers
                 and returnedName
                 and returnedName.text == c.moduleLocal
             then
-                local fields = {}
-                for name, ft in pairs(c.moduleFields) do
-                    if c.moduleFieldConst[name] then
-                        fields[#fields + 1] = {name = name, read = ft}
-                    else
-                        fields[#fields + 1] = {name = name, type = ft}
-                    end
-                end
-                if #fields > 0 then
-                    c.moduleType = T.shape(fields, nil, nil, true)
-                    -- Boundary finalization rebuilds this shape once effects are known,
-                    -- and only this one: a module returning something it annotated, or
-                    -- a nominal, said its own surface and is not re-derived.
-                    c.moduleTypeFromFields = true
-                end
+                moduleSurface.update(c)
             end
             if c.opts and c.opts.strict and c.moduleType then
                 -- A module's boundary is its contract: nothing crosses it untyped.

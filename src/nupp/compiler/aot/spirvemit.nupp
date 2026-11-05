@@ -585,12 +585,19 @@ function spirv.program(
     instruction(functions, OP.FunctionParameter, {f32Type, fc})
     local fmaLabel = id()
     instruction(functions, OP.Label, {fmaLabel})
+
+    local function canonicalFloat(value: integer): integer
+        local nan = id()
+        instruction(functions, OP.IsNan, {boolType, nan, value})
+        local result = id()
+        instruction(functions, OP.Select, {f32Type, result, nan, canonicalNan(), value})
+
+        return result
+    end
+
     local fused = id()
     instruction(functions, OP.ExtInst, {f32Type, fused, ext, 50, fa, fb, fc})
-    local fusedNan = id()
-    instruction(functions, OP.IsNan, {boolType, fusedNan, fused})
-    local fusedOut = id()
-    instruction(functions, OP.Select, {f32Type, fusedOut, fusedNan, canonicalNan(), fused})
+    local fusedOut = canonicalFloat(fused)
     instruction(functions, OP.ReturnValue, {fusedOut})
     instruction(functions, OP.FunctionEnd, {})
 
@@ -635,35 +642,34 @@ function spirv.program(
     local minFn = correctedPair("nupp_f32_min", true)
     local maxFn = correctedPair("nupp_f32_max", false)
 
-    local halfToFloatFn = id()
-    name(halfToFloatFn, "nupp_f16_to_f32")
-    instruction(functions, OP.Function, {f32Type, halfToFloatFn, 0, fnF32FromU32})
-    local halfBits = id()
-    instruction(functions, OP.FunctionParameter, {u32Type, halfBits})
-    local halfLabel = id()
-    instruction(functions, OP.Label, {halfLabel})
+    local function scalarFunction(
+        label: string,
+        resultType: integer,
+        argumentType: integer,
+        signatureType: integer
+    ): (integer, integer)
+        local fn = id()
+        name(fn, label)
+        instruction(functions, OP.Function, {resultType, fn, 0, signatureType})
+        local value = id()
+        instruction(functions, OP.FunctionParameter, {argumentType, value})
+        local entry = id()
+        instruction(functions, OP.Label, {entry})
+
+        return fn, value
+    end
+
+    local halfToFloatFn, halfBits = scalarFunction("nupp_f16_to_f32", f32Type, u32Type, fnF32FromU32)
     local unpacked = id()
     instruction(functions, OP.ExtInst, {vec2fType, unpacked, ext, 62, halfBits})
     local unpackedLow = id()
     instruction(functions, OP.CompositeExtract, {f32Type, unpackedLow, unpacked, 0})
-    local unpackedNan = id()
-    instruction(functions, OP.IsNan, {boolType, unpackedNan, unpackedLow})
-    local unpackedOut = id()
-    instruction(functions, OP.Select, {f32Type, unpackedOut, unpackedNan, canonicalNan(), unpackedLow})
+    local unpackedOut = canonicalFloat(unpackedLow)
     instruction(functions, OP.ReturnValue, {unpackedOut})
     instruction(functions, OP.FunctionEnd, {})
 
-    local floatToHalfFn = id()
-    name(floatToHalfFn, "nupp_f32_to_f16")
-    instruction(functions, OP.Function, {u32Type, floatToHalfFn, 0, fnU32FromF32})
-    local floatValue = id()
-    instruction(functions, OP.FunctionParameter, {f32Type, floatValue})
-    local packLabel = id()
-    instruction(functions, OP.Label, {packLabel})
-    local valueNan = id()
-    instruction(functions, OP.IsNan, {boolType, valueNan, floatValue})
-    local canonicalValue = id()
-    instruction(functions, OP.Select, {f32Type, canonicalValue, valueNan, canonicalNan(), floatValue})
+    local floatToHalfFn, floatValue = scalarFunction("nupp_f32_to_f16", u32Type, f32Type, fnU32FromF32)
+    local canonicalValue = canonicalFloat(floatValue)
     local pair = id()
     instruction(functions, OP.CompositeConstruct, {vec2fType, pair, canonicalValue, canonicalValue})
     local packed = id()
@@ -674,33 +680,18 @@ function spirv.program(
     instruction(functions, OP.ReturnValue, {packedLow})
     instruction(functions, OP.FunctionEnd, {})
 
-    local bf16ToFloatFn = id()
-    name(bf16ToFloatFn, "nupp_bf16_to_f32")
-    instruction(functions, OP.Function, {f32Type, bf16ToFloatFn, 0, fnF32FromU32})
-    local bf16Bits = id()
-    instruction(functions, OP.FunctionParameter, {u32Type, bf16Bits})
-    local bf16LoadLabel = id()
-    instruction(functions, OP.Label, {bf16LoadLabel})
+    local bf16ToFloatFn, bf16Bits = scalarFunction("nupp_bf16_to_f32", f32Type, u32Type, fnF32FromU32)
     local bf16Low = id()
     instruction(functions, OP.BitwiseAnd, {u32Type, bf16Low, bf16Bits, lowMask})
     local bf16Wide = id()
     instruction(functions, OP.ShiftLeftLogical, {u32Type, bf16Wide, bf16Low, constant(u32Type, 16)})
     local bf16Value = id()
     instruction(functions, OP.Bitcast, {f32Type, bf16Value, bf16Wide})
-    local bf16Nan = id()
-    instruction(functions, OP.IsNan, {boolType, bf16Nan, bf16Value})
-    local bf16Out = id()
-    instruction(functions, OP.Select, {f32Type, bf16Out, bf16Nan, canonicalNan(), bf16Value})
+    local bf16Out = canonicalFloat(bf16Value)
     instruction(functions, OP.ReturnValue, {bf16Out})
     instruction(functions, OP.FunctionEnd, {})
 
-    local floatToBf16Fn = id()
-    name(floatToBf16Fn, "nupp_f32_to_bf16")
-    instruction(functions, OP.Function, {u32Type, floatToBf16Fn, 0, fnU32FromF32})
-    local bf16Input = id()
-    instruction(functions, OP.FunctionParameter, {f32Type, bf16Input})
-    local bf16StoreLabel = id()
-    instruction(functions, OP.Label, {bf16StoreLabel})
+    local floatToBf16Fn, bf16Input = scalarFunction("nupp_f32_to_bf16", u32Type, f32Type, fnU32FromF32)
     local bf16InputNan = id()
     instruction(functions, OP.IsNan, {boolType, bf16InputNan, bf16Input})
     local bf16InputBits = id()
@@ -721,13 +712,7 @@ function spirv.program(
     instruction(functions, OP.ReturnValue, {bf16Result})
     instruction(functions, OP.FunctionEnd, {})
 
-    local sqrtFn = id()
-    name(sqrtFn, "nupp_f32_sqrt")
-    instruction(functions, OP.Function, {f32Type, sqrtFn, 0, fnF32})
-    local sqrtValue = id()
-    instruction(functions, OP.FunctionParameter, {f32Type, sqrtValue})
-    local sqrtLabel = id()
-    instruction(functions, OP.Label, {sqrtLabel})
+    local sqrtFn, sqrtValue = scalarFunction("nupp_f32_sqrt", f32Type, f32Type, fnF32)
     local sqrtOut = id()
     instruction(functions, OP.ExtInst, {f32Type, sqrtOut, ext, 31, sqrtValue})
     instruction(functions, OP.ReturnValue, {sqrtOut})
@@ -736,17 +721,8 @@ function spirv.program(
     -- The transcendental is an IR-owned binary32 operation sequence, not a
     -- GLSL.std.450 exponential. Keep the Horner polynomial and seven squarings
     -- here in exactly the order used by the interpreter and native helper.
-    local expFn = id()
-    name(expFn, "nupp_f32_exp")
-    instruction(functions, OP.Function, {f32Type, expFn, 0, fnF32})
-    local expValue = id()
-    instruction(functions, OP.FunctionParameter, {f32Type, expValue})
-    local expLabel = id()
-    instruction(functions, OP.Label, {expLabel})
-    local expNan = id()
-    instruction(functions, OP.IsNan, {boolType, expNan, expValue})
-    local expCanonical = id()
-    instruction(functions, OP.Select, {f32Type, expCanonical, expNan, canonicalNan(), expValue})
+    local expFn, expValue = scalarFunction("nupp_f32_exp", f32Type, f32Type, fnF32)
+    local expCanonical = canonicalFloat(expValue)
     local low = constant(f32Type, f32Bits(-104.0))
     local high = constant(f32Type, f32Bits(88.0))
     local below = id()
@@ -1327,6 +1303,21 @@ function spirv.program(
     end
 
     local statements: function({any}): nil
+
+    local function loopBody(body: {any}, label: integer, continuing: integer, merge: integer): nil
+        instruction(functions, OP.Label, {label})
+        currentBreak[#currentBreak + 1] = merge
+        currentContinue[#currentContinue + 1] = continuing
+        terminated = false
+        statements(body)
+        currentBreak[#currentBreak] = nil
+        currentContinue[#currentContinue] = nil
+        if not terminated then
+            instruction(functions, OP.Branch, {continuing})
+        end
+        instruction(functions, OP.Label, {continuing})
+    end
+
     statements = function(values: {any}): nil
         for _, statement in ipairs(values) do
             if terminated then
@@ -1496,17 +1487,7 @@ function spirv.program(
                 local condition = expression(statement.condition)
                 instruction(functions, OP.LoopMerge, {merge, continuing, 0})
                 instruction(functions, OP.BranchConditional, {condition, body, merge})
-                instruction(functions, OP.Label, {body})
-                currentBreak[#currentBreak + 1] = merge
-                currentContinue[#currentContinue + 1] = continuing
-                terminated = false
-                statements(statement.body)
-                currentBreak[#currentBreak] = nil
-                currentContinue[#currentContinue] = nil
-                if not terminated then
-                    instruction(functions, OP.Branch, {continuing})
-                end
-                instruction(functions, OP.Label, {continuing})
+                loopBody(statement.body, body, continuing, merge)
                 instruction(functions, OP.Branch, {header})
                 instruction(functions, OP.Label, {merge})
                 terminated = false
@@ -1521,17 +1502,7 @@ function spirv.program(
                 instruction(functions, OP.Label, {header})
                 instruction(functions, OP.LoopMerge, {merge, continuing, 0})
                 instruction(functions, OP.Branch, {body})
-                instruction(functions, OP.Label, {body})
-                currentBreak[#currentBreak + 1] = merge
-                currentContinue[#currentContinue + 1] = continuing
-                terminated = false
-                statements(statement.body)
-                currentBreak[#currentBreak] = nil
-                currentContinue[#currentContinue] = nil
-                if not terminated then
-                    instruction(functions, OP.Branch, {continuing})
-                end
-                instruction(functions, OP.Label, {continuing})
+                loopBody(statement.body, body, continuing, merge)
                 local condition = expression(statement.condition)
                 instruction(functions, OP.BranchConditional, {condition, merge, header})
                 instruction(functions, OP.Label, {merge})

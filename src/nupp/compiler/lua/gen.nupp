@@ -5266,6 +5266,32 @@ export function generate(
         e("})")
     end
 
+    function emitDepth.recordStorage(x)
+        local path = declPath(x)
+        local runtimeName = x.recordRuntimeName or path or x.name.text
+        local spilled = emitDepth.spill and emitDepth.spill.decls[x]
+        if spilled then
+            emitDepth.spill.name(runtimeName)
+        end
+        local storage = (x.recordRuntimeName or path or spilled) and "" or x.visibility == "global" and "" or "local "
+
+        return sourceLine(x), runtimeName, storage
+    end
+
+    function emitDepth.structStorage(x)
+        local path = declPath(x)
+        local spilled = emitDepth.spill and emitDepth.spill.decls[x]
+        local storage = (path or spilled) and "" or x.visibility == "global" and "" or "const "
+        local mt = "__nuppMt_" .. x.name.text
+        local mtStorage = spilled and "" or "const "
+        if spilled then
+            emitDepth.spill.name(x.name.text)
+            emitDepth.spill.name(mt)
+        end
+
+        return sourceLine(x), path, storage, mt, mtStorage
+    end
+
     emit = function(x)
         if cst.isToken(x) then
             if x.missing or x.kind == "eof" then
@@ -6458,15 +6484,7 @@ export function generate(
             -- Records keep a runtime table: `function R:m()` attaches to it and
             -- `R{...}` stamps it as the instance metatable, which is what gives a
             -- record its identity at run time.
-            local line = sourceLine(x)
-            local path = declPath(x)
-            local runtimeName = x.recordRuntimeName or path or x.name.text
-            local attached = x.recordRuntimeName or path
-            local spilled = emitDepth.spill and emitDepth.spill.decls[x]
-            if spilled then
-                emitDepth.spill.name(runtimeName)
-            end
-            local storage = (attached or spilled) and "" or x.visibility == "global" and "" or "local "
+            local line, runtimeName, storage = emitDepth.recordStorage(x)
             local expr = ("%s%s = {} %s.__index = %s"):format(storage, runtimeName, runtimeName, runtimeName)
             e(expr, line)
             local nominal = x.resolvedType
@@ -6574,15 +6592,7 @@ export function generate(
             if #defaults == 0 and #nested == 0 and not inherits and not hasStatics then
                 return
             end
-            local line = sourceLine(x)
-            local path = declPath(x)
-            local runtimeName = x.recordRuntimeName or path or x.name.text
-            local attached = x.recordRuntimeName or path
-            local spilled = emitDepth.spill and emitDepth.spill.decls[x]
-            if spilled then
-                emitDepth.spill.name(runtimeName)
-            end
-            local storage = (attached or spilled) and "" or x.visibility == "global" and "" or "local "
+            local line, runtimeName, storage = emitDepth.recordStorage(x)
             e(("%s%s = {}"):format(storage, runtimeName), line)
             for _, entry in ipairs(nested) do
                 entry.recordRuntimeName = runtimeName .. "." .. entry.name.text
@@ -6603,16 +6613,7 @@ export function generate(
             -- as `S(...)` supplies its fields. Nothing about it is C memory,
             -- so there is no ctype to lay out and no reference into a parent to
             -- anchor; it is never stored, and a change to it is a new one.
-            local line = sourceLine(x)
-            local path = declPath(x)
-            local spilled = emitDepth.spill and emitDepth.spill.decls[x]
-            local storage = (path or spilled) and "" or x.visibility == "global" and "" or "const "
-            local mt = "__nuppMt_" .. x.name.text
-            local mtStorage = spilled and "" or "const "
-            if spilled then
-                emitDepth.spill.name(x.name.text)
-                emitDepth.spill.name(mt)
-            end
+            local line, path, storage, mt, mtStorage = emitDepth.structStorage(x)
             local names, fields = {}, {}
             for _, entry in ipairs(x.entries) do
                 if entry.kind == "fieldDecl" then
@@ -6737,19 +6738,10 @@ export function generate(
                     end
                 end
             end
-            local line = sourceLine(x)
-            local path = declPath(x)
-            local spilled = emitDepth.spill and emitDepth.spill.decls[x]
-            local storage = (path or spilled) and "" or x.visibility == "global" and "" or "const "
+            local line, path, storage, mt, mtStorage = emitDepth.structStorage(x)
             -- The metatable is created up front so members declared later (function
             -- S:m()) have somewhere to attach; ffi.metatype hands back the ctype, which
             -- stays callable as the constructor.
-            local mt = "__nuppMt_" .. x.name.text
-            local mtStorage = spilled and "" or "const "
-            if spilled then
-                emitDepth.spill.name(x.name.text)
-                emitDepth.spill.name(mt)
-            end
             local tag = structTag[x.name.text]
             local nominal = x.resolvedType
             local hook = ""

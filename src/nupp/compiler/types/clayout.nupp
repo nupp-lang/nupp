@@ -1,0 +1,22 @@
+module nupp.compiler.types.clayout
+
+local T = require("nupp.compiler.types")
+
+export function expanded(t: T.Type?): string?
+    if not t then
+        return nil
+    end
+    if t.tag == "nominal" and t.declKind == "struct" then
+        local fields = {}
+        for _, name in ipairs(t.fieldOrder or {}) do
+            local field = expanded(t.byname[name])
+            if not field then
+                return nil
+            end
+            fields[#fields + 1] = name .. ":" .. field
+        end
+        return "{" .. table.concat(fields, ",") .. "}"
+    end
+
+    return T.cName(t)
+end

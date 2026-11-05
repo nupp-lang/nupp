@@ -2090,4 +2090,121 @@ return {copy = copy}
     refuses(program, "a GPU guard relation is not over span lengths")
 end
 
+function M.sharedIndexRangesEncloseIndependentConcreteEvaluation()
+    local analysis = require("nupp.compiler.aot.sharedanalysis")
+
+    local function constant(n)
+        return {op = "constant_i32", type = "u32", value = tostring(n)}
+    end
+
+    local function pair(op, left, right)
+        return {op = op, type = "u32", left = left, right = right}
+    end
+
+    for count = 1, 8 do
+        for factor = 0, 4 do
+            for divisor = 1, 4 do
+                local expression = pair(
+                    "u32_mod",
+                    pair(
+                        "u32_div",
+                        pair(
+                            "u32_add",
+                            pair("u32_mul", {op = "local_index", type = "u32"}, constant(factor)),
+                            constant(3)
+                        ),
+                        constant(divisor)
+                    ),
+                    constant(5)
+                )
+                local low, high = analysis.indexRange(expression, count)
+                assert(low ~= nil and high ~= nil)
+                for lane = 0, count - 1 do
+                    local actual = math.floor((lane * factor + 3) / divisor) % 5
+                    assert(low <= actual and actual <= high, "range excluded a concrete lane")
+                end
+            end
+        end
+    end
+    for _, expression in ipairs({
+        pair("u32_add", constant(4294967295), constant(1)),
+        pair("u32_mul", constant(4294967295), constant(2)),
+        pair("u32_div", constant(1), constant(0)),
+        pair("u32_mod", constant(1), constant(0)),
+        pair("u32_div", constant(4), {op = "local_index", type = "u32"}),
+        {op = "local_index", type = "u32"},
+    }) do
+        local low, high = analysis.indexRange(expression, nil)
+        test.eq(low, nil)
+        test.eq(high, nil)
+    end
+end
+
+function M.phaseAccessesIncludeConditionsAndNestedBlocks()
+    local analysis = require("nupp.compiler.aot.sharedanalysis")
+
+    local function constant(n)
+        return {op = "constant_i32", type = "u32", value = tostring(n)}
+    end
+
+    local localIndex = {op = "local_index", type = "u32"}
+    local written, crossRead = analysis.phaseAccesses({
+        {
+            op = "while",
+            condition = {op = "constant", type = "bool", value = "true"},
+            conditionBody = {{op = "shared_store", shared = "condition", index = localIndex, value = constant(1)}},
+            body = {
+                {
+                    op = "block",
+                    body = {
+                        {
+                            op = "let",
+                            value = {op = "shared_load", type = "u32", shared = "condition", index = constant(0),}
+                        },
+                        {
+                            op = "let",
+                            value = {op = "shared_load", type = "u32", shared = "ownLane", index = localIndex,}
+                        }
+                    }
+                }
+            },
+        }
+    })
+    test.eq(written.condition, true)
+    test.eq(crossRead.condition, true)
+    test.eq(crossRead.ownLane, nil)
+end
+
+function M.scratchCountsMustMatchTheLocalIndexDomain()
+    local program = lowered(
+        [[
+local gpu = require("io.gpu")
+local span = require("binary.span")
+@aot(target = "gpu")
+local function fill(exclusive output: span.WriteSpan<float>): nil
+    local groups = math.u32.div(math.u32.wrap(#output), math.u32.wrap(4))
+    gpu.workgroups(groups, 4, function(groupIndex: uint32, phases: gpu.Phases)
+        local values = phases:scratch(math.f32.narrow(0.0), 4)
+        phases:run(function(localIndex: uint32)
+            values[localIndex] = math.f32.narrow(1.0)
+        end)
+        phases:run(function(localIndex: uint32)
+            local cursor = math.u32.add(math.u32.mul(groupIndex, math.u32.wrap(4)), localIndex)
+            if cursor < #output then
+                output[cursor + 1] = values[localIndex]
+            end
+        end)
+    end)
+end
+return {fill = fill}
+]],
+        "shared-domain.nupp"
+    )
+    verify.program(program)
+    for _, count in ipairs({2, 8}) do
+        program.workgroup.shared[1].count = count
+        refuses(program, "invalid workgroup scratch declaration")
+    end
+end
+
 return M

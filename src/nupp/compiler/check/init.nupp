@@ -28,6 +28,7 @@ const {type Checker as Checker2} = require("nupp.compiler.tracesource")
 local apiidentity = require("nupp.compiler.apiidentity")
 local builtinExtensions = require("nupp.compiler.builtinextensions")
 local T = require("nupp.compiler.types")
+local moduleSurface = require("nupp.compiler.check.modulesurface")
 local relations = require("nupp.compiler.types.relations")
 local consteval = require("nupp.compiler.types.consteval")
 local lints = require("nupp.compiler.lints")
@@ -2819,18 +2820,7 @@ function checkMod.check(
                 and not c.moduleLocalAnnotated
                 and exportedLocal == c.moduleLocal
             then
-                local fields = {}
-                for name, ft in pairs(c.moduleFields) do
-                    if c.moduleFieldConst[name] then
-                        fields[#fields + 1] = {name = name, read = ft}
-                    else
-                        fields[#fields + 1] = {name = name, type = ft}
-                    end
-                end
-                if #fields > 0 then
-                    c.moduleType = T.shape(fields, nil, nil, true)
-                    c.moduleTypeFromFields = true
-                end
+                moduleSurface.update(c)
             end
             return
         end

@@ -25,6 +25,7 @@ local lexer = require("nupp.compiler.syntax.lexer")
 local cst = require("nupp.compiler.syntax.cst")
 local relations = require("nupp.compiler.aot.relations")
 local scalarIR = require("nupp.compiler.aot.scalar")
+local sharedAnalysis = require("nupp.compiler.aot.sharedanalysis")
 local simdbounds = require("nupp.compiler.aot.simdbounds")
 local visit = require("nupp.compiler.aot.visit")
 local switchplan = require("nupp.compiler.lua.switchplan")
@@ -4648,7 +4649,13 @@ local function simdMethod(
                 type = vectorType,
                 source = source
             )
-        elseif genericFamily == "vector" and VECTOR_EXTREMA[method] ~= nil and #raw == 1 then
+        elseif genericFamily == "vector"
+            and (VECTOR_EXTREMA[method] ~= nil or VECTOR_INTEGER_BINARY[method] ~= nil)
+            and #raw == 1
+        then
+            if VECTOR_INTEGER_BINARY[method] ~= nil and tostring(genericElement):sub(1, 1) == "f" then
+                kernel.context.reject(source, "SIMD " .. method .. " requires an integer vector element")
+            end
             local other = lower.expression(raw[1], environment, activeIndex, kernel)
             local otherFamily, otherElement, otherShape = genericSimdParts(other.type)
             if otherFamily == "vector" and (otherElement ~= genericElement or otherShape ~= genericShape) then
@@ -4657,7 +4664,7 @@ local function simdMethod(
             return scalarIR.Simd(
                 op = "simd_binary",
                 args = {receiver as scalarIR.Expr, simdOperand(other, vectorType, source, kernel)},
-                intrinsic = VECTOR_EXTREMA[method],
+                intrinsic = VECTOR_EXTREMA[method] or VECTOR_INTEGER_BINARY[method],
                 type = vectorType,
                 source = source
             )
@@ -4678,22 +4685,6 @@ local function simdMethod(
                 op = "simd_binary",
                 args = operands,
                 intrinsic = "fma",
-                type = vectorType,
-                source = source
-            )
-        elseif genericFamily == "vector" and VECTOR_INTEGER_BINARY[method] ~= nil and #raw == 1 then
-            if tostring(genericElement):sub(1, 1) == "f" then
-                kernel.context.reject(source, "SIMD " .. method .. " requires an integer vector element")
-            end
-            local other = lower.expression(raw[1], environment, activeIndex, kernel)
-            local otherFamily, otherElement, otherShape = genericSimdParts(other.type)
-            if otherFamily == "vector" and (otherElement ~= genericElement or otherShape ~= genericShape) then
-                kernel.context.reject(source, "explicit SIMD operands have different element or species identities")
-            end
-            return scalarIR.Simd(
-                op = "simd_binary",
-                args = {receiver as scalarIR.Expr, simdOperand(other, vectorType, source, kernel)},
-                intrinsic = VECTOR_INTEGER_BINARY[method],
                 type = vectorType,
                 source = source
             )
@@ -5558,53 +5549,7 @@ local function expressionRaw(
             end
             local index = lower.expression(indexed.expr as cst.Node, environment, activeIndex, kernel)
 
-            local function indexRange(value: scalarIR.Expr): (number?, number?)
-                local op = value.op
-                if op == "constant" or op == "constant_i32" then
-                    local constant = tonumber((value as any).value)
-                    if constant ~= nil and constant == math.floor(constant as number) and constant >= 0 then
-                        return constant, constant
-                    end
-                elseif op == "local_index" then
-                    return 0, (kernel.workgroupSize as integer) - 1
-                elseif op == "numeric_cast" or op == "int_to_f64" then
-                    return indexRange((value as scalarIR.Convert).value)
-                elseif op == "u32_add" or op == "u32_mul" then
-                    local pair = value as scalarIR.Fixed
-                    local leftMin, leftMax = indexRange(pair.left)
-                    local rightMin, rightMax = indexRange(pair.right)
-                    if leftMin ~= nil and leftMax ~= nil and rightMin ~= nil and rightMax ~= nil then
-                        local low = op == "u32_add" and (leftMin as number) + (rightMin as number)
-                            or (leftMin as number) * (rightMin as number)
-                        local high = op == "u32_add" and (leftMax as number) + (rightMax as number)
-                            or (leftMax as number) * (rightMax as number)
-                        if high <= 4294967295 then
-                            return low, high
-                        end
-                    end
-                elseif op == "u32_div" or op == "u32_mod" then
-                    local pair = value as scalarIR.Fixed
-                    local leftMin, leftMax = indexRange(pair.left)
-                    local rightMin, rightMax = indexRange(pair.right)
-                    if leftMin ~= nil
-                        and leftMax ~= nil
-                        and rightMin ~= nil
-                        and rightMin == rightMax
-                        and rightMin > 0
-                    then
-                        if op == "u32_div" then
-                            return math.floor(
-                                (leftMin as number) / (rightMin as number)
-                            ), math.floor((leftMax as number) / (rightMin as number))
-                        end
-                        return 0, math.min(leftMax as number, (rightMin as number) - 1)
-                    end
-                end
-
-                return nil, nil
-            end
-
-            local minimum, maximum = indexRange(index)
+            local minimum, maximum = sharedAnalysis.indexRange(index, kernel.workgroupSize)
             if minimum == nil or maximum == nil or minimum < 0 or maximum >= tableBinding.count then
                 context.reject(lower.site(indexed.expr), "shared scratch read is not statically proved in bounds")
             end
@@ -7476,46 +7421,7 @@ end
 --- shape. Reads from an earlier phase and same-lane read-modify-write remain
 --- valid.
 local function sharedPhaseCollision(statements: {scalarIR.Statement}): string?
-    local written: {[string]: boolean} = {}
-    local crossRead: {[string]: boolean} = {}
-    local inspectExpression: function(scalarIR.Expr): nil
-    inspectExpression = function(value: scalarIR.Expr): nil
-        if value.op == "shared_load" then
-            local load = value as scalarIR.SharedLoad
-            if load.index.op ~= "local_index" then
-                crossRead[load.shared] = true
-            end
-        end
-        visit.expressionChildren(value, function(child: scalarIR.Expr): scalarIR.Expr
-            inspectExpression(child)
-            return child
-        end)
-    end
-    local inspectBlock: function({scalarIR.Statement}): nil
-    inspectBlock = function(block: {scalarIR.Statement}): nil
-        for _, statement in ipairs(block) do
-            if statement.op == "shared_store" then
-                written[(statement as scalarIR.SharedStore).shared] = true
-            end
-            visit.statementExpressions(statement, function(value: scalarIR.Expr): scalarIR.Expr
-                inspectExpression(value)
-                return value
-            end)
-            if statement.op == "if" then
-                for _, clause in ipairs((statement as scalarIR.If).clauses) do
-                    inspectBlock(clause.body)
-                end
-                inspectBlock((statement as scalarIR.If).elseBody or {})
-            elseif statement.op == "while"
-                or statement.op == "repeat"
-                or statement.op == "fornum"
-                or statement.op == "block"
-            then
-                inspectBlock((statement as any).body as {scalarIR.Statement})
-            end
-        end
-    end
-    inspectBlock(statements)
+    local written, crossRead = sharedAnalysis.phaseAccesses(statements)
     for name in pairs(written) do
         if crossRead[name] == true then
             return name
