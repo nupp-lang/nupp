@@ -1,0 +1,63 @@
+module nupp.runtime.core.guestprocess
+
+-- The process layer's calls a program reaches through the file calls'
+-- LibCall (HOST_FILES), from PROCESS_FIRST to PROCESS_LAST (librarylayouts):
+-- processcalls.d.nupp's, each answering what the bridge's call did. The one
+-- table (nupp.compiler.vm.corelibrary) numbers them.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const values = require("nupp.runtime.vm.values")
+const os = require("nupp.runtime.vm.os")
+const context = require("nupp.runtime.core.context")
+const strings = require("nupp.runtime.core.corestrings")
+const ints = require("nupp.runtime.core.coreintegers")
+const guestscope = require("nupp.runtime.core.guestscope")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
+
+local function heapOf(ctx: voidptr): heap.Heap*
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        return native.pointer(native.load64(services, native.fieldOffset<guestscope.Services>("heap"))) as heap.Heap*
+    end
+end
+
+-- The int64 bits of an integer argument. The process layer passes checked
+-- integers; anything else is its mistake.
+local function integerOf(value: uint64): uint64
+    if not ints.isInteger(value) then
+        error("process calls: an integer argument was expected")
+    end
+
+    return ints.bitsOf(value)
+end
+
+-- Process operation `operation` with its arguments a and b.
+export function call(ctx: voidptr, operation: uint64, a: uint64, b: uint64): uint64
+    @unsafe do
+        local h = heapOf(ctx)
+        if operation == librarylayouts.PROCESS_PIPE then
+            return ints.make(h, native.word(os.processPipe(integerOf(a))))
+        elseif operation == librarylayouts.PROCESS_SPAWN then
+            local spec = strings.header(a)
+            if spec == 0ULL then
+                error("process calls: a string argument was expected")
+            end
+            local base = native.pointer(strings.bytes(spec))
+            return ints.make(h, native.word(os.processSpawn(base, strings.length(spec), integerOf(b))))
+        elseif operation == librarylayouts.PROCESS_WATCH then
+            return ints.make(h, native.word(os.processWatch(integerOf(a), integerOf(b))))
+        elseif operation == librarylayouts.PROCESS_UNWATCH then
+            return ints.make(h, native.word(os.processUnwatch(integerOf(a), integerOf(b))))
+        elseif operation == librarylayouts.PROCESS_REAP then
+            return ints.make(h, native.word(os.processReap(integerOf(a))))
+        elseif operation == librarylayouts.PROCESS_KILL then
+            return ints.make(h, native.word(os.processKill(integerOf(a), integerOf(b))))
+        elseif operation == librarylayouts.PROCESS_EXIT then
+            local _ = os.processExit(integerOf(a))
+            return values.NIL
+        end
+    end
+    error("process calls: no such operation")
+
+    return values.NIL
+end

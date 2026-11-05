@@ -1,0 +1,90 @@
+@!internal
+
+--[[
+Lua 5.5's `os` library on the native core, written over its process layer
+(`nupp.runtime.processes`): `os.execute` runs a command line in the shell
+and answers Lua's results (true or nil, "exit" or "signal", and the code),
+or with no command whether a shell exists; `os.exit` ends the program;
+`os.getenv` reads the environment; `os.monotonic` is Nupp's clock. The
+other functions are not the core's yet and raise.
+
+A command's child leads a process group of its own (Decision 8), where C's
+system leaves it in the caller's and ignores SIGINT and SIGQUIT while it
+waits: an interrupt from the terminal reaches this program, not the child.
+`os.exit` ignores its second argument: the core runs no finalizers at exit,
+and every write has reached its file already.
+]]
+module nupp.runtime.luaos
+
+const processes = require("nupp.runtime.processes")
+const processcalls = require("nupp.runtime.processcalls")
+const files = require("nupp.runtime.files")
+const luaargs = require("nupp.runtime.luaargs")
+
+-- C's EXIT_SUCCESS and EXIT_FAILURE.
+const SUCCESS = 0
+
+const FAILURE = 1
+
+-- Runs `command` in the shell and answers how it ended, as Lua's
+-- luaL_execresult does; with no command, whether a shell exists.
+local function execute(...: any): ...any
+    local command: any = select(1, ...)
+    if command == nil then
+        return processes.hasshell()
+    end
+    local line = luaargs.stringarg(command, nil, 1, "execute", 2)
+    local child, code = processes.shell(line, processes.INHERIT, processes.INHERIT)
+    if child == nil then
+        return nil, files.reason(code), code
+    end
+
+    return processes.results(processes.wait(child as processes.Process))
+end
+
+-- Ends the program with `code`: true or none is success, false failure.
+local function exit(code: any, close: any): nil
+    local _ = close
+    local status: integer = SUCCESS
+    if type(code) == "boolean" then
+        status = code and SUCCESS or FAILURE
+    elseif code ~= nil then
+        status = luaargs.integerarg(code, 1, "exit", 2)
+    end
+    processcalls.exit(status)
+end
+
+local function getenv(name: any): string?
+    return os.getenv(luaargs.stringarg(name, nil, 1, "getenv", 2))
+end
+
+local function monotonic(): number
+    return os.monotonic()
+end
+
+-- One of the functions the core does not have yet.
+local function missing(name: string): function(...: any): nil
+    return function(...: any): nil
+        error("'" .. name .. "' not supported", 2)
+    end
+end
+
+local library: {
+    [string]: any
+} = {
+    execute = execute,
+    exit = exit,
+    getenv = getenv,
+    monotonic = monotonic,
+    clock = missing("clock"),
+    date = missing("date"),
+    difftime = missing("difftime"),
+    remove = missing("remove"),
+    rename = missing("rename"),
+    setlocale = missing("setlocale"),
+    time = missing("time"),
+    tmpname = missing("tmpname")
+}
+
+--- The library values this module carries by name: `os` itself.
+export const functions: {[string]: any} = {os = library}

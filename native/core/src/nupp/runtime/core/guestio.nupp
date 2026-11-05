@@ -2,8 +2,8 @@ module nupp.runtime.core.guestio
 
 -- The host's services a program reaches through the core's library calls:
 -- the file system calls under the program's file layer (filecalls) and its
--- reactor (pollcalls, poolcalls), the monotonic clock, the collector's
--- controls and the program's arguments.
+-- reactor (pollcalls, poolcalls) and process layer (processcalls), the
+-- monotonic clock, the collector's controls and the program's arguments.
 const native = require("nupp.runtime.vm.intrinsics")
 const heap = require("nupp.runtime.vm.heap")
 const values = require("nupp.runtime.vm.values")
@@ -19,6 +19,7 @@ const guestreactor = require("nupp.runtime.core.guestreactor")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const guestvalues = require("nupp.runtime.core.guestvalues")
+const guestprocess = require("nupp.runtime.core.guestprocess")
 
 local function heapOf(ctx: voidptr): heap.Heap*
     @unsafe do
@@ -104,6 +105,9 @@ export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64)
     local operation = integerOf(op)
     if operation >= librarylayouts.REACTOR_FIRST and operation <= librarylayouts.REACTOR_LAST then
         return guestreactor.call(ctx, operation, a, b, c)
+    end
+    if operation >= librarylayouts.PROCESS_FIRST and operation <= librarylayouts.PROCESS_LAST then
+        return guestprocess.call(ctx, operation, a, b)
     end
     @unsafe do
         local h = heapOf(ctx)

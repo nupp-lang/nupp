@@ -684,7 +684,8 @@ local libraryValues: {
     ["string.byte"] = true,
     ["os.getenv"] = true,
     debug = true,
-    io = true
+    io = true,
+    os = true
 }
 
 -- The library name `node` reads when it names a library function, `tostring`
@@ -713,12 +714,15 @@ export function libraryValue(node: any): string?
     return name and (libraryValues[name] or schedulerValues[name]) and name or nil
 end
 
--- The module whose `functions` carries library value `name`: Lua's `io`, the
--- library itself, is `nupp.runtime.luaio`; the task surface is the
--- scheduler's; the others are `nupp.runtime.libraryvalues`.
+-- The module whose `functions` carries library value `name`: Lua's `io` and
+-- `os`, the libraries themselves, are `nupp.runtime.luaio` and
+-- `nupp.runtime.luaos`; the task surface is the scheduler's; the others are
+-- `nupp.runtime.libraryvalues`.
 export function libraryModule(name: string): string
     if name == "io" then
         return "nupp.runtime.luaio"
+    elseif name == "os" then
+        return "nupp.runtime.luaos"
     elseif schedulerValues[name] then
         return "nupp.runtime.scheduler"
     end

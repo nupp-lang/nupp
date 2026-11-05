@@ -1,0 +1,62 @@
+@!internal
+
+--[[
+The argument checks of Lua's libraries on the native core, as Lua's
+auxiliary library makes them (luaL_checkinteger, luaL_optstring and the
+errors they raise), for the libraries written in Nupp: `io`
+(`nupp.runtime.luaio`) and `os` (`nupp.runtime.luaos`).
+]]
+module nupp.runtime.luaargs
+
+--- The name Lua's argument errors give a value's type: its metatable's
+--- __name when it has one.
+export function typename(value: any): string
+    local m = getmetatable(value)
+    if type(m) == "table" and type((m as {[string]: any}).__name) == "string" then
+        return (m as {[string]: any}).__name as string
+    end
+
+    return type(value)
+end
+
+--- Raises Lua's error for argument `position` of `name`, at `level` past the
+--- function that calls this.
+export function argerror(position: integer, name: string, message: string, level: integer): nil
+    error(("bad argument #%d to '%s' (%s)"):format(position, name, message), level + 1)
+end
+
+--- An integer argument as luaL_checkinteger takes one: a number with an
+--- integer value, or a string that converts to one.
+export function integerarg(value: any, position: integer, name: string, level: integer): integer
+    local number: any = value
+    if type(value) == "string" then
+        number = tonumber(value as string)
+    end
+    if math.type(number) == "integer" then
+        return number as integer
+    elseif math.type(number) == "float" then
+        local whole = math.tointeger(number as number)
+        if whole ~= nil then
+            return whole
+        end
+        argerror(position, name, "number has no integer representation", level + 1)
+    end
+    argerror(position, name, "number expected, got " .. typename(value), level + 1)
+
+    return 0
+end
+
+--- An optional string argument as luaL_optstring takes one: nil is
+--- `default`, and a number its text.
+export function stringarg(value: any, default: string?, position: integer, name: string, level: integer): string
+    if value == nil and default ~= nil then
+        return default
+    elseif type(value) == "string" then
+        return value as string
+    elseif type(value) == "number" then
+        return tostring(value)
+    end
+    argerror(position, name, "string expected, got " .. typename(value), level + 1)
+
+    return ""
+end

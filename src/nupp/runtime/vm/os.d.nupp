@@ -123,8 +123,9 @@ local record Os
     pollArm: function(poller: uint64, fd: uint64, interest: uint64): int64
 
     --- Waits at most `nanos` nanoseconds (all ones: without limit) for one
-    --- event: its descriptor above four bits (1 readable, 2 writable, 4 hung
-    --- up, 8 failed), 0 when the time passed, or the negated error number.
+    --- event: its descriptor above five bits (1 readable, 2 writable, 4 hung
+    --- up, 8 failed), or a child's process id above 16 for its exit; 0 when
+    --- the time passed, or the negated error number.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     pollWait: function(poller: uint64, nanos: uint64): int64
 
@@ -163,5 +164,43 @@ local record Os
     --- its timers can wake it. Answers 0.
     @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
     sleepNanos: function(nanos: uint64): uint64
+
+    --- A pipe for a child's standard stream, closing on exec: the end `keep`
+    --- names (0 the read end, 1 the write end) nonblocking, the child's end
+    --- blocking. Its read end's descriptor, the write end's from bit 32, or
+    --- the negated error number. The core's bridge answers it and the six
+    --- calls after it, for the core's process layer.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    processPipe: function(keep: uint64): int64
+
+    --- Starts the child the `bytes` bytes at `spec` describe, in a process
+    --- group of its own, with `flags` (1 search PATH, 2 the given environment
+    --- only, 4 it over this program's): its process id, or the negated error number.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    processSpawn: function(spec: voidptr, bytes: uint64, flags: uint64): int64
+
+    --- Has `poller` report child `pid`'s exit once: 0, or the negated error
+    --- number (ESRCH when it has exited already).
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    processWatch: function(poller: uint64, pid: uint64): int64
+
+    --- Stops watching child `pid`'s exit: 0, or the negated error number.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    processUnwatch: function(poller: uint64, pid: uint64): int64
+
+    --- Collects child `pid` if it has exited: its reason (1 an exit, 2 a
+    --- signal) above eight bits of its status or signal, 0 while it runs, or
+    --- the negated error number.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    processReap: function(pid: uint64): int64
+
+    --- Sends `signal` to child `pid`'s whole process group: 0, or the
+    --- negated error number.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    processKill: function(pid: uint64, signal: uint64): int64
+
+    --- Ends this process with status `code`; it does not return.
+    @vmHelperEffects(mayCollect = false, mayPark = false, mayRaise = false, pure = false)
+    processExit: function(code: uint64): int64
 end
 return Os

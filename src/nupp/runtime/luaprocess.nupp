@@ -1,0 +1,417 @@
+@!internal
+
+--[[
+`io.popen` on the native core: a child the process layer
+(`nupp.runtime.processes`) starts, answered as a handle that is both a Lua
+file and the process, as `io.Process` is.
+
+- `io.popen(command, options)` takes a shell command line or an argument
+  vector, and Lua's mode ("r", "w", "rb" or "wb") or an options table:
+  `mode`, `cwd`, `env` (set over this program's environment, or the whole
+  of it with `clearenv`), and `stdin`, `stdout` and `stderr` as "pipe",
+  "inherit" or "null" (standard error also "stdout"). "r" pipes standard
+  output and "w" standard input; the others are inherited.
+- The handle's `read` and `lines` read the child's standard output, and
+  `write`, `flush` and `setvbuf` write its standard input; `close` closes
+  its pipes, waits, and answers as `os.execute` does: true or nil, "exit"
+  or "signal", and the code.
+- `pid`, `isrunning`, `wait` (how it ended: `exitcode`, `signal`, `killed`
+  and `timedout`), `kill` (SIGTERM, or SIGKILL when forced, to the child's
+  whole process group) and `communicate` (input written while both outputs
+  are read, then the exit) are the process's. `stdin`, `stdout` and
+  `stderr` are its piped streams as files, the readable ones with `poll`, a
+  read that does not wait.
+]]
+module nupp.runtime.luaprocess
+
+const processes = require("nupp.runtime.processes")
+const streams = require("nupp.runtime.luastreams")
+const luaargs = require("nupp.runtime.luaargs")
+const files = require("nupp.runtime.files")
+const filecalls = require("nupp.runtime.filecalls")
+
+-- What `exitcode` reports for a child a signal ended: this plus its number,
+-- as a shell reports it.
+const SIGNALBASE = 128
+
+-- The most output `communicate` collects by default, both streams together.
+const MAXOUTPUT = 268435456
+
+-- The bytes `poll` asks for when it is given no limit.
+const POLLBYTES = 65536
+
+-- EAGAIN, which is 35 on macOS and the BSDs and 11 on Linux: a nonblocking
+-- read with nothing to read yet.
+const AGAIN = 35
+
+const AGAINLINUX = 11
+
+-- ESRCH: a signal with no process left to receive it.
+const GONE = 3
+
+-- The modes a child's streams may be given, and what each is to the process
+-- layer.
+const STREAMMODES: {[string]: integer} = {pipe = processes.PIPE, inherit = processes.INHERIT, null = processes.NULL}
+
+-- A process's handle: a file handle whose stream reads the child's standard
+-- output (or writes its standard input when only that is piped) and whose
+-- writer writes its standard input, with the child and its streams' files.
+local type ProcessHandle = {
+    stream: streams.Stream,
+    writer: streams.Stream?,
+    child: processes.Process,
+    pid: integer,
+    stdin: any,
+    stdout: any,
+    stderr: any,
+    killed: boolean,
+    reaped: boolean
+}
+
+local methods: {[string]: any} = {}
+
+local meta: {[string]: any} = {__index = methods, __name = "FILE*"}
+
+-- A piped stream's file: a file's methods, and `poll` on one that reads.
+local pipemethods: {[string]: any} = setmetatable({}, {__index = streams.methods})
+
+local pipemeta: {[string]: any} = {__index = pipemethods, __name = "FILE*", __tostring = streams.meta.__tostring}
+
+streams.register(meta)
+streams.register(pipemeta)
+
+-- A file over pipe end `descriptor`, which only reads ("r") or only writes
+-- ("w").
+local function pipefile(descriptor: integer, access: string): any
+    local handle = streams.newhandle(descriptor, false, "full")
+    local s = (handle as streams.Handle).stream
+    s.access = access
+
+    return setmetatable(handle, pipemeta)
+end
+
+local function streamof(file: any): streams.Stream?
+    if file == nil then
+        return nil
+    end
+
+    return (file as streams.Handle).stream
+end
+
+--- Reads what the pipe holds now without waiting: the bytes (at most
+--- `limit`), or nil when none have arrived yet; and whether it has ended.
+pipemethods.poll = function(self: any, limit: any): (string?, boolean)
+    local s = streams.openstream(self, 1, "poll", 2)
+    local most = limit == nil and POLLBYTES or luaargs.integerarg(limit, 1, "poll", 2)
+    if s.at <= #s.input then
+        local text = string.sub(s.input, s.at, s.at + most - 1)
+        s.at = s.at + #text
+        return text, false
+    end
+    local got = filecalls.read(s.descriptor, most)
+    if type(got) == "string" then
+        if got == "" then
+            return nil, true
+        end
+        return got as string, false
+    end
+    local code = -(got as integer)
+    if code == AGAIN or code == AGAINLINUX then
+        return nil, false
+    end
+    error(files.reason(code), 2)
+end
+
+-- The handle `self`, which must not be closed, as argument 1 of `name`.
+local function handleof(self: any, name: string): ProcessHandle
+    if type(self) ~= "table" or getmetatable(self) ~= meta then
+        luaargs.argerror(1, name, "FILE* expected, got " .. luaargs.typename(self), 3)
+    end
+    local handle = self as ProcessHandle
+    if handle.reaped then
+        error("attempt to use a closed file", 3)
+    end
+
+    return handle
+end
+
+-- How the child ended, as `io.Process.Exit` reports it.
+local function exitof(handle: ProcessHandle, exit: processes.Exit): {[string]: any}
+    local signal: integer? = nil
+    local code = exit.code
+    if exit.reason == "signal" then
+        signal = exit.code
+        code = SIGNALBASE + exit.code
+    end
+
+    return {exitcode = code, signal = signal, killed = signal ~= nil and handle.killed, timedout = false}
+end
+
+-- Closes the streams of `handle` still open.
+local function closestreams(handle: ProcessHandle): nil
+    -- Not ipairs: any of the three may be missing.
+    local piped: {any} = {handle.stdin, handle.stdout, handle.stderr}
+    for index = 1, 3 do
+        local s = streamof(piped[index])
+        if s ~= nil and not (s as streams.Stream).closed then
+            local open = s as streams.Stream
+            open.closed = true
+            open.input, open.at = "", 1
+            files.close(open.descriptor)
+        end
+    end
+    local child = handle.child
+    child.stdin, child.stdout, child.stderr = -1, -1, -1
+    handle.stream.closed = true
+end
+
+--- Reads the child's standard output in Lua's formats.
+methods.read = function(self: any, ...: any): ...any
+    local handle = handleof(self, "read")
+
+    return streams.readformats(handle.stream, 1, "read", 2, ...)
+end
+
+--- Iterates over the child's standard output in Lua's formats.
+methods.lines = function(self: any, ...: any): function(): ...any
+    local handle = handleof(self, "lines")
+    local formats, count = streams.lineformats(1, 2, ...)
+
+    return streams.lineiterator(handle.stream, false, formats, count)
+end
+
+--- Writes strings and numbers to the child's standard input: the handle,
+--- or Lua's failure results.
+methods.write = function(self: any, ...: any): ...any
+    handleof(self, "write")
+
+    return streams.writevalues(self, streams.writer(self), 1, "write", 2, ...)
+end
+
+--- Writes what is buffered: true, as every write has reached the pipe.
+methods.flush = function(self: any): (boolean?, string?, integer?)
+    handleof(self, "flush")
+
+    return true
+end
+
+--- A pipe does not seek: Lua's failure results.
+methods.seek = function(self: any, whence: any, offset: any): (integer?, string?, integer?)
+    local handle = handleof(self, "seek")
+
+    return streams.methods.seek(setmetatable({stream = handle.stream}, pipemeta), whence, offset)
+end
+
+--- Sets the buffering of the child's standard input.
+methods.setvbuf = function(self: any, mode: any, size: any): (boolean?, string?, integer?)
+    handleof(self, "setvbuf")
+    local target = setmetatable({stream = streams.writer(self)}, pipemeta)
+
+    return streams.methods.setvbuf(target, mode, size)
+end
+
+--- Whether the child is still running.
+methods.isrunning = function(self: any): boolean
+    local handle = self as ProcessHandle
+
+    return processes.running(handle.child)
+end
+
+--- Waits for the child to end and answers how.
+methods.wait = function(self: any): {[string]: any}
+    local handle = self as ProcessHandle
+
+    return exitof(handle, processes.wait(handle.child))
+end
+
+--- Asks the child and every process in its group to end, with SIGTERM, or
+--- SIGKILL when `force`: whether the request was made, and why not.
+methods.kill = function(self: any, force: any): (boolean, string?)
+    local handle = self as ProcessHandle
+    if not processes.running(handle.child) then
+        return true
+    end
+    handle.killed = true
+    local code = processes.kill(handle.child, force == true and processes.SIGKILL or processes.SIGTERM)
+    if code ~= 0 and code ~= GONE then
+        return false, files.reason(code)
+    end
+
+    return true
+end
+
+local resultmeta: {[string]: any} = {
+    __index = {
+        succeeded = function(self: any): boolean
+            local exit = (self as {[string]: any}).exit as {[string]: any}
+            return not exit.killed and not exit.timedout and exit.exitcode == 0
+        end
+    }
+}
+
+--- Writes `options.input` to the child's standard input and closes it,
+--- while reading its standard output and error to their ends, then waits:
+--- the exchange (`output`, `erroroutput`, `exit` and `succeeded`), or nil
+--- and why it could not complete.
+methods.communicate = function(self: any, options: any): (any, string?)
+    local handle = handleof(self, "communicate")
+    local given: {[string]: any} = options or {}
+    local input = given.input
+    if input ~= nil and type(input) ~= "string" then
+        return nil, "process input must be a string"
+    end
+    local maximum = given.maxoutputbytes or MAXOUTPUT
+    -- What a read took ahead of the output is output too.
+    local early: {string} = {"", ""}
+    local outputs: {any} = {handle.stdout, handle.stderr}
+    for index = 1, 2 do
+        local s = streamof(outputs[index])
+        if s ~= nil then
+            local open = s as streams.Stream
+            early[index] = string.sub(open.input, open.at)
+            open.input, open.at = "", 1
+        end
+    end
+    local ok, out, err, exit = pcall(processes.communicate, handle.child, input as string?)
+    closestreams(handle)
+    if not ok then
+        return nil, tostring(out)
+    end
+    local output = early[1] .. (out as string)
+    local erroroutput = early[2] .. (err as string)
+    if #output + #erroroutput > maximum then
+        return nil, "process output exceeds the configured maximum"
+    end
+    local result = {output = output, erroroutput = erroroutput, exit = exitof(handle, exit as processes.Exit)}
+
+    return setmetatable(result, resultmeta)
+end
+
+--- Closes the child's pipes and waits for it to end, as Lua's pclose does:
+--- true or nil, "exit" or "signal", and the code.
+methods.close = function(self: any): (boolean?, string?, integer?)
+    local handle = handleof(self, "close")
+    closestreams(handle)
+    handle.reaped = true
+
+    return processes.results(processes.wait(handle.child))
+end
+
+meta.__tostring = function(self: any): string
+    local handle = self as ProcessHandle
+    if handle.reaped then
+        return "file (closed)"
+    end
+
+    return "file (process " .. tostring(handle.pid) .. ")"
+end
+
+-- The process layer's options for `command` and Lua's `options`, as
+-- `io.popen` takes them.
+local function launch(command: any, options: any): processes.Options
+    if options ~= nil and type(options) ~= "table" and type(options) ~= "string" then
+        luaargs.argerror(2, "popen", "table or string expected", 3)
+    end
+    local given: {[string]: any} = type(options) == "table" and options as {[string]: any} or {}
+    if given.args ~= nil then
+        error("popen takes the command as its first argument", 3)
+    end
+    if given.timeoutms ~= nil then
+        error("popen: 'timeoutms' not supported", 3)
+    end
+    local mode: any = type(options) == "string" and options or given.mode or "r"
+    if mode ~= "r" and mode ~= "w" and mode ~= "rb" and mode ~= "wb" then
+        luaargs.argerror(2, "popen", "invalid mode", 3)
+    end
+    local reads = string.sub(mode as string, 1, 1) == "r"
+
+    local function streammode(name: string, default: string, merges: boolean): integer
+        local value: any = given[name] or default
+        if merges and value == "stdout" then
+            return processes.MERGE
+        end
+        local chosen = STREAMMODES[tostring(value)]
+        if chosen == nil then
+            error(("popen: '%s' must be \"pipe\", \"inherit\" or \"null\""):format(name), 4)
+        end
+
+        return chosen as integer
+    end
+
+    local arguments: {string} = {}
+    local program: string? = nil
+    local search = true
+    if type(command) == "string" then
+        arguments = {"sh", "-c", command as string}
+        program = processes.SHELL
+        search = false
+    elseif type(command) == "table" then
+        for index, argument in ipairs(command as {any}) do
+            arguments[index] = tostring(argument)
+        end
+        if #arguments == 0 then
+            luaargs.argerror(1, "popen", "argument array is empty", 3)
+        end
+    else
+        luaargs.argerror(1, "popen", "string or argument array expected", 3)
+    end
+    local environment: {string}? = nil
+    if given.env ~= nil then
+        local entries: {string} = {}
+        for name, value in pairs(given.env as {[string]: string}) do
+            entries[#entries + 1] = tostring(name) .. "=" .. tostring(value)
+        end
+        table.sort(entries)
+        environment = entries
+    elseif given.clearenv == true then
+        environment = {}
+    end
+
+    return {
+        arguments = arguments,
+        program = program,
+        search = search,
+        environment = environment,
+        overlay = given.clearenv ~= true,
+        directory = given.cwd ~= nil and tostring(given.cwd) or nil,
+        stdin = streammode("stdin", reads and "inherit" or "pipe", false),
+        stdout = streammode("stdout", reads and "pipe" or "inherit", false),
+        stderr = streammode("stderr", "inherit", true)
+    }
+end
+
+--- Whether `value` is a process's handle, which closes as a process does.
+export function isprocess(value: any): boolean
+    return type(value) == "table" and getmetatable(value) == meta
+end
+
+--- Starts `command`, a shell command line or an argument vector, as
+--- `options` says (Lua's mode, "r" by default, or an options table): the
+--- process's handle, or nil, the reason and the system's error number.
+export function popen(command: any, options: any): (any, string?, integer?)
+    local launched = launch(command, options)
+    local child, code = processes.spawn(launched)
+    if child == nil then
+        local name = type(command) == "string" and command as string or launched.arguments[1]
+        return streams.failure(code, name)
+    end
+    local started = child as processes.Process
+    local stdin: any = started.stdin >= 0 and pipefile(started.stdin, "w") or nil
+    local stdout: any = started.stdout >= 0 and pipefile(started.stdout, "r") or nil
+    local stderr: any = started.stderr >= 0 and pipefile(started.stderr, "r") or nil
+    -- A handle with no pipe at all reads and writes nothing.
+    local primary: any = stdout or stdin or pipefile(-1, "")
+    local handle: ProcessHandle = {
+        stream = (primary as streams.Handle).stream,
+        writer = streamof(stdin),
+        child = started,
+        pid = started.id,
+        stdin = stdin,
+        stdout = stdout,
+        stderr = stderr,
+        killed = false,
+        reaped = false
+    }
+
+    return setmetatable(handle, meta)
+end

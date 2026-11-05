@@ -321,9 +321,10 @@ local subjectrows: {Subject} = {
 -- The operations HOST_FILES takes first, and how many arguments follow
 -- each: the file calls' (nupp.runtime.filecalls), then the reactor's, the
 -- poller's (nupp.runtime.pollcalls) and the blocking-work pool's
--- (nupp.runtime.poolcalls), which guestreactor answers. Each group's
--- operations are consecutive, its bounds `<GROUP>_FIRST` and `<GROUP>_LAST`;
--- requiring one of its declaration modules loads nothing.
+-- (nupp.runtime.poolcalls), which guestreactor answers, then the process
+-- layer's (nupp.runtime.processcalls), which guestprocess answers. Each
+-- group's operations are consecutive, its bounds `<GROUP>_FIRST` and
+-- `<GROUP>_LAST`; requiring one of its declaration modules loads nothing.
 export type Operation = {
     name: string,
     library: string,
@@ -368,6 +369,23 @@ local grouprows: {Group} = {
             {name = "POOL_TAKE", library = "poolcalls.take", operation = 15, arguments = 0},
             {name = "POOL_FINISH", library = "poolcalls.finish", operation = 16, arguments = 2},
             {name = "POOL_CANCEL", library = "poolcalls.cancel", operation = 17, arguments = 1}
+        }
+    },
+    {
+        -- The process layer's: a pipe for a child's stream, spawning, watching
+        -- and no longer watching a child's exit, collecting it, signalling
+        -- its group, and ending this process.
+        name = "PROCESS",
+        call = "HOST_FILES",
+        modules = {"processcalls"},
+        operations = {
+            {name = "PROCESS_PIPE", library = "processcalls.pipe", operation = 18, arguments = 1},
+            {name = "PROCESS_SPAWN", library = "processcalls.spawn", operation = 19, arguments = 2},
+            {name = "PROCESS_WATCH", library = "processcalls.watch", operation = 20, arguments = 2},
+            {name = "PROCESS_UNWATCH", library = "processcalls.unwatch", operation = 21, arguments = 2},
+            {name = "PROCESS_REAP", library = "processcalls.reap", operation = 22, arguments = 1},
+            {name = "PROCESS_KILL", library = "processcalls.kill", operation = 23, arguments = 2},
+            {name = "PROCESS_EXIT", library = "processcalls.exit", operation = 24, arguments = 1}
         }
     },
     {

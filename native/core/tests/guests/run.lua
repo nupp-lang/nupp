@@ -184,6 +184,12 @@ local CASES = {
     {"reactorfiles", 0x7FFF000000001FFF},
     -- Parked I/O and timers in the scheduler's one loop.
     {"tasksreactor", 0x7FFF00000000001F},
+    {"processexecute", 0x7FFF000000001FFF},
+    {"processpopen", 0x7FFF00001FFFFFFF},
+    {"processhandle", 0x7FFF000001FFFFFF},
+    {"processlayer", 0x7FFF000000FFFFFF},
+    -- os.exit(3): the program ends there, publishing nothing (EXITS).
+    {"processexit", 0},
     -- The bench harness's own entry (bench/vm/workloads.bench.nupp under
     -- debug.bench), measuring fib: its record is checked (OUTPUT); the
     -- entry exports nothing.
@@ -206,7 +212,8 @@ local OUTPUT = {
     outputwrite = "hello 42 1.5\n3.0 -0.0 9.223372036854776e18\nab\nx7\np\n",
     libraryspread = "1\t2\t3\n3\t3\n97\t98\t99\n2\t3\ntrue\t1\t2\n",
     moduleslazy = "main start\nshapes loading\ncounter loading\nmain required\n",
-    iostandard = "a1 b\t2.5\ne\nc\n1\ttrue\t7\tx\nfalse\tboom\ntail\ttrue\nw\n"
+    iostandard = "a1 b\t2.5\ne\nc\n1\ttrue\t7\tx\nfalse\tboom\ntail\ttrue\nw\n",
+    processexit = "before exit\nprinted\t1\n"
 }
 -- The bench entry's record, which holds times: its shape and fib(20)'s
 -- checksum (SETUP) are what is checked, not what it measured.
@@ -296,13 +303,24 @@ local STRESS = {
     iostandard = true,
     reactorpipes = true,
     reactorfiles = true,
-    tasksreactor = true
+    tasksreactor = true,
+    processexecute = true,
+    processpopen = true,
+    processhandle = true,
+    processlayer = true,
+    processexit = true
 }
 -- Shell statements a case's runs start with: the io and pool cases may hold
 -- 64 descriptors, so a handle left open, or opened by a cancelled pool job,
 -- would exhaust them; the bench entry measures fib(20), BENCH_SCALE adding to
 -- 29.
-local SETUP = {iofiles = "ulimit -n 64; ", reactorfiles = "ulimit -n 64; ", benchworkloads = "export BENCH_SCALE=-9; "}
+local SETUP = {
+    iofiles = "ulimit -n 64; ",
+    reactorfiles = "ulimit -n 64; ",
+    processpopen = "ulimit -n 64; ",
+    processlayer = "ulimit -n 64; ",
+    benchworkloads = "export BENCH_SCALE=-9; "
+}
 -- The program arguments a case is run with, after the bridge's own.
 -- The bench entry measures one case, writes its record as JSON on standard
 -- output, and writes the record file it always writes nowhere.
@@ -399,7 +417,22 @@ local NUMERIC = {
     errorsruntime = "catalog-errors-runtime",
     tablespackedsemantics = "catalog-tables-packed-semantics",
     iofiles = "catalog-io-files",
-    iostandard = "catalog-io-standard"
+    iostandard = "catalog-io-standard",
+    processexecute = "catalog-process-execute",
+    processpopen = "catalog-process-popen"
+}
+-- Cases whose program ends through os.exit with this status, publishing no
+-- result: their bridge runs are checked for the status and what they
+-- printed, and their twins against reference Lua the same way; the ABI
+-- guard, which runs the entry inside a test, is not run.
+local EXITS = {processexit = 3}
+local EXITTWINS = {processexit = "catalog-process-exit"}
+-- The twins that run commands: the reference interpreter they run under is
+-- built with LUA_USE_POSIX (see `posixreference`).
+local POSIXTWINS = {
+    ["catalog-process-execute"] = true,
+    ["catalog-process-popen"] = true,
+    ["catalog-process-exit"] = true
 }
 local FIXTURES = {
     "catalog-boolean",
@@ -721,7 +754,12 @@ local function stage()
             "catalog-tasks-basic",
             "catalog-tasks-cancel",
             "catalog-tasks-scopes",
-            "catalog-tasks-reactor"
+            "catalog-tasks-reactor",
+            "catalog-process-execute",
+            "catalog-process-popen",
+            "catalog-process-handle",
+            "catalog-process-exit",
+            "catalog-process-layer"
         }) do
             write(
                 base .. "/source/nupp/core/" .. fixture:gsub("-", "") .. ".nupp",
@@ -746,9 +784,41 @@ local function stage()
     end
 end
 
+-- The reference interpreter `lua` names, rebuilt from its own sources with
+-- LUA_USE_POSIX (`make posix`) under OUT, once: the oracle's is built
+-- generic, where popen raises and os.execute answers raw wait statuses.
+local posixbuilt = {}
+local function posixreference(lua)
+    if posixbuilt[lua] then
+        return posixbuilt[lua]
+    end
+    local source = assert(lua:match("^(.*)/src/lua$"), "reference Lua is not a source tree's src/lua: " .. lua)
+    local tree = OUT .. "/lua-posix"
+    local built = tree .. "/src/lua"
+    local version = OUT .. "/lua-posix.source"
+    if read(version) ~= source or not read(built) then
+        local status, output = shell(
+            ("rm -rf %s && cp -R %s %s && cd %s/src && make clean > /dev/null && make posix"):format(
+                quote(tree),
+                quote(source),
+                quote(tree),
+                quote(tree)
+            )
+        )
+        assert(status == 0, "POSIX reference Lua build failed: " .. output)
+        write(version, source)
+    end
+    posixbuilt[lua] = built
+
+    return built
+end
+
 -- Reference Lua 5.5 results for the numeric fixtures, as NaN-boxed words. A
 -- sibling .lua file is a hand-written twin for fixtures Lua cannot parse.
 local function oracle(lua, fixture)
+    if POSIXTWINS[fixture] then
+        lua = posixreference(lua)
+    end
     local twin = read(TESTS .. "/" .. fixture .. ".lua")
     local source = twin
     if not source then
@@ -1038,6 +1108,14 @@ local function main()
                 check(observed == expected, ("oracle %s: %s"):format(name, tostring(observed)))
             end
         end
+        -- The twins that end through os.exit: their status and output.
+        for name, fixture in pairs(EXITTWINS) do
+            local status, printed = shell(
+                GUEST_ENV .. quote(posixreference(lua)) .. " " .. quote(TESTS .. "/" .. fixture .. ".lua")
+            )
+            check(status == EXITS[name], ("oracle %s status %s"):format(name, tostring(status)))
+            check(printedAs(name, printed), "oracle " .. name .. " printed output")
+        end
     end
     -- Library names and texts share one id space in guesttexts: an id two
     -- of them claim prints the one in place of the other.
@@ -1175,6 +1253,36 @@ local function main()
             if STATUS[name] then
                 refuses(label, bundle, empty)
                 guarded(label, bundle, empty, highWater, nil, STATUS[name])
+            elseif EXITS[name] then
+                -- It ends through os.exit: its status and what it printed,
+                -- in each collection mode, and no result published.
+                local runs = {{"", empty}}
+                if UNITS and STRESS[name] then
+                    local stress = OUT .. "/" .. label .. "-stress.bin"
+                    write(stress, u64(-1) .. u64(0) .. u64(1))
+                    local stepped = OUT .. "/" .. label .. "-interleaved.bin"
+                    write(stepped, u64(-1) .. u64(0) .. u64(2))
+                    runs[#runs + 1] = {" stress", stress}
+                    runs[#runs + 1] = {" interleaved", stepped}
+                end
+                for _, run in ipairs(runs) do
+                    local output = OUT .. "/" .. label .. run[1]:gsub(" ", "-") .. ".out"
+                    write(output, sentinel)
+                    defer(
+                        "bridge exit",
+                        (SETUP[name] or "") .. GUEST_ENV .. ("%s %s %s %s"):format(
+                            quote(bridge),
+                            quote(bundle),
+                            quote(run[2]),
+                            quote(output)
+                        ),
+                        function(status, printed)
+                            check(status == EXITS[name], ("%s%s exit status %s"):format(label, run[1], tostring(status)))
+                            check(printedAs(name, printed), label .. run[1] .. " printed output")
+                            check(read(output) == sentinel, label .. run[1] .. " published nothing")
+                        end
+                    )
+                end
             else
                 local expected = OUT .. "/" .. label .. ".expected"
                 write(expected, u64(expectedWord))

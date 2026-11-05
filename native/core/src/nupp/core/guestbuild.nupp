@@ -198,6 +198,18 @@ local CASES: {[string]: {
     },
     -- Tasks reading pipes through the reactor the scheduler waits in.
     tasksreactor = {fixture = "catalog-tasks-reactor", version = 8, follow = true},
+    -- Processes: Lua's os.execute, io.popen and os.exit, io.popen's process
+    -- handle, and the process layer under them, scheduled and not.
+    processexecute = {fixture = "catalog-process-execute", version = 8},
+    processpopen = {fixture = "catalog-process-popen", version = 8},
+    processhandle = {fixture = "catalog-process-handle", version = 8},
+    processexit = {fixture = "catalog-process-exit", version = 8},
+    processlayer = {
+        fixture = "catalog-process-layer",
+        version = 8,
+        modules = {"catalog-reactor-driver"},
+        follow = true
+    },
     -- The bench harness's own entry: the bench/vm workloads under debug.bench.
     benchworkloads = {
         fixture = "bench/vm/workloads.bench",
@@ -441,6 +453,41 @@ local function librarypath(root: string, name: string): string?
     return nil
 end
 
+-- The `os` functions the core calls itself, which need no library carried.
+local COREOS: {[string]: boolean} = {getenv = true, monotonic = true}
+
+-- Whether an unchecked tree may read Lua's `os` library itself:
+-- `os.execute`, `os.exit` or `os` as a value, beyond the calls the core
+-- makes itself. A builder reads it to carry `nupp.runtime.luaos`.
+local function readsos(root: any): boolean
+    local found = false
+    local walk: function(any): nil
+    walk = function(node: any): nil
+        if found or type(node) ~= "table" then
+            return
+        end
+        if node.kind == "dotIndex"
+            and node.obj
+            and node.obj.kind == "name"
+            and node.obj.token
+            and node.obj.token.text == "os"
+        then
+            found = node.name == nil or not COREOS[node.name.text]
+            return
+        end
+        if node.kind == "name" and node.token and node.token.text == "os" then
+            found = true
+            return
+        end
+        for _, child in ipairs(node) do
+            walk(child)
+        end
+    end
+    walk(root)
+
+    return found
+end
+
 -- The modules a checked tree loads: its requires, its qualified paths, and
 -- the names its source says it requires dynamically.
 local function requiredmodules(root: any, source: string): {string}
@@ -556,18 +603,29 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         if takes then
             table.insert(names, #names, root .. "/src/nupp/runtime/libraryvalues")
         end
-        -- One that reads Lua's `io` carries the core's, over its file layer
-        -- and the reactor beneath it.
-        local usesio = false
+        -- One that reads Lua's `io` or `os` carries the core's, over its
+        -- process and file layers and the reactor beneath them.
+        local usesio, usesos = false, false
         for _, name in ipairs(names) do
-            usesio = usesio or graph.mayUseIo(parser.parse(read(modulePath(root, name)), modulePath(root, name)).root)
+            local tree = parser.parse(read(modulePath(root, name)), modulePath(root, name)).root
+            usesio = usesio or graph.mayUseIo(tree)
+            usesos = usesos or readsos(tree)
         end
-        if usesio then
+        if usesio or usesos then
             -- Named as following a require names them, so a program that
             -- also requires one carries it once.
             table.insert(names, #names, "src/nupp/runtime/reactor")
             table.insert(names, #names, "src/nupp/runtime/files")
+            table.insert(names, #names, "src/nupp/runtime/processes")
+            table.insert(names, #names, "src/nupp/runtime/luaargs")
+        end
+        if usesio then
+            table.insert(names, #names, "src/nupp/runtime/luastreams")
+            table.insert(names, #names, "src/nupp/runtime/luaprocess")
             table.insert(names, #names, "src/nupp/runtime/luaio")
+        end
+        if usesos then
+            table.insert(names, #names, "src/nupp/runtime/luaos")
         end
         -- A program using the task surface carries the scheduler.
         local tasks = false
@@ -577,8 +635,8 @@ local function compileProgram(caseName: string, fixture: string, version: intege
         end
         if tasks then
             -- The scheduler waits in the reactor, which a program reading
-            -- `io` carries already.
-            if not usesio then
+            -- `io` or `os` carries already.
+            if not (usesio or usesos) then
                 table.insert(names, #names, "src/nupp/runtime/reactor")
             end
             table.insert(names, #names, root .. "/src/nupp/runtime/scheduler")
@@ -668,11 +726,17 @@ local function compileProgram(caseName: string, fixture: string, version: intege
                 carried[values] = true
                 queue[#queue + 1] = values
             end
-            -- And it may read Lua's `io`, which the core carries as a module.
+            -- And it may read Lua's `io` or `os`, which the core carries as
+            -- modules.
             local luaio = "src/nupp/runtime/luaio"
             if not carried[luaio] and graph.mayUseIo(parser.parse(source, path).root) then
                 carried[luaio] = true
                 queue[#queue + 1] = luaio
+            end
+            local luaos = "src/nupp/runtime/luaos"
+            if not carried[luaos] and readsos(parser.parse(source, path).root) then
+                carried[luaos] = true
+                queue[#queue + 1] = luaos
             end
         end
     end

@@ -1,0 +1,130 @@
+module nupp.core.catalogprocesspopen
+
+-- Lua's io.popen on the core, as reference Lua 5.5 answers it: reading a
+-- child's output in Lua's formats, writing its input, close answering as
+-- os.execute does, the wrong direction and seek failing as C's stdio does,
+-- output far past a pipe's size, the mode error, and many pipes opened and
+-- closed in turn under a small descriptor limit. Each check is a bit of the
+-- score. Files go under NUPP_GUEST_TEMP.
+local score = 0
+local bit = 1
+local base = (os.getenv("NUPP_GUEST_TEMP") or "/tmp") .. "/popen-" .. tostring(math.random(1, 1 << 40))
+
+local function check(ok: boolean): nil
+    if ok then
+        score = score | bit
+    end
+    bit = bit << 1
+end
+
+local function ends(text: any, suffix: string): boolean
+    return type(text) == "string" and string.sub(text as string, -#suffix) == suffix
+end
+
+-- io.popen through its value: its handles are plain values here, as Lua's
+-- files are, rather than owners.
+local popen: any = io.popen
+
+-- Reading: lines, a number, the rest, and close's results.
+do
+    local f = assert(popen("printf 'alpha\\nbeta\\n42 tail'"))
+    check(io.type(f) == "file")
+    check(f:read("l") == "alpha" and f:read("L") == "beta\n")
+    check(f:read("n") == 42 and f:read("a") == " tail" and f:read("a") == "")
+    check(f:read("l") == nil)
+    local ok, how, code = f:close()
+    check(ok == true and how == "exit" and code == 0)
+    check(io.type(f) == "closed file" and tostring(f) == "file (closed)")
+    local closedok, closedmessage = pcall(function(): any
+        return f:read("a")
+    end)
+    check(not closedok and ends(closedmessage, "attempt to use a closed file"))
+end
+
+-- An exit's status and a signal's number from close, and io.close.
+do
+    local f = assert(popen("printf x; exit 5"))
+    check(f:read("a") == "x")
+    local ok, how, code = f:close()
+    check(ok == nil and how == "exit" and code == 5)
+    local g = assert(popen("kill -TERM $$"))
+    local signalled, kind, number = g:close()
+    check(signalled == nil and kind == "signal" and number == 15)
+    local h = assert(popen("exit 4"))
+    local closed, why, status = io.close(h)
+    check(closed == nil and why == "exit" and status == 4)
+end
+
+-- Lines in a loop.
+do
+    local f = assert(popen("printf 'a\\nb\\nc\\n'"))
+    local seen: {string} = {}
+    for line in f:lines() do
+        seen[#seen + 1] = line as string
+    end
+    check(table.concat(seen, ",") == "a,b,c")
+    check(f:close() == true)
+end
+
+-- Writing: the child's input, ended when the pipe closes.
+do
+    local f = assert(popen("cat > " .. base .. "-written", "w"))
+    check(f:write("hello", " ", 7, "\n") == f)
+    check(f:write("more\n") == f and f:flush() == true)
+    check(f:close() == true)
+    local r = assert(io.open(base .. "-written", "r"))
+    check(r:read("a") == "hello 7\nmore\n")
+    r:close()
+end
+
+-- The direction a popen file does not have fails as C's stdio does, and a
+-- pipe does not seek.
+do
+    local w = assert(popen("cat > /dev/null", "w"))
+    local nothing, message, code = w:read("a")
+    check(nothing == nil and message == "Bad file descriptor" and code == 9)
+    check(w:close() == true)
+    local r = assert(popen("printf x"))
+    local refused, reason, number = r:write("y")
+    check(refused == nil and reason == "Bad file descriptor" and number == 9)
+    local unmoved, why, errno = r:seek()
+    check(unmoved == nil and why == "Illegal seek" and errno == 29)
+    check(r:read("a") == "x" and r:close() == true)
+end
+
+-- Output far larger than a pipe holds, read to its end; and as much input,
+-- which the child takes as it is written.
+do
+    local f = assert(popen("head -c 1000000 /dev/zero | tr '\\000' x"))
+    local text = f:read("a")
+    check(#text == 1000000 and text == string.rep("x", 1000000))
+    check(f:close() == true)
+    local big = string.rep("0123456789", 100000)
+    local w = assert(popen("cat > " .. base .. "-big", "w"))
+    w:write(big)
+    check(w:close() == true)
+    local r = assert(io.open(base .. "-big", "r"))
+    check(r:read("a") == big)
+    r:close()
+    check(os.execute("rm " .. base .. "-big " .. base .. "-written") == true)
+end
+
+-- The mode must be "r" or "w".
+do
+    local ok, message = pcall(popen, "true", "rw")
+    check(not ok and ends(message, "(invalid mode)"))
+end
+
+-- Many pipes in turn, each closed: none is left open to exhaust the
+-- descriptors the case runs with.
+do
+    local total = 0
+    for index = 1, 60 do
+        local f = assert(popen("printf " .. tostring(index)))
+        total = total + (tonumber(f:read("a")) as integer)
+        f:close()
+    end
+    check(total == 1830)
+end
+
+export = score

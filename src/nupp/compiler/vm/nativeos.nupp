@@ -34,7 +34,14 @@ local definitions = {
     poolTake = {slot = 24, params = {}, result = "int64", cResult = "int64"},
     poolFinish = {slot = 25, params = {"uint64", "voidptr", "uint64"}, result = "int64", cResult = "int64"},
     poolCancel = {slot = 26, params = {"uint64"}, result = "int64", cResult = "int64"},
-    sleepNanos = {slot = 27, params = {"uint64"}, result = "uint64", cResult = "uint64"}
+    sleepNanos = {slot = 27, params = {"uint64"}, result = "uint64", cResult = "uint64"},
+    processPipe = {slot = 28, params = {"uint64"}, result = "int64", cResult = "int64"},
+    processSpawn = {slot = 29, params = {"voidptr", "uint64", "uint64"}, result = "int64", cResult = "int64"},
+    processWatch = {slot = 30, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
+    processUnwatch = {slot = 31, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
+    processReap = {slot = 32, params = {"uint64"}, result = "int64", cResult = "int64"},
+    processKill = {slot = 33, params = {"uint64", "uint64"}, result = "int64", cResult = "int64"},
+    processExit = {slot = 34, params = {"uint64"}, result = "int64", cResult = "int64"}
 }
 
 local function need(value: any, message: string): any

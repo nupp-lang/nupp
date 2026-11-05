@@ -196,8 +196,8 @@ mod tests {
         let mut tickets = Vec::new();
         let poller = crate::poll::poll_open();
         while tickets.len() < want {
-            assert_eq!(crate::poll::poll_arm(poller, awake, 1), 0);
-            assert_eq!(crate::poll::poll_wait(poller, u64::MAX) >> 4, awake);
+            assert_eq!(crate::poll::poll_arm(poller, awake, crate::poll::READABLE), 0);
+            assert_eq!(crate::poll::poll_wait(poller, u64::MAX) >> crate::poll::EVENT_BITS, awake);
             let mut drain = [0u8; 64];
             while (unsafe { crate::files::file_read(awake, drain.as_mut_ptr() as u64, 64) } as i64) > 0 {}
             loop {
