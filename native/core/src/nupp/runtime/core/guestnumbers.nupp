@@ -11,11 +11,7 @@ const strings = require("nupp.runtime.core.corestrings")
 const guestscope = require("nupp.runtime.core.guestscope")
 const guestlib = require("nupp.runtime.core.guestlib")
 const texts = require("nupp.runtime.core.guesttexts")
-
--- tonumber(s, base).
-export const LIB_TONUMBER_BASE: uint64 = 106ULL
--- A numeric for's limit whose type is known only at run time.
-export const LIB_FOR_LIMIT: uint64 = 113ULL
+const librarytexts = require("nupp.runtime.core.librarytexts")
 
 -- A numeric for's limit as a number: a number as it is, a numeral string
 -- converted, as Lua's forlimit does; anything else raises as Lua 5.5 does.
@@ -56,14 +52,14 @@ export function tonumberbase(ctx: voidptr, value: uint64, base: uint64): uint64
     if base == values.NIL then
         return guestlib.tonumber(ctx, value)
     end
-    guestscope.nameLibrary(ctx, texts.NAME_TONUMBER)
+    guestscope.nameLibrary(ctx, librarytexts.NAME_TONUMBER)
     local radix = native.word(guestlib.integerArgument(ctx, base, 0, 2ULL))
     local s = strings.header(value)
     if s == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_STRING, 0ULL, value)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, value)
     end
     if radix < 2ULL or radix > 36ULL then
-        texts.argumentError(ctx, 2ULL, 0ULL, texts.TEXT_BASE_RANGE, base)
+        texts.argumentError(ctx, 2ULL, 0ULL, librarytexts.TEXT_BASE_RANGE, base)
     end
     @unsafe do
         local p = strings.bytes(s)

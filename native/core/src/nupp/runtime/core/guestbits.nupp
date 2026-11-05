@@ -10,13 +10,7 @@ const context = require("nupp.runtime.core.context")
 const ints = require("nupp.runtime.core.coreintegers")
 const guestscope = require("nupp.runtime.core.guestscope")
 const texts = require("nupp.runtime.core.guesttexts")
-
-export const LIB_BAND: uint64 = 107ULL
-export const LIB_BOR: uint64 = 108ULL
-export const LIB_BXOR: uint64 = 109ULL
-export const LIB_SHL: uint64 = 110ULL
-export const LIB_SHR: uint64 = 111ULL
-export const LIB_BNOT: uint64 = 112ULL
+const librarycalls = require("nupp.runtime.core.librarycalls")
 
 local function bitnumber(value: uint64): boolean
     return ints.isInteger(value) or value & values.QNAN ~= values.QNAN or value == values.QNAN
@@ -51,7 +45,7 @@ end
 export function bitcall(ctx: voidptr, id: uint64, a: uint64, b: uint64): uint64
     -- `~a` is Lua's operation on a and a.
     local right = b
-    if id == LIB_BNOT then
+    if id == librarycalls.BNOT then
         right = a
     end
     -- Two numbers fail for want of an integer value; otherwise the first
@@ -65,15 +59,15 @@ export function bitcall(ctx: voidptr, id: uint64, a: uint64, b: uint64): uint64
     local x = bitsof(a)
     local y = bitsof(right)
     local result: uint64 = 0ULL
-    if id == LIB_BAND then
+    if id == librarycalls.BAND then
         result = x & y
-    elseif id == LIB_BOR then
+    elseif id == librarycalls.BOR then
         result = x | y
-    elseif id == LIB_BXOR then
+    elseif id == librarycalls.BXOR then
         result = x ~ y
-    elseif id == LIB_SHL then
+    elseif id == librarycalls.SHL then
         result = shiftleft(x, native.index(y))
-    elseif id == LIB_SHR then
+    elseif id == librarycalls.SHR then
         result = shiftleft(x, 0 - native.index(y))
     else
         result = x ~ 0xffffffffffffffffULL

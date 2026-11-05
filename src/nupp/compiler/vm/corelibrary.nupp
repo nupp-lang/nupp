@@ -1,0 +1,592 @@
+module nupp.compiler.vm.corelibrary
+
+-- The core's library calls (the core-only LibCall instruction), defined once.
+-- The compiler reads this table to emit them, and nupp.core.librarycallsgen
+-- writes the runtime's constants from it
+-- (native/core/src/nupp/runtime/core/librarycalls.nupp), which the native
+-- units harness holds to exactly what the generator writes.
+--
+-- Each call has a name, the constant both sides spell it by, and an id no
+-- other call shares. A call may also say:
+--
+--   text     the coretexts name its errors give it ("bad argument #1 to
+--            'sub'"), when it reports one
+--   call     the library function it answers with one result, and `min` and
+--            `max`, the arguments that function admits, self included
+--   packs    the library function whose every result it answers, as a pack
+--            {[0] = n, ...} the compiler reads in order
+--   meta     whether its operands may call a metamethod in its place
+--
+-- A subject marked `range` keeps its ids consecutive, so the runtime tells
+-- its calls apart by `<SUBJECT>_FIRST` and `<SUBJECT>_LAST`.
+local corelibrary = {}
+
+type corelibrary.Call = {
+    name: string,
+    id: integer,
+    text: string?,
+    call: string?,
+    min: integer?,
+    max: integer?,
+    packs: string?,
+    meta: boolean?
+}
+
+type corelibrary.Subject = {name: string, range: boolean, calls: {corelibrary.Call}}
+
+-- Ids are below this, so the graph's immediate can carry the method-form flag
+-- above every id.
+corelibrary.LIMIT = 65536
+-- A call in method form (`s:rep(n)`): its errors count arguments from the one
+-- after self, as Lua's do. The graph's LibCall immediate adds this to the id;
+-- the instruction carries it as COUNT_METHOD_FORM in its argument-count byte.
+corelibrary.METHOD_FORM = 65536
+corelibrary.COUNT_METHOD_FORM = 128
+-- The most arguments a library call stages.
+corelibrary.ARGUMENTS = 4
+
+local subjects: {corelibrary.Subject} = {
+    {
+        name = "basic",
+        range = false,
+        calls = {
+            {name = "TOSTRING", id = 1, text = "NAME_TOSTRING", meta = true},
+            {name = "TONUMBER", id = 9, text = "NAME_TONUMBER"},
+            -- tonumber(s, base).
+            {name = "TONUMBER_BASE", id = 106, text = "NAME_TONUMBER"},
+            {name = "SELECT", id = 20, text = "NAME_SELECT"},
+            {name = "ERROR", id = 22},
+            -- After a call in a function that owns affine values: false when
+            -- an error landed there.
+            {name = "LANDED", id = 45},
+            -- The landed error raised again, as it was, once the owners are
+            -- destroyed.
+            {name = "RERAISE", id = 46},
+            -- A protected call's results in a pack its list takes all of
+            -- (`print(x, pcall(f))`): the count the call gives.
+            {name = "PROTECTED_COUNT", id = 121},
+            {name = "SETMETATABLE", id = 28, text = "NAME_SETMETATABLE"},
+            {name = "GETMETATABLE", id = 29, text = "NAME_GETMETATABLE"},
+            {name = "RAWGET", id = 30, text = "NAME_RAWGET"},
+            {name = "RAWSET", id = 31, text = "NAME_RAWSET"},
+            {name = "RAWEQUAL", id = 88, call = "rawequal", min = 2, max = 2},
+            {name = "TYPE", id = 32, text = "NAME_TYPE"},
+            -- print(...), its values in a pack.
+            {name = "PRINT", id = 55, text = "NAME_PRINT"},
+            {name = "ASSERT", id = 87},
+            -- next(t [, k]): its key alone, and its key and value as a pack;
+            -- and the step of a `for` over pairs.
+            {name = "NEXT", id = 89, text = "NAME_NEXT", call = "next", min = 1, max = 2},
+            {name = "NEXT_ALL", id = 90, text = "NAME_NEXT", packs = "next"},
+            {name = "NEXT_STEP", id = 8, text = "NAME_NEXT"},
+            {name = "COLLECTGARBAGE", id = 118, text = "NAME_COLLECTGARBAGE"}
+        }
+    },
+    {
+        name = "operators",
+        range = false,
+        calls = {
+            -- a .. b, a / b and a // b of operands not known to be numbers
+            -- or strings, a ^ b, and unary minus (each its metamethod first).
+            {name = "CONCAT2", id = 5, meta = true},
+            {name = "DIVIDE", id = 6, meta = true},
+            {name = "FLOOR_DIVIDE", id = 7, meta = true},
+            {name = "POW", id = 56, meta = true},
+            {name = "UNM", id = 33, meta = true},
+            -- A numeric for's limit whose type is known only at run time.
+            {name = "FOR_LIMIT", id = 113}
+        }
+    },
+    {
+        -- Lua's bitwise operators on 64-bit integers: &, |, ~, <<, >> and
+        -- unary ~.
+        name = "bits",
+        range = true,
+        calls = {
+            {name = "BAND", id = 107},
+            {name = "BOR", id = 108},
+            {name = "BXOR", id = 109},
+            {name = "SHL", id = 110},
+            {name = "SHR", id = 111},
+            {name = "BNOT", id = 112}
+        }
+    },
+    {
+        name = "strings",
+        range = false,
+        calls = {
+            {name = "STRING_FORMAT", id = 2, text = "NAME_FORMAT"},
+            -- string.format with more values than a library call carries: the
+            -- format and a pack of the values.
+            {name = "STRING_FORMAT_PACK", id = 54, text = "NAME_FORMAT"},
+            {name = "STRING_GMATCH_NEXT", id = 4, text = "NAME_GMATCH"},
+            {name = "STRING_SUB", id = 11, text = "NAME_SUB", call = "string.sub", min = 2, max = 3},
+            {name = "STRING_BYTE", id = 12, text = "NAME_BYTE", call = "string.byte", min = 1, max = 3},
+            {name = "STRING_BYTE_ALL", id = 25, text = "NAME_BYTE", packs = "string.byte"},
+            {name = "STRING_CHAR", id = 13, text = "NAME_CHAR", call = "string.char", min = 1, max = 1},
+            {name = "STRING_REP", id = 14, text = "NAME_REP", call = "string.rep", min = 2, max = 3},
+            {name = "STRING_UPPER", id = 15, text = "NAME_UPPER", call = "string.upper", min = 1, max = 1},
+            {name = "STRING_LOWER", id = 16, text = "NAME_LOWER", call = "string.lower", min = 1, max = 1},
+            {name = "STRING_LEN", id = 17, text = "NAME_LEN", call = "string.len", min = 1, max = 1},
+            {name = "STRING_REVERSE", id = 66, text = "NAME_REVERSE", call = "string.reverse", min = 1, max = 1},
+            {name = "STRING_FIND", id = 18, text = "NAME_FIND", call = "string.find", min = 2, max = 4},
+            {name = "STRING_FIND_ALL", id = 23, text = "NAME_FIND", packs = "string.find"},
+            {name = "STRING_MATCH", id = 19, text = "NAME_MATCH", call = "string.match", min = 2, max = 3},
+            {name = "STRING_MATCH_ALL", id = 24, text = "NAME_MATCH", packs = "string.match"},
+            {name = "STRING_GSUB", id = 26, text = "NAME_GSUB", call = "string.gsub", min = 3, max = 4},
+            {name = "STRING_GSUB_ALL", id = 27, text = "NAME_GSUB", packs = "string.gsub"},
+            -- string.gsub with a function replacement: its state, its step,
+            -- and the finished string alone or in a pack with the count.
+            {name = "STRING_GSUB_BEGIN", id = 50, text = "NAME_GSUB"},
+            {name = "STRING_GSUB_STEP", id = 51, text = "NAME_GSUB"},
+            {name = "STRING_GSUB_FINISH", id = 52, text = "NAME_GSUB"},
+            {name = "STRING_GSUB_FINISH_ALL", id = 53, text = "NAME_GSUB"}
+        }
+    },
+    {
+        name = "tables",
+        range = false,
+        calls = {
+            {name = "TABLE_CONCAT", id = 3, text = "NAME_CONCAT"},
+            {name = "TABLE_INSERT", id = 34, text = "NAME_INSERT", call = "table.insert", min = 2, max = 3},
+            {name = "TABLE_REMOVE", id = 35, text = "NAME_REMOVE", call = "table.remove", min = 1, max = 2},
+            {name = "TABLE_UNPACK", id = 36, text = "NAME_UNPACK", call = "table.unpack", min = 1, max = 3},
+            {name = "TABLE_UNPACK_ALL", id = 37, text = "NAME_UNPACK", packs = "table.unpack"},
+            -- table.move(a1, f, e, t), and with a destination a2 its
+            -- arguments packed.
+            {name = "TABLE_MOVE", id = 67, text = "NAME_MOVE", call = "table.move", min = 4, max = 5},
+            {name = "TABLE_MOVE_PACK", id = 68, text = "NAME_MOVE"},
+            -- table.sort(t) by `<`; with a comparator, its state and its step.
+            {name = "TABLE_SORT", id = 47, text = "NAME_SORT"},
+            {name = "TABLE_SORT_BEGIN", id = 48, text = "NAME_SORT"},
+            {name = "TABLE_SORT_STEP", id = 49, text = "NAME_SORT"},
+            -- table.freeze(t) and table.isfrozen(t), from Luau (runtime
+            -- Decision 16).
+            {name = "TABLE_FREEZE", id = 114, text = "NAME_FREEZE", call = "table.freeze", min = 1, max = 1},
+            {name = "TABLE_ISFROZEN", id = 115, text = "NAME_ISFROZEN", call = "table.isfrozen", min = 1, max = 1},
+            -- A table constructor for a checked `{T}` whose elements pack: the
+            -- fresh table, its array part packed as kind a (coretables), with
+            -- room for b. And storagecalls.packedkind(t): that kind, 0 once
+            -- the table is general (or for a value that is not a table).
+            {name = "TABLE_NEWARRAY", id = 116},
+            {name = "TABLE_PACKEDKIND", id = 122, call = "storagecalls.packedkind", min = 1, max = 1}
+        }
+    },
+    {
+        name = "math",
+        range = false,
+        calls = {
+            {name = "MATH_ABS", id = 38, text = "NAME_ABS", call = "math.abs", min = 1, max = 1},
+            {name = "MATH_CEIL", id = 39, text = "NAME_CEIL", call = "math.ceil", min = 1, max = 1},
+            {name = "MATH_MAX", id = 40, text = "NAME_MAX", call = "math.max", min = 1, max = 4},
+            {name = "MATH_MIN", id = 41, text = "NAME_MIN", call = "math.min", min = 1, max = 4},
+            {name = "MATH_TOINTEGER", id = 42, text = "NAME_TOINTEGER", call = "math.tointeger", min = 1, max = 1},
+            {name = "MATH_TYPE", id = 43, text = "NAME_TYPE", call = "math.type", min = 1, max = 1},
+            {name = "MATH_SQRT", id = 44, text = "NAME_SQRT", call = "math.sqrt", min = 1, max = 1},
+            -- The functions C's math library answers.
+            {name = "MATH_EXP", id = 57, text = "NAME_EXP", call = "math.exp", min = 1, max = 1},
+            {name = "MATH_LOG", id = 58, text = "NAME_LOG", call = "math.log", min = 1, max = 2},
+            {name = "MATH_SIN", id = 59, text = "NAME_SIN", call = "math.sin", min = 1, max = 1},
+            {name = "MATH_COS", id = 60, text = "NAME_COS", call = "math.cos", min = 1, max = 1},
+            {name = "MATH_TAN", id = 61, text = "NAME_TAN", call = "math.tan", min = 1, max = 1},
+            {name = "MATH_ASIN", id = 62, text = "NAME_ASIN", call = "math.asin", min = 1, max = 1},
+            {name = "MATH_ACOS", id = 63, text = "NAME_ACOS", call = "math.acos", min = 1, max = 1},
+            {name = "MATH_ATAN", id = 64, text = "NAME_ATAN", call = "math.atan", min = 1, max = 2},
+            {name = "MATH_FMOD", id = 65, text = "NAME_FMOD", call = "math.fmod", min = 2, max = 2},
+            -- math.random and math.randomseed with arguments, and with none.
+            {name = "MATH_RANDOM", id = 69, text = "NAME_RANDOM"},
+            {name = "MATH_RANDOMSEED", id = 70, text = "NAME_RANDOMSEED"},
+            {name = "MATH_RANDOM_FLOAT", id = 71, text = "NAME_RANDOM"},
+            {name = "MATH_RANDOMSEED_HOST", id = 72, text = "NAME_RANDOMSEED"}
+        }
+    },
+    {
+        -- math.f32.narrow(x): x rounded to the nearest binary32 value; and
+        -- math.u32.wrap(x) and math.i32.wrap(x): x's low 32 bits, unsigned
+        -- and signed.
+        name = "widths",
+        range = true,
+        calls = {
+            {name = "MATH_F32_NARROW", id = 91, call = "math.f32.narrow", min = 1, max = 1},
+            {name = "MATH_U32_WRAP", id = 92, call = "math.u32.wrap", min = 1, max = 1},
+            {name = "MATH_I32_WRAP", id = 93, call = "math.i32.wrap", min = 1, max = 1}
+        }
+    },
+    {
+        name = "packs",
+        range = false,
+        calls = {
+            -- `...` as a pack of its own.
+            {name = "PACK_COPY", id = 21},
+            -- A named vararg: the pack of extra arguments as a table with `n`.
+            {name = "PACK_NAMED", id = 73},
+            -- A table constructor's tail: a pack's values stored from a
+            -- position.
+            {name = "PACK_APPEND", id = 74}
+        }
+    },
+    {
+        -- The storage calls: allocbytes(count) and allocate(kind, count).
+        name = "storage",
+        range = false,
+        calls = {
+            {name = "STORAGE_ALLOCBYTES", id = 94, call = "storagecalls.allocbytes", min = 1, max = 1},
+            {name = "STORAGE_ALLOCATE", id = 95, call = "storagecalls.allocate", min = 2, max = 2}
+        }
+    },
+    {
+        -- view(storage, kind, offset [, count]), copy(target, source, count),
+        -- fill(target, count, byte), text(storage, count), fromstring(s),
+        -- elements(storage), elementkind(storage), and cast(storage, kind):
+        -- view(storage, kind, 0).
+        name = "views",
+        range = true,
+        calls = {
+            {name = "STORAGE_VIEW", id = 96, call = "storagecalls.view", min = 3, max = 4},
+            {name = "STORAGE_COPY", id = 97, call = "storagecalls.copy", min = 3, max = 3},
+            {name = "STORAGE_FILL", id = 98, call = "storagecalls.fill", min = 3, max = 3},
+            {name = "STORAGE_TEXT", id = 99, call = "storagecalls.text", min = 2, max = 2},
+            {name = "STORAGE_FROMSTRING", id = 100, call = "storagecalls.fromstring", min = 1, max = 1},
+            {name = "STORAGE_ELEMENTS", id = 101, call = "storagecalls.elements", min = 1, max = 1},
+            {name = "STORAGE_ELEMENTKIND", id = 102, call = "storagecalls.elementkind", min = 1, max = 1},
+            {name = "STORAGE_CAST", id = 103, call = "storagecalls.cast", min = 2, max = 2}
+        }
+    },
+    {
+        -- A cleanup function set under its key, and read back by it.
+        name = "cleanups",
+        range = false,
+        calls = {
+            {name = "CLEANUP_SET", id = 104, call = "hostcalls.setcleanup", min = 2, max = 2},
+            {name = "CLEANUP_GET", id = 105}
+        }
+    },
+    {
+        -- The coroutine library. Resume and yield switch threads, which the
+        -- LibCall handler does itself; the rest are threads.call's.
+        name = "coroutines",
+        range = true,
+        calls = {
+            {name = "COROUTINE_CREATE", id = 75, text = "NAME_CREATE", call = "coroutine.create", min = 1, max = 1},
+            {name = "COROUTINE_RESUME", id = 76, text = "NAME_RESUME", packs = "coroutine.resume"},
+            {name = "COROUTINE_YIELD", id = 77, text = "NAME_YIELD", packs = "coroutine.yield"},
+            {name = "COROUTINE_STATUS", id = 78, text = "NAME_STATUS", call = "coroutine.status", min = 1, max = 1},
+            {name = "COROUTINE_WRAP", id = 79, text = "NAME_WRAP", call = "coroutine.wrap", min = 1, max = 1},
+            {name = "COROUTINE_RUNNING", id = 80, text = "TEXT_RUNNING", packs = "coroutine.running"},
+            {name = "COROUTINE_ISYIELDABLE", id = 81, text = "NAME_ISYIELDABLE"},
+            {name = "COROUTINE_CLOSE", id = 82, text = "NAME_CLOSE", packs = "coroutine.close"}
+        }
+    },
+    {
+        name = "modules",
+        range = false,
+        calls = {
+            -- The call a module with named exports makes as it starts: its
+            -- export table is published as its value before its body runs,
+            -- so a module it requires that requires it back sees the exports
+            -- made so far.
+            {name = "MODULE_PUBLISH", id = 84},
+            -- `require` of a name computed at run time, and the entry's
+            -- registration of the image's modules by name that it looks the
+            -- name up in.
+            {name = "MODULE_REQUIRE", id = 85, text = "NAME_REQUIRE"},
+            {name = "MODULE_NAMES", id = 86}
+        }
+    },
+    {
+        -- The host's services: os.getenv, os.monotonic(), the program's
+        -- arguments (hostcalls.arguments, which `arg` holds), and the file
+        -- calls (filecalls): the operation first, then its arguments.
+        name = "host",
+        range = false,
+        calls = {
+            {name = "OS_GETENV", id = 10, text = "NAME_GETENV"},
+            {name = "OS_MONOTONIC", id = 117},
+            {name = "HOST_ARGUMENTS", id = 119},
+            {name = "HOST_FILES", id = 120}
+        }
+    }
+}
+
+-- The file calls (nupp.runtime.filecalls): the operation HOST_FILES takes
+-- first, and how many arguments follow it.
+type corelibrary.FileOperation = {name: string, library: string, operation: integer, arguments: integer}
+
+local fileoperations: {corelibrary.FileOperation} = {
+    {name = "FILE_OPEN", library = "filecalls.open", operation = 1, arguments = 2},
+    {name = "FILE_READ", library = "filecalls.read", operation = 2, arguments = 2},
+    {name = "FILE_WRITE", library = "filecalls.write", operation = 3, arguments = 3},
+    {name = "FILE_SEEK", library = "filecalls.seek", operation = 4, arguments = 3},
+    {name = "FILE_CLOSE", library = "filecalls.close", operation = 5, arguments = 1},
+    {name = "FILE_REASON", library = "filecalls.reason", operation = 6, arguments = 1}
+}
+
+-- The state tables some calls keep between steps, which the compiler reads
+-- and writes too: each field's key, from 1, and the width the runtime reads
+-- the key at.
+type corelibrary.Layout = {name: string, kind: string, fields: {string}}
+
+local layouts: {corelibrary.Layout} = {
+    -- `for ... in s:gmatch(p)`: the subject, the pattern, and the byte offsets
+    -- the next search starts at and the last match ended at; the match's
+    -- captures (or the whole match) from CAPTURES on.
+    {name = "GMATCH", kind = "uint64", fields = {"SUBJECT", "PATTERN", "SOURCE", "LAST", "CAPTURES"}},
+    -- `for k, v in pairs(t)`: the table, the key the step goes on after, and
+    -- the pair it leaves.
+    {name = "PAIRS", kind = "uint64", fields = {"TABLE", "AFTER", "KEY", "VALUE"}},
+    -- table.sort with a comparator: the list, the comparator, the two values
+    -- it is asked about and its answer, then the merge sort's own fields.
+    {
+        name = "SORT",
+        kind = "int64",
+        fields = {
+            "LIST",
+            "LESS",
+            "A",
+            "B",
+            "ANSWER",
+            "N",
+            "WIDTH",
+            "LO",
+            "MID",
+            "HI",
+            "I",
+            "J",
+            "K",
+            "BUFFER",
+            "PENDING"
+        }
+    },
+    -- string.gsub with a function replacement: the subject, the pattern and
+    -- the function, the step's own fields, the captures the function is
+    -- called with and its answer.
+    {
+        name = "GSUB",
+        kind = "int64",
+        fields = {
+            "SUBJECT",
+            "PATTERN",
+            "FUNCTION",
+            "SRC",
+            "LAST",
+            "N",
+            "LIMIT",
+            "PIECES",
+            "CAPTURES",
+            "ANSWER",
+            "AT",
+            "END",
+            "PENDING",
+            "ANCHOR",
+            "COPY",
+            "COUNT"
+        }
+    }
+}
+
+-- The element kinds of storage (corestorage) and of a packed table's array
+-- part (coretables), by the checked element type: the runtime's constant
+-- names each, which the guest artifact producer holds to this table.
+type corelibrary.ElementKind = {name: string, module: string, element: string, kind: integer}
+
+local elementkinds: {corelibrary.ElementKind} = {
+    {name = "UINT8", module = "corestorage", element = "uint8", kind = 1},
+    {name = "INT8", module = "corestorage", element = "int8", kind = 2},
+    {name = "UINT16", module = "corestorage", element = "uint16", kind = 3},
+    {name = "INT16", module = "corestorage", element = "int16", kind = 4},
+    {name = "UINT32", module = "corestorage", element = "uint32", kind = 5},
+    {name = "INT32", module = "corestorage", element = "int32", kind = 6},
+    {name = "UINT64", module = "corestorage", element = "uint64", kind = 7},
+    {name = "INT64", module = "corestorage", element = "int64", kind = 8},
+    {name = "FLOAT32", module = "corestorage", element = "float32", kind = 9},
+    {name = "FLOAT64", module = "corestorage", element = "float64", kind = 10},
+    -- Booleans pack in a table's array part only.
+    {name = "PACKED_BOOLEAN", module = "coretables", element = "boolean", kind = 11}
+}
+
+local ids: {[string]: integer} = {}
+local single: {[string]: corelibrary.Call} = {}
+local packed: {[string]: integer} = {}
+local meta: {[integer]: boolean} = {}
+local files: {[string]: corelibrary.FileOperation} = {}
+
+-- Every id is one call's, and every name one id's; a range subject's ids are
+-- consecutive.
+do
+    local taken: {[integer]: string} = {}
+    for _, subject in ipairs(subjects) do
+        local low: integer, high: integer = corelibrary.LIMIT, 0
+        for _, entry in ipairs(subject.calls) do
+            assert(entry.id >= 1 and entry.id < corelibrary.LIMIT, "core library id out of range: " .. entry.name)
+            assert(taken[entry.id] == nil, "core library id " .. entry.id .. " taken twice: " .. entry.name)
+            assert(ids[entry.name] == nil, "core library call named twice: " .. entry.name)
+            taken[entry.id] = entry.name
+            ids[entry.name] = entry.id
+            low = math.min(low, entry.id) as integer
+            high = math.max(high, entry.id) as integer
+            if entry.call then
+                assert(single[entry.call] == nil, "core library function answered twice: " .. entry.call)
+                assert(entry.min and entry.max and entry.min >= 1 and entry.max >= entry.min, "core library arity: " .. entry.name)
+                single[entry.call] = entry
+            end
+            if entry.packs then
+                assert(packed[entry.packs] == nil, "core library pack answered twice: " .. entry.packs)
+                packed[entry.packs] = entry.id
+            end
+            if entry.meta then
+                meta[entry.id] = true
+            end
+        end
+        assert(not subject.range or high - low + 1 == #subject.calls, "core library range has a gap: " .. subject.name)
+    end
+    local operations: {[integer]: boolean} = {}
+    for _, operation in ipairs(fileoperations) do
+        assert(not operations[operation.operation], "file operation taken twice: " .. operation.name)
+        operations[operation.operation] = true
+        files[operation.library] = operation
+    end
+end
+
+-- The key of field `field` in state layout `layout`.
+function corelibrary.key(layout: string, field: string): integer
+    for _, row in ipairs(layouts) do
+        if row.name == layout then
+            for index, name in ipairs(row.fields) do
+                if name == field then
+                    return index
+                end
+            end
+        end
+    end
+    error("no core library state field " .. layout .. "." .. field)
+end
+
+-- A copy of the state layouts, for the generator.
+function corelibrary.layouts(): {corelibrary.Layout}
+    local result = {}
+    for index, row in ipairs(layouts) do
+        local fields = {}
+        for at, name in ipairs(row.fields) do
+            fields[at] = name
+        end
+        result[index] = {name = row.name, kind = row.kind, fields = fields}
+    end
+
+    return result
+end
+
+-- The kind a packed array part of checked element type `element` takes, or
+-- nil when that type does not pack.
+function corelibrary.packedkind(element: string): integer?
+    for _, row in ipairs(elementkinds) do
+        if row.element == element then
+            return row.kind
+        end
+    end
+
+    return nil
+end
+
+-- A copy of the element kinds, for the producer's check.
+function corelibrary.elementkinds(): {corelibrary.ElementKind}
+    local result = {}
+    for index, row in ipairs(elementkinds) do
+        result[index] = {name = row.name, module = row.module, element = row.element, kind = row.kind}
+    end
+
+    return result
+end
+
+-- A call's id, by its name; an unknown name is an error.
+function corelibrary.id(name: string): integer
+    local id = ids[name]
+    assert(id ~= nil, "no core library call " .. name)
+
+    return id
+end
+
+-- The call answering library function `library` with one result, or nil.
+function corelibrary.single(library: string?): corelibrary.Call?
+    if library == nil then
+        return nil
+    end
+
+    return single[library]
+end
+
+-- The id of the call answering every result of `library` as a pack, or nil.
+function corelibrary.packed(library: string?): integer?
+    if library == nil then
+        return nil
+    end
+
+    return packed[library]
+end
+
+-- The file operation library function `library` stands for, or nil.
+function corelibrary.fileoperation(library: string?): corelibrary.FileOperation?
+    if library == nil then
+        return nil
+    end
+
+    return files[library]
+end
+
+-- Whether call `id`'s operands may call a metamethod in its place.
+function corelibrary.meta(id: integer): boolean
+    return meta[id] == true
+end
+
+-- The graph immediate of call `id`, in method form or not.
+function corelibrary.immediate(id: integer, method: boolean): integer
+    return method and id + corelibrary.METHOD_FORM or id
+end
+
+-- The id and the method form a graph immediate carries.
+function corelibrary.split(immediate: integer): (integer, boolean)
+    if immediate >= corelibrary.METHOD_FORM then
+        return immediate - corelibrary.METHOD_FORM, true
+    end
+
+    return immediate, false
+end
+
+-- A copy of the subjects, for the generator.
+function corelibrary.subjects(): {corelibrary.Subject}
+    local result = {}
+    for index, subject in ipairs(subjects) do
+        local calls = {}
+        for at, entry in ipairs(subject.calls) do
+            calls[at] = {
+                name = entry.name,
+                id = entry.id,
+                text = entry.text,
+                call = entry.call,
+                min = entry.min,
+                max = entry.max,
+                packs = entry.packs,
+                meta = entry.meta
+            }
+        end
+        result[index] = {name = subject.name, range = subject.range, calls = calls}
+    end
+
+    return result
+end
+
+-- A copy of the file operations, for the generator.
+function corelibrary.fileoperations(): {corelibrary.FileOperation}
+    local result = {}
+    for index, operation in ipairs(fileoperations) do
+        result[index] = {
+            name = operation.name,
+            library = operation.library,
+            operation = operation.operation,
+            arguments = operation.arguments
+        }
+    end
+
+    return result
+end
+
+export = corelibrary

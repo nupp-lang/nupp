@@ -2,6 +2,7 @@ module nupp.compiler.vm.taggedprofile
 
 local graph = require("nupp.compiler.vm.graph")
 local graphimage = require("nupp.compiler.vm.graphimage")
+local corelibrary = require("nupp.compiler.vm.corelibrary")
 local cst = require("nupp.compiler.syntax.cst")
 local lexer = require("nupp.compiler.syntax.lexer")
 local tagged = {booleanKind = "tagged"}
@@ -17,7 +18,7 @@ local function landed(ctx: any, node: any, result: any): any
         return result
     end
     local none = ctx.emit(node, "Nil", {}, "tagged")
-    local status = ctx.emit(node, "LibCall", {45, none}, "tagged")
+    local status = ctx.emit(node, "LibCall", {corelibrary.id("LANDED"), none}, "tagged")
     if type(result) == "table" then
         local held = {}
         for index, value in ipairs(result) do
@@ -119,80 +120,6 @@ function tagged.emit(ctx: any, node: any, op: string, args: any, kind: string?):
     return graph.emit(ctx.g, ctx.block, op, args, ctx.position(node))
 end
 
--- The string library calls guestlib implements: id and the argument counts
--- admitted, the string itself included.
-local stringLibrary: {[string]: {integer}} = {
-    ["string.sub"] = {11, 2, 3},
-    ["string.byte"] = {12, 1, 3},
-    ["string.char"] = {13, 1, 1},
-    ["string.rep"] = {14, 2, 3},
-    ["string.upper"] = {15, 1, 1},
-    ["string.lower"] = {16, 1, 1},
-    ["string.len"] = {17, 1, 1},
-    ["string.find"] = {18, 2, 4},
-    ["string.match"] = {19, 2, 3},
-    ["string.gsub"] = {26, 3, 4},
-    ["string.reverse"] = {66, 1, 1},
-    -- The math library calls guestlib implements.
-    ["math.abs"] = {38, 1, 1},
-    ["math.ceil"] = {39, 1, 1},
-    ["math.max"] = {40, 1, 4},
-    ["math.min"] = {41, 1, 4},
-    ["math.tointeger"] = {42, 1, 1},
-    ["math.type"] = {43, 1, 1},
-    ["math.sqrt"] = {44, 1, 1},
-    ["math.f32.narrow"] = {91, 1, 1},
-    ["math.u32.wrap"] = {92, 1, 1},
-    ["storagecalls.allocbytes"] = {94, 1, 1},
-    ["storagecalls.allocate"] = {95, 2, 2},
-    ["storagecalls.view"] = {96, 3, 4},
-    ["storagecalls.cast"] = {103, 2, 2},
-    ["storagecalls.copy"] = {97, 3, 3},
-    ["storagecalls.fill"] = {98, 3, 3},
-    ["storagecalls.text"] = {99, 2, 2},
-    ["storagecalls.fromstring"] = {100, 1, 1},
-    ["storagecalls.elements"] = {101, 1, 1},
-    ["storagecalls.elementkind"] = {102, 1, 1},
-    ["storagecalls.packedkind"] = {122, 1, 1},
-    ["hostcalls.setcleanup"] = {104, 2, 2},
-    ["math.i32.wrap"] = {93, 1, 1},
-    rawequal = {88, 2, 2},
-    next = {89, 1, 2},
-    ["math.exp"] = {57, 1, 1},
-    ["math.log"] = {58, 1, 2},
-    ["math.sin"] = {59, 1, 1},
-    ["math.cos"] = {60, 1, 1},
-    ["math.tan"] = {61, 1, 1},
-    ["math.asin"] = {62, 1, 1},
-    ["math.acos"] = {63, 1, 1},
-    ["math.atan"] = {64, 1, 2},
-    ["math.fmod"] = {65, 2, 2},
-    -- The table library calls guestlib implements, by the same shape.
-    ["table.insert"] = {34, 2, 3},
-    ["table.remove"] = {35, 1, 2},
-    ["table.unpack"] = {36, 1, 3},
-    ["table.move"] = {67, 4, 5},
-    ["table.freeze"] = {114, 1, 1},
-    ["table.isfrozen"] = {115, 1, 1},
-    -- The coroutine library calls answering one value.
-    ["coroutine.create"] = {75, 1, 1},
-    ["coroutine.status"] = {78, 1, 1},
-    ["coroutine.wrap"] = {79, 1, 1}
-}
-
--- The file calls (nupp.runtime.filecalls): the operation guestio.files
--- takes first, and the arguments after it.
-local fileoperations: {
-    [string]: {integer}
-} = {
-    ["filecalls.open"] = {1, 2},
-    ["filecalls.read"] = {2, 2},
-    ["filecalls.write"] = {3, 3},
-    ["filecalls.seek"] = {4, 3},
-    ["filecalls.close"] = {5, 1},
-    ["filecalls.reason"] = {6, 1}
-}
-
 -- What `type` answers for the values of a primitive type a test names.
 local typeNames: {
     [string]: string
@@ -208,42 +135,25 @@ local typeNames: {
     ["function"] = "function"
 }
 
+-- The core library call answering `library` with one result
+-- (corelibrary): its id and the argument counts admitted, self included.
 local function stringSpec(library: string?): {integer}?
-    if library == nil then
+    local call = corelibrary.single(library)
+    if call == nil then
         return nil
     end
 
-    return stringLibrary[library]
+    return {call.id, call.min as integer, call.max as integer}
 end
-
--- The string library calls with several results: the id of the form that
--- answers every result as a pack.
-local packLibrary: {
-    [string]: integer
-} = {
-    ["string.find"] = 23,
-    ["string.match"] = 24,
-    ["string.byte"] = 25,
-    ["string.gsub"] = 27,
-    ["table.unpack"] = 37,
-    next = 90,
-    ["coroutine.resume"] = 76,
-    ["coroutine.yield"] = 77,
-    ["coroutine.running"] = 80,
-    ["coroutine.close"] = 82
-}
 
 -- The coroutine calls answering a pack, which coroutinepack makes.
 local coroutinepacked: {
     [string]: boolean
 } = {["coroutine.resume"] = true, ["coroutine.yield"] = true, ["coroutine.running"] = true, ["coroutine.close"] = true}
 
+-- The core library call answering every result of `library` as a pack.
 local function packSpec(library: string?): integer?
-    if library == nil then
-        return nil
-    end
-
-    return packLibrary[library]
+    return corelibrary.packed(library)
 end
 
 local gsubWith: function(any, any, any, boolean): integer
@@ -262,18 +172,29 @@ end
 -- A core library call (guestlib): its arguments staged as values.
 local function libraryCall(ctx: any, node: any, id: integer, arguments: any): integer
     -- gsub with a function replacement calls it, so it is a loop.
-    if (id == 26 or id == 27) and graph.callbackArgument(node) ~= nil then
-        return gsubWith(ctx, node, arguments, id == 27)
+    if (id == corelibrary.id("STRING_GSUB") or id == corelibrary.id("STRING_GSUB_ALL"))
+        and graph.callbackArgument(node) ~= nil
+    then
+        return gsubWith(ctx, node, arguments, id == corelibrary.id("STRING_GSUB_ALL"))
     end
     -- string.format and table.move past four arguments, or spreading a
     -- `...` or a call's results last, take the rest packed.
     local last = arguments[#arguments]
-    if (id == 2 or id == 67)
-        and (#arguments > 4 or #arguments > 1 and (last.kind == "vararg" or graph.expandsResults(last)))
+    local format = id == corelibrary.id("STRING_FORMAT")
+    if (format or id == corelibrary.id("TABLE_MOVE"))
+        and (
+            #arguments > corelibrary.ARGUMENTS
+            or #arguments > 1 and (last.kind == "vararg" or graph.expandsResults(last))
+        )
     then
-        return packedCall(ctx, node, arguments, id == 2 and 54 or 68)
+        return packedCall(
+            ctx,
+            node,
+            arguments,
+            format and corelibrary.id("STRING_FORMAT_PACK") or corelibrary.id("TABLE_MOVE_PACK")
+        )
     end
-    need(#arguments >= 1 and #arguments <= 4, "core library calls take one to four arguments")
+    need(#arguments >= 1 and #arguments <= corelibrary.ARGUMENTS, "core library calls take one to four arguments")
     need(arguments[#arguments].kind ~= "vararg", "a library call cannot spread `...` yet")
     local kinds = {}
     for index = 1, #arguments do
@@ -283,9 +204,9 @@ local function libraryCall(ctx: any, node: any, id: integer, arguments: any): in
     if operands == nil then
         return nil as any
     end
-    -- A call in method form (`s:rep(n)`) sets the id's high bit, so its
-    -- errors count arguments from the one after self, as Lua's do.
-    table.insert(operands, 1, node.kind == "methodCall" and id + 128 or id)
+    -- A call in method form (`s:rep(n)`) says so, so its errors count
+    -- arguments from the one after self, as Lua's do.
+    table.insert(operands, 1, corelibrary.immediate(id, node.kind == "methodCall"))
 
     -- A function that owns affine values lands an error the library raises
     -- here as it lands one from a call.
@@ -436,24 +357,6 @@ local function typeKind(t: any): string
     return t and t.tag or "missing"
 end
 
--- The kinds of packed table array parts (coretables): corestorage's element
--- kinds by the checked element type, and booleans.
-local packedkinds: {
-    [string]: integer
-} = {
-    uint8 = 1,
-    int8 = 2,
-    uint16 = 3,
-    int16 = 4,
-    uint32 = 5,
-    int32 = 6,
-    uint64 = 7,
-    int64 = 8,
-    float32 = 9,
-    float64 = 10,
-    boolean = 11
-}
-
 -- The packed kind of the array a table constructor makes, by its checked
 -- type or, for one written empty, the type it is made for; nil when the
 -- type is not an array of a packable element (`{number}` holds two
@@ -470,7 +373,8 @@ local function packedkind(node: any): integer?
         t = t.tag == "literal" and t.base or t.inner
     end
 
-    return packedkinds[typeKind(t.elem)]
+    -- The kinds of packed table array parts (coretables, corelibrary).
+    return corelibrary.packedkind(typeKind(t.elem))
 end
 
 -- Whether a value of type `t` is an interface's: a table its fields are
@@ -549,15 +453,15 @@ local function binary(ctx: any, node: any, expected: string?, version: integer):
     -- calls (guestlib, guestbits).
     local library = version >= 8
         and ({
-            [".."] = 5,
-            ["/"] = 6,
-            ["//"] = 7,
-            ["^"] = 56,
-            ["&"] = 107,
-            ["|"] = 108,
-            ["~"] = 109,
-            ["<<"] = 110,
-            [">>"] = 111,
+            [".."] = corelibrary.id("CONCAT2"),
+            ["/"] = corelibrary.id("DIVIDE"),
+            ["//"] = corelibrary.id("FLOOR_DIVIDE"),
+            ["^"] = corelibrary.id("POW"),
+            ["&"] = corelibrary.id("BAND"),
+            ["|"] = corelibrary.id("BOR"),
+            ["~"] = corelibrary.id("BXOR"),
+            ["<<"] = corelibrary.id("SHL"),
+            [">>"] = corelibrary.id("SHR"),
         })[operation]
     if library then
         return libraryCall(ctx, node, library, {node.lhs, node.rhs})
@@ -865,7 +769,7 @@ local function construct(ctx: any, node: any, origin: any): any
     local key = ctx.emit(node, "K", {pool(ctx, "str", name)}, "tagged")
     local callee = ctx.hold(ctx.emit(node, "GetIdx", {ctx.readHeld(heldClass), key}, "tagged"))
     local instance = ctx.hold(ctx.emit(node, "NewTable", {}, "tagged"))
-    ctx.emit(node, "LibCall", {28, ctx.readHeld(instance), ctx.readHeld(heldClass)}, "tagged")
+    ctx.emit(node, "LibCall", {corelibrary.id("SETMETATABLE"), ctx.readHeld(instance), ctx.readHeld(heldClass)}, "tagged")
     ctx.release(heldClass)
     for _, field in ipairs(origin.fieldOrder or {}) do
         local default = origin.fieldDefaults and origin.fieldDefaults[field]
@@ -978,7 +882,7 @@ protectedpack = function(ctx: any, node: any): integer?
     local zero = ctx.emit(node, "K", {pool(ctx, "int64", "0")}, "tagged")
     ctx.emit(node, "SetIdx", {pack, zero, ctx.emit(node, "K", {pool(ctx, "int64", tostring(count))}, "tagged")}, nil)
     local status = ctx.emit(node, "K", {pool(ctx, "int64", "1")}, "tagged")
-    ctx.emit(node, "LibCall", {121, pack, status}, "tagged")
+    ctx.emit(node, "LibCall", {corelibrary.id("PROTECTED_COUNT"), pack, status}, "tagged")
 
     return pack
 end
@@ -995,27 +899,37 @@ local function sortWith(ctx: any, node: any): integer
     if operands == nil then
         return nil as any
     end
-    local state = ctx.hold(ctx.emit(node, "LibCall", {48, operands[1], operands[2]}, "tagged"))
+    local state = ctx.hold(ctx.emit(node, "LibCall", {corelibrary.id("TABLE_SORT_BEGIN"), operands[1], operands[2]}, "tagged"))
     local contract = graph.callbackInvokeContract(node, 2)
     ctx.loop(
         node,
         function(c: any, n: any): integer
-            return c.emit(n, "LibCall", {49, c.readHeld(state)}, "tagged")
+            return c.emit(n, "LibCall", {corelibrary.id("TABLE_SORT_STEP"), c.readHeld(state)}, "tagged")
         end,
         function(c: any, n: any): nil
             local fields = {}
-            for index = 2, 4 do
+            for index = corelibrary.key("SORT", "LESS"), corelibrary.key("SORT", "B") do
                 local key = c.emit(n, "K", {pool(c, "int64", tostring(index))}, "tagged")
                 fields[index] = c.emit(n, "GetIdx", {c.readHeld(state), key}, "tagged")
             end
             if cleanupGraphs[c.g] then
                 c.beforeCall(n)
             end
-            local answer = landed(c, n, c.invoke(n, fields[2], {fields[3], fields[4]}, contract, true))
+            local answer = landed(
+                c,
+                n,
+                c.invoke(
+                    n,
+                    fields[corelibrary.key("SORT", "LESS")],
+                    {fields[corelibrary.key("SORT", "A")], fields[corelibrary.key("SORT", "B")]},
+                    contract,
+                    true
+                )
+            )
             if c.block == nil then
                 return
             end
-            local key = c.emit(n, "K", {pool(c, "int64", "5")}, "tagged")
+            local key = c.emit(n, "K", {pool(c, "int64", tostring(corelibrary.key("SORT", "ANSWER")))}, "tagged")
             c.emit(n, "SetIdx", {c.readHeld(state), key, answer}, nil)
         end
     )
@@ -1068,7 +982,7 @@ local function valuespack(ctx: any, node: any, exprs: any, texts: boolean?): int
     if texts then
         for index, operand in ipairs(operands) do
             if mayhavemeta(fixed[index].inferredType) then
-                operands[index] = ctx.emit(node, "LibCall", {1, operand}, "tagged")
+                operands[index] = ctx.emit(node, "LibCall", {corelibrary.id("TOSTRING"), operand}, "tagged")
             end
         end
     end
@@ -1093,7 +1007,7 @@ local function valuespack(ctx: any, node: any, exprs: any, texts: boolean?): int
         end
         local start = ctx.emit(node, "K", {pool(ctx, "int64", tostring(#operands + 1))}, "tagged")
         local counted = ctx.emit(node, "K", {pool(ctx, "true", "")}, "tagged")
-        ctx.emit(node, "LibCall", {74, ctx.readHeld(held), values, start, counted}, "tagged")
+        ctx.emit(node, "LibCall", {corelibrary.id("PACK_APPEND"), ctx.readHeld(held), values, start, counted}, "tagged")
         pack = ctx.readHeld(held)
         ctx.release(held)
     else
@@ -1180,7 +1094,7 @@ local function printValues(ctx: any, node: any): integer
         return nil as any
     end
 
-    return ctx.emit(node, "LibCall", {55, pack}, "tagged") as integer
+    return ctx.emit(node, "LibCall", {corelibrary.id("PRINT"), pack}, "tagged") as integer
 end
 
 -- coroutine.resume(co, ...), coroutine.yield(...) and coroutine.running():
@@ -1192,7 +1106,7 @@ local function coroutinepack(ctx: any, node: any): integer
     if library == "coroutine.running" then
         need(#exprs == 0, "coroutine.running takes no arguments")
         local none = ctx.emit(node, "Nil", {}, "tagged")
-        return ctx.emit(node, "LibCall", {80, none}, "tagged") as integer
+        return ctx.emit(node, "LibCall", {corelibrary.id("COROUTINE_RUNNING"), none}, "tagged") as integer
     elseif library == "coroutine.yield" then
         local pack = valuespack(ctx, node, exprs)
         if pack == nil then
@@ -1206,14 +1120,14 @@ local function coroutinepack(ctx: any, node: any): integer
             pack = ctx.readHeld(held)
             ctx.release(held)
         end
-        return landed(ctx, node, ctx.emit(node, "LibCall", {77, pack}, "tagged")) as integer
+        return landed(ctx, node, ctx.emit(node, "LibCall", {corelibrary.id("COROUTINE_YIELD"), pack}, "tagged")) as integer
     elseif library == "coroutine.close" then
         need(#exprs == 1, "coroutine.close takes a coroutine")
         local thread = ctx.expression(exprs[1], "tagged")
         if thread == nil then
             return nil as any
         end
-        return ctx.emit(node, "LibCall", {82, thread}, "tagged") as integer
+        return ctx.emit(node, "LibCall", {corelibrary.id("COROUTINE_CLOSE"), thread}, "tagged") as integer
     end
     need(#exprs >= 1, "coroutine.resume takes a coroutine")
     local thread = ctx.expression(exprs[1], "tagged")
@@ -1233,7 +1147,7 @@ local function coroutinepack(ctx: any, node: any): integer
     local value = ctx.readHeld(held)
     ctx.release(held)
 
-    return ctx.emit(node, "LibCall", {76, value, pack}, "tagged") as integer
+    return ctx.emit(node, "LibCall", {corelibrary.id("COROUTINE_RESUME"), value, pack}, "tagged") as integer
 end
 
 -- A library call with several results, as the pack of them: a string
@@ -1273,18 +1187,18 @@ gsubWith = function(ctx: any, node: any, arguments: any, all: boolean): integer
     if operands == nil then
         return nil as any
     end
-    table.insert(operands, 1, 50)
+    table.insert(operands, 1, corelibrary.id("STRING_GSUB_BEGIN"))
     local state = ctx.hold(ctx.emit(node, "LibCall", operands, "tagged"))
     local contract = graph.callbackInvokeContract(node, 0, true)
     ctx.loop(
         node,
         function(c: any, n: any): integer
-            return c.emit(n, "LibCall", {51, c.readHeld(state)}, "tagged")
+            return c.emit(n, "LibCall", {corelibrary.id("STRING_GSUB_STEP"), c.readHeld(state)}, "tagged")
         end,
         function(c: any, n: any): nil
-            local fnKey = c.emit(n, "K", {pool(c, "int64", "3")}, "tagged")
+            local fnKey = c.emit(n, "K", {pool(c, "int64", tostring(corelibrary.key("GSUB", "FUNCTION")))}, "tagged")
             local fn = c.emit(n, "GetIdx", {c.readHeld(state), fnKey}, "tagged")
-            local packKey = c.emit(n, "K", {pool(c, "int64", "9")}, "tagged")
+            local packKey = c.emit(n, "K", {pool(c, "int64", tostring(corelibrary.key("GSUB", "CAPTURES")))}, "tagged")
             local captures = c.emit(n, "GetIdx", {c.readHeld(state), packKey}, "tagged")
             if cleanupGraphs[c.g] then
                 c.beforeCall(n)
@@ -1293,7 +1207,7 @@ gsubWith = function(ctx: any, node: any, arguments: any, all: boolean): integer
             if c.block == nil then
                 return
             end
-            local key = c.emit(n, "K", {pool(c, "int64", "10")}, "tagged")
+            local key = c.emit(n, "K", {pool(c, "int64", tostring(corelibrary.key("GSUB", "ANSWER")))}, "tagged")
             c.emit(n, "SetIdx", {c.readHeld(state), key, answer}, nil)
         end
     )
@@ -1303,7 +1217,7 @@ gsubWith = function(ctx: any, node: any, arguments: any, all: boolean): integer
         return nil as any
     end
 
-    return ctx.emit(node, "LibCall", {all and 53 or 52, finished}, "tagged") as integer
+    return ctx.emit(node, "LibCall", {all and corelibrary.id("STRING_GSUB_FINISH_ALL") or corelibrary.id("STRING_GSUB_FINISH"), finished}, "tagged") as integer
 end
 
 -- A record method call, `c:m(...)`: the method is loaded from the table the
@@ -1364,7 +1278,7 @@ local function invokeMethod(ctx: any, node: any, keepResult: boolean, count: int
             return nil
         end
         local heldReceiver = ctx.hold(receiver)
-        local class = ctx.emit(node, "LibCall", {29, ctx.readHeld(heldReceiver)}, "tagged")
+        local class = ctx.emit(node, "LibCall", {corelibrary.id("GETMETATABLE"), ctx.readHeld(heldReceiver)}, "tagged")
         local key = ctx.emit(node, "K", {pool(ctx, "str", member)}, "tagged")
         local callee = ctx.hold(ctx.emit(node, "GetIdx", {class, key}, "tagged"))
         table.remove(exprs, 1)
@@ -1600,7 +1514,7 @@ local function numericFor(ctx: any, stat: any): any
     if dynamicLimit then
         local start = ctx.hold(values[1])
         local step = values[3] and ctx.hold(values[3]) or nil
-        values[2] = ctx.emit(stat, "LibCall", {113, values[2]}, "tagged")
+        values[2] = ctx.emit(stat, "LibCall", {corelibrary.id("FOR_LIMIT"), values[2]}, "tagged")
         values[1] = ctx.readHeld(start)
         ctx.release(start)
         if step then
@@ -1742,14 +1656,14 @@ local function cleanupProfile(base: any): any
         if plan.keys then
             for index = #plan.keys, 1, -1 do
                 local key = ctx.emit(node, "K", {pool(ctx, "str", plan.keys[index])}, "tagged")
-                local callee = ctx.emit(node, "LibCall", {105, key}, "tagged")
+                local callee = ctx.emit(node, "LibCall", {corelibrary.id("CLEANUP_GET"), key}, "tagged")
                 ctx.emit(node, "Destroy", {callee, ctx.readHeld(held)}, nil)
             end
             ctx.release(held)
             return
         end
         for index = #plan.methods, 1, -1 do
-            local class = plan.token.foreign and ctx.emit(node, "LibCall", {29, ctx.readHeld(held)}, "tagged")
+            local class = plan.token.foreign and ctx.emit(node, "LibCall", {corelibrary.id("GETMETATABLE"), ctx.readHeld(held)}, "tagged")
                 or ctx.expression({kind = "name", token = plan.token, plan.token}, "tagged")
             local key = ctx.emit(node, "K", {pool(ctx, "str", plan.methods[index])}, "tagged")
             local callee = ctx.emit(node, "GetIdx", {class, key}, "tagged")
@@ -1762,7 +1676,7 @@ local function cleanupProfile(base: any): any
     -- The landed error goes on, as it was, once the owners are destroyed.
     profile.failure = function(ctx: any, node: any): nil
         local none = ctx.emit(node, "Nil", {}, "tagged")
-        ctx.emit(node, "LibCall", {46, none}, "tagged")
+        ctx.emit(node, "LibCall", {corelibrary.id("RERAISE"), none}, "tagged")
         ctx.block.term = {kind = "return", value = none, edges = {}, pos = ctx.position(node)}
         ctx.block = nil
     end
@@ -1927,7 +1841,7 @@ function tagged.forVersion(version: integer): any
                 local chunk = ctx.emit(node, "K", {pool(ctx, "int64", tostring(module.chunk))}, "tagged")
                 ctx.emit(node, "SetIdx", {ctx.readHeld(names), key, chunk}, nil)
             end
-            ctx.emit(node, "LibCall", {86, ctx.readHeld(names)}, "tagged")
+            ctx.emit(node, "LibCall", {corelibrary.id("MODULE_NAMES"), ctx.readHeld(names)}, "tagged")
             ctx.release(names)
         end
         for _, site in ipairs(catalog(ctx).qualifiedLoads[ctx.fn.id] or {}) do
@@ -1936,7 +1850,7 @@ function tagged.forVersion(version: integer): any
     end
     profile.moduleExports = function(ctx: any, node: any): integer
         local exports = ctx.emit(node, "NewTable", {}, "tagged")
-        return ctx.emit(node, "LibCall", {84, exports}, "tagged") as integer
+        return ctx.emit(node, "LibCall", {corelibrary.id("MODULE_PUBLISH"), exports}, "tagged") as integer
     end
     -- After a named export's statement: each name it declared, stored in the
     -- export table under that name.
@@ -1990,7 +1904,7 @@ function tagged.forVersion(version: integer): any
             -- `{...}` copies the pack; a positional `...` or call giving other
             -- than one result last among the entries gives them all, appended.
             if #node.fields == 1 and node.fields[1].kind == "fieldItem" and node.fields[1].value.kind == "vararg" then
-                return ctx.emit(node, "LibCall", {21, ctx.varargPack()}, "tagged") as integer
+                return ctx.emit(node, "LibCall", {corelibrary.id("PACK_COPY"), ctx.varargPack()}, "tagged") as integer
             end
             local tail = node.fields[#node.fields]
             local appends = tail ~= nil
@@ -2039,7 +1953,7 @@ function tagged.forVersion(version: integer): any
                     node,
                     "LibCall",
                     {
-                        116,
+                        corelibrary.id("TABLE_NEWARRAY"),
                         ctx.emit(node, "K", {pool(ctx, "int64", tostring(packed))}, "tagged"),
                         ctx.emit(node, "K", {pool(ctx, "int64", tostring(position))}, "tagged")
                     },
@@ -2060,7 +1974,7 @@ function tagged.forVersion(version: integer): any
                     return nil as any
                 end
                 local start = ctx.emit(node, "K", {pool(ctx, "int64", tostring(position + 1))}, "tagged")
-                ctx.emit(node, "LibCall", {74, ctx.readHeld(held), pack, start}, "tagged")
+                ctx.emit(node, "LibCall", {corelibrary.id("PACK_APPEND"), ctx.readHeld(held), pack, start}, "tagged")
                 result = ctx.readHeld(held)
                 ctx.release(held)
             end
@@ -2121,7 +2035,7 @@ function tagged.forVersion(version: integer): any
                 ctx.release(held)
                 return nil as any
             end
-            ctx.emit(node, "LibCall", {28, ctx.readHeld(held), class}, "tagged")
+            ctx.emit(node, "LibCall", {corelibrary.id("SETMETATABLE"), ctx.readHeld(held), class}, "tagged")
             record = ctx.readHeld(held)
             ctx.release(held)
 
@@ -2266,17 +2180,23 @@ function tagged.forVersion(version: integer): any
                     return nil
                 end
                 local held = {ctx.hold(operands[1]), ctx.hold(operands[2])}
+                local keys = {corelibrary.key("GMATCH", "SUBJECT"), corelibrary.key("GMATCH", "PATTERN")}
                 local state = ctx.emit(stat, "NewTable", {}, "tagged")
                 for index, handle in ipairs(held) do
-                    local key = ctx.emit(stat, "K", {pool(ctx, "int64", tostring(index))}, "tagged")
+                    local key = ctx.emit(stat, "K", {pool(ctx, "int64", tostring(keys[index]))}, "tagged")
                     ctx.emit(stat, "SetIdx", {state, key, ctx.readHeld(handle)}, nil)
                     ctx.release(handle)
                 end
-                local srcKey = ctx.emit(stat, "K", {pool(ctx, "int64", "3")}, "tagged")
+                local srcKey = ctx.emit(
+                    stat,
+                    "K",
+                    {pool(ctx, "int64", tostring(corelibrary.key("GMATCH", "SOURCE")))},
+                    "tagged"
+                )
                 local zero = ctx.emit(stat, "K", {pool(ctx, "int64", "0")}, "tagged")
                 ctx.emit(stat, "SetIdx", {state, srcKey, zero}, nil)
 
-                return stepped(stat, state, 4, 4)
+                return stepped(stat, state, corelibrary.id("STRING_GMATCH_NEXT"), corelibrary.key("GMATCH", "CAPTURES") - 1)
             end
             -- `for k, v in pairs(t)`: a state table {t, key, k, v} the next
             -- step advances, leaving the pair at keys 3 and 4.
@@ -2288,11 +2208,16 @@ function tagged.forVersion(version: integer): any
                 end
                 local held = ctx.hold(t)
                 local state = ctx.emit(stat, "NewTable", {}, "tagged")
-                local subjectKey = ctx.emit(stat, "K", {pool(ctx, "int64", "1")}, "tagged")
+                local subjectKey = ctx.emit(
+                    stat,
+                    "K",
+                    {pool(ctx, "int64", tostring(corelibrary.key("PAIRS", "TABLE")))},
+                    "tagged"
+                )
                 ctx.emit(stat, "SetIdx", {state, subjectKey, ctx.readHeld(held)}, nil)
                 ctx.release(held)
 
-                return stepped(stat, state, 8, 2)
+                return stepped(stat, state, corelibrary.id("NEXT_STEP"), corelibrary.key("PAIRS", "KEY") - 1)
             end
             -- `for names in f, s, c`: f(s, c) each step, as Lua runs any
             -- iterator, a wrapped coroutine's included; the loop leaves at a
@@ -2561,7 +2486,7 @@ function tagged.forVersion(version: integer): any
                     held = ctx.hold(value)
                     return
                 end
-                local joined = ctx.emit(node, "LibCall", {5, ctx.readHeld(held), value}, "tagged")
+                local joined = ctx.emit(node, "LibCall", {corelibrary.id("CONCAT2"), ctx.readHeld(held), value}, "tagged")
                 ctx.release(held)
                 held = ctx.hold(joined)
             end
@@ -2586,7 +2511,7 @@ function tagged.forVersion(version: integer): any
                         end
                         return nil as any
                     end
-                    join(ctx.emit(child, "LibCall", {1, value}, "tagged") as integer)
+                    join(ctx.emit(child, "LibCall", {corelibrary.id("TOSTRING"), value}, "tagged") as integer)
                 end
             end
             if held == nil then
@@ -2599,7 +2524,7 @@ function tagged.forVersion(version: integer): any
         end
         -- `...items`: the pack as a table with its count as `n`.
         profile.namedVararg = function(ctx: any, parameter: any): integer
-            return ctx.emit(parameter, "LibCall", {73, ctx.varargPack()}, "tagged") as integer
+            return ctx.emit(parameter, "LibCall", {corelibrary.id("PACK_NAMED"), ctx.varargPack()}, "tagged") as integer
         end
         -- Sets each cleanup function a declaration names in the core's
         -- registry, under its checked key, as the declaration binds it.
@@ -2617,7 +2542,7 @@ function tagged.forVersion(version: integer): any
             for _, token in ipairs(tokens) do
                 for _, registration in ipairs(token.cleanupRegistrations or {}) do
                     local key = ctx.emit(stat, "K", {pool(ctx, "str", registration.cleanup.key)}, "tagged")
-                    ctx.emit(stat, "LibCall", {104, key, value}, "tagged")
+                    ctx.emit(stat, "LibCall", {corelibrary.id("CLEANUP_SET"), key, value}, "tagged")
                 end
             end
         end
@@ -2835,24 +2760,34 @@ function tagged.forVersion(version: integer): any
             -- `require` of a computed name: the module the image holds by it.
             if graph.dynamicRequire(node) then
                 need(#(node.args.exprs or {}) == 1, "require takes one module name")
-                return libraryCall(ctx, node, 85, node.args.exprs)
+                return libraryCall(ctx, node, corelibrary.id("MODULE_REQUIRE"), node.args.exprs)
             end
             if node.runtimeLoader == "require" then
                 return tagged.call(ctx, node, expected)
             end
             local library = graph.coreLibraryCall(node)
             if library == "tostring" or library == "table.concat" then
-                return libraryCall(ctx, node, library == "tostring" and 1 or 3, node.args.exprs or {})
+                return libraryCall(
+                    ctx,
+                    node,
+                    library == "tostring" and corelibrary.id("TOSTRING") or corelibrary.id("TABLE_CONCAT"),
+                    node.args.exprs or {}
+                )
             elseif library == "assert" then
                 -- assert(v [, message]): v, its one result here, or the
                 -- message raised.
                 local count = #(node.args.exprs or {})
                 need(count >= 1 and count <= 2, "assert takes a value and an optional message")
-                return libraryCall(ctx, node, 87, node.args.exprs)
+                return libraryCall(ctx, node, corelibrary.id("ASSERT"), node.args.exprs)
             elseif library == "tonumber" then
                 local count = #(node.args.exprs or {})
                 need(count == 1 or count == 2, "tonumber takes a value and an optional base")
-                return libraryCall(ctx, node, count == 2 and 106 or 9, node.args.exprs)
+                return libraryCall(
+                    ctx,
+                    node,
+                    count == 2 and corelibrary.id("TONUMBER_BASE") or corelibrary.id("TONUMBER"),
+                    node.args.exprs
+                )
             elseif library == "pcall" or library == "xpcall" then
                 return invokeProtected(ctx, node, true) as integer
             elseif library == "error" then
@@ -2860,7 +2795,7 @@ function tagged.forVersion(version: integer): any
                 -- level names.
                 local count = #(node.args.exprs or {})
                 need(count >= 1 and count <= 2, "error takes a value and an optional level")
-                return libraryCall(ctx, node, 22, node.args.exprs)
+                return libraryCall(ctx, node, corelibrary.id("ERROR"), node.args.exprs)
             elseif library == "select" then
                 -- select over the pack: "#" reads its count at key 0.
                 -- So is a call's results, last, as an open call's pack.
@@ -2897,7 +2832,7 @@ function tagged.forVersion(version: integer): any
                     ctx.release(held)
                     return nil as any
                 end
-                local value = ctx.emit(node, "LibCall", {20, pack, ctx.readHeld(held)}, "tagged")
+                local value = ctx.emit(node, "LibCall", {corelibrary.id("SELECT"), pack, ctx.readHeld(held)}, "tagged")
                 ctx.release(held)
                 return value as integer
             elseif library == "setmetatable"
@@ -2909,12 +2844,17 @@ function tagged.forVersion(version: integer): any
                 -- GetIdx and SetIdx; the library calls set and read them.
                 local spec: {
                     [string]: {integer}
-                } = {setmetatable = {28, 2}, getmetatable = {29, 1}, rawget = {30, 2}, rawset = {31, 3}}
+                } = {
+                    setmetatable = {corelibrary.id("SETMETATABLE"), 2},
+                    getmetatable = {corelibrary.id("GETMETATABLE"), 1},
+                    rawget = {corelibrary.id("RAWGET"), 2},
+                    rawset = {corelibrary.id("RAWSET"), 3}
+                }
                 local form: {integer} = need(spec[library as string], "metatable library call")
                 need(#(node.args.exprs or {}) == form[2], tostring(library) .. " argument count is not admitted")
                 return libraryCall(ctx, node, form[1], node.args.exprs)
             elseif library == "string.format" then
-                return libraryCall(ctx, node, 2, node.args.exprs or {})
+                return libraryCall(ctx, node, corelibrary.id("STRING_FORMAT"), node.args.exprs or {})
             elseif library == "print" then
                 return printValues(ctx, node)
             elseif library == "math.random" or library == "math.randomseed" then
@@ -2924,9 +2864,9 @@ function tagged.forVersion(version: integer): any
                 need(#args <= 2, tostring(library) .. " takes at most two arguments")
                 if #args == 0 then
                     local none = ctx.emit(node, "Nil", {}, "tagged")
-                    return ctx.emit(node, "LibCall", {random and 71 or 72, none}, "tagged") as integer
+                    return ctx.emit(node, "LibCall", {random and corelibrary.id("MATH_RANDOM_FLOAT") or corelibrary.id("MATH_RANDOMSEED_HOST"), none}, "tagged") as integer
                 end
-                return libraryCall(ctx, node, random and 69 or 70, args)
+                return libraryCall(ctx, node, random and corelibrary.id("MATH_RANDOM") or corelibrary.id("MATH_RANDOMSEED"), args)
             elseif library == "table.sort" then
                 -- Without a comparator the sort step compares with `<` itself.
                 local count = #(node.args.exprs or {})
@@ -2934,23 +2874,23 @@ function tagged.forVersion(version: integer): any
                 if count == 2 then
                     return sortWith(ctx, node)
                 end
-                return libraryCall(ctx, node, 47, node.args.exprs)
+                return libraryCall(ctx, node, corelibrary.id("TABLE_SORT"), node.args.exprs)
             elseif library == "type" then
                 need(#(node.args.exprs or {}) == 1, "type takes one value")
-                return libraryCall(ctx, node, 32, node.args.exprs)
+                return libraryCall(ctx, node, corelibrary.id("TYPE"), node.args.exprs)
             elseif library == "os.getenv" then
                 need(#(node.args.exprs or {}) == 1, "os.getenv takes one name")
-                return libraryCall(ctx, node, 10, node.args.exprs)
+                return libraryCall(ctx, node, corelibrary.id("OS_GETENV"), node.args.exprs)
             elseif library == "os.monotonic" or library == "hostcalls.arguments" then
                 -- No arguments: a placeholder nil is the call's one value.
                 need(#(node.args.exprs or {}) == 0, tostring(library) .. " takes no arguments")
                 local none = ctx.emit(node, "Nil", {}, "tagged")
-                return ctx.emit(node, "LibCall", {library == "os.monotonic" and 117 or 119, none}, "tagged") as integer
-            elseif fileoperations[library or ""] then
+                return ctx.emit(node, "LibCall", {library == "os.monotonic" and corelibrary.id("OS_MONOTONIC") or corelibrary.id("HOST_ARGUMENTS"), none}, "tagged") as integer
+            elseif corelibrary.fileoperation(library) then
                 -- The file calls are one library call, the operation first.
-                local spec: {integer} = need(fileoperations[library as string], "file call")
+                local spec = need(corelibrary.fileoperation(library), "file call")
                 local args = node.args.exprs or {}
-                need(#args == spec[2], tostring(library) .. " argument count is not admitted")
+                need(#args == spec.arguments, tostring(library) .. " argument count is not admitted")
                 local kinds = {}
                 for index = 1, #args do
                     kinds[index] = "tagged"
@@ -2959,8 +2899,8 @@ function tagged.forVersion(version: integer): any
                 if evaluated == nil then
                     return nil as any
                 end
-                local operation = ctx.emit(node, "K", {pool(ctx, "int64", tostring(spec[1]))}, "tagged")
-                local operands: {any} = {120, operation}
+                local operation = ctx.emit(node, "K", {pool(ctx, "int64", tostring(spec.operation))}, "tagged")
+                local operands: {any} = {corelibrary.id("HOST_FILES"), operation}
                 for _, value in ipairs(evaluated) do
                     operands[#operands + 1] = value
                 end
@@ -2971,9 +2911,9 @@ function tagged.forVersion(version: integer): any
                 need(#args <= 2, "collectgarbage takes an option and its argument")
                 if #args == 0 then
                     local none = ctx.emit(node, "Nil", {}, "tagged")
-                    return landed(ctx, node, ctx.emit(node, "LibCall", {118, none}, "tagged")) as integer
+                    return landed(ctx, node, ctx.emit(node, "LibCall", {corelibrary.id("COLLECTGARBAGE"), none}, "tagged")) as integer
                 end
-                return libraryCall(ctx, node, 118, args)
+                return libraryCall(ctx, node, corelibrary.id("COLLECTGARBAGE"), args)
             elseif coroutinepacked[library or ""] then
                 -- Kept as one value: its pack's first.
                 local pack = coroutinepack(ctx, node)
@@ -2985,7 +2925,7 @@ function tagged.forVersion(version: integer): any
             elseif library == "coroutine.isyieldable" then
                 need(#(node.args.exprs or {}) == 0, "coroutine.isyieldable takes no arguments")
                 local none = ctx.emit(node, "Nil", {}, "tagged")
-                return ctx.emit(node, "LibCall", {81, none}, "tagged") as integer
+                return ctx.emit(node, "LibCall", {corelibrary.id("COROUTINE_ISYIELDABLE"), none}, "tagged") as integer
             elseif library == "string.char" and #(node.args.exprs or {}) > 1 then
                 -- Several bytes: each one's string, joined in order. An
                 -- out-of-range byte is reported as the first argument.
@@ -3009,10 +2949,10 @@ function tagged.forVersion(version: integer): any
                 end
                 local text: any = nil
                 for index = 1, #held do
-                    local byte = landed(ctx, node, ctx.emit(node, "LibCall", {13, ctx.readHeld(held[index])}, "tagged"))
+                    local byte = landed(ctx, node, ctx.emit(node, "LibCall", {corelibrary.id("STRING_CHAR"), ctx.readHeld(held[index])}, "tagged"))
                     if byte ~= nil and ctx.block ~= nil and text ~= nil then
                         local before = text
-                        byte = landed(ctx, node, ctx.emit(node, "LibCall", {5, ctx.readHeld(before), byte}, "tagged"))
+                        byte = landed(ctx, node, ctx.emit(node, "LibCall", {corelibrary.id("CONCAT2"), ctx.readHeld(before), byte}, "tagged"))
                         ctx.release(before)
                         text = nil
                     end
@@ -3067,7 +3007,7 @@ function tagged.forVersion(version: integer): any
                 arguments[#arguments + 1] = argument
             end
             if library == "string.format" then
-                return libraryCall(ctx, node, 2, arguments)
+                return libraryCall(ctx, node, corelibrary.id("STRING_FORMAT"), arguments)
             end
             local spec: {integer} = need(stringSpec(library), "string library call")
             need(
@@ -3124,7 +3064,7 @@ function tagged.forVersion(version: integer): any
                 -- __unm, which the library call tries first.
                 local kind = typeKind(node.operand.inferredType)
                 if kind ~= "number" and kind ~= "float64" and kind ~= "int64" then
-                    return ctx.emit(node, "LibCall", {33, operand}, "tagged") as integer
+                    return ctx.emit(node, "LibCall", {corelibrary.id("UNM"), operand}, "tagged") as integer
                 end
                 local held = ctx.hold(operand)
                 local minusOne = ctx.emit(node, "K", {pool(ctx, "int64", "-1")}, "tagged")
@@ -3136,7 +3076,7 @@ function tagged.forVersion(version: integer): any
             -- `~x`, a core library call (guestbits).
             if node.op and node.op.text == "~" and catalog(ctx).byNode[node] == nil then
                 need(expected == nil or expected == "tagged", "bitwise not requires tagged destination")
-                return libraryCall(ctx, node, 112, {node.operand})
+                return libraryCall(ctx, node, corelibrary.id("BNOT"), {node.operand})
             end
 
             return tagged.unary(ctx, node, expected)

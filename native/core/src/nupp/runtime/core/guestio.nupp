@@ -15,17 +15,9 @@ const guestscope = require("nupp.runtime.core.guestscope")
 const guestlib = require("nupp.runtime.core.guestlib")
 const texts = require("nupp.runtime.core.guesttexts")
 const collector = require("nupp.runtime.vm.collector")
+const librarycalls = require("nupp.runtime.core.librarycalls")
+const librarytexts = require("nupp.runtime.core.librarytexts")
 
--- The file calls' LibCall id: the operation first, then its arguments.
-export const LIB_FILES: uint64 = 120ULL
-
--- The operations, as filecalls names them.
-const FILE_OPEN: uint64 = 1ULL
-const FILE_READ: uint64 = 2ULL
-const FILE_WRITE: uint64 = 3ULL
-const FILE_SEEK: uint64 = 4ULL
-const FILE_CLOSE: uint64 = 5ULL
-const FILE_REASON: uint64 = 6ULL
 
 local function heapOf(ctx: voidptr): heap.Heap*
     @unsafe do
@@ -111,13 +103,13 @@ export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64)
     local operation = integerOf(op)
     @unsafe do
         local h = heapOf(ctx)
-        if operation == FILE_OPEN then
+        if operation == librarycalls.FILE_OPEN then
             local s = stringOf(a)
             local fd = os.fileOpen(native.pointer(strings.bytes(s)), strings.length(s), integerOf(b))
             return ints.make(h, native.word(fd))
-        elseif operation == FILE_READ then
+        elseif operation == librarycalls.FILE_READ then
             return readText(ctx, integerOf(a), integerOf(b))
-        elseif operation == FILE_WRITE then
+        elseif operation == librarycalls.FILE_WRITE then
             -- The text's bytes from `first`, 1-based as Lua's strings count.
             local s = stringOf(b)
             local first = integerOf(c)
@@ -131,11 +123,11 @@ export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64)
                 length - (first - 1ULL)
             )
             return ints.make(h, native.word(written))
-        elseif operation == FILE_SEEK then
+        elseif operation == librarycalls.FILE_SEEK then
             return ints.make(h, native.word(os.fileSeek(integerOf(a), integerOf(b), integerOf(c))))
-        elseif operation == FILE_CLOSE then
+        elseif operation == librarycalls.FILE_CLOSE then
             return ints.make(h, native.word(os.fileClose(integerOf(a))))
-        elseif operation == FILE_REASON then
+        elseif operation == librarycalls.FILE_REASON then
             return reasonText(ctx, integerOf(a))
         end
     end
@@ -144,11 +136,6 @@ export function files(ctx: voidptr, op: uint64, a: uint64, b: uint64, c: uint64)
     return values.NIL
 end
 
--- os.monotonic(), collectgarbage(opt, arg) and the program's arguments
--- (hostcalls.arguments, which `arg` holds): their LibCall ids.
-export const LIB_MONOTONIC: uint64 = 117ULL
-export const LIB_COLLECTGARBAGE: uint64 = 118ULL
-export const LIB_ARGUMENTS: uint64 = 119ULL
 
 -- A float's value word, from its bits: NaN as the canonical one.
 local function floatValue(bits: uint64): uint64
@@ -266,7 +253,7 @@ end
 -- the core's yet, and raise as an unknown one does. A number names the
 -- option its text spells, as Lua's string arguments take one.
 export function collectgarbage(ctx: voidptr, option: uint64): uint64
-    guestscope.nameLibrary(ctx, texts.NAME_COLLECTGARBAGE)
+    guestscope.nameLibrary(ctx, librarytexts.NAME_COLLECTGARBAGE)
     local s: uint64 = 0ULL
     if option ~= values.NIL then
         s = strings.header(option)
@@ -274,7 +261,7 @@ export function collectgarbage(ctx: voidptr, option: uint64): uint64
             s = numberText(ctx, option)
         end
         if s == 0ULL then
-            texts.argumentError(ctx, 1ULL, texts.TEXT_STRING, 0ULL, option)
+            texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, option)
         end
     end
     @unsafe do

@@ -23,6 +23,7 @@ const access = require("nupp.runtime.core.frameaccess")
 const guestentry = require("nupp.runtime.core.guestentry")
 const instances = require("nupp.runtime.core.instances")
 const stacks = require("nupp.runtime.core.stacks")
+const librarycalls = require("nupp.runtime.core.librarycalls")
 
 -- The scope comes first, so a Services address is also its scope's address.
 export struct Services
@@ -974,11 +975,17 @@ export function tableof(value: uint64): uint64
     return tableOf(value)
 end
 
--- Starts a table library call at `frame`: answers 2 when it runs in replay
--- from the start, as a call over a table with a metatable does (its
--- arguments to be kept, `replaykeep`); 1 when it runs again, a metamethod it
--- waited on having answered `answer` (its arguments then are `replayarg`'s);
--- 0 when it needs no log.
+-- How a table library call runs (replaybegin): with no log; again, a
+-- metamethod it waited on having answered; or in replay from the start.
+export const REPLAY_NONE: uint64 = 0ULL
+export const REPLAY_AGAIN: uint64 = 1ULL
+export const REPLAY_START: uint64 = 2ULL
+
+-- Starts a table library call at `frame`: answers REPLAY_START when it runs
+-- in replay from the start, as a call over a table with a metatable does (its
+-- arguments to be kept, `replaykeep`); REPLAY_AGAIN when it runs again, a
+-- metamethod it waited on having answered `answer` (its arguments then are
+-- `replayarg`'s); REPLAY_NONE when it needs no log.
 export function replaybegin(ctx: voidptr, frame: voidptr, answer: uint64, hasmeta: boolean): uint64
     @unsafe do
         local scope = scopeof(ctx)
@@ -988,7 +995,7 @@ export function replaybegin(ctx: voidptr, frame: voidptr, answer: uint64, hasmet
         native.store64(scope, native.fieldOffset<Services>("replaycursor"), 0ULL)
         native.store64(scope, native.fieldOffset<Services>("replaysuspend"), 0ULL)
         if child == 0ULL and not hasmeta then
-            return 0ULL
+            return REPLAY_NONE
         end
         local stackvalue = native.load64(scope, native.fieldOffset<Services>("replays"))
         if stackvalue == 0ULL then
@@ -1017,7 +1024,7 @@ export function replaybegin(ctx: voidptr, frame: voidptr, answer: uint64, hasmet
             setkey(ctx, log, values.TAG_INTEGER, values.TAG_INTEGER | n)
             setkey(ctx, stack, keyof(depth, ENTRY_CHILD), values.NIL)
             native.store64(scope, native.fieldOffset<Services>("replay"), log)
-            return 1ULL
+            return REPLAY_AGAIN
         end
         prune(ctx, stack, native.address(frame))
         -- Each key is made before the log, so storing it allocates nothing
@@ -1032,7 +1039,7 @@ export function replaybegin(ctx: voidptr, frame: voidptr, answer: uint64, hasmet
         setkey(ctx, stack, keyof(depth, ENTRY_LOG), values.TAG_OBJ | log)
         native.store64(scope, native.fieldOffset<Services>("replay"), log)
 
-        return 2ULL
+        return REPLAY_START
     end
 end
 
@@ -1890,10 +1897,9 @@ end
 
 -- A function that owns affine values and raised an error itself, at the
 -- instruction `index` of function `owner` that its code follows with a
--- landing check (LibCall 45, as after a call, its operand made by the Nil or
--- Move before it): the active frame, to resume at that check, or 0 when the
--- error does not land there. Move and Nil are the frozen table's 1 and 2;
--- LibCall is the core's 251.
+-- landing check (the LibCall LANDED, as after a call, its operand made by the
+-- Nil or Move before it): the active frame, to resume at that check, or 0
+-- when the error does not land there.
 local function selfLanding(ctx: voidptr, state: voidptr, owner: uint64, index: uint64): uint64
     @unsafe do
         local active = native.load64(state, native.fieldOffset<frames.State>("active"))
@@ -1909,11 +1915,13 @@ local function selfLanding(ctx: voidptr, state: voidptr, owner: uint64, index: u
         local check = index + 1ULL
         local found = false
         while not found and check < count and check <= index + 4ULL do
-            local at = native.offset(code, native.index(check * 16ULL))
-            local op = native.load8(at, 0)
-            if op == 251 and native.load8(at, 2) & 127 == 45 then
+            local at = native.offset(code, native.index(check * librarycalls.INSTRUCTION_BYTES))
+            local op = native.word(native.load8(at, 0))
+            if op == librarycalls.OPCODE_LIBCALL
+                and native.word(native.load32(at, native.index(librarycalls.ID_OFFSET))) == librarycalls.LANDED
+            then
                 found = true
-            elseif op == 1 or op == 2 then
+            elseif op == librarycalls.OPCODE_MOVE or op == librarycalls.OPCODE_NIL then
                 check = check + 1ULL
             else
                 return 0ULL

@@ -4,6 +4,7 @@ local executable = require("nupp.compiler.vm.coregraphexecutable")
 local targetLayout = require("nupp.compiler.targetlayout")
 local literal = require("s0.literal")
 local schema = require("nupp.compiler.vm.coregraphschema")
+local corelibrary = require("nupp.compiler.vm.corelibrary")
 local artifact = {}
 -- The constant-word tag of a v8 string constant; the payload is its offset.
 local STRING_CONSTANT = 0x7ffe000000000000
@@ -92,6 +93,20 @@ function artifact.encode(code: any, scopes: any, dispatch: {integer}, codeBytes:
     }) do
         local text = assert(scope.exportedConstants[name], "guest catalog bound " .. name)
         assert(literal.integer(text) == expected, "guest catalog bound " .. name .. " differs from the schema")
+    end
+    -- The runtime's library call ids (generated from corelibrary) and its
+    -- element kinds are the table's, which the compiler emits by.
+    local calls = assert(scopes["nupp.runtime.core.librarycalls"], "guest library calls")
+    for _, subject in ipairs(corelibrary.subjects()) do
+        for _, call in ipairs(subject.calls) do
+            local text = assert(calls.exportedConstants[call.name], "guest library call " .. call.name)
+            assert(literal.integer(text) == call.id, "guest library call " .. call.name .. " differs from corelibrary")
+        end
+    end
+    for _, row in ipairs(corelibrary.elementkinds()) do
+        local owner = assert(scopes["nupp.runtime.core." .. row.module], "guest element kinds " .. row.module)
+        local text = assert(owner.exportedConstants[row.name], "guest element kind " .. row.name)
+        assert(literal.integer(text) == row.kind, "guest element kind " .. row.name .. " differs from corelibrary")
     end
     local layouts = {}
     for _, name in ipairs({"DescriptorV1", "Descriptor", "Function", "Signature", "Callsite"}) do

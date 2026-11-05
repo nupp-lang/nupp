@@ -24,6 +24,8 @@ const bitops = require("nupp.runtime.core.guestbits")
 const corestorage = require("nupp.runtime.core.corestorage")
 const modules = require("nupp.runtime.core.modules")
 const texts = require("nupp.runtime.core.guesttexts")
+const librarycalls = require("nupp.runtime.core.librarycalls")
+const librarytexts = require("nupp.runtime.core.librarytexts")
 
 -- The closed checked producer binds these program/slot reads to corebytecode's
 -- canonical opcode recipes and its retained complete graph-derived byte stream.
@@ -1509,13 +1511,17 @@ export function LibCall(
         return native.fail()
     end
     local dst = program.readByte(pc, 1)
-    -- The id's high bit marks a call in method form, for its errors.
-    local encoded = native.word(program.readByte(pc, 2))
-    local libraryId = encoded & 127ULL
-    local base = program.readByte(pc, 3)
-    local count = program.readByte(pc, 4)
+    local base = program.readByte(pc, 2)
+    -- The argument count carries the method-form flag, for the call's errors.
+    local counted = native.word(program.readByte(pc, 3))
+    local count = counted & librarycalls.COUNT_MASK
+    local libraryId = native.word(program.readSigned32(pc, 4))
     local valueCount = native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
-    if native.word(dst) >= valueCount or count < 1 or count > 4 or native.word(base + count) >= valueCount then
+    if native.word(dst) >= valueCount
+        or count < 1ULL
+        or count > librarycalls.ARGUMENTS
+        or native.word(base) + count >= valueCount
+    then
         ops.fail(ctx, frame, pc, ops.INVALID)
         return native.fail()
     end
@@ -1523,35 +1529,35 @@ export function LibCall(
     local b = values.NIL
     local c = values.NIL
     local d = values.NIL
-    if count >= 2 then
+    if count >= 2ULL then
         b = slots.readValue(frame, regs, base + 2)
     end
-    if count >= 3 then
+    if count >= 3ULL then
         c = slots.readValue(frame, regs, base + 3)
     end
-    if count >= 4 then
+    if count >= 4ULL then
         d = slots.readValue(frame, regs, base + 4)
     end
     -- .., /, //, tostring and unary minus on a table with the metamethod
     -- call it, its answer landing in dst.
     local which: uint64 = 0ULL
     local word = libraryId
-    if word == guestlib.CONCAT2 then
+    if word == librarycalls.CONCAT2 then
         which = guestscope.META_CONCAT
-    elseif word == guestlib.DIVIDE then
+    elseif word == librarycalls.DIVIDE then
         which = guestscope.META_DIV
-    elseif word == guestlib.FLOOR_DIVIDE then
+    elseif word == librarycalls.FLOOR_DIVIDE then
         which = guestscope.META_IDIV
-    elseif word == guestlib.POW then
+    elseif word == librarycalls.POW then
         which = guestscope.META_POW
-    elseif word == guestlib.TOSTRING then
+    elseif word == librarycalls.TOSTRING then
         which = guestscope.META_TOSTRING
-    elseif word == guestlib.UNM then
+    elseif word == librarycalls.UNM then
         which = guestscope.META_UNM
     end
     if which ~= 0ULL then
         local second = b
-        if word == guestlib.TOSTRING or word == guestlib.UNM then
+        if word == librarycalls.TOSTRING or word == librarycalls.UNM then
             second = a
         end
         local callee = guestscope.binaryMeta(ctx, which, a, second)
@@ -1575,14 +1581,14 @@ export function LibCall(
     end
     -- error(value [, level]) fails the entry here, so the failure records
     -- the pc the message's position names.
-    if libraryId == guestlib.RERAISE then
+    if libraryId == librarycalls.RERAISE then
         guestscope.raise(ctx, guestscope.lastError(ctx), 0ULL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
-    if libraryId == guestlib.ERROR then
+    if libraryId == librarycalls.ERROR then
         local level: uint64 = 1ULL
-        if count >= 2 then
+        if count >= 2ULL then
             level = guestlib.errorLevel(b)
         end
         guestscope.raise(ctx, a, level)
@@ -1590,7 +1596,7 @@ export function LibCall(
         return native.fail()
     end
     -- rawequal(a, b): equality without __eq.
-    if libraryId == basics.LIB_RAWEQUAL then
+    if libraryId == librarycalls.RAWEQUAL then
         if equal(a, b) == 1ULL then
             slots.writeValue(frame, regs, dst, values.TRUE)
         else
@@ -1605,11 +1611,11 @@ export function LibCall(
     end
     -- assert(v [, message]): v when it holds; else the message, or
     -- "assertion failed!" for none, raised without a position as Lua's is.
-    if libraryId == basics.LIB_ASSERT then
+    if libraryId == librarycalls.ASSERT then
         if a == values.NIL or a == values.FALSE then
             local message = b
-            if count < 2 or b == values.NIL then
-                message = texts.textvalue(ctx, texts.TEXT_ASSERTION)
+            if count < 2ULL or b == values.NIL then
+                message = texts.textvalue(ctx, librarytexts.TEXT_ASSERTION)
             end
             guestscope.raise(ctx, message, 0ULL)
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
@@ -1623,13 +1629,13 @@ export function LibCall(
         end
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
-    guestscope.librarySite(ctx, frame, pc, native.word(count), encoded >> 7ULL)
+    guestscope.librarySite(ctx, frame, pc, count, counted >> librarycalls.METHOD_SHIFT)
     -- The coroutine library. Resume and yield switch threads: the context
     -- then runs the other thread, from its active frame.
-    if libraryId >= threads.LIB_CREATE and libraryId <= threads.LIB_CLOSE then
-        guestscope.nameLibrary(ctx, threads.libraryname(libraryId))
+    if libraryId >= librarycalls.COROUTINES_FIRST and libraryId <= librarycalls.COROUTINES_LAST then
+        guestscope.nameLibrary(ctx, librarycalls.libraryname(libraryId))
         local switched = true
-        if libraryId == threads.LIB_CLOSE then
+        if libraryId == librarycalls.COROUTINE_CLOSE then
             -- Closing a suspended thread with cleanups runs it to unwind.
             local answer = threads.close(ctx, frame, pc, a, native.word(dst))
             if answer == threads.UNWIND then
@@ -1640,10 +1646,10 @@ export function LibCall(
                 return native.fail()
             end
             switched = answer == threads.SWITCHED
-        elseif libraryId ~= threads.LIB_RESUME and libraryId ~= threads.LIB_YIELD then
+        elseif libraryId ~= librarycalls.COROUTINE_RESUME and libraryId ~= librarycalls.COROUTINE_YIELD then
             slots.writeValue(frame, regs, dst, threads.call(ctx, libraryId, a))
             switched = false
-        elseif libraryId == threads.LIB_RESUME then
+        elseif libraryId == librarycalls.COROUTINE_RESUME then
             local answer = threads.resume(ctx, frame, pc, a, b, threads.MODE_PACK, native.word(dst) | (1ULL << 32ULL))
             if answer == threads.BROKEN then
                 ops.fail(ctx, frame, pc, ops.INVALID)
@@ -1675,10 +1681,10 @@ export function LibCall(
     end
     -- `require` of a computed name: the module the image holds by it, as a
     -- static require of it answers or starts it.
-    if libraryId == modules.LIB_REQUIRE then
-        guestscope.nameLibrary(ctx, texts.NAME_REQUIRE)
+    if libraryId == librarycalls.MODULE_REQUIRE then
+        guestscope.nameLibrary(ctx, librarytexts.NAME_REQUIRE)
         if strings.header(a) == 0ULL then
-            texts.argumentError(ctx, 1ULL, texts.TEXT_STRING, 0ULL, a)
+            texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, a)
         end
         local found = modules.named(ctx, a)
         if found == 0ULL then
@@ -1714,65 +1720,65 @@ export function LibCall(
         end
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
-    if libraryId == guestio.LIB_FILES then
+    if libraryId == librarycalls.HOST_FILES then
         slots.writeValue(frame, regs, dst, guestio.files(ctx, a, b, c, d))
-    elseif libraryId == guestio.LIB_MONOTONIC then
+    elseif libraryId == librarycalls.OS_MONOTONIC then
         slots.writeValue(frame, regs, dst, guestio.monotonic())
-    elseif libraryId == guestio.LIB_COLLECTGARBAGE then
+    elseif libraryId == librarycalls.COLLECTGARBAGE then
         slots.writeValue(frame, regs, dst, guestio.collectgarbage(ctx, a))
-    elseif libraryId == guestio.LIB_ARGUMENTS then
+    elseif libraryId == librarycalls.HOST_ARGUMENTS then
         slots.writeValue(frame, regs, dst, guestio.arguments(ctx))
-    elseif libraryId >= widths.LIB_NARROW and libraryId <= widths.LIB_I32WRAP then
+    elseif libraryId >= librarycalls.WIDTHS_FIRST and libraryId <= librarycalls.WIDTHS_LAST then
         slots.writeValue(frame, regs, dst, widths.call(ctx, libraryId, a))
-    elseif libraryId >= bitops.LIB_BAND and libraryId <= bitops.LIB_BNOT then
+    elseif libraryId >= librarycalls.BITS_FIRST and libraryId <= librarycalls.BITS_LAST then
         slots.writeValue(frame, regs, dst, bitops.bitcall(ctx, libraryId, a, b))
-    elseif libraryId == numbers.LIB_FOR_LIMIT then
+    elseif libraryId == librarycalls.FOR_LIMIT then
         slots.writeValue(frame, regs, dst, numbers.forlimit(ctx, a))
-    elseif libraryId == numbers.LIB_TONUMBER_BASE then
+    elseif libraryId == librarycalls.TONUMBER_BASE then
         slots.writeValue(frame, regs, dst, numbers.tonumberbase(ctx, a, b))
-    elseif libraryId == basics.LIB_ALLOCBYTES then
+    elseif libraryId == librarycalls.STORAGE_ALLOCBYTES then
         slots.writeValue(frame, regs, dst, basics.allocate(ctx, values.TAG_INTEGER | corestorage.UINT8, a))
-    elseif libraryId == basics.LIB_ALLOCATE then
+    elseif libraryId == librarycalls.STORAGE_ALLOCATE then
         slots.writeValue(frame, regs, dst, basics.allocate(ctx, a, b))
-    elseif libraryId == basics.LIB_NEWARRAY then
+    elseif libraryId == librarycalls.TABLE_NEWARRAY then
         slots.writeValue(
             frame,
             regs,
             dst,
             values.TAG_OBJ | guestscope.newpacked(ctx, a & values.PAYLOAD, b & values.PAYLOAD)
         )
-    elseif libraryId == basics.LIB_PACKEDKIND then
+    elseif libraryId == librarycalls.TABLE_PACKEDKIND then
         local packed: uint64 = 0ULL
         if tableHeader(a) ~= 0ULL then
             packed = tables.packedkind(tableHeader(a))
         end
         slots.writeValue(frame, regs, dst, values.TAG_INTEGER | packed)
-    elseif libraryId == basics.LIB_CLEANUPSET then
+    elseif libraryId == librarycalls.CLEANUP_SET then
         slots.writeValue(frame, regs, dst, basics.cleanupset(ctx, a, b))
-    elseif libraryId == basics.LIB_CLEANUPGET then
+    elseif libraryId == librarycalls.CLEANUP_GET then
         slots.writeValue(frame, regs, dst, basics.cleanupget(ctx, a))
-    elseif libraryId == basics.LIB_PROTECTEDCOUNT then
+    elseif libraryId == librarycalls.PROTECTED_COUNT then
         slots.writeValue(frame, regs, dst, basics.protectedcount(ctx, a, b))
-    elseif libraryId >= basics.LIB_VIEW and libraryId <= basics.LIB_CAST then
-        slots.writeValue(frame, regs, dst, basics.storagecall(ctx, libraryId, native.word(count), a, b, c, d))
-    elseif libraryId == basics.LIB_NEXT or libraryId == basics.LIB_NEXT_ALL then
-        guestscope.nameLibrary(ctx, texts.NAME_NEXT)
+    elseif libraryId >= librarycalls.VIEWS_FIRST and libraryId <= librarycalls.VIEWS_LAST then
+        slots.writeValue(frame, regs, dst, basics.storagecall(ctx, libraryId, count, a, b, c, d))
+    elseif libraryId == librarycalls.NEXT or libraryId == librarycalls.NEXT_ALL then
+        guestscope.nameLibrary(ctx, librarytexts.NAME_NEXT)
         local after = values.NIL
-        if count >= 2 then
+        if count >= 2ULL then
             after = b
         end
-        slots.writeValue(frame, regs, dst, basics.rawnext(ctx, a, after, libraryId == basics.LIB_NEXT_ALL))
-    elseif libraryId == modules.LIB_NAMES then
+        slots.writeValue(frame, regs, dst, basics.rawnext(ctx, a, after, libraryId == librarycalls.NEXT_ALL))
+    elseif libraryId == librarycalls.MODULE_NAMES then
         modules.register(ctx, a)
         slots.writeValue(frame, regs, dst, values.NIL)
-    elseif libraryId == modules.LIB_PUBLISH then
+    elseif libraryId == librarycalls.MODULE_PUBLISH then
         modules.store(ctx, native.load64(frame, native.fieldOffset<frames.Frame>("functionId")), a)
         slots.writeValue(frame, regs, dst, a)
     else
         -- The table library over a table with a metatable runs in replay
         -- (guestscope.replaybegin): a function __index, __newindex or __len
         -- it reaches is called here, and the call runs again once it answers.
-        local replay: uint64 = 0ULL
+        local replay = guestscope.REPLAY_NONE
         if guestlib.replays(libraryId) then
             replay = guestscope.replaybegin(
                 ctx,
@@ -1783,21 +1789,21 @@ export function LibCall(
         end
         -- Run again, its arguments are its entry's: the metamethod's staging
         -- overwrote the frame's.
-        if replay == 2ULL then
+        if replay == guestscope.REPLAY_START then
             guestscope.replaykeep(ctx, a, b, c, d)
             guestscope.replaysave(ctx, guestlib.stepstate(ctx, libraryId, a))
             guestlib.copystate(ctx, libraryId, a, guestscope.replaysaved(ctx))
-        elseif replay == 1ULL then
+        elseif replay == guestscope.REPLAY_AGAIN then
             a = guestscope.replayarg(ctx, 0ULL)
             b = guestscope.replayarg(ctx, 1ULL)
             c = guestscope.replayarg(ctx, 2ULL)
             d = guestscope.replayarg(ctx, 3ULL)
             guestlib.copystate(ctx, libraryId, guestscope.replaysaved(ctx), a)
         end
-        local result = guestlib.call(ctx, libraryId, native.word(count), a, b, c, d)
+        local result = guestlib.call(ctx, libraryId, count, a, b, c, d)
         guestscope.libraryReturned(ctx)
         local kind: uint64 = 0ULL
-        if replay ~= 0ULL then
+        if replay ~= guestscope.REPLAY_NONE then
             kind = guestscope.replayend(ctx)
         end
         if kind ~= 0ULL then

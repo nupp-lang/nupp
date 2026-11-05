@@ -27,6 +27,8 @@ const texts = require("nupp.runtime.core.guesttexts")
 const tables = require("nupp.runtime.core.coretables")
 const ints = require("nupp.runtime.core.coreintegers")
 const stacks = require("nupp.runtime.core.stacks")
+const librarycalls = require("nupp.runtime.core.librarycalls")
+const librarytexts = require("nupp.runtime.core.librarytexts")
 
 -- The body: heap.ThreadBody's words first, then the control only this
 -- module reads.
@@ -78,17 +80,6 @@ export const MODE_CLOSE: uint64 = 4ULL
 -- What resume answers: the thread runs; it cannot, and the resumer has its
 -- reason; it cannot, and its reason is raised; the frames are not as
 -- expected.
--- The coroutine library's LibCall ids. Resume and yield switch threads,
--- which the LibCall handler does itself; the rest are `call`'s.
-export const LIB_CREATE: uint64 = 75ULL
-export const LIB_RESUME: uint64 = 76ULL
-export const LIB_YIELD: uint64 = 77ULL
-export const LIB_STATUS: uint64 = 78ULL
-export const LIB_WRAP: uint64 = 79ULL
-export const LIB_RUNNING: uint64 = 80ULL
-export const LIB_ISYIELDABLE: uint64 = 81ULL
-export const LIB_CLOSE: uint64 = 82ULL
-
 export const SWITCHED: uint64 = 1ULL
 export const REFUSED: uint64 = 2ULL
 export const RAISED: uint64 = 3ULL
@@ -184,7 +175,7 @@ end
 -- coroutine.create(f).
 export function create(ctx: voidptr, fn: uint64): uint64
     if target(fn) == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_FUNCTION, 0ULL, fn)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_FUNCTION, 0ULL, fn)
     end
 
     return newthread(ctx, fn, FRESH)
@@ -194,7 +185,7 @@ end
 -- whose second holds the thread; calling it resumes the thread.
 export function wrap(ctx: voidptr, fn: uint64): uint64
     if target(fn) == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_FUNCTION, 0ULL, fn)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_FUNCTION, 0ULL, fn)
     end
     @unsafe do
         local h = native.pointer(heapof(ctx)) as heap.Heap*
@@ -293,20 +284,20 @@ end
 export function status(ctx: voidptr, value: uint64): uint64
     local t = bodyof(value)
     if t == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_COROUTINE, 0ULL, value)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_COROUTINE, 0ULL, value)
     end
     local state = native.load64(native.pointer(t), native.fieldOffset<Thread>("status"))
-    local text = texts.TEXT_DEAD
+    local text = librarytexts.TEXT_DEAD
     if state == FRESH or state == SUSPENDED then
-        text = texts.TEXT_SUSPENDED
+        text = librarytexts.TEXT_SUSPENDED
     elseif state == RUNNING then
-        text = texts.TEXT_RUNNING
+        text = librarytexts.TEXT_RUNNING
     elseif state == NORMAL then
-        text = texts.TEXT_NORMAL
+        text = librarytexts.TEXT_NORMAL
     elseif state == MAIN then
-        text = texts.TEXT_NORMAL
+        text = librarytexts.TEXT_NORMAL
         if running(ctx) == 0ULL then
-            text = texts.TEXT_RUNNING
+            text = librarytexts.TEXT_RUNNING
         end
     end
 
@@ -571,14 +562,14 @@ export function resume(
     local truth = (where >> 62ULL) & 1ULL
     local t = bodyof(value)
     if t == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_COROUTINE, 0ULL, value)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_COROUTINE, 0ULL, value)
     end
     local body = native.pointer(t)
     local state = native.load64(body, native.fieldOffset<Thread>("status"))
     if state ~= FRESH and state ~= SUSPENDED then
-        local text = texts.TEXT_RESUME_ACTIVE
+        local text = librarytexts.TEXT_RESUME_ACTIVE
         if state == DEAD then
-            text = texts.TEXT_RESUME_DEAD
+            text = librarytexts.TEXT_RESUME_DEAD
         end
         local reason = texts.textvalue(ctx, text)
         if mode ~= MODE_CALL then
@@ -617,13 +608,13 @@ end
 export function yield(ctx: voidptr, frame: voidptr, pc: voidptr, slot: uint64, args: uint64): uint64
     local thread = running(ctx)
     if thread == 0ULL then
-        guestscope.raise(ctx, texts.textvalue(ctx, texts.TEXT_YIELD_OUTSIDE), 0ULL)
+        guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_YIELD_OUTSIDE), 0ULL)
         return 0ULL
     end
     -- A metamethod a library call waits on cannot yield, as one a C
     -- function calls cannot in Lua.
     if guestscope.crossing(ctx) then
-        guestscope.raise(ctx, texts.textvalue(ctx, texts.TEXT_YIELD_ACROSS), 0ULL)
+        guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_YIELD_ACROSS), 0ULL)
         return 0ULL
     end
     local t = native.pointer(bodyof(thread))
@@ -768,37 +759,16 @@ export function recover(ctx: voidptr): uint64
     return at
 end
 
--- The name a coroutine library call's errors give it.
-export function libraryname(id: uint64): uint64
-    if id == LIB_CREATE then
-        return texts.NAME_CREATE
-    elseif id == LIB_RESUME then
-        return texts.NAME_RESUME
-    elseif id == LIB_YIELD then
-        return texts.NAME_YIELD
-    elseif id == LIB_STATUS then
-        return texts.NAME_STATUS
-    elseif id == LIB_WRAP then
-        return texts.NAME_WRAP
-    elseif id == LIB_RUNNING then
-        return texts.TEXT_RUNNING
-    elseif id == LIB_CLOSE then
-        return texts.NAME_CLOSE
-    end
-
-    return texts.NAME_ISYIELDABLE
-end
-
 -- The coroutine library calls that switch nothing: create, status, wrap,
 -- running (a pack) and isyieldable, with their one argument `a`.
 export function call(ctx: voidptr, id: uint64, a: uint64): uint64
-    if id == LIB_CREATE then
+    if id == librarycalls.COROUTINE_CREATE then
         return create(ctx, a)
-    elseif id == LIB_STATUS then
+    elseif id == librarycalls.COROUTINE_STATUS then
         return status(ctx, a)
-    elseif id == LIB_WRAP then
+    elseif id == librarycalls.COROUTINE_WRAP then
         return wrap(ctx, a)
-    elseif id == LIB_RUNNING then
+    elseif id == librarycalls.COROUTINE_RUNNING then
         return current(ctx)
     end
 
@@ -814,14 +784,14 @@ end
 export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, slot: uint64): uint64
     local t = bodyof(value)
     if t == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_COROUTINE, 0ULL, value)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_COROUTINE, 0ULL, value)
     end
     local body = native.pointer(t)
     local state = native.load64(body, native.fieldOffset<Thread>("status"))
     if state == MAIN and running(ctx) == 0ULL then
-        texts.libraryError(ctx, texts.TEXT_CLOSE_MAIN)
+        texts.libraryError(ctx, librarytexts.TEXT_CLOSE_MAIN)
     elseif state == NORMAL or state == MAIN then
-        texts.libraryError(ctx, texts.TEXT_CLOSE_NORMAL)
+        texts.libraryError(ctx, librarytexts.TEXT_CLOSE_NORMAL)
     elseif state == RUNNING then
         local scope = services(ctx)
         native.store64(scope, native.fieldOffset<guestscope.Services>("closing"), 1ULL)

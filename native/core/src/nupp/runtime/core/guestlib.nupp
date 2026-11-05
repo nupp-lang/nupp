@@ -16,101 +16,8 @@ const guestscope = require("nupp.runtime.core.guestscope")
 const texts = require("nupp.runtime.core.guesttexts")
 const ints = require("nupp.runtime.core.coreintegers")
 const os = require("nupp.runtime.vm.os")
-
-export const TOSTRING: uint64 = 1ULL
-export const FORMAT: uint64 = 2ULL
-export const CONCAT: uint64 = 3ULL
-export const GMATCH_NEXT: uint64 = 4ULL
-export const CONCAT2: uint64 = 5ULL
-export const DIVIDE: uint64 = 6ULL
-export const FLOOR_DIVIDE: uint64 = 7ULL
-export const NEXT_STEP: uint64 = 8ULL
-export const TONUMBER: uint64 = 9ULL
-export const GETENV: uint64 = 10ULL
-export const SUB: uint64 = 11ULL
-export const BYTE: uint64 = 12ULL
-export const CHAR: uint64 = 13ULL
-export const REP: uint64 = 14ULL
-export const UPPER: uint64 = 15ULL
-export const LOWER: uint64 = 16ULL
-export const LEN: uint64 = 17ULL
-export const FIND: uint64 = 18ULL
-export const MATCH: uint64 = 19ULL
-export const SELECT: uint64 = 20ULL
-export const PACK_COPY: uint64 = 21ULL
-export const ERROR: uint64 = 22ULL
--- The pack-answering forms, for a call whose every result is wanted: each
--- answers a variadic pack {[0] = n, ...} the compiler reads in order.
-export const FIND_ALL: uint64 = 23ULL
-export const MATCH_ALL: uint64 = 24ULL
-export const BYTE_ALL: uint64 = 25ULL
-export const GSUB: uint64 = 26ULL
-export const GSUB_ALL: uint64 = 27ULL
-export const SETMETATABLE: uint64 = 28ULL
-export const GETMETATABLE: uint64 = 29ULL
-export const RAWGET: uint64 = 30ULL
-export const RAWSET: uint64 = 31ULL
-export const TYPE: uint64 = 32ULL
--- Unary minus of an operand not known to be a number (its __unm first).
-export const UNM: uint64 = 33ULL
-export const TABLE_INSERT: uint64 = 34ULL
-export const TABLE_REMOVE: uint64 = 35ULL
-export const TABLE_UNPACK: uint64 = 36ULL
-export const TABLE_UNPACK_ALL: uint64 = 37ULL
-export const MATH_ABS: uint64 = 38ULL
-export const MATH_CEIL: uint64 = 39ULL
-export const MATH_MAX: uint64 = 40ULL
-export const MATH_MIN: uint64 = 41ULL
-export const MATH_TOINTEGER: uint64 = 42ULL
-export const MATH_TYPE: uint64 = 43ULL
-export const MATH_SQRT: uint64 = 44ULL
--- After a call in a function that owns affine values: false when an error
--- landed there.
-export const LANDED: uint64 = 45ULL
--- The landed error raised again, as it was, once the owners are destroyed.
-export const RERAISE: uint64 = 46ULL
--- table.sort(t) by `<`; with a comparator, its state and its step.
-export const TABLE_SORT: uint64 = 47ULL
-export const SORT_BEGIN: uint64 = 48ULL
-export const SORT_STEP: uint64 = 49ULL
--- string.gsub with a function replacement: its state, its step, and the
--- finished string alone or in a pack with the count.
-export const GSUB_BEGIN: uint64 = 50ULL
-export const GSUB_STEP: uint64 = 51ULL
-export const GSUB_FINISH: uint64 = 52ULL
-export const GSUB_FINISH_ALL: uint64 = 53ULL
--- string.format with more values than a library call carries: the format
--- and a pack of the values.
-export const FORMAT_PACK: uint64 = 54ULL
--- print(...), its values in a pack.
-export const PRINT: uint64 = 55ULL
--- a ^ b, and the math library functions C's math library answers.
-export const POW: uint64 = 56ULL
-export const MATH_EXP: uint64 = 57ULL
-export const MATH_LOG: uint64 = 58ULL
-export const MATH_SIN: uint64 = 59ULL
-export const MATH_COS: uint64 = 60ULL
-export const MATH_TAN: uint64 = 61ULL
-export const MATH_ASIN: uint64 = 62ULL
-export const MATH_ACOS: uint64 = 63ULL
-export const MATH_ATAN: uint64 = 64ULL
-export const MATH_FMOD: uint64 = 65ULL
-export const REVERSE: uint64 = 66ULL
--- table.move(a1, f, e, t), and with a destination a2 its arguments packed.
-export const TABLE_MOVE: uint64 = 67ULL
-export const TABLE_MOVE_PACK: uint64 = 68ULL
--- math.random and math.randomseed with arguments, and with none.
-export const MATH_RANDOM: uint64 = 69ULL
-export const MATH_RANDOMSEED: uint64 = 70ULL
-export const MATH_RANDOM_FLOAT: uint64 = 71ULL
-export const MATH_RANDOMSEED_HOST: uint64 = 72ULL
--- A named vararg: the pack of extra arguments as a table with `n`.
-export const NAMED_PACK: uint64 = 73ULL
--- A table constructor's tail: a pack's values stored from a position.
-export const PACK_APPEND: uint64 = 74ULL
--- table.freeze(t) and table.isfrozen(t), from Luau (runtime Decision 16).
-export const TABLE_FREEZE: uint64 = 114ULL
-export const TABLE_ISFROZEN: uint64 = 115ULL
+const librarycalls = require("nupp.runtime.core.librarycalls")
+const librarytexts = require("nupp.runtime.core.librarytexts")
 
 local function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -191,111 +98,6 @@ local function tostring(ctx: voidptr, value: uint64): uint64
     end
 end
 
--- The name of the library function call `id` stands for, or 0.
-local function libraryName(id: uint64): uint64
-    if id == TOSTRING then
-        return texts.NAME_TOSTRING
-    elseif id == FORMAT or id == FORMAT_PACK then
-        return texts.NAME_FORMAT
-    elseif id == CONCAT then
-        return texts.NAME_CONCAT
-    elseif id == GMATCH_NEXT then
-        return texts.NAME_GMATCH
-    elseif id == NEXT_STEP then
-        return texts.NAME_NEXT
-    elseif id == TONUMBER then
-        return texts.NAME_TONUMBER
-    elseif id == GETENV then
-        return texts.NAME_GETENV
-    elseif id == SUB then
-        return texts.NAME_SUB
-    elseif id == BYTE or id == BYTE_ALL then
-        return texts.NAME_BYTE
-    elseif id == CHAR then
-        return texts.NAME_CHAR
-    elseif id == REP then
-        return texts.NAME_REP
-    elseif id == UPPER then
-        return texts.NAME_UPPER
-    elseif id == LOWER then
-        return texts.NAME_LOWER
-    elseif id == LEN then
-        return texts.NAME_LEN
-    elseif id == FIND or id == FIND_ALL then
-        return texts.NAME_FIND
-    elseif id == MATCH or id == MATCH_ALL then
-        return texts.NAME_MATCH
-    elseif id == SELECT then
-        return texts.NAME_SELECT
-    elseif id == GSUB or id == GSUB_ALL or id >= GSUB_BEGIN and id <= GSUB_FINISH_ALL then
-        return texts.NAME_GSUB
-    elseif id == SETMETATABLE then
-        return texts.NAME_SETMETATABLE
-    elseif id == GETMETATABLE then
-        return texts.NAME_GETMETATABLE
-    elseif id == RAWGET then
-        return texts.NAME_RAWGET
-    elseif id == RAWSET then
-        return texts.NAME_RAWSET
-    elseif id == TYPE or id == MATH_TYPE then
-        return texts.NAME_TYPE
-    elseif id == TABLE_INSERT then
-        return texts.NAME_INSERT
-    elseif id == TABLE_REMOVE then
-        return texts.NAME_REMOVE
-    elseif id == TABLE_UNPACK or id == TABLE_UNPACK_ALL then
-        return texts.NAME_UNPACK
-    elseif id == MATH_ABS then
-        return texts.NAME_ABS
-    elseif id == MATH_CEIL then
-        return texts.NAME_CEIL
-    elseif id == MATH_MAX then
-        return texts.NAME_MAX
-    elseif id == MATH_MIN then
-        return texts.NAME_MIN
-    elseif id == MATH_TOINTEGER then
-        return texts.NAME_TOINTEGER
-    elseif id == MATH_SQRT then
-        return texts.NAME_SQRT
-    elseif id >= TABLE_SORT and id <= SORT_STEP then
-        return texts.NAME_SORT
-    elseif id == PRINT then
-        return texts.NAME_PRINT
-    elseif id == MATH_EXP then
-        return texts.NAME_EXP
-    elseif id == MATH_LOG then
-        return texts.NAME_LOG
-    elseif id == MATH_SIN then
-        return texts.NAME_SIN
-    elseif id == MATH_COS then
-        return texts.NAME_COS
-    elseif id == MATH_TAN then
-        return texts.NAME_TAN
-    elseif id == MATH_ASIN then
-        return texts.NAME_ASIN
-    elseif id == MATH_ACOS then
-        return texts.NAME_ACOS
-    elseif id == MATH_ATAN then
-        return texts.NAME_ATAN
-    elseif id == MATH_FMOD then
-        return texts.NAME_FMOD
-    elseif id == REVERSE then
-        return texts.NAME_REVERSE
-    elseif id == TABLE_MOVE or id == TABLE_MOVE_PACK then
-        return texts.NAME_MOVE
-    elseif id == MATH_RANDOM or id == MATH_RANDOM_FLOAT then
-        return texts.NAME_RANDOM
-    elseif id == MATH_RANDOMSEED or id == MATH_RANDOMSEED_HOST then
-        return texts.NAME_RANDOMSEED
-    elseif id == TABLE_FREEZE then
-        return texts.NAME_FREEZE
-    elseif id == TABLE_ISFROZEN then
-        return texts.NAME_ISFROZEN
-    end
-
-    return 0ULL
-end
-
 -- An integer argument as Lua reads one: an integer, or a float with an exact
 -- integer value; `absent` when the argument is nil.
 export function integerArgument(ctx: voidptr, value: uint64, absent: int64, position: uint64): int64
@@ -309,9 +111,9 @@ export function integerArgument(ctx: voidptr, value: uint64, absent: int64, posi
         return native.index(ints.floatToBits(value))
     end
     if value & values.QNAN ~= values.QNAN then
-        texts.argumentError(ctx, position, 0ULL, texts.TEXT_NO_INTEGER, value)
+        texts.argumentError(ctx, position, 0ULL, librarytexts.TEXT_NO_INTEGER, value)
     end
-    texts.argumentError(ctx, position, texts.TEXT_NUMBER, 0ULL, value)
+    texts.argumentError(ctx, position, librarytexts.TEXT_NUMBER, 0ULL, value)
 
     return absent
 end
@@ -426,7 +228,7 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
         local h = guestHeap(ctx)
         local f = strings.header(fmt)
         if f == 0ULL then
-            texts.argumentError(ctx, 1ULL, texts.TEXT_STRING, 0ULL, fmt)
+            texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, fmt)
         end
         local builder = state as strings.Builder*
         local piece = pieceState as strings.Builder*
@@ -497,7 +299,7 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                 if next >= count then
                     strings.release(builder)
                     strings.release(piece)
-                    texts.argumentError(ctx, next + 1ULL, 0ULL, texts.TEXT_NO_VALUE, values.NIL)
+                    texts.argumentError(ctx, next + 1ULL, 0ULL, librarytexts.TEXT_NO_VALUE, values.NIL)
                 end
                 local argument = a
                 if pack ~= 0ULL then
@@ -569,7 +371,7 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                     if bits == values.NIL then
                         strings.release(builder)
                         strings.release(piece)
-                        texts.argumentError(ctx, next, texts.TEXT_NUMBER, 0ULL, argument)
+                        texts.argumentError(ctx, next, librarytexts.TEXT_NUMBER, 0ULL, argument)
                     end
                     refused = refused | strings.appendWord(h, piece, 37ULL, 1ULL)
                     if left then
@@ -630,7 +432,7 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                     if left or plus or space or alternate or zero or width > 0ULL or precise then
                         strings.release(builder)
                         strings.release(piece)
-                        texts.libraryError(ctx, texts.TEXT_Q_MODIFIERS)
+                        texts.libraryError(ctx, librarytexts.TEXT_Q_MODIFIERS)
                     end
                     numeric = false
                     local quoted = strings.header(argument)
@@ -678,7 +480,7 @@ local function format(ctx: voidptr, count: uint64, fmt: uint64, a: uint64, b: ui
                     else
                         strings.release(builder)
                         strings.release(piece)
-                        texts.argumentError(ctx, next, 0ULL, texts.TEXT_NO_LITERAL, argument)
+                        texts.argumentError(ctx, next, 0ULL, librarytexts.TEXT_NO_LITERAL, argument)
                     end
                 else
                     -- Any other directive, as Lua refuses it.
@@ -723,17 +525,21 @@ end
 
 -- The table library calls that run in replay (guestscope.replaybegin).
 export function replays(id: uint64): boolean
-    return id == CONCAT
-        or id == TABLE_INSERT
-        or id == TABLE_REMOVE
-        or id == TABLE_UNPACK
-        or id == TABLE_UNPACK_ALL
-        or id == TABLE_MOVE
-        or id == TABLE_MOVE_PACK
-        or id == TABLE_SORT
-        or id == SORT_BEGIN
-        or id == SORT_STEP
+    return id == librarycalls.TABLE_CONCAT
+        or id == librarycalls.TABLE_INSERT
+        or id == librarycalls.TABLE_REMOVE
+        or id == librarycalls.TABLE_UNPACK
+        or id == librarycalls.TABLE_UNPACK_ALL
+        or id == librarycalls.TABLE_MOVE
+        or id == librarycalls.TABLE_MOVE_PACK
+        or id == librarycalls.TABLE_SORT
+        or id == librarycalls.TABLE_SORT_BEGIN
+        or id == librarycalls.TABLE_SORT_STEP
 end
+
+-- table.move's arguments past its first, packed: the destination is the
+-- fourth of them.
+const MOVE_DESTINATION: uint64 = 4ULL
 
 -- Whether a table library call `id` with arguments a and b reaches a table
 -- with a metatable: its list, or table.move's destination.
@@ -743,12 +549,12 @@ export function reachesmeta(id: uint64, a: uint64, b: uint64): boolean
     end
     -- A comparator's step reaches the list its state holds.
     local state = guestscope.tableof(a)
-    if id == SORT_STEP and state ~= 0ULL then
-        return guestscope.metatabled(tables.get(state, values.TAG_INTEGER | 1ULL))
+    if id == librarycalls.TABLE_SORT_STEP and state ~= 0ULL then
+        return guestscope.metatabled(tables.get(state, values.TAG_INTEGER | native.word(librarycalls.SORT_LIST)))
     end
     local pack = guestscope.tableof(b)
-    if id == TABLE_MOVE_PACK and pack ~= 0ULL then
-        return guestscope.metatabled(tables.get(pack, values.TAG_INTEGER | 4ULL))
+    if id == librarycalls.TABLE_MOVE_PACK and pack ~= 0ULL then
+        return guestscope.metatabled(tables.get(pack, values.TAG_INTEGER | MOVE_DESTINATION))
     end
 
     return false
@@ -768,7 +574,7 @@ local function lengthof(ctx: voidptr, t: uint64): int64
     if value & values.QNAN ~= values.QNAN and ints.integralFloat(value) then
         return native.index(ints.floatToBits(value))
     end
-    texts.libraryError(ctx, texts.TEXT_LENGTH_INTEGER)
+    texts.libraryError(ctx, librarytexts.TEXT_LENGTH_INTEGER)
 
     return 0
 end
@@ -779,7 +585,7 @@ local function concat(ctx: voidptr, count: uint64, list: uint64, separator: uint
     @unsafe do
         local h = guestHeap(ctx)
         if list & values.TAG_MASK ~= values.TAG_OBJ then
-            texts.argumentError(ctx, 1ULL, texts.TEXT_TABLE, 0ULL, list)
+            texts.argumentError(ctx, 1ULL, librarytexts.TEXT_TABLE, 0ULL, list)
         end
         local t = list & values.PAYLOAD
         -- Lua takes the length first, whether or not j is given.
@@ -791,7 +597,7 @@ local function concat(ctx: voidptr, count: uint64, list: uint64, separator: uint
         if count >= 2ULL and separator ~= values.NIL then
             sep = strings.header(separator)
             if sep == 0ULL then
-                texts.argumentError(ctx, 2ULL, texts.TEXT_STRING, 0ULL, separator)
+                texts.argumentError(ctx, 2ULL, librarytexts.TEXT_STRING, 0ULL, separator)
             end
         end
         local builder = state as strings.Builder*
@@ -826,13 +632,13 @@ local function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
     @unsafe do
         local h = guestHeap(ctx)
         local state = stateValue & values.PAYLOAD
-        local s = strings.header(tables.get(state, values.TAG_INTEGER | 1ULL))
-        local p = strings.header(tables.get(state, values.TAG_INTEGER | 2ULL))
+        local s = strings.header(tables.get(state, values.TAG_INTEGER | librarycalls.GMATCH_SUBJECT))
+        local p = strings.header(tables.get(state, values.TAG_INTEGER | librarycalls.GMATCH_PATTERN))
         if s == 0ULL or p == 0ULL then
             error("bad argument to 'gmatch' (string expected)")
         end
-        local src = native.word(integerValue(tables.get(state, values.TAG_INTEGER | 3ULL)))
-        local last = tables.get(state, values.TAG_INTEGER | 4ULL)
+        local src = native.word(integerValue(tables.get(state, values.TAG_INTEGER | librarycalls.GMATCH_SOURCE)))
+        local last = tables.get(state, values.TAG_INTEGER | librarycalls.GMATCH_LAST)
         local ms = ms0 as patterns.MatchState*
         local subject = strings.bytes(s)
         local pattern = strings.bytes(p)
@@ -846,11 +652,11 @@ local function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
         while at <= finish do
             local e = patterns.match(h, ms, at, pattern)
             if e ~= 0ULL and (last == values.NIL or e ~= subject + native.word(integerValue(last))) then
-                tables.set(h, state, values.TAG_INTEGER | 3ULL, values.TAG_INTEGER | (e - subject))
-                tables.set(h, state, values.TAG_INTEGER | 4ULL, values.TAG_INTEGER | (e - subject))
+                tables.set(h, state, values.TAG_INTEGER | librarycalls.GMATCH_SOURCE, values.TAG_INTEGER | (e - subject))
+                tables.set(h, state, values.TAG_INTEGER | librarycalls.GMATCH_LAST, values.TAG_INTEGER | (e - subject))
                 local captures = patterns.level(ms)
                 if captures == 0ULL then
-                    tables.set(h, state, values.TAG_INTEGER | 5ULL, values.TAG_OBJ | strings.make(h, at, e - at))
+                    tables.set(h, state, values.TAG_INTEGER | librarycalls.GMATCH_CAPTURES, values.TAG_OBJ | strings.make(h, at, e - at))
                 end
                 local i: uint64 = 0ULL
                 while i < captures do
@@ -860,7 +666,7 @@ local function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
                     if size ~= patterns.POSITION then
                         value = values.TAG_OBJ | strings.make(h, start, size)
                     end
-                    tables.set(h, state, values.TAG_INTEGER | (5ULL + i), value)
+                    tables.set(h, state, values.TAG_INTEGER | (librarycalls.GMATCH_CAPTURES + i), value)
                     i = i + 1ULL
                 end
                 answer = values.TRUE
@@ -870,7 +676,7 @@ local function gmatchNext(ctx: voidptr, stateValue: uint64): uint64
         end
         patterns.release(ms)
         if answer == values.FALSE then
-            tables.set(h, state, values.TAG_INTEGER | 3ULL, values.TAG_INTEGER | (strings.length(s) + 1ULL))
+            tables.set(h, state, values.TAG_INTEGER | librarycalls.GMATCH_SOURCE, values.TAG_INTEGER | (strings.length(s) + 1ULL))
         end
 
         return answer
@@ -916,7 +722,7 @@ end
 -- The number a math function takes, raising as Lua does for anything else.
 export function numberArgument(ctx: voidptr, value: uint64, position: uint64): uint64
     if not ints.isInteger(value) and not isFloat(value) then
-        texts.argumentError(ctx, position, texts.TEXT_NUMBER, 0ULL, value)
+        texts.argumentError(ctx, position, librarytexts.TEXT_NUMBER, 0ULL, value)
     end
 
     return value
@@ -985,7 +791,7 @@ local function mathExtreme(
     largest: boolean
 ): uint64
     if count == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_NUMBER, 0ULL, values.NIL)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_NUMBER, 0ULL, values.NIL)
     end
     local best = numberArgument(ctx, a, 1ULL)
     local i: uint64 = 2ULL
@@ -1049,7 +855,7 @@ local function floorDivide(ctx: voidptr, a: uint64, b: uint64): uint64
         local x = native.index(ints.bitsOf(a))
         local y = native.index(ints.bitsOf(b))
         if y == 0 then
-            texts.libraryError(ctx, texts.TEXT_IDIV_ZERO)
+            texts.libraryError(ctx, librarytexts.TEXT_IDIV_ZERO)
         end
         if y == -1 then
             return guestscope.integer(ctx, 0ULL - native.word(x))
@@ -1071,24 +877,24 @@ local function nextStep(ctx: voidptr, stateValue: uint64): uint64
     @unsafe do
         local h = guestHeap(ctx)
         local state = stateValue & values.PAYLOAD
-        local subject = tables.get(state, values.TAG_INTEGER | 1ULL)
+        local subject = tables.get(state, values.TAG_INTEGER | librarycalls.PAIRS_TABLE)
         if subject & values.TAG_MASK ~= values.TAG_OBJ then
             error("bad argument #1 to 'for iterator' (table expected)")
         end
         local t = subject & values.PAYLOAD
         -- A record instance's fields go by name (guestscope.slotname).
-        local after = guestscope.slotkey(ctx, t, tables.get(state, values.TAG_INTEGER | 2ULL))
+        local after = guestscope.slotkey(ctx, t, tables.get(state, values.TAG_INTEGER | librarycalls.PAIRS_AFTER))
         local key = tables.nextKey(t, after)
         if key == values.TRUE then
-            texts.libraryError(ctx, texts.TEXT_NEXT_KEY)
+            texts.libraryError(ctx, librarytexts.TEXT_NEXT_KEY)
         end
         if key == values.NIL then
             return values.FALSE
         end
         local name = guestscope.slotname(ctx, t, key)
-        tables.set(h, state, values.TAG_INTEGER | 2ULL, name)
-        tables.set(h, state, values.TAG_INTEGER | 3ULL, name)
-        tables.set(h, state, values.TAG_INTEGER | 4ULL, tables.get(t, key))
+        tables.set(h, state, values.TAG_INTEGER | librarycalls.PAIRS_AFTER, name)
+        tables.set(h, state, values.TAG_INTEGER | librarycalls.PAIRS_KEY, name)
+        tables.set(h, state, values.TAG_INTEGER | librarycalls.PAIRS_VALUE, tables.get(t, key))
         return values.TRUE
     end
 end
@@ -1121,7 +927,7 @@ export function tonumber(ctx: voidptr, value: uint64): uint64
     local s = strings.header(value)
     if s == 0ULL then
         if value == values.NIL then
-            texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_VALUE_EXPECTED, values.NIL)
+            texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_VALUE_EXPECTED, values.NIL)
         end
         return values.NIL
     end
@@ -1211,7 +1017,7 @@ local function getenv(ctx: voidptr, name: uint64): uint64
     local state = new strings.Builder(0ULL, 0ULL, 0ULL)
     local s = strings.header(name)
     if s == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_STRING, 0ULL, name)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, name)
     end
     @unsafe do
         local h = guestHeap(ctx)
@@ -1258,7 +1064,7 @@ local function stringArgument(ctx: voidptr, value: uint64, position: uint64): ui
         s = strings.header(tostring(ctx, value))
     end
     if s == 0ULL then
-        texts.argumentError(ctx, position, texts.TEXT_STRING, 0ULL, value)
+        texts.argumentError(ctx, position, librarytexts.TEXT_STRING, 0ULL, value)
     end
 
     return s
@@ -1369,7 +1175,7 @@ local function char(ctx: voidptr, a: uint64): uint64
     @unsafe do
         local n = integerArgument(ctx, a, -1, 1ULL)
         if n < 0 or n > 255 then
-            texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_VALUE_RANGE, a)
+            texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_VALUE_RANGE, a)
         end
         local h = guestHeap(ctx)
         local builder = state as strings.Builder*
@@ -1399,7 +1205,7 @@ local function rep(ctx: voidptr, value: uint64, a: uint64, separator: uint64): u
             each = each + strings.length(sep)
         end
         if n > 0 and (native.word(n) > 0x40000000ULL or native.word(n) * each > 0x40000000ULL) then
-            texts.libraryError(ctx, texts.TEXT_TOO_LARGE)
+            texts.libraryError(ctx, librarytexts.TEXT_TOO_LARGE)
         end
         local i: int64 = 0
         while i < n do
@@ -1633,14 +1439,14 @@ local function replacementCapture(
     local h = guestHeap(ctx)
     if l >= patterns.level(ms) then
         if l ~= 0ULL then
-            texts.indexedError(ctx, texts.TEXT_CAPTURE_INDEX, native.index(l + 1ULL), 0ULL)
+            texts.indexedError(ctx, librarytexts.TEXT_CAPTURE_INDEX, native.index(l + 1ULL), 0ULL)
         end
         @unsafe do
             return values.TAG_OBJ | strings.make(h, at, e - at)
         end
     end
     if patterns.captureSize(ms, l) == patterns.UNFINISHED then
-        texts.libraryError(ctx, texts.TEXT_UNFINISHED)
+        texts.libraryError(ctx, librarytexts.TEXT_UNFINISHED)
     end
 
     return capture(h, ms, subject, l)
@@ -1701,7 +1507,7 @@ local function appendReplacement(
                         return 1ULL
                     end
                 else
-                    texts.libraryError(ctx, texts.TEXT_PERCENT_USE)
+                    texts.libraryError(ctx, librarytexts.TEXT_PERCENT_USE)
                 end
             end
             i = i + 1ULL
@@ -1735,7 +1541,7 @@ local function gsub(ctx: voidptr, value: uint64, pv: uint64, replValue: uint64, 
         elseif kind == heap.KIND_CLOSURE then
             error("gsub with a function replacement is not yet supported by the core")
         else
-            texts.argumentError(ctx, 3ULL, texts.TEXT_REPLACEMENT_KINDS, 0ULL, replValue)
+            texts.argumentError(ctx, 3ULL, librarytexts.TEXT_REPLACEMENT_KINDS, 0ULL, replValue)
         end
         local length = native.index(strings.length(s))
         local limit = integerArgument(ctx, maxValue, length + 1, 4ULL)
@@ -1794,7 +1600,7 @@ end
 -- The table a library argument names, raising as Lua does when it is not one.
 local function tableArgument(ctx: voidptr, value: uint64, position: uint64): uint64
     if objectKind(value) ~= heap.KIND_TABLE then
-        texts.argumentError(ctx, position, texts.TEXT_TABLE, 0ULL, value)
+        texts.argumentError(ctx, position, librarytexts.TEXT_TABLE, 0ULL, value)
     end
 
     return value & values.PAYLOAD
@@ -1823,10 +1629,10 @@ end
 local function tableFreeze(ctx: voidptr, list: uint64): uint64
     local t = tableArgument(ctx, list, 1ULL)
     if tables.frozen(t) then
-        texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_ALREADY_FROZEN, list)
+        texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_ALREADY_FROZEN, list)
     end
     if guestscope.metaField(ctx, t, guestscope.META_METATABLE) ~= values.NIL then
-        texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_PROTECTED_TABLE, list)
+        texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_PROTECTED_TABLE, list)
     end
     tables.freeze(guestHeap(ctx), t)
 
@@ -1860,7 +1666,7 @@ local function tableInsert(ctx: voidptr, count: uint64, list: uint64, a: uint64,
         end
         local pos = integerArgument(ctx, a, 0, 2ULL)
         if pos < 1 or pos > size + 1 then
-            texts.argumentError(ctx, 2ULL, 0ULL, texts.TEXT_OUT_OF_BOUNDS, a)
+            texts.argumentError(ctx, 2ULL, 0ULL, librarytexts.TEXT_OUT_OF_BOUNDS, a)
         end
         writable(ctx, t)
         local at = size + 1
@@ -1888,7 +1694,7 @@ local function tableRemove(ctx: voidptr, count: uint64, list: uint64, a: uint64)
         if count >= 2ULL then
             pos = integerArgument(ctx, a, size, 2ULL)
             if pos ~= size and (pos < 1 or pos > size + 1) then
-                texts.argumentError(ctx, 2ULL, 0ULL, texts.TEXT_OUT_OF_BOUNDS, a)
+                texts.argumentError(ctx, 2ULL, 0ULL, librarytexts.TEXT_OUT_OF_BOUNDS, a)
             end
         end
         writable(ctx, t)
@@ -1926,11 +1732,11 @@ local function tableMove(ctx: voidptr, source: uint64, fv: uint64, ev: uint64, t
         local t = integerArgument(ctx, tv, 0, 4ULL)
         if e >= f then
             if f <= 0 and e >= native.index(0x7fffffffffffffffULL) + f then
-                texts.argumentError(ctx, 3ULL, 0ULL, texts.TEXT_TOO_MANY_MOVE, ev)
+                texts.argumentError(ctx, 3ULL, 0ULL, librarytexts.TEXT_TOO_MANY_MOVE, ev)
             end
             local n = e - f + 1
             if t > native.index(0x7fffffffffffffffULL) - n + 1 then
-                texts.argumentError(ctx, 4ULL, 0ULL, texts.TEXT_WRAP, tv)
+                texts.argumentError(ctx, 4ULL, 0ULL, librarytexts.TEXT_WRAP, tv)
             end
             writable(ctx, a2)
             if t > e or t <= f or a1 ~= a2 then
@@ -1977,7 +1783,7 @@ local function tableUnpack(ctx: voidptr, list: uint64, a: uint64, b: uint64, all
             return packed(h, pack, 0ULL, values.NIL)
         end
         if j - i >= 1000000 then
-            texts.libraryError(ctx, texts.TEXT_UNPACK_MANY)
+            texts.libraryError(ctx, librarytexts.TEXT_UNPACK_MANY)
         end
         if pack == 0ULL then
             return guestscope.geti(ctx, t, i)
@@ -1991,25 +1797,15 @@ local function tableUnpack(ctx: voidptr, list: uint64, a: uint64, b: uint64, all
     end
 end
 
--- table.sort's state, a table keyed 1 to 15: the list and comparator, the
--- pair awaiting the comparator's answer and the answer, then where the merge
--- sort stands. PENDING is 1 while an answer is awaited and 2 once sorted.
-const SORT_LIST: int64 = 1
-const SORT_LESS: int64 = 2
-const SORT_A: int64 = 3
-const SORT_B: int64 = 4
-const SORT_ANSWER: int64 = 5
-const SORT_N: int64 = 6
-const SORT_WIDTH: int64 = 7
-const SORT_LO: int64 = 8
-const SORT_MID: int64 = 9
-const SORT_HI: int64 = 10
-const SORT_I: int64 = 11
-const SORT_J: int64 = 12
-const SORT_K: int64 = 13
-const SORT_BUFFER: int64 = 14
-const SORT_PENDING: int64 = 15
+-- Where a sort or a gsub with a function replacement stands (its state's
+-- PENDING): running, waiting for the function's answer, or finished.
+const RUNNING: int64 = 0
+const WAITING: int64 = 1
+const FINISHED: int64 = 2
 
+-- table.sort's state, a table keyed by the SORT layout (corelibrary): the
+-- list and comparator, the pair awaiting the comparator's answer and the
+-- answer, then where the merge sort stands.
 local function sortGet(st: uint64, key: int64): int64
     return native.index(loadAt(st, key) & values.PAYLOAD)
 end
@@ -2047,26 +1843,26 @@ end
 -- The merge of runs [lo, lo + width - 1] and [lo + width, hi], the second
 -- cut short by the list's end.
 local function sortAt(h: heap.Heap*, st: uint64, lo: int64, width: int64): nil
-    local n = sortGet(st, SORT_N)
+    local n = sortGet(st, librarycalls.SORT_N)
     local hi = lo + 2 * width - 1
     if hi > n then
         hi = n
     end
-    sortPut(h, st, SORT_WIDTH, width)
-    sortPut(h, st, SORT_LO, lo)
-    sortPut(h, st, SORT_MID, lo + width - 1)
-    sortPut(h, st, SORT_HI, hi)
-    sortPut(h, st, SORT_I, lo)
-    sortPut(h, st, SORT_J, lo + width)
-    sortPut(h, st, SORT_K, lo)
+    sortPut(h, st, librarycalls.SORT_WIDTH, width)
+    sortPut(h, st, librarycalls.SORT_LO, lo)
+    sortPut(h, st, librarycalls.SORT_MID, lo + width - 1)
+    sortPut(h, st, librarycalls.SORT_HI, hi)
+    sortPut(h, st, librarycalls.SORT_I, lo)
+    sortPut(h, st, librarycalls.SORT_J, lo + width)
+    sortPut(h, st, librarycalls.SORT_K, lo)
 end
 
 -- The next pair of runs to merge, doubling the width once a pass ends.
 -- False once one run spans the list.
 local function sortRuns(h: heap.Heap*, st: uint64): boolean
-    local n = sortGet(st, SORT_N)
-    local width = sortGet(st, SORT_WIDTH)
-    local lo = sortGet(st, SORT_LO) + 2 * width
+    local n = sortGet(st, librarycalls.SORT_N)
+    local width = sortGet(st, librarycalls.SORT_WIDTH)
+    local lo = sortGet(st, librarycalls.SORT_LO) + 2 * width
     if lo + width > n then
         width = width * 2
         lo = 1
@@ -2086,7 +1882,7 @@ end
 -- `copystate` fills it, since filling it can collect. The merge buffer needs
 -- no copy, since a step writes every slot of it the step reads.
 export function stepstate(ctx: voidptr, id: uint64, value: uint64): uint64
-    if id ~= SORT_STEP or guestscope.tableof(value) == 0ULL then
+    if id ~= librarycalls.TABLE_SORT_STEP or guestscope.tableof(value) == 0ULL then
         return values.NIL
     end
 
@@ -2097,13 +1893,13 @@ end
 export function copystate(ctx: voidptr, id: uint64, from: uint64, to: uint64): nil
     local source = guestscope.tableof(from)
     local target = guestscope.tableof(to)
-    if id ~= SORT_STEP or source == 0ULL or target == 0ULL then
+    if id ~= librarycalls.TABLE_SORT_STEP or source == 0ULL or target == 0ULL then
         return
     end
     @unsafe do
         local h = guestHeap(ctx)
-        local key: int64 = SORT_LIST
-        while key <= SORT_PENDING do
+        local key: int64 = librarycalls.SORT_LIST
+        while key <= librarycalls.SORT_PENDING do
             storeAt(h, target, key, loadAt(source, key))
             key = key + 1
         end
@@ -2123,14 +1919,14 @@ local function sortBegin(ctx: voidptr, list: uint64, less: uint64): uint64
         local buffer = guestscope.newTable(ctx)
         guestscope.release(ctx)
         local h = guestHeap(ctx)
-        storeAt(h, state, SORT_LIST, list)
-        storeAt(h, state, SORT_LESS, less)
-        storeAt(h, state, SORT_BUFFER, values.TAG_OBJ | buffer)
+        storeAt(h, state, librarycalls.SORT_LIST, list)
+        storeAt(h, state, librarycalls.SORT_LESS, less)
+        storeAt(h, state, librarycalls.SORT_BUFFER, values.TAG_OBJ | buffer)
         local n = lengthof(ctx, t)
-        sortPut(h, state, SORT_N, n)
-        sortPut(h, state, SORT_PENDING, 0)
+        sortPut(h, state, librarycalls.SORT_N, n)
+        sortPut(h, state, librarycalls.SORT_PENDING, RUNNING)
         if n < 2 or guestscope.suspended(ctx) then
-            sortPut(h, state, SORT_PENDING, 2)
+            sortPut(h, state, librarycalls.SORT_PENDING, FINISHED)
         else
             sortAt(h, state, 1, 1)
         end
@@ -2146,22 +1942,22 @@ local function sortStep(ctx: voidptr, value: uint64): uint64
     @unsafe do
         local h = guestHeap(ctx)
         local st = value & values.PAYLOAD
-        local pending = sortGet(st, SORT_PENDING)
-        if pending == 2 then
+        local pending = sortGet(st, librarycalls.SORT_PENDING)
+        if pending == FINISHED then
             return values.FALSE
         end
-        local t = loadAt(st, SORT_LIST) & values.PAYLOAD
-        local buffer = loadAt(st, SORT_BUFFER) & values.PAYLOAD
-        local less = loadAt(st, SORT_LESS)
-        local mid = sortGet(st, SORT_MID)
-        local hi = sortGet(st, SORT_HI)
-        local i = sortGet(st, SORT_I)
-        local j = sortGet(st, SORT_J)
-        local k = sortGet(st, SORT_K)
-        if pending == 1 then
+        local t = loadAt(st, librarycalls.SORT_LIST) & values.PAYLOAD
+        local buffer = loadAt(st, librarycalls.SORT_BUFFER) & values.PAYLOAD
+        local less = loadAt(st, librarycalls.SORT_LESS)
+        local mid = sortGet(st, librarycalls.SORT_MID)
+        local hi = sortGet(st, librarycalls.SORT_HI)
+        local i = sortGet(st, librarycalls.SORT_I)
+        local j = sortGet(st, librarycalls.SORT_J)
+        local k = sortGet(st, librarycalls.SORT_K)
+        if pending == WAITING then
             -- The right element goes first only when it sorts before the left,
             -- which keeps equal elements in order.
-            local answer = loadAt(st, SORT_ANSWER)
+            local answer = loadAt(st, librarycalls.SORT_ANSWER)
             if answer ~= values.NIL and answer ~= values.FALSE then
                 storeAt(h, buffer, k, guestscope.geti(ctx, t, j))
                 j = j + 1
@@ -2178,19 +1974,19 @@ local function sortStep(ctx: voidptr, value: uint64): uint64
             if i <= mid and j <= hi then
                 -- Kept in the state while left is read: a packed table's
                 -- wide integer is a fresh box, which that read could collect.
-                storeAt(h, st, SORT_A, guestscope.geti(ctx, t, j))
+                storeAt(h, st, librarycalls.SORT_A, guestscope.geti(ctx, t, j))
                 local left = guestscope.geti(ctx, t, i)
-                local right = loadAt(st, SORT_A)
+                local right = loadAt(st, librarycalls.SORT_A)
                 if guestscope.suspended(ctx) then
                     return values.FALSE
                 end
                 if less ~= values.NIL then
-                    storeAt(h, st, SORT_A, right)
-                    storeAt(h, st, SORT_B, left)
-                    sortPut(h, st, SORT_I, i)
-                    sortPut(h, st, SORT_J, j)
-                    sortPut(h, st, SORT_K, k)
-                    sortPut(h, st, SORT_PENDING, 1)
+                    storeAt(h, st, librarycalls.SORT_A, right)
+                    storeAt(h, st, librarycalls.SORT_B, left)
+                    sortPut(h, st, librarycalls.SORT_I, i)
+                    sortPut(h, st, librarycalls.SORT_J, j)
+                    sortPut(h, st, librarycalls.SORT_K, k)
+                    sortPut(h, st, librarycalls.SORT_PENDING, WAITING)
                     tables.drain(h)
                     return values.TRUE
                 end
@@ -2213,21 +2009,21 @@ local function sortStep(ctx: voidptr, value: uint64): uint64
                     j = j + 1
                     k = k + 1
                 end
-                local at = sortGet(st, SORT_LO)
+                local at = sortGet(st, librarycalls.SORT_LO)
                 while at <= hi do
                     guestscope.seti(ctx, t, at, loadAt(buffer, at))
                     at = at + 1
                 end
                 if not sortRuns(h, st) then
-                    sortPut(h, st, SORT_PENDING, 2)
+                    sortPut(h, st, librarycalls.SORT_PENDING, FINISHED)
                     tables.drain(h)
                     return values.FALSE
                 end
-                mid = sortGet(st, SORT_MID)
-                hi = sortGet(st, SORT_HI)
-                i = sortGet(st, SORT_I)
-                j = sortGet(st, SORT_J)
-                k = sortGet(st, SORT_K)
+                mid = sortGet(st, librarycalls.SORT_MID)
+                hi = sortGet(st, librarycalls.SORT_HI)
+                i = sortGet(st, librarycalls.SORT_I)
+                j = sortGet(st, librarycalls.SORT_J)
+                k = sortGet(st, librarycalls.SORT_K)
             end
         end
 
@@ -2235,29 +2031,12 @@ local function sortStep(ctx: voidptr, value: uint64): uint64
     end
 end
 
--- gsub's state for a function replacement, a table keyed 1 to 16: the
--- subject, pattern and function, the byte offsets the search has reached
--- and the last match ended at (plus one, so 0 is none), the count and its
--- limit, the pieces of the result and their number, the captures awaiting
--- the function and its answer, the match they came from, PENDING (1 while
--- an answer is awaited, 2 once finished), the anchor, and the offset the
--- unreplaced text runs from.
-const GSUB_SUBJECT: int64 = 1
-const GSUB_PATTERN: int64 = 2
-const GSUB_FUNCTION: int64 = 3
-const GSUB_SRC: int64 = 4
-const GSUB_LAST: int64 = 5
-const GSUB_N: int64 = 6
-const GSUB_LIMIT: int64 = 7
-const GSUB_PIECES: int64 = 8
-const GSUB_CAPTURES: int64 = 9
-const GSUB_ANSWER: int64 = 10
-const GSUB_AT: int64 = 11
-const GSUB_END: int64 = 12
-const GSUB_PENDING: int64 = 13
-const GSUB_ANCHOR: int64 = 14
-const GSUB_COPY: int64 = 15
-const GSUB_COUNT: int64 = 16
+-- gsub's state for a function replacement, a table keyed by the GSUB
+-- layout (corelibrary): the subject, pattern and function, the byte offsets
+-- the search has reached and the last match ended at (plus one, so 0 is
+-- none), the count and its limit, the pieces of the result and their number,
+-- the captures awaiting the function and its answer, the match they came
+-- from, PENDING, the anchor, and the offset the unreplaced text runs from.
 
 -- Adds the subject's bytes [from, to) to the result's pieces.
 local function gsubPiece(h: heap.Heap*, st: uint64, subject: uint64, from: int64, to: int64): nil
@@ -2265,10 +2044,10 @@ local function gsubPiece(h: heap.Heap*, st: uint64, subject: uint64, from: int64
         if to <= from then
             return
         end
-        local count = sortGet(st, GSUB_COUNT) + 1
+        local count = sortGet(st, librarycalls.GSUB_COUNT) + 1
         local piece = strings.make(h, subject + native.word(from), native.word(to - from))
-        storeAt(h, loadAt(st, GSUB_PIECES) & values.PAYLOAD, count, values.TAG_OBJ | piece)
-        sortPut(h, st, GSUB_COUNT, count)
+        storeAt(h, loadAt(st, librarycalls.GSUB_PIECES) & values.PAYLOAD, count, values.TAG_OBJ | piece)
+        sortPut(h, st, librarycalls.GSUB_COUNT, count)
     end
 end
 
@@ -2283,23 +2062,23 @@ local function gsubBegin(ctx: voidptr, value: uint64, pv: uint64, fn: uint64, ma
         guestscope.hold(ctx, values.TAG_OBJ | state)
         local pieces = guestscope.newTable(ctx)
         local h = guestHeap(ctx)
-        storeAt(h, state, GSUB_SUBJECT, value)
-        storeAt(h, state, GSUB_PATTERN, pv)
-        storeAt(h, state, GSUB_FUNCTION, fn)
-        storeAt(h, state, GSUB_PIECES, values.TAG_OBJ | pieces)
-        sortPut(h, state, GSUB_SRC, 0)
-        sortPut(h, state, GSUB_LAST, 0)
-        sortPut(h, state, GSUB_N, 0)
-        sortPut(h, state, GSUB_LIMIT, 0)
+        storeAt(h, state, librarycalls.GSUB_SUBJECT, value)
+        storeAt(h, state, librarycalls.GSUB_PATTERN, pv)
+        storeAt(h, state, librarycalls.GSUB_FUNCTION, fn)
+        storeAt(h, state, librarycalls.GSUB_PIECES, values.TAG_OBJ | pieces)
+        sortPut(h, state, librarycalls.GSUB_SRC, 0)
+        sortPut(h, state, librarycalls.GSUB_LAST, 0)
+        sortPut(h, state, librarycalls.GSUB_N, 0)
+        sortPut(h, state, librarycalls.GSUB_LIMIT, 0)
         if limit > 0 then
-            sortPut(h, state, GSUB_LIMIT, limit)
+            sortPut(h, state, librarycalls.GSUB_LIMIT, limit)
         end
-        sortPut(h, state, GSUB_PENDING, 0)
+        sortPut(h, state, librarycalls.GSUB_PENDING, RUNNING)
         local anchor = strings.length(p) > 0ULL
             and native.word(native.load8(native.pointer(strings.bytes(p)), 0)) == 94ULL
-        sortPut(h, state, GSUB_ANCHOR, native.index(native.asWord(anchor)))
-        sortPut(h, state, GSUB_COPY, 0)
-        sortPut(h, state, GSUB_COUNT, 0)
+        sortPut(h, state, librarycalls.GSUB_ANCHOR, native.index(native.asWord(anchor)))
+        sortPut(h, state, librarycalls.GSUB_COPY, 0)
+        sortPut(h, state, librarycalls.GSUB_COUNT, 0)
         tables.drain(h)
         return values.TAG_OBJ | state
     end
@@ -2313,25 +2092,25 @@ local function gsubStep(ctx: voidptr, value: uint64): uint64
     @unsafe do
         local h = guestHeap(ctx)
         local st = value & values.PAYLOAD
-        local pending = sortGet(st, GSUB_PENDING)
-        if pending == 2 then
+        local pending = sortGet(st, librarycalls.GSUB_PENDING)
+        if pending == FINISHED then
             return values.FALSE
         end
-        local s = strings.header(loadAt(st, GSUB_SUBJECT))
-        local p = strings.header(loadAt(st, GSUB_PATTERN))
+        local s = strings.header(loadAt(st, librarycalls.GSUB_SUBJECT))
+        local p = strings.header(loadAt(st, librarycalls.GSUB_PATTERN))
         local subject = strings.bytes(s)
         local length = native.index(strings.length(s))
-        local anchor = sortGet(st, GSUB_ANCHOR) == 1
-        local src = sortGet(st, GSUB_SRC)
-        local last = sortGet(st, GSUB_LAST)
+        local anchor = sortGet(st, librarycalls.GSUB_ANCHOR) == 1
+        local src = sortGet(st, librarycalls.GSUB_SRC)
+        local last = sortGet(st, librarycalls.GSUB_LAST)
         local finished = false
-        if pending == 1 then
+        if pending == WAITING then
             -- The function's answer replaces the match: false or nil keeps it,
             -- a string or number is its text.
-            local at = sortGet(st, GSUB_AT)
-            local e = sortGet(st, GSUB_END)
-            gsubPiece(h, st, subject, sortGet(st, GSUB_COPY), at)
-            local answer = loadAt(st, GSUB_ANSWER)
+            local at = sortGet(st, librarycalls.GSUB_AT)
+            local e = sortGet(st, librarycalls.GSUB_END)
+            gsubPiece(h, st, subject, sortGet(st, librarycalls.GSUB_COPY), at)
+            local answer = loadAt(st, librarycalls.GSUB_ANSWER)
             if answer == values.NIL or answer == values.FALSE then
                 gsubPiece(h, st, subject, at, e)
             elseif strings.header(answer) ~= 0ULL or ints.isInteger(answer) or isFloat(answer) then
@@ -2339,9 +2118,9 @@ local function gsubStep(ctx: voidptr, value: uint64): uint64
                 if strings.header(answer) == 0ULL then
                     text = tostring(ctx, answer)
                 end
-                local count = sortGet(st, GSUB_COUNT) + 1
-                storeAt(h, loadAt(st, GSUB_PIECES) & values.PAYLOAD, count, text)
-                sortPut(h, st, GSUB_COUNT, count)
+                local count = sortGet(st, librarycalls.GSUB_COUNT) + 1
+                storeAt(h, loadAt(st, librarycalls.GSUB_PIECES) & values.PAYLOAD, count, text)
+                sortPut(h, st, librarycalls.GSUB_COUNT, count)
             elseif objectKind(answer) == heap.KIND_TABLE then
                 texts.replacementError(ctx, answer)
             elseif objectKind(answer) == heap.KIND_CLOSURE then
@@ -2349,7 +2128,7 @@ local function gsubStep(ctx: voidptr, value: uint64): uint64
             else
                 texts.replacementError(ctx, answer)
             end
-            sortPut(h, st, GSUB_COPY, e)
+            sortPut(h, st, librarycalls.GSUB_COPY, e)
             src = e
             last = e + 1
             finished = anchor
@@ -2365,8 +2144,8 @@ local function gsubStep(ctx: voidptr, value: uint64): uint64
                 patterns.release(ms)
                 error("not enough memory")
             end
-            local n = sortGet(st, GSUB_N)
-            local limit = sortGet(st, GSUB_LIMIT)
+            local n = sortGet(st, librarycalls.GSUB_N)
+            local limit = sortGet(st, librarycalls.GSUB_LIMIT)
             while n < limit do
                 local e = patterns.match(h, ms, subject + native.word(src), pattern)
                 if e ~= 0ULL and (last == 0 or e ~= subject + native.word(last - 1)) then
@@ -2393,13 +2172,13 @@ local function gsubStep(ctx: voidptr, value: uint64): uint64
                     end
                     packed(h, pack, level, values.NIL)
                     patterns.release(ms)
-                    storeAt(h, st, GSUB_CAPTURES, values.TAG_OBJ | pack)
-                    sortPut(h, st, GSUB_N, n + 1)
-                    sortPut(h, st, GSUB_AT, src)
-                    sortPut(h, st, GSUB_END, native.index(e - subject))
-                    sortPut(h, st, GSUB_SRC, src)
-                    sortPut(h, st, GSUB_LAST, last)
-                    sortPut(h, st, GSUB_PENDING, 1)
+                    storeAt(h, st, librarycalls.GSUB_CAPTURES, values.TAG_OBJ | pack)
+                    sortPut(h, st, librarycalls.GSUB_N, n + 1)
+                    sortPut(h, st, librarycalls.GSUB_AT, src)
+                    sortPut(h, st, librarycalls.GSUB_END, native.index(e - subject))
+                    sortPut(h, st, librarycalls.GSUB_SRC, src)
+                    sortPut(h, st, librarycalls.GSUB_LAST, last)
+                    sortPut(h, st, librarycalls.GSUB_PENDING, WAITING)
                     tables.drain(h)
                     return values.TRUE
                 elseif src < length then
@@ -2413,8 +2192,8 @@ local function gsubStep(ctx: voidptr, value: uint64): uint64
             end
             patterns.release(ms)
         end
-        gsubPiece(h, st, subject, sortGet(st, GSUB_COPY), length)
-        sortPut(h, st, GSUB_PENDING, 2)
+        gsubPiece(h, st, subject, sortGet(st, librarycalls.GSUB_COPY), length)
+        sortPut(h, st, librarycalls.GSUB_PENDING, FINISHED)
         tables.drain(h)
         return values.FALSE
     end
@@ -2433,8 +2212,8 @@ local function gsubFinish(ctx: voidptr, value: uint64, all: boolean): uint64
         end
         local h = guestHeap(ctx)
         local st = value & values.PAYLOAD
-        local pieces = loadAt(st, GSUB_PIECES) & values.PAYLOAD
-        local count = sortGet(st, GSUB_COUNT)
+        local pieces = loadAt(st, librarycalls.GSUB_PIECES) & values.PAYLOAD
+        local count = sortGet(st, librarycalls.GSUB_COUNT)
         local builder = buffer as strings.Builder*
         local refused: uint64 = 0ULL
         local i: int64 = 1
@@ -2449,7 +2228,7 @@ local function gsubFinish(ctx: voidptr, value: uint64, all: boolean): uint64
         local result = values.TAG_OBJ | strings.finish(h, builder)
         if pack ~= 0ULL then
             packPut(h, pack, 1ULL, result)
-            packPut(h, pack, 2ULL, values.TAG_INTEGER | native.word(sortGet(st, GSUB_N)))
+            packPut(h, pack, 2ULL, values.TAG_INTEGER | native.word(sortGet(st, librarycalls.GSUB_N)))
         end
         tables.drain(h)
 
@@ -2500,10 +2279,10 @@ local function select(ctx: voidptr, packValue: uint64, index: uint64): uint64
         if i < 0 then
             i = n + i + 1
             if i < 1 then
-                texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_INDEX_RANGE, index)
+                texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_INDEX_RANGE, index)
             end
         elseif i == 0 then
-            texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_INDEX_RANGE, index)
+            texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_INDEX_RANGE, index)
         end
         if i > n then
             return values.NIL
@@ -2567,8 +2346,21 @@ export function errorLevel(value: uint64): uint64
     return native.word(level)
 end
 
--- C's math function `op` (os.mathFunction's numbering) of the numbers a and
--- b, as a float.
+-- C's math functions, by os.mathFunction's numbering.
+const C_POW: uint64 = 0ULL
+const C_EXP: uint64 = 1ULL
+const C_LOG: uint64 = 2ULL
+const C_LOG2: uint64 = 3ULL
+const C_LOG10: uint64 = 4ULL
+const C_SIN: uint64 = 5ULL
+const C_COS: uint64 = 6ULL
+const C_TAN: uint64 = 7ULL
+const C_ASIN: uint64 = 8ULL
+const C_ACOS: uint64 = 9ULL
+const C_ATAN2: uint64 = 10ULL
+const C_FMOD: uint64 = 11ULL
+
+-- C's math function `op` of the numbers a and b, as a float.
 local function hostMath(op: uint64, a: uint64, b: uint64): uint64
     return floatValue(os.mathFunction(op, floatOf(a), floatOf(b)))
 end
@@ -2579,7 +2371,7 @@ local function power(ctx: voidptr, a: uint64, b: uint64): uint64
         texts.faultError(ctx, guestscope.FAULT_ARITH, a, b)
     end
 
-    return hostMath(0ULL, a, b)
+    return hostMath(C_POW, a, b)
 end
 
 -- math.log(x [, base]): base 2 and 10 by their own functions, any other as
@@ -2587,17 +2379,17 @@ end
 local function mathLog(ctx: voidptr, count: uint64, x: uint64, base: uint64): uint64
     local value = numberArgument(ctx, x, 1ULL)
     if count < 2ULL then
-        return hostMath(2ULL, value, value)
+        return hostMath(C_LOG, value, value)
     end
     -- 2.0 and 10.0 by their bits.
     local b = floatOf(numberArgument(ctx, base, 2ULL))
     if b == 0x4000000000000000ULL then
-        return hostMath(3ULL, value, value)
+        return hostMath(C_LOG2, value, value)
     elseif b == 0x4024000000000000ULL then
-        return hostMath(4ULL, value, value)
+        return hostMath(C_LOG10, value, value)
     end
-    local numerator = native.fromBits(os.mathFunction(2ULL, floatOf(value), 0ULL))
-    local denominator = native.fromBits(os.mathFunction(2ULL, floatOf(base), 0ULL))
+    local numerator = native.fromBits(os.mathFunction(C_LOG, floatOf(value), 0ULL))
+    local denominator = native.fromBits(os.mathFunction(C_LOG, floatOf(base), 0ULL))
 
     return floatValue(native.bits(numerator / denominator))
 end
@@ -2611,7 +2403,7 @@ local function mathFmod(ctx: voidptr, a: uint64, b: uint64): uint64
         local n = ints.bitsOf(x)
         local d = ints.bitsOf(y)
         if d == 0ULL then
-            texts.argumentError(ctx, 2ULL, 0ULL, texts.TEXT_ZERO, b)
+            texts.argumentError(ctx, 2ULL, 0ULL, librarytexts.TEXT_ZERO, b)
         end
         local negative = native.index(n) < 0
         local magnitude = n
@@ -2629,7 +2421,7 @@ local function mathFmod(ctx: voidptr, a: uint64, b: uint64): uint64
         return guestscope.integer(ctx, r)
     end
 
-    return hostMath(11ULL, x, y)
+    return hostMath(C_FMOD, x, y)
 end
 
 -- math.random's four words of state, in the services.
@@ -2732,7 +2524,7 @@ local function mathRandom(ctx: voidptr, count: uint64, a: uint64, b: uint64): ui
         up = integerArgument(ctx, b, 0, 2ULL)
     end
     if low > up then
-        texts.argumentError(ctx, 1ULL, 0ULL, texts.TEXT_EMPTY_INTERVAL, a)
+        texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_EMPTY_INTERVAL, a)
     end
 
     return guestscope.integer(ctx, project(s, rv, native.word(up) - native.word(low)) + native.word(low))
@@ -2758,99 +2550,107 @@ end
 -- Library call `id` with `count` arguments; answers the result value. error
 -- (ERROR) is raised by its handler, which records where.
 export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
-    guestscope.nameLibrary(ctx, libraryName(id))
-    if id == TOSTRING then
+    guestscope.nameLibrary(ctx, librarycalls.libraryname(id))
+    if id == librarycalls.TOSTRING then
         return tostring(ctx, a)
-    elseif id == FORMAT then
+    elseif id == librarycalls.STRING_FORMAT then
         return format(ctx, count, a, b, c, d, 0ULL)
-    elseif id == POW then
+    elseif id == librarycalls.POW then
         return power(ctx, a, b)
-    elseif id == MATH_EXP then
-        return hostMath(1ULL, numberArgument(ctx, a, 1ULL), a)
-    elseif id == MATH_LOG then
+    elseif id == librarycalls.MATH_EXP then
+        return hostMath(C_EXP, numberArgument(ctx, a, 1ULL), a)
+    elseif id == librarycalls.MATH_LOG then
         return mathLog(ctx, count, a, b)
-    elseif id >= MATH_SIN and id <= MATH_ACOS then
-        return hostMath(id - MATH_SIN + 5ULL, numberArgument(ctx, a, 1ULL), a)
-    elseif id == MATH_ATAN then
+    elseif id == librarycalls.MATH_SIN then
+        return hostMath(C_SIN, numberArgument(ctx, a, 1ULL), a)
+    elseif id == librarycalls.MATH_COS then
+        return hostMath(C_COS, numberArgument(ctx, a, 1ULL), a)
+    elseif id == librarycalls.MATH_TAN then
+        return hostMath(C_TAN, numberArgument(ctx, a, 1ULL), a)
+    elseif id == librarycalls.MATH_ASIN then
+        return hostMath(C_ASIN, numberArgument(ctx, a, 1ULL), a)
+    elseif id == librarycalls.MATH_ACOS then
+        return hostMath(C_ACOS, numberArgument(ctx, a, 1ULL), a)
+    elseif id == librarycalls.MATH_ATAN then
         local x = values.TAG_INTEGER | 1ULL
         if count >= 2ULL then
             x = numberArgument(ctx, b, 2ULL)
         end
-        return hostMath(10ULL, numberArgument(ctx, a, 1ULL), x)
-    elseif id == MATH_FMOD then
+        return hostMath(C_ATAN2, numberArgument(ctx, a, 1ULL), x)
+    elseif id == librarycalls.MATH_FMOD then
         return mathFmod(ctx, a, b)
-    elseif id == MATH_RANDOM then
+    elseif id == librarycalls.MATH_RANDOM then
         return mathRandom(ctx, count, a, b)
-    elseif id == MATH_RANDOM_FLOAT then
+    elseif id == librarycalls.MATH_RANDOM_FLOAT then
         return mathRandom(ctx, 0ULL, a, b)
-    elseif id == MATH_RANDOMSEED then
+    elseif id == librarycalls.MATH_RANDOMSEED then
         return mathRandomseed(ctx, count, a, b)
-    elseif id == MATH_RANDOMSEED_HOST then
+    elseif id == librarycalls.MATH_RANDOMSEED_HOST then
         return mathRandomseed(ctx, 0ULL, a, b)
-    elseif id == PRINT then
+    elseif id == librarycalls.PRINT then
         return printValues(ctx, a)
-    elseif id == FORMAT_PACK then
+    elseif id == librarycalls.STRING_FORMAT_PACK then
         -- The pack holds its count at key 0.
         local pack = b & values.PAYLOAD
         local n = native.word(integerValue(tables.get(pack, values.TAG_INTEGER)))
         return format(ctx, n + 1ULL, a, values.NIL, values.NIL, values.NIL, pack)
-    elseif id == CONCAT then
+    elseif id == librarycalls.TABLE_CONCAT then
         return concat(ctx, count, a, b, c, d)
-    elseif id == GMATCH_NEXT then
+    elseif id == librarycalls.STRING_GMATCH_NEXT then
         return gmatchNext(ctx, a)
-    elseif id == CONCAT2 then
+    elseif id == librarycalls.CONCAT2 then
         return concat2(ctx, a, b)
-    elseif id == DIVIDE then
+    elseif id == librarycalls.DIVIDE then
         return divide(ctx, a, b)
-    elseif id == FLOOR_DIVIDE then
+    elseif id == librarycalls.FLOOR_DIVIDE then
         return floorDivide(ctx, a, b)
-    elseif id == NEXT_STEP then
+    elseif id == librarycalls.NEXT_STEP then
         return nextStep(ctx, a)
-    elseif id == TONUMBER then
+    elseif id == librarycalls.TONUMBER then
         return tonumber(ctx, a)
-    elseif id == GETENV then
+    elseif id == librarycalls.OS_GETENV then
         return getenv(ctx, a)
-    elseif id == SUB then
+    elseif id == librarycalls.STRING_SUB then
         return sub(ctx, a, b, c)
-    elseif id == BYTE then
+    elseif id == librarycalls.STRING_BYTE then
         return bytes(ctx, a, b, c, false)
-    elseif id == BYTE_ALL then
+    elseif id == librarycalls.STRING_BYTE_ALL then
         return bytes(ctx, a, b, c, true)
-    elseif id == CHAR then
+    elseif id == librarycalls.STRING_CHAR then
         return char(ctx, a)
-    elseif id == REP then
+    elseif id == librarycalls.STRING_REP then
         return rep(ctx, a, b, c)
-    elseif id == REVERSE then
+    elseif id == librarycalls.STRING_REVERSE then
         return reverse(ctx, a)
-    elseif id == UPPER then
+    elseif id == librarycalls.STRING_UPPER then
         return casing(ctx, a, true)
-    elseif id == LOWER then
+    elseif id == librarycalls.STRING_LOWER then
         return casing(ctx, a, false)
-    elseif id == LEN then
+    elseif id == librarycalls.STRING_LEN then
         return values.TAG_INTEGER | strings.length(stringArgument(ctx, a, 1ULL))
-    elseif id == FIND then
+    elseif id == librarycalls.STRING_FIND then
         return search(ctx, a, b, c, d, false, false)
-    elseif id == MATCH then
+    elseif id == librarycalls.STRING_MATCH then
         return search(ctx, a, b, c, values.NIL, true, false)
-    elseif id == FIND_ALL then
+    elseif id == librarycalls.STRING_FIND_ALL then
         return search(ctx, a, b, c, d, false, true)
-    elseif id == MATCH_ALL then
+    elseif id == librarycalls.STRING_MATCH_ALL then
         return search(ctx, a, b, c, values.NIL, true, true)
-    elseif id == GSUB then
+    elseif id == librarycalls.STRING_GSUB then
         return gsub(ctx, a, b, c, d, false)
-    elseif id == GSUB_ALL then
+    elseif id == librarycalls.STRING_GSUB_ALL then
         return gsub(ctx, a, b, c, d, true)
-    elseif id == TABLE_INSERT then
+    elseif id == librarycalls.TABLE_INSERT then
         return tableInsert(ctx, count, a, b, c)
-    elseif id == TABLE_REMOVE then
+    elseif id == librarycalls.TABLE_REMOVE then
         return tableRemove(ctx, count, a, b)
-    elseif id == TABLE_UNPACK then
+    elseif id == librarycalls.TABLE_UNPACK then
         return tableUnpack(ctx, a, b, c, false)
-    elseif id == TABLE_UNPACK_ALL then
+    elseif id == librarycalls.TABLE_UNPACK_ALL then
         return tableUnpack(ctx, a, b, c, true)
-    elseif id == TABLE_MOVE then
+    elseif id == librarycalls.TABLE_MOVE then
         return tableMove(ctx, a, b, c, d, values.NIL)
-    elseif id == TABLE_MOVE_PACK then
+    elseif id == librarycalls.TABLE_MOVE_PACK then
         local pack = b & values.PAYLOAD
         return tableMove(
             ctx,
@@ -2860,11 +2660,11 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
             tables.get(pack, values.TAG_INTEGER | 3ULL),
             tables.get(pack, values.TAG_INTEGER | 4ULL)
         )
-    elseif id == TABLE_FREEZE then
+    elseif id == librarycalls.TABLE_FREEZE then
         return tableFreeze(ctx, a)
-    elseif id == TABLE_ISFROZEN then
+    elseif id == librarycalls.TABLE_ISFROZEN then
         return tableIsfrozen(ctx, a)
-    elseif id == TABLE_SORT then
+    elseif id == librarycalls.TABLE_SORT then
         -- The state is held while the sort runs: reading a packed table's
         -- wide integer can collect.
         local state = sortBegin(ctx, a, values.NIL)
@@ -2872,53 +2672,53 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
         sortStep(ctx, state)
         guestscope.release(ctx)
         return values.NIL
-    elseif id == SORT_BEGIN then
+    elseif id == librarycalls.TABLE_SORT_BEGIN then
         return sortBegin(ctx, a, b)
-    elseif id == SORT_STEP then
+    elseif id == librarycalls.TABLE_SORT_STEP then
         return sortStep(ctx, a)
-    elseif id == GSUB_BEGIN then
+    elseif id == librarycalls.STRING_GSUB_BEGIN then
         return gsubBegin(ctx, a, b, c, d)
-    elseif id == GSUB_STEP then
+    elseif id == librarycalls.STRING_GSUB_STEP then
         return gsubStep(ctx, a)
-    elseif id == GSUB_FINISH then
+    elseif id == librarycalls.STRING_GSUB_FINISH then
         return gsubFinish(ctx, a, false)
-    elseif id == GSUB_FINISH_ALL then
+    elseif id == librarycalls.STRING_GSUB_FINISH_ALL then
         return gsubFinish(ctx, a, true)
-    elseif id == MATH_ABS then
+    elseif id == librarycalls.MATH_ABS then
         return mathAbs(ctx, a)
-    elseif id == MATH_CEIL then
+    elseif id == librarycalls.MATH_CEIL then
         return mathCeil(ctx, a)
-    elseif id == MATH_MAX then
+    elseif id == librarycalls.MATH_MAX then
         return mathExtreme(ctx, count, a, b, c, d, true)
-    elseif id == MATH_MIN then
+    elseif id == librarycalls.MATH_MIN then
         return mathExtreme(ctx, count, a, b, c, d, false)
-    elseif id == MATH_TOINTEGER then
+    elseif id == librarycalls.MATH_TOINTEGER then
         return integral(ctx, a)
-    elseif id == MATH_TYPE then
+    elseif id == librarycalls.MATH_TYPE then
         return mathType(ctx, a)
-    elseif id == MATH_SQRT then
+    elseif id == librarycalls.MATH_SQRT then
         return floatValue(native.bits(native.sqrt(native.fromBits(floatOf(numberArgument(ctx, a, 1ULL))))))
-    elseif id == LANDED then
+    elseif id == librarycalls.LANDED then
         return guestscope.takeLanded(ctx)
-    elseif id == TYPE then
+    elseif id == librarycalls.TYPE then
         return guestscope.typeName(ctx, a)
-    elseif id == UNM then
+    elseif id == librarycalls.UNM then
         return negate(ctx, a)
-    elseif id == SETMETATABLE then
+    elseif id == librarycalls.SETMETATABLE then
         return guestscope.setMetatable(ctx, a, b)
-    elseif id == GETMETATABLE then
+    elseif id == librarycalls.GETMETATABLE then
         return guestscope.getMetatable(ctx, a)
-    elseif id == RAWGET then
+    elseif id == librarycalls.RAWGET then
         return guestscope.rawGet(ctx, a, b)
-    elseif id == RAWSET then
+    elseif id == librarycalls.RAWSET then
         return guestscope.rawSet(ctx, a, b, c)
-    elseif id == SELECT then
+    elseif id == librarycalls.SELECT then
         return select(ctx, a, b)
-    elseif id == PACK_COPY then
+    elseif id == librarycalls.PACK_COPY then
         return packCopy(ctx, a, false)
-    elseif id == NAMED_PACK then
+    elseif id == librarycalls.PACK_NAMED then
         return packCopy(ctx, a, true)
-    elseif id == PACK_APPEND then
+    elseif id == librarycalls.PACK_APPEND then
         @unsafe do
             local h = guestHeap(ctx)
             local t = a & values.PAYLOAD

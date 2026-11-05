@@ -4,6 +4,8 @@
 --
 --   cd native/core/tests/units && NUPP_COMPILER_ROOT=$PWD/../../../.. ../../../../bin/nupp run run.lua [normal|spill|all] [UNIT...]
 --
+-- `run.lua generate` rewrites the generated runtime files from their generators.
+--
 -- NUPP_CORE_BRIDGE selects a prebuilt bridge; otherwise cargo builds one.
 local runner = require("nupp.core.unitrunner")
 
@@ -645,27 +647,81 @@ for index = 2, #arg do
     only[arg[index]] = true
 end
 
-os.execute("mkdir -p " .. quote(BUILD))
-local modes = (arg[1] and arg[1] ~= "all") and {arg[1]} or {"normal", "spill"}
-local tool = bridge()
-local failures, passed = 0, 0
 -- The raw loader's policies are generated from the graph schema and its
--- bounds: each committed file stays exactly what its generator writes.
+-- bounds, and the core library's call and text ids from their one tables:
+-- each committed file stays exactly what its generator writes.
 -- Each generator by a literal require: the core reaches no module by a
 -- computed name (toollayeringtest).
-for _, pair in ipairs({
+local GENERATED = {
     {require("nupp.core.rawwiregen"), "rawwire", "nupp.core.rawwiregen"},
     {require("nupp.core.rawshapegen"), "rawroles", "nupp.core.rawshapegen"},
     {require("nupp.core.rawcataloggen"), "rawcatalogpolicy", "nupp.core.rawcataloggen"},
     {require("nupp.core.rawbudgetgen"), "rawbudgetpolicy", "nupp.core.rawbudgetgen"},
-    {require("nupp.core.rawsemanticgen"), "rawsemanticpolicy", "nupp.core.rawsemanticgen"}
-}) do
+    {require("nupp.core.rawsemanticgen"), "rawsemanticpolicy", "nupp.core.rawsemanticgen"},
+    {require("nupp.core.librarycallsgen"), "librarycalls", "nupp.core.librarycallsgen"},
+    {require("nupp.core.librarytextsgen"), "librarytexts", "nupp.core.librarytextsgen"}
+}
+
+-- `run.lua generate` writes every generated file and stops.
+if arg[1] == "generate" then
+    for _, pair in ipairs(GENERATED) do
+        write(ROOT .. "/native/core/src/nupp/runtime/core/" .. pair[2] .. ".nupp", pair[1].source())
+        print("wrote " .. pair[2])
+    end
+    os.exit(0)
+end
+
+os.execute("mkdir -p " .. quote(BUILD))
+local modes = (arg[1] and arg[1] ~= "all") and {arg[1]} or {"normal", "spill"}
+local tool = bridge()
+local failures, passed = 0, 0
+for _, pair in ipairs(GENERATED) do
     local path = ROOT .. "/native/core/src/nupp/runtime/core/" .. pair[2] .. ".nupp"
     if read(path) == pair[1].source() then
         passed = passed + 1
     else
         failures = failures + 1
         print("FAIL generated " .. pair[2] .. ": differs from " .. pair[3] .. ".source()")
+    end
+end
+-- No two library calls share an id, nor two texts, and every text a call
+-- names is one; the tables assert as much as they load, and this says so
+-- by name when one does not.
+do
+    local corelibrary = require("nupp.compiler.vm.corelibrary")
+    local coretexts = require("nupp.compiler.vm.coretexts")
+    local function unique(space, rows)
+        local ids, names, problem = {}, {}, nil
+        for _, row in ipairs(rows) do
+            if ids[row.id] then
+                problem = ("%s and %s share %s id %d"):format(ids[row.id], row.name, space, row.id)
+            elseif names[row.name] then
+                problem = ("%s names two %s ids"):format(row.name, space)
+            end
+            ids[row.id], names[row.name] = row.name, true
+        end
+        return problem, names
+    end
+    local calls = {}
+    for _, subject in ipairs(corelibrary.subjects()) do
+        for _, call in ipairs(subject.calls) do
+            calls[#calls + 1] = call
+        end
+    end
+    local callProblem = unique("library call", calls)
+    local textProblem, texts = unique("text", coretexts.all())
+    for _, call in ipairs(calls) do
+        if call.text and not texts[call.text] then
+            textProblem = call.name .. " names no text " .. call.text
+        end
+    end
+    for _, problem in ipairs({callProblem or false, textProblem or false}) do
+        if problem then
+            failures = failures + 1
+            print("FAIL library ids: " .. problem)
+        else
+            passed = passed + 1
+        end
     end
 end
 for _, unit in ipairs(UNITS) do

@@ -27,7 +27,9 @@ local recipes: any = {
     NewTable = {{"v", "def", 1, 1}},
     Not = {{"v", "def", 1, 1}, {"v", "use", 2, 1}},
     MathFloor = {{"v", "def", 1, 1}, {"v", "use", 2, 1}},
-    LibCall = {{"v", "def", 1, 1}, {"n", "use", 2, 1}, {"v", "check", 3, 1}, {"n", "use", 4, 1}},
+    -- The library id is a word at 4 (corelibrary); the argument count's byte
+    -- carries the method-form flag.
+    LibCall = {{"v", "def", 1, 1}, {"n", "use", 4, 4}, {"v", "check", 2, 1}, {"n", "use", 3, 1}},
     GetIdx = {{"v", "def", 1, 1}, {"v", "use", 2, 1}, {"v", "use", 3, 1}},
     SetIdx = {{"v", "use", 1, 1}, {"v", "use", 2, 1}, {"v", "use", 3, 1}},
     Len = {{"v", "def", 1, 1}, {"v", "use", 2, 1}},

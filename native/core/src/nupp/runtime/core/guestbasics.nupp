@@ -12,41 +12,9 @@ const corestorage = require("nupp.runtime.core.corestorage")
 const strings = require("nupp.runtime.core.corestrings")
 const guestscope = require("nupp.runtime.core.guestscope")
 const texts = require("nupp.runtime.core.guesttexts")
+const librarycalls = require("nupp.runtime.core.librarycalls")
+const librarytexts = require("nupp.runtime.core.librarytexts")
 
--- assert(v [, message]).
-export const LIB_ASSERT: uint64 = 87ULL
--- rawequal(a, b).
-export const LIB_RAWEQUAL: uint64 = 88ULL
--- next(t [, k]): its key alone, and its key and value as a pack.
-export const LIB_NEXT: uint64 = 89ULL
-export const LIB_NEXT_ALL: uint64 = 90ULL
--- The storage calls: allocbytes(count) and allocate(kind, count).
-export const LIB_ALLOCBYTES: uint64 = 94ULL
-export const LIB_ALLOCATE: uint64 = 95ULL
--- view(storage, kind, offset [, count]), copy(target, source, count),
--- fill(target, count, byte), text(storage, count), fromstring(s),
--- elements(storage) and elementkind(storage).
-export const LIB_VIEW: uint64 = 96ULL
-export const LIB_COPY: uint64 = 97ULL
-export const LIB_FILL: uint64 = 98ULL
-export const LIB_TEXT: uint64 = 99ULL
-export const LIB_FROMSTRING: uint64 = 100ULL
-export const LIB_ELEMENTS: uint64 = 101ULL
-export const LIB_ELEMENTKIND: uint64 = 102ULL
--- cast(storage, kind): view(storage, kind, 0).
-export const LIB_CAST: uint64 = 103ULL
--- A cleanup function set under its key, and read back by it.
-export const LIB_CLEANUPSET: uint64 = 104ULL
-export const LIB_CLEANUPGET: uint64 = 105ULL
--- A table constructor for a checked `{T}` whose elements pack: the fresh
--- table, its array part packed as kind a (coretables), with room for b. And
--- storagecalls.packedkind(t): that kind, 0 once the table is general (or for
--- a value that is not a table).
-export const LIB_NEWARRAY: uint64 = 116ULL
-export const LIB_PACKEDKIND: uint64 = 122ULL
--- A protected call's results in a pack its list takes all of
--- (`print(x, pcall(f))`): the count the call gives.
-export const LIB_PROTECTEDCOUNT: uint64 = 121ULL
 
 -- No index: an error was raised instead.
 const NOINDEX: uint64 = 0xffffffffffffffffULL
@@ -65,12 +33,12 @@ export function rawnext(ctx: voidptr, subject: uint64, after: uint64, all: boole
         local h = heapof(ctx)
         local t = guestscope.tableof(subject)
         if t == 0ULL then
-            texts.argumentError(ctx, 1ULL, texts.TEXT_TABLE, 0ULL, subject)
+            texts.argumentError(ctx, 1ULL, librarytexts.TEXT_TABLE, 0ULL, subject)
         end
         -- A record instance's fields go by name (guestscope.slotname).
         local key = tables.nextKey(t, guestscope.slotkey(ctx, t, after))
         if key == values.TRUE then
-            texts.libraryError(ctx, texts.TEXT_NEXT_KEY)
+            texts.libraryError(ctx, librarytexts.TEXT_NEXT_KEY)
         end
         local name = key
         if key ~= values.NIL then
@@ -111,7 +79,7 @@ local function storageindex(ctx: voidptr, object: uint64, key: uint64): uint64
         end
     end
     if index == NOINDEX or index >= corestorage.elementcount(object) then
-        guestscope.raise(ctx, texts.textvalue(ctx, texts.TEXT_INDEX_RANGE), 1ULL)
+        guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_INDEX_RANGE), 1ULL)
         return NOINDEX
     end
 
@@ -156,7 +124,7 @@ export function storageset(ctx: voidptr, subject: uint64, key: uint64, value: ui
             bits = native.word(native.toInt(native.fromBits(value)))
         end
     else
-        guestscope.raise(ctx, texts.textvalue(ctx, texts.TEXT_NUMBER_EXPECTED), 1ULL)
+        guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_NUMBER_EXPECTED), 1ULL)
         return 1ULL
     end
     corestorage.writeelement(object, index, bits)
@@ -168,10 +136,10 @@ end
 export function allocate(ctx: voidptr, kind: uint64, n: uint64): uint64
     local code = corestorage.elementwidth(ints.bitsOf(kind))
     if not ints.isInteger(kind) or code == 0ULL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_NUMBER, 0ULL, kind)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_NUMBER, 0ULL, kind)
     end
     if not ints.isInteger(n) or native.index(ints.bitsOf(n)) < 0 then
-        texts.argumentError(ctx, 2ULL, texts.TEXT_NUMBER, 0ULL, n)
+        texts.argumentError(ctx, 2ULL, librarytexts.TEXT_NUMBER, 0ULL, n)
     end
     @unsafe do
         local h = heapof(ctx)
@@ -187,7 +155,7 @@ end
 -- Argument `position`, storage: its header address.
 local function storageargument(ctx: voidptr, value: uint64, position: uint64): uint64
     if not corestorage.isstorage(value) then
-        texts.argumentError(ctx, position, texts.TEXT_STORAGE, 0ULL, value)
+        texts.argumentError(ctx, position, librarytexts.TEXT_STORAGE, 0ULL, value)
     end
 
     return value & values.PAYLOAD
@@ -196,21 +164,21 @@ end
 -- Argument `position`, a count of no more than `limit`.
 local function countargument(ctx: voidptr, value: uint64, position: uint64, limit: uint64): uint64
     if not ints.isInteger(value) or native.index(ints.bitsOf(value)) < 0 or ints.bitsOf(value) > limit then
-        texts.argumentError(ctx, position, 0ULL, texts.TEXT_INDEX_RANGE, value)
+        texts.argumentError(ctx, position, 0ULL, librarytexts.TEXT_INDEX_RANGE, value)
     end
 
     return ints.bitsOf(value)
 end
 
--- The storage calls from view on (`LIB_VIEW` through `LIB_ELEMENTKIND`),
+-- The storage views (`STORAGE_VIEW` through `STORAGE_CAST`),
 -- given `n` arguments.
 export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: uint64, c: uint64, d: uint64): uint64
     @unsafe do
         local h = heapof(ctx)
-        if id == LIB_FROMSTRING then
+        if id == librarycalls.STORAGE_FROMSTRING then
             local s = strings.header(a)
             if s == 0ULL then
-                texts.argumentError(ctx, 1ULL, texts.TEXT_STRING, 0ULL, a)
+                texts.argumentError(ctx, 1ULL, librarytexts.TEXT_STRING, 0ULL, a)
             end
             local length = strings.length(s)
             local made = corestorage.newstorage(h, corestorage.UINT8, length)
@@ -223,25 +191,25 @@ export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: u
         end
         local object = storageargument(ctx, a, 1ULL)
         local size = corestorage.bytelength(object)
-        if id == LIB_ELEMENTS then
+        if id == librarycalls.STORAGE_ELEMENTS then
             return values.TAG_INTEGER | corestorage.elementcount(object)
-        elseif id == LIB_ELEMENTKIND then
+        elseif id == librarycalls.STORAGE_ELEMENTKIND then
             return values.TAG_INTEGER | corestorage.elementkind(object)
-        elseif id == LIB_VIEW or id == LIB_CAST then
+        elseif id == librarycalls.STORAGE_VIEW or id == librarycalls.STORAGE_CAST then
             local kind: uint64 = 0ULL
             if ints.isInteger(b) then
                 kind = ints.bitsOf(b)
             end
             local width = corestorage.elementwidth(kind)
             if width == 0ULL then
-                texts.argumentError(ctx, 2ULL, texts.TEXT_NUMBER, 0ULL, b)
+                texts.argumentError(ctx, 2ULL, librarytexts.TEXT_NUMBER, 0ULL, b)
             end
             local offset: uint64 = 0ULL
-            if id == LIB_VIEW then
+            if id == librarycalls.STORAGE_VIEW then
                 offset = countargument(ctx, c, 3ULL, size)
             end
             local count = (size - offset) // width
-            if id == LIB_VIEW and n >= 4ULL and d ~= values.NIL then
+            if id == librarycalls.STORAGE_VIEW and n >= 4ULL and d ~= values.NIL then
                 count = countargument(ctx, d, 4ULL, count)
             end
             local made = corestorage.newview(h, object, kind, offset, count)
@@ -250,7 +218,7 @@ export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: u
             end
             tables.drain(h)
             return values.TAG_OBJ | made
-        elseif id == LIB_COPY then
+        elseif id == librarycalls.STORAGE_COPY then
             -- The source is storage or a string.
             local s = strings.header(b)
             local from: uint64 = 0ULL
@@ -270,7 +238,7 @@ export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: u
             local count = countargument(ctx, c, 3ULL, limit)
             corestorage.copybytes(corestorage.storagebase(object), from, count)
             return values.NIL
-        elseif id == LIB_FILL then
+        elseif id == librarycalls.STORAGE_FILL then
             local count = countargument(ctx, b, 2ULL, size)
             local byte: uint64 = 0ULL
             if ints.isInteger(c) then
@@ -279,7 +247,7 @@ export function storagecall(ctx: voidptr, id: uint64, n: uint64, a: uint64, b: u
             corestorage.fillbytes(corestorage.storagebase(object), count, byte)
             return values.NIL
         end
-        -- LIB_TEXT: the first `count` bytes as a string.
+        -- STORAGE_TEXT: the first `count` bytes as a string.
         local count = countargument(ctx, b, 2ULL, size)
         local made = strings.make(h, corestorage.storagebase(object), count)
         tables.drain(h)
@@ -293,7 +261,7 @@ export function storageoffset(ctx: voidptr, subject: uint64, step: uint64): uint
     local object = subject & values.PAYLOAD
     local count = corestorage.elementcount(object)
     if not ints.isInteger(step) or native.index(ints.bitsOf(step)) < 0 or ints.bitsOf(step) > count then
-        guestscope.raise(ctx, texts.textvalue(ctx, texts.TEXT_INDEX_RANGE), 1ULL)
+        guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_INDEX_RANGE), 1ULL)
         return values.TRUE
     end
     local n = ints.bitsOf(step)

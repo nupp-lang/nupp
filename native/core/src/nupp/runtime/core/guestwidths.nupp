@@ -11,24 +11,20 @@ const guestscope = require("nupp.runtime.core.guestscope")
 const guestlib = require("nupp.runtime.core.guestlib")
 const corestorage = require("nupp.runtime.core.corestorage")
 const texts = require("nupp.runtime.core.guesttexts")
+const librarycalls = require("nupp.runtime.core.librarycalls")
+const librarytexts = require("nupp.runtime.core.librarytexts")
 
--- math.f32.narrow(x): x rounded to the nearest binary32 value.
-export const LIB_NARROW: uint64 = 91ULL
--- math.u32.wrap(x) and math.i32.wrap(x): x's low 32 bits, unsigned and
--- signed.
-export const LIB_U32WRAP: uint64 = 92ULL
-export const LIB_I32WRAP: uint64 = 93ULL
 
 -- The call `id` makes of `a`.
 export function call(ctx: voidptr, id: uint64, a: uint64): uint64
-    if id == LIB_NARROW then
+    if id == librarycalls.MATH_F32_NARROW then
         return guestlib.floatValue(corestorage.narrow(guestlib.floatOf(guestlib.numberArgument(ctx, a, 1ULL))))
     end
     if a == values.NIL then
-        texts.argumentError(ctx, 1ULL, texts.TEXT_NUMBER, 0ULL, a)
+        texts.argumentError(ctx, 1ULL, librarytexts.TEXT_NUMBER, 0ULL, a)
     end
     local low = native.word(guestlib.integerArgument(ctx, a, 0, 1ULL)) & 0xffffffffULL
-    if id == LIB_I32WRAP and low >= 0x80000000ULL then
+    if id == librarycalls.MATH_I32_WRAP and low >= 0x80000000ULL then
         low = low | 0xffffffff00000000ULL
     end
     @unsafe do
