@@ -1457,7 +1457,9 @@ export function callback(): function(): nil end
     for _, member in ipairs(items.Box.members) do
         members[member.name] = member
     end
-    assert(members.constructor.params[1].type == "example.Box<T>")
+    assert(#members.constructor.params == 1 and members.constructor.params[1].name == "value")
+    assert(members.constructor.params[1].type == "T")
+    assert(members.constructor.returns[1].type == "example.Box<T>")
     assert(members.clear.params[1].type == "example.Box<T>")
     assert(members.explicit.params[1].type == "example.Box<T>")
     assert(members.readonly.params[1].type == "const example.Box<T>")
@@ -7059,7 +7061,8 @@ function M.omitsVoidReturnsAndKeepsNullableAndMultipleResults()
         {source = "export function finish(): nil end", returns = false},
         {
             source = "export record Worker\nfunction finish(self): nil end\nflush: function(self: Worker): nil\nend",
-            returns = false
+            returns = false,
+            member = "example.Worker.finish"
         },
         {source = "export function fetch(): string? end", returns = true},
         {source = "export function fetch(): (nil, string) end", returns = true},
@@ -7069,9 +7072,194 @@ function M.omitsVoidReturnsAndKeepsNullableAndMultipleResults()
         renderMarkdownItem(rendered, module.items[1])
         local html = table.concat(rendered)
         local markdown = doc.markdown({module})
+        if case.member then
+            html = html:sub(assert(html:find('id="' .. case.member .. '"', 1, true)))
+            markdown = markdown:sub(assert(markdown:find('::: api-item ' .. case.member .. '\n', 1, true)))
+        end
         assert((html:find(">Returns<a", 1, true) ~= nil) == case.returns, html)
         assert((markdown:find(" Returns\n", 1, true) ~= nil) == case.returns, markdown)
     end
+end
+
+function M.documentsGeneratedRecordInputsWithoutMethods()
+    local module = assert(
+        doc.extract(
+            [[
+module example
+export type Maybe = string?
+export interface HasValue<V>
+    value: V
+    read: function(self: HasValue<V>): V
+end
+export record Options<T> is HasValue<T>
+    --- The display name.
+    name: string
+    count: integer = 3
+    note: Maybe
+    callback: function(T: string, value: T): T
+    read: function(self: Options<T>): T
+    function reset(self): nil end
+    function create(value: T): Options<T> end
+    record Child
+        enabled: boolean
+    end
+    metamethod __tostring: function(self: Options<T>): string
+end
+]],
+            "src/example.nupp",
+            "example"
+        )
+    )
+    local options
+    for _, item in ipairs(module.items) do
+        if item.name == "Options" then
+            options = item
+        end
+    end
+    local original = #options.members
+    local constructors = require("nupp.tools.doc.constructors")
+    local members = constructors.members(options, module, constructors.index({module}))
+    local ctor = members[1]
+    assert(ctor.generatedConstructor and ctor.name == "constructor")
+    local params = {}
+    for _, param in ipairs(ctor.params) do
+        params[param.name] = param
+    end
+    assert(#ctor.params == 5, #ctor.params)
+    assert(params.name and not params.name.optional)
+    assert(params.count.optional and params.count.text:find("Defaults to `3`", 1, true))
+    assert(params.note.optional and params.note.text:find("Defaults to `nil`", 1, true))
+    assert(params.value.type == "T", params.value.type)
+    assert(params.callback.type == "function(T: string, value: T): T", params.callback.type)
+    assert(not params.read and not params.reset and not params.create and not params.Child and not params.__tostring)
+    local markdown = doc.markdown({module})
+    assert(#options.members == original, "rendering changed the extracted model")
+    assert(markdown:find('**constructors**\n\n- [`constructor`](#example.Options.constructor)', 1, true), markdown)
+    local example = constructors.example(ctor, module)
+    assert(example:find('require("example").Options(', 1, true), example)
+    assert(example:find('name = name', 1, true) and example:find('value = value', 1, true), example)
+    assert(not example:find('count =', 1, true) and not example:find('note =', 1, true), example)
+    assert(markdown:find('require("example").Options.Child(', 1, true), markdown)
+    assert(not markdown:find('example.HasValue.constructor', 1, true), "interfaces have no constructor")
+end
+
+function M.documentsCustomConstructorArgumentsAndExamplesAfterTheContract()
+    local module = assert(
+        doc.extract(
+            [[
+module example
+export record File
+    --- Opens the named file.
+    ---
+    --- ## Examples
+    ---
+    --- ```nupp
+    --- local file = require("example").File("log.txt")
+    --- ```
+    ---
+    --- @param path the file name
+    --- @return the open file
+    --- @raises string when opening fails
+    constructor(self, path: string): affine(File, File.destroy) end
+    function destroy(self): nil end
+end
+export record Box<T>
+    constructor(self, value: T) end
+end
+]],
+            "src/example.nupp",
+            "example"
+        )
+    )
+    local file
+    for _, item in ipairs(module.items) do
+        if item.name == "File" then
+            file = item
+        end
+    end
+    local ctor = file.members[1]
+    assert(#ctor.params == 1 and ctor.params[1].name == "path")
+    assert(ctor.params[1].text == "the file name")
+    assert(ctor.returns[1].type == "affine(File, File.destroy)", ctor.returns[1].type)
+    assert(not ctor.type:find("self", 1, true), ctor.type)
+    local markdown = doc.markdown({module})
+    local start = assert(markdown:find('::: api-item example.File.constructor\n', 1, true))
+    local ending = assert(markdown:find('\n:::', start, true))
+    local section = markdown:sub(start, ending)
+    local args = assert(section:find("Arguments", 1, true))
+    local returns = assert(section:find("Returns", 1, true))
+    local raises = assert(section:find("Raises", 1, true))
+    local examples = assert(section:find("Examples", 1, true))
+    assert(args < returns and returns < raises and raises < examples, section)
+    assert(section:find('require("example").File("log.txt")', 1, true), section)
+    assert(not section:find('Using values', 1, true), "replaced an authored example")
+    assert(not section:find('`self`', 1, true), section)
+    assert(markdown:find('function(value: T): example.Box<T>', 1, true), markdown)
+    assert(markdown:find('require("example").Box(\n    value\n)', 1, true), markdown)
+end
+
+function M.doesNotInventConstructorsForSealedOrUnknownRecords()
+    local module = assert(
+        doc.extract(
+            [[
+module example
+export record Sealed
+    @private hidden: string?
+    name: string
+end
+export record PrivateConstructor
+    @private constructor(self) end
+end
+export record Derived is Missing
+    name: string
+end
+]],
+            "src/example.nupp",
+            "example"
+        )
+    )
+    local markdown = doc.markdown({module})
+    assert(not markdown:find('.constructor', 1, true), markdown)
+end
+
+function M.constructorExampleHeadingsInsideFencesAreNotSections()
+    local constructors = require("nupp.tools.doc.constructors")
+    local body, examples = constructors.examples('Builds a file.\n\n```nupp\n# Examples\n```\n\nMore details.')
+    assert(body == 'Builds a file.\n\n\nMore details.', body)
+    assert(examples == '```nupp\n# Examples\n```', examples)
+    local prose, authored = constructors.examples(
+        'Builds a file.\n\n## Examples\n\n```nupp\nFile()\n```\n\n## Notes\n\nDetails.'
+    )
+    assert(prose:find('## Notes', 1, true), prose)
+    assert(not authored:find('## Notes', 1, true), authored)
+    assert(authored:find('File()', 1, true), authored)
+end
+
+function M.generatedConstructorsUsePublicAliasPaths()
+    local dir = tempProject({
+        [
+            "src/package/init.nupp"
+        ] = [[
+module package
+const model = require("package.internal.model")
+export type Options = model.Settings
+]],
+        [
+            "src/package/internal/model.nupp"
+        ] = [[
+module package.internal.model
+export record Settings
+    name: string
+    attempts: integer = 3
+end
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "markdown", output = "api.md"}) == 0)
+    local text = readFile(dir .. "/api.md")
+    assert(text:find('require("package").Options(', 1, true), text)
+    assert(text:find('name = name', 1, true), text)
+    assert(not text:find('internal.model', 1, true), text)
+    os.execute("rm -rf '" .. dir .. "'")
 end
 
 return M

@@ -234,7 +234,7 @@ export function memberSpelling(member: extractMod.Member): string
         return formatType("type " .. member.name .. (member.generics or "") .. " = " .. member.type)
     end
 
-    if member.isFunction and member.name ~= "constructor" then
+    if member.isFunction then
         local signature = member.type:gsub("^(.-function)%s+[%w_%.:]+", "%1", 1)
         return omitNilResult(signature, member.returns)
     end

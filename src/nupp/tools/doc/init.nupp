@@ -324,6 +324,9 @@ function doc.json(modules: {extractMod.Module}, annotationItems: {extractMod.Ite
             isMetamethod = value.isMetamethod,
             isType = value.isType,
             signature = value.signature,
+            stored = value.stored,
+            defaultValue = value.defaultValue,
+            constructionBlocked = value.constructionBlocked,
             supertypes = value.supertypes and array(value.supertypes) or nil,
             comptimeKind = value.comptimeKind,
             lua = value.lua,
@@ -343,6 +346,7 @@ function doc.json(modules: {extractMod.Module}, annotationItems: {extractMod.Ite
             lua = value.lua,
             signature = value.signature,
             supertypes = value.supertypes and array(value.supertypes) or nil,
+            constructionBlocked = value.constructionBlocked,
             annotation = value.annotation,
             path = value.path,
             module = value.module,
@@ -590,6 +594,7 @@ local function loadModules(root, config, settings, requested)
                     },
                     members = member.members or {},
                     supertypes = member.supertypes,
+                    constructionBlocked = member.constructionBlocked,
                     params = {},
                     returns = {},
                     raises = {},
@@ -1072,6 +1077,7 @@ local function loadModules(root, config, settings, requested)
                         field.members = copy(target.members)
                         field.typeargs = copy(target.typeargs)
                         field.supertypes = copy(target.supertypes)
+                        field.constructionBlocked = target.constructionBlocked
                     elseif target.aliasSource then
                         field.type = target.aliasSource
                     end
