@@ -409,3 +409,43 @@ end
     );
     runtime.shutdown().expect("shutdown");
 }
+
+#[cfg(target_os = "macos")]
+#[test]
+fn concurrent_temporary_files_preserve_the_process_signal_mask() {
+    let payload = br#"
+for i = 1, 2000 do
+    local file = assert(io.tmpfile())
+    assert(file:write("temporary"))
+    assert(file:seek("set", 0))
+    assert(file:read("*a") == "temporary")
+    assert(file:close())
+end
+"#;
+    let mut runtime = runtime(payload);
+    run(
+        &runtime,
+        br#"
+local ffi = require("ffi")
+ffi.cdef[[int pthread_sigmask(int, const unsigned int *, unsigned int *);]]
+local before, after = ffi.new("unsigned int[1]"), ffi.new("unsigned int[1]")
+assert(ffi.C.pthread_sigmask(1, nil, before) == 0)
+local workers = require("nupp.workers.native")
+local running = {}
+for i = 1, 4 do
+    local inbox, outbox = workers.channelCreate(), workers.channelCreate()
+    running[i] = {assert(workers.workerSpawn(inbox, outbox)), inbox, outbox}
+end
+for _, entry in ipairs(running) do
+    local status, problem = workers.workerJoin(entry[1])
+    assert(status == 0, problem)
+    workers.channelDestroy(entry[2])
+    workers.channelDestroy(entry[3])
+end
+assert(ffi.C.pthread_sigmask(1, nil, after) == 0)
+assert(ffi.C.pthread_sigmask(3, before, nil) == 0)
+assert(after[0] == before[0], "temporary files changed the process signal mask")
+"#,
+    );
+    runtime.shutdown().expect("shutdown");
+}
