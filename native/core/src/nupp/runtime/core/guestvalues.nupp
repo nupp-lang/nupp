@@ -14,6 +14,7 @@ const texts = require("nupp.runtime.core.guesttexts")
 const ints = require("nupp.runtime.core.coreintegers")
 const os = require("nupp.runtime.vm.os")
 const librarytexts = require("nupp.runtime.core.librarytexts")
+const guesterrors = require("nupp.runtime.core.guesterrors")
 
 export function integerValue(value: uint64): int64
     local payload = value & values.PAYLOAD
@@ -70,8 +71,8 @@ export function appendText(h: heap.Heap*, b: strings.Builder*, value: uint64): u
     elseif value == values.NIL then
         return strings.appendWord(h, b, 0x6c696eULL, 3ULL)
     end
-    if guestscope.identified(value) then
-        return guestscope.appendIdentity(h, b, value)
+    if guesterrors.identified(value) then
+        return guesterrors.appendIdentity(h, b, value)
     end
     error("tostring of this value is not yet supported by the core")
 

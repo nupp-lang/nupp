@@ -27,6 +27,9 @@ const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const guesttables = require("nupp.runtime.core.guesttables")
 const gueststorage = require("nupp.runtime.core.gueststorage")
+const guesterrors = require("nupp.runtime.core.guesterrors")
+const guestmeta = require("nupp.runtime.core.guestmeta")
+const guestreplay = require("nupp.runtime.core.guestreplay")
 
 -- The closed checked producer binds these program/slot reads to corebytecode's
 -- canonical opcode recipes and its retained complete graph-derived byte stream.
@@ -492,7 +495,7 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     -- Arithmetic on a non-number calls a table operand's metamethod, or is a
     -- guest error, as Lua raises one.
     if result == values.TRUE then
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_ADD, left, right)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_ADD, left, right)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -510,7 +513,7 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             access.refresh(s, current, ctx)
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
-        guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -519,7 +522,7 @@ export function Add(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     if result == values.FALSE then
-        guestscope.fault(ctx, guestscope.FAULT_MODZERO, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_MODZERO, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -560,7 +563,7 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     -- Arithmetic on a non-number calls a table operand's metamethod, or is a
     -- guest error, as Lua raises one.
     if result == values.TRUE then
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_SUB, left, right)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_SUB, left, right)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -578,7 +581,7 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             access.refresh(s, current, ctx)
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
-        guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -587,7 +590,7 @@ export function Sub(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     if result == values.FALSE then
-        guestscope.fault(ctx, guestscope.FAULT_MODZERO, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_MODZERO, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -628,7 +631,7 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     -- Arithmetic on a non-number calls a table operand's metamethod, or is a
     -- guest error, as Lua raises one.
     if result == values.TRUE then
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_MUL, left, right)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_MUL, left, right)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -646,7 +649,7 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             access.refresh(s, current, ctx)
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
-        guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -655,7 +658,7 @@ export function Mul(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     if result == values.FALSE then
-        guestscope.fault(ctx, guestscope.FAULT_MODZERO, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_MODZERO, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -696,7 +699,7 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     -- Arithmetic on a non-number calls a table operand's metamethod, or is a
     -- guest error, as Lua raises one.
     if result == values.TRUE then
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_MOD, left, right)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_MOD, left, right)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -714,7 +717,7 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
             access.refresh(s, current, ctx)
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
-        guestscope.fault(ctx, guestscope.FAULT_ARITH, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_ARITH, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -723,7 +726,7 @@ export function Mod(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
         return native.fail()
     end
     if result == values.FALSE then
-        guestscope.fault(ctx, guestscope.FAULT_MODZERO, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_MODZERO, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -766,7 +769,7 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     end
     if result > 1ULL then
         -- A table operand's __lt decides, as a boolean.
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_LT, left, right)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_LT, left, right)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -784,7 +787,7 @@ export function Lt(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
             access.refresh(s, current, ctx)
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
-        guestscope.fault(ctx, guestscope.FAULT_COMPARE, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_COMPARE, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -827,7 +830,7 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     end
     if result > 1ULL then
         -- A table operand's __le decides, as a boolean.
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_LE, left, right)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_LE, left, right)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -845,7 +848,7 @@ export function Le(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
             access.refresh(s, current, ctx)
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
-        guestscope.fault(ctx, guestscope.FAULT_COMPARE, left, right)
+        guesterrors.fault(ctx, guestscope.FAULT_COMPARE, left, right)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -882,7 +885,7 @@ export function Eq(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, c
     local result = equal(left, right)
     -- Two distinct tables are equal when an __eq of theirs says so.
     if result ~= 1ULL and tableHeader(left) ~= 0ULL and tableHeader(right) ~= 0ULL then
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_EQ, left, right)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_EQ, left, right)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -1268,19 +1271,19 @@ export function GetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
     if header == 0ULL then
-        guestscope.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
+        guesterrors.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
     local keyValue = slots.readValue(frame, regs, key)
-    local value = guestscope.tableGet(ctx, header, keyValue)
-    local callee = guestscope.takeMeta(ctx)
+    local value = guestmeta.tableGet(ctx, header, keyValue)
+    local callee = guestmeta.takeMeta(ctx)
     if callee ~= 0ULL then
         -- An __index function: called with the table and the key from the
         -- top of the call window, its result landing in dst.
         local top = native.index(count - 4ULL)
         slots.writeValue(frame, regs, top, callee)
-        slots.writeValue(frame, regs, top + 1, guestscope.metaSelf(ctx))
+        slots.writeValue(frame, regs, top + 1, guestmeta.metaSelf(ctx))
         slots.writeValue(frame, regs, top + 2, keyValue)
         if ops.metaCall(ctx, frame, pc, 2ULL, native.word(dst), 0ULL) ~= 1ULL then
             return native.fail()
@@ -1339,24 +1342,19 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         return native.dispatch(native.pointer(after), regs, ints, floats, ctx, frame)
     end
     if header == 0ULL then
-        guestscope.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
+        guesterrors.fault(ctx, guestscope.FAULT_INDEX, slots.readValue(frame, regs, object), values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
-    local status = guestscope.tableSet(
-        ctx,
-        header,
-        slots.readValue(frame, regs, key),
-        slots.readValue(frame, regs, src)
-    )
-    if status == guestscope.META_PENDING then
+    local status = guestmeta.tableSet(ctx, header, slots.readValue(frame, regs, key), slots.readValue(frame, regs, src))
+    if status == guestmeta.META_PENDING then
         -- A __newindex function: called with the table, key and value from
         -- the top of the call window; its result is dropped.
         local top = native.index(count - 4ULL)
         local keyValue = slots.readValue(frame, regs, key)
         local item = slots.readValue(frame, regs, src)
-        slots.writeValue(frame, regs, top, guestscope.takeMeta(ctx))
-        slots.writeValue(frame, regs, top + 1, guestscope.metaSelf(ctx))
+        slots.writeValue(frame, regs, top, guestmeta.takeMeta(ctx))
+        slots.writeValue(frame, regs, top + 1, guestmeta.metaSelf(ctx))
         slots.writeValue(frame, regs, top + 2, keyValue)
         slots.writeValue(frame, regs, top + 3, item)
         if ops.metaCall(ctx, frame, pc, 3ULL, count - 1ULL, 0ULL) ~= 1ULL then
@@ -1371,13 +1369,13 @@ export function SetIdx(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidpt
         access.refresh(s, current, ctx)
         return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
     end
-    if status == guestscope.READONLY then
-        guestscope.fault(ctx, guestscope.FAULT_READONLY, values.NIL, values.NIL)
+    if status == guestmeta.READONLY then
+        guesterrors.fault(ctx, guestscope.FAULT_READONLY, values.NIL, values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
     if status == tables.BAD_KEY then
-        guestscope.fault(ctx, guestscope.FAULT_KEY, slots.readValue(frame, regs, key), values.NIL)
+        guesterrors.fault(ctx, guestscope.FAULT_KEY, slots.readValue(frame, regs, key), values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -1411,7 +1409,7 @@ export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     local size: uint64 = 0ULL
     if header ~= 0ULL then
         -- A table whose metatable has __len answers what it returns.
-        local callee = guestscope.binaryMeta(ctx, guestscope.META_LEN, value, values.NIL)
+        local callee = guestmeta.binaryMeta(ctx, guestmeta.META_LEN, value, values.NIL)
         if callee ~= 0ULL then
             local top = native.index(count - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -1433,7 +1431,7 @@ export function Len(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     else
         local text = strings.header(value)
         if text == 0ULL then
-            guestscope.fault(ctx, guestscope.FAULT_LENGTH, value, values.NIL)
+            guesterrors.fault(ctx, guestscope.FAULT_LENGTH, value, values.NIL)
             ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
             return native.fail()
         end
@@ -1548,24 +1546,24 @@ export function LibCall(
     local which: uint64 = 0ULL
     local word = libraryId
     if word == librarycalls.CONCAT2 then
-        which = guestscope.META_CONCAT
+        which = guestmeta.META_CONCAT
     elseif word == librarycalls.DIVIDE then
-        which = guestscope.META_DIV
+        which = guestmeta.META_DIV
     elseif word == librarycalls.FLOOR_DIVIDE then
-        which = guestscope.META_IDIV
+        which = guestmeta.META_IDIV
     elseif word == librarycalls.POW then
-        which = guestscope.META_POW
+        which = guestmeta.META_POW
     elseif word == librarycalls.TOSTRING then
-        which = guestscope.META_TOSTRING
+        which = guestmeta.META_TOSTRING
     elseif word == librarycalls.UNM then
-        which = guestscope.META_UNM
+        which = guestmeta.META_UNM
     end
     if which ~= 0ULL then
         local second = b
         if word == librarycalls.TOSTRING or word == librarycalls.UNM then
             second = a
         end
-        local callee = guestscope.binaryMeta(ctx, which, a, second)
+        local callee = guestmeta.binaryMeta(ctx, which, a, second)
         if callee ~= 0ULL then
             local top = native.index(valueCount - 4ULL)
             slots.writeValue(frame, regs, top, callee)
@@ -1781,11 +1779,11 @@ export function LibCall(
         slots.writeValue(frame, regs, dst, a)
     else
         -- The table library over a table with a metatable runs in replay
-        -- (guestscope.replaybegin): a function __index, __newindex or __len
+        -- (guestreplay.replaybegin): a function __index, __newindex or __len
         -- it reaches is called here, and the call runs again once it answers.
-        local replay = guestscope.REPLAY_NONE
+        local replay = guestreplay.REPLAY_NONE
         if guesttables.replays(libraryId) then
-            replay = guestscope.replaybegin(
+            replay = guestreplay.replaybegin(
                 ctx,
                 frame,
                 slots.readValue(frame, regs, dst),
@@ -1794,38 +1792,38 @@ export function LibCall(
         end
         -- Run again, its arguments are its entry's: the metamethod's staging
         -- overwrote the frame's.
-        if replay == guestscope.REPLAY_START then
-            guestscope.replaykeep(ctx, a, b, c, d)
-            guestscope.replaysave(ctx, guesttables.stepstate(ctx, libraryId, a))
-            guesttables.copystate(ctx, libraryId, a, guestscope.replaysaved(ctx))
-        elseif replay == guestscope.REPLAY_AGAIN then
-            a = guestscope.replayarg(ctx, 0ULL)
-            b = guestscope.replayarg(ctx, 1ULL)
-            c = guestscope.replayarg(ctx, 2ULL)
-            d = guestscope.replayarg(ctx, 3ULL)
-            guesttables.copystate(ctx, libraryId, guestscope.replaysaved(ctx), a)
+        if replay == guestreplay.REPLAY_START then
+            guestreplay.replaykeep(ctx, a, b, c, d)
+            guestreplay.replaysave(ctx, guesttables.stepstate(ctx, libraryId, a))
+            guesttables.copystate(ctx, libraryId, a, guestreplay.replaysaved(ctx))
+        elseif replay == guestreplay.REPLAY_AGAIN then
+            a = guestreplay.replayarg(ctx, 0ULL)
+            b = guestreplay.replayarg(ctx, 1ULL)
+            c = guestreplay.replayarg(ctx, 2ULL)
+            d = guestreplay.replayarg(ctx, 3ULL)
+            guesttables.copystate(ctx, libraryId, guestreplay.replaysaved(ctx), a)
         end
         local result = guestlib.call(ctx, libraryId, count, a, b, c, d)
         guestscope.libraryReturned(ctx)
         local kind: uint64 = 0ULL
-        if replay ~= guestscope.REPLAY_NONE then
-            kind = guestscope.replayend(ctx)
+        if replay ~= guestreplay.REPLAY_NONE then
+            kind = guestreplay.replayend(ctx)
         end
         if kind ~= 0ULL then
             local top = native.index(valueCount - 4ULL)
-            slots.writeValue(frame, regs, top, guestscope.takeMeta(ctx))
-            slots.writeValue(frame, regs, top + 1, guestscope.metaSelf(ctx))
-            slots.writeValue(frame, regs, top + 2, guestscope.replaykey(ctx))
+            slots.writeValue(frame, regs, top, guestmeta.takeMeta(ctx))
+            slots.writeValue(frame, regs, top + 1, guestmeta.metaSelf(ctx))
+            slots.writeValue(frame, regs, top + 2, guestreplay.replaykey(ctx))
             local nargs: uint64 = 2ULL
-            if kind == guestscope.ACCESS_SET then
-                slots.writeValue(frame, regs, top + 3, guestscope.replayvalue(ctx))
+            if kind == guestreplay.ACCESS_SET then
+                slots.writeValue(frame, regs, top + 3, guestreplay.replayvalue(ctx))
                 nargs = 3ULL
             end
             local child = ops.libraryCall(ctx, frame, pc, nargs, native.word(dst))
             if child == 0ULL then
                 return native.fail()
             end
-            guestscope.replaywait(ctx, child)
+            guestreplay.replaywait(ctx, child)
             local s = native.pointer(ops.state(ctx))
             local current = native.pointer(access.active(s))
             local currentValues = native.pointer(access.values(s, current))
@@ -1942,7 +1940,7 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
     if ops.uncallable(ctx, callee) == 1ULL then
         -- A table with __call is called through it, the table first: the
         -- arguments move up a slot and __call takes the callee's place.
-        local handler = guestscope.binaryMeta(ctx, guestscope.META_CALL, callee, values.NIL)
+        local handler = guestmeta.binaryMeta(ctx, guestmeta.META_CALL, callee, values.NIL)
         local first = native.word(base)
         if handler ~= 0ULL
             and first + native.word(nargs) + 1ULL < native.load64(frame, native.fieldOffset<frames.Frame>("valueCount"))
@@ -1984,7 +1982,7 @@ export function CallK(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
             access.refresh(s, current, ctx)
             return native.dispatch(currentPC, currentValues, currentIntegers, currentFloats, ctx, current)
         end
-        guestscope.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
+        guesterrors.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -2106,7 +2104,7 @@ export function Ret(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, 
     end
     -- A metamethod a library call waits on: that call runs again next.
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.LIBRARY_DESTINATION then
-        guestscope.answered(ctx, native.address(frame))
+        guestreplay.answered(ctx, native.address(frame))
     end
     local returned = frames.returnScalar(s, frame, value)
     if returned ~= 1ULL then
@@ -2184,7 +2182,7 @@ export function RetN(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     end
     -- A metamethod a library call waits on: that call runs again next.
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.LIBRARY_DESTINATION then
-        guestscope.answered(ctx, native.address(frame))
+        guestreplay.answered(ctx, native.address(frame))
     end
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.PACK_DESTINATION then
         -- A caller taking every result as one pack gets them in a pack.
@@ -2307,7 +2305,7 @@ export function CallV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr
         return native.dispatch(activePC, activeValues, activeIntegers, activeFloats, ctx, active)
     end
     if ops.uncallable(ctx, callee) == 1ULL then
-        guestscope.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
+        guesterrors.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
         ops.fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return native.fail()
     end
@@ -2454,7 +2452,7 @@ export function RetV(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr,
     end
     -- A metamethod a library call waits on: that call runs again next.
     if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.LIBRARY_DESTINATION then
-        guestscope.answered(ctx, native.address(frame))
+        guestreplay.answered(ctx, native.address(frame))
     end
     local returned = frames.returnValues(s, frame, native.offset(regs, native.index(native.word(src) * 8ULL)), count)
     if returned ~= 1ULL then
@@ -2473,7 +2471,7 @@ end
 
 -- pcall(f, ...) (core-only): CallK whose child is a protected call. Its caller
 -- gets true before its results, or false and the error when an error unwinds
--- to it (guestscope.recoverEntry).
+-- to it (guestlanding.recoverEntry).
 export function PCall(pc: voidptr, regs: voidptr, ints: voidptr, floats: voidptr, ctx: voidptr, frame: voidptr): uint64
     if ops.charge(ctx, frame, pc) ~= 1ULL then
         return native.fail()

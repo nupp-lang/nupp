@@ -11,6 +11,7 @@ const tables = require("nupp.runtime.core.coretables")
 const guestscope = require("nupp.runtime.core.guestscope")
 const texts = require("nupp.runtime.core.guesttexts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
+const guestmeta = require("nupp.runtime.core.guestmeta")
 
 local function heapof(ctx: voidptr): heap.Heap*
     @unsafe do
@@ -24,18 +25,18 @@ end
 export function rawnext(ctx: voidptr, subject: uint64, after: uint64, all: boolean): uint64
     @unsafe do
         local h = heapof(ctx)
-        local t = guestscope.tableof(subject)
+        local t = guestmeta.tableof(subject)
         if t == 0ULL then
             texts.argumentError(ctx, 1ULL, librarytexts.TEXT_TABLE, 0ULL, subject)
         end
-        -- A record instance's fields go by name (guestscope.slotname).
-        local key = tables.nextKey(t, guestscope.slotkey(ctx, t, after))
+        -- A record instance's fields go by name (guestmeta.slotname).
+        local key = tables.nextKey(t, guestmeta.slotkey(ctx, t, after))
         if key == values.TRUE then
             texts.libraryError(ctx, librarytexts.TEXT_NEXT_KEY)
         end
         local name = key
         if key ~= values.NIL then
-            name = guestscope.slotname(ctx, t, key)
+            name = guestmeta.slotname(ctx, t, key)
         end
         if not all then
             return name

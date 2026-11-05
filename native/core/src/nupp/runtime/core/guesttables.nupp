@@ -15,8 +15,10 @@ const librarycalls = require("nupp.runtime.core.librarycalls")
 const librarylayouts = require("nupp.runtime.core.librarylayouts")
 const librarytexts = require("nupp.runtime.core.librarytexts")
 const guestvalues = require("nupp.runtime.core.guestvalues")
+const guestmeta = require("nupp.runtime.core.guestmeta")
+const guestreplay = require("nupp.runtime.core.guestreplay")
 
--- The table library calls that run in replay (guestscope.replaybegin).
+-- The table library calls that run in replay (guestreplay.replaybegin).
 export function replays(id: uint64): boolean
     return id == librarycalls.TABLE_CONCAT
         or id == librarycalls.TABLE_INSERT
@@ -37,28 +39,28 @@ const MOVE_DESTINATION: uint64 = 4ULL
 -- Whether a table library call `id` with arguments a and b reaches a table
 -- with a metatable: its list, or table.move's destination.
 export function reachesmeta(id: uint64, a: uint64, b: uint64): boolean
-    if guestscope.metatabled(a) then
+    if guestmeta.metatabled(a) then
         return true
     end
     -- A comparator's step reaches the list its state holds.
-    local state = guestscope.tableof(a)
+    local state = guestmeta.tableof(a)
     if id == librarycalls.TABLE_SORT_STEP and state ~= 0ULL then
-        return guestscope.metatabled(tables.get(state, values.TAG_INTEGER | native.word(librarylayouts.SORT_LIST)))
+        return guestmeta.metatabled(tables.get(state, values.TAG_INTEGER | native.word(librarylayouts.SORT_LIST)))
     end
-    local pack = guestscope.tableof(b)
+    local pack = guestmeta.tableof(b)
     if id == librarycalls.TABLE_MOVE_PACK and pack ~= 0ULL then
-        return guestscope.metatabled(tables.get(pack, values.TAG_INTEGER | MOVE_DESTINATION))
+        return guestmeta.metatabled(tables.get(pack, values.TAG_INTEGER | MOVE_DESTINATION))
     end
 
     return false
 end
 
--- #t as the table library takes it (guestscope.leni): what __len answers
+-- #t as the table library takes it (guestreplay.leni): what __len answers
 -- must be an integer, or a float with an integral value. 0 when the call
 -- stopped for __len, which its caller checks first.
 local function lengthof(ctx: voidptr, t: uint64): int64
-    local value = guestscope.leni(ctx, t)
-    if guestscope.suspended(ctx) then
+    local value = guestreplay.leni(ctx, t)
+    if guestreplay.suspended(ctx) then
         return 0
     end
     if ints.isInteger(value) then
@@ -90,7 +92,7 @@ export function concat(
         local t = list & values.PAYLOAD
         -- Lua takes the length first, whether or not j is given.
         local size = lengthof(ctx, t)
-        if guestscope.suspended(ctx) then
+        if guestreplay.suspended(ctx) then
             return values.NIL
         end
         local sep: uint64 = 0ULL
@@ -105,8 +107,8 @@ export function concat(
         local i = guestvalues.integerArgument(ctx, first, 1, 3ULL)
         local j = guestvalues.integerArgument(ctx, last, size, 4ULL)
         while i <= j do
-            local item = guestscope.geti(ctx, t, i)
-            if guestscope.suspended(ctx) then
+            local item = guestreplay.geti(ctx, t, i)
+            if guestreplay.suspended(ctx) then
                 strings.release(builder)
                 return values.NIL
             end
@@ -128,7 +130,7 @@ end
 -- (runtime Decision 16), as Luau's do, before it writes anything.
 local function writable(ctx: voidptr, t: uint64): nil
     if tables.frozen(t) then
-        guestscope.readonly(ctx)
+        guestmeta.readonly(ctx)
     end
 end
 
@@ -139,7 +141,7 @@ export function tableFreeze(ctx: voidptr, list: uint64): uint64
     if tables.frozen(t) then
         texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_ALREADY_FROZEN, list)
     end
-    if guestscope.metaField(ctx, t, guestscope.META_METATABLE) ~= values.NIL then
+    if guestmeta.metaField(ctx, t, guestmeta.META_METATABLE) ~= values.NIL then
         texts.argumentError(ctx, 1ULL, 0ULL, librarytexts.TEXT_PROTECTED_TABLE, list)
     end
     tables.freeze(guestvalues.guestHeap(ctx), t)
@@ -163,12 +165,12 @@ export function tableInsert(ctx: voidptr, count: uint64, list: uint64, a: uint64
         local h = guestvalues.guestHeap(ctx)
         local t = guestvalues.tableArgument(ctx, list, 1ULL)
         local size = lengthof(ctx, t)
-        if guestscope.suspended(ctx) then
+        if guestreplay.suspended(ctx) then
             return values.NIL
         end
         if count == 2ULL then
             writable(ctx, t)
-            guestscope.seti(ctx, t, size + 1, a)
+            guestreplay.seti(ctx, t, size + 1, a)
             tables.drain(h)
             return values.NIL
         end
@@ -178,11 +180,11 @@ export function tableInsert(ctx: voidptr, count: uint64, list: uint64, a: uint64
         end
         writable(ctx, t)
         local at = size + 1
-        while at > pos and not guestscope.suspended(ctx) do
-            guestscope.seti(ctx, t, at, guestscope.geti(ctx, t, at - 1))
+        while at > pos and not guestreplay.suspended(ctx) do
+            guestreplay.seti(ctx, t, at, guestreplay.geti(ctx, t, at - 1))
             at = at - 1
         end
-        guestscope.seti(ctx, t, pos, b)
+        guestreplay.seti(ctx, t, pos, b)
         tables.drain(h)
         return values.NIL
     end
@@ -195,7 +197,7 @@ export function tableRemove(ctx: voidptr, count: uint64, list: uint64, a: uint64
         local h = guestvalues.guestHeap(ctx)
         local t = guestvalues.tableArgument(ctx, list, 1ULL)
         local size = lengthof(ctx, t)
-        if guestscope.suspended(ctx) then
+        if guestreplay.suspended(ctx) then
             return values.NIL
         end
         local pos = size
@@ -206,17 +208,17 @@ export function tableRemove(ctx: voidptr, count: uint64, list: uint64, a: uint64
             end
         end
         writable(ctx, t)
-        local removed = guestscope.geti(ctx, t, pos)
+        local removed = guestreplay.geti(ctx, t, pos)
         -- A packed table's wide integer is a fresh box, which the reads
         -- after it could collect.
         guestscope.hold(ctx, removed)
         local at = pos
-        while at < size and not guestscope.suspended(ctx) do
-            guestscope.seti(ctx, t, at, guestscope.geti(ctx, t, at + 1))
+        while at < size and not guestreplay.suspended(ctx) do
+            guestreplay.seti(ctx, t, at, guestreplay.geti(ctx, t, at + 1))
             at = at + 1
         end
         if at >= 1 and at <= size then
-            guestscope.seti(ctx, t, at, values.NIL)
+            guestreplay.seti(ctx, t, at, values.NIL)
         end
         tables.drain(h)
         return removed
@@ -249,14 +251,14 @@ export function tableMove(ctx: voidptr, source: uint64, fv: uint64, ev: uint64, 
             writable(ctx, a2)
             if t > e or t <= f or a1 ~= a2 then
                 local i: int64 = 0
-                while i < n and not guestscope.suspended(ctx) do
-                    guestscope.seti(ctx, a2, t + i, guestscope.geti(ctx, a1, f + i))
+                while i < n and not guestreplay.suspended(ctx) do
+                    guestreplay.seti(ctx, a2, t + i, guestreplay.geti(ctx, a1, f + i))
                     i = i + 1
                 end
             else
                 local i = n - 1
-                while i >= 0 and not guestscope.suspended(ctx) do
-                    guestscope.seti(ctx, a2, t + i, guestscope.geti(ctx, a1, f + i))
+                while i >= 0 and not guestreplay.suspended(ctx) do
+                    guestreplay.seti(ctx, a2, t + i, guestreplay.geti(ctx, a1, f + i))
                     i = i - 1
                 end
             end
@@ -282,7 +284,7 @@ export function tableUnpack(ctx: voidptr, list: uint64, a: uint64, b: uint64, al
         local size: int64 = 0
         if b == values.NIL then
             size = lengthof(ctx, t)
-            if guestscope.suspended(ctx) then
+            if guestreplay.suspended(ctx) then
                 return values.NIL
             end
         end
@@ -294,11 +296,11 @@ export function tableUnpack(ctx: voidptr, list: uint64, a: uint64, b: uint64, al
             texts.libraryError(ctx, librarytexts.TEXT_UNPACK_MANY)
         end
         if pack == 0ULL then
-            return guestscope.geti(ctx, t, i)
+            return guestreplay.geti(ctx, t, i)
         end
         local k = i
-        while k <= j and not guestscope.suspended(ctx) do
-            guestvalues.packPut(h, pack, native.word(k - i + 1), guestscope.geti(ctx, t, k))
+        while k <= j and not guestreplay.suspended(ctx) do
+            guestvalues.packPut(h, pack, native.word(k - i + 1), guestreplay.geti(ctx, t, k))
             k = k + 1
         end
         return guestvalues.packed(h, pack, native.word(j - i + 1), guestvalues.loadAt(pack, 1))
@@ -373,7 +375,7 @@ end
 -- `copystate` fills it, since filling it can collect. The merge buffer needs
 -- no copy, since a step writes every slot of it the step reads.
 export function stepstate(ctx: voidptr, id: uint64, value: uint64): uint64
-    if id ~= librarycalls.TABLE_SORT_STEP or guestscope.tableof(value) == 0ULL then
+    if id ~= librarycalls.TABLE_SORT_STEP or guestmeta.tableof(value) == 0ULL then
         return values.NIL
     end
 
@@ -382,8 +384,8 @@ end
 
 -- Copies the sort state fields of `from` into `to`, for a step of call `id`.
 export function copystate(ctx: voidptr, id: uint64, from: uint64, to: uint64): nil
-    local source = guestscope.tableof(from)
-    local target = guestscope.tableof(to)
+    local source = guestmeta.tableof(from)
+    local target = guestmeta.tableof(to)
     if id ~= librarycalls.TABLE_SORT_STEP or source == 0ULL or target == 0ULL then
         return
     end
@@ -416,7 +418,7 @@ export function sortBegin(ctx: voidptr, list: uint64, less: uint64): uint64
         local n = lengthof(ctx, t)
         guestvalues.sortPut(h, state, librarylayouts.SORT_N, n)
         guestvalues.sortPut(h, state, librarylayouts.SORT_PENDING, guestvalues.RUNNING)
-        if n < 2 or guestscope.suspended(ctx) then
+        if n < 2 or guestreplay.suspended(ctx) then
             guestvalues.sortPut(h, state, librarylayouts.SORT_PENDING, guestvalues.FINISHED)
         else
             sortAt(h, state, 1, 1)
@@ -450,25 +452,25 @@ export function sortStep(ctx: voidptr, value: uint64): uint64
             -- which keeps equal elements in order.
             local answer = guestvalues.loadAt(st, librarylayouts.SORT_ANSWER)
             if answer ~= values.NIL and answer ~= values.FALSE then
-                guestvalues.storeAt(h, buffer, k, guestscope.geti(ctx, t, j))
+                guestvalues.storeAt(h, buffer, k, guestreplay.geti(ctx, t, j))
                 j = j + 1
             else
-                guestvalues.storeAt(h, buffer, k, guestscope.geti(ctx, t, i))
+                guestvalues.storeAt(h, buffer, k, guestreplay.geti(ctx, t, i))
                 i = i + 1
             end
             k = k + 1
         end
         while true do
-            if guestscope.suspended(ctx) then
+            if guestreplay.suspended(ctx) then
                 return values.FALSE
             end
             if i <= mid and j <= hi then
                 -- Kept in the state while left is read: a packed table's
                 -- wide integer is a fresh box, which that read could collect.
-                guestvalues.storeAt(h, st, librarylayouts.SORT_A, guestscope.geti(ctx, t, j))
-                local left = guestscope.geti(ctx, t, i)
+                guestvalues.storeAt(h, st, librarylayouts.SORT_A, guestreplay.geti(ctx, t, j))
+                local left = guestreplay.geti(ctx, t, i)
                 local right = guestvalues.loadAt(st, librarylayouts.SORT_A)
-                if guestscope.suspended(ctx) then
+                if guestreplay.suspended(ctx) then
                     return values.FALSE
                 end
                 if less ~= values.NIL then
@@ -491,18 +493,18 @@ export function sortStep(ctx: voidptr, value: uint64): uint64
                 k = k + 1
             else
                 while i <= mid do
-                    guestvalues.storeAt(h, buffer, k, guestscope.geti(ctx, t, i))
+                    guestvalues.storeAt(h, buffer, k, guestreplay.geti(ctx, t, i))
                     i = i + 1
                     k = k + 1
                 end
                 while j <= hi do
-                    guestvalues.storeAt(h, buffer, k, guestscope.geti(ctx, t, j))
+                    guestvalues.storeAt(h, buffer, k, guestreplay.geti(ctx, t, j))
                     j = j + 1
                     k = k + 1
                 end
                 local at = guestvalues.sortGet(st, librarylayouts.SORT_LO)
                 while at <= hi do
-                    guestscope.seti(ctx, t, at, guestvalues.loadAt(buffer, at))
+                    guestreplay.seti(ctx, t, at, guestvalues.loadAt(buffer, at))
                     at = at + 1
                 end
                 if not sortRuns(h, st) then

@@ -1,0 +1,452 @@
+module nupp.runtime.core.guestmeta
+
+-- Metatables on the core: metamethod keys interned once per entry, the
+-- __index and __newindex chains a table read or write follows, a record
+-- instance's fields by name, and setmetatable, getmetatable, rawget and
+-- rawset.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const context = require("nupp.runtime.core.context")
+const values = require("nupp.runtime.vm.values")
+const tables = require("nupp.runtime.core.coretables")
+const strings = require("nupp.runtime.core.corestrings")
+const ints = require("nupp.runtime.core.coreintegers")
+const guestscope = require("nupp.runtime.core.guestscope")
+
+-- tableSet's answer when a __newindex function is to be called instead.
+export const META_PENDING: uint64 = 100ULL
+
+-- tableSet's answer when the table it would store in is frozen.
+export const READONLY: uint64 = 101ULL
+export const META_INDEX: uint64 = 0ULL
+export const META_NEWINDEX: uint64 = 1ULL
+export const META_METATABLE: uint64 = 2ULL
+export const META_ADD: uint64 = 3ULL
+export const META_SUB: uint64 = 4ULL
+export const META_MUL: uint64 = 5ULL
+export const META_MOD: uint64 = 6ULL
+export const META_LEN: uint64 = 7ULL
+export const META_LT: uint64 = 8ULL
+export const META_LE: uint64 = 9ULL
+export const META_EQ: uint64 = 10ULL
+export const META_CONCAT: uint64 = 11ULL
+export const META_DIV: uint64 = 12ULL
+export const META_IDIV: uint64 = 13ULL
+export const META_TOSTRING: uint64 = 14ULL
+export const META_UNM: uint64 = 15ULL
+export const META_CALL: uint64 = 16ULL
+export const META_POW: uint64 = 17ULL
+
+-- Not a metamethod: a record's table maps its field names to slots under
+-- "\0fields", for reads and writes by name its instances' types did not
+-- resolve.
+export const META_FIELDS: uint64 = 18ULL
+
+-- The interned name of a metatable field: "__index", "__newindex" or
+-- "__metatable".
+local function makeMetaKey(ctx: voidptr, which: uint64): uint64
+    local state = new strings.Builder(0ULL, 0ULL, 0ULL)
+    @unsafe do
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        local builder = state as strings.Builder*
+        local refused: uint64 = 0ULL
+        if which == META_INDEX then
+            refused = strings.appendWord(h, builder, 0x7865646e695f5fULL, 7ULL)
+        elseif which == META_NEWINDEX then
+            refused = strings.appendWord(h, builder, 0x646e6977656e5f5fULL, 8ULL)
+                | strings.appendWord(h, builder, 0x7865ULL, 2ULL)
+        elseif which == META_ADD then
+            refused = strings.appendWord(h, builder, 0x6464615f5fULL, 5ULL)
+        elseif which == META_SUB then
+            refused = strings.appendWord(h, builder, 0x6275735f5fULL, 5ULL)
+        elseif which == META_MUL then
+            refused = strings.appendWord(h, builder, 0x6c756d5f5fULL, 5ULL)
+        elseif which == META_MOD then
+            refused = strings.appendWord(h, builder, 0x646f6d5f5fULL, 5ULL)
+        elseif which == META_LEN then
+            refused = strings.appendWord(h, builder, 0x6e656c5f5fULL, 5ULL)
+        elseif which == META_LT then
+            refused = strings.appendWord(h, builder, 0x746c5f5fULL, 4ULL)
+        elseif which == META_LE then
+            refused = strings.appendWord(h, builder, 0x656c5f5fULL, 4ULL)
+        elseif which == META_EQ then
+            refused = strings.appendWord(h, builder, 0x71655f5fULL, 4ULL)
+        elseif which == META_CONCAT then
+            refused = strings.appendWord(h, builder, 0x7461636e6f635f5fULL, 8ULL)
+        elseif which == META_DIV then
+            refused = strings.appendWord(h, builder, 0x7669645f5fULL, 5ULL)
+        elseif which == META_IDIV then
+            refused = strings.appendWord(h, builder, 0x766964695f5fULL, 6ULL)
+        elseif which == META_TOSTRING then
+            refused = strings.appendWord(h, builder, 0x697274736f745f5fULL, 8ULL)
+                | strings.appendWord(h, builder, 0x676eULL, 2ULL)
+        elseif which == META_UNM then
+            refused = strings.appendWord(h, builder, 0x6d6e755f5fULL, 5ULL)
+        elseif which == META_CALL then
+            refused = strings.appendWord(h, builder, 0x6c6c61635f5fULL, 6ULL)
+        elseif which == META_POW then
+            refused = strings.appendWord(h, builder, 0x776f705f5fULL, 5ULL)
+        elseif which == META_FIELDS then
+            refused = strings.appendWord(h, builder, 0x73646c65696600ULL, 7ULL)
+        else
+            refused = strings.appendWord(h, builder, 0x61746174656d5f5fULL, 8ULL)
+                | strings.appendWord(h, builder, 0x656c62ULL, 3ULL)
+        end
+        if refused ~= 0ULL then
+            strings.release(builder)
+            error("not enough memory")
+        end
+        local s = strings.finish(h, builder)
+        tables.drain(h)
+        return values.TAG_OBJ | s
+    end
+end
+
+-- Metamethod name `which` as a string: made the first time, then kept in
+-- the Services' rooted `metanames` table. Storing it allocates no object,
+-- so nothing collects it between its making and its keeping.
+export function metaKey(ctx: voidptr, which: uint64): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local names = native.load64(services, native.fieldOffset<guestscope.Services>("metanames"))
+        if names == 0ULL then
+            names = values.TAG_OBJ | guestscope.newTable(ctx)
+            native.store64(services, native.fieldOffset<guestscope.Services>("metanames"), names)
+        end
+        local key = values.TAG_INTEGER | which
+        local known = tables.get(names & values.PAYLOAD, key)
+        if known ~= values.NIL then
+            return known
+        end
+        local made = makeMetaKey(ctx, which)
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        if tables.set(h, names & values.PAYLOAD, key, made) == tables.NO_MEMORY then
+            error("not enough memory")
+        end
+
+        return made
+    end
+end
+
+-- The table a value names, or 0.
+local function tableOf(value: uint64): uint64
+    if value & values.TAG_MASK ~= values.TAG_OBJ then
+        return 0ULL
+    end
+    @unsafe do
+        local header = native.pointer(value & values.PAYLOAD)
+        if native.word(native.load8(header, native.fieldOffset<heap.Header>("kind"))) ~= heap.KIND_TABLE then
+            return 0ULL
+        end
+    end
+
+    return value & values.PAYLOAD
+end
+
+-- The `which` field of a table's metatable, nil when it has none.
+export function metaField(ctx: voidptr, table: uint64, which: uint64): uint64
+    local mt = tableOf(tables.meta(table))
+    if mt == 0ULL then
+        return values.NIL
+    end
+
+    return tables.get(mt, metaKey(ctx, which))
+end
+
+-- Notes the metamethod function a table access is to call.
+export function pend(ctx: voidptr, callee: uint64, table: uint64): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        native.store64(services, native.fieldOffset<guestscope.Services>("metaCallee"), callee)
+        native.store64(services, native.fieldOffset<guestscope.Services>("metaSelf"), values.TAG_OBJ | table)
+    end
+end
+
+-- The metamethod function the last table access noted, or 0; taking it
+-- clears it. `metaSelf` is the table it is called for.
+export function takeMeta(ctx: voidptr): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local callee = native.load64(services, native.fieldOffset<guestscope.Services>("metaCallee"))
+        native.store64(services, native.fieldOffset<guestscope.Services>("metaCallee"), 0ULL)
+        return callee
+    end
+end
+
+export function metaSelf(ctx: voidptr): uint64
+    @unsafe do
+        return native.load64(
+            native.loadPointer(ctx, context.SERVICE_SCOPE),
+            native.fieldOffset<guestscope.Services>("metaSelf")
+        )
+    end
+end
+
+-- The `which` metamethod of an operation on `a` and `b`: the first
+-- operand's when it has one, else the second's; 0 when neither is a table
+-- with it.
+export function binaryMeta(ctx: voidptr, which: uint64, a: uint64, b: uint64): uint64
+    local first = tableOf(a)
+    if first ~= 0ULL then
+        local found = metaField(ctx, first, which)
+        if found ~= values.NIL then
+            return found
+        end
+    end
+    local second = tableOf(b)
+    if second ~= 0ULL then
+        local found = metaField(ctx, second, which)
+        if found ~= values.NIL then
+            return found
+        end
+    end
+
+    return 0ULL
+end
+
+-- The slot record instance `t` keeps field `key` in, or nil when its
+-- metatable is not a record's or names no such field.
+local function recordSlot(ctx: voidptr, t: uint64, key: uint64): uint64
+    local fields = tableOf(metaField(ctx, t, META_FIELDS))
+    if fields == 0ULL then
+        return values.NIL
+    end
+
+    return tables.get(fields, key)
+end
+
+-- A traversal of a record instance names its fields, as one of a table of
+-- fields does, though the instance keeps them in slots: the field name slot
+-- `key` of `t` holds, or `key` itself when `t` is no record instance or
+-- `key` none of its slots. A table holding the name itself, as a copy of an
+-- instance given the record's metatable does, keeps its own keys.
+export function slotname(ctx: voidptr, t: uint64, key: uint64): uint64
+    if not ints.isInteger(key) then
+        return key
+    end
+    local fields = tableOf(metaField(ctx, t, META_FIELDS))
+    if fields == 0ULL then
+        return key
+    end
+    local name = tables.nextKey(fields, values.NIL)
+    while name ~= values.NIL and name ~= values.TRUE do
+        if tables.get(fields, name) == key then
+            if tables.get(t, name) ~= values.NIL then
+                return key
+            end
+            return name
+        end
+        name = tables.nextKey(fields, name)
+    end
+
+    return key
+end
+
+-- The key a traversal of `t` resumes after: the slot a field name `key`
+-- stands for in a record instance, else `key` itself.
+export function slotkey(ctx: voidptr, t: uint64, key: uint64): uint64
+    if strings.header(key) == 0ULL or tables.get(t, key) ~= values.NIL then
+        return key
+    end
+    local slot = recordSlot(ctx, t, key)
+    if slot == values.NIL then
+        return key
+    end
+
+    return slot
+end
+
+-- Lua's t[k]: the raw value, else through the metatable's __index while it
+-- names a table. An __index function is noted (`takeMeta`) for the handler
+-- to call, and nil answered meanwhile.
+export function tableGet(ctx: voidptr, table: uint64, key: uint64): uint64
+    @unsafe do
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        local t = table
+        local depth: uint64 = 0ULL
+        while true do
+            local value = tables.lookup(h, t, key)
+            if value ~= values.NIL or tables.meta(t) == values.NIL then
+                return value
+            end
+            -- A record instance's field read by name is its slot. An empty
+            -- one is an absent key, as a Lua table's: `__index` answers it,
+            -- as the record's method a field declares.
+            if depth == 0ULL and strings.header(key) ~= 0ULL then
+                local slot = recordSlot(ctx, t, key)
+                if slot ~= values.NIL then
+                    local held = tables.lookup(h, t, slot)
+                    if held ~= values.NIL then
+                        return held
+                    end
+                end
+            end
+            local index = metaField(ctx, t, META_INDEX)
+            if index == values.NIL then
+                return values.NIL
+            end
+            local next = tableOf(index)
+            if next == 0ULL then
+                pend(ctx, index, t)
+                return values.NIL
+            end
+            t = next
+            depth = depth + 1ULL
+            if depth >= 2000ULL then
+                error("'__index' chain too long; possible loop")
+            end
+        end
+
+        return values.NIL
+    end
+end
+
+-- Lua's t[k] = v: a key the table holds, or one its metatable has no
+-- __newindex for, is stored in place; otherwise in the table __newindex
+-- names. Answers coretables.set's status, META_PENDING when a __newindex
+-- function is noted (`takeMeta`) for the handler to call, or READONLY when
+-- the table the value would be stored in is frozen. As Luau's, a frozen
+-- table's __newindex is still followed for a key it lacks.
+export function tableSet(ctx: voidptr, table: uint64, key: uint64, value: uint64): uint64
+    @unsafe do
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        local t = table
+        local depth: uint64 = 0ULL
+        -- A record instance's field written by name is its slot, which it
+        -- holds itself; a table holding the name as its own key, as a copy
+        -- of an instance given the record's metatable does, keeps it there.
+        if tables.meta(t) ~= values.NIL and strings.header(key) ~= 0ULL and tables.lookup(h, t, key) == values.NIL then
+            local slot = recordSlot(ctx, t, key)
+            if slot ~= values.NIL then
+                if tables.frozen(t) then
+                    return READONLY
+                end
+                local stored = tables.set(h, t, slot, value)
+                tables.drain(h)
+                return stored
+            end
+        end
+        while tables.meta(t) ~= values.NIL and tables.lookup(h, t, key) == values.NIL do
+            local newindex = metaField(ctx, t, META_NEWINDEX)
+            if newindex == values.NIL then
+                break
+            end
+            local next = tableOf(newindex)
+            if next == 0ULL then
+                pend(ctx, newindex, t)
+                return META_PENDING
+            end
+            t = next
+            depth = depth + 1ULL
+            if depth >= 2000ULL then
+                error("'__newindex' chain too long; possible loop")
+            end
+        end
+        if tables.frozen(t) then
+            return READONLY
+        end
+        local status = tables.set(h, t, key, value)
+        tables.drain(h)
+
+        return status
+    end
+end
+
+-- Raises Luau's "attempt to modify a readonly table" from a library call
+-- that would write to a frozen table (runtime Decision 16). The recovery
+-- words the fault (`runtimeError`) and positions it at the library call,
+-- as raiseFault does; this one is called from before raiseFault.
+export function readonly(ctx: voidptr): nil
+    local services = guestscope.scopeof(ctx)
+    native.store64(services, native.fieldOffset<guestscope.Services>("fault"), guestscope.FAULT_READONLY)
+    native.store64(services, native.fieldOffset<guestscope.Services>("culprit"), values.NIL)
+    native.store64(services, native.fieldOffset<guestscope.Services>("other"), values.NIL)
+    native.store64(services, native.fieldOffset<guestscope.Services>("libraryRaised"), 1ULL)
+    error("library error")
+end
+
+-- Whether `value` is a table with a metatable.
+export function metatabled(value: uint64): boolean
+    local t = tableOf(value)
+
+    return t ~= 0ULL and tables.meta(t) ~= values.NIL
+end
+
+-- `value`'s table, or 0 when it is not one.
+export function tableof(value: uint64): uint64
+    return tableOf(value)
+end
+
+-- setmetatable(t, mt): answers t; a metatable with __metatable set is
+-- protected. A frozen t cannot take another, and mt freezes as it is
+-- attached (runtime Decision 16), so its metamethods stay what they were.
+export function setMetatable(ctx: voidptr, value: uint64, mt: uint64): uint64
+    local t = tableOf(value)
+    if t == 0ULL then
+        error("bad argument #1 to 'setmetatable' (table expected)")
+    end
+    if mt ~= values.NIL and tableOf(mt) == 0ULL then
+        error("bad argument #2 to 'setmetatable' (nil or table expected)")
+    end
+    if metaField(ctx, t, META_METATABLE) ~= values.NIL then
+        error("cannot change a protected metatable")
+    end
+    if tables.frozen(t) then
+        readonly(ctx)
+    end
+    @unsafe do
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        tables.setMeta(h, t, mt)
+        if mt ~= values.NIL then
+            tables.freeze(h, mt & values.PAYLOAD)
+        end
+    end
+
+    return value
+end
+
+-- getmetatable(v): a table's metatable, or its __metatable field when it
+-- has one; nil for anything else.
+export function getMetatable(ctx: voidptr, value: uint64): uint64
+    local t = tableOf(value)
+    if t == 0ULL then
+        return values.NIL
+    end
+    local protected = metaField(ctx, t, META_METATABLE)
+    if protected ~= values.NIL then
+        return protected
+    end
+
+    return tables.meta(t)
+end
+
+-- rawset(t, k, v): stores past any metatable; answers t.
+export function rawSet(ctx: voidptr, value: uint64, key: uint64, item: uint64): uint64
+    local t = tableOf(value)
+    if t == 0ULL then
+        error("bad argument #1 to 'rawset' (table expected)")
+    end
+    if tables.frozen(t) then
+        readonly(ctx)
+    end
+    @unsafe do
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        if tables.set(h, t, key, item) ~= tables.OK then
+            error("invalid key to 'rawset'")
+        end
+        tables.drain(h)
+    end
+
+    return value
+end
+
+-- rawget(t, k): the raw value.
+export function rawGet(ctx: voidptr, value: uint64, key: uint64): uint64
+    local t = tableOf(value)
+    if t == 0ULL then
+        error("bad argument #1 to 'rawget' (table expected)")
+    end
+    @unsafe do
+        return tables.lookup(native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*, t, key)
+    end
+end

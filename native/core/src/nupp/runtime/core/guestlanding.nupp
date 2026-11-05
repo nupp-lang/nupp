@@ -1,0 +1,413 @@
+module nupp.runtime.core.guestlanding
+
+-- Where an error lands: a function owning affine values resumes at its
+-- landing check, a protected call at its frame; an entry that failed is
+-- recovered, the modules it was starting forgotten.
+const native = require("nupp.runtime.vm.intrinsics")
+const heap = require("nupp.runtime.vm.heap")
+const servicescope = require("nupp.runtime.core.servicescope")
+const context = require("nupp.runtime.core.context")
+const values = require("nupp.runtime.vm.values")
+const tables = require("nupp.runtime.core.coretables")
+const catalog = require("nupp.runtime.core.guestcatalog")
+const frames = require("nupp.runtime.core.frames")
+const access = require("nupp.runtime.core.frameaccess")
+const librarycalls = require("nupp.runtime.core.librarycalls")
+const librarylayouts = require("nupp.runtime.core.librarylayouts")
+const guestscope = require("nupp.runtime.core.guestscope")
+const guesterrors = require("nupp.runtime.core.guesterrors")
+
+-- 1 when the function a frame runs owns affine values (its catalog record
+-- lands errors).
+local function lands(ctx: voidptr, frame: uint64): boolean
+    @unsafe do
+        local c = native.loadPointer(ctx, context.CATALOG)
+        local owner = native.load64(native.pointer(frame), native.fieldOffset<frames.Frame>("functionId"))
+        if owner >= native.load64(c, native.fieldOffset<catalog.Catalog>("count")) then
+            return false
+        end
+        local fn = native.pointer(
+            native.load64(c, native.fieldOffset<catalog.Catalog>("records")) + owner * native.sizeOf<catalog.Function>()
+        )
+        return native.load64(fn, native.fieldOffset<catalog.Function>("lands")) == 1ULL
+    end
+end
+
+-- 1 when `frame`'s function owns affine values: an error lands at it.
+export function ownsaffine(ctx: voidptr, frame: uint64): uint64
+    if lands(ctx, frame) then
+        return 1ULL
+    end
+
+    return 0ULL
+end
+
+-- A function that owns affine values and raised an error itself, at the
+-- instruction `index` of function `owner` that its code follows with a
+-- landing check (the LibCall LANDED, as after a call, its operand made by the
+-- Nil or Move before it): the active frame, to resume at that check, or 0
+-- when the error does not land there.
+local function selfLanding(ctx: voidptr, state: voidptr, owner: uint64, index: uint64): uint64
+    @unsafe do
+        local active = native.load64(state, native.fieldOffset<frames.State>("active"))
+        if active == 0ULL or not lands(ctx, active) then
+            return 0ULL
+        end
+        local frame = native.pointer(active)
+        if native.load64(frame, native.fieldOffset<frames.Frame>("functionId")) ~= owner then
+            return 0ULL
+        end
+        local count = native.load64(frame, native.fieldOffset<frames.Frame>("instructionCount"))
+        local code = native.pointer(native.load64(frame, native.fieldOffset<frames.Frame>("code")))
+        local check = index + 1ULL
+        local found = false
+        while not found and check < count and check <= index + 4ULL do
+            local at = native.offset(code, native.index(check * librarylayouts.INSTRUCTION_BYTES))
+            local op = native.word(native.load8(at, 0))
+            if op == librarylayouts.OPCODE_LIBCALL
+                and native.word(native.load32(at, native.index(librarylayouts.ID_OFFSET))) == librarycalls.LANDED
+            then
+                found = true
+            elseif op == librarylayouts.OPCODE_MOVE or op == librarylayouts.OPCODE_NIL then
+                check = check + 1ULL
+            else
+                return 0ULL
+            end
+        end
+        if not found then
+            return 0ULL
+        end
+        -- A call the failing instruction prepared and never published.
+        local child = native.load64(frame, native.fieldOffset<frames.Frame>("child"))
+        if child ~= 0ULL
+            and native.load64(native.pointer(child), native.fieldOffset<frames.Frame>("phase")) == frames.PREPARED
+            and frames.abortPrepared(state, frame, native.pointer(child)) ~= 1ULL
+        then
+            return 0ULL
+        end
+        native.store64(frame, native.fieldOffset<frames.Frame>("resumePC"), index + 1ULL)
+        -- From there the Nil or Move runs, then the check.
+
+        return active
+    end
+end
+
+-- The frame an error lands at: one that owns affine values and waits on the
+-- call the error came from, if there is one before the nearest protected
+-- call; 0 otherwise.
+local function landingFrame(ctx: voidptr, state: voidptr): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local closing = native.load64(services, native.fieldOffset<guestscope.Services>("closing")) == 1ULL
+        local at = native.load64(state, native.fieldOffset<frames.State>("active"))
+        while at ~= 0ULL do
+            if native.load64(
+                native.pointer(at),
+                native.fieldOffset<frames.Frame>("resultKind")
+            ) == frames.PROTECTED_DESTINATION
+                and not closing
+            then
+                return 0ULL
+            end
+            local parent = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
+            if parent ~= 0ULL and lands(ctx, parent) then
+                return parent
+            end
+            at = parent
+        end
+        return 0ULL
+    end
+end
+
+-- After a call in a function that owns affine values: false once, when an
+-- error has landed there, else true.
+export function takeLanded(ctx: voidptr): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        if native.load64(services, native.fieldOffset<guestscope.Services>("landed")) == 1ULL then
+            native.store64(services, native.fieldOffset<guestscope.Services>("landed"), 0ULL)
+            return values.FALSE
+        end
+        return values.TRUE
+    end
+end
+
+-- The text of the runtime's own `error("...")` that recorded `owner` and
+-- `site` in the scope, as a string, or 0: the program carries the runtime's
+-- raise texts after its dispatch table (`guestartifact`), from v8.
+local function raiseText(ctx: voidptr, owner: uint64, site: uint64): uint64
+    @unsafe do
+        local c = native.loadPointer(ctx, context.CATALOG)
+        local data = native.load64(c, native.fieldOffset<catalog.Catalog>("data"))
+        local bytes = native.load64(c, native.fieldOffset<catalog.Catalog>("dataBytes"))
+        local base = native.pointer(data)
+        if native.load64(base, native.fieldOffset<catalog.Descriptor>("version")) < 8ULL then
+            return 0ULL
+        end
+        local at = native.load64(
+            base,
+            native.fieldOffset<catalog.Descriptor>("dispatch")
+        ) + native.load64(base, native.fieldOffset<catalog.Descriptor>("handlerCount")) * 8ULL
+        if at > bytes or bytes - at < 8ULL then
+            return 0ULL
+        end
+        local count = native.load64(native.pointer(data + at), 0)
+        if count > (bytes - at - 8ULL) // 24ULL then
+            return 0ULL
+        end
+        local i: uint64 = 0ULL
+        while i < count do
+            local entry = native.pointer(data + at + 8ULL + i * 24ULL)
+            if native.load64(entry, 0) == owner and native.load64(entry, 8) == site then
+                local text = native.load64(entry, 16)
+                if text > bytes or bytes - text < 8ULL then
+                    return 0ULL
+                end
+                local length = native.load64(native.pointer(data + text), 0)
+                if length > bytes - text - 8ULL then
+                    return 0ULL
+                end
+                local made = guestscope.makeString(ctx, data + text + 8ULL, length)
+                if made == 0ULL then
+                    return 0ULL
+                end
+                return values.TAG_OBJ | made
+            end
+            i = i + 1ULL
+        end
+
+        return 0ULL
+    end
+end
+
+-- The frame an error unwinds to the protected call of: the nearest protected
+-- frame, or 0 when there is none.
+local function protectedFrame(state: voidptr): uint64
+    @unsafe do
+        local at = native.load64(state, native.fieldOffset<frames.State>("active"))
+        while at ~= 0ULL do
+            if native.load64(
+                native.pointer(at),
+                native.fieldOffset<frames.Frame>("resultKind")
+            ) == frames.PROTECTED_DESTINATION then
+                return at
+            end
+            at = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
+        end
+        return 0ULL
+    end
+end
+
+-- An error unwinding the frames above `stop` leaves every module whose chunk
+-- one of them runs unloaded, as Lua's require does: the next require of it
+-- runs its chunk again, where a module with named exports had published its
+-- table as it started.
+local function forgetModules(ctx: voidptr, state: voidptr, stop: uint64): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local loaded = native.load64(services, native.fieldOffset<guestscope.Services>("loaded"))
+        if loaded == 0ULL then
+            return
+        end
+        local h = native.pointer(guestscope.guestHeap(ctx)) as heap.Heap*
+        local at = native.load64(state, native.fieldOffset<frames.State>("active"))
+        while at ~= 0ULL and at ~= stop do
+            local frame = native.pointer(at)
+            if native.load64(frame, native.fieldOffset<frames.Frame>("resultKind")) == frames.MODULE_DESTINATION then
+                local key = values.TAG_INTEGER | native.load64(frame, native.fieldOffset<frames.Frame>("functionId"))
+                -- Clearing a present key allocates nothing.
+                if tables.get(loaded & values.PAYLOAD, key) ~= values.NIL then
+                    tables.set(h, loaded & values.PAYLOAD, key, values.NIL)
+                end
+            end
+            at = native.load64(frame, native.fieldOffset<frames.Frame>("previous"))
+        end
+        tables.drain(h)
+    end
+end
+
+-- After a guest error stops the handlers: unwinds it to the nearest protected
+-- call (frames.recover) and answers the pc to resume at, or 0 when the stop
+-- was not a guest error (a refusal, budget or cancellation is not one) or no
+-- protected call is on the stack. The error's value is what error() raised,
+-- else a runtime error message.
+export function recoverEntry(ctx: voidptr): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local status = native.load64(ctx, context.STATUS)
+        local scope = native.offset(services, native.fieldOffset<guestscope.Services>("scope"))
+        local raisedInScope = native.load64(scope, native.fieldOffset<servicescope.ServiceScope>("error")) ~= 0ULL
+        if not (status == context.GUEST_ERROR_STATUS or status == 0ULL and raisedInScope) then
+            return 0ULL
+        end
+        -- A library leaf's raise is the scope's error, which every service
+        -- call below would take for its own failure: hold it aside, and put it
+        -- back when no protected call takes the error.
+        local scopeError = native.load64(scope, native.fieldOffset<servicescope.ServiceScope>("error"))
+        local scopeOwner = native.load64(scope, native.fieldOffset<servicescope.ServiceScope>("errorOwner"))
+        local scopeSite = native.load64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"))
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("error"), 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorOwner"), 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), 0ULL)
+        local value = native.load64(services, native.fieldOffset<guestscope.Services>("raised"))
+        local level = native.load64(services, native.fieldOffset<guestscope.Services>("raisedLevel"))
+        -- Where the error was raised: a failing handler's pc, or a library
+        -- call's when the library raised it.
+        local failedOwner = native.load64(ctx, context.ERROR_OWNER)
+        local failedIndex = native.load64(ctx, context.ERROR_PC)
+        local located = status == context.GUEST_ERROR_STATUS
+        if not located
+            and native.load64(services, native.fieldOffset<guestscope.Services>("libraryRaised")) == 1ULL
+        then
+            failedOwner = native.load64(services, native.fieldOffset<guestscope.Services>("libraryOwner"))
+            failedIndex = native.load64(services, native.fieldOffset<guestscope.Services>("libraryPc"))
+            located = true
+        end
+        -- The runtime's own error("..."): its text, positioned at the library
+        -- call it raised in, as Lua positions a library's error.
+        local inLibrary = native.load64(services, native.fieldOffset<guestscope.Services>("libraryActive")) == 1ULL
+        native.store64(services, native.fieldOffset<guestscope.Services>("libraryActive"), 0ULL)
+        local literal = false
+        if value == 0ULL
+            and scopeError == 1ULL
+            and native.load64(services, native.fieldOffset<guestscope.Services>("fault")) == 0ULL
+        then
+            local text = raiseText(ctx, scopeOwner, scopeSite)
+            if text ~= 0ULL then
+                value, level, literal = text, 0ULL, true
+                if inLibrary then
+                    level = 1ULL
+                    if not located then
+                        failedOwner = native.load64(services, native.fieldOffset<guestscope.Services>("libraryOwner"))
+                        failedIndex = native.load64(services, native.fieldOffset<guestscope.Services>("libraryPc"))
+                        located = true
+                    end
+                end
+            end
+        end
+        if value == 0ULL then
+            value = guesterrors.runtimeError(ctx)
+            level = 1ULL
+        end
+        -- A failure the handlers recorded names its owner and pc; one a
+        -- library leaf raised does not.
+        if status == context.GUEST_ERROR_STATUS then
+            value = guesterrors.positioned(
+                ctx,
+                value,
+                level,
+                native.load64(ctx, context.ERROR_OWNER),
+                native.load64(ctx, context.ERROR_PC)
+            )
+        elseif native.load64(services, native.fieldOffset<guestscope.Services>("libraryRaised")) == 1ULL or literal then
+            value = guesterrors.positioned(
+                ctx,
+                value,
+                level,
+                native.load64(services, native.fieldOffset<guestscope.Services>("libraryOwner")),
+                native.load64(services, native.fieldOffset<guestscope.Services>("libraryPc"))
+            )
+        end
+        native.store64(services, native.fieldOffset<guestscope.Services>("libraryRaised"), 0ULL)
+        -- A library call in replay that raised left its entry, which the
+        -- next one drops.
+        native.store64(services, native.fieldOffset<guestscope.Services>("replay"), 0ULL)
+        native.store64(services, native.fieldOffset<guestscope.Services>("replaysuspend"), 0ULL)
+        native.store64(services, native.fieldOffset<guestscope.Services>("lastError"), value)
+        local state = native.loadPointer(ctx, context.STATE)
+        -- A frame that owns affine values and raised the error itself, or
+        -- waits on a call nearer than any protected call, takes it first.
+        local closing = native.load64(services, native.fieldOffset<guestscope.Services>("closing")) == 1ULL
+        local own: uint64 = 0ULL
+        if located and not closing then
+            own = selfLanding(ctx, state, failedOwner, failedIndex)
+        end
+        local landing: uint64 = 0ULL
+        if own == 0ULL then
+            landing = landingFrame(ctx, state)
+        end
+        -- The frames the error unwinds: those above the landing frame, or up
+        -- to the protected call (all of them when none takes it).
+        if own == 0ULL and landing ~= 0ULL then
+            forgetModules(ctx, state, landing)
+        elseif own == 0ULL and not closing then
+            forgetModules(ctx, state, protectedFrame(state))
+        end
+        local parent: uint64 = 0ULL
+        if own ~= 0ULL then
+            parent = own
+            native.store64(services, native.fieldOffset<guestscope.Services>("landed"), 1ULL)
+        elseif landing ~= 0ULL then
+            parent = frames.land(state, landing)
+            if parent ~= 0ULL then
+                native.store64(services, native.fieldOffset<guestscope.Services>("landed"), 1ULL)
+            end
+        elseif native.load64(services, native.fieldOffset<guestscope.Services>("closing")) == 0ULL then
+            parent = frames.recover(state, value)
+        end
+        if parent == 0ULL then
+            native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("error"), scopeError)
+            native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorOwner"), scopeOwner)
+            native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), scopeSite)
+            return 0ULL
+        end
+        native.store64(ctx, context.STATUS, 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("error"), 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorOwner"), 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), 0ULL)
+        native.store64(services, native.fieldOffset<guestscope.Services>("raised"), 0ULL)
+        native.store64(services, native.fieldOffset<guestscope.Services>("raisedLevel"), 0ULL)
+        native.store64(services, native.fieldOffset<guestscope.Services>("fault"), 0ULL)
+        access.refresh(state, native.pointer(parent), ctx)
+        return access.pc(state, native.pointer(parent))
+    end
+end
+
+-- Whether an error is failing the entry that a recovery could take: what
+-- recoverEntry recovers from.
+export function failing(ctx: voidptr): uint64
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local status = native.load64(ctx, context.STATUS)
+        local scope = native.offset(services, native.fieldOffset<guestscope.Services>("scope"))
+        local raisedInScope = native.load64(scope, native.fieldOffset<servicescope.ServiceScope>("error")) ~= 0ULL
+        if status == context.GUEST_ERROR_STATUS or status == 0ULL and raisedInScope then
+            return 1ULL
+        end
+
+        return 0ULL
+    end
+end
+
+-- Nothing is failing any more: an error was given to a coroutine's resumer
+-- (`threads`) rather than to a frame.
+export function recovered(ctx: voidptr): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        local scope = native.offset(services, native.fieldOffset<guestscope.Services>("scope"))
+        native.store64(ctx, context.STATUS, 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("error"), 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorOwner"), 0ULL)
+        native.store64(scope, native.fieldOffset<servicescope.ServiceScope>("errorSite"), 0ULL)
+        native.store64(services, native.fieldOffset<guestscope.Services>("raised"), 0ULL)
+        native.store64(services, native.fieldOffset<guestscope.Services>("raisedLevel"), 0ULL)
+        native.store64(services, native.fieldOffset<guestscope.Services>("fault"), 0ULL)
+        native.store64(services, native.fieldOffset<guestscope.Services>("libraryRaised"), 0ULL)
+        native.store64(services, native.fieldOffset<guestscope.Services>("libraryActive"), 0ULL)
+    end
+end
+
+-- Fails the entry with `value` raised again at `pc` in function `owner`, a
+-- string getting that position: a wrapped coroutine's error, raised where
+-- the wrapped function was called, as Lua 5.5 raises it.
+export function reraise(ctx: voidptr, value: uint64, owner: uint64, pc: uint64): nil
+    @unsafe do
+        local services = native.loadPointer(ctx, context.SERVICE_SCOPE)
+        native.store64(ctx, context.ERROR_OWNER, owner)
+        native.store64(ctx, context.ERROR_PC, pc)
+        native.store64(services, native.fieldOffset<guestscope.Services>("raised"), value)
+        native.store64(services, native.fieldOffset<guestscope.Services>("raisedLevel"), 1ULL)
+        native.store64(services, native.fieldOffset<guestscope.Services>("libraryRaised"), 0ULL)
+        native.store64(ctx, context.STATUS, context.GUEST_ERROR_STATUS)
+    end
+end

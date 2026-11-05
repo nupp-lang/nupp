@@ -21,6 +21,9 @@ const guestvalues = require("nupp.runtime.core.guestvalues")
 const gueststrings = require("nupp.runtime.core.gueststrings")
 const guesttables = require("nupp.runtime.core.guesttables")
 const guestnumbers = require("nupp.runtime.core.guestnumbers")
+const guesterrors = require("nupp.runtime.core.guesterrors")
+const guestlanding = require("nupp.runtime.core.guestlanding")
+const guestmeta = require("nupp.runtime.core.guestmeta")
 
 -- One step of `for k, v in pairs(t)` over a state table {t, key, k, v}:
 -- advances key and stores the pair at 3 and 4. Answers true or false.
@@ -33,8 +36,8 @@ local function nextStep(ctx: voidptr, stateValue: uint64): uint64
             error("bad argument #1 to 'for iterator' (table expected)")
         end
         local t = subject & values.PAYLOAD
-        -- A record instance's fields go by name (guestscope.slotname).
-        local after = guestscope.slotkey(ctx, t, tables.get(state, values.TAG_INTEGER | librarylayouts.PAIRS_AFTER))
+        -- A record instance's fields go by name (guestmeta.slotname).
+        local after = guestmeta.slotkey(ctx, t, tables.get(state, values.TAG_INTEGER | librarylayouts.PAIRS_AFTER))
         local key = tables.nextKey(t, after)
         if key == values.TRUE then
             texts.libraryError(ctx, librarytexts.TEXT_NEXT_KEY)
@@ -42,7 +45,7 @@ local function nextStep(ctx: voidptr, stateValue: uint64): uint64
         if key == values.NIL then
             return values.FALSE
         end
-        local name = guestscope.slotname(ctx, t, key)
+        local name = guestmeta.slotname(ctx, t, key)
         tables.set(h, state, values.TAG_INTEGER | librarylayouts.PAIRS_AFTER, name)
         tables.set(h, state, values.TAG_INTEGER | librarylayouts.PAIRS_KEY, name)
         tables.set(h, state, values.TAG_INTEGER | librarylayouts.PAIRS_VALUE, tables.get(t, key))
@@ -367,19 +370,19 @@ export function call(ctx: voidptr, id: uint64, count: uint64, a: uint64, b: uint
             native.bits(native.sqrt(native.fromBits(guestvalues.floatOf(guestvalues.numberArgument(ctx, a, 1ULL)))))
         )
     elseif id == librarycalls.LANDED then
-        return guestscope.takeLanded(ctx)
+        return guestlanding.takeLanded(ctx)
     elseif id == librarycalls.TYPE then
-        return guestscope.typeName(ctx, a)
+        return guesterrors.typeName(ctx, a)
     elseif id == librarycalls.UNM then
         return guestnumbers.negate(ctx, a)
     elseif id == librarycalls.SETMETATABLE then
-        return guestscope.setMetatable(ctx, a, b)
+        return guestmeta.setMetatable(ctx, a, b)
     elseif id == librarycalls.GETMETATABLE then
-        return guestscope.getMetatable(ctx, a)
+        return guestmeta.getMetatable(ctx, a)
     elseif id == librarycalls.RAWGET then
-        return guestscope.rawGet(ctx, a, b)
+        return guestmeta.rawGet(ctx, a, b)
     elseif id == librarycalls.RAWSET then
-        return guestscope.rawSet(ctx, a, b, c)
+        return guestmeta.rawSet(ctx, a, b, c)
     elseif id == librarycalls.SELECT then
         return select(ctx, a, b)
     elseif id == librarycalls.PACK_COPY then

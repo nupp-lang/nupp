@@ -10,6 +10,7 @@ const guestscope = require("nupp.runtime.core.guestscope")
 const frames = require("nupp.runtime.core.frames")
 const strings = require("nupp.runtime.core.corestrings")
 const librarytexts = require("nupp.runtime.core.librarytexts")
+const guesterrors = require("nupp.runtime.core.guesterrors")
 
 local function guestHeap(ctx: voidptr): heap.Heap*
     @unsafe do
@@ -134,7 +135,7 @@ export function argumentError(ctx: voidptr, position: uint64, expected: uint64, 
             if position > guestscope.libraryCount(ctx) then
                 refused = refused | librarytexts.append(h, builder, librarytexts.TEXT_NO_VALUE)
             else
-                refused = refused | strings.appendString(h, builder, strings.header(guestscope.typeName(ctx, value)))
+                refused = refused | strings.appendString(h, builder, strings.header(guesterrors.typeName(ctx, value)))
             end
         else
             refused = refused | librarytexts.append(h, builder, detail)
@@ -169,7 +170,7 @@ export function forLimitError(ctx: voidptr, value: uint64): nil
         local h = guestHeap(ctx)
         local builder = state as strings.Builder*
         local refused = librarytexts.append(h, builder, librarytexts.TEXT_FOR_LIMIT)
-            | strings.appendString(h, builder, strings.header(guestscope.typeName(ctx, value)))
+            | strings.appendString(h, builder, strings.header(guesterrors.typeName(ctx, value)))
             | librarytexts.append(h, builder, librarytexts.TEXT_CLOSE)
         raiseText(ctx, h, builder, refused)
     end
@@ -196,7 +197,7 @@ export function concatError(ctx: voidptr, value: uint64, n: int64): nil
         local h = guestHeap(ctx)
         local builder = state as strings.Builder*
         local refused = librarytexts.append(h, builder, librarytexts.TEXT_INVALID_CONCAT)
-            | strings.appendString(h, builder, strings.header(guestscope.typeName(ctx, value)))
+            | strings.appendString(h, builder, strings.header(guesterrors.typeName(ctx, value)))
             | librarytexts.append(h, builder, librarytexts.TEXT_AT_INDEX)
             | strings.appendInteger(h, builder, n)
             | librarytexts.append(h, builder, librarytexts.TEXT_IN_CONCAT)
@@ -211,7 +212,7 @@ export function replacementError(ctx: voidptr, value: uint64): nil
         local h = guestHeap(ctx)
         local builder = state as strings.Builder*
         local refused = librarytexts.append(h, builder, librarytexts.TEXT_INVALID_REPLACEMENT)
-            | strings.appendString(h, builder, strings.header(guestscope.typeName(ctx, value)))
+            | strings.appendString(h, builder, strings.header(guesterrors.typeName(ctx, value)))
             | librarytexts.append(h, builder, librarytexts.TEXT_CLOSE)
         raiseText(ctx, h, builder, refused)
     end
@@ -238,6 +239,6 @@ end
 -- Raises a runtime error (a guestscope FAULT_ kind and its operands) where a
 -- library call meets it.
 export function faultError(ctx: voidptr, kind: uint64, culprit: uint64, other: uint64): nil
-    guestscope.raiseFault(ctx, kind, culprit, other)
+    guesterrors.raiseFault(ctx, kind, culprit, other)
     error("library error")
 end

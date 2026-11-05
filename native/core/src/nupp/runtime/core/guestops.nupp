@@ -10,6 +10,8 @@ const heap = require("nupp.runtime.vm.heap")
 const guestscope = require("nupp.runtime.core.guestscope")
 const threads = require("nupp.runtime.core.threads")
 const stacks = require("nupp.runtime.core.stacks")
+const guesterrors = require("nupp.runtime.core.guesterrors")
+const guestmeta = require("nupp.runtime.core.guestmeta")
 
 export const INVALID: uint64 = 4ULL
 export const RESOURCE: uint64 = 5ULL
@@ -456,11 +458,11 @@ export function packVarargs(ctx: voidptr, frame: voidptr, child: voidptr, base: 
     if nargs > fixed then
         count = nargs - fixed
     end
-    guestscope.tableSet(ctx, pack, values.TAG_INTEGER, values.TAG_INTEGER | count)
+    guestmeta.tableSet(ctx, pack, values.TAG_INTEGER, values.TAG_INTEGER | count)
     local k: uint64 = 0ULL
     while k < count do
         local value = native.load64(window, native.index((base + 1ULL + fixed + k) * 8ULL))
-        guestscope.tableSet(ctx, pack, values.TAG_INTEGER | (k + 1ULL), value)
+        guestmeta.tableSet(ctx, pack, values.TAG_INTEGER | (k + 1ULL), value)
         k = k + 1ULL
     end
 
@@ -579,7 +581,7 @@ export function metaPrepare(
         or resolved == 0ULL
         or resolved > native.load64(c, native.fieldOffset<catalog.Catalog>("count"))
     then
-        guestscope.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
+        guesterrors.fault(ctx, guestscope.FAULT_CALL, callee, values.NIL)
         fail(ctx, frame, pc, context.GUEST_ERROR_STATUS)
         return 0ULL
     end
@@ -657,7 +659,7 @@ export function metaPrepare(
     return child
 end
 
--- The metamethod a library call at `pc` waits on (`guestscope.replaybegin`),
+-- The metamethod a library call at `pc` waits on (`guestreplay.replaybegin`),
 -- staged as metaCall stages one: its caller runs `pc` again once it
 -- answers. Answers the child's address, or 0 after recording the failure.
 export function libraryCall(ctx: voidptr, frame: voidptr, pc: voidptr, nargs: uint64, resultSlot: uint64): uint64

@@ -29,6 +29,8 @@ const ints = require("nupp.runtime.core.coreintegers")
 const stacks = require("nupp.runtime.core.stacks")
 const librarycalls = require("nupp.runtime.core.librarycalls")
 const librarytexts = require("nupp.runtime.core.librarytexts")
+const guestlanding = require("nupp.runtime.core.guestlanding")
+const guestreplay = require("nupp.runtime.core.guestreplay")
 
 -- The body: heap.ThreadBody's words first, then the control only this
 -- module reads.
@@ -321,7 +323,7 @@ end
 
 -- coroutine.isyieldable().
 export function yieldable(ctx: voidptr): uint64
-    if running(ctx) ~= 0ULL and not guestscope.crossing(ctx) then
+    if running(ctx) ~= 0ULL and not guestreplay.crossing(ctx) then
         return values.TRUE
     end
 
@@ -613,7 +615,7 @@ export function yield(ctx: voidptr, frame: voidptr, pc: voidptr, slot: uint64, a
     end
     -- A metamethod a library call waits on cannot yield, as one a C
     -- function calls cannot in Lua.
-    if guestscope.crossing(ctx) then
+    if guestreplay.crossing(ctx) then
         guestscope.raise(ctx, texts.textvalue(ctx, librarytexts.TEXT_YIELD_ACROSS), 0ULL)
         return 0ULL
     end
@@ -642,7 +644,7 @@ local function retire(ctx: voidptr, thread: uint64, t: voidptr): uint64
         return 0ULL
     end
     switchout(ctx, thread, t, DEAD)
-    guestscope.replaydrop(ctx, thread)
+    guestreplay.replaydrop(ctx, thread)
     release(ctx, t)
 
     return 1ULL
@@ -731,10 +733,10 @@ end
 -- resume's false and the error or raised again for a wrapped thread's call.
 -- Answers the pc to continue at, or 0 when the error ends the entry.
 export function recover(ctx: voidptr): uint64
-    local at = guestscope.recoverEntry(ctx)
-    while at == 0ULL and running(ctx) ~= 0ULL and guestscope.failing(ctx) == 1ULL do
+    local at = guestlanding.recoverEntry(ctx)
+    while at == 0ULL and running(ctx) ~= 0ULL and guestlanding.failing(ctx) == 1ULL do
         local value = guestscope.lastError(ctx)
-        guestscope.recovered(ctx)
+        guestlanding.recovered(ctx)
         local resumed = fail(ctx, value)
         if resumed == 0ULL then
             native.store64(ctx, context.STATUS, 4ULL)
@@ -747,13 +749,13 @@ export function recover(ctx: voidptr): uint64
         local frame = native.pointer(
             native.load64(native.loadPointer(ctx, context.STATE), native.fieldOffset<frames.State>("active"))
         )
-        guestscope.reraise(
+        guestlanding.reraise(
             ctx,
             value,
             native.load64(frame, native.fieldOffset<frames.Frame>("functionId")),
             native.load64(frame, native.fieldOffset<frames.Frame>("resumePC")) - 1ULL
         )
-        at = guestscope.recoverEntry(ctx)
+        at = guestlanding.recoverEntry(ctx)
     end
 
     return at
@@ -806,7 +808,7 @@ export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, 
     local owners: uint64 = 0ULL
     local at = active
     while state == SUSPENDED and at ~= 0ULL do
-        owners = owners | guestscope.ownsaffine(ctx, at)
+        owners = owners | guestlanding.ownsaffine(ctx, at)
         at = native.load64(native.pointer(at), native.fieldOffset<frames.Frame>("previous"))
     end
     if state ~= SUSPENDED or owners == 0ULL then
@@ -847,7 +849,7 @@ export function close(ctx: voidptr, frame: voidptr, pc: voidptr, value: uint64, 
     native.store64(scope, native.fieldOffset<guestscope.Services>("lastError"), value)
     -- A yield in a function that owns affine values checks for a landed
     -- error after it: there the unwinding starts.
-    if guestscope.ownsaffine(ctx, active) == 1ULL then
+    if guestlanding.ownsaffine(ctx, active) == 1ULL then
         native.store64(scope, native.fieldOffset<guestscope.Services>("landed"), 1ULL)
         return SWITCHED
     end
