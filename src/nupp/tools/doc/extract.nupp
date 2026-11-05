@@ -586,7 +586,8 @@ local function functionSignature(stat, name, omitReceiver)
         result = result .. " yields " .. syntax(body.yieldPack) .. " resumes " .. syntax(body.resumePack)
     end
     if #returns > 0 then
-        result = result .. ": " .. table.concat(returns, ", ")
+        local values = table.concat(returns, ", ")
+        result = result .. ": " .. (#returns > 1 and "(" .. values .. ")" or values)
     end
 
     return result

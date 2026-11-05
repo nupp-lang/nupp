@@ -359,9 +359,9 @@ local function markdownMemberSummary(out, members, heading, title, path, superty
         title: string,
         entries: {OverviewMember}
     }} = {
+        {title = "Constructors", entries = {}},
         {title = "Static methods", entries = {}},
         {title = "Instance methods", entries = {}},
-        {title = "Constructors", entries = {}},
         {title = "Metamethods", entries = {}},
         {title = "Types", entries = {}},
         {title = "Fields", entries = {}},
@@ -375,9 +375,9 @@ local function markdownMemberSummary(out, members, heading, title, path, superty
         elseif member.isMetamethod then
             group = groups[4]
         elseif member.name == "constructor" then
-            group = groups[3]
+            group = groups[1]
         elseif member.isFunction then
-            group = groups[apiMod.isInstanceMethod(member) and 2 or 1]
+            group = groups[apiMod.isInstanceMethod(member) and 3 or 2]
         end
         group.entries[
             #group.entries + 1

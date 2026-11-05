@@ -170,7 +170,7 @@ end
     local markdown = doc.markdown({module})
     local overview = assert(markdown:match("#### Members\n\n(::: api%-overview.-\n:::)"), markdown)
     local last = 0
-    for _, title in ipairs({"Static methods", "Instance methods", "Constructors", "Metamethods", "Types", "Fields"}) do
+    for _, title in ipairs({"Constructors", "Static methods", "Instance methods", "Metamethods", "Types", "Fields"}) do
         local position = assert(overview:find("**" .. title:lower() .. "**", 1, true), title)
         assert(position > last, "member groups out of order")
         last = position
@@ -518,7 +518,9 @@ export = setmetatable(callable, {__call = original})
         ["suite.fact"] = "function suite.fact(name: string, value: any): nil",
         ["suite.metric"] = "function suite.metric(name: string, value: number, unit: string?): nil",
         ["suite.work"] = "function suite.work(name: string, count: integer): nil",
-        ["suite.fixture"] = "function suite.fixture(key: string, produce: function(string): any): string, any, boolean",
+        [
+            "suite.fixture"
+        ] = "function suite.fixture(key: string, produce: function(string): any): (string, any, boolean)",
     }
     for _, item in ipairs(module.items) do
         assert(item.kind == "function", item.name .. " lost its function signature")
@@ -1468,7 +1470,7 @@ export function callback(): function(): nil end
     assert(not api.displaySignature(items.free):find(": nil", 1, true))
     assert(api.displaySignature(items.callback):find("function(): nil", 1, true))
     assert(not api.memberSpelling(members.clear):find(": nil", 1, true))
-    assert(api.memberSpelling(members.pair):find(": nil, string", 1, true))
+    assert(api.memberSpelling(members.pair):find(": (nil, string)", 1, true))
     local markdown = doc.markdown({module})
     assert(markdown:find('`self` - [`example.Box`](#example.Box)`<T>`', 1, true), markdown)
     local free = markdown:match("<a id=\"example.free\"></a>(.-)\n## ")
@@ -7260,6 +7262,58 @@ end
     assert(text:find('name = name', 1, true), text)
     assert(not text:find('internal.model', 1, true), text)
     os.execute("rm -rf '" .. dir .. "'")
+end
+
+function M.wrapsLongConstructorAndFunctionSignatures()
+    local module = assert(
+        doc.extract(
+            [[
+module example
+export record Info
+    kind: string
+    size: integer
+    modified: number
+    readonly: boolean
+end
+export record Custom
+    constructor(self, kind: string, size: integer, modified: number, readonly: boolean) end
+    function create(kind: string, size: integer, modified: number, readonly: boolean): Custom end
+end
+export function inspect(kind: string, size: integer, modified: number, readonly: boolean): (string, boolean) end
+]],
+            "src/example.nupp",
+            "example"
+        )
+    )
+    local markdown = doc.markdown({module})
+    local members = {}
+    for _, item in ipairs(module.items) do
+        members[item.name] = item
+    end
+    local api = require("nupp.tools.doc.api")
+    local constructors = require("nupp.tools.doc.constructors")
+    local generated = constructors.members(members.Info, module, constructors.index({module}))[1]
+    local signatures = {
+        api.memberSpelling(generated),
+        api.memberSpelling(members.Custom.members[1]),
+        api.memberSpelling(members.Custom.members[2]),
+        api.displaySignature(members.inspect),
+    }
+    local arguments = "function(\n    kind: string,\n    size: integer,\n    modified: number,\n    readonly: boolean\n)"
+    local parser = require("nupp.compiler.syntax.parser")
+    for _, signature in ipairs(signatures) do
+        assert(signature:find(arguments, 1, true), signature)
+        assert(markdown:find(signature, 1, true), markdown)
+        local parsed = parser.parse("type Signature = " .. signature, "signature.nupp")
+        assert(#parsed.errors == 0, signature)
+    end
+    assert(signatures[4]:find(": (string, boolean)", 1, true), signatures[4])
+    local short = api.memberSpelling({
+        isFunction = true,
+        type = "function(value: string): string",
+        returns = {{type = "string"}}
+    })
+    assert(short == "function(value: string): string", short)
 end
 
 return M
