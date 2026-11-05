@@ -1413,6 +1413,23 @@ export function first(value: other.Widget): Imported end
     assert(count >= 2, page)
 end
 
+function M.argumentTypesLinkToTheMostSpecificNamespacePage()
+    local parent = assert(doc.extract("export record derive\n    record Info end\nend\n", "src/types.nupp", "types"))
+    local nested = assert(doc.extract("export record Info end\n", "src/types/derive.nupp", "types.derive"))
+    local consumer = assert(
+        doc.extract("export function event(info: types.derive.Info): nil end\n", "src/events.nupp", "events")
+    )
+    local links = urls.symbolLinkIndex({parent, nested, consumer})
+    assert(links["types.derive.Info"] == "modules/types/derive/index.html#types.derive.Info")
+    local markdown = require(
+        "nupp.tools.doc.markdown"
+    ).render({consumer}, nil, {parent, nested, consumer}, nil, "../../")
+    assert(
+        markdown:find("[`types.derive.Info`](../../modules/types/derive/index.html#types.derive.Info)", 1, true),
+        markdown
+    )
+end
+
 function M.rendersQuotedTypesWithoutDoubleEscaping()
     local module = assert(
         doc.extract(
