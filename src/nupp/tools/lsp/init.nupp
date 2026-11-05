@@ -1094,7 +1094,11 @@ export function newSession(rootDir: string?, emit: function(any), host: Host?): 
             respond(id, json.NULL);
             return
         end
-        local ft = call.signatureType
+        local ft = require("nupp.compiler.constructors").signatureAt(call)
+        if not ft or ft.tag ~= "func" then
+            respond(id, json.NULL)
+            return
+        end
         local candidates = call.overloadCandidates or {ft}
         local name = "call"
         if call.kind == "methodCall" and call.name then
@@ -2020,13 +2024,13 @@ export function run(rootDir: string?): integer
     end
     -- A checkout's launcher is a shell script, which Windows cannot start.
     local relayArgs = require("nupp.compiler.process").isolatedArguments({executable, "__lsp-reader"})
-    local relayOptions: ChildOptions = {args = relayArgs, stdin = "inherit", stdout = "pipe", stderr = "inherit",}
+    local relayOptions: ChildOptions = {stdin = "inherit", stdout = "pipe", stderr = "inherit",}
     -- The relay lives in a managed cell rather than in this frame, because it is
     -- read from two places: the loop below, and `pump`, which the session keeps in
     -- `host` and calls from inside long work. A closure over a borrow of an owner
     -- held here could not be stored there; an alias is copyable and checks the cell
     -- at each use instead.
-    local spawned, spawnProblem = process.popen(relayOptions)
+    local spawned, spawnProblem = process.popen(relayArgs, relayOptions)
     if spawned == nil then
         io.stderr:write("nupp-lsp: cannot start the input relay: " .. tostring(spawnProblem) .. "\n")
         return 1

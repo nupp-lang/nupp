@@ -683,7 +683,7 @@ export function new(rootDir: string, opts: table?): Inc
                 seeded.types[entry.name] = entry.type
                 seeded.typeDefs[entry.name] = entry.definition
                 if entry.kind == "struct" then
-                    seeded.values[entry.name] = entry.type
+                    seeded.values[entry.name] = T.typeObject(entry.type)
                 end
             end
         end

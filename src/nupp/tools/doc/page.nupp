@@ -193,12 +193,18 @@ local function moduleTreeHtml(node, current, prefix)
         if #child.order == 0 then
             parts[#parts + 1] = "<li" .. data .. ">" .. link .. "</li>"
         else
-            -- API branches start closed, including the current module's ancestors.
+            local open = current
+                and child.qualified
+                and (current == child.qualified or current:sub(1, #child.qualified + 1) == child.qualified .. ".")
+                and " open"
+                or ""
             parts[
                 #parts + 1
             ] = '<li class="nuppdoc-module-branch"'
                 .. data
-                .. '><details><summary class="nuppdoc-module-branch-link">'
+                .. '><details'
+                .. open
+                .. '><summary class="nuppdoc-module-branch-link">'
                 .. link
                 .. '</summary><ul class="nuppdoc-module-tree">'
             parts[#parts + 1] = moduleTreeHtml(child, current, prefix)

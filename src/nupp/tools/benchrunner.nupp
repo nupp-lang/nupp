@@ -347,8 +347,7 @@ local function nuppRun(
         end
         childArgs = wrapped
     end
-    local child, spawnProblem = process.popen({
-        args = childArgs,
+    local child, spawnProblem = process.popen(childArgs, {
         env = env,
         stdin = "inherit",
         stdout = "pipe",

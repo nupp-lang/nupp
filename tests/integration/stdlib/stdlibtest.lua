@@ -96,16 +96,15 @@ function M.digestFinalizationConsumesButChecksumReadsDoNot()
     )
 end
 
--- Every owner the standard library hands out has one cleanup shape: it is a
--- `own.Closeable` whose `close` answers nothing, so `own.drop` is the one early
--- terminal and no second public `drop` stands beside it.
+-- Every owner the standard library hands out has a cleanup policy, and
+-- `own.drop` runs it early without adding a public `drop` on each resource.
 local FORMER_DROP_OWNERS = {
     "local owner = io.newbuffer('bytes')",
     "local source = io.newbuffer('bytes')\nlocal owner = source:view()",
     "local owner = io.newreader('abcd'):scalar()",
     "local destination = io.newbuffer(); local owner = destination:writer():scalar()",
     "local owner = io.newreader('one'):lines()",
-    "local owner = assert(io.files.open('input.bin'))",
+    "local owner = assert(io.open('input.bin'))",
     "local owner = assert(io.files.tmpfile())",
     "local owner = nupp.heap.alloc(ffi.typeof<int32>(), 4)",
     "local struct Row\n    x: int32\nend\nlocal owner = nupp.soa.alloc(ffi.typeof<Row>(), 4)",
@@ -646,7 +645,7 @@ function M.filesystemNamesAreFilesPathsEverywhere()
                 "    local body = http.file(where)",
                 "    local listener = net.listen({path = where})",
                 "    local stream = net.connect({path = where})",
-                "    local child = process.popen({args = {'true'}, cwd = where})",
+                "    local child = process.popen({'true'}, {cwd = where})",
                 "    print(body, listener, stream, child)",
                 "end",
                 "send('/tmp/x')",
@@ -1545,6 +1544,42 @@ function M.everyFeatureRuntimeIsReachableOrRefused()
     end
 end
 
+function M.fileViewFeaturesDecorateTypeOnlyInterfaceIdentities()
+    local file = {tag = "nominal", byname = {}}
+    local globals = {io = {t = {tag = "shape", byname = {}}}}
+    local effects = native.decorateGlobals(globals, {["io.File"] = file})
+    assert(effects[file] and effects[file].reader == "runtime.file_views")
+    assert(effects[file].writer == "runtime.file_views")
+    assert(file.byname.reader == nil and file.byname.writer == nil, "feature decoration does not mutate the interface")
+    assert(native.decorateGlobals(globals)[file] == nil, "the type is not a runtime namespace value")
+end
+
+function M.parameterOnlyFileViewsCarryTheirRuntimeFeature()
+    local env = envMod.new(HERE .. "/..", {cache = false})
+    for _, method in ipairs({"reader", "writer"}) do
+        local source = (
+            [=[
+local function useFile(exclusive file: io.File): nil
+    local view = file:%s()
+    view:close()
+end
+return useFile
+]=]
+        ):format(method)
+        local parsed = parser.parse(source, "file-view-effects.nupp")
+        testAssert.eq(#parsed.errors, 0)
+        for _, diagnostic in ipairs(check.check(parsed, "file-view-effects.nupp", env) or {}) do
+            testAssert.ne(diagnostic.severity, "error", diagnostic.msg)
+        end
+        assert(parsed.effects["runtime.file_views"], "checking a parameter-only " .. method .. " records its feature")
+        local code, diagnostics, _, emitted = gen.generate(parsed, "file-view-effects.nupp")
+        testAssert.eq(#diagnostics, 0)
+        assert(emitted["runtime.file_views"], "generated " .. method .. " retains its runtime feature")
+        assert(code:find("nupp.runtime.standardio", 1, true), "the view call installs the file methods")
+        assert(native.expand(emitted)["stdlib.io"], "the view carries its byte-stream runtime")
+    end
+end
+
 function M.reachableStandardFacilitiesHaveRuntimeMetadata()
     local surface = require("nupp.compiler.standardsurface")
     local browser = {opts = {}, env = {artifactHost = "browser"}}
@@ -1597,7 +1632,7 @@ local address: io.URI = assert(io.newuri(components))
 local valid, reason = io.validateuri("http://[")
 local kind: Error.Kind = "timeout"
 local mode: Error.Mode = "stdout"
-local options: Process.Options = {args = {"true"}, stderr = mode}
+local options: Process.Options = {stderr = mode}
 local communication: Process.CommunicateOptions = {maxoutputbytes = 10}
 local stream: Process.StreamMode = "pipe"
 local function child(value: io.Process, result: Process.Result, exit: Process.Exit, provider: Process.Provider): nil
@@ -1606,7 +1641,7 @@ end
 local function streams(borrows input: Process.Reader, borrows output: Process.Writer, interest: Process.Interest): nil
     print(input:isended(), output:isreleased(), #interest.read)
 end
-print(address:host(), io.isuri(address), valid, reason, kind, options.args[1], communication.maxoutputbytes, stream)
+print(address:host(), io.isuri(address), valid, reason, kind, options.stderr, communication.maxoutputbytes, stream)
 ]=]
     )
     for _, name in ipairs({
@@ -1685,11 +1720,13 @@ function M.nativeFeaturesAreResolvedEffects()
     local test = effectsOf("local test = require('assert')")
     assert(test["runtime.test"], "require('assert') carries the assertion module")
 
-    local process = effectsOf("local process = require('io')\nlocal child = process.popen({args = {'true'}})")
+    local process = effectsOf("local process = require('io')\nlocal child = process.popen({'true'})")
     assert(process["runtime.process"], "structured popen records its process dependency")
     assert(not process["native.process"], "provider choice follows target catalog resolution")
-    local workers = effectsOf("local workers = require(\"coroutine.workers\")")
-    assert(workers["runtime.workers"], "the workers module records its facade dependency")
+    local workers = effectsOf(
+        "module main\nlocal scope = coroutine.scope()\nscope:work(function(): integer return 42 end)"
+    )
+    assert(workers["runtime.workers"], "worker submission records its runtime dependency")
     local http = effectsOf("local http = require(\"io.http\")")
     assert(http["runtime.http"], "the HTTP module records its facade dependency")
 
@@ -1792,7 +1829,7 @@ function M.processViewsSatisfyTheSharedContracts()
         table.concat(
             {
                 "local process = require('io')",
-                "local child = assert(process.popen({args = {'true'}}))",
+                "local child = assert(process.popen({'true'}))",
                 "local running = child",
                 "print(running.pid)",
             },
@@ -1852,7 +1889,7 @@ function M.processViewsSatisfyTheSharedContracts()
     )
 end
 
-function M.popenKeepsBothAcquisitionContractsAndPublicProcessTypes()
+function M.popenKeepsOneAcquisitionContractAndPublicProcessTypes()
     assertClean(
         [[
 const io = require("io")
@@ -1861,14 +1898,62 @@ local function providerTypes(provider: io.Process.Provider, options: io.Process.
     input: io.Process.StreamMode, errors: io.Error.Mode): nil
     local settled: io.Process.Exit = {exitcode = 0, killed = false, timedout = false}
 end
-local pipe = io.popen("true", "r")
-if pipe ~= nil then pipe:close() end
-local child = io.popen({args = {"true"}})
-if child ~= nil then child:close() end
+local function inspect(borrows child: io.Process): nil
+    local id: integer = child.pid
+end
+local pipe, pipeReason, pipeCode = io.popen("true", "r")
+local pipeMessage: string? = pipeReason
+local pipeStatus: integer? = pipeCode
+if pipe ~= nil then inspect(pipe) pipe:close() end
+local child, childReason, childCode = io.popen({"true"}, {stderr = "pipe"})
+local childMessage: string? = childReason
+local childStatus: integer? = childCode
+if child ~= nil then inspect(child) child:close() end
+local shell = io.popen("true", {stderr = "pipe"})
+if shell ~= nil then inspect(shell) shell:close() end
 ]]
     )
     local diagnostics = diagsOf("local child = io.process")
     assert(diagnostics:find("NUPP2004", 1, true), "io exposes no process namespace: " .. diagnostics)
+end
+
+function M.popenProcessesSatisfyLuaFileContracts()
+    assertClean(
+        [[
+local function useFile(borrows file: io.File): nil
+    file:read("*l")
+    file:lines("*l")
+    file:write("line", 42)
+    file:flush()
+    file:seek("cur", 0)
+    file:setvbuf("no")
+end
+local function fileView(borrows child: io.Process): io.File borrows (child)
+    return child
+end
+local function useProcess(borrows child: io.Process): nil
+    useFile(child)
+    useFile(fileView(child))
+    child:read("*l")
+    child:lines("*l")
+    child:write("line", 42)
+    child:flush()
+    child:seek("cur", 0)
+    child:setvbuf("no")
+end
+-- Default-stream APIs accept unowned File handles. They retain their existing
+-- restriction against letting a lexical owner's borrow escape through globals.
+local function defaults(file: io.File): nil
+    io.input(file)
+    io.output(file)
+    io.close(file)
+end
+local pipe = io.popen("true", "r")
+if pipe ~= nil then useProcess(pipe) pipe:close() end
+local child = io.popen({"true"})
+if child ~= nil then useProcess(child) child:close() end
+]]
+    )
 end
 
 function M.processSurfaceIsBundledOutsideThisCheckout()
@@ -1876,7 +1961,7 @@ function M.processSurfaceIsBundledOutsideThisCheckout()
     local source = table.concat(
         {
             "local process = require('io')",
-            "local child = assert(process.popen({args = {'true'}}))",
+            "local child = assert(process.popen({'true'}))",
             "assert(child:isrunning() or not child:isrunning())",
         },
         "\n"
@@ -2008,17 +2093,18 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     assertClean(
         table.concat(
             {
-                "const files = require(\"io.files\")",
                 "local function drain(exclusive source: io.Reader, exclusive sink: io.Writer): (integer?, string?)",
                 "    return source:transferto(sink)",
                 "end",
                 "do",
-                "    local file, reason = files.open('input.txt')",
+                "    local file, reason = io.open('input.txt')",
                 "    if file == nil then error(reason) end",
                 "    local bytes: string? = file:read(16)",
-                "    local wrote: boolean = file:write('x')",
-                "    local copy = assert(files.open('copy.txt', 'w'))",
-                "    local copied: integer? = drain(file, copy)",
+                "    local wrote: io.File? = file:write('x')",
+                "    local copy = assert(io.open('copy.txt', 'w'))",
+                "    local reader = file:reader()",
+                "    local writer = copy:writer()",
+                "    local copied: integer? = drain(reader, writer)",
                 "end",
             },
             "\n"
@@ -2039,7 +2125,9 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
         )
     )
 
-    testAssert.eq((diagsOf("const files = require(\"io.files\")\nlocal n: number = files.read('x')")), "NUPP2001:2")
+    testAssert.eq((diagsOf("io.files.read('x')")), "NUPP2004:1")
+    testAssert.eq((diagsOf("io.files.write('x', 'bytes')")), "NUPP2004:1")
+    testAssert.eq((diagsOf("io.files.append('x', 'bytes')")), "NUPP2004:1")
     assertClean("const files = require(\"io.files\")\nlocal paths: {io.Path} = assert(files.glob('src/**/*.nupp'))")
     testAssert.eq(
         (diagsOf("const files = require(\"io.files\")\nfiles.glob(io.newpath('src'))")),
@@ -2048,7 +2136,9 @@ function M.openFilesAreOwnersOverTheSharedReaderContract()
     )
     assertClean("const files = require(\"io.files\")\nlocal link: boolean = files.issymlink('x')")
     testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.info(42)")), "NUPP2006:2")
-    testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.open('x')")), "NUPP2605:2")
+    testAssert.eq((diagsOf("io.open('x')")), "NUPP2605:1")
+    testAssert.eq((diagsOf("io.files.open('x')")), "NUPP2004:1")
+    testAssert.eq((diagsOf("io.files.lines('x')")), "NUPP2004:1")
     testAssert.eq((diagsOf("const files = require(\"io.files\")\nfiles.tmpfile()")), "NUPP2605:2")
 end
 
@@ -2082,7 +2172,7 @@ function M.luaFilesAndPublicResourcesUseAffineConstructors()
                 "        body = http.reader(io.newreader('body'), 4, nil)",
                 "    )",
                 "end",
-                "do local child = assert(process.popen({args = {'true'}})) end",
+                "do local child = assert(process.popen({'true'})) end",
             },
             "\n"
         )
@@ -2822,12 +2912,7 @@ function M.applicationResourcesHideLifecycleAndTransportMachinery()
             table.concat(example, ".") .. " must be inaccessible: " .. diagnostics
         )
     end
-    -- A worker scope is not public at all: `fork` on a task scope is the only way to a
-    -- lane, so the facade names no scope type for application source to reach into.
-    local unnamed = diagsOf(
-        'const workers = require("coroutine.workers")\nlocal function expose(borrows value: workers.Scope): nil\nend\n'
-    )
-    assert(unnamed:find("NUPP2101", 1, true), "coroutine.workers must not name a scope type: " .. unnamed)
+    assertClean("local function expose<F is coroutine.Worker>(body: F): F\nreturn body\nend")
 end
 
 -- What a suspension provider keeps on the shared records is its own, so it carries the
@@ -2897,10 +2982,24 @@ end
             "scalar state must not belong to its public contract: " .. diagnostics
         )
     end
-    for _, name in ipairs({"nupp.io.internal.bytes", "nupp.io.internal.scalars", "nupp.io.http.internal.transport"}) do
+    for _, name in ipairs({
+        "nupp.io.internal.bytes",
+        "nupp.io.internal.scalars",
+        "nupp.io.http.internal.transport",
+        "io.files.messages"
+    }) do
         local diagnostics = diagsOf(('local hidden = require(%q)'):format(name))
         assert(diagnostics:find("NUPP2144", 1, true), name .. " must reject application imports: " .. diagnostics)
     end
+end
+
+function M.filesystemMetadataIsPublicOnlyThroughFiles()
+    assertClean("local function expose(value: io.files.Info): io.files.Info\nreturn value\nend")
+    local diagnostics = diagsOf("local function expose(value: io.files.messages.Info): nil\nend")
+    assert(
+        diagnostics:find("NUPP2144", 1, true),
+        "filesystem declarations reject qualified application access: " .. diagnostics
+    )
 end
 
 function M.ioCanonicalStorageMembersHaveNoPrecedingRuntimeAliases()

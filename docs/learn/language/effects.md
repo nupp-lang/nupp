@@ -549,32 +549,6 @@ When an effect contract is reported:
 For a bodyless declaration, review the implementation on the other side of the
 boundary. The checker cannot do that verification for you.
 
-## FAQ
-
-### Does every function need `@effects`?
-
-The checker infers effects for visible functions whether or not they carry
-`@effects`. Add a contract only when its complete upper bound belongs to the API
-or must remain stable across implementation changes. See [Inference without an
-annotation](#inference-without-an-annotation) for the boundary, and [Visible and
-opaque implementations](#visible-and-opaque-implementations) for code whose body
-is unavailable.
-
-### Do effect contracts add runtime work?
-
-`@effects` is erased after checking, so it adds no guard, wrapper, allocation,
-or calling-convention change. The compiler uses the summary to reject an
-invalid contract and to decide whether a proof survives a call.
-
-### Do effects replace ownership contracts?
-
-Effects describe what may happen during a call; ownership describes which value
-carries a cleanup, access, or lifetime obligation. A function may be effect-free
-while forwarding an affine value, or effectful while accepting only GC-managed
-values. See
-[ownership.md](../runtime/ownership/borrowing.md#public-capability-contracts) for the
-separate public capability contract.
-
 ::: seealso
 - [suspension.md](../runtime/concurrency/suspension.md) for the control-flow model behind `suspends`
 - [ownership.md](../runtime/ownership/borrowing.md) for cleanup and lifetime

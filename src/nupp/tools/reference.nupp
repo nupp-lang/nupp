@@ -1486,7 +1486,7 @@ yields, narrowed by the same truthiness that selected it: `string?` becomes
 `string`, and `boolean` becomes `true`.
 
 ```nupp
-local text = files.read(path) or return
+local text = reader:read(4096) or return
 ```
 
 `or return` forwards the operand's whole pack with its first slot narrowed to

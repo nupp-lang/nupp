@@ -96,7 +96,7 @@ local function headingBadge(heading: string): string, string?, boolean?
     end
     local name, _, kind = heading:match("^(.-`[^`]+`)%s+([_*])([%l][%l ]*)%2$")
     if not name then
-        return heading, nil
+        return heading, nil, lua
     end
 
     return name, kind, lua
@@ -507,7 +507,7 @@ local function headingSlugs(text, headingScope: string?)
             slugs[
                 #slugs + 1
             ] = {id = id, base = base, anchor = explicit, text = name:gsub("[`*_]", ""), badge = badge, lua = lua}
-            out[#out + 1] = badge and hashes .. " " .. name or line
+            out[#out + 1] = (badge or lua) and hashes .. " " .. name or line
         else
             out[#out + 1] = line
             local explicit = line:match('^<a id="([^"]+)"></a>$')
@@ -546,28 +546,21 @@ local function rewriteHeadings(rendered: string, headings: {any}, shift: integer
     end))
 end
 
--- An API page's definition lists: the class that styles them, and each term's last
--- code span, its declaration, highlighted as Nupp source.
+-- An API page's definition lists: the class that styles them, and each term's
+-- code spans after a leading name, its types, marked as type tokens.
 local function apiDefinitionHtml(rendered: string): string
     local styled = rendered:gsub("<dl>", '<dl class="nuppdoc-api-details">')
 
     return (styled:gsub("<dt>(.-)</dt>", function(term: string): string
-        local _, count = term:gsub("<code>.-</code>", "")
+        local named = term:match("^<code>.-</code> %- ") ~= nil
         local index = 0
         local highlighted = term:gsub("<code>(.-)</code>", function(value: string): string
             index = index + 1
-            if index ~= count then
+            if named and index == 1 then
                 return "<code>" .. value .. "</code>"
             end
-            -- Decode the renderer's escapes once before highlighting. Ampersands
-            -- go last so an original literal entity is not decoded twice.
-            local source = value:gsub("&lt;", "<")
-                :gsub("&gt;", ">")
-                :gsub("&quot;", '"')
-                :gsub("&#39;", "'")
-                :gsub("&amp;", "&")
 
-            return "<code>" .. highlightMod.nuppSource(source) .. "</code>"
+            return '<code class="nuppdoc-token-type">' .. value .. "</code>"
         end)
 
         return "<dt>" .. highlighted .. "</dt>"

@@ -51,8 +51,8 @@ or lifetime. A server, a loading pipeline, or a scene needs somewhere to put
 children found over time and one answer to what happens when the body returns, a
 child fails, or the whole thing is cancelled.
 
-CPU work on other threads is [](coroutine.workers), and a task scope is the only way
-to it: `work` hands a child to a lane, and the scope owns the family of lanes
+CPU work on other threads starts through [](coroutine.Scope.work). A task scope
+is the only way to it: `work` hands a child to a lane, and the scope owns its lanes
 lazily and closes it through the suspension-aware path, so leaving the block
 inside a frame parks rather than blocking the thread.
 
@@ -73,7 +73,7 @@ local suspension = require("nupp.suspension")
 -- A scope is a driver: it installs a handler in front of whoever hosts the frame.
 local suspensionHost = require("nupp.suspension.host")
 local coroutines = require("nupp.suspension.internal.coroutines")
-local {type Submittable} = require("nupp.workers.contracts")
+local {type Worker} = require("nupp.workers.contracts")
 local workerModule = require("nupp.runtime.workersprovider").provider
 local taskownership = require("nupp.runtime.taskownership")
 -- The canonical state-local cancellation identity, taken from the module that owns
@@ -291,7 +291,7 @@ record tasks.Scope is own.Closeable
 
     -- A0 seed transition: same borrowed worker submission; retire fork after the new
     -- seed pin.
-    work: function<F is Submittable>(
+    work: function<F is Worker>(
         borrows self: tasks.Scope,
         F,
         ...: unpackof nupp.workers.contracts.Submitted(F)
@@ -1281,7 +1281,7 @@ local spawnNamedSurface: function<F is Nullary>(
     takes body: F,
     name: string
 ): tasks.Task<F> borrows (self)
-local forkSurface: function<F is Submittable>(
+local forkSurface: function<F is Worker>(
     borrows self: tasks.Scope,
     F,
     ...: unpackof nupp.workers.contracts.Submitted(F)

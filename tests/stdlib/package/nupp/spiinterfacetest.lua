@@ -134,7 +134,7 @@ print(checked, canonical)
         graph.changeDocument(typePath, declaration .. "\n")
         checked(graph)
     end)
-    require("io.files").remove(dir, true)
+    os.remove(dir, true)
     assert(ok, problem)
 end
 
@@ -172,7 +172,7 @@ return reader:read({} as any as Left) .. reader:read({} as any as Right)
         local answer = require("program").run(checked.result, "main", main)
         assert(answer == "leftright", "same-named declaration nominals keep distinct methods: " .. tostring(answer))
     end)
-    require("io.files").remove(dir, true)
+    os.remove(dir, true)
     assert(ok, problem)
 end
 
@@ -255,7 +255,7 @@ return marked.text
         end
         assert(found, "restored providers keep their nominal return type")
     end)
-    require("io.files").remove(dir, true)
+    os.remove(dir, true)
     if not ok then
         error(problem, 0)
     end

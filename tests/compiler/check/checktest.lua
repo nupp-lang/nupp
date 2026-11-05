@@ -1321,19 +1321,19 @@ function M.inheritedContractsBoundsAndSelf()
             "   x: number",
             "end",
             -- the argument is the declaration's visible Type<C> witness;
-            -- calling it runs the __call the bound declares and yields an instance
-            "local function construct<C is Component>(c: Type<C>): C",
+            -- an instance carries the inherited callable contract
+            "local function construct<C is Component>(c: C): C",
             "   local name: string = c.componentName",
             "   return c()",
             "end",
-            "local made: Position = construct(Position)",
+            "local made: Position = construct(new Position(componentName = 'position', tag = 'tag', x = 1))",
             "local tag: string = made.tag",
         },
         "\n"
     )
     assertClean(src)
     testAssert.eq(
-        (diagsOf(src .. table.concat({"", "local record Plain end", "local bad = construct(Plain)",}, "\n"))),
+        (diagsOf(src .. table.concat({"", "local record Plain end", "local bad = construct(new Plain())",}, "\n"))),
         "NUPP2116:18"
     )
 end

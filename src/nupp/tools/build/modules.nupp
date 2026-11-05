@@ -12,6 +12,7 @@ module nupp.tools.build.modules
 const assert2 = require("assert")
 
 const files = require("io.files")
+local fileops = require("nupp.runtime.standardos")
 const {type Target as Target2} = require("nupp.tools.build.manifest")
 const {type Inc} = require("nupp.compiler.project.incremental")
 const {type ConstTerm} = require("nupp.compiler.types")
@@ -824,7 +825,7 @@ local function openSession(
         end
         if not stagedReady then
             if not isolated then
-                files.remove(stagedRoot, true)
+                fileops.remove(stagedRoot, true)
                 assert2(fs.mkdir(stagedRoot), "cannot create runtime source staging tree")
             end
             inc.env.roots[#inc.env.roots + 1] = stagedRoot

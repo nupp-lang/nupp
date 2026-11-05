@@ -17,6 +17,7 @@ const terminal2 = require("io.cli")
 const terminal = require("io.cli")
 
 local files = require("io.files")
+local fileops = require("nupp.runtime.standardos")
 local usageError = require("nupp.tools.cli.error").forCommand("init")
 local cliModule = require("io.cli")
 local report = require("nupp.tools.cli.report")
@@ -359,7 +360,7 @@ local function run(options: any): integer
     else
         code = scaffold(source, destination, values, set)
     end
-    files.remove(owned:tostring(), true)
+    fileops.remove(owned:tostring(), true)
     owned:close()
 
     return code

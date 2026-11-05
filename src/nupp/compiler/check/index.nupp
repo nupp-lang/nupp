@@ -153,7 +153,7 @@ export function install(c: state.Checker): state.ExprHandlers
                     if not resolved and memberIndex == 1 and c.env.exportedNominal then
                         local nominal, declared = c.env.exportedNominal(c.env, candidate, memberName)
                         if nominal and nominal.tag == "nominal" then
-                            resolved = nominal.declKind == "struct" and nominal or T.typeObject(nominal)
+                            resolved = T.typeObject(nominal)
                             definition = declared
                         end
                     end
@@ -631,7 +631,7 @@ export function install(c: state.Checker): state.ExprHandlers
             then
                 -- The same value the declaring module bound, so a record arrives as the
                 -- metatable its table is rather than as an instance of it.
-                local held = t.declKind == "struct" and t or T.typeObject(t)
+                local held = t.declKind == "interface" and T.metatable(t) or T.typeObject(t)
                 c.markToken(member, def, held, def and def.kind or "variable")
                 return held
             end
@@ -662,9 +662,23 @@ export function install(c: state.Checker): state.ExprHandlers
             base = T.union(nonnil)
         end
         local writing = node.writeContext == true
-        local ft, fieldDef, fieldDefs
+        local ft, fieldDef, fieldDefs, instanceModule
         if writing then
             ft, fieldDef, fieldDefs = c.fieldWriteType(base, memberName)
+            local constructor = c.constructorFieldStack[#c.constructorFieldStack]
+            local body = constructor and c.functionBodies[#c.functionBodies]
+            local receiver = body and body.params and body.params[1] and body.params[1].name
+            if not ft
+                and receiver
+                and target.kind == "name"
+                and target.token
+                and target.token.definition == receiver.definition
+            then
+                -- Readonly describes the initialized instance. Only the actual
+                -- constructor receiver may initialize it; aliases, other objects,
+                -- and nested functions retain the normal write restrictions.
+                ft, fieldDef, fieldDefs = c.fieldType(base, memberName)
+            end
             local physicalOwner = base
             while physicalOwner.tag == "ptr" do
                 physicalOwner = rawType(physicalOwner.elem)
@@ -714,7 +728,8 @@ export function install(c: state.Checker): state.ExprHandlers
                 end
             end
         else
-            ft, fieldDef, fieldDefs = c.fieldType(base, memberName)
+            ft, fieldDef, fieldDefs, instanceModule = c.fieldType(base, memberName);
+            (node as any).instanceExtensionModule = instanceModule
         end
         local nominal = base.tag == "nominal" and base or nil
         local declaration = nominal and (((nominal as T.Nominal).origin or nominal) as T.Nominal) or nil
@@ -743,6 +758,9 @@ export function install(c: state.Checker): state.ExprHandlers
                     or nil
                 fieldDef = exports and exports.valueDefs and exports.valueDefs[memberName] or nil
             end
+        end
+        if not fieldDef and not writing then
+            fieldDef = builtinExtensions.definition(c, target, memberName)
         end
         if not ft then
             local opposite = writing and c.fieldType(base, memberName) or c.fieldWriteType(base, memberName)

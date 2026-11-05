@@ -309,10 +309,10 @@ local record Position is Component
 end
 ```
 
-The declaration is a static contract. It emits no `__call` field, builds no
-metatable, and decides nothing about what the call constructs. Ordinary Lua code
-installs the function with `setmetatable`, a registrar, or a foreign runtime.
-Inheriting the contract rebinds `self`, so `Position(...)` has type `Position`.
+The metamethod declaration is a static contract. It emits no function; install
+`Position.__call` before calling a `Position` instance. Inheriting the contract
+rebinds `self`, so that instance call returns `Position`. Calling the
+`Position` declaration uses its constructor independently of this contract.
 
 `__eq` and `__tostring` participate in conformance but do not change a result
 type: `==` is always `boolean` and `tostring` is always `string`. When the left
@@ -328,28 +328,6 @@ point to fulfill it. The bit-operator contracts (`__band`, `__bor`, `__bxor`,
 `__bnot`, `__shl`, `__shr`, `__sar`) and `__idiv` are not declarable either. `__gc` and `__close` are not
 contracts either, since deterministic cleanup is
 [ownership](../../runtime/ownership/borrowing.md).
-
-## FAQ
-
-### When is an interface better than a record?
-
-When several unrelated types must answer the same contract, or when a module
-wants to publish a shape without publishing its representation. A concrete
-record API needs no interface merely to call its own methods. See [records and
-structs](records-and-structs.md#choosing) for which representation a type wants.
-
-### Why does `is` against an interface usually compile to nothing?
-
-Because the subject's declared type has already answered it. An interface has no
-runtime table, so the checker elides the test wherever the type proves it, and
-falls back to a literal-field tag or a `satisfies` refinement where it does not.
-
-### Can an interface add fields to the types that satisfy it?
-
-No. An interface declares members and, optionally, default implementations for
-its own methods, but satisfaction is a fact about the implementor's own members.
-A default implementation is one shared function referenced from the implementor,
-not a field copied into it.
 
 ::: seealso
 - [refinements.md](refinements.md) for the `satisfies` test an interface may

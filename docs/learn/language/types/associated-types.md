@@ -287,29 +287,6 @@ where it was declared.
 The rule is which side chooses. When the caller chooses, write a parameter. See
 [generics.md](generics.md#constraints-use-is) for how a bound is written.
 
-## FAQ
-
-### Where does an associated answer live?
-
-A contract states a name, an implementor answers it, and callers project through
-a bound parameter. The answer lives in the declaration itself, so there is no
-separate implementation block or competing answer to resolve.
-
-### Should I write `=` or `==` on an interface?
-
-Write `=` when an implementor may reasonably answer otherwise, and `==` when
-every implementor has to answer exactly that. Only `==` lets a value typed as
-the interface read the projection, which is what a caller holding the contract
-rather than the concrete type needs. See [Defaults and fixed
-equalities](#defaults-and-fixed-equalities).
-
-### Why is my table literal refused where the interface is wanted?
-
-An interface with an associated requirement is nominal at that part, and a
-table literal has nowhere to record an answer. Declare a record with `is` and
-answer the requirement there. See [Structural values cannot
-answer](#structural-values-cannot-answer).
-
 ::: seealso
 - [interfaces.md](interfaces.md) for the contract these members live on
 - [generics.md](generics.md) for bounds and the inference that resolves a

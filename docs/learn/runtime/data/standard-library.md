@@ -89,7 +89,7 @@ intrinsic namespaces and the declared modules:
   [](math.random) owns deterministic pseudo-random sequences with explicit,
   serializable state.
 - [](coroutine.suspend) waits for a callback result. [](coroutine) owns
-  application task scopes, and [](coroutine.workers) provides isolated worker
+  application task scopes, and [](coroutine.Scope.work) provides isolated worker
   lanes. [](coroutine.sus) registers and polls readiness sources.
   [](coroutine.sus.host) is the other side of waiting: what a host
   installs to decide which coroutine runs while something is parked.
@@ -161,27 +161,6 @@ because a local leaves scope.
 A writer that buffers output reports delivery failures through `flush`. Check
 that result before closing when delivery matters. See
 [ownership.md](../ownership/index.md) for affine ownership and borrowing.
-
-## FAQ
-
-### Does an intrinsic need a `require`?
-
-No. Use builtin APIs directly, such as `types.sizeof`, `debug.log.info`, or
-`binary.span.fromstring`. The compiler resolves the qualified name and inserts
-any required module load. See [Intrinsics and declared
-modules](#intrinsics-and-declared-modules) for the distinction.
-
-### Does an unused facility cost anything in the built program?
-
-No adapter is emitted for a member no checked source resolves, and a binary's
-runtime links no facility its image does not reach. See [Selection follows
-use](#selection-follows-use) for what counts as a use.
-
-### Can a buffer offset be passed to a Lua string function?
-
-Not directly. A buffer offset counts from zero and a Lua string position counts
-from one, so the two differ by one on every call. Convert at the boundary, and
-see [Byte positions](#byte-positions) for which convention an API uses.
 
 ::: seealso
 - [](io) for buffers, readers, writers, and byte views

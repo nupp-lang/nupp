@@ -665,12 +665,18 @@ input {
     color: var(--nuppdoc-syntax-string)
 }
 
-.nuppdoc-token-type {
+.nuppdoc-token-type,
+.nuppdoc-api-details dt a {
     color: var(--nuppdoc-syntax-type)
 }
 
 .nuppdoc-token-variable {
     color: var(--nuppdoc-syntax-variable)
+}
+
+.nuppdoc-api-details dt a {
+    text-decoration-thickness: .5px;
+    text-underline-offset: .12em
 }
 
 @media(max-width:1100px) {

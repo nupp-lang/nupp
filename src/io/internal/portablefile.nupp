@@ -1,0 +1,233 @@
+@!internal
+
+module io.internal.portablefile
+
+local bindings = require("nupp.runtime.bindings.files")
+local formats = require("io.internal.fileformat")
+local messages = require("io.files.messages")
+const {type Reader, type Writer} = require("nupp.io.internal.bytes")
+
+local MODES: {[string]: boolean} = {r = true, w = true, a = true, ["r+"] = true, ["w+"] = true, ["a+"] = true}
+local ORIGINS: {[string]: messages.Origin} = {set = "set", cur = "current", ["end"] = "end"}
+local MAX_EXACT: integer = 9007199254740991
+
+local handles: any = rawget(_G, "__nuppFileHandles")
+if handles == nil then
+    handles = setmetatable({}, {__mode = "kv"})
+    rawset(_G, "__nuppFileHandles", handles)
+end
+
+local function opened(file: any): nil
+    if file.state.reaped then
+        error("attempt to use a closed file", 3)
+    end
+end
+
+local function normalized(mode: string?): string
+    local selected = mode == nil and "r" or mode
+    if type(selected) ~= "string" then
+        error("bad argument #2 to 'open' (string expected)", 3)
+    end
+    -- Lua accepts a binary marker before or after '+'. Browser storage is bytes
+    -- in either case; it does not perform the host C library's text conversion.
+    if string.match(selected, "^[rwa]b?%+?$") == nil and string.match(selected, "^[rwa]%+b$") == nil then
+        error("bad argument #2 to 'open' (invalid mode)", 3)
+    end
+    selected = string.gsub(selected, "b", "")
+    if not MODES[selected] then
+        error("bad argument #2 to 'open' (invalid mode)", 3)
+    end
+
+    return selected
+end
+
+local function flush(file: any): (boolean?, string?)
+    opened(file)
+    local ok, reason = file._backend:flush()
+    if not ok then
+        return nil, reason
+    end
+    file._dirty = false
+
+    return true
+end
+
+local function flushed(file: any): (boolean?, string?)
+    if file._dirty then
+        return flush(file)
+    end
+    return true
+end
+
+local function rewind(file: any): (boolean?, string?)
+    local pending: string = file._pending
+    if #pending == 0 then
+        return true
+    end
+    local position, reason = file._backend:seek(-#pending, "current")
+    if position == nil then
+        return nil, tostring(reason)
+    end
+    file._pending = ""
+
+    return true
+end
+
+local close: @nosuspend function(file: any): (boolean?, string?) = function(file: any): (boolean?, string?)
+    opened(file)
+    -- Writes have already reached the backend. Its close is the provider's
+    -- non-suspending release operation; no write is deferred until cleanup.
+    local release = file._backend.close as @nosuspend function(any): nil
+    file.state.reaped = true
+    release(file._backend)
+
+    return true
+end
+
+local function wrap(backend: any, mode: string): any
+    local writable = string.sub(mode, 1, 1) ~= "r" or string.find(mode, "+", 1, true) ~= nil
+    local readable = string.sub(mode, 1, 1) == "r" or string.find(mode, "+", 1, true) ~= nil
+    local data: any = {
+        state = {reaped = false, filetext = false},
+        _backend = backend,
+        _pending = "",
+        _dirty = false,
+        close = close,
+        flush = flush,
+    }
+    if readable then
+        local input: any = {}
+        input.read = function(_self: any, count: integer): (string?, string?)
+            opened(data)
+            local ok, reason = flushed(data)
+            if not ok then
+                return nil, reason
+            end
+            local pending: string = data._pending
+            if #pending > 0 then
+                local result = string.sub(pending, 1, count)
+                data._pending = string.sub(pending, count + 1)
+                return result
+            end
+
+            return data._backend:read(count)
+        end
+        input.unread = function(_self: any, text: string): nil
+            data._pending = text .. data._pending
+        end
+        data.stdout = input
+    end
+    if writable then
+        local output: any = {closed = false, gone = false, filepending = "", filemode = "no"}
+        output.write = function(_self: any, text: string): (boolean, string?)
+            opened(data)
+            local ok, reason = rewind(data)
+            if not ok then
+                return false, reason
+            end
+            local written, problem = data._backend:write(text)
+            if not written then
+                return false, problem
+            end
+            data._dirty = true
+
+            return true
+        end
+        output.flush = function(_self: any): (boolean?, string?)
+            return flush(data)
+        end
+        data.stdin = output
+    end
+    data.read = function(self: any, ...: any): ...any
+        return formats.read(self, ...)
+    end
+    data.write = function(self: any, ...: any): ...any
+        return formats.write(self, ...)
+    end
+    data.lines = function(self: any, ...: any): function(): ...any
+        return formats.lines(self, ...)
+    end
+    data.seek = function(self: any, whence: string?, offset: number?): (number?, string?)
+        opened(self)
+        local origin = ORIGINS[whence == nil and "cur" or whence]
+        if origin == nil then
+            error("bad argument #1 to 'seek' (invalid option)", 2)
+        end
+        local amount = offset == nil and 0 or offset
+        if type(amount) ~= "number" or amount ~= math.floor(amount) or math.abs(amount) > MAX_EXACT then
+            error("bad argument #2 to 'seek' (integer expected)", 2)
+        end
+        local ok, reason = flushed(self)
+        if not ok then
+            return nil, reason
+        end
+        if origin == "current" then
+            amount = amount - #self._pending
+            if math.abs(amount) > MAX_EXACT then
+                error("bad argument #2 to 'seek' (offset is too large)", 2)
+            end
+        end
+        local position, problem = self._backend:seek(amount, origin)
+        if position == nil then
+            return nil, tostring(problem)
+        end
+        self._pending = ""
+
+        return position
+    end
+    data.setvbuf = function(self: any, mode: string, size: number?): (boolean?, string?)
+        opened(self)
+        if mode ~= "no" and mode ~= "full" and mode ~= "line" then
+            error("bad argument #1 to 'setvbuf' (invalid option)", 2)
+        end
+        if size ~= nil and (type(size) ~= "number" or size < 0 or size ~= math.floor(size) or size > MAX_EXACT) then
+            error("bad argument #2 to 'setvbuf' (invalid buffer size)", 2)
+        end
+        if mode ~= "no" then
+            return nil, "browser files support only unbuffered writes"
+        end
+
+        return true
+    end
+    data.reader = function(exclusive self: any): affine(Reader) borrows (self)
+        local views = require("io.internal.fileviews")
+        return views.reader(self)
+    end
+    data.writer = function(exclusive self: any): affine(Writer) borrows (self)
+        local views = require("io.internal.fileviews")
+        return views.writer(self)
+    end
+    local makeProxy: any = (_G as any).newproxy
+    if makeProxy == nil then
+        handles[data] = data
+        return data
+    end
+    local proxy: any = makeProxy(true)
+    local meta: any = assert(getmetatable(proxy))
+    meta.__index = data
+    meta.__newindex = data
+    meta.__tostring = function(): string
+        return data.state.reaped and "file (closed)" or "file (browser)"
+    end
+    meta.__gc = function(): nil
+        if not data.state.reaped then
+            pcall(close, data)
+        end
+    end
+    handles[proxy] = data
+
+    return proxy
+end
+
+export function open(path: any, mode: string?): (any?, string?)
+    local selected = normalized(mode)
+    local owner, reason = bindings.open(path, selected as messages.Mode)
+    if owner == nil then
+        return nil, reason
+    end
+    -- The public facade attaches Lua File ownership to this wrapper. The erased
+    -- provider owner is released exactly once by close or the proxy finalizer.
+    local backend: any = @unsafe own.release(owner)
+
+    return wrap(backend, selected)
+end

@@ -34,9 +34,10 @@ return {include = {"src"}, build = {outDir = "build", entries = {"fixture"}}}
         directory .. "/src/fixture.nupp",
         [[
 module fixture
-local files = require("io.files")
 export function read(path: string): string
-    local lines = assert(files.lines(path, 1048576))
+    local file = assert(io.open(path, "rb"))
+    local reader = file:reader()
+    local lines = reader:lines(1048576)
     local text = ""
     while true do
         local line, reason = lines:read()

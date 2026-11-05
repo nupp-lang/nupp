@@ -26,12 +26,12 @@ local binary = require("binary")
 local browserEffects = require("nupp.runtime.browser.effects")
 local codec = require("nupp.runtime.browser.workercodec")
 local suspension = require("nupp.suspension")
-local cancellation = require("coroutine.sus.cancellation")
+local cancellation = require("nupp.suspension.cancellation")
 local workers = {}
 
 local contracts = require("nupp.workers.contracts")
 local type Callable = function(...: any): any
-type workers.Submittable = contracts.Submittable
+type workers.Worker = contracts.Worker
 type workers.Task<F is Callable> = contracts.Task<F>
 local type Packed = {
     values: {any},
@@ -543,7 +543,7 @@ local function spawnImpl(self: workers.Scope, fn: any, ...: any): any
     return task
 end
 
-local spawnSurface: function<F is workers.Submittable>(
+local spawnSurface: function<F is workers.Worker>(
     borrows self: workers.Scope,
     F,
     ...: unpackof contracts.Submitted(F)

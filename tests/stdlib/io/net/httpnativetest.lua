@@ -12,8 +12,8 @@ local M = {}
 local HERE = require("helpers.paths").tests
 local root, http, buffers, process, files, port, server, unavailable
 
-local function startProcess(options)
-    return assert(process.popen(options))
+local function startProcess(command, options)
+    return assert(process.popen(command, options))
 end
 
 local function newHttpClient(options)
@@ -33,8 +33,7 @@ end
 
 local function startServer()
     local portFile = root .. "/port"
-    server = startProcess({
-        args = {"node", HERE .. "/fixtures/http_server.mjs", portFile},
+    server = startProcess({"node", HERE .. "/fixtures/http_server.mjs", portFile}, {
         stdin = "null",
         stdout = "null",
         stderr = "null",
@@ -68,6 +67,9 @@ end
 
 function M.afterAll()
     if server then
+        if server:isrunning() then
+            server:kill(true)
+        end
         server:close()
     end
     if root then
@@ -361,11 +363,13 @@ function M.aBodyTransfersIntoAFileThroughCheckedSpans()
     assert(response, reason)
 
     local target = root .. "/downloaded.bin"
-    local file, openReason = files.open(target, "w")
+    local file, openReason = io.open(target, "wb")
     assert(file, openReason)
-    local copied, copyReason = response.body:transferto(file)
+    local writer = file:writer()
+    local copied, copyReason = response.body:transferto(writer)
     assert(copied, copyReason)
     test.eq(copied, 4 * 1024 * 1024)
+    writer:close()
     file:close()
 
     local handle = assert(io.open(target, "rb"))

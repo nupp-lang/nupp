@@ -584,9 +584,15 @@ local function inferFunction(info, byDefinition)
             -- likewise compile-time checked representation changes with no call.
             return
         end
+        if call.construction then
+            out.allocates = true
+            if not nativeAggregate(call.inferredType) then
+                out.allocatesBeyondWideArithmetic = true
+            end
+        end
         local known = knownCall(call, byDefinition)
         local args = callArgs(call)
-        if not known and call.isNew and not call.constructorEntry then
+        if not known and call.construction and not call.constructorEntry then
             -- A construction with no declared constructor builds the value from its
             -- arguments and runs nothing else: an allocation, and the arguments are
             -- walked as the expressions they are. A native-only aggregate is the

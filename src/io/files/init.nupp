@@ -8,7 +8,9 @@ local files = io.files
 files.setappid("example", "notes")
 
 local data = assert(files.datapath())
-assert(files.write(data:join("notes.txt"), "hello"))
+assert(files.mkdir(data))
+local file = assert(io.open(data:join("notes.txt"), "w"))
+assert(file:write("hello"))
 ```
 
 Native programs may also pass ordinary strings or [](io.Path)
@@ -36,12 +38,6 @@ export type Kind = messages.Kind
 --- A portable name for a conventional user directory.
 export type UserFolder = messages.UserFolder
 
---- A file open mode: read, write, append, or an updating variant.
-export type Mode = messages.Mode
-
---- The base used by a file seek.
-export type Origin = messages.Origin
-
 --- Metadata about one filesystem object.
 export type Info = messages.Info
 
@@ -59,9 +55,6 @@ export type AppPath = appPaths.AppPath
 
 --- A native path or an opaque app-owned path.
 export type Path = appPaths.Path
-
---- An affine open file, which is itself a reader and a writer over its one cursor.
-export type File = contracts.File
 
 --- A native temporary path removed when its owner closes unless persisted.
 export type TemporaryPath = contracts.TemporaryPath
@@ -129,7 +122,7 @@ end
 --- Resolves and creates this app's platform configuration directory.
 ---
 --- Configuration, data and cache are always three distinct directories, so
---- clearing one with a recursive `remove` never reaches another.
+--- clearing one with a recursive `os.remove` never reaches another.
 --- @return the configuration path, or nil on failure
 --- @return a failure reason, when unsuccessful
 export function configurationpath(): (appPaths.AppPath?, io.Error?)
@@ -235,24 +228,6 @@ export function mkdir(path: Path): (boolean, io.Error?)
     return answered(provider.createDirectory(path))
 end
 
---- Removes a file, link, or directory.
---- @param path the path to remove
---- @param recursive whether to remove a directory's contents
---- @return whether the path was removed
---- @return a failure reason, when unsuccessful
-export function remove(path: Path, recursive: boolean?): (boolean, io.Error?)
-    return answered(provider.remove(path, recursive))
-end
-
---- Renames a path, replacing an existing destination when supported.
---- @param from the source path
---- @param to the destination path
---- @return whether the path was renamed
---- @return a failure reason, when unsuccessful
-export function rename(from: Path, to: Path): (boolean, io.Error?)
-    return answered(provider.rename(from, to))
-end
-
 --- Lists a directory's immediate children.
 --- @param path the directory to list
 --- @return its entries, or nil on failure
@@ -267,32 +242,6 @@ end
 --- @return a failure reason, when unsuccessful
 export function glob(pattern: string): ({paths.Path}?, io.Error?)
     return answered(provider.glob(pattern))
-end
-
---- Reads an entire file as bytes.
---- @param path the file to read
---- @return its bytes, or nil on failure
---- @return a failure reason, when unsuccessful
-export function read(path: Path): (string?, io.Error?)
-    return answered(provider.read(path))
-end
-
---- Replaces a file with the supplied bytes.
---- @param path the file to write
---- @param bytes the byte string or view to write
---- @return whether the bytes were written
---- @return a failure reason, when unsuccessful
-export function write(path: Path, borrows bytes: string | io.ByteView): (boolean, io.Error?)
-    return answered(provider.write(path, bytes))
-end
-
---- Appends bytes to a file, creating it when absent.
---- @param path the file to append to
---- @param bytes the byte string or view to append
---- @return whether the bytes were written
---- @return a failure reason, when unsuccessful
-export function append(path: Path, borrows bytes: string | io.ByteView): (boolean, io.Error?)
-    return answered(provider.append(path, bytes))
 end
 
 --- Atomically replaces a file when the provider supports it.
@@ -311,55 +260,6 @@ end
 --- @return a failure reason, when unsuccessful
 export function copy(from: Path, to: Path): (boolean, io.Error?)
     return answered(provider.copy(from, to))
-end
-
---- Reports whole-file transfers that have not settled.
---- @return the number of pending transfers
-export const pendingtransfers = provider.pendingTransfers
-
---- Opens a file in one of the six standard read, write, append, or update modes.
---- @param path the native path or browser app path to open
---- @param mode the access mode, defaulting to read
---- @return the open file owner, or nil on failure
---- @return a failure reason, when unsuccessful
-export function open(path: Path, mode: messages.Mode?): (affine(contracts.File?), io.Error?)
-    local file, why = provider.open(path, mode)
-    if file == nil then
-        return nil, io.toError(why)
-    end
-
-    return file, nil
-end
-
---- Opens a file as a line reader, which takes the file and closes it with itself.
----
---- A line is read without its terminator, `\n` or `\r\n`. A read that fails
---- partway through returns nil and the reason from `Lines:read`, which is what
---- tells it apart from the end of the file, where the reason is nil.
----
---- ```nupp
---- local log = assert(io.files.lines("access.log"))
---- while true do
----     local line, reason = log:read()
----     if line == nil then
----         assert(reason == nil, reason)
----         break
----     end
----     print(line)
---- end
---- ```
---- @param path the file to read
---- @param limit the most bytes one line may hold, or 65536
---- @return the line reader, or nil when the file cannot be opened
---- @return a failure reason, when unsuccessful
---- @raises string when limit is not a positive integer
-export function lines(path: Path, limit: integer?): (affine(io.Lines)?, io.Error?)
-    local file, reason = provider.open(path, "r")
-    if file == nil then
-        return nil, io.toError(reason)
-    end
-
-    return file:lines(limit), nil
 end
 
 --- Creates a native temporary file owner when the provider supports one.

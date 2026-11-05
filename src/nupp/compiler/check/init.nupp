@@ -2705,8 +2705,8 @@ function checkMod.check(
     end
 
     --- @param carriesValue whether the declaration puts something on the export table
-    ---   at run time. An interface or a type alias does not, which is what makes it
-    ---   the one kind of export that composes with a named module value.
+    ---   at run time. Erased interfaces and type aliases can also accompany a
+    ---   named module value.
     local function exportValue(nameTok, t, definition, value, constant, carriesValue)
         if not nameTok then
             return
@@ -2823,13 +2823,18 @@ function checkMod.check(
             local t = stat.resolvedType
             c.privateExport.exported(stat.name, "types")
             if stat.kind == "recordDecl" and t then
-                -- The same two kinds code generation writes onto the table. An
-                -- interface reaches here as a record declaration too, and is erased.
-                local carriesValue = stat.declKind == "record" or stat.declKind == "struct"
+                -- Match the declaration namespaces code generation exports.
+                local carriesValue = stat.declKind == "record"
+                    or stat.declKind == "struct"
+                    or stat.declKind == "interface"
+                    and (next(t.defaultEntries or {}) ~= nil or next(t.staticByname or {}) ~= nil)
                 -- A record's value is its witness, the `Type<R>` its own scope binds,
                 -- so a consumer reaching it through the module holds what a `Type<T>`
                 -- directed API takes. Struct ctypes carry the same witness type.
-                local published = carriesValue and not stat.isAnnotationDefinition and T.typeObject(t) or t
+                local published = t
+                if not stat.isAnnotationDefinition then
+                    published = stat.declKind == "interface" and T.metatable(t) or T.typeObject(t)
+                end
                 exportValue(stat.name, published, stat.name and stat.name.definition, stat, true, carriesValue)
             end
             return

@@ -327,13 +327,3 @@ suspension contract. `forward.v1` refuses generic runtime helpers; a later
 recipe version can admit them once symbolic helper identity and caching are
 specified. A helper module becomes an ordinary runtime dependency of the
 consumer even when the comptime provider itself would otherwise erase.
-
-::: seealso
-- [Annotation declarations](../api.md#annotations) for `@derive`,
-  and `@debug` beside the rest of the built-ins
-- [comptime.md](../learn/language/comptime.md) for the evaluation model a provider
-  runs in
-- [reflection.md](../learn/language/reflection.md#runtime-reflection) for the type
-  witnesses generated members are built on
-- [diagnostics.md](diagnostics.md) for the codes a provider failure reports
-:::

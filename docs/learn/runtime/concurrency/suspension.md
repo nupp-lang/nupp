@@ -9,7 +9,7 @@ type. The same call blocks in a command-line program and parks its coroutine
 where a host installed a [suspension handler](#hosts-supply-scheduling-policy):
 
 ```nupp
-local child = assert(io.popen({args = {"cc", "--version"}}))
+local child = assert(io.popen({"cc", "--version"}))
 local result = assert(child:communicate())
 print(result.output)
 child:close()
@@ -52,7 +52,7 @@ park without accepting a scheduler parameter:
 local frame = require("scheduler")
 
 local function printCompilerVersion(): nil
-    local child = assert(io.popen({args = {"cc", "--version"}}))
+    local child = assert(io.popen({"cc", "--version"}))
     print(assert(child:communicate()).output)
     child:close()
 end
@@ -101,7 +101,7 @@ An ordinary wrapper returns the value produced after the wait:
 
 ```nupp
 local function compilerVersion(): string
-    local child = assert(io.popen({args = {"cc", "--version"}}))
+    local child = assert(io.popen({"cc", "--version"}))
     local result = assert(child:communicate())
     child:close()
     return result.output
@@ -455,29 +455,6 @@ error: NUPP2702: `pause` may suspend, and `table.sort` cannot yield across the C
 The same function is free to suspend anywhere else; the boundary belongs to the
 invocation. Where an unknown C API hides the boundary from static analysis, the
 runtime names the operation instead.
-
-## FAQ
-
-### Does a suspending call return a future?
-
-No. A suspension-aware call returns its declared result after the wait, so
-callers do not unwrap a future or acquire a second function type. The compiler
-tracks the possibility of suspension separately through [call
-propagation](#suspension-propagates-through-calls).
-
-### Should a callback be a `@nosuspend` type or an `@effects` contract?
-
-Use `@nosuspend function(...)` when suspension is the only thing that matters,
-which is the common case for a callback invoked inside a region or across a C
-boundary. Use [`@effects`](../../language/effects.md) when the API owes a reviewed summary of
-allocation, raising, and yielding together.
-
-### Does cancellation run affine cleanup?
-
-Yes. A handler cancels a parked operation by unwinding its coroutine stack, and
-that unwind performs [automatic lexical
-destruction](../ownership/borrowing.md#consumption-and-lexical-destruction),
-so affine files, locks, and native allocations do not become stranded.
 
 ::: seealso
 - [workers.md](workers.md) for CPU parallelism on native threads

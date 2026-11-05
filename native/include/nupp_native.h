@@ -695,6 +695,12 @@ typedef struct {
 
 NUPP_NATIVE_EXPORT int32_t nuppNativeProcessSpawn(
     const NuppNativeProcessSpawn *spawn, NuppNativeProcessStarted *output);
+/* Additive status/error outputs; zero denotes an unavailable code or signal. */
+NUPP_NATIVE_EXPORT int32_t nuppNativeProcessSpawnWithError(
+    const NuppNativeProcessSpawn *spawn, NuppNativeProcessStarted *output,
+    int32_t *os_error);
+NUPP_NATIVE_EXPORT int32_t nuppNativeProcessPollExitWithSignal(
+    uint64_t process, NuppNativeProcessExit *output, int32_t *signal);
 NUPP_NATIVE_EXPORT int32_t nuppNativeProcessPollExit(
     uint64_t process, NuppNativeProcessExit *output);
 NUPP_NATIVE_EXPORT int32_t nuppNativeProcessKill(

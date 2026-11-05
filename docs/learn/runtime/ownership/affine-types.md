@@ -181,45 +181,6 @@ the result. See [generic
 preservation](borrowing.md#generic-preservation) for the complete set of shapes
 it follows and the ambiguity it refuses.
 
-## FAQ
-
-### Why track ownership when the collector can finalize?
-
-A finalizer makes the garbage collector discover and dispatch every resource's
-cleanup at a time of its choosing. Nupp's affine policy exists only during
-checking, adds no per-value wrapper, finalizer registration, or tracing work,
-and [lexical destruction](borrowing.md#consumption-and-lexical-destruction)
-runs the cleanup where the scope ends.
-
-Cleanup timing also controls capacity. The garbage collector sees a small
-wrapper, not the file descriptor, socket, lock, or native allocation behind it,
-so a program can exhaust its file-descriptor limit before enough wrappers
-trigger collection, or keep another task waiting on a lock whose unreachable
-guard has not been finalized. An affine terminal runs at the scope boundary; a
-finalizer remains useful only as a last-resort safety net.
-
-### Why not call cleanup manually?
-
-Calling `close`, `unlock`, or `free` directly works only when every return,
-raised error, and transfer follows the protocol. An [affine
-terminal](borrowing.md#terminal-contract) makes that protocol part of the type,
-so the checker rejects a forgotten obligation, a second consumption, or a use
-after the value moved.
-
-### Does every Nupp value use ownership?
-
-No. Strings, numbers, tables, and records without a nontrivial capability retain
-ordinary behavior and need no annotation, and a record constructor stays
-ordinary unless its result introduces a policy. See [public capability
-contracts](borrowing.md#public-capability-contracts) for the parameters that do
-need a mode.
-
-### Does an affine type change the runtime representation?
-
-No. It adds no wrapper, cleanup field, tag, or vtable, and erases to its
-representation, so a C pointer remains a C pointer and a struct keeps the
-[layout declared at the boundary](../c-interop/index.md#type-mapping).
-
 ::: seealso
 - [ownership.md](borrowing.md) for moves, borrows, pins, and lexical
   destruction

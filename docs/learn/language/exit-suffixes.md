@@ -9,7 +9,7 @@ on success. Ordinary operands fail when their first result is nil or false;
 direct [protected calls](#protected-calls) fail when they raise:
 
 ```nupp:fragment
-local text = files.read(path) or return
+local text = reader:read(4096) or return
 ```
 
 They shorten the convention most of this language already follows: a call
@@ -17,7 +17,7 @@ returns a value first and an optional reason after it, and a caller that cannot
 handle the failure passes it on. The line above means exactly this:
 
 ```nupp:fragment
-local text, reason = files.read(path)
+local text, reason = reader:read(4096)
 if text == nil then
     return text, reason
 end

@@ -100,6 +100,8 @@ function M.retiredNamespacesAreNotBundled()
         "io.gpu.spi",
         "coroutine.sus.spi",
         "coroutine.workers.spi",
+        "coroutine.workers",
+        "coroutine.sus.cancellation",
         "coroutine.suspension",
         "coroutine.suspension.host",
         "coroutine.suspension.spi",
@@ -173,10 +175,8 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
         ["nupp.runtime.entropy"] = "/nupp/runtime/entropy.nupp",
         ["nupp.runtime.standardtable"] = "/nupp/runtime/standardtable.nupp",
         ["coroutine.sus"] = "/coroutine/sus/init.nupp",
-        ["coroutine.sus.cancellation"] = "/coroutine/sus/cancellation.nupp",
         ["coroutine.sus.host"] = "/coroutine/sus/host.nupp",
         ["nupp.suspension.contracts"] = "/nupp/suspension/contracts.nupp",
-        ["coroutine.workers"] = "/coroutine/workers/init.nupp",
         ["nupp.workers.contracts"] = "/nupp/workers/contracts.nupp",
         ["io.files"] = "/io/files/init.nupp",
         ["io.files.messages"] = "/io/files/messages.nupp",
@@ -208,6 +208,10 @@ function M.movedFacadesKeepTheirTypesOutsideTheCompilerCheckout()
     testAssert.eq(suspension.exports.values.suspend, nil, "the wait lives on coroutine")
     local coroutineModule = env.loadBundledModule("nupp.runtime.standardcoroutine")
     testAssert.eq(coroutineModule.exports.values.suspend.tag, "func")
+    local workerContract = env.loadBundledModule("nupp.workers.contracts")
+    testAssert.eq(coroutineModule.exports.types.Worker, workerContract.exports.types.Worker)
+    testAssert.eq(suspension.exports.values.newcancellation.tag, "func")
+    testAssert.eq(suspension.exports.values.iscancellation.rets[1].tag, "boolean")
 end
 
 function M.directSuspendKeepsItsGenericTypeOutsideTheCheckout()
@@ -599,9 +603,8 @@ end
 
 function M.openFilesKeepTheirLexicalCleanupAcrossThePublicFacade()
     local source = [[
-const files = require("io.files")
 do
-    local file, reason = files.open("input.txt")
+    local file, reason = io.open("input.txt")
     if file == nil then error(reason) end
     print(file)
 end
@@ -630,6 +633,148 @@ function M.runnerResourceMapsToItsManifestSource()
     debug.getinfo = saved
     assert(ok, path)
     testAssert.eq(path, ROOT .. "/tests/run.lua", "the carried runner maps to the manifest source")
+end
+
+function M.fileByteViewsAreAffineOwners()
+    for _, method in ipairs({"reader", "writer"}) do
+        local diagnostics = diagsUnderPrelude(
+            ([[
+local file = assert(io.open("input.bin", "r+"))
+file:%s()
+]]):format(method)
+        )
+        assert(diagnostics:find("NUPP26", 1, true), method .. ": " .. diagnostics)
+    end
+end
+
+function M.fileByteViewsCannotEscapeTheirLocalFile()
+    for _, view in ipairs({{method = "reader", name = "Reader"}, {method = "writer", name = "Writer"}}) do
+        local diagnostics = diagsUnderPrelude(
+            (
+                [[
+local function escape(): affine(io.%s)
+    local file = assert(io.open("input.bin", "r+"))
+    return file:%s()
+end
+]]
+            ):format(view.name, view.method)
+        )
+        assert(diagnostics:find("NUPP26", 1, true), view.method .. ": " .. diagnostics)
+    end
+end
+
+function M.liveExclusiveFileViewsPreventClosingTheirFile()
+    for _, view in ipairs({
+        {method = "reader", operation = "read(1)"},
+        {method = "writer", operation = "write('x')"}
+    }) do
+        local diagnostics = diagsUnderPrelude(
+            (
+                [[
+local file = assert(io.open("input.bin", "r+"))
+local view = file:%s()
+file:close()
+view:%s
+view:close()
+]]
+            ):format(view.method, view.operation)
+        )
+        assert(diagnostics:find("NUPP26", 1, true), view.method .. ": " .. diagnostics)
+    end
+end
+
+function M.closingByteViewsAllowsReusingTheirFile()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local file = assert(io.open("input.bin", "r+"))
+local reader = file:reader()
+reader:read(1)
+reader:close()
+file:seek("set", 0)
+local writer = file:writer()
+writer:write("x")
+writer:close()
+file:flush()
+file:close()
+]]
+        ),
+        ""
+    )
+end
+
+function M.fileByteViewsCanBeConsumedByBoundedLines()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local file = assert(io.open("input.bin", "rb"))
+local reader = file:reader()
+local lines = reader:lines(32)
+local line, reason = lines:read()
+if line == nil then assert(reason == nil, reason) end
+lines:close()
+file:seek("set", 0)
+file:close()
+]]
+        ),
+        ""
+    )
+end
+
+function M.fileParametersGetByteViewsWithoutAnAcquisitionExpression()
+    local source = [[
+local function useFile(exclusive file: io.File): nil
+    local reader = file:reader()
+    reader:read(1)
+    reader:close()
+    local writer = file:writer()
+    writer:write("x")
+    writer:close()
+end
+return useFile
+]]
+    testAssert.eq(diagsUnderPrelude(source), "")
+    local parsed = parser.parse(source, "file-parameter.nupp")
+    testAssert.eq(#parsed.errors, 0)
+    for _, diagnostic in ipairs(check.check(parsed, "file-parameter.nupp", strictEnv(), {strict = true}) or {}) do
+        testAssert.ne(diagnostic.severity, "error", diagnostic.msg)
+    end
+    local image = program.image(parsed, "file-parameter")
+    assert(program.names(image, "reader") and program.names(image, "writer"), "byte view calls lower to the image")
+end
+
+function M.standardStreamsExposeTheSameByteViewTypes()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local function acceptReader(exclusive reader: io.Reader): nil end
+local function acceptWriter(exclusive writer: io.Writer): nil end
+local reader = io.stdin:reader()
+acceptReader(reader)
+reader:close()
+local output = io.stdout:writer()
+acceptWriter(output)
+output:close()
+local errors = io.stderr:writer()
+acceptWriter(errors)
+errors:close()
+]]
+        ),
+        ""
+    )
+end
+
+function M.boundedFileLinesCannotEscapeTheirLocalFile()
+    local diagnostics = diagsUnderPrelude(
+        [[
+local function escape(): affine(io.Lines)
+    local file = assert(io.open("input.bin", "rb"))
+    local reader = file:reader()
+    return reader:lines(32)
+end
+]]
+    )
+    assert(diagnostics:find("NUPP26", 1, true), diagnostics)
 end
 
 function M.movedPrivateBundledSourcesKeepFileAndTreePrivacyDistinct()

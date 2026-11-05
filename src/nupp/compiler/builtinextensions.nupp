@@ -60,9 +60,22 @@ local ROOTS = {
     },
     os = {
         module = "nupp.runtime.standardos",
-        members = {info = true, uuid4 = true, uuid7 = true, monotonic = true, walltime = true, randombytes = true,}
+        replace = {remove = true, rename = true, tmpname = true},
+        members = {
+            remove = true,
+            rename = true,
+            tmpname = true,
+            info = true,
+            uuid4 = true,
+            uuid7 = true,
+            monotonic = true,
+            walltime = true,
+            randombytes = true,
+        }
     },
 }
+
+local INSTANCES = {["io.File"] = {root = "io", descriptor = "FileMethods", members = {reader = true, writer = true}}}
 
 function extensions.has(root: string): boolean
     return ROOTS[root] ~= nil
@@ -143,7 +156,7 @@ function extensions.type(c: any, root: string): any
             if env.resolveModule then
                 env.resolveModule(env, specification.module)
             end
-            env.featureEffects = native.decorateGlobals(env.globals)
+            env.featureEffects = native.decorateGlobals(env.globals, env.globalTypes)
         end
         return pending[root] or nil
     end
@@ -213,21 +226,81 @@ function extensions.type(c: any, root: string): any
     end
     entry.t = merged
     env.globals[root] = entry
-    env.featureEffects = native.decorateGlobals(env.globals)
+    env.featureEffects = native.decorateGlobals(env.globals, env.globalTypes)
     local exports = env.resolveModuleExports and env.resolveModuleExports(env, specification.module)
     local published = env.builtinExtensionExports or {}
     env.builtinExtensionExports = published
-    published[root] = exports
+    local public = {}
+    for key, value in pairs(exports or {}) do
+        public[key] = value
+    end
+    public.types, public.typeDefs = {}, {}
+    local descriptors = env.builtinInstanceDescriptors or {}
+    env.builtinInstanceDescriptors = descriptors
+    local hidden = {}
+    for path, instance in pairs(INSTANCES) do
+        if instance.root == root then
+            hidden[instance.descriptor] = true
+            descriptors[path] = exports and exports.types and exports.types[instance.descriptor]
+        end
+    end
+    published[root] = public
     for name, value in pairs(exports and exports.types or {}) do
-        env.globalTypes[root .. "." .. name] = value
-        if exports.typeDefs then
-            env.globalTypeDefs[root .. "." .. name] = exports.typeDefs[name]
+        if not hidden[name] then
+            public.types[name] = value
+            public.typeDefs[name] = exports.typeDefs and exports.typeDefs[name]
+            env.globalTypes[root .. "." .. name] = value
+            if exports.typeDefs then
+                env.globalTypeDefs[root .. "." .. name] = exports.typeDefs[name]
+            end
         end
     end
     pending[root] = merged
     firstUse(c, root)
 
     return merged
+end
+
+-- Instance additions keep the prelude declaration identity. The private source
+-- descriptor supplies ownership and borrow contracts without changing that type.
+function extensions.instance(c: any, receiver: any, name: string): ...any
+    local env = c.env
+    if not env or not env.globalTypes then
+        return nil
+    end
+    for path, instance in pairs(INSTANCES) do
+        if instance.members[name] and receiver == env.globalTypes[path] then
+            extensions.type(c, instance.root)
+            local descriptor = env.builtinInstanceDescriptors and env.builtinInstanceDescriptors[path]
+            local entry = descriptor and members.lookup(descriptor, name)
+            if entry and entry.readType then
+                return entry.readType, entry.definition, entry.definitions, ROOTS[instance.root].module
+            end
+        end
+    end
+
+    return nil
+end
+
+function extensions.instanceNames(c: any, receiver: any, names: any): nil
+    for path, instance in pairs(INSTANCES) do
+        if c.env and c.env.globalTypes and receiver == c.env.globalTypes[path] then
+            for name in pairs(instance.members) do
+                names[name] = true
+            end
+        end
+    end
+end
+
+-- Shapes carry types rather than declaration identities. Builtin views retain
+-- their source module's definitions separately for diagnostics and navigation.
+function extensions.definition(c: any, node: any, name: string): any
+    local tokenDefinition = node.kind == "name" and node.token and node.token.definition or nil
+    local root = node.standardRoot or node.namespacePath or tokenDefinition and tokenDefinition.namespacePath
+    local published = root and c.env and c.env.builtinExtensionExports
+    local exports = published and published[root]
+
+    return exports and exports.valueDefs and exports.valueDefs[name] or nil
 end
 
 local function project(node: any, root: string): nil

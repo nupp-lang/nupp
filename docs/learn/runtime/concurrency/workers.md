@@ -4,9 +4,9 @@ order: 150
 
 # Worker tasks
 
-`coroutine.workers` runs sendable functions in parallel on a shared,
+`coroutine.Scope.work` runs sendable functions in parallel on a shared,
 bounded scheduler whose lanes are native threads, each running its own VM.
-A lane is reached through `fork` on an [application task scope](task-scopes.md),
+A lane is reached through `work` on an [application task scope](task-scopes.md),
 which owns the worker children it starts. Arguments and results cross as copies,
 while heaps and their globals, userdata, cdata, and mutable module state stay
 isolated. Eligible closure captures cross only as independent copies.
@@ -35,7 +35,7 @@ end
 ```
 
 `jobs.hash` is still an ordinary function. Calling `jobs.hash(bytes)` runs it
-in the current VM; passing it to `scope:fork` runs it on the worker
+in the current VM; passing it to `scope:work` runs it on the worker
 scheduler. There is no worker declaration or parallel version of the function.
 
 Workers run under `nupp run` and in a `binary` target alike: the VM runtime

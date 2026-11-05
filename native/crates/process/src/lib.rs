@@ -54,6 +54,7 @@ pub struct SpawnOptions {
 pub struct Exit {
     pub code: i32,
     pub killed: bool,
+    pub signal: Option<i32>,
 }
 
 #[derive(Clone, Copy, Debug, Eq, PartialEq)]
@@ -365,9 +366,37 @@ pub fn uncollected_total() -> usize {
     UNCOLLECTED.load(Ordering::Relaxed)
 }
 
+#[derive(Debug)]
+pub struct SpawnError {
+    pub message: String,
+    pub os_code: Option<i32>,
+}
+
+impl From<String> for SpawnError {
+    fn from(message: String) -> Self {
+        Self {
+            message,
+            os_code: None,
+        }
+    }
+}
+
+impl From<io::Error> for SpawnError {
+    fn from(error: io::Error) -> Self {
+        Self {
+            message: error.to_string(),
+            os_code: error.raw_os_error(),
+        }
+    }
+}
+
 pub fn spawn(options: SpawnOptions) -> Result<Spawned, String> {
+    spawn_with_error(options).map_err(|error| error.message)
+}
+
+pub fn spawn_with_error(options: SpawnOptions) -> Result<Spawned, SpawnError> {
     if options.args.is_empty() {
-        return Err("a spawn needs a program to run".to_owned());
+        return Err("a spawn needs a program to run".to_owned().into());
     }
     // A name holding `=` cannot be expressed in an environment block: the
     // child would split it at the first `=` and see some other variable.
@@ -379,7 +408,8 @@ pub fn spawn(options: SpawnOptions) -> Result<Spawned, String> {
         return Err(format!(
             "environment variable name {:?} must be non-empty and contain no '='",
             name.to_string_lossy()
-        ));
+        )
+        .into());
     }
     let runtime = nupp_native_runtime::executor().map_err(str::to_owned)?;
     let mut command = Command::new(&options.args[0]);
@@ -418,7 +448,7 @@ pub fn spawn(options: SpawnOptions) -> Result<Spawned, String> {
     // Entering the shared runtime supplies Tokio's process driver while spawn
     // performs the operating-system creation synchronously.
     let _guard = runtime.enter();
-    let mut child = command.spawn().map_err(|error| error.to_string())?;
+    let mut child = command.spawn().map_err(SpawnError::from)?;
     let pid = child
         .id()
         .ok_or_else(|| "the child has no process identifier".to_owned())?;
@@ -480,27 +510,29 @@ pub fn spawn(options: SpawnOptions) -> Result<Spawned, String> {
     })
 }
 
-fn mode_stdio(mode: StdioMode, stderr: bool) -> Result<Stdio, String> {
+fn mode_stdio(mode: StdioMode, stderr: bool) -> Result<Stdio, SpawnError> {
     match mode {
         StdioMode::Pipe => Ok(Stdio::piped()),
         StdioMode::Inherit => Ok(Stdio::inherit()),
         StdioMode::Null => Ok(Stdio::null()),
-        StdioMode::Stdout if stderr => Err("stdout redirection must be resolved first".to_owned()),
-        StdioMode::Stdout => Err("stdout cannot be redirected to itself".to_owned()),
+        StdioMode::Stdout if stderr => Err("stdout redirection must be resolved first"
+            .to_owned()
+            .into()),
+        StdioMode::Stdout => Err("stdout cannot be redirected to itself".to_owned().into()),
     }
 }
 
-fn stdout_destination(mode: StdioMode) -> Result<Stdio, String> {
+fn stdout_destination(mode: StdioMode) -> Result<Stdio, SpawnError> {
     match mode {
         StdioMode::Null => Ok(Stdio::null()),
         StdioMode::Inherit => duplicate_stdout(),
         StdioMode::Pipe => unreachable!("piped stdout is merged in Rust"),
-        StdioMode::Stdout => Err("stdout cannot be redirected to itself".to_owned()),
+        StdioMode::Stdout => Err("stdout cannot be redirected to itself".to_owned().into()),
     }
 }
 
 #[cfg(unix)]
-fn duplicate_stdout() -> Result<Stdio, String> {
+fn duplicate_stdout() -> Result<Stdio, SpawnError> {
     use std::os::fd::FromRawFd;
     // SAFETY: `fcntl` returns a new owned descriptor or -1. `Stdio` takes
     // ownership of the successful descriptor exactly once. Close-on-exec keeps
@@ -508,14 +540,14 @@ fn duplicate_stdout() -> Result<Stdio, String> {
     // this one is for receives it through `dup2`, which clears the flag.
     let descriptor = unsafe { libc::fcntl(libc::STDOUT_FILENO, libc::F_DUPFD_CLOEXEC, 0) };
     if descriptor < 0 {
-        return Err(io::Error::last_os_error().to_string());
+        return Err(io::Error::last_os_error().into());
     }
     // SAFETY: the descriptor is newly owned by this function.
     Ok(unsafe { Stdio::from_raw_fd(descriptor) })
 }
 
 #[cfg(windows)]
-fn duplicate_stdout() -> Result<Stdio, String> {
+fn duplicate_stdout() -> Result<Stdio, SpawnError> {
     use std::os::windows::io::{FromRawHandle, OwnedHandle};
     use windows_sys::Win32::Foundation::{
         DUPLICATE_SAME_ACCESS, DuplicateHandle, INVALID_HANDLE_VALUE,
@@ -528,7 +560,7 @@ fn duplicate_stdout() -> Result<Stdio, String> {
     // stderr="stdout" keeps its literal meaning when stdout is inherited.
     let source = unsafe { GetStdHandle(STD_OUTPUT_HANDLE) };
     if source.is_null() || source == INVALID_HANDLE_VALUE {
-        return Err(io::Error::last_os_error().to_string());
+        return Err(io::Error::last_os_error().into());
     }
     let process = unsafe { GetCurrentProcess() };
     let mut duplicate = std::ptr::null_mut();
@@ -546,7 +578,7 @@ fn duplicate_stdout() -> Result<Stdio, String> {
         )
     };
     if succeeded == 0 {
-        return Err(io::Error::last_os_error().to_string());
+        return Err(io::Error::last_os_error().into());
     }
     // SAFETY: DuplicateHandle returned a new owned handle exactly once.
     let owned = unsafe { OwnedHandle::from_raw_handle(duplicate) };
@@ -554,7 +586,7 @@ fn duplicate_stdout() -> Result<Stdio, String> {
 }
 
 #[cfg(not(any(unix, windows)))]
-fn duplicate_stdout() -> Result<Stdio, String> {
+fn duplicate_stdout() -> Result<Stdio, SpawnError> {
     Ok(Stdio::inherit())
 }
 
@@ -872,7 +904,7 @@ async fn supervise_child(
                     if let Err(error) = signal_child(&mut child, pid, force.load(Ordering::Acquire)) {
                         let mut child_state = state.lock().unwrap_or_else(|poison| poison.into_inner());
                         if child_state.exit.is_none() {
-                            child_state.exit = Some(Exit { code: 1, killed: true });
+                            child_state.exit = Some(Exit { code: 1, killed: true, signal: None,});
                         }
                         drop(child_state);
                         activity::advance();
@@ -892,6 +924,7 @@ async fn supervise_child(
         Err(_) => Exit {
             code: 1,
             killed: false,
+            signal: None,
         },
     };
     // On Unix the status itself says whether a signal ended the child: one
@@ -941,11 +974,13 @@ fn exit_from(status: std::process::ExitStatus) -> Exit {
         Exit {
             code: 128 + signal,
             killed: true,
+            signal: Some(signal),
         }
     } else {
         Exit {
             code: status.code().unwrap_or(1),
             killed: false,
+            signal: None,
         }
     }
 }
@@ -955,6 +990,7 @@ fn exit_from(status: std::process::ExitStatus) -> Exit {
     Exit {
         code: status.code().unwrap_or(1),
         killed: false,
+        signal: None,
     }
 }
 
@@ -1038,6 +1074,53 @@ mod tests {
     #[cfg(windows)]
     const LONG_RUNNING_SCRIPT: &str = "ping -n 31 127.0.0.1 >nul";
 
+    #[cfg(unix)]
+    #[test]
+    fn signal_exit_remains_distinct_from_an_equal_numeric_exit_code() {
+        use std::os::unix::process::ExitStatusExt;
+        let signal = exit_from(std::process::ExitStatus::from_raw(libc::SIGTERM));
+        assert_eq!(signal.code, 128 + libc::SIGTERM);
+        assert_eq!(signal.signal, Some(libc::SIGTERM));
+        assert!(signal.killed);
+
+        let normal = exit_from(std::process::ExitStatus::from_raw(
+            (128 + libc::SIGTERM) << 8,
+        ));
+        assert_eq!(normal.code, signal.code);
+        assert_eq!(normal.signal, None);
+        assert!(!normal.killed);
+    }
+
+    #[test]
+    fn failed_spawn_preserves_the_os_error_number_and_message() {
+        let result = spawn_with_error(SpawnOptions {
+            args: vec![OsString::from("/__nupp_missing_process__/missing")],
+            env: Vec::new(),
+            clear_env: false,
+            cwd: None,
+            modes: [StdioMode::Null, StdioMode::Null, StdioMode::Null],
+        });
+        let error = result.err().expect("a nonexistent executable cannot start");
+        assert!(error.os_code.is_some());
+        assert!(!error.message.is_empty());
+        #[cfg(unix)]
+        assert_eq!(error.os_code, Some(libc::ENOENT));
+    }
+
+    #[test]
+    fn descriptor_errors_do_not_invent_an_os_error_number() {
+        let result = spawn_with_error(SpawnOptions {
+            args: Vec::new(),
+            env: Vec::new(),
+            clear_env: false,
+            cwd: None,
+            modes: [StdioMode::Null, StdioMode::Null, StdioMode::Null],
+        });
+        let error = result.err().expect("an empty command cannot start");
+        assert_eq!(error.os_code, None);
+        assert_eq!(error.message, "a spawn needs a program to run");
+    }
+
     #[test]
     fn output_is_bounded_and_eventually_ends() {
         let _guard = child_test_guard();
@@ -1062,7 +1145,8 @@ mod tests {
             wait_for_exit(&spawned.child),
             Exit {
                 code: 0,
-                killed: false
+                killed: false,
+                signal: None,
             }
         );
         spawned.child.reap().unwrap();
@@ -1095,7 +1179,8 @@ mod tests {
             wait_for_exit(&spawned.child),
             Exit {
                 code: 0,
-                killed: false
+                killed: false,
+                signal: None,
             }
         );
         spawned.child.reap().unwrap();
@@ -1245,7 +1330,8 @@ mod tests {
             wait_for_exit(&spawned.child),
             Exit {
                 code: 0,
-                killed: false
+                killed: false,
+                signal: None,
             }
         );
         spawned.child.reap().unwrap();
@@ -1319,7 +1405,8 @@ mod tests {
                 wait_for_exit(&spawned.child),
                 Exit {
                     code: 0,
-                    killed: false
+                    killed: false,
+                    signal: None,
                 }
             );
             spawned.child.reap().unwrap();
@@ -1338,7 +1425,8 @@ mod tests {
             wait_for_exit(&spawned.child),
             Exit {
                 code: 7,
-                killed: false
+                killed: false,
+                signal: None,
             }
         );
         spawned.child.reap().unwrap();

@@ -233,7 +233,7 @@ runtime or nominal identity.
 ::: seealso
 - [ownership.md](borrowing.md) for the complete model, including
   regions, loop-carried capabilities, and generic preservation
-- [affine-types.md](affine-types.md#faq) for the questions
-  readers arrive with from a garbage-collected language
+- [affine-types.md](affine-types.md) for defining affine types and their
+  cleanup contracts
 - [c-interop.md](../c-interop/index.md) for what a C boundary adds to an obligation
 :::

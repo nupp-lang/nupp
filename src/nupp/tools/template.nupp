@@ -32,6 +32,7 @@ untracked files for the two definitions to disagree about anyway.
 module nupp.tools.template
 
 const files2 = require("io.files")
+const fileops = require("nupp.runtime.standardos")
 
 local bundled = require("nupp.compiler.bundledlist")
 local fs = require("nupp.compiler.fs")
@@ -976,7 +977,7 @@ function template.fetch(source: template.Source, into: string): template.Source?
     clone[#clone + 1] = checkout
     local code, output = process.capture(clone)
     if code ~= 0 and source.rev then
-        files2.remove(checkout, true)
+        fileops.remove(checkout, true)
         local fullCode, fullOutput = process.capture({
             "git",
             "-c",

@@ -75,14 +75,20 @@ function harness.write(path: string, text: string): nil
     if not made then
         error("cannot create " .. harness.parent(path) .. ": " .. tostring(makeErr), 2)
     end
-    local written, writeErr = files.write(path, text)
+    local file, openErr = io.open(path, "wb")
+    if file == nil then
+        error("cannot write " .. path .. ": " .. tostring(openErr), 2)
+    end
+    local written, writeErr = file:write(text)
     if not written then
         error("cannot write " .. path .. ": " .. tostring(writeErr), 2)
     end
+    assert(file:close())
 end
 
 function harness.read(path: string): string
-    local text, reason = files.read(path)
+    local file = assert(io.open(path, "rb"))
+    local text, reason = file:read("*a")
     if text == nil then
         error("cannot read " .. path .. ": " .. tostring(reason), 2)
     end
@@ -92,7 +98,7 @@ end
 
 function harness.remove(path: string): nil
     if files.exists(path) then
-        local removed, reason = files.remove(path, true)
+        local removed, reason = os.remove(path, true)
         if not removed then
             error("cannot remove " .. path .. ": " .. tostring(reason), 2)
         end
@@ -181,7 +187,6 @@ function harness.run(
     timeoutSeconds: number?
 ): harness.CommandResult
     local options: io.Process.Options = {
-        args = launchable(argv),
         cwd = cwd,
         env = env,
         stdin = "null",
@@ -194,7 +199,7 @@ function harness.run(
         )
         or nil,
     }
-    local child, spawnProblem = io.popen(options)
+    local child, spawnProblem = io.popen(launchable(argv), options)
     if child == nil then
         error("cannot start " .. tostring(argv[1]) .. ": " .. tostring(spawnProblem), 2)
     end

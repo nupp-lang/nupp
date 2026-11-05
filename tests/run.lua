@@ -318,7 +318,7 @@ local function cleanupTempNames()
     for _, path in ipairs(remaining) do
         pcall(function()
             if files.exists(path) then
-                files.remove(path, true)
+                os.remove(path, true)
             end
         end)
     end
@@ -1878,20 +1878,20 @@ local function resolveFixture(key, produce)
             return published, cached.value, true
         elseif files.exists(published) then
             local quarantine = fixtureRoot .. "/." .. slot .. ".corrupt-" .. shardSalt .. "-" .. fixtureSerial
-            files.remove(quarantine, true)
-            local quarantined, quarantineProblem = files.rename(published, quarantine)
+            os.remove(quarantine, true)
+            local quarantined, quarantineProblem = os.rename(published, quarantine)
             if not quarantined then
                 os.remove(lock)
                 error("cannot quarantine corrupt fixture " .. key .. ": " .. tostring(quarantineProblem), 2)
             end
-            local removed, removeProblem = files.remove(quarantine, true)
+            local removed, removeProblem = os.remove(quarantine, true)
             if not removed then
                 os.remove(lock)
                 error("cannot remove corrupt fixture " .. key .. ": " .. tostring(removeProblem), 2)
             end
         end
         local temporary = fixtureRoot .. "/." .. slot .. ".tmp-" .. shardSalt .. "-" .. fixtureSerial
-        files.remove(temporary, true)
+        os.remove(temporary, true)
         local prepared, prepareProblem = files.mkdir(temporary)
         if not prepared then
             os.remove(lock)
@@ -1916,17 +1916,17 @@ local function resolveFixture(key, produce)
             end
         end
         if ok then
-            local moved, moveProblem = files.rename(temporary, published)
+            local moved, moveProblem = os.rename(temporary, published)
             os.remove(lock)
             if not moved then
-                files.remove(temporary, true)
+                os.remove(temporary, true)
                 error("cannot publish fixture " .. key .. ": " .. tostring(moveProblem), 2)
             end
 
             return published, value, false
         end
 
-        files.remove(temporary, true)
+        os.remove(temporary, true)
         local failureWritten, failureProblem = pcall(
             writeText,
             failure,
@@ -1975,8 +1975,8 @@ local function resolveFixture(key, produce)
         elseif holderExited(stamp) then
             fixtureSerial = fixtureSerial + 1
             local claimed = lock .. ".dead-" .. shardSalt .. "-" .. fixtureSerial
-            if files.rename(lock, claimed) then
-                files.remove(claimed)
+            if os.rename(lock, claimed) then
+                os.remove(claimed)
             end
             return resolveFixture(key, produce)
         end
@@ -2018,7 +2018,7 @@ if not queueDir and #shard == 0 then
         local files = require("io.files")
         for _, entry in ipairs(files.list(fixtureRoot) or {}) do
             if entry.name:match("%.failed%.json$") then
-                files.remove(fixtureRoot .. "/" .. entry.name)
+                os.remove(fixtureRoot .. "/" .. entry.name)
             elseif entry.name:match("%.lock$") then
                 local path = fixtureRoot .. "/" .. entry.name
                 local stamp = lockStamp(path)
@@ -2032,8 +2032,8 @@ if not queueDir and #shard == 0 then
                 if stale then
                     fixtureSerial = fixtureSerial + 1
                     local claimed = path .. ".stale-" .. shardSalt .. "-" .. fixtureSerial
-                    if files.rename(path, claimed) then
-                        files.remove(claimed)
+                    if os.rename(path, claimed) then
+                        os.remove(claimed)
                     end
                 end
             end
@@ -2713,8 +2713,6 @@ local processCalls = {
     "require('nupp.workers')",
     'require("io.internal.process")',
     "require('io.internal.process')",
-    'require("coroutine.workers")',
-    "require(\"coroutine.workers\")",
     -- Reaching into the loader is process-shaped whether or not a process is
     -- started. A suite that clears a module to prove it loads lazily, injects a
     -- loader, or writes a global through `rawset` is mutating what every other

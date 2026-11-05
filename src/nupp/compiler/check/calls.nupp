@@ -13,6 +13,7 @@ module nupp.compiler.check.calls
 local T = require("nupp.compiler.types")
 local lexer = require("nupp.compiler.syntax.lexer")
 local members = require("nupp.compiler.types.members")
+local builtinExtensions = require("nupp.compiler.builtinextensions")
 local relations = require("nupp.compiler.types.relations")
 local generics = require("nupp.compiler.types.generics")
 local fixedWidth = require("nupp.compiler.types.fixedwidth")
@@ -721,6 +722,10 @@ export function install(c: state.Checker): Ops
             end
             return ft, entry.definition, entry.definitions
         end
+        local extension, definition, definitions, implementation = builtinExtensions.instance(c, t, name)
+        if extension then
+            return extension, definition, definitions, implementation
+        end
         -- Only a miss needs the indexer, and composing one across alternatives is what
         -- the view is for. A hit -- which is nearly every access -- never builds one.
         local indexer = members.view(t).readIndexer
@@ -816,6 +821,9 @@ export function install(c: state.Checker): Ops
             if writing and entry.writeType or not writing and entry.readType then
                 names[entry.name] = true
             end
+        end
+        if not writing then
+            builtinExtensions.instanceNames(c, t, names)
         end
         if t == T.string and c.env and c.env.stringLib and c.env.stringLib.tag == "shape" then
             for name in pairs(c.env.stringLib.byname) do
@@ -1434,14 +1442,12 @@ export function install(c: state.Checker): Ops
         elseif argsNode and argsNode.str then
             args = {argsNode.str}
         end
-        -- A record's name holds its runtime table, and building instances is what that
-        -- table is for, so the wrapper comes off before asking what is being called.
-        -- Reaching a `metatable<R>` any other way -- a hand-built one under an
-        -- annotation -- is not a declaration and is left alone.
-        if (calleeT.tag == "metatable" or calleeT.tag == "typeobject")
+        -- Only a declaration witness constructs. An instance's __call remains
+        -- an ordinary method contract, and a hand-built metatable is not a type.
+        local declarationCall = calleeT.tag == "typeobject"
             and calleeT.of.tag == "nominal"
             and (calleeT.of.declKind == "record" or calleeT.of.declKind == "struct")
-        then
+        if declarationCall then
             calleeT = calleeT.of
             node.signatureType = calleeT
         end
@@ -1454,12 +1460,10 @@ export function install(c: state.Checker): Ops
                 node.signatureType = calleeT
             end
         end
-        -- struct construction: S{...} named or S(...) positional
-        local constructible = calleeT.tag == "nominal"
+        local constructible = declarationCall
+            or node.isNew
+            and calleeT.tag == "nominal"
             and (calleeT.declKind == "struct" or calleeT.declKind == "record")
-        -- An operand naming a declared type was already answered as one. What is left
-        -- is a value that is not a type at all, and `any` -- an unknown name under
-        -- gradual typing -- is deliberately not one of them.
         if node.isNew and not constructible and not node.newReported and calleeT ~= T.any then
             local named = node.obj and c.pathKey(node.obj)
             c.diag(
@@ -1467,33 +1471,12 @@ export function install(c: state.Checker): Ops
                 node.obj or node,
                 ("%s cannot be constructed"):format(named or T.tostring(calleeT)),
                 nil,
-                {help = "`new` builds a record or a struct"}
+                {help = "construction requires a record or struct declaration"}
             )
             node.newReported = true
         end
-        -- Calling a declaration is no longer how it is built, so the call belongs to
-        -- whatever the program installed: a record's `__call`, a struct's ctype. A
-        -- record that declared no contract is the one case worth reporting, since
-        -- calling it was until now the way to construct it.
-        if constructible and not node.isNew then
-            if calleeT.declKind == "record" then
-                local callContract = ops.metamethodOf(calleeT, "__call")
-                if callContract then
-                    return ops.inferCall(node, dropSelf(callContract), argsNode)
-                end
-            end
-            local named = c.pathKey(node.obj) or calleeT.name
-            c.diag("NUPP2202", node, ("%s is constructed with `new`"):format(named), nil, {
-                help = ("write new %s%s"):format(named, (argsNode and argsNode.table) and "{...}" or "(...)")
-            })
-            for _, arg in ipairs(args) do
-                if not cst.isToken(arg) then
-                    c.infer(arg)
-                end
-            end
-            return calleeT, {calleeT}
-        end
         if constructible then
+            node.construction = true
             local affineValues = {}
             local deferredAffineRoots: {[string]: {
                 node: any,
@@ -1534,50 +1517,9 @@ export function install(c: state.Checker): Ops
                 node.isNew = nil
                 local builtSignatures, bySignature = {}, {}
                 local entries = calleeT.constructorEntries or {}
-                local genericInstance = generics.ownInstance(calleeT)
-                for index, signature in ipairs(constructors) do
-                    local entry = entries[index]
-                    local result = constructorResult(entry and entry.result or nil, genericInstance)
-                    local typeParams, typeBounds, anyBound = {}, {}, false
-                    -- Written arguments after the declaration name apply to the
-                    -- declaration. Constructor-local binders follow and are inferred
-                    -- from the constructor arguments.
-                    for j, tv in ipairs(calleeT.typeParams or {}) do
-                        typeParams[#typeParams + 1] = tv
-                        local bound = calleeT.typeBounds and calleeT.typeBounds[j] or nil
-                        typeBounds[#typeParams] = bound
-                        anyBound = anyBound or bound ~= nil
-                    end
-                    for j, tv in ipairs(signature.typeParams or {}) do
-                        typeParams[#typeParams + 1] = tv
-                        local bound = signature.typeBounds and signature.typeBounds[j] or nil
-                        typeBounds[#typeParams] = bound
-                        anyBound = anyBound or bound ~= nil
-                    end
-                    local built = T.func(
-                        signature.params,
-                        {result},
-                        signature.vararg,
-                        signature.paramModes,
-                        nil,
-                        #typeParams > 0 and typeParams or nil,
-                        anyBound and typeBounds or nil,
-                        nil,
-                        nil,
-                        nil,
-                        nil,
-                        signature.varargType,
-                        nil,
-                        signature.paramPack,
-                        T.pack({result}),
-                        signature.packParams,
-                        signature.yieldPack,
-                        signature.resumePack,
-                        signature.noYield,
-                        signature.paramNames
-                    )
-                    builtSignatures[#builtSignatures + 1] = built
-                    bySignature[built] = entry or {index = index, signature = signature, result = calleeT}
+                builtSignatures = require("nupp.compiler.constructors").signatures(calleeT)
+                for index, signature in ipairs(builtSignatures) do
+                    bySignature[signature] = entries[index] or {index = index, signature = signature, result = calleeT}
                 end
                 local callable = T.intersection(builtSignatures)
                 local first, rets, pack = ops.inferCall(node, callable, argsNode)
@@ -2128,11 +2070,11 @@ export function install(c: state.Checker): Ops
             return finished(calleeT)
         end
 
-        -- A bounded receiver reaches `__call` through its bound, and so does a
-        -- metatable standing for one: calling a declaration's table is exactly what the
-        -- contract on it describes. A concrete record was unwrapped above and answered
-        -- as a construction or a call before reaching here.
-        local callContract = ops.metamethodOf(calleeT, "__call")
+        -- Instance call contracts never make a declaration namespace callable.
+        local callContract = calleeT.tag ~= "typeobject"
+            and calleeT.tag ~= "metatable"
+            and ops.metamethodOf(calleeT, "__call")
+            or nil
         if callContract then
             return ops.inferCall(node, dropSelf(callContract), argsNode)
         end

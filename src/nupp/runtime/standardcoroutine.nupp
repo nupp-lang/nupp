@@ -51,8 +51,8 @@ does not own its result, failure, or lifetime. A server, a loading pipeline, or
 a scene needs somewhere to put children found over time and one answer to what
 happens when the body returns, a child fails, or the whole thing is cancelled.
 
-CPU work on other threads is [](coroutine.workers), and a task scope is the only way
-to it: `work` hands a child to a lane, and the scope owns the family of lanes
+CPU work on other threads starts through [](coroutine.Scope.work). A task scope
+is the only way to it: `work` hands a child to a lane, and the scope owns its lanes
 lazily and closes it through the suspension-aware path, so leaving the block
 inside a frame parks rather than blocking the thread.
 
@@ -69,12 +69,17 @@ module nupp.runtime.standardcoroutine
 local source1 = require("nupp.tasks")
 local suspension = require("nupp.suspension")
 local suspensionContract = require("nupp.suspension.contracts")
+local workerContract = require("nupp.workers.contracts")
 local clockContract = require("nupp.runtime.contracts")
 local selectedTime = require("nupp.runtime.timeprovider").provider
 
 local function missingClock(...: any): never
     error("nupp.time: no clock provider is available", 2)
 end
+
+--- Describes a sendable function accepted by [](coroutine.Scope.work).
+--- The returned [](coroutine.Task) represents its running job.
+export type Worker = workerContract.Worker
 
 export type Cancellation = source1.Cancellation
 export type Scope = source1.Scope

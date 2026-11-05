@@ -218,6 +218,179 @@ function M.extractsStructuredDocsFromTheParserCST()
     assert(point.members[1].text == "Horizontal coordinate.")
 end
 
+function M.typeAliasSignaturesOmitCommentsAndIndentFields()
+    local module = assert(
+        doc.extract(
+            [=[
+export type Options = {
+    --- The peer name.
+    host: string?,
+    --[[ An implementation note. ]]
+    label: 'keep  two spaces -- literal',
+    nested: {
+        --- The item count.
+        count: integer,
+        enabled: boolean
+    }
+}
+export record Container
+    --- Configuration for the container.
+    type Config = {
+        --- A literal marker.
+        marker: '--[[ not a comment ]]',
+        enabled: boolean
+    }
+end
+]=],
+            "src/options.nupp",
+            "options"
+        )
+    )
+    local items = {}
+    for _, item in ipairs(module.items) do
+        items[item.name] = item
+    end
+    local api = require("nupp.tools.doc.api")
+    local signature = api.displaySignature(items.Options)
+    assert(
+        signature == [[type Options = {
+    host: string?,
+    label: 'keep  two spaces -- literal',
+    nested: {
+        count: integer,
+        enabled: boolean
+    }
+}]],
+        signature
+    )
+    assert(items.Options.members[1].text == "The peer name.")
+    local nested = api.memberSpelling(items.Container.members[1])
+    assert(nested == [=[type Config = {
+    marker: '--[[ not a comment ]]',
+    enabled: boolean
+}]=], nested)
+    local field = api.memberSpelling(items.Options.members[3])
+    assert(field == [[nested: {
+    count: integer,
+    enabled: boolean
+}]], field)
+    local markdown = doc.markdown({module})
+    assert(markdown:find(signature, 1, true), markdown)
+    assert(markdown:find("The peer name.", 1, true), markdown)
+    assert(markdown:find("Configuration for the container.", 1, true), markdown)
+    for code in markdown:gmatch("```nupp\n(.-)\n```") do
+        assert(not code:find("---", 1, true), code)
+        assert(not code:find("implementation note", 1, true), code)
+    end
+end
+
+function M.recordAndInterfaceSignaturesShowOnlyPublicDeclarations()
+    local module, errors = doc.extract(
+        [[
+export record Box<T is Value> is Named where true
+    @private _hidden: T
+    --- The stored value.
+    @readonly value: T
+    type Shape<U> = {first: U, second: boolean}
+    sealed interface View<U is T> is Parent<U>
+        read: function(self): U
+    end
+    constructor(self, value: T)
+        self.value = value
+    end
+    function clear(self): nil
+        error("implementation detail")
+    end
+    function borrow(borrows self): T
+        return self.value
+    end
+    function pair(self): T, boolean
+        return self.value, true
+    end
+    metamethod __tostring: function(self): string
+end
+export sealed interface Reader<T> is Parent<T>
+    read: function(self): T
+    close: @nosuspend function(takes self: Reader<T>): nil
+end
+export record Empty end
+]],
+        "src/records.nupp",
+        "records"
+    )
+    assert(module, errors and errors[1] and errors[1].msg)
+    assert(#errors == 0)
+    local api = require("nupp.tools.doc.api")
+    local items = {}
+    for _, item in ipairs(module.items) do
+        items[item.name] = item
+    end
+    local box, reader, empty = items.Box, items.Reader, items.Empty
+    local signature = api.displaySignature(box)
+    assert(signature:find("record Box<T is Value> is Named where true\n", 1, true), signature)
+    assert(signature:find("    @readonly value: T\n", 1, true), signature)
+    assert(
+        signature:find("    type Shape<U> = {\n        first: U,\n        second: boolean\n    }", 1, true),
+        signature
+    )
+    assert(
+        signature:find(
+            "    sealed interface View<U is T> is Parent<U>\n        read: function(self): U\n    end",
+            1,
+            true
+        ),
+        signature
+    )
+    assert(signature:find("    constructor: function(self, value: T)\n", 1, true), signature)
+    assert(signature:find("    clear: function(self)\n", 1, true), signature)
+    assert(signature:find("    borrow: function(borrows self: records.Box<T>): T\n", 1, true), signature)
+    assert(signature:find("    pair: function(self): (T, boolean)\n", 1, true), signature)
+    assert(signature:find("    metamethod __tostring: function(self): string\n", 1, true), signature)
+    assert(not signature:find("_hidden", 1, true), signature)
+    assert(not signature:find("stored value", 1, true), signature)
+    assert(not signature:find("implementation detail", 1, true), signature)
+    assert(not signature:find(": nil", 1, true), signature)
+    local nested = api.memberSpelling(box.members[3])
+    assert(nested == [[sealed interface View<U is T> is Parent<U>
+    read: function(self): U
+end]], nested)
+    local interface = api.displaySignature(reader)
+    assert(
+        interface == [[sealed interface Reader<T> is Parent<T>
+    read: function(self): T
+    close: @nosuspend function(takes self: Reader<T>)
+end]],
+        interface
+    )
+    assert(api.displaySignature(empty) == "record Empty\nend")
+    for _, declaration in ipairs({signature, nested, interface, api.displaySignature(empty)}) do
+        local parsed = require("nupp.compiler.syntax.parser").parse(declaration)
+        assert(#parsed.errors == 0, declaration)
+    end
+    local markdown = doc.markdown({module})
+    assert(markdown:find("```nupp\n" .. nested .. "\n```", 1, true), markdown)
+    assert(markdown:find("The stored value.", 1, true), markdown)
+end
+
+function M.callbackLastPackSignaturesKeepRecordIndentation()
+    local signature = require("nupp.tools.doc.api").displaySignature({
+        kind = "record",
+        signature = "record Scope",
+        members = {
+            {
+                name = "work",
+                isFunction = true,
+                type = "function<F>(...: unpackof Arguments(F), F): Task<F>",
+                params = {},
+                returns = {},
+            }
+        },
+    })
+    assert(signature == [[record Scope
+    work: function<F>(...: unpackof Arguments(F), F): Task<F>
+end]], signature)
+end
+
 function M.callableModulesDocumentHelpersAndPublishedSuiteMembers()
     local source = [[
 module assert
@@ -610,6 +783,183 @@ function read(handle: any, mode: string?): any end
     assert(owned.items[1].lua or owned.items[2].lua, "builtin Lua provenance disappeared")
 end
 
+function M.castedFunctionBindingsKeepSourceContractsAndOverloadDetails()
+    local owned = assert(
+        doc.extract(
+            [[
+module io
+--- Opens a filename or path.
+--- @param path the filename
+export const open = implementation as function(path: string | Path): File
+--- Starts a child or opens a shell pipe.
+--- @param options the child options
+--- @param cmd the shell command
+--- @param mode the pipe mode
+--- @return the acquired owner
+--- @return the failure reason
+export const popen = (implementation as (function(options: Process.Options): (Process?, Error?)
+    & function(cmd: string, mode: string?): (File?, string?)))
+export const erased = (implementation as function(): string) as any
+export const annotated: function(value: integer): integer = implementation as any
+export const anonymous = implementation as ((function(string): integer) & (function(string, boolean): boolean))
+]],
+            "src/io.nupp",
+            "io"
+        )
+    )
+    local builtin = assert(
+        doc.extract(
+            [[
+local open: function(path: string): File
+local popen: function(cmd: string, mode: string?): File
+]],
+            "decls/io.d.nupp",
+            "io"
+        )
+    )
+    require("nupp.tools.doc.stdlib").merge({owned}, {
+        path = "api",
+        title = "API",
+        modules = {builtin},
+        globalItems = {},
+        typeItems = {},
+        annotationItems = {},
+        navigation = {globals = {}},
+    })
+    local items = {}
+    for _, item in ipairs(owned.items) do
+        items[item.name] = item
+    end
+    assert(items.open.kind == "function" and items.open.signature:find("string | Path", 1, true))
+    assert(items.popen.kind == "function" and items.popen.signature:find("Process.Options", 1, true))
+    assert(#items.popen.params == 3 and items.popen.params[3].name == "options")
+    assert(items.popen.params[3].text == "the child options")
+    assert(items.popen.returns[1].type == "(Process?) | (File?)")
+    assert(items.popen.returns[2].type == "(Error?) | (string?)")
+    assert(items.erased.kind == "variable" and not items.erased.signature:find("function", 1, true))
+    assert(items.annotated.kind == "function" and items.annotated.params[1].name == "value")
+    assert(#items.anonymous.params == 2, "unnamed parameters retain their separate positions")
+end
+
+function M.callableFormsKeepArgumentsResultsAndExamplesTogether()
+    local module = assert(
+        doc.extract(
+            [[
+module io
+--- Starts a child or opens a shell pipe.
+export const popen = implementation as(
+    --- Starts the program directly.
+    ---
+    --- ```nupp
+    --- local child = io.popen({args = {"git", "status"}})
+    --- ```
+    --- @form Argument vector
+    --- @param options the child options
+    --- @return the owned child
+    --- @return the process error
+    function(options: Process.Options): (Process?, Error?)
+    &
+    --- Opens a shell pipe.
+    --- @form Shell command
+    --- @lua
+    --- @param cmd the shell command
+    --- @param mode the pipe direction
+    --- @return the owned pipe
+    --- @return the error string
+    function(cmd: string, mode: string?): (File?, string?)
+)
+]],
+            "src/io.nupp",
+            "io"
+        )
+    )
+    local item = module.items[1]
+    item.lua = true
+    assert(#module.items == 1 and #item.forms == 2)
+    local vector, shell = item.forms[1], item.forms[2]
+    assert(vector.title == "Argument vector" and not vector.lua)
+    assert(#vector.params == 1 and vector.params[1].name == "options")
+    assert(vector.params[1].text == "the child options")
+    assert(vector.returns[1].type == "Process?" and vector.returns[2].type == "Error?")
+    assert(vector.returns[1].text == "the owned child" and vector.returns[2].text == "the process error")
+    assert(shell.title == "Shell command" and shell.lua)
+    assert(#shell.params == 2 and shell.params[1].name == "cmd")
+    assert(shell.returns[1].type == "File?" and shell.returns[2].type == "string?")
+    assert(not vector.signature:find("---", 1, true), vector.signature)
+    local markdown = doc.markdown({module})
+    local first = assert(markdown:find("#### Argument vector", 1, true))
+    local second = assert(markdown:find("#### Shell command _Lua_", first, true))
+    local vectorText, shellText = markdown:sub(first, second - 1), markdown:sub(second)
+    assert(vectorText:find("##### Arguments", 1, true) and vectorText:find("##### Returns", 1, true))
+    assert(vectorText:find("the owned child", 1, true) and vectorText:find("local child", 1, true))
+    assert(not vectorText:find("the owned pipe", 1, true) and not vectorText:find("_Lua_", 1, true))
+    assert(shellText:find("the owned pipe", 1, true) and not shellText:find("the owned child", 1, true))
+    assert(not markdown:find("(Process?) | (File?)", 1, true), "result correlation was lost")
+    local _, entries = markdown:gsub("::: api%-item io%.popen\n", "")
+    assert(entries == 1, "forms became separate API entries")
+    local html = require("nupp.tools.doc.html").markdownHtml(markdown)
+    assert(html:find('id="io.popen.form-1"', 1, true), html)
+    assert(html:find('id="io.popen.form-2"', 1, true), html)
+    local _, luaBadges = html:gsub('class="nuppdoc%-kind%-badge nuppdoc%-kind%-Lua"', "")
+    assert(luaBadges == 1 and not html:find("<em>Lua</em>", 1, true), html)
+    local ids = {}
+    for id in html:gmatch('id="([^"]+)"') do
+        assert(not ids[id], "duplicate form anchor " .. id)
+        ids[id] = true
+    end
+    local model = require("testjson").decode(doc.json({module}))
+    local forms = model.modules[1].items[1].forms
+    assert(#forms == 2 and forms[1].returns[2].type == "Error?" and forms[2].returns[2].type == "string?")
+end
+
+function M.callableFormsNeedNoTagsAndKeepSharedDefaults()
+    local module = assert(
+        doc.extract(
+            [[
+module codec
+--- Decodes a value.
+--- @param source the encoded value
+--- @return the decoded value
+--- @raises string when invalid
+export const decode: ((function<T>(source: string): T) & (function(source: {integer}): boolean))
+export record Decoder
+    --- Decodes an input.
+    --- @param source the input
+    --- @return the decoded input
+    decode: ((function(source: string): string) & (function(source: boolean): nil))
+end
+]],
+            "src/codec.nupp",
+            "codec"
+        )
+    )
+    local items = {}
+    for _, item in ipairs(module.items) do
+        items[item.name] = item
+    end
+    local forms = items.decode.forms
+    assert(#forms == 2 and forms[1].title == nil)
+    assert(forms[1].typeargs[1].name == "T" and #forms[2].typeargs == 0)
+    assert(forms[1].returns[1].type == "T" and forms[2].returns[1].type == "boolean")
+    assert(forms[1].params[1].text == "the encoded value" and forms[2].returns[1].text == "the decoded value")
+    assert(forms[1].raises[1].type == "string" and forms[2].raises[1].text == "when invalid")
+    local member = items.Decoder.members[1]
+    assert(#member.forms == 2 and member.forms[2].returns[1].type == "nil")
+    local markdown = doc.markdown({module})
+    assert(markdown:find("#### `decode(source)`", 1, true), markdown)
+    assert(markdown:find("##### Type parameters", 1, true), markdown)
+    local lastForm = assert(markdown:find('id="codec.Decoder.decode.form-2"', 1, true))
+    assert(not markdown:sub(lastForm):find("###### Returns", 1, true), "nil-only form acquired a Returns section")
+    local model = require("testjson").decode(doc.json({module}))
+    local record
+    for _, item in ipairs(model.modules[1].items) do
+        if item.name == "Decoder" then
+            record = item
+        end
+    end
+    assert(#record.members[1].forms == 2)
+end
+
 function M.functionDocumentationKeepsCoroutineProtocolsBeforeResults()
     local source = [[
 --- Produces a value and receives its continuation flag.
@@ -761,7 +1111,9 @@ end
     assert(items.invoke.kind == "function" and items.invoke.typeargs[1].name == "V")
     assert(items.choose.kind == "function" and #items.choose.params == 2)
     assert(items.choose.params[2].name == "label" and items.choose.params[2].text == "the optional label")
-    assert(items.choose.returns[1].type == "string" and items.choose.returns[1].text == "the selected value")
+    assert(
+        items.choose.returns[1].type == "(number) | (string)" and items.choose.returns[1].text == "the selected value"
+    )
     assert(items.choose.signature:find("&", 1, true), "overload signature was flattened")
     assert(items.build.comptimeKind == "function" and #items.build.params == 2)
     assert(items.mixed.kind == "function" and items.mixed.comptimeKind == nil)
@@ -922,12 +1274,96 @@ export function identity(value: string): string return value end
     local html = table.concat(rendered)
     assert(html:find('>Arguments<a', 1, true) and html:find('<dl class="nuppdoc-api-details">', 1, true), html)
     assert(html:find('>Returns<a', 1, true), html)
-    assert(html:find("<dt><code>value</code> - ", 1, true), html)
+    assert(html:find('<dt><code>value</code> - <code class="nuppdoc-token-type">string</code></dt>', 1, true), html)
+    assert(html:find('<dt><code class="nuppdoc-token-type">string</code></dt>', 1, true), html)
     assert(html:find("The supplied value.", 1, true), html)
     assert(html:find("The value again.", 1, true), html)
     local markdown = doc.markdown({module})
     assert(markdown:find("`value` - `string`\n:   The supplied value.", 1, true), markdown)
     assert(markdown:find("`string`\n:   The value again.", 1, true), markdown)
+end
+
+function M.argumentAndReturnTypesLinkOnlyDocumentedTypeReferences()
+    local module = assert(
+        doc.extract(
+            [[
+export record Widget end
+export record Box<T>
+    record Nested
+        record Leaf end
+    end
+    function keep(self, value: T): T end
+    function choose(self, value: Widget): Widget end
+    function choose(self, value: Box<Widget>): Widget end
+end
+export type T = string
+export function convert(value: Widget | Box<Widget> | nil): Widget? end
+export function shape(value: {Widget: number, item: Widget, label: 'Widget'}): Missing end
+export function callback(value: function<Widget>(Widget: Widget): Widget): nil end
+export function generic<T>(value: T): T end
+export function deep(value: Box.Nested.Leaf): Box.Nested.Leaf end
+]],
+            "src/model.nupp",
+            "model"
+        )
+    )
+    local markdown = doc.markdown({module})
+    assert(markdown:find("[`Box`](#model.Box)", 1, true), markdown)
+    assert(markdown:find("[`Widget`](#model.Widget)", 1, true), markdown)
+    assert(markdown:find("[`Box.Nested.Leaf`](#model.Box.Nested.Leaf)", 1, true), markdown)
+    local html = require("nupp.tools.doc.html").markdownHtml(markdown)
+    for term in html:gmatch("<dt>(.-)</dt>") do
+        assert(not term:find("<span", 1, true), "argument and return types must not use syntax highlighting: " .. term)
+        assert(term:find('class="nuppdoc-token-type"', 1, true), term)
+    end
+    local convert = assert(html:match('id="model.convert"(.-)</section>'), html)
+    local args = assert(convert:match("<dt>(.-)</dt>"), convert)
+    local _, links = convert:gsub('href="#model%.Widget"', "")
+    assert(links == 3, convert)
+    local text = args:gsub("<[^>]+>", ""):gsub("&lt;", "<"):gsub("&gt;", ">")
+    assert(text == "value - Widget | Box<Widget> | nil", text)
+    for _, anchor in ipairs({"model.Box.choose", "model.Box.choose-overload-2"}) do
+        local overload = assert(html:match('id="' .. anchor:gsub("(%W)", "%%%1") .. '"(.-)</section>'), html)
+        local _, overloadLinks = overload:gsub('href="#model%.Widget"', "")
+        assert(overloadLinks == 2, overload)
+    end
+    assert(args:find('href="#model.Box"', 1, true), args)
+    local shape = assert(html:match('id="model.shape"(.-)</section>'), html)
+    local shapeArgs = assert(shape:match("<dt>(.-)</dt>"), shape)
+    local shapeText = shapeArgs:gsub("<[^>]+>", ""):gsub("&#39;", "'")
+    assert(shapeText == "value - {Widget: number, item: Widget, label: 'Widget'}", shapeText)
+    local _, count = shape:gsub('href="#model%.Widget"', "")
+    assert(count == 1, "field names and quoted literals must not link: " .. shape)
+    for _, name in ipairs({"generic", "callback", "Box.keep"}) do
+        local body = assert(html:match('id="model.' .. name:gsub("%.", "%%.") .. '"(.-)</section>'), html)
+        assert(not body:find('href="#model.T"', 1, true), body)
+        assert(not body:find('href="#model.Widget"', 1, true), body)
+    end
+    for code in convert:gmatch("<pre>(.-)</pre>") do
+        assert(not code:find("<a ", 1, true), code)
+    end
+end
+
+function M.argumentTypesResolveImportedAliasesAndPageDepth()
+    local dir = tempProject({
+        ["src/models.nupp"] = "module models\nexport record Widget end\n",
+        [
+            "src/use.nupp"
+        ] = [[
+module use
+local other = require("models")
+local {type Widget as Imported} = require("models")
+export function first(value: other.Widget): Imported end
+]],
+    })
+    assert(doc.build(dir, {include = {"src"}}, {sources = {"src"}}, {format = "site", output = "site"}) == 0)
+    local page = readFile(dir .. "/site/modules/use/index.html")
+    local markdown = readFile(dir .. "/site/modules/use/llms.txt")
+    os.execute("rm -rf '" .. dir .. "'")
+    assert(markdown:find("[`other.Widget`](../../modules/models/index.html#models.Widget)", 1, true), markdown)
+    assert(markdown:find("[`Imported`](../../modules/models/index.html#models.Widget)", 1, true), markdown)
+    local _, count = page:gsub('href="../../modules/models/index.html#models.Widget"', "")
+    assert(count >= 2, page)
 end
 
 function M.rendersQuotedTypesWithoutDoubleEscaping()
@@ -943,8 +1379,9 @@ export function choose(option: 'collect' | 'rock & roll'): 'collect' end
     local rendered = {}
     renderMarkdownItem(rendered, module.items[1])
     local html = assert(table.concat(rendered):match('<dl class="nuppdoc%-api%-details">(.-)</dl>'))
-    assert(html:find("&#39;collect&#39;", 1, true), html)
-    assert(html:find("&#39;rock &amp; roll&#39;", 1, true), html)
+    local text = html:gsub("&#39;", "'")
+    assert(text:find("'collect'", 1, true), html)
+    assert(text:find("'rock &amp; roll'", 1, true), html)
     assert(not html:find("&amp;#39;", 1, true), html)
     assert(not html:find("&amp;amp;", 1, true), html)
 end
@@ -986,7 +1423,7 @@ export function callback(): function(): nil end
     assert(not api.memberSpelling(members.clear):find(": nil", 1, true))
     assert(api.memberSpelling(members.pair):find(": nil, string", 1, true))
     local markdown = doc.markdown({module})
-    assert(markdown:find('`self` - `example.Box<T>`', 1, true), markdown)
+    assert(markdown:find('`self` - [`example.Box`](#example.Box)`<T>`', 1, true), markdown)
     local free = markdown:match("<a id=\"example.free\"></a>(.-)\n## ")
         or assert(markdown:match("<a id=\"example.free\"></a>(.*)"))
     assert(not free:find("Returns", 1, true), free)
@@ -998,8 +1435,10 @@ local NESTED_DECLARATIONS = table.concat(
     {
         "--- Holds a nested type.",
         "local record Config",
+        "   type Mode = 'auto' | 'manual'",
         "   --- Nested settings.",
         "   record Settings",
+        "      type Value = string",
         "      --- Whether it is enabled.",
         "      enabled: boolean",
         "",
@@ -1054,21 +1493,23 @@ function M.documentsNestedTypesAsTheirOwnSubHeadingWithMembers()
         "nested type's own field anchor missing"
     )
     local rendered = require("nupp.tools.doc.html").markdownHtml(markdown)
-    for _, name in ipairs({"enabled", "apply"}) do
-        local path = "config.Config.Settings." .. name
+    for _, member in ipairs({
+        {name = "Mode", level = 4},
+        {name = "Settings", level = 4},
+        {name = "Settings.Value", level = 5},
+        {name = "Settings.enabled", level = 5},
+        {name = "Settings.apply", level = 5},
+    }) do
+        local path = "config.Config." .. member.name
         assert(markdown:find("::: api-item " .. path .. "\n", 1, true), "member section missing")
         assert(
-            rendered:find('<section class="nuppdoc-api-item" id="' .. path .. '"><h5>', 1, true),
+            rendered:find('<section class="nuppdoc-api-item" id="' .. path .. '"><h' .. member.level .. '>', 1, true),
             "member must use the shared section renderer and retain its heading level"
         )
         local _, anchors = rendered:gsub('id="' .. path:gsub("%.", "%%.") .. '"', "")
         assert(anchors == 1, "member anchor must occur exactly once")
         assert(rendered:find('href="#' .. path .. '"', 1, true), "member link missing")
     end
-    assert(
-        not markdown:find("::: api-item config.Config.Settings\n", 1, true),
-        "nested type should retain its ordinary heading"
-    )
     assert(rendered:find('id="config.Config.Settings.apply.arguments"', 1, true), "method argument scope missing")
 end
 
@@ -1150,7 +1591,7 @@ function M.documentsAnnotationsAndParameterModes()
 
     local markdown = doc.markdown({module})
     assert(markdown:find("`@deprecated", 1, true), "the annotation is not rendered")
-    assert(markdown:find("`takes self` - `", 1, true), "the parameter mode is not rendered")
+    assert(markdown:find("`takes self` - [", 1, true), "the parameter mode is not rendered")
     local rendered = {}
     renderMarkdownItem(rendered, handle)
     assert(table.concat(rendered):find('class="nuppdoc-annotation">@deprecated', 1, true))
@@ -1968,8 +2409,8 @@ function M.standardIOApiHasCompleteDocumentation()
         [
             "src/io/files/init.nupp"
         ] = {
-            types = {File = true, TemporaryPath = true, Info = true, Entry = true,},
-            functions = {info = true, open = true, read = true, glob = true,},
+            types = {TemporaryPath = true, Info = true, Entry = true,},
+            functions = {info = true, glob = true, writeatomic = true,},
         },
     }
     for relative, expected in pairs(modules) do
@@ -2106,7 +2547,11 @@ end
 -- under nupp.compiler.decls, where the internal root hid them. They sit beside their
 -- modules now, inside the namespace a reader browses, so each has to say so itself.
 function M.hostBoundariesDeclareThemselvesInternal()
-    local boundaries = {"src/nupp/workers/native.d.nupp", "src/binary/_representation.nupp",}
+    local boundaries = {
+        "src/nupp/workers/native.d.nupp",
+        "src/binary/_representation.nupp",
+        "src/io/files/messages.nupp",
+    }
     for _, relative in ipairs(boundaries) do
         local source = readFile(HERE .. "/../" .. relative)
         assert(source, "no boundary at " .. relative)
@@ -2973,7 +3418,6 @@ function M.coroutineWorkerDocsRetainScopesAndTaskResultPacks()
                 "src/nupp/tasks.nupp",
                 "src/nupp/workers/contracts.nupp",
                 "src/nupp/runtime/standardcoroutine.nupp",
-                "src/coroutine/workers/init.nupp",
             },
         },
         {format = "json", output = dir .. "/api.json"}
@@ -3002,8 +3446,8 @@ function M.coroutineWorkerDocsRetainScopesAndTaskResultPacks()
     assert(task.await and task.isdone and task.status and task.cancel, "task methods come from the actual type builder")
     assert(task.await.type:find("unpackof types.results(F)", 1, true), task.await.type)
     assert(task.status.type:find('"cancelled"', 1, true), task.status.type)
-    assert(modules["coroutine.workers"].text:find("coroutine.Scope.work", 1, true))
-    assert(modules["coroutine.workers"].text:find("coroutine.Task", 1, true))
+    assert(items.Worker, "the sendable worker body type belongs to coroutine")
+    assert(not modules["coroutine.workers"], "the retired worker module is absent")
     assert(not modules["nupp.tasks"] and not modules["nupp.workers.contracts"], "implementation modules stay private")
     os.execute("rm -rf '" .. dir .. "'")
 end
@@ -4197,8 +4641,7 @@ function M.siteMatchesTheNuppdocPageModel()
 
     local module = readFile(dir .. "/site/modules/math/index.html")
     assert(module:find("nuppdoc-overview", 1, true), module)
-    -- A module page opens the API reference, while its library branches stay
-    -- collapsed even along the path to the current module.
+    -- A module page opens its API reference and the path to the current module.
     assert(module:find('<details open><summary>API reference</summary>', 1, true), module)
     assert(module:find('<li><a href="../../guide/index.html">Guide</a></li>', 1, true), module)
     assert(
@@ -4298,7 +4741,7 @@ function M.siteMatchesTheNuppdocPageModel()
     assert(nestedModule:find('<code>render</code>', 1, true), nestedModule)
     assert(
         nestedModule:find(
-            '<details><summary class="nuppdoc-module-branch-link">'
+            '<details open><summary class="nuppdoc-module-branch-link">'
             .. '<a href="../../../modules/engine/index.html" aria-label="engine">'
             .. "<code>engine</code></a></summary>",
             1,
@@ -4310,7 +4753,7 @@ function M.siteMatchesTheNuppdocPageModel()
     local branchModule = readFile(dir .. "/site/modules/engine/index.html")
     assert(
         branchModule:find(
-            '<summary class="nuppdoc-module-branch-link">'
+            '<details open><summary class="nuppdoc-module-branch-link">'
             .. '<a aria-current="page" href="../../modules/engine/index.html"',
             1,
             true
@@ -5088,6 +5531,82 @@ export = setmetatable(api, {
     assert(parent.items[1] and parent.items[1].name == "counter", "parent is missing the callable module")
 end
 
+function M.builtinMethodDescriptorsFoldIntoTheirCanonicalPublicType()
+    local stdlib = require("nupp.tools.doc.stdlib")
+    local module = assert(
+        doc.extract(
+            [[
+--- @namespace io
+module fixture.io
+export type File = io.File
+export interface FileMethods
+    reader: function(self: io.File): any
+    writer: function(self: io.File): any
+end
+export interface OtherMethods is Named
+    method: function(self: OtherMethods): nil
+end
+]],
+            "src/file.nupp",
+            "io"
+        )
+    )
+    local page = assert(stdlib.page({path = "api"}))
+    stdlib.merge({module}, page)
+    stdlib.merge({module}, page)
+    local file, other
+    local declarations = 0
+    for _, item in ipairs(module.items) do
+        if item.path == "io.File" then
+            file = item
+            declarations = declarations + 1
+        elseif item.path == "io.OtherMethods" then
+            other = item
+        end
+        assert(item.path ~= "io.FileMethods", "the implementation descriptor must remain hidden")
+    end
+    assert(declarations == 1 and file, "File must remain one merged declaration")
+    assert(file.signature:match("^interface%s+[%w_.]+$"), file.signature)
+    assert(not file.supertypes or #file.supertypes == 0)
+    assert(other and other.supertypes[1] == "Named", "unrelated public interfaces must remain intact")
+    assert(#file.members == 9, "all Lua methods and both byte views must remain")
+    local members, badges = {}, 0
+    for _, member in ipairs(file.members) do
+        members[member.name] = member
+        assert(member.path == "io.File." .. member.name, member.path)
+        if member.lua then
+            badges = badges + 1
+        end
+    end
+    for _, name in ipairs({"close", "flush", "lines", "read", "seek", "setvbuf", "write"}) do
+        assert(members[name] and members[name].lua, "missing Lua method or badge: " .. name)
+    end
+    assert(members.reader and not members.reader.lua)
+    assert(members.writer and not members.writer.lua)
+    assert(badges == 7, "only the seven Lua methods get Lua badges")
+    local markdown = doc.markdown({module})
+    local _, anchors = markdown:gsub('<a id="io%.File"></a>', "")
+    assert(anchors == 1, markdown)
+    assert(not markdown:find("FileMethods", 1, true), markdown)
+    assert(not markdown:find("is io.File", 1, true), markdown)
+    local source = readFile(HERE .. "/../src/nupp/runtime/standardio.nupp")
+    local actual = assert(doc.extract(source, "src/nupp/runtime/standardio.nupp", "io"))
+    local descriptor
+    for _, item in ipairs(actual.items) do
+        if item.path == "io.FileMethods" then
+            descriptor = item
+        end
+    end
+    assert(descriptor and #descriptor.members == 2, "the actual File methods must reach the merge")
+    stdlib.merge({actual}, assert(stdlib.page({path = "api"})))
+    for _, item in ipairs(actual.items) do
+        assert(item.path ~= "io.FileMethods", "the actual descriptor must remain hidden")
+        if item.path == "io.File" then
+            assert(#item.members == 9, "the actual File must keep all Lua and byte-view methods")
+        end
+    end
+end
+
 function M.callableNestedModulesKeepTheirFunctionAndModuleEntries()
     local stdlib = require("nupp.tools.doc.stdlib")
     local page = assert(stdlib.page({path = "api"}))
@@ -5430,7 +5949,7 @@ function M.builtinNavigationKeepsEveryDeclaredGlobalAndLibrary()
     end
 end
 
-function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
+function M.builtinNavigationMergesOwnedRootsAndOpensCurrentBranch()
     local function library(name, members)
         local binding = name:match("([^.]+)$")
         local lines = {"module " .. name, "--[[Public operations.]]", "local " .. binding .. " = {}"}
@@ -5478,7 +5997,14 @@ function M.builtinNavigationMergesOwnedRootsAndStartsCollapsed()
         )
     )
     local api = assert(sidebar:match('>API reference</a></summary>(.*)'))
-    assert(not api:find('<details open', 1, true), "an API branch starts open, including the active one")
+    assert(api:find('data-module="io"><details open>', 1, true), "the current module's parent must be open")
+    assert(api:find('data-module="jit"><details>', 1, true), "an unrelated module branch starts open")
+    local rootPage = readFile(dir .. "/site/modules/io/index.html")
+    assert(rootPage:find('data-module="io"><details open>', 1, true), "the current module must show its children")
+    local deepPage = readFile(dir .. "/site/modules/example/tools/widget/index.html")
+    for _, name in ipairs({"example", "example.tools"}) do
+        assert(deepPage:find('data-module="' .. name .. '"><details open>', 1, true), "closed ancestor " .. name)
+    end
     for _, name in ipairs({
         "io.cli",
         "assert",

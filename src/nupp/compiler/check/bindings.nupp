@@ -12,6 +12,7 @@ the module's own table, what publishes a member of it.
 module nupp.compiler.check.bindings
 
 local apiidentity = require("nupp.compiler.apiidentity")
+local builtinExtensions = require("nupp.compiler.builtinextensions")
 local T = require("nupp.compiler.types")
 local relations = require("nupp.compiler.types.relations")
 local narrowing = require("nupp.compiler.types.narrowing")
@@ -102,6 +103,7 @@ export function install(c: state.Checker): state.StatHandlers
                     end
                 else
                     fieldType, definition = c.fieldType(sourceType, fieldName)
+                    definition = definition or builtinExtensions.definition(c, source, fieldName)
                 end
                 local effects = c.env and c.env.featureEffects
                 local memberEffects = effects and effects[rawType(sourceType)]

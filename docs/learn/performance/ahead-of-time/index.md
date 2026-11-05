@@ -74,21 +74,6 @@ See these pages for each part of the AOT pipeline.
   verification.
 - [GPU compute](gpu.md) for resident buffers and workgroup kernels.
 
-## FAQ
-
-<a id="does-aot-change-what-a-function-answers"></a>
-
-### Does `@aot` change what a function returns?
-
-No. Removing `@aot`, or building the same source under `aot = "off"`, never
-changes the result.
-
-### How does a loop run in vector lanes?
-
-By saying so with `simd`: a species, its vector loads and stores, masks,
-and a tail. A loop without those operations is scalar. See
-[simd-programming.md](simd-programming.md) for the model and vector operations.
-
 ::: seealso
 - [performance.md](../index.md) for reading the bytecode ordinary Nupp lowers to
 - [](binary.span) for the span types a kernel takes

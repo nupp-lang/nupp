@@ -18,7 +18,6 @@ const {type Result} = require("nupp.tools.doc.extract")
 const {type Raise} = require("nupp.compiler.syntax.docblock")
 const {type Member} = require("nupp.tools.doc.extract")
 const {type Links} = require("nupp.tools.doc.urls")
-const files = require("io.files")
 const {type Config as Config2} = require("nupp.tools.build.manifest")
 const {type Target} = require("nupp.tools.build.manifest")
 
@@ -294,6 +293,19 @@ function doc.json(modules: {extractMod.Module}, annotationItems: {extractMod.Ite
         return {type = value.type, text = value.text}
     end
 
+    local function form(value)
+        return {
+            signature = value.signature,
+            title = value.title,
+            text = value.text,
+            lua = value.lua,
+            params = array(value.params, param),
+            returns = array(value.returns, result),
+            raises = array(value.raises, raise),
+            typeargs = array(value.typeargs)
+        }
+    end
+
     local member
     member = function(value)
         return {
@@ -303,10 +315,12 @@ function doc.json(modules: {extractMod.Module}, annotationItems: {extractMod.Ite
             path = value.path,
             params = array(value.params, param),
             returns = array(value.returns, result),
+            forms = value.forms and array(value.forms, form) or nil,
             raises = array(value.raises, raise),
             isFunction = value.isFunction,
             isMetamethod = value.isMetamethod,
             isType = value.isType,
+            signature = value.signature,
             supertypes = value.supertypes and array(value.supertypes) or nil,
             comptimeKind = value.comptimeKind,
             lua = value.lua,
@@ -342,6 +356,7 @@ function doc.json(modules: {extractMod.Module}, annotationItems: {extractMod.Ite
             members = array(value.members, member),
             params = array(value.params, param),
             returns = array(value.returns, result),
+            forms = value.forms and array(value.forms, form) or nil,
             raises = array(value.raises, raise),
             typeargs = array(
                 value.typeargs,
@@ -558,7 +573,8 @@ local function loadModules(root, config, settings, requested)
                     line = owner.line,
                     kind = member.isAlias and "type" or member.type,
                     aliasSource = member.isAlias and member.type or nil,
-                    signature = member.isAlias and ("type " .. name .. " = " .. member.type)
+                    signature = member.signature
+                    or member.isAlias and ("type " .. name .. " = " .. member.type)
                     or (member.type .. " " .. name),
                     doc = {
                         text = member.text,
@@ -650,6 +666,7 @@ local function loadModules(root, config, settings, requested)
             members = field.members or {},
             params = typed.params,
             returns = typed.returns,
+            forms = typed.forms,
             raises = field.raises,
             typeargs = typed.typeargs or {},
             annotations = field.annotations,
@@ -731,6 +748,7 @@ local function loadModules(root, config, settings, requested)
                         text = owner.doc.text,
                         params = owner.params,
                         returns = owner.returns,
+                        forms = owner.forms,
                         raises = owner.raises,
                         typeargs = owner.typeargs,
                         isFunction = true,
@@ -1009,12 +1027,28 @@ local function loadModules(root, config, settings, requested)
                 binders[generic.name] = true
             end
             value.type = value.type and references(value.type, sourceContext, module, binders, nil) or nil
+            if value.isType and value.signature then
+                local _, offset = renamed(value.signature, value.name, value.name)
+                value.signature = references(value.signature, sourceContext, module, binders, offset)
+            end
             for index, supertype in ipairs(value.supertypes or {}) do
                 value.supertypes[index] = references(supertype, sourceContext, module, binders, nil)
             end
             for _, key in ipairs({"params", "returns", "raises"}) do
                 for _, field in ipairs(value[key] or {}) do
                     field.type = references(field.type, sourceContext, module, binders, nil)
+                end
+            end
+            for _, form in ipairs(value.forms or {}) do
+                local formBinders = copy(binders)
+                for _, generic in ipairs(form.typeargs) do
+                    formBinders[generic.name] = true
+                end
+                form.signature = references(form.signature, sourceContext, module, formBinders, nil)
+                for _, parts in ipairs({form.params, form.returns, form.raises}) do
+                    for _, part in ipairs(parts) do
+                        part.type = references(part.type, sourceContext, module, formBinders, nil)
+                    end
                 end
             end
             for _, field in ipairs(value.members or {}) do
@@ -1031,6 +1065,7 @@ local function loadModules(root, config, settings, requested)
                     if #(target.members or {}) > 0 or #(target.supertypes or {}) > 0 then
                         field.isAlias, field.isType = nil, true
                         field.type = target.kind
+                        field.signature = renamed(target.signature, target.name:match("([%w_]+)$"), field.name)
                         field.members = copy(target.members)
                         field.typeargs = copy(target.typeargs)
                         field.supertypes = copy(target.supertypes)
@@ -1278,11 +1313,22 @@ local function rewriteModuleDocLinks(module: Module, pages: {Page2}, file: strin
         end
     end
 
+    local function rewriteForms(forms: {extractMod.Form}?): nil
+        for _, form in ipairs(forms or {}) do
+            form.text = rewrite(form.text)
+            rewriteParts(form.params, form.returns, form.raises)
+            for _, typearg in ipairs(form.typeargs) do
+                typearg.text = rewrite(typearg.text)
+            end
+        end
+    end
+
     local rewriteMembers: (function(members: {Member}?): nil)
     rewriteMembers = function(members)
         for _, member in ipairs(members or {}) do
             member.text = rewrite(member.text)
             rewriteParts(member.params, member.returns, member.raises)
+            rewriteForms(member.forms)
             rewriteMembers(member.members)
         end
     end
@@ -1296,6 +1342,7 @@ local function rewriteModuleDocLinks(module: Module, pages: {Page2}, file: strin
             item.doc.returns[index] = rewrite(text)
         end
         rewriteParts(item.params, item.returns, item.raises)
+        rewriteForms(item.forms)
         for _, typearg in ipairs(item.typeargs) do
             typearg.text = rewrite(typearg.text)
         end
@@ -1602,6 +1649,14 @@ local function appendSearchEntries(entries, candidate, file, markdown)
             end
             for _, value in ipairs(item.returns) do
                 itemText[#itemText + 1] = value.type .. " " .. (value.text or "")
+            end
+            for _, form in ipairs(item.forms or {}) do
+                itemText[#itemText + 1] = form.signature .. " " .. (form.title or "") .. " " .. form.text
+                for _, parts in ipairs({form.params, form.returns}) do
+                    for _, part in ipairs(parts) do
+                        itemText[#itemText + 1] = part.type .. " " .. part.text
+                    end
+                end
             end
             entries[
                 #entries + 1
@@ -1969,7 +2024,7 @@ end
 -- produced it. Retry rather than believe the file survives on purpose.
 local function removeReplaced(path: string): nil
     for attempt = 1, 20 do
-        local removed = files.remove(path)
+        local removed = os.remove(path)
         if removed then
             return
         end
@@ -2024,7 +2079,7 @@ local function reconcileSiteFiles(output: string, written: {string}): boolean?, 
             -- directory that is not empty costs two seconds and removes nothing, and a
             -- build that renamed a hundred routes paid it a hundred times.
             local directory = dirname(path)
-            while directory ~= output and directory:sub(1, #output + 1) == output .. "/" and files.remove(directory) do
+            while directory ~= output and directory:sub(1, #output + 1) == output .. "/" and os.remove(directory) do
                 directory = dirname(directory)
             end
         end

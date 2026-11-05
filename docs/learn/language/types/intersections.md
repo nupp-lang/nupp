@@ -143,28 +143,6 @@ Everything else about overloading has a page of its own. See [Overloads and
 overrides](overloads.md) for repeated method bodies, generic entries,
 constructors, `@override`, and the diagnostics each of them reports.
 
-## FAQ
-
-### Should this be an intersection or an interface?
-
-Write an [interface](interfaces.md) when the combination has a name worth
-declaring and implementors should claim it with `is`. Write an intersection
-when one function needs two contracts at once and nothing else in the program
-cares about the pair.
-
-### Does an intersection cost anything at run time?
-
-No. Intersections are erased, exactly as the rest of the structural type layer
-is, so `A & B` is whatever the underlying value already was. See [Type
-system](index.md#does-anything-survive-to-run-time) for what does and does not
-survive to run time.
-
-### Why is intersecting two records empty?
-
-A record is nominal, so a value comes from one declaration or another and never
-from both. Intersect the interfaces those records declare instead, or declare a
-third record carrying the members you need.
-
 ::: seealso
 - [overloads.md](overloads.md) for calling a callable intersection and for
   every other form of overload

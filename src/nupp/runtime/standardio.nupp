@@ -10,22 +10,16 @@ local reader = bytes:reader()
 assert(reader:read(5) == "hello")
 ```
 
-A buffer holds its bytes in the target's physical storage: a native array on
-LuaJIT, or a rooted allocation in a Wasm application. `Reader` and `Writer` are
-interfaces rather than the concrete things that satisfy them. Code written
-against either contract works over every implementation without knowing which
-one it has.
+Files expose borrowed byte views through `File:reader()` and `File:writer()`.
+Processes expose their individual streams; network connections, TLS sessions,
+and HTTP bodies use the [](io.Reader) and [](io.Writer) interfaces. A parser
+written against either contract accepts those views and streams.
 
-See [](io.files) for the filesystem
-itself, `io.popen` for running a child process, [](io.net) for
-plain and encrypted network connections, and [](io.http)
-for the asynchronous HTTP client.
-Keeping them apart is what lets a program that wants a byte buffer carry a byte
-buffer rather than every provider behind the name.
+See [](io.files) for the filesystem, [](io.popen) for child processes,
+[](io.net) for plain and encrypted connections, and [](io.http) for the HTTP
+client.
 
-Files, processes, network connections, TLS sessions, and HTTP bodies move bytes
-through the `Reader` and `Writer` contracts on this page. A parser written
-against byte I/O therefore accepts all of them.
+## Ownership
 
 Buffers, views, readers, writers, and their adapters are owners. A factory that
 takes a reader or writer transfers its close obligation to the adapter; a
@@ -33,365 +27,23 @@ factory that borrows a buffer or byte queue leaves that value with its caller.
 `close` consumes an owner. Types that expose `isreleased` report their state
 without changing it.
 
-## Paths
-
-`io.Path` is an immutable filesystem path whose joining, normalizing, and
-splitting follow the platform's rules. Reach for it when a program builds a
-filesystem name or takes one apart, rather than when it reads the bytes behind
-one.
-
-```nupp:playground
-local source = io.newpath("src", "app", "..", "main.nupp"):normalize()
-assert(source:tostring() == "src" .. io.sep() .. "main.nupp")
-assert(source:filename() == "main.nupp")
-```
-
-Path transformations leave the original unchanged. Two paths are equal when
-their native text is. `tostring(path)` and `path:tostring()` return that same text.
-
-### Building a path
-
-`io.newpath(first, parts...)` joins its components using the current platform's
-rules. `join` appends more to a path already built, and both accept a string or
-another path. `Path` has no public constructor; creation goes through `newpath`,
-which interns recent paths in a bounded LRU cache.
-
-```nupp
-local native = io.newpath("out"):join("lib", "native")
-assert(native:filename() == "native")
-```
-
-`io.cwd()` returns the current working directory, and `io.sep()` returns the
-platform's primary path separator:
-
-```nupp
-local current, reason = io.cwd()
-assert(current, reason)
-local log = current:join("var", "app.log"):withextension("jsonl")
-assert(log:extension() == "jsonl")
-```
-
-### Normalizing and resolving
-
-`normalize` removes lexical `.` and `..` components without touching the
-filesystem, so it returns even for a path that does not exist:
-
-```nupp
-assert(io.newpath("src", "app", "..", "main.nupp"):normalize():stem() == "main")
-```
-
-The operations that consult the process or filesystem can fail, as can a
-relative path whose base uses a different coordinate system. Each returns nil
-with a reason when it does.
-
-- `absolute()` resolves the path against the process's working directory. A
-  drive-relative Windows path fails when that directory uses another drive.
-- `resolve(parts...)` makes it absolute, appends the parts, and normalizes.
-- `canonicalize()` asks the filesystem for the real path, following every
-  symbolic link, which requires the path to exist.
-- `relativeto(base)` expresses the path against another one, when both share a
-  coordinate system. A path expressed against itself returns `.`, the path
-  that stays where the base already is.
-
-```nupp
-local real, reason = io.newpath("."):canonicalize()
-assert(real, reason)
-assert(real:isabsolute())
-```
-
-### Path components
-
-`parent` returns another path or nil. `filename`, `stem` and `extension` return
-the final component, that component without its extension, and the extension
-without its dot:
-
-```nupp
-local source = io.newpath("src", "main.nupp")
-assert(source:filename() == "main.nupp")
-assert(source:stem() == "main")
-assert(source:extension() == "nupp")
-assert(assert(source:parent()):tostring() == "src")
-```
-
-`withfilename` and `withextension` replace one component. Each takes one path
-component and raises when handed text that is not one, so a separator smuggled
-into a file name is reported where it was written rather than carried into the
-path it would have produced:
-
-```nupp
-local report = io.newpath("out", "report.tmp"):withextension("json")
-assert(report:filename() == "report.json")
-```
-
-`isabsolute` and `isrelative` classify a path without accessing the filesystem.
-
-`io.open`, `io.lines`, `io.input`, and `io.output` accept a path wherever
-they accept a filename. Filesystem operations, HTTP file bodies, and child
-working directories also accept paths.
-
-## Buffers
-
-`newbuffer()` creates an empty growable buffer. A string supplies initial
-bytes; an integer reserves capacity without changing the length.
-
-```nupp
-local bytes = io.newbuffer("hello")
-bytes:setstring("!", bytes:len())
-assert(bytes:getstring() == "hello!")
-```
-
-Buffer offsets are zero-based, as they are wherever a count is an offset into
-storage rather than a position in a Lua string. See [Byte
-positions](docs/learn/runtime/data/standard-library.md#byte-positions) for the
-rule and where the other convention applies.
-
-`getstring(offset, count)` copies a range. `setstring` overwrites from an
-offset and grows the buffer as needed, filling any gap with zero bytes. `clear`
-sets the length to zero without discarding capacity, and `resize` truncates or
-zero-fills:
-
-```nupp
-local bytes = io.newbuffer("hello")
-bytes:ensure(4096)
-assert(bytes:capacity() >= 4096)
-bytes:resize(3)
-assert(bytes:getstring() == "hel")
-```
-
-Capacity is the allocation, not a recorded number. Growing at least doubles it,
-so appending through a writer costs amortized constant time per byte and
-`capacity()` reports bytes that are actually held. `ensure` reserves at
-least the minimum asked for.
-
-`close()` releases the buffer's storage and returns nothing, and an operation on
-a released buffer raises rather than answering a reason.
-
-`readspan()` borrows the buffer's initialized bytes without separating its
-pointer from its length. Native producers write through `reservewrite(offset,
-count)`: the returned lease supplies a checked writable span, and
-`commit(written)` changes the logical length only after the producer succeeds.
-Dropping the lease aborts it and leaves the length unchanged.
-
-## Byte views
-
-`view(offset, count)` returns an immutable snapshot, not a mutable alias into
-the buffer. It remains valid if the source buffer changes or closes:
-
-```nupp
-local buffer = io.newbuffer("header-body")
-local header = buffer:view(0, 6)
-buffer:clear()
-assert(header:getstring() == "header")
-header:close()
-```
-
-A view can make a smaller view, open its own snapshot reader, report its byte
-length, copy to a string, borrow a checked span with `readspan()`, and be
-closed. Its offsets are zero-based like a buffer's. The data and UTF-8 modules
-accept views, which is what keeps those APIs from being coupled to a mutable
-buffer.
-
-## Readers
-
-An `io.Reader` is a forward-only byte source. `newreader(source)` accepts a
-string, a byte queue, a buffer, or a view. Buffers and views become independent
-snapshots; queues are drained as the reader advances. A reader owns its close obligation and closes automatically at the
-end of its scope unless `close()` consumes it earlier.
-
-```nupp
-local reader = io.newreader("abcdef")
-assert(reader:read(2) == "ab")
-
-local destination = io.newbuffer()
-assert(reader:readinto(destination, 0, 3) == 3)
-assert(destination:getstring() == "cde")
-assert(reader:read(8) == "f")
-assert(reader:read(8) == "") -- EOF
-```
-
-`read(count)` requires a positive count and returns at most that many bytes. It
-returns an empty string at EOF and nil with a reason after close.
-`readspan(writable)` fills a positive-sized checked writable span.
-`readinto(buffer, offset, count)` returns zero at EOF and reads 64 KiB when
-given no count; an explicit count must be positive. A failed or EOF read does
-not extend the destination. `transferto(writer)` copies the entire remaining
-source and returns the byte count.
-
-A read moves the reader's cursor as a write moves a writer's, so all four take
-the reader exclusively. Two readers over one cursor, such as a stream and a
-borrowed view of it, cannot both be reading at once; the checker refuses the
-second while the first is live.
-
-`readall(reader, maxbytes)` takes a reader and returns everything left in it as
-one string, closing the reader on the way out. A limit is checked as the bytes
-arrive, so a source larger than it returns a reason rather than a string:
-
-```nupp
-assert(io.readall(io.newreader("whole")) == "whole")
-local text, reason = io.readall(io.newreader("too long"), 3)
-assert(text == nil and reason ~= nil)
-```
-
-## Writers
-
-`newwriter(buffer)` clears the buffer and returns a forward-only writer
-targeting it. A writer likewise closes automatically; `flush()` publishes
-pending work without consuming that ownership. The writer holds its buffer
-exclusively for as long as it is live, so the buffer is read once the writer is
-gone:
-
-```nupp
-local destination = io.newbuffer()
-do
-    local writer = io.newwriter(destination)
-    assert(writer:write("prefix:"))
-
-    local payload = io.newbuffer("body")
-    assert(writer:writespan(payload:readspan()) == 4)
-    assert(writer:flush())
-end
-assert(destination:getstring() == "prefix:body")
-```
-
-`write` returns a boolean and `writespan` returns the byte count. Both return a
-reason when the writer is closed or the destination was released. The span is
-the common zero-copy input contract for buffers, views, files, processes, and
-HTTP transfers; there is no unchecked raw-pointer writer alongside it. `flush`
-does nothing for memory. It is part of the contract because a file or socket
-buffers, and `flush` is where one reports a write that failed to land: `close`
-returns nothing, so a caller that has to know flushes first.
-
-## Lines
-
-`Reader:lines(limit)` takes its reader and separates it at `\n` and `\r\n`.
-The terminator is not returned, and a final fragment before EOF is still a
-line:
-
-```nupp
-local lines = io.newreader("one\r\ntwo\nlast"):lines()
-assert(lines:read() == "one")
-assert(lines:read() == "two")
-assert(lines:read() == "last")
-assert(lines:read() == nil) -- EOF
-```
-
-The default limit is 64 KiB. An overlong line or source failure returns nil
-with a reason. Closing or dropping the line reader closes the source it took.
-
-## Typed scalars
-
-`Reader:scalar()` and `Writer:scalar()` add fixed-width numeric operations to
-byte handles. Multi-byte values use the machine's byte order.
-
-```nupp
-local stored = io.newbuffer()
-do
-    local writer = stored:writer():scalar()
-    writer:writeuint32(1447383632):writefloat64(1.5)
-end
-local reader = stored:reader():scalar()
-assert(reader:readuint32() == 1447383632)
-assert(reader:readfloat64() == 1.5)
-assert(reader:atend())
-```
-
-The scalar adapter takes its byte handle and closes it when dropped or closed.
-A short scalar read raises. Writes return the scalar writer so calls chain.
-
-### Scalar sources
-
-Create a byte reader over a string, buffer, view, or queue, then adapt it:
-
-```nupp
-local reader = io.newreader("\1\2\3\4"):scalar()
-assert(reader:remaining() == 4)
-```
-
-`remaining()` reports the bytes left in built-in string and queue readers,
-including bytes buffered by the adapter. Open-ended readers return nil.
-`atend()` checks whether a scalar reader has reached the end.
-
-### Scalar destinations
-
-A scalar writer writes at its byte writer's current position. Creating a
-buffer writer clears the buffer; adapting that writer preserves its position.
-The caller retains the buffer and reads it after the writer is dropped:
-
-```nupp
-local destination = io.newbuffer()
-do
-    local writer = destination:writer():scalar()
-    writer:writeuint8(33)
-end
-assert(destination:getstring() == "!")
-```
-
 ## Failures
 
-The files, process, network, TLS and HTTP modules return a failure from the
-environment as `nil, err`, where `err` is a [](io.Error): a `kind` a
-program can branch on and a `message` a person can read. The kind is the same on
-every platform and provider, so a missing file is `"notfound"` whether the
-operating system or the browser said so; the message is whatever the platform
-said and is not.
+Filesystem path operations and network, TLS, and HTTP operations return
+[](io.Error) values for environmental failures. An error carries a portable
+`kind` and the platform's `message`:
 
 ```nupp
-local text, err = io.files.read("settings.json")
-if text == nil and err ~= nil and err.kind == "notfound" then
-    text = "{}"
+local info, err = io.files.info("settings.json")
+if info == nil and err ~= nil and err.kind == "notfound" then
+    print("No settings file")
 end
 ```
 
-An error prints as its message, and joins text the same way, so
-`assert(files.read(path))` and `print("cannot read: " .. err)` read as they
-would with a string. The reads and writes of the `Reader` and `Writer` contracts
-are the exception: their reason stays a string, the same message, because a
-buffer or a string reader returns through the same contract.
-
-## Byte queues
-
-A [](string.buffer) FIFO is a byte queue: `put` appends to the back
-and `get` consumes from the front. `io.newreader(queue):scalar()` adapts one, so
-bytes assembled there are read without copying everything in it first, and the
-queue's own `get` stays usable over the same bytes.
-
-```nupp
-local queue = string.buffer.new()
-queue:put("header:")
-queue:put("!")
-
-local reader = io.newreader(queue):scalar()
-assert(reader:readbytes(7) == "header:")
-assert(queue:tostring() == "!")
-assert(reader:readuint8() == 33)
-```
-
-Reading drains the queue, and `remaining()` reports what it still holds.
-`newreader` is the same bridge one layer down: it returns an ordinary
-`Reader` over the queue, for `transferto`, `readinto`, and everything else that
-contract already covers.
-
-```nupp
-local destination = io.newbuffer()
-local queue = string.buffer.new()
-queue:put("payload")
-do
-    local reader = io.newreader(queue)
-    assert(reader:transferto(destination:writer()) == 7)
-end
-assert(destination:getstring() == "payload")
-```
-
-Neither takes the queue over. Nothing here frees or closes it, and one read to
-empty leaves an empty queue rather than a released one.
-
-::: seealso
-- [](io.files) for the same contracts over a file on disk
-- [ownership.md](docs/learn/runtime/ownership/borrowing.md) for the complete
-  contract every owned value here follows
-- [standard-library.md](docs/learn/runtime/data/standard-library.md) for the
-  errors, ownership, and byte-position conventions every facility shares
-:::
+An error prints as its message and joins text the same way.
+`io.open`, `io.popen`, `os.remove`, `os.rename`, Lua File methods, and the
+byte-stream contracts return string reasons. Process controls such as `communicate` retain structured
+errors.
 ]]
 
 --- @namespace io
@@ -413,6 +65,7 @@ export const Bytes = immutable.Bytes
 
 local source1 = require("nupp.io")
 const {type Path as NativePath} = require("io.internal.path")
+const {type AppPath} = require("io.files")
 local uriTypes = require("io.internal.uritypes")
 
 --- An immutable absolute URI with normalized components.
@@ -425,11 +78,127 @@ export const URI = uriTypes.URI
 --- @return whether it is a URI
 export const isuri = uriTypes.isuri
 
---- An immutable filesystem path. Build one with `io.newpath`.
+--- An immutable filesystem path with platform-specific joining and splitting.
+---
+--- Reach for it when a program builds a filesystem name or takes one apart,
+--- rather than when it reads the bytes behind one.
+---
+--- ```nupp
+--- local source = io.newpath("src", "app", "..", "main.nupp"):normalize()
+--- assert(source:tostring() == "src" .. io.sep() .. "main.nupp")
+--- assert(source:filename() == "main.nupp")
+--- ```
+---
+--- Path transformations leave the original unchanged. Two paths are equal when
+--- their native text is. `tostring(path)` and `path:tostring()` return that
+--- same text.
+---
+--- #### Building a path
+---
+--- `io.newpath(first, parts...)` joins its components using the current
+--- platform's rules. `join` appends more to a path already built, and both
+--- accept a string or another path. `Path` has no public constructor; creation
+--- goes through `newpath`, which interns recent paths in a bounded LRU cache.
+---
+--- ```nupp
+--- local native = io.newpath("out"):join("lib", "native")
+--- assert(native:filename() == "native")
+--- ```
+---
+--- `io.cwd()` returns the current working directory, and `io.sep()` returns the
+--- platform's primary path separator:
+---
+--- ```nupp
+--- local current, reason = io.cwd()
+--- assert(current, reason)
+--- local log = current:join("var", "app.log"):withextension("jsonl")
+--- assert(log:extension() == "jsonl")
+--- ```
+---
+--- #### Normalizing and resolving
+---
+--- `normalize` removes lexical `.` and `..` components without touching the
+--- filesystem, so it returns even for a path that does not exist:
+---
+--- ```nupp
+--- assert(io.newpath("src", "app", "..", "main.nupp"):normalize():stem() == "main")
+--- ```
+---
+--- The operations that consult the process or filesystem can fail, as can a
+--- relative path whose base uses a different coordinate system. Each returns
+--- nil with a reason when it does.
+---
+--- - `absolute()` resolves the path against the process's working directory. A
+---   drive-relative Windows path fails when that directory uses another drive.
+--- - `resolve(parts...)` makes it absolute, appends the parts, and normalizes.
+--- - `canonicalize()` asks the filesystem for the real path, following every
+---   symbolic link, which requires the path to exist.
+--- - `relativeto(base)` expresses the path against another one, when both share a
+---   coordinate system. A path expressed against itself returns `.`, the path
+---   that stays where the base already is.
+---
+--- ```nupp
+--- local real, reason = io.newpath("."):canonicalize()
+--- assert(real, reason)
+--- assert(real:isabsolute())
+--- ```
+---
+--- #### Path components
+---
+--- `parent` returns another path or nil. `filename`, `stem` and `extension`
+--- return the final component, that component without its extension, and the
+--- extension without its dot:
+---
+--- ```nupp
+--- local source = io.newpath("src", "main.nupp")
+--- assert(source:filename() == "main.nupp")
+--- assert(source:stem() == "main")
+--- assert(source:extension() == "nupp")
+--- assert(assert(source:parent()):tostring() == "src")
+--- ```
+---
+--- `withfilename` and `withextension` replace one component. Each takes one
+--- path component and raises when handed text that is not one, so a separator
+--- smuggled into a file name is reported where it was written rather than
+--- carried into the path it would have produced:
+---
+--- ```nupp
+--- local report = io.newpath("out", "report.tmp"):withextension("json")
+--- assert(report:filename() == "report.json")
+--- ```
+---
+--- `isabsolute` and `isrelative` classify a path without accessing the
+--- filesystem.
+---
+--- `io.open`, `io.lines`, `io.input`, and `io.output` accept a path wherever
+--- they accept a filename. Filesystem operations, HTTP file bodies, and child
+--- working directories also accept paths.
 export type Path = NativePath
 
---- A Lua stream handle returned by `io.open` and `io.popen`.
+--- A file handle with Lua methods and borrowed byte-stream views.
+---
+--- `reader` and `writer` share its cursor and must close before the file. Native
+--- files retain Lua userdata handles. Browser app files can suspend while
+--- reading, writing, or seeking; close does not suspend. Browser writes are
+--- unbuffered, and `setvbuf` refuses other buffering modes.
 export type File = io.File
+
+--- Supplies the borrowed byte-stream methods of `File`.
+export interface FileMethods
+    --- Borrows the shared file cursor through a byte reader.
+    ---
+    --- Closing the view leaves the file open. The view cannot outlive the file.
+    --- @param self the file to borrow exclusively
+    --- @return the byte reader, borrowing the file
+    reader: function(exclusive self: io.File): affine(source1.Reader) borrows (self)
+
+    --- Borrows the shared file cursor through a byte writer.
+    ---
+    --- Closing the view leaves the file open. The view cannot outlive the file.
+    --- @param self the file to borrow exclusively
+    --- @return the byte writer, borrowing the file
+    writer: function(exclusive self: io.File): affine(source1.Writer) borrows (self)
+end
 
 export type Buffer = source1.Buffer
 export type BufferWriteLease = source1.BufferWriteLease
@@ -446,6 +215,9 @@ export type ScalarReader = source1.ScalarReader
 export type ScalarWriter = source1.ScalarWriter
 
 --- Scalar reads and writes over one byte handle.
+---
+--- See [](io.ScalarReader) and [](io.ScalarWriter) for the numeric operations
+--- and ownership contract.
 export type ScalarStream = source1.ScalarStream
 
 export type Writer = source1.Writer
@@ -460,16 +232,38 @@ export const newwriter = source1.newWriter
 export const readall = source1.readAll
 
 const {type Process as ChildProcess} = require("io.internal.process")
-local processTypes = require("io.internal.process.types")
 
 export type Process = ChildProcess
 
 local original: any = rawget(_G, "io")
-local luaPopen = original.popen
 local luaOpen = original.open
 local luaLines = original.lines
 local luaInput = original.input
 local luaOutput = original.output
+local luaClose = original.close
+local luaType = original.type
+local luaRead = original.read
+local luaWrite = original.write
+local luaFlush = original.flush
+local processInput: any = nil
+local processOutput: any = nil
+
+local function fileHandle(value: any): any
+    local handles: any = rawget(_G, "__nuppProcessHandles")
+    if handles and handles[value] then
+        return handles[value]
+    end
+    local files: any = rawget(_G, "__nuppFileHandles")
+
+    return files and files[value] or nil
+end
+
+local function requireOpenFile(value: any): nil
+    local child = fileHandle(value)
+    if child and child.state.reaped then
+        error("attempt to use a closed file", 3)
+    end
+end
 
 const _URI_REQUIRES = "@requires-dynamically io.internal.uri"
 local uris: any = nil
@@ -553,46 +347,149 @@ local function filename(value: any): any
     return value
 end
 
+const _FILE_VIEWS_REQUIRES = "@requires-dynamically io.internal.fileviews"
+const _PORTABLE_FILE_REQUIRES = "@requires-dynamically io.internal.portablefile"
+local fileViews: any = nil
+
+local function views(): any
+    if fileViews == nil then
+        fileViews = require("io.internal.fileviews")
+    end
+    return fileViews
+end
+
+local function fileReader(file: any): any
+    return views().reader(file)
+end
+
+local function fileWriter(file: any): any
+    return views().writer(file)
+end
+
+local function decorateFile(file: any): any
+    if file ~= nil then
+        local meta: any = getmetatable(file)
+        if meta ~= nil and type(meta.__index) == "table" then
+            meta.__index.reader = fileReader
+            meta.__index.writer = fileWriter
+        end
+    end
+
+    return file
+end
+
 local function openFile(path: any, mode: any): ...any
-    return luaOpen(filename(path), mode)
+    if rawget(_G, "__nuppBrowser") ~= nil then
+        return require("io.internal.portablefile").open(path, mode)
+    end
+    local file, reason, code = luaOpen(filename(path), mode)
+
+    return decorateFile(file), reason, code
 end
 
 local function fileLines(path: any, ...: any): ...any
+    if path == nil and processInput ~= nil then
+        return processInput:lines(...)
+    end
+    if rawget(_G, "__nuppBrowser") ~= nil and path ~= nil then
+        local file, reason = openFile(path, "r")
+        if file == nil then
+            error(reason, 2)
+        end
+        local iter = file:lines(...)
+
+        local function nextLine(ok: boolean, ...: any): ...any
+            if not ok or select(1, ...) == nil then
+                if original.type(file) ~= "closed file" then
+                    file:close()
+                end
+            end
+            if not ok then
+                error((...), 0)
+            end
+
+            return ...
+        end
+
+        return function(): ...any
+            return nextLine(pcall(iter))
+        end
+    end
+
     return luaLines(filename(path), ...)
 end
 
 local function inputFile(file: any): any
-    return luaInput(filename(file))
+    if file == nil then
+        return processInput or luaInput()
+    end
+    if fileHandle(file) then
+        requireOpenFile(file)
+        processInput = file
+        return file
+    end
+    local result = luaInput(filename(file))
+    processInput = nil
+
+    return result
 end
 
 local function outputFile(file: any): any
-    return luaOutput(filename(file))
+    if file == nil then
+        return processOutput or luaOutput()
+    end
+    if fileHandle(file) then
+        requireOpenFile(file)
+        processOutput = file
+        return file
+    end
+    local result = luaOutput(filename(file))
+    processOutput = nil
+
+    return result
 end
 
 --- Opens a file from a filename or path using Lua file modes.
---- @param path the file to open
+---
+--- ```nupp
+--- local path = io.newpath("README.md")
+--- local file = assert(io.open(path, "r"))
+--- print(file:read("*a"))
+--- ```
+---
+--- Native hosts accept a filename or `io.Path`; browser hosts accept an app path
+--- from [](io.files). Byte-stream views from `reader` and `writer` share the file
+--- cursor and borrow its lifetime. Closing a view leaves the file open.
+---
+--- @param path the filename, native path, or browser app path to open
 --- @param mode the mode to open it in, "r" by default
 --- @return the owned file handle, or nil on failure
 --- @return a failure reason, when unsuccessful
 export const open = openFile as function(
-    path: string | Path,
+    path: string | Path | AppPath,
     mode: string?
 ): (affine(io.File, __nuppCloseFile)?, string?)
 
 --- Iterates over a named file, closing it at EOF, or reads the default input.
+---
+--- Browser app files may suspend between lines. Named files close at EOF or
+--- a read error. Use `File:reader():lines(limit)` for bounded, owned line reads.
 --- @param path the filename or path, or nil for the default input
---- @return an iterator yielding one line at a time
-export const lines = fileLines as function(path: (string | Path)?): @nosuspend function(): string?
+--- @param format the first Lua read format, when supplied
+--- @param ... the remaining Lua read formats
+--- @return an iterator yielding the selected read formats
+export const lines = fileLines as(function(path: (string | Path | AppPath)?): function(): string?)
+    & (function(path: (string | Path | AppPath)?, format: string | number, ...: any): function(): ...any)
 
 --- Returns or sets the default input file.
 --- @param file a file handle, filename, or path, or nil to return the current file
 --- @return the default input file
-export const input = inputFile as function(file: (io.File | string | Path)?): io.File
+export const input = inputFile as function(file: (File | string | Path)?): File
 
 --- Returns or sets the default output file.
 --- @param file a file handle, filename, or path, or nil to return the current file
 --- @return the default output file
-export const output = outputFile as function(file: (io.File | string | Path)?): io.File
+export const output = outputFile as function(file: (File | string | Path)?): File
 
 const _DYNAMIC_REQUIRES = "@requires-dynamically io.internal.process"
 
@@ -607,23 +504,92 @@ local function processImplementation(name: string): any
     return implementation
 end
 
-local function openProcess(command: any, ...: any): ...any
-    if type(command) == "table" then
-        local implementation = processImplementation("io.internal.process")
-        return implementation.spawn(command)
-    end
-
-    return luaPopen(command, ...)
+local function openProcess(command: any, options: any): ...any
+    local implementation = processImplementation("io.internal.process")
+    return implementation.spawn(command, options)
 end
 
---- Starts a child from an argument vector or opens a Lua shell pipe.
+--- Starts a shell command or argument vector and returns an owned process.
 ---
---- A table supplies process options and returns an owned process. A command string
---- follows Lua's `io.popen` behavior and returns an owned file handle.
-export const popen = openProcess as(
-    function(options: processTypes.Options): (affine(Process)?, Error?)
-    & function(cmd: string, mode: string?): (affine(io.File, __nuppCloseFile)?, string?)
-)
+--- A string invokes the shell; an argument array starts its first entry directly.
+--- The second argument accepts Lua's "r" or "w" pipe mode, or process options.
+--- The default reads stdout, inherits stdin, and inherits stderr. Set `stdin`
+--- and `stderr` to "pipe" for a complete duplex exchange with `communicate`.
+--- Set `mode` in an options table to choose the same file profile with other
+--- controls. On Windows, "r" and "w" translate text; "rb" and "wb" preserve
+--- bytes. Explicit byte streams and `communicate` always transfer raw bytes.
+---
+--- ```nupp
+--- local child = assert(io.popen({"git", "status", "--short"}, {
+---     cwd = assert(io.cwd()),
+---     stderr = "pipe",
+---     timeoutms = 5000,
+--- }))
+--- local result = assert(child:communicate())
+--- print(result.output)
+--- ```
+---
+--- Existing Lua calls keep file operations on the same process object:
+---
+--- ```nupp
+--- local pipe = assert(io.popen("git status --short", "r"))
+--- print(pipe:read("*a"))
+--- local ok, reason, code = pipe:close()
+--- ```
+---
+--- `read` and `lines` read stdout; `write`, `flush`, and `setvbuf` write stdin.
+--- Explicit `close` closes the pipes and waits normally without suspending. Dropping an
+--- unfinished owner terminates and reaps it. See [](io.Process) for process controls.
+---
+--- @param command the shell command or program and arguments
+--- @param options a process options table or Lua pipe mode, "r" by default
+--- @return the owned process on success
+--- @return the failure message when the child could not be started
+--- @return the operating-system error code, when available
+export const popen = openProcess as function(
+    command: string | {string},
+    options: (Process.Options | string)?
+): (affine(Process)?, string?, integer?)
+
+local function closeFile(value: any): ...any
+    local selected = value or processOutput
+    if fileHandle(selected) then
+        return selected:close()
+    end
+
+    return luaClose(value)
+end
+
+local function fileType(...: any): any
+    local value: any = (...)
+    local child = fileHandle(value)
+    if child then
+        return child.state.reaped and "closed file" or "file"
+    end
+
+    return luaType(...)
+end
+
+local function readFile(...: any): ...any
+    if processInput ~= nil then
+        return processInput:read(...)
+    end
+    return luaRead(...)
+end
+
+local function writeFile(...: any): ...any
+    if processOutput ~= nil then
+        return processOutput:write(...)
+    end
+    return luaWrite(...)
+end
+
+local function flushFile(): ...any
+    if processOutput ~= nil then
+        return processOutput:flush()
+    end
+    return luaFlush()
+end
 
 --- @internal
 export const value: table = do
@@ -646,6 +612,14 @@ export const value: table = do
     original.newreader = newreader
     original.newwriter = newwriter
     original.readall = readall
+    decorateFile(original.stdin)
+    decorateFile(original.stdout)
+    decorateFile(original.stderr)
     original.popen = popen
+    original.close = closeFile
+    original.type = fileType
+    original.read = readFile
+    original.write = writeFile
+    original.flush = flushFile
     yield original
 end

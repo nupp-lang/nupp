@@ -955,29 +955,6 @@ owning orchestration. What it shares with the compiler stays in
 `nupp.compiler`: `hash` owns cache digests, `fingerprint` the stamps they are
 kept under, and `process` argv-based subprocess execution.
 
-## FAQ
-
-### Why does the build compile a module nothing requires?
-
-Because the source set is what a project is written in, and a module left out
-of the build is a module nothing checked. See [Source sets](#source-sets) for
-what the alternative costs.
-
-### Why did one edit rebuild the whole project?
-
-An edit to an exported type declaration invalidates the project index, where an
-edit to a function body invalidates one module. `nupp check --json` reports
-`timing.compiledModules` and `timing.slowest`, so a run says how much it redid
-rather than leaving that to be inferred from how long it took.
-
-### Can a binary carry a native library?
-
-No. A binary carries its program image and resources, not a shared library. The
-libraries a C or Rust dependency builds are copied beside it and ship with it;
-the native facilities Nupp itself provides are linked into the runtime it is
-stamped onto. See [distribution.md](../../reference/distribution.md#limits) for
-the whole boundary.
-
 ::: seealso
 - [cli.md](../../reference/cli.md#build) for every flag `nupp build` takes
 - [tasks.md](project-tasks.md) for named tasks and the environment they run in

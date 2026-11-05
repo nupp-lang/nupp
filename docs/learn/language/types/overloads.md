@@ -490,29 +490,6 @@ That dispatcher exists because the program asked for a dynamic facade. Typed
 method calls do not pay for it. See [Escape hatches](index.md#escape-hatches)
 for the rest of what crosses that boundary.
 
-## FAQ
-
-### Why is my call ambiguous when one signature is more specific?
-
-Nupp has no best-match ranking, so `integer` does not beat `number` and
-declaration order does not break the tie. Narrow the argument with a cast, or
-give the entries parameter packs that do not overlap. See [Callable
-intersections](#callable-intersections) for the selection rule.
-
-### Can untyped Lua call an overloaded method?
-
-No. Each entry lives in a hidden slot rather than under the source name, so an
-untyped caller has nothing to index. Export a facade that decides at run time.
-See [Facades for untyped callers](#facades-for-untyped-callers) for the shape
-one takes.
-
-### Can two overloads differ only by return type?
-
-No, that is reported as a duplicate. The call has to pick a body before there is
-a result
-to compare, so only parameter packs take part in selection. See [Parameter
-packs select the entry](#parameter-packs-select-the-entry).
-
 ::: seealso
 - [intersections.md](intersections.md) for the intersection relation a callable
   contract is written in, and for provable emptiness

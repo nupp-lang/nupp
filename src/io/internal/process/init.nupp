@@ -4,7 +4,7 @@
 Starts a child process and drains its streams without deadlocking.
 
 ```nupp
-local child = assert(io.popen({args = {"cc", "--version"}}))
+local child = assert(io.popen({"cc", "--version"}))
 local result = assert(child:communicate())
 print(result.output)
 child:close()
@@ -14,9 +14,9 @@ child:close()
 other acquisition of an operating-system resource does, and raises only for
 options that could never describe a child.
 
-A child and its streams are owners. See
-[ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract they are handed
-out under.
+The child owns its pipes. `asreader` and `aswriter` return borrowed views whose
+lifetimes are bounded by their stream. See
+[ownership.md](docs/learn/runtime/ownership/borrowing.md) for the contract.
 ]]
 module io.internal.process
 
@@ -24,7 +24,7 @@ const assert2 = require("assert")
 
 local target = require("nupp.runtime.target")
 
-const io = require("nupp.io")
+const byteio = require("nupp.io")
 const {type Reader as Reader2} = require("nupp.io")
 const {type Buffer} = require("nupp.io")
 const {type Writer as Writer2} = require("nupp.io")
@@ -40,6 +40,7 @@ local provider: contract.Provider = do
     yield _G.require("nupp.runtime.provider.nativeprocess") as contract.Provider
 end
 local process = {}
+local file = require("io.internal.fileformat")
 const shared = require("io.internal.process.types")
 
 ----------------------------------------------------------------------------
@@ -98,7 +99,7 @@ local progressed, releasePump, await, pumpOnce
 -- Typed where it is declared, because `communicate` hands it a local function that
 -- borrows the child's streams, and a borrow may not cross an untyped call.
 local awaitTick: function(self: any, operation: string, scoped interest: function(): shared.Interest): nil
-local validateOptions: function(options: process.Options): nil
+local validateOptions: function(options: shared.SpawnOptions): nil
 local releaseStream: function(borrows stream: process.Reader | process.Writer | nil): nil
 
 --- One of a child's readable streams.
@@ -108,7 +109,7 @@ local releaseStream: function(borrows stream: process.Reader | process.Writer | 
 --- on one is exactly what starves the others, which is the whole reason
 --- `communicate` can drain three pipes without deadlocking.
 ---
---- `read` is the `nupp.io.Reader` operation and waits as long as the stream stays
+--- `read` is the `io.Reader` operation and waits as long as the stream stays
 --- open: the child's deadline in `Options.timeoutms`, and the enclosing task scope's
 --- deadline, are what bound it. `poll` is the concrete nonblocking operation the
 --- combined drain needs; generic readers are not widened with readiness operations.
@@ -121,11 +122,14 @@ local releaseStream: function(borrows stream: process.Reader | process.Writer | 
 ---
 --- Borrowing the record through `asreader` keeps a single owner and makes its lifetime
 --- a question about Nupp values, which the checker can answer.
-record process.Reader is io.Reader
+record process.Reader is byteio.Reader
     @private owner: any
     @private handle: any
     @private closed: boolean
     @private eof: boolean
+    @private pending: string
+
+    @private unread: function(self: process.Reader, bytes: string): nil
 
     --- Takes what a stream has without waiting, as `poll` returns it: the
     --- bytes, or nil and whether the stream has ended. Shared by every read, so
@@ -137,7 +141,7 @@ record process.Reader is io.Reader
     --- or this end has been closed. A read returns empty exactly when this is
     --- true.
     function isended(self): boolean
-        return self.closed or self.eof
+        return self.closed or self.eof and #self.pending == 0
     end
 
     --- Whether this end has been closed.
@@ -316,8 +320,8 @@ end
 --- `offer` is the nonblocking half, for the same reason the reader has `poll`: the
 --- prelude's `io.Writer.write` writes the whole value, which a drain loop serving
 --- three pipes cannot afford to wait for. The completion-oriented `write` remains the
---- ordinary `nupp.io.Writer` operation; `offer` is concrete and additional.
-record process.Writer is io.Writer
+--- ordinary `io.Writer` operation; `offer` is concrete and additional.
+record process.Writer is byteio.Writer
     @private owner: any
     @private handle: any
     @private closed: boolean
@@ -327,6 +331,10 @@ record process.Writer is io.Writer
     --- reading the far end any more. A broken pipe sets only `gone`, because this end
     --- is still ours to close.
     @private gone: boolean
+
+    @private filepending: string
+    @private filemode: string
+    @private filesize: integer
 
     --- Whether the far end has gone, so that no amount of waiting will deliver another
     --- byte, or this end has been closed.
@@ -345,6 +353,15 @@ record process.Writer is io.Writer
     function offer(self, data: string): integer
         if self.closed or self.gone or #data == 0 then
             return 0
+        end
+        if #self.filepending > 0 then
+            local pending = self.filepending
+            self.filepending = ""
+            local accepted = self:offer(pending)
+            self.filepending = pending:sub(accepted + 1) .. self.filepending
+            if #self.filepending > 0 or self.gone then
+                return 0
+            end
         end
         local sent, gone = self.owner.backend:write(self.handle, data)
         if type(sent) ~= "number" or sent < 0 or sent > #data or sent ~= math.floor(sent) then
@@ -442,6 +459,8 @@ record process.Writer is io.Writer
         if self.gone then
             return false, "the child is no longer reading this stream"
         end
+        bytes = self.filepending .. bytes
+        self.filepending = ""
         local ok, sent = pcall(function(): integer
             return self:send(bytes)
         end)
@@ -476,6 +495,10 @@ record process.Writer is io.Writer
             return false, "the child is no longer reading this stream"
         end
 
+        if #self.filepending > 0 then
+            return self:write("")
+        end
+
         return true
     end
 
@@ -490,11 +513,28 @@ record process.Writer is io.Writer
     --- is told there is no more input.
     --- @raises string when the platform reported a problem, released or not
     function close(takes self): nil
+        if self.closed then
+            return
+        end
+        local ok, reason = self:flush()
         releaseStream(self)
+        if not ok then
+            error(reason, 0)
+        end
     end
 end
 
+function process.Reader.unread(self: process.Reader, bytes: string): nil
+    self.pending = bytes .. self.pending
+    self.eof = false
+end
+
 function process.Reader.takeNow(self: process.Reader, wanted: integer): (string?, boolean)
+    if not self.closed and #self.pending > 0 then
+        local result = self.pending:sub(1, wanted)
+        self.pending = self.pending:sub(#result + 1)
+        return result, false
+    end
     if self.closed or self.eof then
         return nil, true
     end
@@ -596,14 +636,37 @@ local record Child
 
     --- Whether the deadline is what ended it, remembered so the exit can say so.
     timedOut: boolean
+
+    forceBlocking: boolean
+    filetext: boolean
+    filetexteof: boolean
+    file: any
 end
 
---- A running child, and the obligation to end it.
+-- Lua file iterators and close do not suspend their caller. Process controls
+-- and byte-stream operations keep the scheduler-aware path.
+local function blockingFileCall(state: any, operation: any, ...: any): ...any
+    local previous = state.forceBlocking
+    state.forceBlocking = true
+
+    local function finish(ok: boolean, ...: any): ...any
+        state.forceBlocking = previous
+        if not ok then
+            error((...), 0)
+        end
+
+        return ...
+    end
+
+    return finish(pcall(operation, ...))
+end
+
+--- A running child with Lua file operations and process controls.
 ---
---- The child is an owner: closing it ends the process, waits for the exit, and
---- releases every stream, and the same runs when its scope ends. Reading a stream
---- or waiting for the exit suspends, so a caller under a scheduler keeps its frame.
-record process.Process is own.Closeable
+--- Explicit `close` closes its pipes and waits for normal completion. Dropping
+--- an unfinished owner terminates and reaps it. Reading a stream or waiting
+--- suspends under a scheduler.
+record process.Process is io.File, own.Affine<self._drop>
     --- Options for starting a child process.
     type Options = shared.Options
 
@@ -645,6 +708,63 @@ record process.Process is own.Closeable
     --- Its standard error, when it was piped.
     stderr: process.Reader?
 
+    --- Borrows stdout through the shared byte-reader contract.
+    function reader(exclusive self): affine(Reader2) borrows (self)
+        local create: function(
+            exclusive file: any
+        ): affine(Reader2) borrows (file) = require("io.internal.fileviews").reader
+        return create(self)
+    end
+
+    --- Borrows stdin through the shared byte-writer contract.
+    function writer(exclusive self): affine(Writer2) borrows (self)
+        local create: function(
+            exclusive file: any
+        ): affine(Writer2) borrows (file) = require("io.internal.fileviews").writer
+        return create(self)
+    end
+
+    --- Reads stdout using Lua file formats and EOF conventions.
+    function read(self, ...: any): ...any
+        return file.read(self, ...)
+    end
+
+    --- Iterates over stdout using Lua file formats.
+    --- The iterator blocks like a Lua file iterator. Use `stdout:read` or
+    --- `communicate` for reads that suspend under a scheduler.
+    function lines(self, ...: any): @nosuspend function(): any
+        local nextline = file.lines(self, ...)
+        local state = self.state
+
+        local function iterate(): ...any
+            return blockingFileCall(state, nextline)
+        end
+
+        -- The transport stays on its blocking path for every iterator step.
+
+        return iterate as any
+    end
+
+    --- Writes strings and numbers to stdin and returns this process.
+    function write(self, ...: any): (io.File?, string?)
+        return file.write(self, ...)
+    end
+
+    --- Flushes buffered writes to stdin.
+    function flush(self): (boolean?, string?)
+        return file.flush(self)
+    end
+
+    --- Reports that a process pipe cannot seek.
+    function seek(self, whence: string?, offset: number?): (number?, string?)
+        return file.seek(self, whence, offset)
+    end
+
+    --- Sets buffering for the process's writable pipe.
+    function setvbuf(self, mode: string, size: number?): (boolean?, string?)
+        return file.setvbuf(self, mode, size)
+    end
+
     --- Whether it is still running, enforcing an elapsed process deadline first.
     function isrunning(self): boolean
         if self.state.exit ~= nil then
@@ -683,7 +803,7 @@ record process.Process is own.Closeable
     --- Asks the direct child to end; `force` insists. Descendants keep their
     --- ordinary operating-system lifetime. Returns whether the request was
     --- made.
-    function kill(self, force: boolean?): (boolean, io.Error?)
+    function kill(self, force: boolean?): (boolean, byteio.Error?)
         if self.state.exit ~= nil then
             return true
         end
@@ -691,7 +811,7 @@ record process.Process is own.Closeable
             self.state.backend:kill(self.state.handle, force == true)
         end)
         if not ok then
-            return false, io.toError(problem == nil and "the process could not be terminated" or tostring(problem))
+            return false, byteio.toError(problem == nil and "the process could not be terminated" or tostring(problem))
         end
 
         return true
@@ -703,7 +823,7 @@ record process.Process is own.Closeable
     ---
     --- One combined step per pass: offer some input, take whatever each output has,
     --- suspend only when none of the three moved.
-    function communicate(self, options: process.CommunicateOptions?): (process.Result?, io.Error?)
+    function communicate(self, options: process.CommunicateOptions?): (process.Result?, byteio.Error?)
         local ok, answer = pcall(function(): process.Result
             local given = options or {}
             local input = given.input
@@ -727,6 +847,10 @@ record process.Process is own.Closeable
             local stdin = own.borrow(self.stdin)
             local stdout = own.borrow(self.stdout)
             local stderr = own.borrow(self.stderr)
+            if stdin ~= nil and not stdin.closed then
+                pending = stdin.filepending .. pending
+                stdin.filepending = ""
+            end
             local sent = 0
             local out, err = {}, {}
             local outputBytes = 0
@@ -846,7 +970,7 @@ record process.Process is own.Closeable
             return new process.Result(output = table.concat(out), erroroutput = table.concat(err), exit = self:wait())
         end)
         if not ok then
-            return nil, io.toError(
+            return nil, byteio.toError(
                 answer == nil and "process communication failed without saying why" or tostring(answer)
             )
         end
@@ -859,29 +983,66 @@ record process.Process is own.Closeable
     --- could not finish leaves each piece's own flag, and the next call skips whatever
     --- is already given back.
     --- @raises string when closing a stream or releasing the child fails
-    @private teardown: function(self: process.Process): nil
+    @private teardown: function(borrows self: process.Process): nil
 
-    --- Closes every stream, ends the child if it is still running, waits for it to
-    --- actually finish, and releases it. What runs when the owner leaves its scope.
-    ---
-    --- Every step is attempted, and the first failure is raised once all of them
-    --- have been: a close that stopped at the first would leave the rest held.
-    --- @raises string when closing a stream or releasing the child fails
-    function close(takes self): nil
-        self:teardown()
-        if self.stdin ~= nil then
-            self.stdin:close()
-        end
-        if self.stdout ~= nil then
-            self.stdout:close()
-        end
-        if self.stderr ~= nil then
-            self.stderr:close()
-        end
+    --- Closes the pipes and waits for normal child completion, as Lua popen does.
+    --- @raises string when the process is already closed
+    --- @return whether the child exited successfully
+    --- @return "exit" or "signal", or an I/O failure message
+    --- @return the exit status or signal number
+    function close(self): (boolean?, string?, integer?)
+        return blockingFileCall(self.state, process.Process.closeFile, self)
+    end
+
+    @private closeFile: function(borrows self: process.Process): (boolean?, string?, integer?)
+
+    @private _drop: function(takes self: process.Process): nil
+end
+
+function process.Process.closeFile(borrows self: process.Process): (boolean?, string?, integer?)
+    if self.state.reaped then
+        error("attempt to use a closed file", 2)
+    end
+    local ok, reason = true, nil
+    if self.stdin ~= nil and not self.stdin.closed then
+        ok, reason = self:flush()
+    end
+    if self.stdin ~= nil then
+        releaseStream(self.stdin)
+    end
+    if self.stdout ~= nil then
+        releaseStream(self.stdout)
+    end
+    if self.stderr ~= nil then
+        releaseStream(self.stderr)
+    end
+    local ended = self:wait()
+    self:teardown()
+    if not ok then
+        return nil, reason
+    end
+    local signal = ended.signal
+    if signal ~= nil or ended.killed then
+        return nil, "signal", signal
+    end
+
+    return ended.exitcode == 0 and true or nil, "exit", ended.exitcode
+end
+
+function process.Process._drop(takes self: process.Process): nil
+    self:teardown()
+    if self.stdin ~= nil then
+        self.stdin:close()
+    end
+    if self.stdout ~= nil then
+        self.stdout:close()
+    end
+    if self.stderr ~= nil then
+        self.stderr:close()
     end
 end
 
-function process.Process.teardown(self: process.Process): nil
+function process.Process.teardown(borrows self: process.Process): nil
     local state = self.state
     if state.reaped then
         return
@@ -896,7 +1057,7 @@ function process.Process.teardown(self: process.Process): nil
             return
         end
 
-        if not suspension.handled() then
+        if state.forceBlocking or not suspension.handled() then
             -- Another coroutine, and nothing to schedule it back. The teardown
             -- holding this child belongs to a frame that is somewhere below this
             -- one on the stack, since it can only have got here by being resumed
@@ -943,7 +1104,7 @@ function process.Process.teardown(self: process.Process): nil
     -- rather than through this, because it alone has release state worth reading.
     local firstError: any = nil
 
-    local function attempt(step: function(): nil): nil
+    local function attempt(borrows step: function(): nil): nil
         local ok, raised = pcall(step)
         if not ok and firstError == nil then
             -- `error(nil)` is a real thing a broken backend can do, and it arrives
@@ -1043,6 +1204,9 @@ function process.Process.teardown(self: process.Process): nil
         and (self.stderr == nil or self.stderr.closed)
         and state.pump == nil
         and state.childReleased
+    if state.reaped then
+        state.file = nil
+    end
     if firstError ~= nil then
         error(firstError, 0)
     end
@@ -1102,9 +1266,20 @@ local function ensurePump(self: any): nil
     if self.pump ~= nil then
         return
     end
-    self.pump = suspension.source("io.internal.process", 50, function(): integer
-        return pumpOnce(self)
+    -- A registration must not keep an abandoned Lua file owner alive. Active
+    -- waits and exposed streams retain the child; the global pump does not.
+    local owner: any = setmetatable({self}, {__mode = "v"})
+    local source: any = nil
+    source = suspension.source("io.internal.process", 50, function(): integer
+        local child = owner[1]
+        if child == nil then
+            source:release()
+            return 0
+        end
+
+        return pumpOnce(child)
     end)
+    self.pump = source
 end
 
 releasePump = function(self: any): nil
@@ -1158,7 +1333,7 @@ local function blockOnce(self: any, interest: shared.Interest, stopAt: number?):
 end
 
 awaitTick = function(self: any, operation: string, scoped interest: function(): shared.Interest): nil
-    if not suspension.handled() then
+    if self.forceBlocking or not suspension.handled() then
         blockOnce(self, interest())
 
         return
@@ -1220,7 +1395,7 @@ await = function(
     if stopAt ~= nil and self.backend:now() >= stopAt then
         return false
     end
-    if not suspension.handled() then
+    if self.forceBlocking or not suspension.handled() then
         -- The same reasoning as `awaitTick`: with nobody to yield to, the platform is
         -- asked to sleep rather than the loop asked to spin. Every wait needs this, not
         -- just the drain loop. `wait`, a stream read, a stream write and `close` all
@@ -1312,7 +1487,7 @@ newReader = function(owner: any, handle: any): process.Reader?
         return nil
     end
 
-    return new process.Reader(owner = owner, handle = handle, closed = false, eof = false)
+    return new process.Reader(owner = owner, handle = handle, closed = false, eof = false, pending = "")
 end
 
 newWriter = function(owner: any, handle: any): process.Writer?
@@ -1320,7 +1495,15 @@ newWriter = function(owner: any, handle: any): process.Writer?
         return nil
     end
 
-    return new process.Writer(owner = owner, handle = handle, closed = false, gone = false)
+    return new process.Writer(
+        owner = owner,
+        handle = handle,
+        closed = false,
+        gone = false,
+        filepending = "",
+        filemode = "full",
+        filesize = 8192
+    )
 end
 
 ----------------------------------------------------------------------------
@@ -1330,7 +1513,7 @@ end
 -- Public callers include plain Lua, so the type declaration is not the runtime
 -- boundary. Reject programmer mistakes before allocating a native spawn request;
 -- platform failures remain the nil-and-reason result of `spawn`.
-validateOptions = function(options: process.Options): nil
+validateOptions = function(options: shared.SpawnOptions): nil
     local given: any = options
     if type(given) ~= "table" then
         error("nupp: process options must be a table", 3)
@@ -1393,52 +1576,121 @@ validateOptions = function(options: process.Options): nil
     end
 end
 
---- Starts a child process.
----
---- The child is an owner: closing it ends the process, waits for the exit, and
---- releases every stream, and the same runs when its scope ends. A child that
---- cannot be started, such as a program that is not there, returns nil and why
---- rather than raising, as `files.open` and `net.connect` do.
----
---- ```nupp:fragment
---- local child = assert(io.popen({
----     args = {"grep", "-c", "nupp"},
----     stderr = "stdout",
---- }))
---- local result = assert(child:communicate({input = text}))
---- child:close()
---- ```
----
---- @param options what to run and how to connect it
---- @return the child, which the caller owns and must close
---- @return why it could not be started, when unsuccessful
---- @raises string when the options could never describe a child
-function process.spawn(options: process.Options): (affine(process.Process)?, io.Error?)
-    validateOptions(options)
+local function launchOptions(command: any, options: any): shared.SpawnOptions
+    local given: any = options
+    if given ~= nil and type(given) ~= "table" and type(given) ~= "string" then
+        error("bad argument #2 to 'popen' (table or string expected)", 3)
+    end
+    local result: any = {}
+    if type(given) == "table" then
+        for key, value in pairs(given) do
+            if key == "args" then
+                error("popen takes the command as its first argument", 3)
+            end
+            result[key] = value
+        end
+    end
+    local mode = type(given) == "string" and given or result.mode
+    if mode == nil then
+        mode = "r"
+    end
+    if mode ~= "r" and mode ~= "w" and mode ~= "rb" and mode ~= "wb" then
+        error("bad argument #2 to 'popen' (invalid mode)", 3)
+    end
+    result.mode = mode
+    result.stdin = result.stdin or (mode:sub(1, 1) == "w" and "pipe" or "inherit")
+    result.stdout = result.stdout or (mode:sub(1, 1) == "r" and "pipe" or "inherit")
+    result.stderr = result.stderr or "inherit"
+    if type(command) == "string" then
+        local windows = (package.config or "/"):sub(1, 1) == "\\"
+        result.args = windows and {os.getenv("COMSPEC") or "cmd.exe", "/d", "/s", "/c", command}
+            or {"/bin/sh", "-c", command}
+    elseif type(command) == "table" then
+        result.args = command
+    else
+        error("bad argument #1 to 'popen' (string or argument array expected)", 3)
+    end
+    validateOptions(result as shared.SpawnOptions)
+
+    return result as shared.SpawnOptions
+end
+
+local processHandles: any = rawget(_G, "__nuppProcessHandles")
+if processHandles == nil then
+    processHandles = setmetatable({}, {__mode = "kv"})
+    rawset(_G, "__nuppProcessHandles", processHandles)
+end
+
+local function fileHandle(takes child: process.Process): process.Process
+    local data: any = @unsafe own.release(child)
+    local makeProxy: any = (_G as any).newproxy
+    if makeProxy == nil then
+        processHandles[data] = data
+        return data as process.Process
+    end
+    local proxy: any = makeProxy(true)
+    local meta: any = assert(getmetatable(proxy))
+    for key, value in pairs(getmetatable(data) as any) do
+        meta[key] = value
+    end
+    meta.__index = function(_self: any, key: any): any
+        return data[key]
+    end
+    meta.__newindex = function(_self: any, key: any, value: any): nil
+        data[key] = value
+    end
+    meta.__tostring = function(): string
+        return data.state.reaped and "file (closed)" or "file (process " .. tostring(data.pid) .. ")"
+    end
+    meta.__gc = function(): nil
+        data.state.forceBlocking = true
+        pcall(function(): nil
+            data:_drop()
+        end)
+        data.state.forceBlocking = false
+    end
+    data.state.file = proxy
+    processHandles[proxy] = data
+
+    return proxy as process.Process
+end
+
+--- Starts a shell command or argument vector with the same Process result.
+function process.spawn(
+    command: string | {string},
+    options: (process.Options | string)?
+): (affine(process.Process)?, string?, integer?)
+    local given = launchOptions(command, options)
     local backend = provider
-    local handle, inHandle, outHandle, errHandle, pid, problem = backend:spawn(options)
+    local handle, inHandle, outHandle, errHandle, pid, problem, code = backend:spawn(given)
     if handle == nil then
-        return nil, io.toError(problem or "the process could not be started")
+        return nil, problem or "the process could not be started", code
     end
     local state = new Child(
         backend = backend,
         handle = handle,
-        deadline = options.timeoutms ~= nil and (backend:now() + options.timeoutms) or nil,
+        deadline = given.timeoutms ~= nil and (backend:now() + given.timeoutms) or nil,
         exit = nil,
         reaped = false,
         childReleased = false,
         closing = false,
         closingBy = nil,
         pump = nil,
-        timedOut = false
+        timedOut = false,
+        forceBlocking = false,
+        filetext = (package.config or "/"):sub(1, 1) == "\\" and (given.mode == "r" or given.mode == "w"),
+        filetexteof = false,
+        file = nil
     )
 
-    return new process.Process(
-        state = state,
-        pid = pid,
-        stdin = newWriter(state, inHandle),
-        stdout = newReader(state, outHandle),
-        stderr = newReader(state, errHandle)
+    return fileHandle(
+        new process.Process(
+            state = state,
+            pid = pid,
+            stdin = newWriter(state, inHandle),
+            stdout = newReader(state, outHandle),
+            stderr = newReader(state, errHandle)
+        )
     )
 end
 

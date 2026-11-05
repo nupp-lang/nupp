@@ -440,36 +440,6 @@ is treated as unannotated, and is reported. `any` is the absence of a
 checked type at that boundary, not a way to satisfy the annotation requirement.
 A function returning nothing still states `: nil`.
 
-## FAQ
-
-### Is `integer` a different runtime value from `number`?
-
-No. Both are doubles, and `integer` records that the checker has proof
-the value is integral. `x is integer` compiles to `type(x) == "number"`, so
-integrality is not re-tested at run time.
-
-That proof is about the operation, not about finiteness. `math.floor` and
-`math.ceil` are typed to return `integer` because they round every finite
-number to a whole one, but they pass NaN and the infinities through unchanged,
-so `math.floor(0/0)` is an `integer` holding NaN and `math.ceil(1/0)` one
-holding `inf`. Neither is a valid table key or loop bound. Where an input may
-be non-finite, test it first: `x ~= x` finds NaN and `math.abs(x) ==
-math.huge` an infinity.
-
-### When does `int32` earn its place over `integer`?
-
-When the wrapping matters. `integer` says the value is whole, while `int32`,
-`uint32`, and `float32` say it belongs to a fixed-width set, which is what lets
-the `math` operations wrap and narrow the way C does. See [](math) for
-those operations.
-
-### Can `unknown` replace `any` everywhere?
-
-Not without editing the code that uses it. `any` propagates silently, so
-adopting `unknown` in its place turns every read, call, and comparison into a
-site that needs a narrowing test or an `as`. That is the point of the swap, and
-it is also the cost of it.
-
 ::: seealso
 - [overview.md](index.md#escape-hatches) for how `any` and `as`
   opt out of checking

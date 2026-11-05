@@ -536,21 +536,20 @@ function M.instancesAreRecognisedThroughTheirPrototype()
                     "local record OnSpawn is Event",
                     "   eventId: integer",
                     "   entity: integer",
-                    "   metamethod __call: function(self, entity: integer): self",
                     "end",
                     "OnSpawn.init = function(instance: OnSpawn, entity: integer)",
                     "   instance.entity = entity",
                     "end",
-                    "local function newEvent<E is Event>(event: Type<E>): nil",
+                    "local function newEvent<E is Event>(event: Type<E>): function(...: any): E",
                     "   local instanceMt = {__index = event}",
-                    "   setmetatable(event, {__call = function(_self: E, ...: any): E",
+                    "   return function(...: any): E",
                     "      local instance = setmetatable({eventId = 7}, instanceMt) as E",
                     "      event.init(instance, ...)",
                     "      return instance",
-                    "   end})",
+                    "   end",
                     "end",
-                    "newEvent(OnSpawn)",
-                    "local linked = OnSpawn(42)",
+                    "local make = newEvent(OnSpawn)",
+                    "local linked = make(42)",
                     "local stamped = new OnSpawn(eventId = 1, entity = 2)",
                     "local foreign: any = {eventId = 1, entity = 2}",
                     -- linked and stamped are both instances; a lookalike and the
@@ -2202,22 +2201,25 @@ function M.aBoundedReceiverCarriesItsContractIntoTheRegistrar()
                 "\n"
             )
         ),
-        "NUPP2123:9"
+        "NUPP2208:9 NUPP2123:9"
     )
-    assertClean(
-        event .. table.concat(
-            {
-                "",
-                "local function newEvent<E is Event>(event: Type<E>): nil",
-                "   local instanceMt = {__index = event}",
-                "   setmetatable(event, {__call = function(_self: E, ...: any): E",
-                "      return setmetatable({eventId = 7}, instanceMt) as E",
-                "   end})",
-                "end",
-                "return newEvent",
-            },
-            "\n"
-        )
+    testAssert.eq(
+        diagsOf(
+            event .. table.concat(
+                {
+                    "",
+                    "local function newEvent<E is Event>(event: Type<E>): nil",
+                    "   local instanceMt = {__index = event}",
+                    "   setmetatable(event, {__call = function(_self: E, ...: any): E",
+                    "      return setmetatable({eventId = 7}, instanceMt) as E",
+                    "   end})",
+                    "end",
+                    "return newEvent",
+                },
+                "\n"
+            )
+        ),
+        "NUPP2208:10"
     )
 end
 
