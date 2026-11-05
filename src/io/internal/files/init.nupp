@@ -26,7 +26,6 @@ export type TemporaryPath = contracts.TemporaryPath
 local organization: string?
 local app: string?
 local roots: {[string]: appPaths.AppPath} = {}
-local caps: messages.FsCaps?
 
 -- The names app roots are stored under, which predate the shorter selectors.
 local STORED: {[string]: string} = {config = "configuration", data = "data", cache = "cache"}
@@ -95,26 +94,12 @@ export function appdir(which: messages.AppDir): (appPaths.AppPath?, io.Error?)
     return value, io.toError(reason)
 end
 
-export function fscaps(): messages.FsCaps
-    local known = caps
-    if known == nil then
-        known = provider.capabilities()
-        caps = known
-    end
-
-    return known
-end
-
 export function exists(path: Path): (boolean?, io.Error?)
     return answered(provider.exists(path))
 end
 
-export function stat(path: Path): (messages.FileKind?, integer?, number?, boolean?, io.Error?)
-    return described(provider.stat(path, true))
-end
-
-export function lstat(path: Path): (messages.FileKind?, integer?, number?, boolean?, io.Error?)
-    return described(provider.stat(path, false))
+export function stat(path: Path, nofollow: boolean?): (messages.FileKind?, integer?, number?, boolean?, io.Error?)
+    return described(provider.stat(path, nofollow ~= true))
 end
 
 export function readlink(path: Path): (paths.Path?, io.Error?)

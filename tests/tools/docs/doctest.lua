@@ -2512,7 +2512,7 @@ function M.standardIOApiHasCompleteDocumentation()
             "src/nupp/runtime/standardos.nupp"
         ] = {
             types = {TemporaryPath = true, FileKind = true, FsCaps = true, Path = true, AppPath = true,},
-            functions = {stat = true, lstat = true, exists = true, list = true, glob = true, writeatomic = true,},
+            functions = {stat = true, exists = true, list = true, glob = true, writeatomic = true,},
         },
     }
     for relative, expected in pairs(modules) do
@@ -2825,6 +2825,8 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
     for _, name in ipairs({
         "nupp/runtime/standardio.nupp",
         "nupp/runtime/standardos.nupp",
+        "nupp/runtime/systeminfo.nupp",
+        "io/internal/files/messages.nupp",
         "io/cli.nupp",
         "nupp/cli/internal/terminal.nupp",
         "nupp/cli/internal/tablebuilder.nupp",
@@ -2913,11 +2915,12 @@ function M.hostExtensionPagesKeepTheirContractsAndClockLinks()
         assert(osItems[name], "the system member is missing: " .. name)
     end
     assert(not osItems.uuid4 and not osItems.uuid7, "retired UUID names stay out of the API")
+    assert(not osItems.lstat and not osItems.fscaps, "consolidated filesystem queries stay out of the API")
     local fields = {}
     for _, field in ipairs(osItems.Info.members) do
         fields[field.name] = true
     end
-    for _, name in ipairs({"platform", "arch", "endianness", "pointerbits", "parallelism"}) do
+    for _, name in ipairs({"platform", "arch", "endianness", "pointerbits", "parallelism", "fs"}) do
         assert(fields[name], "os.Info lost its field: " .. name)
     end
     assert(doc.build(dir, config, settings, {format = "site", output = "site"}) == 0)

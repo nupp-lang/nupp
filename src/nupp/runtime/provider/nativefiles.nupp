@@ -14,6 +14,8 @@ describe, list and rename paths but not copy or write whole files.
 ]]
 module nupp.runtime.provider.nativefiles
 
+const systeminfo = require("nupp.runtime.systeminfo")
+
 ----------------------------------------------------------------------------
 -- The native binding
 ----------------------------------------------------------------------------
@@ -1192,22 +1194,9 @@ export function createTemporary(
     return TemporaryPath(_text = text as string, _directory = directory, _closed = false), nil
 end
 
-const CAPS = messages.FsCaps(
-    available = true,
-    arbitrarypaths = true,
-    symlinks = true,
-    glob = true,
-    rename = true,
-    atomicwrite = true,
-    tmppaths = true,
-    concurrentopenhandles = true,
-    cwd = true,
-    persist = true
-)
-
 --- Reports the complete native filesystem surface.
 export function capabilities(): messages.FsCaps
-    return CAPS
+    return systeminfo.filesystem()
 end
 
 local APP_BASES = {configuration = 0, data = 1, cache = 2,}

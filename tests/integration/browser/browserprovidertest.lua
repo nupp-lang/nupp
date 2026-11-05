@@ -25,6 +25,10 @@ local BASE = {
     ["nupp.runtime.browser.effects"] = true,
     ["nupp.runtime.browser.time"] = true,
     ["nupp.runtime.browser.response"] = true,
+    ["nupp.runtime.systeminfo"] = true,
+    ["nupp.runtime.system"] = true,
+    ["nupp.runtime.browser.system"] = true,
+    ["nupp.runtime.bindings.system"] = true,
 }
 
 --- A fresh browser application: its providers, a fake clock, and a host to run it.
@@ -73,6 +77,9 @@ local function application(options)
         owned,
         replacements,
         {
+            ["nupp.runtime.bindings.system"] = function()
+                return load("nupp.runtime.browser.system")
+            end,
             ["nupp.runtime.bindings.suspension"] = function()
                 return load("nupp.runtime.browser.suspension")
             end,
@@ -622,6 +629,7 @@ function M.browserFilesAnswerExistenceKindsAndListingsThroughTheHost()
                 elseif request.operation == "capabilities" then
                     return 0, {ok = true, value = {available = true, persistentAvailable = false}}
                 end
+
                 return 0, {ok = false, error = "unexpected " .. tostring(request.operation)}
             end,
         },
@@ -656,6 +664,115 @@ function M.browserFilesAnswerExistenceKindsAndListingsThroughTheHost()
     check.eq(seen.caps.persist, false)
     check.eq(seen.caps.glob, false)
     assert(rawequal(seen.caps, seen.again), "the report is asked for once")
+end
+
+function M.systemReportsAreLazySharedAndImmutableAcrossConcurrentReaders()
+    local queries, systemQueries = 0, 0
+    local app = application({
+        handlers = {
+            files = function(request, app)
+                check.eq(request.operation, "capabilities")
+                queries = queries + 1
+                return app.now() + 10, {ok = true, value = {available = true, persistentAvailable = true}}
+            end,
+            system = function(_, app)
+                systemQueries = systemQueries + 1
+                return app.now() + 5, {ok = true, value = {availableParallelism = 3}}
+            end,
+        }
+    })
+    local metadata = app.load("nupp.runtime.systeminfo")
+    local info = metadata.get()
+    check.eq(info, metadata.get())
+    check.eq(info.platform, "browser")
+    check.eq(queries, 0, "system facts do not query the filesystem")
+    check.eq(systemQueries, 0, "parallelism waits until its first read")
+    local reports, counts = {}, {}
+    local ok, problem = app.run(
+        function()
+            scoped(app.tasks, function(scope)
+                for index = 1, 3 do
+                    scope:spawn(function()
+                        reports[index] = info.fs
+                        counts[index] = info.parallelism
+                    end)
+                end
+            end)
+        end,
+        20
+    )
+    check.eq(ok, true, tostring(problem))
+    check.eq(queries, 1, "concurrent readers share one filesystem query")
+    check.eq(systemQueries, 1, "concurrent readers share one parallelism query")
+    for index = 1, 3 do
+        check.eq(reports[index], info.fs)
+        check.eq(counts[index], 3)
+    end
+    check.eq(metadata.filesystem(), info.fs)
+    check.eq(info.fs.available, true)
+    check.eq(info.fs.persist, true)
+    for _, key in ipairs({"available", "glob", "extra"}) do
+        check.raises(
+            function()
+                info.fs[key] = false
+            end,
+            "immutable"
+        )
+    end
+    check.raises(
+        function()
+            info.fs = {}
+        end,
+        "immutable"
+    )
+    check.raises(
+        function()
+            info.platform = "changed"
+        end,
+        "immutable"
+    )
+    check.raises(
+        function()
+            setmetatable(info.fs, {})
+        end,
+        "protected metatable"
+    )
+end
+
+function M.cancelingTheFirstCapabilityQueryLetsAnotherReaderRetry()
+    local queries = 0
+    local app = application({
+        handlers = {
+            files = function(_, app)
+                queries = queries + 1
+                return app.now() + 10, {ok = true, value = {available = true}}
+            end
+        }
+    })
+    local info = app.load("nupp.runtime.systeminfo").get()
+    local first, report
+    local ok, problem = app.run(
+        function()
+            scoped(app.tasks, function(scope)
+                first = scope:spawn(function()
+                    return info.fs
+                end)
+                scope:spawn(function()
+                    report = info.fs
+                end)
+                scope:spawn(function()
+                    app.time.sleep(1)
+                    first:cancel("cancel first query")
+                end)
+            end)
+        end,
+        20
+    )
+    check.eq(ok, true, tostring(problem))
+    check.eq(first:status(), "cancelled")
+    check.eq(queries, 2, "a cancelled query is retried once")
+    check.eq(report, info.fs)
+    check.eq(report.available, true)
 end
 
 function M.canonicalProviderKeysRetireTheirPrecedingContractNames()

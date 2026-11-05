@@ -592,7 +592,7 @@ function M.anEmbeddedCompilerDoesNotProbeDiskForMissingDeclarations()
                     return {[prefix .. "/coroutine.nupp"] = "module coroutine"}
                 end,
             },
-            {io = host}
+            {io = host, __nuppCleanupRegistry = {}}
         )
         local bundled = load("nupp.compiler.bundled")
         testAssert.eq(bundled.source("/coroutine/init.nupp"), nil)

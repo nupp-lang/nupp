@@ -451,6 +451,7 @@ local RESOURCES = {
     {source = "src/nupp/util/internal/hash.nupp", output = "nupp/compiler/nupp/util/internal/hash.nupp"},
     {source = "src/nupp/util/internal/uuid.nupp", output = "nupp/compiler/nupp/util/internal/uuid.nupp"},
     {source = "src/nupp/runtime/system.nupp", output = "nupp/compiler/nupp/runtime/system.nupp"},
+    {source = "src/nupp/runtime/systeminfo.nupp", output = "nupp/compiler/nupp/runtime/systeminfo.nupp"},
     {source = "src/os/host.nupp", output = "nupp/compiler/os/host.nupp"},
     {
         source = "src/nupp/runtime/provider/nativehost.nupp",

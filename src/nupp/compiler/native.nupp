@@ -45,7 +45,6 @@ local FILESYSTEM_FUNCTIONS = {
     "rename",
     "exists",
     "stat",
-    "lstat",
     "readlink",
     "mkdir",
     "list",
@@ -58,7 +57,6 @@ local FILESYSTEM_FUNCTIONS = {
     "setappid",
     "appid",
     "appdir",
-    "fscaps",
     "persiststorage",
 }
 local FILESYSTEM_GLOBALS: {string} = {}

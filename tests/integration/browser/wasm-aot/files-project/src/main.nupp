@@ -89,10 +89,10 @@ local listed = false
 for name, kind in os.list(root) do
     listed = listed or (name == "save.bin" and kind == "file")
 end
-local linkKind = os.lstat(path)
+local linkKind = os.stat(path, nofollow = true)
 local present = os.exists(path)
 local persistent = os.persiststorage()
-local capabilities = os.fscaps()
+local capabilities = os.info().fs
 do
     local file = assert(io.open(path, "rb"))
     local final, finalReason = file:read("*a")
