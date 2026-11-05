@@ -158,21 +158,24 @@ function M.algorithmFactoryReferencesCarryTheirSelectedProviders()
         [
             "src/app/main.nupp"
         ] = [[
-local {Checksum} = require("binary")
+local {Checksum, compression} = require("binary")
 local catalog = require("binary")
-local {Digest, Mac} = catalog
+local {Digest, Mac, compressionformats} = catalog
 local checksum = Checksum.compute
 local digest = Digest.computehex
 local mac = Mac.computehex
 assert(checksum("crc32", "123456789") == 0xcbf43926)
 assert(digest("sha256", "abc") == "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad")
 assert(#mac("hmac-sha256", "key", "message") == 64)
+local gzip = compression("gzip")
+assert(gzip:decompress(gzip:compress("hello")) == "hello")
+assert(table.concat(compressionformats(), ",") == "deflate-raw,gzip,zlib")
 print("factories carried")
 ]],
     })
     local output, built = run(dir, "'" .. NUPP .. "' build")
     assert(built, output)
-    for _, family in ipairs({"checksum", "digest", "mac"}) do
+    for _, family in ipairs({"checksum", "digest", "mac", "nativecompression"}) do
         assert(readFile(dir .. "/build/nupp/runtime/provider/" .. family .. ".lua"), family .. " provider is staged")
     end
     local result, ran = run(dir, "LUA_PATH='./build/?.lua;;' luajit build/app/main.lua")
@@ -187,7 +190,10 @@ function M.aComponentInstallsBeforeItsEntryRuns()
             "src/app/main.nupp"
         ] = [[
 local json = require("serde.json")
-local {type Checksum} = require("binary")
+local {type Checksum, type CompressionFormat, hexencode} = require("binary")
+local unusedCompression: CompressionFormat? = nil
+assert(unusedCompression == nil)
+assert(hexencode("Nu") == "4e75")
 local unfinished: Checksum? = nil
 assert(unfinished == nil)
 assert(_G.component_started == nil)
@@ -210,6 +216,10 @@ return game
     local out, ok = run(dir, "'" .. NUPP .. "' build")
     assert(ok, "the component target builds: " .. out)
     local artifact = readFile(dir .. "/build/component.nuppc")
+    assert(
+        not artifact:find('package.preload["nupp.runtime.provider.nativecompression"]', 1, true),
+        "byte encoding and compression type imports do not stage the compression provider"
+    )
     local marker = "-- NUPP-COMPONENT 1"
     assert(artifact and artifact:sub(1, #marker) == marker, "the component has a version marker")
     assert(

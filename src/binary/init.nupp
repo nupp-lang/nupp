@@ -1,5 +1,5 @@
 --[[
-`binary` provides byte encodings, hashes, and bitsets. Use `hexencode` and
+`binary` provides byte encodings, compression, hashes, and bitsets. Use `hexencode` and
 `base64encode` to encode bytes as text, and `Bitset` for a mutable set of bits.
 
 ```nupp
@@ -14,9 +14,58 @@ start at zero; `wordat` returns a signed 32-bit word. The set grows as positions
 are added, and clearing it retains capacity for reuse.
 
 See [](binary.span) for checked storage views, [](binary.Digest) for digests,
-and [](binary.compress) for compression streams.
+and [](binary.CompressionFormat) for compression streams.
+
+## Compression
+
+Use `compression` to select a format and `compressionformats` to list the
+available names. A descriptor compresses bytes or wraps an [](io) stream.
+
+```nupp
+local gzip = binary.compression("gzip")
+local encoded = gzip:compress("hello", {gzip = {level = 6}})
+assert(gzip:decompress(encoded) == "hello")
+```
+
+A factory consumes the reader or writer it wraps. A compression writer has to
+end in `finish()`; closing or dropping one unfinished aborts the stream and
+raises, because a truncated member is worse than a loud failure.
+
+Adapter policy and format options are separate, which is why the options table
+is keyed by format name.
+
+## Built-in formats
+
+| Name | Container | Writer options | Reader options |
+| --- | --- | --- | --- |
+| `gzip` | RFC 1952 gzip | `gzip = { level = 0..9 }` | `gzip = { concatenatedmembers = boolean }` |
+| `zlib` | RFC 1950 zlib | `zlib = { level = 0..9 }` | none |
+| `deflate-raw` | RFC 1951 raw DEFLATE | `deflateraw = { level = 0..9 }` | none |
+
+All three take levels zero through nine. Gzip checks its CRC and size trailers
+and reads concatenated members by default, zlib checks its Adler-32 trailer, and
+raw DEFLATE has no checksum at all. Trailing bytes are rejected in every case.
+
+The `deflateraw` options key configures the `deflate-raw` format.
 ]]
 module binary
+
+local compressionapi = require("nupp.compression")
+export type CompressionFormat = compressionapi.CompressionFormat
+export type CompressionWriter = compressionapi.CompressionWriter
+export type CompressionWriterOptions = compressionapi.CompressionWriterOptions
+export type CompressionReaderOptions = compressionapi.CompressionReaderOptions
+export type GzipWriterOptions = compressionapi.GzipWriterOptions
+export type ZlibWriterOptions = compressionapi.ZlibWriterOptions
+export type DeflateRawWriterOptions = compressionapi.DeflateRawWriterOptions
+export type GzipReaderOptions = compressionapi.GzipReaderOptions
+export const CompressionFormat = compressionapi.CompressionFormat
+
+--- Acquires a retained compression format descriptor or raises when unavailable.
+export const compression = compressionapi.compression
+
+--- Lists available canonical compression format names in ascending order.
+export const compressionformats = compressionapi.compressionformats
 
 local checksum = require("nupp.digest.checksum")
 export type Checksum = checksum.Checksum

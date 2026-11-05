@@ -1,54 +1,16 @@
---[[
-Compressing and decompressing a stream of bytes.
-
-Ask for a format, then use its one-shot helpers or wrap a [](io) reader or
-writer:
-
-```nupp:fragment
-local compression = binary.compress
-
-const gzip = compression.format("gzip")
-
-const encoded = gzip:writer(destination, {
-    gzip = {level = 6},
-})
-
-encoded:write("hello")
-
-assert(encoded:finish())
-```
-
-A factory consumes the reader or writer it wraps. A compression writer has to
-end in `finish()`; closing or dropping one unfinished aborts the stream and
-raises, because a truncated member is worse than a loud failure.
-
-Adapter policy and format options are separate, which is why the options table
-is keyed by format name.
-
-## Built-in formats
-
-| Name | Container | Writer options | Reader options |
-| --- | --- | --- | --- |
-| `gzip` | RFC 1952 gzip | `gzip = { level = 0..9 }` | `gzip = { concatenatedmembers = boolean }` |
-| `zlib` | RFC 1950 zlib | `zlib = { level = 0..9 }` | none |
-| `deflate-raw` | RFC 1951 raw DEFLATE | `deflateraw = { level = 0..9 }` | none |
-
-All three take levels zero through nine. Gzip checks its CRC and size trailers
-and reads concatenated members by default, zlib checks its Adler-32 trailer, and
-raw DEFLATE has no checksum at all. Trailing bytes are rejected in every case.
-
-The `deflateraw` options key configures the `deflate-raw` format.
-]]
-module binary.compress
+@!internal
+module nupp.compression
 
 const assert2 = require("assert")
 
 local target = require("nupp.runtime.target")
 
-const io = require("io")
+const _PROVIDER_REQUIRES = "@requires-dynamically nupp.runtime.provider.nativecompression"
+
+const io = require("nupp.io")
 const span = require("binary.span")
 const storage = require("nupp.runtime.storage")
-const provider = require("binary.compress.internal.contracts")
+const provider = require("nupp.compression.contracts")
 
 local DEFAULT_WORKSPACE: integer = 65536
 local DEFAULT_MAX_OUTPUT: integer = 67108864
@@ -80,7 +42,7 @@ export interface GzipReaderOptions
 end
 
 --- Common compression-writer policy.
-export interface WriterOptions
+export interface CompressionWriterOptions
     --- Provider workspace in bytes; 65536 by default.
     workspacebytes: integer?
 
@@ -95,7 +57,7 @@ export interface WriterOptions
 end
 
 --- Common decompression-reader policy.
-export interface ReaderOptions
+export interface CompressionReaderOptions
     --- Provider workspace in bytes; 65536 by default.
     workspacebytes: integer?
 
@@ -182,7 +144,7 @@ local READER_COMMON: {
     [string]: boolean
 } = {workspacebytes = true, maxoutputbytes = true, maxexpansionratio = true, unbounded = true,}
 
-local function encoderOptions(settings: WriterOptions, name: string): provider.FormatOptions?
+local function encoderOptions(settings: CompressionWriterOptions, name: string): provider.FormatOptions?
     local options = formatOptions(settings, name, "writer", WRITER_COMMON)
     if name == "gzip" or name == "zlib" or name == "deflate-raw" then
         validateKeys(options, {level = true}, optionKey(name) .. " writer")
@@ -195,7 +157,7 @@ local function encoderOptions(settings: WriterOptions, name: string): provider.F
     return options
 end
 
-local function decoderOptions(settings: ReaderOptions, name: string): provider.FormatOptions?
+local function decoderOptions(settings: CompressionReaderOptions, name: string): provider.FormatOptions?
     local options = formatOptions(settings, name, "reader", READER_COMMON)
     if name == "gzip" then
         validateKeys(options, {concatenatedmembers = true}, "gzip reader")
@@ -407,11 +369,11 @@ local function makeWriter(
     implementation: provider.Format,
     name: string,
     takes destination: io.Writer,
-    options: WriterOptions?
+    options: CompressionWriterOptions?
 ): Writer
     local configured = settings(options, "writer")
     local capacity = positive(configured.workspacebytes, DEFAULT_WORKSPACE, "compression workspacebytes")
-    local formatSettings = encoderOptions(configured as WriterOptions, name)
+    local formatSettings = encoderOptions(configured as CompressionWriterOptions, name)
     return Writer(
         state = implementation:createencoder(formatSettings),
         destination = destination,
@@ -640,7 +602,7 @@ function Reader.account(self: Reader, consumed: integer, written: integer): stri
 end
 
 --- Retained compression format descriptor.
-export record Format
+export record CompressionFormat
     --- Canonical format name.
     @readonly name: string
 
@@ -648,14 +610,14 @@ export record Format
 
     --- Wraps and owns a reader, validating the stream before EOF.
     --- @raises string when options are invalid or a format block does not match
-    function reader(self, takes source: io.Reader, options: ReaderOptions?): io.Reader
+    function reader(self, takes source: io.Reader, options: CompressionReaderOptions?): io.Reader
         local configured = settings(options, "reader")
         local capacity = positive(configured.workspacebytes, DEFAULT_WORKSPACE, "compression workspacebytes")
         if configured.unbounded ~= nil and type(configured.unbounded) ~= "boolean" then
             error("nupp: compression unbounded must be a boolean", 2)
         end
         if configured.unbounded and configured.maxoutputbytes ~= nil then
-            error("nupp: compression ReaderOptions cannot set both unbounded and maxoutputbytes", 2)
+            error("nupp: CompressionReaderOptions cannot set both unbounded and maxoutputbytes", 2)
         end
         local maximum: integer? = configured.unbounded and nil
             or positive(configured.maxoutputbytes, DEFAULT_MAX_OUTPUT, "compression maxoutputbytes")
@@ -663,7 +625,7 @@ export record Format
         if ratio ~= nil and (type(ratio) ~= "number" or ratio <= 0 or ratio >= math.huge or ratio ~= ratio) then
             error("nupp: compression maxexpansionratio must be positive and finite", 2)
         end
-        local formatSettings = decoderOptions(configured as ReaderOptions, self.name)
+        local formatSettings = decoderOptions(configured as CompressionReaderOptions, self.name)
 
         return Reader(
             state = self.implementation:createdecoder(formatSettings),
@@ -683,7 +645,7 @@ export record Format
 
     --- Wraps and owns a writer. Consume the result with `finish()`.
     --- @raises string when options are invalid or a format block does not match
-    function writer(self, takes destination: io.Writer, options: WriterOptions?): CompressionWriter
+    function writer(self, takes destination: io.Writer, options: CompressionWriterOptions?): CompressionWriter
         return makeWriter(self.implementation, self.name, destination, options)
     end
 
@@ -693,7 +655,7 @@ export record Format
         self,
         borrows bytes: span.ByteSpan,
         exclusive destination: io.Buffer,
-        options: WriterOptions?
+        options: CompressionWriterOptions?
     ): nil
         local sink = destination:writer()
         local compressed = makeWriter(self.implementation, self.name, sink, options)
@@ -711,14 +673,14 @@ export record Format
 
     --- Compresses a string into a destination buffer.
     --- @raises string when options are invalid or compression fails
-    function compress(self, bytes: string, exclusive destination: io.Buffer, options: WriterOptions?): nil
+    function compress(self, bytes: string, exclusive destination: io.Buffer, options: CompressionWriterOptions?): nil
         local input = span.fromstring(bytes)
         self:compress(input, destination, options)
     end
 
     --- Compresses a borrowed span into a new string.
     --- @raises string when options are invalid or compression fails
-    function compress(self, borrows bytes: span.ByteSpan, options: WriterOptions?): string
+    function compress(self, borrows bytes: span.ByteSpan, options: CompressionWriterOptions?): string
         local destination = io.Buffer.create()
         self:compress(bytes, destination, options)
         local answer = destination:getstring()
@@ -729,7 +691,7 @@ export record Format
 
     --- Compresses a string into a new string.
     --- @raises string when options are invalid or compression fails
-    function compress(self, bytes: string, options: WriterOptions?): string
+    function compress(self, bytes: string, options: CompressionWriterOptions?): string
         local input = span.fromstring(bytes)
         return self:compress(input, options)
     end
@@ -741,7 +703,7 @@ export record Format
         self,
         borrows bytes: span.ByteSpan,
         exclusive destination: io.Buffer,
-        options: ReaderOptions?
+        options: CompressionReaderOptions?
     ): nil
         local source = io.Reader.of(storage.string(bytes:ref(), #bytes))
         local reader = self:reader(source, options)
@@ -757,7 +719,7 @@ export record Format
     --- Decompresses a string into a destination buffer.
     --- @raises string when options are invalid, the stream is invalid or a limit is
     ---     exceeded
-    function decompress(self, bytes: string, exclusive destination: io.Buffer, options: ReaderOptions?): nil
+    function decompress(self, bytes: string, exclusive destination: io.Buffer, options: CompressionReaderOptions?): nil
         local input = span.fromstring(bytes)
         self:decompress(input, destination, options)
     end
@@ -765,7 +727,7 @@ export record Format
     --- Decompresses a borrowed span into a new string with a 64 MiB default cap.
     --- @raises string when options are invalid, the stream is invalid or a limit is
     ---     exceeded
-    function decompress(self, borrows bytes: span.ByteSpan, options: ReaderOptions?): string
+    function decompress(self, borrows bytes: span.ByteSpan, options: CompressionReaderOptions?): string
         local destination = io.Buffer.create()
         self:decompress(bytes, destination, options)
         local answer = destination:getstring()
@@ -777,7 +739,7 @@ export record Format
     --- Decompresses a string into a new string with a 64 MiB default cap.
     --- @raises string when options are invalid, the stream is invalid or a limit is
     ---     exceeded
-    function decompress(self, bytes: string, options: ReaderOptions?): string
+    function decompress(self, bytes: string, options: CompressionReaderOptions?): string
         local input = span.fromstring(bytes)
         return self:decompress(input, options)
     end
@@ -799,23 +761,30 @@ local function validate(selected: provider.Provider): nil
     end
 end
 
-local selected: provider.Provider = do
-    assert2(target.host == "native", "binary.compress: no implementation is available")
-    yield _G.require("nupp.runtime.provider.nativecompression") as provider.Provider
-end
-validate(selected)
-local available: {[string]: Format} = {}
+local available: {[string]: CompressionFormat} = {}
 local names: {string} = {}
-for name, implementation in pairs(selected.formats) do
-    available[name] = Format(name = name, implementation = implementation)
+local initialized = false
+
+local function initialize(providerName: string): nil
+    if initialized then
+        return
+    end
+    assert2(target.host == "native", "binary.compression: no implementation is available")
+    local selected = _G.require(providerName) as provider.Provider
+    validate(selected)
+    for name, implementation in pairs(selected.formats) do
+        available[name] = CompressionFormat(name = name, implementation = implementation)
+    end
+    for name in pairs(available) do
+        names[#names + 1] = name
+    end
+    table.sort(names)
+    initialized = true
 end
-for name in pairs(available) do
-    names[#names + 1] = name
-end
-table.sort(names)
 
 --- Acquires a retained format descriptor or raises when unavailable.
-export function format(name: string): Format
+export function compression(name: string): CompressionFormat
+    initialize("nupp.runtime.provider.nativecompression")
     local found = available[name]
     if found == nil then
         error("unknown compression format " .. name, 2)
@@ -825,7 +794,8 @@ export function format(name: string): Format
 end
 
 --- Lists available canonical format names in ascending order.
-export function formats(): {string}
+export function compressionformats(): {string}
+    initialize("nupp.runtime.provider.nativecompression")
     local result: {string} = {}
     for index, name in ipairs(names) do
         result[index] = name

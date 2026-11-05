@@ -797,6 +797,8 @@ local FEATURES: {[string]: native.Feature} = {
         "native.compression"
     ] = {
         name = "compression",
+        globals = {"binary.compression", "binary.compressionformats"},
+        exports = {"binary.compression", "binary.compressionformats"},
         modules = {"nupp.runtime.provider.nativecompression"},
         runtimeModule = "nupp.runtime.provider.nativecompression",
         provider = "nupp_native",
@@ -806,15 +808,6 @@ local FEATURES: {[string]: native.Feature} = {
         library = "nupp_native",
         binary = true,
         requires = {"runtime.native", "runtime.spanview", "stdlib.io"},
-    },
-    [
-        "runtime.compression"
-    ] = {
-        name = "compression_runtime",
-        module = "binary.compress",
-        runtimeModule = "binary.compress",
-        portableRuntime = true,
-        requires = {"runtime.spanview", "stdlib.io"},
     },
     [
         "native.sha256"

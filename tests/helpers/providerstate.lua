@@ -182,7 +182,7 @@ end
 -- Each fixture owns the target implementation and a private module cache.
 function M.family(kind, implementations)
     local hash = kind == "checksum" or kind == "digest" or kind == "mac"
-    local facade = kind == "compression" and "binary.compress" or (hash and "binary" or "nupp." .. kind)
+    local facade = (kind == "compression" or hash) and "binary" or "nupp." .. kind
     local implementation = "nupp.runtime.provider." .. (kind == "compression" and "nativecompression" or kind)
     assert(not implementations or #implementations <= 1, "builtin fixtures bind one implementation")
     local counts = {resolutions = 0}
@@ -210,7 +210,7 @@ function M.family(kind, implementations)
         end
     end
     local load = instance(
-        {[facade] = true, ["nupp.digest." .. kind] = hash},
+        {[facade] = true, ["nupp.digest." .. kind] = hash, ["nupp.compression"] = kind == "compression"},
         {
             ["nupp.runtime.target"] = {dialect = "luajit", host = "native"},
             ["nupp.runtime.packages"] = {

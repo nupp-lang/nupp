@@ -7,7 +7,7 @@ error into their reason, and closing surfaces a failed handle release.
 ]]
 module nupp.runtime.provider.nativecompression
 
-const contract = require("binary.compress.internal.contracts")
+const contract = require("nupp.compression.contracts")
 const native = require("nupp.runtime.native")
 const span = require("binary.span")
 

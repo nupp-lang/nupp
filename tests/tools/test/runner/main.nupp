@@ -22,7 +22,7 @@ const carriedpool = table.Pool
 const carriedentropy = os.randombytes
 const _ = os.info
 require("utf8")
-require("binary.compress")
+const carriedcompression = binary.compression
 require("serde.json")
 const carriedpath = io.Path.of
 const carrieduri = io.URI.of

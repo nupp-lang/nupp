@@ -442,11 +442,8 @@ local RESOURCES = {
         output = "nupp/compiler/nupp/runtime/provider/nativecrc.nupp"
     },
     {source = "src/nupp/runtime/browser/crc.nupp", output = "nupp/compiler/nupp/runtime/browser/crc.nupp"},
-    {source = "src/binary/compress/init.nupp", output = "nupp/compiler/binary/compress/init.nupp"},
-    {
-        source = "src/binary/compress/internal/contracts.nupp",
-        output = "nupp/compiler/binary/compress/internal/contracts.nupp"
-    },
+    {source = "src/nupp/compression.nupp", output = "nupp/compiler/nupp/compression.nupp"},
+    {source = "src/nupp/compression/contracts.nupp", output = "nupp/compiler/nupp/compression/contracts.nupp"},
     {
         source = "src/nupp/runtime/provider/nativecompression.nupp",
         output = "nupp/compiler/nupp/runtime/provider/nativecompression.nupp"

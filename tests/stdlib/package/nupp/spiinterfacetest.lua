@@ -359,7 +359,7 @@ function M.applicationImportsCannotReachBuiltinImplementationContracts()
         "binary.checksum.internal.contracts",
         "binary.digest.internal.contracts",
         "binary.mac.internal.contracts",
-        "binary.compress.internal.contracts",
+        "nupp.compression.contracts",
         "serde.json.internal.contracts",
         "io.internal.contracts",
         "io.files.internal.contracts",

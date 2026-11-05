@@ -78,6 +78,24 @@ function M.tlsOverviewExampleChecksAgainstItsPublicApi()
     testAssert.eq(diagsUnderPrelude(example), "")
 end
 
+function M.compressionFactoriesAndTypesLiveOnBinary()
+    testAssert.eq(
+        diagsUnderPrelude(
+            [[
+local {compression, compressionformats, type CompressionFormat,
+    type CompressionReaderOptions, type CompressionWriterOptions} = require("binary")
+local gzip: CompressionFormat = compression("gzip")
+local writerOptions: CompressionWriterOptions = {gzip = {level = 6}}
+local readerOptions: CompressionReaderOptions = {maxoutputbytes = 1024}
+assert(gzip:decompress(gzip:compress("hello", writerOptions), readerOptions) == "hello")
+assert(#compressionformats() == 3)
+assert(gzip is binary.CompressionFormat)
+]]
+        ),
+        ""
+    )
+end
+
 function M.retiredNamespacesAreNotBundled()
     local env = strictEnv()
     for _, name in ipairs({
@@ -93,6 +111,8 @@ function M.retiredNamespacesAreNotBundled()
         "binary.checksum.spi",
         "binary.digest.spi",
         "binary.mac.spi",
+        "binary.compress",
+        "binary.compress.internal.contracts",
         "binary.compress.spi",
         "serde.json.spi",
         "io.spi",
