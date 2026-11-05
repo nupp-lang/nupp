@@ -1,0 +1,796 @@
+module nupp.compiler.vm.graphnative
+
+--- Native operations in the graph: the contracts a native leaf's
+--- declaration and its operations must keep, which the verifier checks.
+local physical = require("nupp.compiler.vm.nativephysical")
+
+local nativeos = require("nupp.compiler.vm.nativeos")
+local service = require("nupp.compiler.vm.nativeservice")
+local graphsignatures = require("nupp.compiler.vm.graphsignatures")
+local classes = graphsignatures.classes
+local nativeArithmetic = graphsignatures.nativeArithmetic
+local nativeClasses = graphsignatures.nativeClasses
+local nativeFloatKinds = graphsignatures.nativeFloatKinds
+local operandClass = graphsignatures.operandClass
+local parsed = graphsignatures.parsed
+
+export function nativeContract(value: any, fields: any): nil
+    assert(type(value) == "table", "native operation requires a contract")
+    for name in pairs(value) do
+        assert(fields[name], "unknown native contract field")
+    end
+end
+
+local function nativeInteger(text: any, kind: string): nil
+    assert(type(text) == "string", "native integer constant requires exact text")
+    local negative = text:sub(1, 1) == "-"
+    local digits = negative and text:sub(2) or text
+    local base = 10
+    if digits:sub(1, 2):lower() == "0x" then
+        base, digits = 16, digits:sub(3)
+        assert(digits:match("^%x+$"), "invalid native integer constant")
+    else
+        assert(digits:match("^%d+$"), "invalid native integer constant")
+    end
+    local limbs: {number} = {0, 0, 0, 0}
+    for i = 1, #digits do
+        local carry = tonumber(digits:sub(i, i), base) as number
+        for j = 1, 4 do
+            local value = limbs[j] * base + carry
+            limbs[j], carry = value % 65536, math.floor(value / 65536)
+        end
+        assert(carry == 0, "native integer constant exceeds 64 bits")
+    end
+    if kind == "int32" or kind == "uint32" then
+        assert(limbs[3] == 0 and limbs[4] == 0, "native constant exceeds 32 bits")
+        if kind == "int32" then
+            assert(
+                limbs[2] < 32768 or negative and limbs[2] == 32768 and limbs[1] == 0,
+                "native constant exceeds int32"
+            )
+        else
+            assert(not negative, "native uint32 constant cannot be negative")
+        end
+    elseif kind == "int64" then
+        assert(
+            limbs[4] < 32768 or (negative and limbs[4] == 32768 and limbs[1] == 0 and limbs[2] == 0 and limbs[3] == 0),
+            "native constant exceeds int64"
+        )
+    else
+        assert(kind == "uint64" and not negative, "native constant requires an integer kind")
+    end
+end
+
+local function checkedNativeKind(t: any): string
+    while t and (t.tag == "literal" or t.tag == "const") do
+        t = t.tag == "literal" and t.base or t.inner
+    end
+    if t and t.tag == "union" and #t.members > 0 then
+        for _, member in ipairs(t.members) do
+            assert(checkedNativeKind(member) == "boolean", "checked native union kind")
+        end
+        return "boolean"
+    end
+
+    return t and t.tag or "missing"
+end
+
+-- A declaration is derived from its checked function owner, never a name list.
+-- The machine sink also binds this source/signature to the retained target.
+export function nativeLeafDeclaration(fn: any, context: any?, call: any?, caller: any?, serviceSignature: any?): any
+    assert(type(fn) == "table" and fn.node and fn.body and fn.scope, "checked native leaf owner required")
+    assert(
+        fn.node.body == fn.body and fn.nativeABI ~= "handler" and fn.nativeABI ~= "support",
+        "native leaf checked body identity"
+    )
+    assert(fn.scope.functions and fn.scope.functions[fn.name] == fn, "native leaf checked declaration identity")
+    local params, body = {}, fn.body
+    local pointer = physical.signature(fn, context, call, caller, serviceSignature)
+    assert(
+        #body.params == #fn.paramKinds and (#body.params >= 1 or serviceSignature ~= nil) and #body.params <= 8,
+        "native leaf checked parameter count"
+    )
+    for index, parameter in ipairs(body.params) do
+        local kind = pointer and pointer.params[index] and parameter.type.resolvedType.tag
+            or checkedNativeKind(parameter.type and parameter.type.resolvedType)
+        assert(kind == fn.paramKinds[index], "native leaf checked parameter kind")
+        if pointer and pointer.params[index] then
+            kind = pointer.params[index].machineKind
+        end
+        assert(nativeClasses[kind], "native leaf checked parameter kind")
+        params[index] = kind
+    end
+    local signature = body.signatureType
+    assert(
+        signature
+        and signature.retPack
+        and not signature.retPack.tail
+        and not signature.retPack.alternatives
+        and #signature.rets <= 1
+        and #signature.retPack.head == #signature.rets,
+        "native leaf requires a closed checked result"
+    )
+    local result = pointer and pointer.result and signature.rets[1].tag
+        or #signature.rets == 0 and "nil"
+        or checkedNativeKind(signature.rets[1])
+    assert(
+        result == fn.resultKind
+        and (
+            result == "uint64"
+            or result == "int64"
+            or result == "boolean"
+            or result == "nil"
+            or result == "voidptr" and signature.rets[1].tag == "voidptr"
+            or pointer and pointer.result
+        ),
+        "native leaf checked result kind"
+    )
+
+    local declaration = {
+        moduleName = fn.scope.name,
+        name = fn.name,
+        params = params,
+        result = pointer and pointer.result and pointer.result.machineKind or result,
+        abi = "leaf",
+        physical = pointer,
+        source = {path = fn.scope.path, module = fn.scope.name, name = fn.name}
+    }
+
+    return serviceSignature and service.checked(serviceSignature, fn, declaration) or declaration
+end
+
+export function declarationSource(declaration: any): nil
+    assert(
+        type(declaration.moduleName) == "string" and declaration.moduleName:match("^[%a_][%w_%.]*$"),
+        "native checked declaration module"
+    )
+    assert(
+        type(declaration.name) == "string" and declaration.name:match("^[%a_][%w_]*$"),
+        "native checked declaration name"
+    )
+    local source = declaration.source
+    nativeContract(source, {path = true, module = true, name = true})
+    assert(
+        type(source.path) == "string"
+        and #source.path > 0
+        and source.module == declaration.moduleName
+        and source.name == declaration.name,
+        "native checked declaration source"
+    )
+end
+
+export function verifyNativeOperation(g: any, op: string, args: any, dst: integer, constants: any): nil
+    local kinds, kind = g.exactTypes, g.exactTypes[dst]
+    local physicalValues = g.nativePhysical and g.nativePhysical.values
+    if physicalValues then
+        local sig = parsed[op]
+        for index, value in ipairs(args) do
+            if classes[operandClass(sig, index)] or operandClass(sig, index) == "a" then
+                local descriptor = physicalValues[value]
+                if descriptor
+                    and (
+                        descriptor.pointee ~= nil
+                        or descriptor.nullable
+                        or #descriptor.ownership ~= 0
+                        or physical.localOrigin(descriptor) ~= nil
+                    )
+                then
+                    assert(
+                        index == 1
+                        and (
+                            op == "NativePointerView"
+                            or op == "NativeFieldLoad"
+                            or op == "NativeBorrowAddress"
+                            or op == "NativeStore" and args[4].field ~= nil
+                        )
+                        or op == "NativeStore" and index == 3 and args[4].retention ~= nil
+                        or op == "NativeBorrowPointer"
+                        or op == "NativeICmp" and (args[3] == "==" or args[3] == "~=")
+                        or op == "NativeLeafCall"
+                        and index > 1
+                        and (
+                            args[1].physical ~= nil
+                            or args[1].service and service.publicationArgument(g, args[1], index - 1, value)
+                        )
+                        or service.isTestGraph(g),
+                        "typed pointer operation boundary is unsupported"
+                    )
+                end
+            end
+        end
+        if physicalValues[dst] then
+            assert(
+                op == "NativePointer"
+                or op == "PointerOffset"
+                or op == "NativePointerView"
+                or op == "NativeBorrowPointer"
+                or op == "NativeFieldLoad"
+                or op == "NativeLocal"
+                or op == "NativeLeafCall" and args[1].physical ~= nil
+                or op == "NativeHelperCall"
+                and nativeos.isIssued(args[1])
+                and nativeos.result(args[1]) == physicalValues[dst],
+                "unsupported physical value origin"
+            )
+        end
+    end
+    if g.native.abi == "leaf" then
+        assert(
+            (op ~= "NativeHelperCall" or nativeos.isIssued(args[1]))
+            and op ~= "ProgramLoad"
+            and op ~= "FrameSlotRead"
+            and op ~= "FrameSlotWrite"
+            and op ~= "FrameVarargRead"
+            and op ~= "FrameStatus"
+            and op ~= "FrameRecover"
+            and op ~= "FrameWindow",
+            "native leaf cannot access VM state or invoke managed helpers"
+        )
+    end
+
+    local function hasKind(value: integer, expected: string): nil
+        assert(kinds[value] == expected, "native graph operand kind mismatch")
+    end
+
+    if op == "NativeLocal" then
+        local contract = args[1]
+        physical.validateLocal(contract)
+        assert(
+            g.source
+            and g.source.path == contract.owner.scope.path
+            and g.source.module == contract.owner.scope.name
+            and g.source.name == contract.owner.name,
+            "physical local checked source owner differs"
+        )
+        assert(
+            g.native.abi == "leaf"
+            and physicalValues
+            and kind == "voidptr"
+            and physicalValues[dst] == contract.descriptor
+            and #args == #contract.params + 1,
+            "physical local construction contract differs"
+        )
+        for index, parameter in ipairs(contract.params) do
+            hasKind(args[index + 1], parameter)
+            assert(not physicalValues[args[index + 1]], "local initializer cannot contain a pointer")
+        end
+    elseif op == "NativeLeafCall" then
+        assert(g.native.abi == "leaf" or g.native.abi == "handler", "scalar leaf calls require a leaf or handler graph")
+        local declaration = args[1]
+        nativeContract(declaration, {
+            moduleName = true,
+            name = true,
+            params = true,
+            result = true,
+            abi = true,
+            source = true,
+            physical = true,
+            service = true
+        })
+        declarationSource(declaration)
+        if declaration.service then
+            service.callGraph(g, declaration, args)
+        end
+        assert(declaration.abi == "leaf", "native leaf declaration ABI")
+        assert(
+            type(declaration.params) == "table"
+            and (#declaration.params >= 1 or declaration.service ~= nil)
+            and #declaration.params <= 8
+            and #args == #declaration.params + 1,
+            "native leaf argument count"
+        )
+        for index, parameter in pairs(declaration.params) do
+            assert(
+                type(index) == "number"
+                and index % 1 == 0
+                and index >= 1
+                and index <= #declaration.params
+                and nativeClasses[parameter],
+                "native leaf exact parameter kind"
+            )
+        end
+        for index, parameter in ipairs(declaration.params) do
+            hasKind(args[index + 1], parameter)
+        end
+        assert(
+            declaration.result == "nil" and dst == 0 and kind == nil
+            or (
+                declaration.result == "uint64"
+                or declaration.result == "int64"
+                or declaration.result == "boolean"
+                or declaration.result == "voidptr"
+            )
+            and kind == declaration.result,
+            "native leaf result kind"
+        )
+        local pointer = declaration.physical
+        if pointer then
+            physical.validateSignature(pointer)
+            assert(
+                g.nativePhysical and pointer.context == g.nativePhysical.context,
+                "pointer call target context differs"
+            )
+            assert(
+                #pointer.params == (
+                    declaration.service and service.sourceCount(declaration.service) or #declaration.params
+                )
+                and pointer.owner.scope.name == declaration.moduleName
+                and pointer.owner.name == declaration.name
+                and pointer.owner.scope.path == declaration.source.path,
+                "pointer call source differs"
+            )
+            local arenaCleanup = declaration.service and service.arenaCleanup(g, declaration)
+            local redirected = declaration.service and service.redirectedCall(g, declaration)
+            if not arenaCleanup and not redirected then
+                physical.validateCall(pointer, g.source)
+            end
+            for index, parameter in ipairs(pointer.params) do
+                local actual = physicalValues[args[index + 1]]
+                if actual and physical.localOrigin(actual) then
+                    assert(
+                        physical.validateLocalCall(pointer, index, actual),
+                        "local pointer call lacks lifetime proof"
+                    )
+                end
+                assert(
+                    parameter == false or declaration.params[index] == parameter.machineKind,
+                    "pointer call machine parameter differs"
+                )
+                assert(
+                    parameter == false and (actual == nil or actual.pointee == nil)
+                    or parameter
+                    and actual
+                    and (
+                        arenaCleanup and index == 1 and service.arenaCleanup(g, declaration, actual)
+                        or not arenaCleanup and physical.callArgumentPermission(pointer, index, actual)
+                    )
+                    or service.isTestGraph(g),
+                    "pointer call argument descriptor differs"
+                )
+                if pointer.dependent == index then
+                    assert(
+                        actual and physical.callInput(pointer, index, actual, physical.fieldOrigin(actual))
+                        or service.isTestGraph(g),
+                        "dependent call argument root differs"
+                    )
+                end
+            end
+            local actual = physicalValues[dst]
+            assert(
+                pointer.result == nil or declaration.result == pointer.result.machineKind,
+                "pointer call machine result differs"
+            )
+            assert(
+                pointer.result == nil and actual == nil
+                or pointer.result and actual and physical.callResult(pointer, actual),
+                "pointer call result descriptor differs"
+            )
+        end
+    elseif op == "NativeHelperCall" then
+        local declaration = args[1]
+        if nativeos.isIssued(declaration) then
+            nativeos.graph(declaration, g, args, dst)
+        end
+        nativeContract(declaration, {
+            moduleName = true,
+            name = true,
+            params = true,
+            result = true,
+            effects = true,
+            normalReturn = true
+        })
+        assert(
+            type(declaration.moduleName) == "string" and declaration.moduleName:match("^nupp%.runtime%.vm%.[%w_]+$"),
+            "native helper requires its declared module"
+        )
+        assert(
+            type(declaration.name) == "string" and declaration.name:match("^[%a_][%w_]*$"),
+            "native helper requires its declared name"
+        )
+        assert(type(declaration.params) == "table" and #declaration.params == #args - 1, "native helper argument count")
+        for index = 1, #declaration.params do
+            local parameter = declaration.params[index]
+            assert(nativeClasses[parameter], "native helper requires exact parameter kinds")
+            hasKind(args[index + 1], parameter)
+        end
+        for index in pairs(declaration.params) do
+            assert(
+                type(index) == "number" and index % 1 == 0 and index >= 1 and index <= #declaration.params,
+                "native helper parameters must be dense"
+            )
+        end
+        assert(
+            declaration.result == "nil" and dst == 0
+            or nativeClasses[declaration.result] and kind == declaration.result,
+            "native helper result kind mismatch"
+        )
+        local normal = declaration.normalReturn
+        if normal ~= nil then
+            nativeContract(normal, {context = true, frame = true, outcomes = true, synchronized = true})
+            assert(
+                type(normal.context) == "number"
+                and normal.context >= 1
+                and normal.context % 1 == 0
+                and declaration.params[normal.context] == "voidptr"
+                and normal.frame == "caller"
+                and normal.outcomes == "ready-error"
+                and normal.synchronized == true,
+                "invalid helper normal-return authority"
+            )
+        end
+        local effects = declaration.effects
+        nativeContract(effects, {mayCollect = true, mayPark = true, mayRaise = true, pure = true})
+        assert(
+            type(effects.mayCollect) == "boolean"
+            and type(effects.mayPark) == "boolean"
+            and type(effects.mayRaise) == "boolean"
+            and type(effects.pure) == "boolean",
+            "native helper requires declared effects"
+        )
+        assert(
+            not effects.pure or not (effects.mayCollect or effects.mayPark or effects.mayRaise),
+            "native pure helper cannot collect, park or raise"
+        )
+    elseif op == "NativeBorrowAddress" then
+        hasKind(args[1], "voidptr")
+        local contract = args[2]
+        physical.validateCast(contract)
+        physical.validateViewOwner(contract, g.source)
+        assert(
+            kind == "uint64"
+            and physicalValues
+            and physical.viewKind(contract) == "address"
+            and physicalValues[args[1]] == contract.source
+            and physicalValues[dst] == nil,
+            "borrowed address source/result differs"
+        )
+    elseif op == "NativeBorrowPointer" then
+        hasKind(args[1], "voidptr");
+        hasKind(args[2], "voidptr")
+        local contract = args[3]
+        physical.validateCast(contract)
+        physical.validateViewOwner(contract, g.source)
+        assert(
+            kind == "voidptr"
+            and physicalValues
+            and physical.viewKind(contract) == "borrow"
+            and physicalValues[args[1]] == contract.source
+            and physicalValues[dst] == contract.target
+            and physicalValues[args[2]]
+            and physical.borrowArgument(contract, physicalValues[args[2]]),
+            "borrow pointer operands differ"
+        )
+    elseif op == "NativePointerView" then
+        hasKind(args[1], "voidptr")
+        assert(kind == "voidptr" and physicalValues, "physical pointer view requires sidecars")
+        local contract = args[2]
+        physical.validateCast(contract)
+        physical.validateViewOwner(contract, g.source)
+        assert(
+            physical.viewKind(contract) ~= "borrow" and physical.viewKind(contract) ~= "address",
+            "borrow/address view requires dedicated operation"
+        )
+        assert(
+            physicalValues[args[1]] == contract.source and physicalValues[dst] == contract.target,
+            "physical pointer view source/result identity differs"
+        )
+    elseif op == "NativeFieldLoad" then
+        hasKind(args[1], "voidptr")
+        assert(physicalValues, "physical field load requires sidecars")
+        local access = args[2]
+        physical.validateField(access)
+        assert(physicalValues[args[1]] == access.receiver, "physical field receiver identity differs")
+        assert(
+            not access.borrowSignature or access.borrowSignature == g.nativePhysical.signature,
+            "borrowed field signature owner differs"
+        )
+        assert(not access.write, "physical field load cannot write")
+        if access.storage.machineKind == "voidptr" then
+            physical.validateFieldOwner(access, g.source)
+            assert(
+                kind == "voidptr"
+                and physicalValues[dst] == access.storage
+                and access.width == 8
+                and not access.signed
+                and #access.storage.ownership == 0
+                and physical.fieldOrigin(physicalValues[dst]) == access,
+                "pointer field must retain its actual checked result type"
+            )
+        elseif access.valueType.tag == "boolean" then
+            assert(kind == "boolean" and physical.booleanField(access), "physical Boolean field differs")
+        else
+            assert(
+                kind == physical.integerField(access) and access.valueType.tag == kind,
+                "physical field load changes projected result type"
+            )
+        end
+    elseif op == "NativeLoad" or op == "NativeStore" then
+        local write = op == "NativeStore"
+        local contract = args[write and 4 or 3]
+        nativeContract(contract, {
+            source = true,
+            kind = true,
+            width = true,
+            signed = true,
+            write = true,
+            field = true,
+            retention = true
+        })
+        assert(contract.field or contract.retention == nil, "retention requires checked field")
+        local source = g.native.abi == "leaf" and "borrowed" or "live"
+        assert(
+            contract.source == source and contract.write == write,
+            "native memory requires " .. source .. " access semantics"
+        )
+        assert(type(contract.signed) == "boolean", "native memory requires explicit signedness")
+        local width, memoryKind = contract.width, contract.kind
+        assert(width == 1 or width == 2 or width == 4 or width == 8, "native memory width")
+        if contract.field then
+            local access = contract.field
+            physical.validateFieldOwner(access, g.source)
+            assert(
+                not access.borrowSignature or access.borrowSignature == g.nativePhysical.signature,
+                "borrowed store signature owner differs"
+            )
+            assert(
+                write and access.write and physicalValues and physicalValues[args[1]] == access.receiver,
+                "physical store receiver identity differs"
+            )
+            assert(width == access.width and contract.signed == access.signed, "physical store layout differs")
+            assert(
+                constants[args[2]] == tostring(access.offset) and kinds[args[2]] == "int64",
+                "physical store offset differs from checked field"
+            )
+            if access.storage.machineKind == "voidptr" then
+                assert(
+                    memoryKind == "voidptr"
+                    and contract.retention
+                    and physical.storeValue(contract.retention, access, physicalValues[args[3]], g.source),
+                    "pointer field store lacks exact checked retention"
+                )
+            elseif access.storage.machineKind == "boolean" then
+                assert(
+                    memoryKind == "boolean" and physical.booleanField(access) and not contract.retention,
+                    "Boolean field store differs"
+                )
+            else
+                physical.integerField(access)
+                assert(
+                    not contract.retention
+                    and (
+                        memoryKind == "int32"
+                        or memoryKind == "uint32"
+                        or memoryKind == "int64"
+                        or memoryKind == "uint64"
+                    ),
+                    "physical store requires an exact integer RHS"
+                )
+            end
+        elseif memoryKind == "float64" or memoryKind == "float32" then
+            assert(width == (memoryKind == "float64" and 8 or 4) and not contract.signed, "native float memory width")
+        elseif width == 8 then
+            assert(
+                memoryKind == "int64" or memoryKind == "uint64" or memoryKind == "voidptr",
+                "native memory exact kind"
+            )
+            assert(contract.signed == (memoryKind == "int64"), "native memory signedness")
+        elseif width == 4 then
+            assert(memoryKind == "int64" and contract.signed, "native signed word memory")
+        else
+            assert(memoryKind == (write and "uint64" or "int64") and not contract.signed, "native narrow memory kind")
+        end
+        hasKind(args[1], "voidptr")
+        hasKind(args[2], "int64")
+        if write then
+            hasKind(args[3], memoryKind)
+            assert(dst == 0, "native store has no result")
+        else
+            assert(kind == memoryKind, "native load result kind")
+        end
+    elseif op == "NativeLayout" then
+        assert(kind == "int64" and type(args[1]) == "string" and args[1]:match("^[%w_%.]+$"), "native ABI layout name")
+    elseif op == "NativePointer" or op == "NativeAddress" then
+        if physicalValues and physicalValues[dst] then
+            local descriptor = physicalValues[dst]
+            assert(
+                op == "NativePointer"
+                and descriptor.storageType.tag == "voidptr"
+                and #descriptor.ownership == 0
+                and not descriptor.nullable
+                and not physical.dependent(descriptor),
+                "generic pointer origin cannot establish a pointee"
+            )
+        end
+        hasKind(args[1], op == "NativePointer" and "uint64" or "voidptr")
+        assert(kind == (op == "NativePointer" and "voidptr" or "uint64"), "native pointer bit conversion kind")
+    elseif op == "NativeConstant" then
+        nativeInteger(args[1], kind)
+    elseif op == "NativeBoolean" then
+        assert(kind == "boolean" and type(args[1]) == "boolean", "native boolean constant required")
+    elseif op == "NativeICmp" or op == "NativeFCmp" then
+        assert(kind == "boolean", "native comparison result must be boolean")
+        local operandKind = kinds[args[1]]
+        hasKind(args[2], operandKind)
+        if op == "NativeFCmp" then
+            assert(nativeFloatKinds[operandKind], "native float comparison requires an exact float kind")
+        else
+            assert(
+                operandKind == "int32"
+                or operandKind == "uint32"
+                or operandKind == "int64"
+                or operandKind == "uint64"
+                or operandKind == "voidptr"
+                or operandKind == "boolean",
+                "native integer comparison requires exact scalar operands"
+            )
+        end
+        assert(
+            args[3] == "=="
+            or args[3] == "~="
+            or args[3] == "<"
+            or args[3] == "<="
+            or args[3] == ">"
+            or args[3] == ">=",
+            "invalid native comparison predicate"
+        )
+    elseif op == "NativeAsWord" then
+        hasKind(args[1], "boolean")
+        assert(kind == "uint64", "native boolean conversion produces a word")
+    elseif op == "NativeSelect" then
+        hasKind(args[1], "boolean")
+        assert(nativeClasses[kind], "native selection requires an exact result kind")
+        hasKind(args[2], kind)
+        hasKind(args[3], kind)
+    elseif op == "NativeWordCast" then
+        local source = kinds[args[1]]
+        assert(
+            (
+                (source == "int64" or source == "uint64" or source == "voidptr")
+                and (kind == "int64" or kind == "uint64" or kind == "voidptr")
+            )
+            or physicalValues and (source == "int32" or source == "uint32") and (kind == "int64" or kind == "uint64"),
+            "native word cast requires exact word/pointer kinds"
+        )
+    elseif op == "NativeIntToFloat" then
+        assert(
+            kinds[args[1]] == "int64" or kinds[args[1]] == "uint64",
+            "native integer conversion requires exact signedness"
+        )
+        assert(nativeFloatKinds[kind], "native integer conversion requires an exact float result")
+    elseif op == "NativeFloatToInt" then
+        assert(nativeFloatKinds[kinds[args[1]]], "native float conversion requires an exact source kind")
+        assert(kind == "int64" or kind == "uint64", "native float conversion requires exact integer signedness")
+    elseif op == "NativeFloatConvert" then
+        assert(
+            nativeFloatKinds[kinds[args[1]]] and nativeFloatKinds[kind],
+            "native float conversion requires exact widths"
+        )
+    elseif op == "NativeFloatBits" or op == "NativeFloat32Bits" then
+        hasKind(args[1], "float64")
+        assert(kind == "uint64", "native float encoding produces a word")
+    elseif op == "NativeFloatFromBits" or op == "NativeFloat32FromBits" then
+        hasKind(args[1], "uint64")
+        assert(kind == "float64", "native float decoding produces float64")
+    elseif op == "NativeFloor" or op == "NativeCeil" or op == "NativeSqrt" then
+        assert(nativeFloatKinds[kind], "native float operation requires an exact width")
+        hasKind(args[1], kind)
+    elseif op == "NativeRoundFloat32" then
+        hasKind(args[1], "float64")
+        assert(kind == "float64", "float32 rounding promotes its result to float64")
+    elseif op == "ProgramLoad" then
+        hasKind(args[1], "voidptr")
+        hasKind(args[2], "int64")
+        local contract = args[3]
+        nativeContract(contract, {source = true, kind = true, lifetime = true, result = true, width = true})
+        local widths = {uint8 = 1, int32 = 4, int64 = 8, uint64 = 8, float64 = 8}
+        local result = contract.kind == "float64" and "float64" or (contract.kind == "uint64" and "uint64" or "int64")
+        assert(
+            contract.source == "code"
+            and contract.lifetime == "body"
+            and widths[contract.kind] ~= nil
+            and contract.width == widths[contract.kind]
+            and contract.result == result
+            and kind == result,
+            "invalid native program contract"
+        )
+    elseif op == "FrameStatus" or op == "FrameRecover" or op == "FrameWindow" then
+        local context = g.native.abi == "handler" and 5 or 2
+        assert(args[1] == context, "native frame context identity mismatch")
+        hasKind(args[1], "voidptr")
+        local access = args[op == "FrameWindow" and 3 or 2]
+        nativeContract(access, {kind = true, class = true})
+        local expected = op == "FrameStatus" and "status" or (op == "FrameRecover" and "recover" or "window")
+        assert(
+            access.kind == expected and kind == (op == "FrameStatus" and "int64" or "voidptr"),
+            "invalid native frame contract"
+        )
+        if op == "FrameWindow" then
+            hasKind(args[2], "voidptr")
+            assert(
+                access.class == "v" or access.class == "i" or access.class == "f",
+                "invalid native frame window class"
+            )
+        else
+            assert(access.class == nil, "native frame status/recovery has no window class")
+        end
+    elseif op == "FrameVarargRead" then
+        hasKind(args[1], "voidptr")
+        hasKind(args[2], "int64")
+        local contract = args[3]
+        nativeContract(contract, {class = true, kind = true, write = true, width = true})
+        assert(
+            contract.class == "vararg"
+            and contract.kind == "uint64"
+            and contract.write == false
+            and contract.width == 8
+            and kind == "uint64",
+            "invalid native vararg contract"
+        )
+    elseif op == "FrameSlotRead" or op == "FrameSlotWrite" then
+        hasKind(args[1], "voidptr")
+        hasKind(args[2], "voidptr")
+        hasKind(args[3], "int64")
+        -- This profile preserves the entry frame and its matching logical window.
+        local write = op == "FrameSlotWrite"
+        local contract = args[write and 5 or 4]
+        local windows = {v = 2, i = 3, f = 4}
+        nativeContract(contract, {class = true, kind = true, write = true, width = true})
+        assert(windows[contract.class] ~= nil, "native slot frame/window identity mismatch")
+        assert(
+            windows[contract.class] ~= nil
+            and contract.width == 8
+            and contract.write == write
+            and (
+                (contract.class == "f" and contract.kind == "float64")
+                or (contract.class == "v" and contract.kind == "uint64")
+                or (contract.class == "i" and (contract.kind == "int64" or contract.kind == "uint64"))
+            ),
+            "invalid native slot contract"
+        )
+        if write then
+            hasKind(args[4], contract.kind)
+        else
+            assert(kind == contract.kind, "native slot result kind mismatch")
+        end
+    elseif op == "PointerOffset" then
+        if physicalValues and physicalValues[dst] and not service.arenaOffsetOrigin(g, args, dst) then
+            -- Raw offset preserves only the unchecked machine pointer. It
+            -- cannot establish a pointee, dependency or local-storage origin.
+            for _, value in ipairs({args[1], dst}) do
+                local descriptor = physicalValues[value]
+                assert(
+                    not descriptor
+                    or descriptor.storageType.tag == "voidptr"
+                    and #descriptor.ownership == 0
+                    and not descriptor.nullable
+                    and not physical.dependent(descriptor)
+                    and not physical.localOrigin(descriptor),
+                    "raw pointer offset cannot establish a typed or owned origin"
+                )
+            end
+        end
+        hasKind(args[1], "voidptr")
+        hasKind(args[2], "int64")
+        assert(kind == "voidptr", "native pointer offset result kind")
+    elseif op == "NativeUDiv" or op == "NativeURem" then
+        assert(kind == "uint64" and #args == 2, "native division requires two unsigned words")
+        hasKind(args[1], "uint64")
+        hasKind(args[2], "uint64")
+    elseif op == "NativeSDiv" or op == "NativeSRem" then
+        assert(kind == "int64" and #args == 2, "native signed division requires two signed words")
+        hasKind(args[1], "int64")
+        hasKind(args[2], "int64")
+    elseif nativeArithmetic[op] then
+        assert(
+            op:sub(1, 1) == "F" and nativeFloatKinds[kind]
+            or (op:sub(1, 1) == "I" or op == "NativeIMul") and (kind == "int64" or kind == "uint64")
+            or (op == "IAnd" or op == "IOr") and kind == "boolean",
+            "native arithmetic result kind"
+        )
+        for _, value in ipairs(args) do
+            hasKind(value, kind)
+        end
+    else
+        error("unsupported native graph operation", 0)
+    end
+end

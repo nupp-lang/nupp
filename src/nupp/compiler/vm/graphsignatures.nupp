@@ -1,0 +1,423 @@
+module nupp.compiler.vm.graphsignatures
+
+--- The closed-block graph's operations: one signature per opcode, parsed
+--- once, the classes of native operations, and the result and operand
+--- classes every pass reads.
+local opcodes = require("nupp.compiler.vm.opcodes")
+
+-- One signature per opcode: the result class is the uppercase letter, at the
+-- position the VM's operand order puts it; every other letter is one operand.
+--   v i f x   a value, integer, float or vector register value
+--   #         a small immediate (a count, width, kind, flag or offset)
+--   k         a constant-pool index
+--   n         a function index in the image
+--   h         a shape index in the image
+--   s         a named immediate (a SIMD operation or element kind)
+--   w         a value-slot immediate: a register window's base, raw until
+--             P4 gives windows ids; a call's window base is its result
+--   L  D      a wide signed integer or a float literal
+--   j  t      a jump offset or table, only on terminator opcodes
+-- An opcode listed under `terminators` never appears inside a block: the
+-- terminator records produce it. Graph-only macros expand when lowered.
+--
+-- A signature spells one instruction's operands in order, a letter each: a
+-- register of class v, i, f or x, uppercase where the instruction defines
+-- it; `w` a window base register; `k` a constant index, `j` a jump offset,
+-- `n` a function id, `t` a jump table, `h` a shape, `s` a name; `#`, `L` and
+-- `D` immediates, the last two a wide integer and a double, which the image
+-- codec spells differently. Every VM opcode's signature derives from the
+-- opcode table, so the graph keeps no second account of an instruction.
+-- What the table cannot say is pinned here: which immediates are wide or
+-- double, and the class a kind operand decides for the SIMD scalar ops,
+-- since a graph value has one class.
+local payloads = {
+    IK = {[2] = "L"},
+    IAddK = {[3] = "L"},
+    FK = {[2] = "D"},
+    VLoadM = {[4] = "L"},
+    VStoreM = {[4] = "L"},
+    VLoad = {[4] = "L"},
+    VStore = {[4] = "L"},
+    LoopFact = {[2] = "L"}
+}
+
+local pinned = {VSplatN = "Xf#", VExtractN = "Fx##"}
+
+local classLetters = {k = "k", j = "j", fn = "n", t = "t", s = "h", name = "s", n = "#"}
+
+local function derive(name: string): string
+    local described = assert(opcodes.describe(name), name)
+    local bases = {}
+    for i = 1, #described.windows do
+        local base = tonumber(described.windows[i]:match("@(%d+)%+"))
+        if base then
+            bases[base] = true
+        end
+    end
+    local letters = {}
+    local operands = described.operands
+    for position = 1, #operands do
+        local operand = operands[position]
+        local class, mode = operand.class, operand.mode
+        local letter: string
+        if class == "v" or class == "i" or class == "f" or class == "x" then
+            -- A register both read and written is a use: a kernel's graph
+            -- never holds one, and register-form code names registers.
+            if mode == "def" then
+                letter = class:upper()
+            elseif bases[position] then
+                letter = "w"
+            else
+                letter = class
+            end
+        else
+            letter = classLetters[class] or (class:sub(1, 2) == "sk" and (mode == "def" and "S" or "s")) or "?"
+        end
+        local payload = payloads[name]
+        if payload and payload[position] then
+            letter = payload[position] as string
+        end
+        letters[position] = letter
+    end
+
+    return table.concat(letters)
+end
+
+export const signatures: {[string]: string} = {}
+
+for _, name in ipairs(opcodes.names()) do
+    signatures[name] = pinned[name] or derive(name)
+end
+
+-- Graph-only macros, expanded by the lowering.
+-- A closure's captures are tagged SSA uses. The executable NewClosure
+-- window is derived only after verification and value transport.
+signatures.Closure = "Vn"
+
+-- Core-only library intrinsics: the final core implements them as opcodes
+-- outside the frozen VM's table (corebytecode.coreOnly).
+signatures.MathFloor = "Vv"
+
+signatures.LibCall = "V#"
+
+-- An affine value's destructor called on it at the end of its scope.
+signatures.Destroy = "vv"
+
+signatures.U32Load = "Ivi"
+
+signatures.U32Store = "vii"
+
+signatures.U32Add = "Iii"
+
+signatures.U32Sub = "Iii"
+
+signatures.SpanEqual = "vvk"
+
+signatures.VSplatI = "Xi#"
+
+signatures.VExtractI = "Ix##"
+
+-- Native systems operations use the same closed-block graph. Their exact
+-- Nupp kinds and static contracts are verified before machine emission.
+signatures.NativeConstant = "I#"
+
+signatures.NativeHelperCall = "I#"
+
+signatures.NativeLeafCall = "I#"
+
+signatures.NativeLocal = "I#"
+
+signatures.NativeLoad = "Iii#"
+
+signatures.NativeStore = "iia#"
+
+signatures.NativeLayout = "I#"
+
+signatures.NativePointer = "Ii"
+
+signatures.NativePointerView = "Ii#"
+
+signatures.NativeBorrowPointer = "Iii#"
+
+signatures.NativeFieldLoad = "Ii#"
+
+signatures.NativeAddress = "Ii"
+
+signatures.NativeBorrowAddress = "Ii#"
+
+signatures.ProgramLoad = "Iii#"
+
+signatures.FrameSlotRead = "Iiii#"
+
+signatures.FrameVarargRead = "Iii#"
+
+signatures.FrameStatus = "Ii#"
+
+signatures.FrameRecover = "Ii#"
+
+signatures.FrameWindow = "Iii#"
+
+signatures.FrameSlotWrite = "iiia#"
+
+signatures.PointerOffset = "Iii"
+
+signatures.NativeBoolean = "I#"
+
+signatures.NativeIMul = "Iii"
+
+signatures.NativeUDiv = "Iii"
+
+signatures.NativeURem = "Iii"
+
+signatures.NativeSDiv = "Iii"
+
+signatures.NativeSRem = "Iii"
+
+signatures.NativeICmp = "Iii#"
+
+signatures.NativeFCmp = "Iff#"
+
+signatures.NativeAsWord = "Ii"
+
+signatures.NativeSelect = "Iiaa"
+
+signatures.NativeWordCast = "Ii"
+
+signatures.NativeIntToFloat = "Fi"
+
+signatures.NativeFloatToInt = "If"
+
+signatures.NativeFloatConvert = "Ff"
+
+signatures.NativeFloatBits = "If"
+
+signatures.NativeFloatFromBits = "Fi"
+
+signatures.NativeFloat32Bits = "If"
+
+signatures.NativeFloat32FromBits = "Fi"
+
+signatures.NativeRoundFloat32 = "Ff"
+
+signatures.NativeFloor = "Ff"
+
+signatures.NativeCeil = "Ff"
+
+signatures.NativeSqrt = "Ff"
+
+export const nativeOnly = {
+    NativeConstant = true,
+    NativeHelperCall = true,
+    NativeLeafCall = true,
+    NativeLocal = true,
+    NativeLoad = true,
+    NativeStore = true,
+    NativeLayout = true,
+    NativePointer = true,
+    NativePointerView = true,
+    NativeBorrowPointer = true,
+    NativeFieldLoad = true,
+    NativeAddress = true,
+    NativeBorrowAddress = true,
+    ProgramLoad = true,
+    FrameSlotRead = true,
+    FrameVarargRead = true,
+    FrameStatus = true,
+    FrameRecover = true,
+    FrameWindow = true,
+    FrameSlotWrite = true,
+    PointerOffset = true,
+    NativeBoolean = true,
+    NativeIMul = true,
+    NativeUDiv = true,
+    NativeURem = true,
+    NativeSDiv = true,
+    NativeSRem = true,
+    NativeICmp = true,
+    NativeFCmp = true,
+    NativeAsWord = true,
+    NativeSelect = true,
+    NativeWordCast = true,
+    NativeIntToFloat = true,
+    NativeFloatToInt = true,
+    NativeFloatConvert = true,
+    NativeFloatBits = true,
+    NativeFloatFromBits = true,
+    NativeFloat32Bits = true,
+    NativeFloat32FromBits = true,
+    NativeRoundFloat32 = true,
+    NativeFloor = true,
+    NativeCeil = true,
+    NativeSqrt = true
+}
+
+export const nativeArithmetic = {
+    IAdd = true,
+    ISub = true,
+    NativeIMul = true,
+    NativeUDiv = true,
+    NativeURem = true,
+    NativeSDiv = true,
+    NativeSRem = true,
+    IAnd = true,
+    IOr = true,
+    IXor = true,
+    INot = true,
+    IShl = true,
+    IShrU = true,
+    FAdd = true,
+    FSub = true,
+    FMul = true,
+    FDiv = true,
+    FNeg = true
+}
+
+export const nativeClasses = {
+    voidptr = "i",
+    int32 = "i",
+    uint32 = "i",
+    int64 = "i",
+    uint64 = "i",
+    boolean = "i",
+    float32 = "f",
+    float64 = "f"
+}
+
+export const nativeFloatKinds = {float32 = true, float64 = true}
+
+local terminators = {
+    Jmp = true,
+    JmpIf = true,
+    JmpIfNot = true,
+    JmpIfIZero = true,
+    IJmpIfUle = true,
+    IJmpIfUlt = true,
+    Switch = true,
+    Ret = true,
+    RetNil = true,
+    RetN = true,
+    FRet = true,
+    Raise = true,
+    Park = true
+}
+
+local macros = {
+    Closure = true,
+    MathFloor = true,
+    LibCall = true,
+    Destroy = true,
+    U32Load = true,
+    U32Store = true,
+    U32Add = true,
+    U32Sub = true,
+    SpanEqual = true,
+    VSplatI = true,
+    VExtractI = true
+}
+
+-- Each signature parsed once: the result class, its position among the
+-- operands, and one class letter per operand, so no verifier or lowering pass
+-- slices strings per instruction.
+export const parsed: {[string]: any} = {}
+
+export const lowered = {V = "v", I = "i", F = "f", X = "x"}
+
+for op, sig in pairs(signatures) do
+    local args, result, at = {}, "-", 0
+    for j = 1, #sig do
+        local c = sig:sub(j, j)
+        if lowered[c] then
+            result, at = c, j
+        else
+            args[#args + 1] = c
+        end
+    end
+    parsed[
+        op
+    ] = {
+        result = result,
+        resultAt = at,
+        args = args,
+        n = #args,
+        terminator = terminators[op] == true,
+        macro = macros[op] == true
+    }
+end
+
+-- A named helper keeps all value operands in the same graph columns. Only
+-- its checked declaration is immediate metadata; arguments remain visible to
+-- the common closed-block verifier and transport pruning.
+parsed.NativeHelperCall.variadic = true
+
+parsed.NativeLeafCall.variadic = true
+
+parsed.NativeLocal.variadic = true
+
+parsed.Closure.variadic = true
+
+parsed.Closure.variadicClass = "v"
+
+parsed.Closure.coreOnly = true
+
+parsed.MathFloor.coreOnly = true
+
+parsed.LibCall.coreOnly = true
+
+parsed.Destroy.coreOnly = true
+
+parsed.LibCall.variadic = true
+
+parsed.LibCall.variadicClass = "v"
+
+export function operationArity(sig: any, args: any): boolean
+    return #args == sig.n or sig.variadic == true and #args >= sig.n
+end
+
+export function operandClass(sig: any, index: integer): string
+    return sig.args[index] or (sig.variadic and (sig.variadicClass or "a"))
+end
+
+-- The complete program verifier supplies target existence, lexical ownership
+-- and capture-layout checks. This seam does not resolve a function by name.
+export function closureTarget(op: string, args: any): (integer?, integer?)
+    if op ~= "Closure" then
+        return nil, nil
+    end
+    local target = args[1]
+    assert(
+        type(target) == "number" and target >= 0 and target < 4294967295 and target % 1 == 0,
+        "invalid closure function identity"
+    )
+
+    return target as integer, #args - 1
+end
+
+export const classes = {v = 0, i = 1, f = 2, x = 3}
+
+-- How many leading continuation parameters an invoke's results fill: one per
+-- kept result, none for a discarded one.
+export function resultOffset(t: any): integer
+    if t.kind ~= "invoke" then
+        return 0
+    end
+    if t.results then
+        return #t.results
+    end
+
+    return t.result ~= nil and 1 or 0
+end
+
+-- Invoke contracts retain checked source identities as expected ABI evidence.
+-- They do not authenticate a callee SSA value's runtime FunctionInfo or owner.
+export function dense(values: any): nil
+    assert(type(values) == "table", "invoke requires a dense array")
+    local count = 0
+    for index in pairs(values) do
+        assert(
+            type(index) == "number" and index >= 1 and index % 1 == 0 and index <= #values,
+            "invoke requires a dense array"
+        )
+        count = count + 1
+    end
+    assert(count == #values, "invoke requires a dense array")
+end
