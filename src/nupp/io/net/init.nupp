@@ -169,7 +169,6 @@ end
 
 const DEFAULT_HIGH_WATER = 1048576
 const DEFAULT_CONNECT_MS = 30000
-const READ_SIZE = 65536
 const MAX_BACKLOG = 2147483647
 const MAX_UINT32 = 4294967295
 
@@ -406,53 +405,6 @@ export record DirectionView is io.Reader, io.Writer
         return #chunk as integer
     end
 
-    --- @raises string when count is not a positive integer
-    function readinto(
-        exclusive self,
-        exclusive destination: Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
-        const wanted = positive(count or READ_SIZE, "net.DirectionView readInto count", 2)
-        const chunk, why = self:read(wanted)
-        if chunk == nil then
-            return nil, why
-        end
-        const landed = #chunk as integer
-        if landed > 0 then
-            const input = span.fromstring(chunk)
-            const lease = destination:reservewrite(offset or 0, landed)
-            do
-                const output = lease:span()
-                for index = 1, landed do
-                    output[index] = input[index]
-                end
-                own.drop(output)
-            end
-            lease:commit(landed)
-        end
-
-        return landed
-    end
-
-    function transferto(exclusive self, exclusive destination: Writer): (integer?, string?)
-        local moved: integer = 0
-        while true do
-            const chunk, why = self:read(READ_SIZE)
-            if chunk == nil then
-                return nil, why
-            end
-            if #chunk == 0 then
-                return moved
-            end
-            const wrote, wroteWhy = destination:write(chunk)
-            if not wrote then
-                return nil, wroteWhy
-            end
-            moved = moved + (#chunk as integer)
-        end
-    end
-
     function write(exclusive self, bytes: string): (boolean, string?)
         if self._ended then
             return false, "the writer is closed"
@@ -663,65 +615,6 @@ export record Stream is io.Reader, io.Writer
         end
 
         return #chunk as integer
-    end
-
-    --- Reads into a buffer. A zero answer is the end.
-    --- @param self this connection
-    --- @param destination the buffer to write into
-    --- @param offset where in the destination to start, or the beginning
-    --- @param count the most bytes to read
-    --- @return how many bytes were read, or nil when the connection is closed
-    --- @return why it could not read, when unsuccessful
-    --- @raises string when count is not a positive integer
-    function readinto(
-        exclusive self,
-        exclusive destination: Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
-        const wanted = positive(count or READ_SIZE, "net.Stream readInto count", 2)
-        const chunk, why = self:read(wanted)
-        if chunk == nil then
-            return nil, why
-        end
-        const landed = #chunk as integer
-        if landed > 0 then
-            const input = span.fromstring(chunk)
-            const lease = destination:reservewrite(offset or 0, landed)
-            do
-                const output = lease:span()
-                for index = 1, landed do
-                    output[index] = input[index]
-                end
-                own.drop(output)
-            end
-            lease:commit(landed)
-        end
-
-        return landed
-    end
-
-    --- Writes everything left to a writer.
-    --- @param self this connection
-    --- @param destination the writer to fill
-    --- @return how many bytes moved, or nil on failure
-    --- @return why it could not, when unsuccessful
-    function transferto(exclusive self, exclusive destination: Writer): (integer?, string?)
-        local moved: integer = 0
-        while true do
-            const chunk, why = self:read(READ_SIZE)
-            if chunk == nil then
-                return nil, why
-            end
-            if #chunk == 0 then
-                return moved
-            end
-            const wrote, wroteWhy = destination:write(chunk)
-            if not wrote then
-                return nil, wroteWhy
-            end
-            moved = moved + (#chunk as integer)
-        end
     end
 
     --- Appends bytes, waiting where the send queue is already at its maximum.

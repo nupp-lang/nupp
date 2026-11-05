@@ -59,6 +59,31 @@ local record ProbeReader is Reader
     end
 end
 
+-- A reader that supplies only what the contract cannot default, and counts how
+-- many bytes anyone took from it.
+local record PlainReader is Reader
+    state: any
+
+    function read(exclusive self, count: integer): (string?, string?)
+        if self.state.failure ~= nil then
+            return nil, self.state.failure
+        end
+        local out = self.state.bytes:sub(1, count)
+        self.state.bytes = self.state.bytes:sub(#out + 1)
+        self.state.taken = self.state.taken + #out
+
+        return out
+    end
+
+    function readspan(exclusive self, exclusive destination: span.Writable<uint8>): (integer?, string?)
+        return 0
+    end
+
+    function close(takes self): nil
+        self.state.closes = self.state.closes + 1
+    end
+end
+
 local record ProbeWriter is Writer
     state: any
 
@@ -265,6 +290,51 @@ function M.readerCountsArePositiveAndEofDoesNotGrowBuffers(): nil
             reader:readinto(other, 0, 0)
         end)
     )
+end
+
+function M.defaultAdaptersValidateBeforeConsumingAndMoveEverything(): nil
+    local state = {bytes = "abcdef", taken = 0, closes = 0}
+    local reader = PlainReader(state = state)
+    local destination = io2.Buffer.create("xy")
+    for _, bad in ipairs({-1, 1.5}) do
+        local ok, problem = pcall(function(): nil
+            local scratch = io2.Buffer.create()
+            reader:readinto(scratch, bad as integer, 2)
+        end)
+        assert2(not ok and tostring(problem):find("offset", 1, true) ~= nil, tostring(problem))
+    end
+    local ok = pcall(function(): nil
+        local scratch = io2.Buffer.create()
+        reader:readinto(scratch, 0, 0)
+    end)
+    assert2(not ok, "a zero count is refused")
+    assert2(state.taken == 0, "a malformed call consumed input")
+
+    assert2(reader:readinto(destination, 2, 3) == 3)
+    assert2(destination:getstring() == "xyabc")
+    assert2(destination:len() == 5, "only what arrived is reserved")
+
+    local sink = io2.Buffer.create()
+    do
+        local writer = sink:writer()
+        assert2(reader:transferto(writer) == 3)
+        writer:close()
+    end
+    assert2(sink:getstring() == "def")
+    assert2(reader:readinto(destination, 0, 4) == 0, "the end reads as zero")
+
+    state.failure = "gone"
+    local spare = io2.Buffer.create()
+    do
+        local writer = spare:writer()
+        local moved, why = reader:transferto(writer)
+        assert2(moved == nil and why == "gone")
+        writer:close()
+    end
+    local read, reason = reader:readinto(destination)
+    assert2(read == nil and reason == "gone")
+    reader:close()
+    assert2(state.closes == 1)
 end
 
 function M.scalarReadersHonorTheByteQueueContract(): nil

@@ -350,24 +350,6 @@ local record File is io.Reader, io.Writer
         return got, nil
     end
 
-    function transferto(exclusive self, exclusive destination: io.Writer): (integer?, string?)
-        local total: integer = 0
-        while true do
-            local chunk, reason = self:read(READ_SIZE)
-            if chunk == nil then
-                return nil, reason
-            end
-            if #chunk == 0 then
-                return total, nil
-            end
-            local wrote, failure = destination:write(chunk)
-            if not wrote then
-                return nil, failure
-            end
-            total = total + #chunk
-        end
-    end
-
     function write(exclusive self, bytes: string): (boolean, string?)
         if self._closed then
             return false, "the file is closed"

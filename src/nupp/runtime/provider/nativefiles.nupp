@@ -211,15 +211,6 @@ local function whole(value: any, what: string, level: integer): integer
     return value as integer
 end
 
---- @raises string when value is not a non-negative integer
-local function counted(value: any, what: string, level: integer): integer
-    if whole(value, what, level + 1) < 0 then
-        error("nupp: io " .. what .. " must not be negative", level)
-    end
-
-    return value as integer
-end
-
 --- @raises string when value is not a positive integer
 local function positive(value: any, what: string, level: integer): integer
     local answer = whole(value, what, level + 1)
@@ -331,74 +322,6 @@ export record File is io.Reader, io.Writer
         end
 
         return got, nil
-    end
-
-    --- Reads at the cursor into a buffer.
-    ---
-    --- A zero answer is the end of the file.
-    --- @param self this file
-    --- @param destination the buffer to write into
-    --- @param offset where in the destination to start, or the beginning
-    --- @param count the most bytes to read
-    --- @return how many bytes were read, or nil on failure
-    --- @return why it could not read, when unsuccessful
-    function readinto(
-        exclusive self,
-        exclusive destination: io.Buffer,
-        offset: integer?,
-        count: integer?
-    ): (integer?, string?)
-        if self._closed then
-            return nil, "the file is closed"
-        end
-        local from = counted(offset or 0, "File:readinto offset", 2)
-        local wanted = positive(count or READ_SIZE, "File:readinto count", 2)
-        local chunk, failure = self:read(wanted)
-        if chunk == nil then
-            return nil, failure
-        end
-        local taking = #(chunk as string)
-        if taking == 0 then
-            return 0, nil
-        end
-        local input = span.fromstring(chunk as string)
-        local lease = destination:reservewrite(from, wanted)
-        do
-            local output = lease:span()
-            for index = 1, taking do
-                output[index] = input[index]
-            end
-            own.drop(output)
-        end
-        lease:commit(taking)
-
-        return taking, nil
-    end
-
-    --- Reads the rest of the file into a writer.
-    --- @param self this file
-    --- @param destination the writer to fill
-    --- @return how many bytes moved, or nil on failure
-    --- @return why it could not, when unsuccessful
-    function transferto(exclusive self, exclusive destination: io.Writer): (integer?, string?)
-        if self._closed then
-            return nil, "the file is closed"
-        end
-        local total: integer = 0
-        while true do
-            local chunk, why = self:read(READ_SIZE)
-            if chunk == nil then
-                return nil, why
-            end
-            if #(chunk as string) == 0 then
-                return total, nil
-            end
-            local wrote, failure = destination:write(chunk as string)
-            if not wrote then
-                return nil, failure
-            end
-            total = total + #(chunk as string)
-        end
     end
 
     --- Writes bytes at the cursor.

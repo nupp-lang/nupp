@@ -101,24 +101,6 @@ local record FileReader is bytes.Reader
         return #text
     end
 
-    function transferto(exclusive self, exclusive destination: bytes.Writer): (integer?, string?)
-        local total: integer = 0
-        while true do
-            local text, reason = self:read(DEFAULT_READ)
-            if text == nil then
-                return nil, reason
-            end
-            if #text == 0 then
-                return total
-            end
-            local wrote, failure = destination:write(text)
-            if not wrote then
-                return nil, failure
-            end
-            total = total + #text
-        end
-    end
-
     function isreleased(borrows self): boolean
         return self._closed or parentClosed(self.anchor)
     end
