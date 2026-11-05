@@ -1,0 +1,305 @@
+module nupp.runtime.core.guestarith
+
+-- The handlers' arithmetic and comparisons of numbers: binary64 floats and
+-- signed 48-bit integer immediates, wider integers wrapping, C's fmod and
+-- Lua's floor modulo, orderings of numbers and strings, and equality of
+-- scalars.
+const native = require("nupp.runtime.vm.intrinsics")
+const values = require("nupp.runtime.vm.values")
+const guestscope = require("nupp.runtime.core.guestscope")
+const strings = require("nupp.runtime.core.corestrings")
+const wide = require("nupp.runtime.core.coreintegers")
+
+-- Dynamic numbers: binary64 floats and signed 48-bit integer immediates.
+-- Integer results that need a canonical integer object refuse with RESOURCE
+-- until the core has one; they never round or wrap into a wrong value.
+-- Because every integer here is an immediate, converting one to binary64 is
+-- exact, so mixed arithmetic and comparison through floats is Lua's exact
+-- result. Boxed integers will need the exact mixed algorithms.
+export const ADD: uint64 = 0ULL
+export const SUB: uint64 = 1ULL
+export const MUL: uint64 = 2ULL
+export const MOD: uint64 = 3ULL
+const HIGH16: uint64 = 0xffff000000000000ULL
+const SIGN48: uint64 = 0x0000800000000000ULL
+const HIGH17: uint64 = 0xffff800000000000ULL
+const SIGN64: uint64 = 0x8000000000000000ULL
+
+-- Non-number words report why arithmetic produced no value: TRUE for an
+-- operand that is not a number, NIL for an unrepresentable integer, and
+-- FALSE for integer modulo by zero.
+local function integerWord(value: uint64): boolean
+    return value & HIGH16 == values.TAG_INTEGER
+end
+
+local function floatWord(value: uint64): boolean
+    return value & values.QNAN ~= values.QNAN or value == values.QNAN
+end
+
+local function integerBits(value: uint64): uint64
+    local payload = value & values.PAYLOAD
+    return native.chooseWord(payload & SIGN48 ~= 0ULL, payload | HIGH16, payload)
+end
+
+local function integerValue(bits: uint64): uint64
+    local high = bits & HIGH17
+    if high == 0ULL or high == HIGH17 then
+        return values.TAG_INTEGER | (bits & values.PAYLOAD)
+    end
+
+    return values.NIL
+end
+
+-- Leaves pass floats as IEEE bits; float values stay inside one function.
+local function doubleBits(value: uint64): uint64
+    if integerWord(value) then
+        return native.bits(native.toFloat(native.index(integerBits(value))))
+    end
+    return value
+end
+
+local function floatValue(bits: uint64): uint64
+    return native.chooseWord(bits & values.QNAN == values.QNAN, values.QNAN, bits)
+end
+
+-- C fmod: the exact remainder with the dividend's sign, by shift-and-subtract
+-- on the significands (the musl algorithm). Exponents are signed because a
+-- subnormal's normalized exponent falls below zero.
+local function fmod(ux: uint64, uy: uint64): uint64
+    local x = native.fromBits(ux)
+    local y = native.fromBits(uy)
+    local ex = native.index((ux >> 52) & 0x7ffULL)
+    local ey = native.index((uy >> 52) & 0x7ffULL)
+    local sx = ux & SIGN64
+    if uy << 1 == 0ULL or y ~= y or ex == 0x7ffLL then
+        return native.bits((x * y) / (x * y))
+    end
+    if ux << 1 <= uy << 1 then
+        if ux << 1 == uy << 1 then
+            return ux & SIGN64
+        end
+        return ux
+    end
+    local mx = ux
+    if ex == 0LL then
+        local probe = mx << 12
+        while probe >> 63 == 0ULL do
+            ex = ex - 1LL
+            probe = probe << 1
+        end
+        mx = mx << native.word(1LL - ex)
+    else
+        mx = (mx & 0x000fffffffffffffULL) | 0x0010000000000000ULL
+    end
+    local my = uy
+    if ey == 0LL then
+        local probe = my << 12
+        while probe >> 63 == 0ULL do
+            ey = ey - 1LL
+            probe = probe << 1
+        end
+        my = my << native.word(1LL - ey)
+    else
+        my = (my & 0x000fffffffffffffULL) | 0x0010000000000000ULL
+    end
+    while ex > ey do
+        local difference = mx - my
+        if difference >> 63 == 0ULL then
+            if difference == 0ULL then
+                return ux & SIGN64
+            end
+            mx = difference
+        end
+        mx = mx << 1
+        ex = ex - 1LL
+    end
+    local difference = mx - my
+    if difference >> 63 == 0ULL then
+        if difference == 0ULL then
+            return ux & SIGN64
+        end
+        mx = difference
+    end
+    while mx >> 52 == 0ULL do
+        mx = mx << 1
+        ex = ex - 1LL
+    end
+    if ex > 0LL then
+        mx = (mx - 0x0010000000000000ULL) | (native.word(ex) << 52)
+    else
+        mx = mx >> native.word(1LL - ex)
+    end
+
+    return mx | sx
+end
+
+-- Lua's floor modulo for immediates: truncated remainder by magnitudes, then
+-- moved to the divisor's sign. A zero divisor is an error, not a value.
+local function integerModulo(a: uint64, b: uint64): uint64
+    if b == 0ULL then
+        return values.FALSE
+    end
+    local negativeA = a & SIGN64 ~= 0ULL
+    local negativeB = b & SIGN64 ~= 0ULL
+    local magnitudeA = native.chooseWord(negativeA, 0ULL - a, a)
+    local magnitudeB = native.chooseWord(negativeB, 0ULL - b, b)
+    local remainder = magnitudeA - (magnitudeA // magnitudeB) * magnitudeB
+    local m = native.chooseWord(negativeA, 0ULL - remainder, remainder)
+    if m ~= 0ULL and negativeA ~= negativeB then
+        m = m + b
+    end
+
+    return integerValue(m)
+end
+
+export function arithmetic(operation: uint64, left: uint64, right: uint64): uint64
+    -- A boxed integer operand takes the wide path (NIL), as does an integer
+    -- result outside the immediates.
+    if wide.boxed(left) or wide.boxed(right) then
+        return values.NIL
+    end
+    local leftInteger = integerWord(left)
+    local rightInteger = integerWord(right)
+    if not (leftInteger or floatWord(left)) or not (rightInteger or floatWord(right)) then
+        return values.TRUE
+    end
+    if leftInteger and rightInteger then
+        local a = integerBits(left)
+        local b = integerBits(right)
+        if operation == ADD then
+            return integerValue(a + b)
+        elseif operation == SUB then
+            return integerValue(a - b)
+        elseif operation == MUL then
+            return integerValue(a * b)
+        end
+        return integerModulo(a, b)
+    end
+    local x = native.fromBits(doubleBits(left))
+    local y = native.fromBits(doubleBits(right))
+    if operation == ADD then
+        return floatValue(native.bits(x + y))
+    elseif operation == SUB then
+        return floatValue(native.bits(x - y))
+    elseif operation == MUL then
+        return floatValue(native.bits(x * y))
+    end
+    -- Lua's float modulo: fmod moved to the divisor's sign. The native
+    -- profile has no float literals, so zero is spelled by its bits.
+    local zero = native.fromBits(0ULL)
+    local m = native.fromBits(fmod(native.bits(x), native.bits(y)))
+    if m > zero then
+        if y < zero then
+            m = m + y
+        end
+    elseif m < zero and y ~= m then
+        if y > zero then
+            m = m + y
+        end
+    end
+
+    return floatValue(native.bits(m))
+end
+
+-- The wide path of arithmetic: integers wider than the immediates wrap in
+-- int64 and are boxed; a boxed integer meeting a float becomes its float.
+-- Answers as arithmetic does (TRUE not a number, FALSE modulo by zero).
+export function wideResult(ctx: voidptr, operation: uint64, left: uint64, right: uint64): uint64
+    if wide.isInteger(left) and wide.isInteger(right) then
+        if operation == MOD and wide.bitsOf(right) == 0ULL then
+            return values.FALSE
+        end
+        return guestscope.integer(ctx, wide.arithmetic(operation, wide.bitsOf(left), wide.bitsOf(right)))
+    end
+    local x = left
+    local y = right
+    if wide.boxed(x) then
+        x = wide.toFloatBits(wide.bitsOf(x))
+    end
+    if wide.boxed(y) then
+        y = wide.toFloatBits(wide.bitsOf(y))
+    end
+
+    return arithmetic(operation, x, y)
+end
+
+-- Comparisons with a boxed integer: 1 true, 0 false, 2 not numbers.
+export function wideOrder(orEqual: boolean, left: uint64, right: uint64): uint64
+    local li = wide.isInteger(left)
+    local ri = wide.isInteger(right)
+    if li and ri then
+        local a = native.index(wide.bitsOf(left))
+        local b = native.index(wide.bitsOf(right))
+        if orEqual then
+            return native.asWord(a <= b)
+        end
+        return native.asWord(a < b)
+    end
+    if li and floatWord(right) then
+        return native.asWord(wide.intFloatLess(wide.bitsOf(left), doubleBits(right), orEqual))
+    end
+    if ri and floatWord(left) then
+        return native.asWord(wide.floatIntLess(doubleBits(left), wide.bitsOf(right), orEqual))
+    end
+
+    return 2ULL
+end
+
+-- Comparisons of two strings, byte by byte: 1 true, 0 false, 2 not strings.
+export function stringOrder(orEqual: boolean, left: uint64, right: uint64): uint64
+    local a = strings.header(left)
+    local b = strings.header(right)
+    if a == 0ULL or b == 0ULL then
+        return 2ULL
+    end
+
+    return native.asWord(strings.less(a, b, orEqual))
+end
+
+-- 1 for true, 0 for false, 2 for an operand that is not a number.
+export function compare(orEqual: boolean, left: uint64, right: uint64): uint64
+    local leftInteger = integerWord(left)
+    local rightInteger = integerWord(right)
+    if not (leftInteger or floatWord(left)) or not (rightInteger or floatWord(right)) then
+        return 2ULL
+    end
+    if leftInteger and rightInteger then
+        local a = native.index(integerBits(left))
+        local b = native.index(integerBits(right))
+        return native.asWord(a < b or orEqual and a == b)
+    end
+    local x = native.fromBits(doubleBits(left))
+    local y = native.fromBits(doubleBits(right))
+    if orEqual then
+        return native.asWord(x <= y)
+    end
+
+    return native.asWord(x < y)
+end
+
+-- Lua equality for scalars: numbers by value (NaN unequal, signed zeros
+-- equal, integers and floats exact), Booleans and nil by identity. 1 or 0.
+export function equal(left: uint64, right: uint64): uint64
+    -- Boxed integers are interned: equal ones are one object. Only a float can
+    -- equal a boxed integer without being it.
+    if wide.boxed(left) and floatWord(right) then
+        return native.asWord(wide.intFloatEqual(wide.bitsOf(left), doubleBits(right)))
+    end
+    if wide.boxed(right) and floatWord(left) then
+        return native.asWord(wide.intFloatEqual(wide.bitsOf(right), doubleBits(left)))
+    end
+    local leftInteger = integerWord(left)
+    local rightInteger = integerWord(right)
+    local leftNumber = leftInteger or floatWord(left)
+    local rightNumber = rightInteger or floatWord(right)
+    if leftInteger and rightInteger then
+        return native.asWord(left == right)
+    end
+    if leftNumber and rightNumber then
+        local x = native.fromBits(doubleBits(left))
+        local y = native.fromBits(doubleBits(right))
+        return native.asWord(x == y)
+    end
+
+    return native.asWord(left == right)
+end
